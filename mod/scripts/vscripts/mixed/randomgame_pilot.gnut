@@ -1,0 +1,168 @@
+untyped
+
+global function RandomPilotGamemode_Init
+
+string canProgress = ""
+
+// defined for _base_gametype.gnut
+
+void function RandomPilotGamemode_Init()
+{
+	//SetFriendlyFireOn( true )
+	SetForcedPlaylistType( "Pilot" )
+	AddCallback_GameStateEnter( eGameState.Postmatch, OnGamePostmatch ) // always change map and mode
+	//SetUseCustomHighlight( true ) // custom highlight settings
+	//SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
+	// save for voper fight
+	if( !(GAMETYPE == "tdm" && GetMapName() == "mp_forwardbase_kodai") )
+	{
+		ClassicMP_ForceDisableEpilogue( true )
+		Riff_ForceTitanAvailability( eTitanAvailability.Never )
+		AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+		//SetShouldPlayFactionDialogue( false ) // player faction dialogue
+		SetPlayerDeathsHidden( true ) // let's not count player's deaths!
+		SetPlayerRespawnForced( true ) // using this to respawn players
+		//AddCallback_OnPlayerKilled( OnPlayerKilled )
+		AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
+		AddCallback_GameStateEnter( eGameState.Playing, OnGameStart )
+		AddCallback_GameStateEnter( eGameState.SuddenDeath, OnGameSuddenDeath )
+	}
+
+	// cannot show replace hint, weird
+	//ClassicMP_SetLevelIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() )
+}
+
+void function OnPlayerChangeLoadout( entity player , PilotLoadoutDef p)
+{
+	if( IsValid( player.GetOffhandWeapon( OFFHAND_MELEE ) ) )
+		player.TakeWeaponNow( player.GetOffhandWeapon( OFFHAND_MELEE ).GetWeaponClassName() )
+}
+
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+	thread OnPlayerKilled_Threaded( victim, attacker, damageInfo )
+}
+
+void function OnPlayerKilled_Threaded( entity victim, entity attacker, var damageInfo )
+{
+	if( !GamePlaying() )
+		return
+	if( GameRules_GetGameMode() == "speedball" || GameRules_GetGameMode() == "fastball" )
+		return
+	victim.EndSignal( "OnDestroy" )
+	//victim.EndSignal( "OnRespawnPlayer" )
+	//entity spawnPoint = FindSpawnPoint( victim, victim.IsTitan(), false )
+	if( GameRules_GetGameMode() == "ctf" )
+		wait 8.1
+	else
+		wait 3.6
+	if ( !IsAlive( victim ) && IsValid( victim ) && GamePlaying() )
+		RespawnAsPilot( victim )
+}
+
+void function OnGamePrematch()
+{
+	thread OnGamePrematch_Threaded()
+}
+
+void function OnGamePrematch_Threaded()
+{
+	wait 5
+	if( GameRules_GetGameMode() == "speedball" || GameRules_GetGameMode() == "fastball" )
+	{
+		if( GetPlayerArray().len() < 2 )
+		{
+			canProgress = "人數不足，無法進行該模式"
+			thread MapandModeChange()
+		}
+	}
+}
+
+void function OnGameStart()
+{
+	SetPlayerDeathsHidden( true ) // let's not count player's deaths!
+}
+
+void function OnGamePostmatch()
+{
+	thread MapandModeChange()
+}
+
+void function OnGameSuddenDeath()
+{
+	if( GetPlayerArray().len() < 2 )
+	{
+		canProgress = "人數不足，無法進行該模式"
+		thread MapandModeChange()
+	}
+}
+
+void function MapandModeChange()
+{
+	string map = GetNextMap()
+	string mapname = GetNextMapName( map )
+	string mode = GetNextMode()
+	string modename = GetNextModeName( mode )
+
+	foreach( entity player in GetPlayerArray() )
+		SendHudMessage(player, canProgress + "\n下一輪模式為：" + modename + "\n下一張地圖為：" + mapname,  -1, 0.4, 255, 255, 255, 0, 0.15, 7, 1);
+	wait 5
+	GameRules_ChangeMap( map, mode )
+
+	//Invalid if used outside of 'mp_lobby'
+	//SetPlaylistVarOverride( "max_players", GetCurrentPlaylistVarString( "max_players", "16" ) )
+
+}
+
+string function GetNextMode()
+{
+	string curmode = GameRules_GetGameMode()
+	switch( curmode )
+	{
+		case "ps":
+			return "cp"
+		case "cp":
+			//return "speedball"
+		//case "speedball":
+			return "ctf"
+		case "ctf":
+			return "mfd"
+		case "mfd":
+			//return "fastball"
+		//case "fastball":
+			//return "tdm"
+		//case "tdm":
+			return "ps"
+		default:
+			return "ps"
+	}
+	return "ps"
+}
+
+string function GetNextModeName( string mode )
+{
+	switch( mode )
+	{
+		case "ps":
+			return "鉄馭對鉄馭"
+		case "cp":
+			return "强化據點"
+		case "ctf":
+			return "奪旗"
+		case "mfd":
+			return "獵殺標記"
+		case "speedball":
+			return "烈火戰場"
+		case "ffa":
+			return "混戰"
+		case "kr":
+			return "殺戮之王"
+		case "fastball":
+			return "天幕駭客"
+		case "tdm":
+			return "采集機攻防"
+		default:
+			return "未知模式"
+	}
+	return "未知模式"
+}

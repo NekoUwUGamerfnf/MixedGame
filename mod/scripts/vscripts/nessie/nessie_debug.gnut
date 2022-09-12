@@ -1,0 +1,200 @@
+untyped
+global function NessieDebug_Init
+
+global function EnableDebugForEveryone
+global function DebugParticle
+
+global function SpawnHoloPulseAtPosition
+
+bool nessieDebugging = false
+bool isDebugEnabledforEveryone = false
+
+array<string> nessieDebugger = ["1007270968017"]
+table< string, int > playerAttackCountTable
+
+void function NessieDebug_Init()
+{
+	nessieDebugging = true
+
+    PrecacheParticleSystem( $"env_thaw_interior_tank_pollen" )
+	PrecacheParticleSystem( $"P_ar_holopulse_CP" )
+	PrecacheParticleSystem( $"overhead_icon_ai_friendly" )
+	PrecacheParticleSystem( $"TDP_wave" )
+	PrecacheParticleSystem( $"P_holo_screespace" )
+
+	if( nessieDebugging )
+	{
+		//Riff_ForceTitanAvailability( eTitanAvailability.Never )
+	    //Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
+		AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+		//AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsNewPilotLoadout )
+		AddCallback_OnClientConnected( OnClientConnected )
+		//HoldingUp_Props_Init()
+	}	
+}
+
+void function SpawnHoloPulseAtPosition( vector origin, float radius, float lifeTime, float pulseSpeed )
+{
+	entity fxHandle = PlayFX( $"P_ar_holopulse_CP", origin, <0,0,0> )
+	vector controlPoint = <lifeTime, pulseSpeed, 0.0> // controlPoint1: lifetime, controlPoint2: speed
+	EffectSetControlPointVector( fxHandle, 1, controlPoint )
+}
+
+void function OnPlayerRespawned( entity player )
+{
+	thread PlayerAttackCounter( player )
+}
+
+void function PlayerAttackCounter( entity player )
+{
+	string uid = player.GetUID()
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	OnThreadEnd(
+		function(): ( uid )
+		{
+			print( playerAttackCountTable[ uid ] )
+		}
+	)
+
+	while( true )
+	{
+		player.WaitSignal( "OnPrimaryAttack" )
+		playerAttackCountTable[ uid ] += 1
+	}
+}
+
+void function OnPlayerGetsNewPilotLoadout( entity player, PilotLoadoutDef p )
+{
+	foreach( entity weapon in player.GetMainWeapons() )
+		player.TakeWeaponNow( weapon.GetWeaponClassName() )
+	player.TakeWeaponNow( player.GetOffhandWeapon( OFFHAND_SPECIAL ).GetWeaponClassName() )
+	player.TakeWeaponNow( player.GetOffhandWeapon( OFFHAND_ORDNANCE ).GetWeaponClassName() )
+	player.GiveWeapon( "mp_weapon_softball", ["northstar_softball", "jump_kit_low_damage"] ) //["northstar_softball", "extended_ammo", "pas_fast_reload", "reload_repeat"]
+	player.GiveWeapon( "mp_weapon_semipistol", ["gibber_pistol", "silencer", "pas_fast_reload", "extended_ammo"] )
+	player.GiveWeapon( "mp_weapon_rocket_launcher", ["guided_missile", "at_unlimited_ammo"] )
+	player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_SPECIAL )
+	player.GiveOffhandWeapon( "mp_weapon_grenade_electric_smoke", OFFHAND_ORDNANCE, ["creeping_bombardment"] )
+}
+
+entity function GetPlayerAntiTitanWeapon( entity player )
+{
+	entity tempweapon
+	foreach( entity weapon in player.GetMainWeapons() )
+	{
+		if( weapon.GetWeaponClassName() == "mp_weapon_defender" ||
+			weapon.GetWeaponClassName() == "mp_weapon_mgl" ||
+			weapon.GetWeaponClassName() == "mp_weapon_rocket_launcher" ||
+			weapon.GetWeaponClassName() == "mp_weapon_arc_launcher"
+		)
+			tempweapon = weapon
+	}
+	return tempweapon
+}
+
+void function OnClientConnected( entity player )
+{
+	//AddPlayerHeldButtonEventCallback( player, IN_USE, CallbackFuncCornerUs, 0.3 )
+	//AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, CallbackFuncCornerUs, 0.3 )
+	//AddButtonPressedPlayerInputCallback( player, IN_USE, ShowEntityStats )
+	playerAttackCountTable[ player.GetUID() ] <- 0
+}
+
+void function CallbackFuncCornerUs( entity player )
+{
+	EmitSoundOnEntity( player, "diag_sp_intro_WD104_24_01_mcor_grunt1" )
+}
+
+void function EnableDebugForEveryone()
+{
+	isDebugEnabledforEveryone = true
+}
+
+void function ShowEntityStats( entity player )
+{
+	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * 1000, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	if( !IsValid( traceResult.hitEnt ) )
+	{
+		Chat_ServerPrivateMessage( player, "hitEnd Invalid", false )
+		return
+	}
+	Chat_ServerPrivateMessage( player, "hitEnt is " + traceResult.hitEnt.GetClassName(), false )
+	asset modelName = traceResult.hitEnt.GetModelName()
+	string tempString = string( modelName )
+    string modelString = tempString.slice( 2, tempString.len() - 1 )
+	if( modelName != $"" )
+		Chat_ServerPrivateMessage( player, "hitEnt's modelname is " + modelString, false )
+}
+
+entity function CreateEnvBeam( entity owner, entity startEnt, entity endEnt )
+{
+	entity env_laser = CreateEntity( "env_laser" )
+	env_laser.kv.LaserTarget = endEnt.GetTargetName()
+	env_laser.kv.rendercolor = "150 100 15"
+	env_laser.kv.rendercolorFriendly = "15 100 150"
+	env_laser.kv.renderamt = 255
+	env_laser.kv.width = 2
+	env_laser.SetValueForTextureKey( $"sprites/laserbeam.spr" )
+	env_laser.kv.TextureScroll = 35
+	env_laser.kv.damage = "0"
+	env_laser.kv.dissolvetype = -1//-1 to 2 - none, energy, heavy elec, light elec
+	env_laser.kv.spawnflags = 1// 32 end sparks
+	env_laser.SetOrigin( startEnt.GetOrigin() )
+	env_laser.SetAngles( startEnt.GetAngles() )
+	env_laser.SetParent( startEnt )
+	env_laser.s.parents <- [startEnt, endEnt]
+
+	SetTeam( env_laser, owner.GetTeam() )
+
+	DispatchSpawn( env_laser )
+
+	return env_laser
+}
+
+void function DebugParticle( entity player )
+{
+    vector origin = GetPlayerCrosshairOrigin( player )
+
+    array<entity> fx = []
+	array<entity> cp = []
+
+    entity cpRadius = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpRadius, UniqueString( "cloakBeacon_cpRadius" ) )
+	cpRadius.SetOrigin( Vector(500,0,0) )
+	DispatchSpawn( cpRadius )
+	cp.append( cpRadius )
+	
+	// friendly fx
+	entity cpColorF = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpColorF, UniqueString( "cloakBeacon_cpColorF" ) )
+	cpColorF.SetOrigin( ENEMY_COLOR_FX )
+	DispatchSpawn( cpColorF )
+	cp.append( cpColorF )
+
+    /*
+	entity fxIdF1 = PlayFXWithControlPoint( DEPLOYABLE_CLOAKFIELD_FX_ALL, tower.GetOrigin() + Vector(0,0,3), cpColorF )
+	SetTeam( fxIdF1, tower.GetTeam() )
+	fxIdF1.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	fx.append( fxIdF1 )
+	entity fxIdF2 = PlayFXWithControlPoint( DEPLOYABLE_CLOAKFIELD_FX_ALL2, tower.GetOrigin() + Vector(0,0,3), cpColorF )
+	SetTeam( fxIdF2, tower.GetTeam() )
+	fxIdF2.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	fx.append( fxIdF2 )
+    */
+
+	int particleIndex = GetParticleSystemIndex( $"P_ar_holopulse_CP" )
+	int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
+	StartParticleEffectOnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+	entity fxIdF3 = CreateEntity( "info_particle_system" )
+	fxIdF3.kv.start_active = 1
+	fxIdF3.SetValueForEffectNameKey( $"P_ar_holopulse_CP" )
+	SetTeam( fxIdF3, player.GetTeam() )
+	fxIdF3.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	SetTargetName( fxIdF3, UniqueString() )
+	fxIdF3.kv.cpoint1 = cpColorF.GetTargetName()
+	fxIdF3.kv.cpoint5 = cpRadius.GetTargetName()
+	fxIdF3.SetOrigin( origin + Vector(0,0,50) )
+	fx.append( fxIdF3 )
+
+    DispatchSpawn( fxIdF3 )
+}

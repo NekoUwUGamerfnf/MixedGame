@@ -1,0 +1,240 @@
+untyped
+
+global function RandomTitanGamemode_Init
+
+const float TTDMIntroLength = 15.0
+
+string canProgress = ""
+bool allowMelee = true
+
+array<string> exitAllowedMode = [ "ctf", "ctf_comp", "cp", "lts" ] // so player can capture
+
+void function RandomTitanGamemode_Init()
+{
+	SetForcedPlaylistType( "Titan" )
+	ClassicMP_ForceDisableEpilogue( true )
+	//AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+	//TrackTitanDamageInPlayerGameStat( PGS_KILLS ) // don't track this god damnit
+	//SetShouldPlayFactionDialogue( false ) // player faction dialogue
+	SetPlayerRespawnForced( true ) // modified function, force player respawn after they ended killcam or respawn delay!
+	//SetUseCustomHighlight( true ) // custom highlight settings
+	//SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
+	//Bugged, using SetPlayerRespawnForced() now
+	//AddCallback_OnPlayerKilled( OnPlayerKilled )	//should set respawn delay way higher than 10s
+	//AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
+	AddCallback_GameStateEnter( eGameState.Playing, OnGameStart )
+	AddCallback_GameStateEnter( eGameState.Postmatch, OnGamePostmatch )
+	AddCallback_GameStateEnter( eGameState.SuddenDeath, OnGameSuddenDeath )
+
+	Riff_ForceSetSpawnAsTitan( eSpawnAsTitan.Always )
+	//Bugged, not using right now
+	//SetRespawnsEnabled( false )
+	if( !exitAllowedMode.contains( GameRules_GetGameMode() ) )
+		Riff_ForceTitanExitEnabled( eTitanExitEnabled.Never )
+	if( GameRules_GetGameMode() != "lts" )
+		ClassicMP_SetCustomIntro( TTDMIntroSetup, TTDMIntroLength )
+}
+
+void function OnPlayerRespawned( entity player )
+{
+	if( !player.IsTitan() && !allowMelee )
+		player.TakeOffhandWeapon( OFFHAND_MELEE )
+}
+
+void function OnPlayerChangeLoadout( entity player , PilotLoadoutDef p)
+{
+	if( !player.IsTitan() && !allowMelee )
+		player.TakeOffhandWeapon( OFFHAND_MELEE )
+}
+
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+	thread OnPlayerKilled_Threaded( victim, attacker, damageInfo )
+}
+
+void function OnPlayerKilled_Threaded( entity victim, entity attacker, var damageInfo )
+{
+	if( !GamePlaying() )
+		return
+	if( GameRules_GetGameMode() == "lts" )
+		return
+	victim.EndSignal( "OnDestroy" )
+	victim.EndSignal( "PlayerRespawnStarted" )
+	//entity spawnPoint = FindSpawnPoint( victim, victim.IsTitan(), false )
+	wait 10
+	if ( !victim.isSpawning && IsValid( victim ) && GamePlaying() )
+		thread RespawnAsTitan( victim )
+}
+
+void function OnClientConnected( entity player )
+{
+	if( !GamePlaying() )
+		return
+	if( GameRules_GetGameMode() == "lts" )
+		return
+	thread RespawnAsTitan( player )
+}
+
+void function OnGamePrematch()
+{
+	thread OnGamePrematch_Threaded()
+}
+
+void function OnGamePrematch_Threaded()
+{
+	wait 5
+	if( GameRules_GetGameMode() == "lts" )
+	{
+		if( GetPlayerArray().len() < 4 )
+		{
+			canProgress = "人數不足，無法進行該模式"
+			thread MapandModeChange()
+		}
+	}
+}
+
+void function OnGameStart()
+{
+	SetPlayerDeathsHidden( true ) // let's not count player's deaths!
+}
+
+void function OnGamePostmatch()
+{
+	thread MapandModeChange()
+}
+
+void function OnGameSuddenDeath()
+{
+	if( GetPlayerArray().len() < 2 )
+	{
+		canProgress = "人數不足，無法進行該階段"
+		thread MapandModeChange()
+	}
+}
+
+void function MapandModeChange()
+{
+	string map = GetNextMap()
+	string mapname = GetNextMapName( map )
+	string mode = GetNextMode()
+	string modename = GetNextModeName( mode )
+
+	foreach( entity player in GetPlayerArray() )
+		SendHudMessage(player, canProgress + "\n下一輪模式為：" + modename + "\n下一張地圖為：" + mapname,  -1, 0.4, 255, 255, 255, 0, 0.15, 7, 1);
+	wait 5
+	GameRules_ChangeMap( map, mode )
+
+	//Invalid if used outside of 'mp_lobby'
+	//SetPlaylistVarOverride( "max_players", GetCurrentPlaylistVarString( "max_players", "16" ) )
+
+}
+
+string function GetNextMode()
+{
+	string curmode = GameRules_GetGameMode()
+	switch( curmode )
+	{
+		case "ttdm":
+			return "lts"
+		case "lts":
+			return "mfd"
+		case "mfd":
+			//return "ctf_comp"
+		//case "ctf_comp":
+			return "ctf"
+		case "ctf":
+			return "cp"
+		case "cp":
+			//return "tdm"
+		//case "tdm":
+			return "ttdm"
+		default:
+			return "ttdm"
+	}
+	return "ttdm"
+}
+
+string function GetNextModeName( string mode )
+{
+	switch( mode )
+	{
+		case "aitdm":
+			return "消耗戰"
+		case "cp":
+			return "强化據點"
+		case "ctf_comp":
+			return "競技奪旗"
+		case "ctf":
+			return "奪旗"
+		case "mfd":
+			return "獵殺標記"
+		case "lts":
+			return "泰坦殊死戰"
+		case "ttdm":
+			return "泰坦爭鬥"
+		case "at":
+			return "賞金追緝"
+		case "tdm":
+			return "采集機攻防"
+		default:
+			return "未知模式"
+	}
+	return "未知模式"
+}
+
+void function TTDMIntroSetup()
+{
+	// this should show intermission cam for 15 sec in prematch, before spawning players as titans
+	AddCallback_GameStateEnter( eGameState.Prematch, TTDMIntroStart )
+	AddCallback_OnClientConnected( TTDMIntroShowIntermissionCam )
+}
+
+void function TTDMIntroStart()
+{
+	thread TTDMIntroStartThreaded()
+}
+
+void function TTDMIntroStartThreaded()
+{
+	ClassicMP_OnIntroStarted()
+
+	foreach ( entity player in GetPlayerArray() )
+	{
+		if ( !IsPrivateMatchSpectator( player ) )
+			TTDMIntroShowIntermissionCam( player )
+		else
+			RespawnPrivateMatchSpectator( player )
+	}
+
+	wait TTDMIntroLength
+
+	ClassicMP_OnIntroFinished()
+}
+
+void function TTDMIntroShowIntermissionCam( entity player )
+{
+	if ( GetGameState() != eGameState.Prematch )
+		return
+
+	thread PlayerWatchesTTDMIntroIntermissionCam( player )
+}
+
+void function PlayerWatchesTTDMIntroIntermissionCam( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	ScreenFadeFromBlack( player )
+
+	entity intermissionCam = GetEntArrayByClass_Expensive( "info_intermission" )[ 0 ]
+
+	// the angle set here seems sorta inconsistent as to whether it actually works or just stays at 0 for some reason
+	player.SetObserverModeStaticPosition( intermissionCam.GetOrigin() )
+	player.SetObserverModeStaticAngles( intermissionCam.GetAngles() )
+	player.StartObserverMode( OBS_MODE_STATIC_LOCKED )
+
+	wait TTDMIntroLength
+
+	RespawnAsTitan( player, false )
+	TryGameModeAnnouncement( player )
+}

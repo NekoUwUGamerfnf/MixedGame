@@ -1,0 +1,105 @@
+global function FAKE_Magnetic_ammo_Init
+
+global function GiveProjectileFakeMagnetic
+
+const float FAKE_MAGNETIC_RANGE_RADIUS = 80
+const float FAKE_MAGNETIC_FORCE_PILOT = 500
+const float FAKE_MAGNETIC_FORCE_NPC = 1000
+
+void function FAKE_Magnetic_ammo_Init()
+{
+    RegisterSignal( "StartFakeMagnetic" )
+    RegisterSignal( "EndFakeMagnetic" )
+}
+
+void function GiveProjectileFakeMagnetic( entity projectile, float magneticRadius = FAKE_MAGNETIC_RANGE_RADIUS )
+{
+    thread FakeMagneticThink( projectile, magneticRadius )
+}
+
+void function FakeMagneticThink( entity projectile, float magneticRadius )
+{
+    projectile.Signal( "StartFakeMagnetic" )
+    projectile.EndSignal( "OnDestroy" )
+    projectile.EndSignal( "StartFakeMagnetic" )
+    projectile.EndSignal( "EndFakeMagnetic" )
+
+    float baseGravity = float( projectile.kv.gravity )
+    bool foundTarget = false
+    entity target = null
+    while( true )
+    {
+        WaitFrame()
+        if( foundTarget )
+        {
+            if( !IsValid( target ) )
+            {
+                foundTarget = false
+                continue
+            }
+            if( !CheckMagneticTarget( target, projectile ) )
+            {
+                foundTarget = false
+                continue
+            }
+            projectile.kv.gravity = 0.0001
+            vector desiredVelocity = CalculateTargetVector( target, projectile )
+            projectile.SetVelocity( desiredVelocity )
+        }
+        else
+        {
+            projectile.kv.gravity = baseGravity
+            array<entity> entArray
+            array<entity> enemyPlayers = GetPlayerArrayOfEnemies_Alive( projectile.GetTeam() )
+            if( enemyPlayers.len() > 0 )
+            {
+                foreach( entity player in enemyPlayers )
+                    entArray.append( player )
+            }
+            array<entity> enemyNPCs = GetNPCArrayOfEnemies( projectile.GetTeam() )
+            if( enemyNPCs.len() > 0 )
+            {
+                foreach( entity npc in enemyNPCs )
+                    entArray.append( npc )
+            }
+            if( entArray.len() == 0 )
+                continue
+            entity closestEnt = GetClosest( entArray, projectile.GetOrigin(), magneticRadius )
+            if( !IsValid( closestEnt ) )
+                continue
+            bool canSetTarget = CheckMagneticTarget( closestEnt, projectile )
+            if( !canSetTarget )
+                continue
+            foundTarget = true
+            target = closestEnt
+        }
+    }
+}
+
+bool function CheckMagneticTarget( entity target, entity projectile )
+{
+    if( !IsValid( target ) || !IsValid( projectile ) )
+        return false
+    if( target.IsPhaseShifted() )
+        return false
+    vector targetPos = target.EyePosition()
+    targetPos.z = ( target.EyePosition().z + target.GetOrigin().z ) * 0.5
+    vector projPos = projectile.GetOrigin()
+
+    TraceResults traceResult = TraceLine( targetPos, projPos, [target, projectile], (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+    if( traceResult.hitEnt == null )
+        return true
+
+    return false
+}
+
+vector function CalculateTargetVector( entity target, entity projectile )
+{
+    vector targetPos = target.EyePosition()
+    targetPos.z = ( target.EyePosition().z + target.GetOrigin().z ) * 0.5 // this might get target's center part?
+    vector projPos = projectile.GetOrigin()
+    vector posDiffer = targetPos - projPos
+    vector moveAng = VectorToAngles( posDiffer )
+    vector moveVec = AnglesToForward( moveAng ) * ( target.IsPlayer() ? FAKE_MAGNETIC_FORCE_PILOT : FAKE_MAGNETIC_FORCE_NPC )
+    return moveVec
+}

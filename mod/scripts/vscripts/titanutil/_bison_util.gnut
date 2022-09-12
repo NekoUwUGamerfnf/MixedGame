@@ -1,0 +1,65 @@
+global function Bison_Init
+
+const float BISON_DAMAGE_REDUCTION_SEVERITY = 0.1
+const float BISON_SPEED_BOOST_SEVERITY = 0.15
+const float BISON_VICTIM_SLOW_DURATION = 0.2
+
+void function Bison_Init()
+{
+    AddCallback_OnPilotBecomesTitan( HandlePlayerBisonSettings )
+    AddDamageCallbackSourceID( eDamageSourceId.berserker_melee, BerserkerMelee_DamagedTarget )
+}
+
+void function BerserkerMelee_DamagedTarget( entity victim, var damageInfo )
+{
+    if( !victim.IsTitan() )
+        return
+    entity soul = victim.GetTitanSoul()
+    if( !IsValid( soul ) )
+        return
+    //StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 0.25, BISON_VICTIM_SLOW_DURATION, 0.25 )
+    //StatusEffect_AddTimed( soul, eStatusEffect.dodge_speed_slow, 0.25, BISON_VICTIM_SLOW_DURATION * 2, 1.0 )
+    if( soul.IsDoomed() )
+        DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * 1.5 )
+}
+
+void function HandlePlayerBisonSettings( entity player, entity titan )
+{
+    thread HandlePlayerBisonSettings_Threaded( player )
+}
+
+void function HandlePlayerBisonSettings_Threaded( entity player )
+{
+    wait 0.1
+    if( !IsValid( player ) )
+        return
+    entity soul = player.GetTitanSoul()
+    if( !IsValid( soul ) )
+        return
+    entity meleeWeapon = player.GetMeleeWeapon()
+    if( !IsValid( meleeWeapon ) )
+        return
+    if( !meleeWeapon.HasMod( "bison_punch" ) )
+        return
+
+    soul.EndSignal( "OnDestroy" )
+    player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "DisembarkingTitan" )
+	player.EndSignal( "TitanEjectionStarted" )
+
+    int damageReduction = StatusEffect_AddEndless( soul, eStatusEffect.damage_reduction, BISON_DAMAGE_REDUCTION_SEVERITY )
+    int speedBoost = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, BISON_SPEED_BOOST_SEVERITY )
+
+    OnThreadEnd(
+        function(): ( player, soul, damageReduction, speedBoost )
+        {
+            if( IsValid( player ) )
+                StatusEffect_Stop( player, speedBoost )
+            if( IsValid( soul ) )
+                StatusEffect_Stop( soul, damageReduction )
+        }
+    )
+
+    WaitForever()
+}

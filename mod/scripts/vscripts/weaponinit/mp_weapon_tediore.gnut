@@ -1,0 +1,1624 @@
+untyped
+global function MpWeaponMod_Tediore_Init
+
+global function OnWeaponReload_Tediore
+global function OnProjectileCollision_Tediore
+
+
+// regular vars/ consts
+const float MAX_DAMAGE_SCALE = 1.0
+const float MIN_DAMAGE_SCALE = 0.1
+
+// false = use dps, true = use settings explosion damage
+const bool USING_CUSTOM_DAMAGE = true
+// false = use reload time, true = use settings grenade fuse time
+const bool USING_CUSTOM_FUSE_TIME = true
+
+table <string, bool> playerHasThrowed = {} // prevent throw twice through wallbump
+table <entity, float> gunDamageScale = {} // testing...works pretty well till now
+
+// tediore shield
+const float TEDIORE_SHIELD_DURATION_MAX = 8
+const float TEDIORE_SHIELD_DURATION_MIN = 1
+const int TEDIORE_SHIELD_HEALTH_MAX = 500
+const int TEDIORE_SHIELD_HEALTH_MIN = 100
+const float TEDIORE_SHIELD_ANGLE_LIMIT = 0.55
+
+// tediore stickybomb
+const float TEDIORE_STICKYBOMB_EXPLOSION_DELAY = 0.5
+
+// tediore mine
+const string TEDIORE_MINE_ATTACH_SFX = "Weapon_ProximityMine_Land"
+const string TEDIORE_MINE_WARNING_SFX = "Weapon_ProximityMine_ArmedBeep"
+const string TEDIORE_MINE_TRIGGERED_ALARM_SFX = "Weapon_ProximityMine_CloseWarning"
+const float TEDIORE_MINE_EXPLOSION_DELAY = 0.9
+
+// tediore phase explosion
+const asset TEDIORE_PHASE_EXPLOSION_FX = $"P_phase_shift_main_XO"
+const string TEDIORE_PHASE_EXPLOSION_SOUND = "titan_phasedash_end_3p"
+const float TEDIORE_PHASE_DURATION_MAX = 4
+const float TEDIORE_PHASE_DURATION_MIN = 1
+const float PHASE_DURATION_OUTER_RADIUS_SCALE = 0.5
+const float PHASE_EXPLOSION_DELAY = 1.0
+
+// tediore chain reaction
+const int TEDIORE_CHAIN_GRENADE_COUNT = 16
+const float TEDIORE_CHAIN_REACTION_DURATION = 1.6 // should be more than grenade count * 0.1, which is tickrate
+const float TEDIORE_CHAIN_START_DELAY = 0.5
+const float TEDIORE_CHAIN_OFFSET = 50
+
+// tediore rocket burst
+const int TEDIORE_BURST_NUM_ROCKETS_PER_SHOT = 1
+const bool TEDIORE_BURST_APPLY_RANDOM_SPREAD = true
+const float TEDIORE_BURST_LAUNCH_OUT_ANG = 5
+const float TEDIORE_BURST_LAUNCH_OUT_TIME = 0.20
+const float TEDIORE_BURST_LAUNCH_IN_LERP_TIME = 0.2
+const float TEDIORE_BURST_LAUNCH_IN_ANG = -10
+const float TEDIORE_BURST_LAUNCH_IN_TIME = 0.10
+const float TEDIORE_BURST_LAUNCH_STRAIGHT_LERP_TIME = 0.1
+const bool TEDIORE_BURST_DEBUG_DRAW_PATH = false
+
+// tediore deployable stim field
+const float DEPLOYABLE_STIM_FIELD_DURATION_MAX = 8
+const float DEPLOYABLE_STIM_FIELD_DURATION_MIN = 1
+
+const asset DEPLOYABLE_STIM_FIELD_FX_ALL = $"harvester_base_noise"
+const asset DEPLOYABLE_STIM_FIELD_FX_ALL2 = $"harvester_base_glowflat"
+const asset DEPLOYABLE_STIM_FIELD_FX_TEAM = $"ar_operator_target_idle"
+const float DEPLOYABLE_STIM_FIELD_EFFECT_SEVERITY = 0.25
+const int DEPLOYABLE_STIM_FIELD_HEALTH = 40 // was 200
+const float DEPLOYABLE_STIM_FIELD_OFFSET = 40
+const float DEPLOYABLE_STIM_FIELD_RADIUS = 600
+const float DEPLOYABLE_STIM_FIELD_HEIGHT = 50
+const float DEPLOYABLE_STIM_FIELD_WAIT_INTERVAL = 0.25
+const vector DEPLOYABLE_STIM_FIELD_FRIENDLY_COLOR = < 0, 255, 0 >
+const vector DEPLOYABLE_STIM_FIELD_ENEMY_COLOR = ENEMY_COLOR_FX
+
+table < entity, array<int> > playerStimEffectTable = {} // stim effects handle
+table < entity, array<entity> > inStimFieldPlayers = {}
+
+// tediore nessie throw
+const asset NESSIE_DRONE_MODEL = $"models/domestic/nessy_doll.mdl"
+const asset NESSIE_DRONE_FX = $"P_xo_battery"
+
+const float NESSIE_LIFETIME_MAX = 12
+const float NESSIE_LIFETIME_MIN = 3
+
+void function MpWeaponMod_Tediore_Init()
+{
+#if SERVER
+    RegisterSignal( "DetonateGun" )
+    // deployable stim field
+    RegisterSignal( "EnterStimer" )
+    RegisterSignal( "LeaveStimer" )
+    AddCallback_OnClientConnected( InitPlayerStat )
+    // stupid scripts... fuck it, but works well
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_rspn101, TedioreReload_ScaleDamage )
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_rspn101_og, TedioreReload_ScaleDamage )
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_hemlok, TedioreReload_ScaleDamage )
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_g2, TedioreReload_ScaleDamage )
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_wingman_n, TedioreReload_ScaleDamage )
+#endif
+}
+
+#if SERVER
+void function InitPlayerStat( entity player )
+{
+    playerHasThrowed[player.GetUID()] <- false
+    playerStimEffectTable[player] <- []
+}
+
+void function TedioreReload_ScaleDamage( entity victim, var damageInfo )
+{
+    entity inflictor = DamageInfo_GetInflictor( damageInfo )
+    if( !inflictor.IsProjectile() )
+        return
+    
+    if( inflictor in gunDamageScale )
+    {
+        float maxDamage = DamageInfo_GetDamage( damageInfo )
+        float actualDamage = maxDamage * gunDamageScale[inflictor]
+        if( actualDamage < maxDamage * MIN_DAMAGE_SCALE )
+            actualDamage = maxDamage * MIN_DAMAGE_SCALE
+        DamageInfo_SetDamage( damageInfo, actualDamage )
+    }
+}
+#endif
+
+void function OnWeaponReload_Tediore( entity weapon, int milestoneIndex )
+{
+#if SERVER
+    if( !weapon.HasMod( "tediore_reload" ) )
+        return
+    entity owner = weapon.GetWeaponOwner()
+    if( !owner.IsPlayer() )
+        return
+    string uid = owner.GetUID()
+    if( playerHasThrowed[uid] )
+        return
+    weapon.AddMod( "tediore_effect" )
+    //if( milestoneIndex != 0 )
+    //    return
+    int team = owner.GetTeam()
+    vector pos = owner.EyePosition()
+    vector dir = owner.GetViewVector()
+    vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
+    int damageType = weapon.GetWeaponDamageFlags()
+    int clipAmmoLeft = weapon.GetWeaponPrimaryClipCount()
+    int maxClipAmmo = weapon.GetWeaponPrimaryClipCountMax()
+    float clipLeftPercentage = float( clipAmmoLeft ) / float( maxClipAmmo )
+    //print( "Clip Left Percentage is " + string( clipLeftPercentage ) )
+
+    bool hasModified = false
+    bool isTedioreShield = false
+    bool isTedioreMine = false
+    bool isPhaseExplosion = false
+    bool isChainReaction = false
+    bool isMissileThrow = false
+    bool isMissileBurst = false
+    bool isBoltThrow = false
+    bool isStimField = false
+    bool isKnifeThrow = false
+    bool isNessieThrow = false
+    if( weapon.HasMod( "tediore_deployable_cover" ) )
+        isTedioreShield = true
+    if( weapon.HasMod( "tediore_impact_mine" ) )
+        isTedioreMine = true
+    if( weapon.HasMod( "tediore_impact_phase_explosion" ) )
+        isPhaseExplosion = true
+    if( weapon.HasMod( "tediore_impact_chain_reaction" ) )
+        isChainReaction = true
+    if( weapon.HasMod( "tediore_missile_throw" ) )
+        isMissileThrow = true
+    if( weapon.HasMod( "tediore_missile_burst" ) )
+        isMissileBurst = true
+    if( weapon.HasMod( "tediore_bolt_throw" ) )
+        isBoltThrow = true
+    if( weapon.HasMod( "tediore_deployable_stim_field" ) )
+        isStimField = true
+    if( weapon.HasMod( "tediore_knife_throw" ) )
+        isKnifeThrow = true
+    if( weapon.HasMod( "tediore_nessie_throw" ) )
+        isNessieThrow = true
+    // every time there's something not using regular impact, should add it here
+    if( isTedioreShield || isTedioreMine || isPhaseExplosion || isChainReaction || isMissileThrow || isMissileBurst || isBoltThrow || isStimField || isKnifeThrow || isNessieThrow )
+        hasModified = true
+
+    local maxPilotDamage
+    local minPilotDamage
+    local maxTitanDamage
+    local minTitanDamage
+    local actualPilotDamage
+    local actualTitanDamage
+    if( !USING_CUSTOM_DAMAGE )
+    {
+        local pilotDPSFar = GetWeaponDPS_Tediore( weapon, false )
+        local titanDPSFar = GetWeaponDPS_Tediore( weapon, false, true )
+        maxPilotDamage = pilotDPSFar * MAX_DAMAGE_SCALE
+        minPilotDamage = pilotDPSFar * MIN_DAMAGE_SCALE
+        maxTitanDamage = titanDPSFar * MAX_DAMAGE_SCALE
+        minTitanDamage = titanDPSFar * MIN_DAMAGE_SCALE
+    }
+    else
+    {
+        maxPilotDamage = weapon.GetWeaponSettingInt( eWeaponVar.explosion_damage ) * MAX_DAMAGE_SCALE
+        minPilotDamage = maxPilotDamage * MIN_DAMAGE_SCALE
+        maxTitanDamage = weapon.GetWeaponSettingInt( eWeaponVar.explosion_damage_heavy_armor ) * MAX_DAMAGE_SCALE
+        minTitanDamage = maxTitanDamage * MIN_DAMAGE_SCALE
+    }
+    
+    actualPilotDamage = maxPilotDamage * clipLeftPercentage
+    if( actualPilotDamage < minPilotDamage )
+        actualPilotDamage = minPilotDamage
+    actualTitanDamage = maxTitanDamage * clipLeftPercentage
+    if( actualTitanDamage < minTitanDamage )
+        actualTitanDamage = minTitanDamage
+    //print( "Actual Pilot Damage is " + string( actualPilotDamage ) )
+    //print( "Actual Titan Damage is " + string( actualTitanDamage ) )
+
+    float reloadDelay = weapon.GetWeaponSettingFloat( eWeaponVar.reload_time )
+    if( weapon.GetWeaponSettingBool( eWeaponVar.reload_is_segmented ) )
+        reloadDelay = weapon.GetWeaponSettingFloat( eWeaponVar.reloadempty_time ) + weapon.GetWeaponSettingFloat( eWeaponVar.reloadsegment_time_loop ) * maxClipAmmo * 0.5
+    reloadDelay *= 0.9 // since player have to redeploy weapon
+    float explosionDelay
+    if( USING_CUSTOM_FUSE_TIME )
+    {
+        explosionDelay = weapon.GetWeaponSettingFloat( eWeaponVar.grenade_fuse_time )
+        if( isMissileThrow )
+            explosionDelay = weapon.GetWeaponSettingFloat( eWeaponVar.projectile_lifetime )
+    }
+    else
+        explosionDelay = reloadDelay
+    float explosionInnerRadius = weapon.GetWeaponSettingFloat( eWeaponVar.explosion_inner_radius )
+    float explosionOuterRadius = weapon.GetWeaponSettingFloat( eWeaponVar.explosionradius )
+    float impulseForce = weapon.GetWeaponSettingFloat( eWeaponVar.impulse_force_explosions )
+    float launchSpeed = weapon.GetWeaponSettingFloat( eWeaponVar.projectile_launch_speed )
+    float gravtiyScale = weapon.GetWeaponSettingFloat( eWeaponVar.projectile_gravity_scale )
+    asset fxAsset = weapon.GetWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+    asset gunModel = weapon.GetWeaponInfoFileKeyFieldAsset( "playermodel" )
+    asset impactEffect = weapon.GetWeaponSettingAsset( eWeaponVar.impact_effect_table )
+    string tempString = string( impactEffect )
+    string impactFXName = tempString.slice( 2, tempString.len() - 1 )
+    //print( "ImpactFXName is " + impactFXName )
+
+    if( isMissileBurst )
+    {
+        thread TedioreMissileBurst( weapon, owner, damageType, clipLeftPercentage, fxAsset, reloadDelay )
+        return
+    }
+
+    thread DelayedRemoveMod( weapon )
+    entity thrownGun
+    // no any collisions... weird, ricochet-refire is hardcoded I think
+    if( isBoltThrow )
+        thrownGun = weapon.FireWeaponBolt( pos, dir, 1, damageType, damageType, false, 0 )
+    else if( isMissileThrow )
+        thrownGun = weapon.FireWeaponMissile( pos, dir, 1, damageType, damageType, false, false )
+    else
+        thrownGun = weapon.FireWeaponGrenade( pos, dir, angularVelocity, 0.0, damageType, damageType, false, true, true )
+    if( thrownGun )
+    {
+        playerHasThrowed[uid] = true
+        // prevent being destroyed by other weapons, setting thrownGun.proj.onlyAllowSmartPistolDamage = true
+        Grenade_Init( thrownGun, weapon )
+        thrownGun.SetModel( gunModel )
+        // should set a team or sticky grenade won't work on worldEnts
+        SetTeam( thrownGun, team )
+        // better, as we're not predicting it on client
+        thread DelayedStartParticleSystem( thrownGun, fxAsset )
+        thread DelayedEmitSound( owner, weapon, thrownGun )
+        if( isTedioreShield )
+        {
+            vector angles = VectorToAngles( dir )
+            thrownGun.proj.savedAngles = < 0, angles.y, 0 >
+            thread OnTedioreCoverPlanted( thrownGun, clipLeftPercentage )
+        }
+        else if( isTedioreMine )
+        {
+            // let the mine able to be attacked by other weapons
+            thrownGun.proj.onlyAllowSmartPistolDamage = false
+            PROTO_PlayTrapLightEffect( thrownGun, "muzzle_flash", team )
+            thread EnableTrapWarningSound( thrownGun, PROXIMITY_MINE_ARMING_DELAY, TEDIORE_MINE_WARNING_SFX )
+            thread TrapDestroyOwnerDeath( thrownGun, owner )
+		    thread TrapDestroyOnRoundEnd( owner, thrownGun )
+            thread TedioreMineThink( thrownGun, owner, clipLeftPercentage, impulseForce, impactFXName, damageType )
+        }
+        else if( isPhaseExplosion )
+        {
+            thread OnPhaseGunPlanted( owner, thrownGun, clipLeftPercentage, explosionInnerRadius, explosionOuterRadius )
+        }
+        else if( isChainReaction )
+        {
+            vector angles = VectorToAngles( dir )
+            thrownGun.proj.savedAngles = < 0, angles.y, 0 >
+            thread TedioreChainReaction( owner, thrownGun, actualPilotDamage, actualTitanDamage, explosionInnerRadius, explosionOuterRadius, impulseForce, impactFXName, damageType )
+        }
+        else if( isMissileThrow )
+        {
+            // scale it's damage, I don't have a entitystruct
+            gunDamageScale[thrownGun] <- clipLeftPercentage
+            // random drift
+            thrownGun.InitMissileForRandomDriftFromWeaponSettings( pos, dir )
+        }
+        else if( isBoltThrow )
+        {
+            gunDamageScale[thrownGun] <- clipLeftPercentage
+            thrownGun.kv.gravity = gravtiyScale
+        }
+        else if( isStimField )
+        {
+            vector angles = VectorToAngles( dir )
+            thrownGun.proj.savedAngles = < 0, angles.y, 0 >
+            thread OnStimFieldPlanted( thrownGun, clipLeftPercentage )
+        }
+        else if( isKnifeThrow )
+        {
+            gunDamageScale[thrownGun] <- clipLeftPercentage
+            thread DelayedDestroyGun( owner, thrownGun )
+        }
+        else if( isNessieThrow )
+        {
+            thread NessieDroneHandle( owner, thrownGun, clipLeftPercentage )
+        }
+        // left regular explode for the last
+        else if( !hasModified )
+        {
+            thrownGun.SetGrenadeTimer( 0 ) // so they cannot detonate themselves to deal normal damage
+            thread DelayedDetonateGun( owner, thrownGun, actualPilotDamage, actualTitanDamage, explosionDelay, explosionInnerRadius, explosionOuterRadius, impulseForce, impactFXName, damageType )
+        }
+        thread DelayedDeployWeapon( owner, weapon, reloadDelay )
+    }
+#endif
+}
+
+void function OnProjectileCollision_Tediore( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+#if SERVER
+    array<string> mods = projectile.ProjectileGetMods()
+    if( !mods.contains( "tediore_effect" ) )
+        return
+    projectile.proj.savedOrigin = normal
+    // Impact Bounce
+    if( mods.contains( "tediore_impact_bounce" ) )
+    {
+        // never explode earlier than fuse time
+        return
+    }
+    // Impact Fuse
+    else if( mods.contains( "tediore_impact_fuse" ) )
+    {
+        projectile.Signal( "DetonateGun" )
+    }
+    // Impact Stick
+    else if( mods.contains( "tediore_impact_stickybomb" ) )
+    {
+        // projectile should have a team to sticky on worldEnts
+        bool didStick = PlantSuperStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+        if ( !didStick )
+            return
+
+        entity player = projectile.GetOwner()
+        // better play sound here
+        if ( IsAlive( hitEnt ) && hitEnt.IsPlayer() )
+        {
+            EmitSoundOnEntityOnlyToPlayer( projectile, hitEnt, "weapon_softball_grenade_attached_1P" )
+            EmitSoundOnEntityExceptToPlayer( projectile, hitEnt, "weapon_softball_grenade_attached_3P" )
+        }
+        else
+        {
+            EmitSoundOnEntity( projectile, "weapon_softball_grenade_attached_3P" )
+        }
+        thread DelayedSignalDetonation( projectile )
+    }
+    else if( mods.contains( "tediore_deployable_cover" ) )
+    {
+        // in order to get "Planted" signal
+        OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
+    }
+    else if( mods.contains( "tediore_impact_mine" ) )
+    {
+        bool didStick = PlantStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+        if ( !didStick )
+            return
+        EmitSoundOnEntity( projectile, TEDIORE_MINE_ATTACH_SFX )
+    }
+    else if( mods.contains( "tediore_impact_phase_explosion" ) )
+    {
+        bool didStick = PlantStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+        if ( !didStick )
+            return
+        projectile.Signal( "DetonateGun" )
+    }
+    else if( mods.contains( "tediore_impact_chain_reaction" ) )
+    {
+        bool didStick = PlantStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+        if ( !didStick )
+            return
+        EmitSoundOnEntity( projectile, "Weapon_R1_Satchel.Attach" )
+        projectile.Signal( "DetonateGun" )
+    }
+    else if( mods.contains( "tediore_deployable_stim_field" ) )
+    {
+        // in order to get "Planted" signal
+        OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
+    }
+    else if( mods.contains( "tediore_knife_throw" ) )
+    {
+        bool didStick = PlantStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+        if ( !didStick )
+            return
+
+        entity weaponOwner = projectile.GetOwner()
+        if ( IsValid( weaponOwner ) && weaponOwner.IsPlayer() )
+        {
+            EmitSoundOnEntityExceptToPlayer( projectile, weaponOwner, "Pilot_PulseBlade_Activated_3P" )
+            EmitSoundOnEntityOnlyToPlayer( projectile, weaponOwner, "Pilot_PulseBlade_Activated_1P" )
+        }
+        else
+        {
+            EmitSoundOnEntity( projectile, "Pilot_PulseBlade_Activated_3P" )
+        }
+        projectile.Signal( "DetonateGun" )
+    }
+    // Normal Detonation
+    else if( hitEnt.IsPlayer() || hitEnt.IsNPC() )
+        projectile.Signal( "DetonateGun" ) 
+    //projectile.proj.projectileBounceCount++
+#endif
+}
+
+#if SERVER
+void function DelayedRemoveMod( entity weapon )
+{
+    WaitFrame()
+    if( IsValid( weapon ) )
+        weapon.RemoveMod( "tediore_effect" )
+}
+
+void function DelayedEmitSound( entity player, entity weapon, entity thrownGun )
+{
+    EmitSoundOnEntityOnlyToPlayer( player, player, GetGrenadeThrowSound_1p( weapon ) )
+    EmitSoundOnEntityExceptToPlayer( player, player, GetGrenadeThrowSound_3p( weapon ) )
+    WaitFrame()
+    if( IsValid( weapon ) && IsValid( thrownGun ) )
+    {
+        string projectileSound = GetGrenadeProjectileSound( weapon )
+		if ( projectileSound != "" )
+			EmitSoundOnEntity( thrownGun, projectileSound )
+    }
+}
+
+void function DelayedDeployWeapon( entity player, entity weapon, float delay )
+{
+    player.HolsterWeapon()
+    wait delay
+    playerHasThrowed[player.GetUID()] = false
+    if( IsAlive( player ) && IsValid( weapon ) )
+    {
+        player.DeployWeapon()
+        weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() )
+    }
+}
+
+void function DelayedDetonateGun( entity player, entity thrownGun, actualPilotDamage, actualTitanDamage, float explosionDelay, float explosionInnerRadius, float explosionOuterRadius, float impulseForce, string impactFXName, int damageType )
+{
+    player.EndSignal( "OnDestroy" )
+    thrownGun.EndSignal( "OnDestroy" )
+    thrownGun.EndSignal( "DetonateGun" )
+    OnThreadEnd(
+        function() : ( player, thrownGun, actualPilotDamage, actualTitanDamage, explosionInnerRadius, explosionOuterRadius, impulseForce, impactFXName, damageType )
+        {
+            if( IsValid( player ) && IsValid( thrownGun ) )
+                TedioreGunExplode( thrownGun, actualPilotDamage, actualTitanDamage, explosionInnerRadius, explosionOuterRadius, impulseForce, impactFXName, damageType )
+        }
+    )
+    if( explosionDelay <= 0 )
+        WaitForever()
+    else
+        wait explosionDelay
+}
+
+void function TedioreGunExplode( entity thrownGun, actualPilotDamage, actualTitanDamage, float explosionInnerRadius, float explosionOuterRadius, float impulseForce, string impactFXName, int damageType )
+{
+    if( impactFXName != "" )
+        PlayImpactFXTable( thrownGun.GetOrigin(), thrownGun, impactFXName )
+    RadiusDamage(
+        thrownGun.GetOrigin() + thrownGun.proj.savedOrigin,						// center
+        thrownGun.GetOwner(),		                // attacker
+        thrownGun,									// inflictor
+        actualPilotDamage,		                    // damage
+        actualTitanDamage,			                // damageHeavyArmor
+        explosionInnerRadius,		                // innerRadius
+        explosionOuterRadius,				        // outerRadius
+        damageType,			                        // flags
+        0,										    // distanceFromAttacker
+        impulseForce,				                // explosionForce
+        damageType,	                                // scriptDamageFlags
+        thrownGun.ProjectileGetDamageSourceID() )     //damageSourceID
+    
+    thrownGun.Destroy()
+}
+
+// why you respawn moved it to settings?
+void function GrenadeIndicatorThink( entity thrownGun, entity owner )
+{
+    thrownGun.EndSignal( "OnDestroy" )
+
+    RadiusDamageData radiusDamage 	= GetRadiusDamageDataFromProjectile( thrownGun, owner )
+    float outerRadius = radiusDamage.explosionRadius
+
+	vector rotateFX = Vector( 90,0,0 )
+	entity placementHelper = CreateScriptMover()
+    placementHelper.SetParent( thrownGun )
+	SetTeam( placementHelper, owner.GetTeam() )
+
+    OnThreadEnd(
+        function(): ( placementHelper )
+        {
+            if( IsValid( placementHelper ) )
+                placementHelper.Destroy()
+        }
+    )
+
+	foreach ( entity player in GetPlayerArray() )
+	{
+		Remote_CallFunction_NonReplay( player, "SCB_AddGrenadeIndicatorForEntity", owner.GetTeam(), owner.GetEncodedEHandle(), placementHelper.GetEncodedEHandle(), outerRadius )
+	}
+
+    WaitForever()
+}
+
+function GetWeaponDPS_Tediore( entity weapon, bool isNear = true, bool vsTitan = false )
+{
+	local fire_rate = weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
+	local burst_fire_count = weapon.GetWeaponSettingInt( eWeaponVar.burst_fire_count )
+	local burst_fire_delay = weapon.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
+
+	local damage_near_value = weapon.GetWeaponSettingInt( eWeaponVar.damage_near_value )
+	local damage_far_value = weapon.GetWeaponSettingInt( eWeaponVar.damage_far_value )
+
+	if ( vsTitan )
+	{
+		damage_near_value = weapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+		damage_far_value = weapon.GetWeaponSettingInt( eWeaponVar.damage_far_value_titanarmor )
+	}
+
+	if ( burst_fire_count )
+	{
+		local timePerShot = 1 / fire_rate
+		local timePerBurst = (timePerShot * burst_fire_count) + burst_fire_delay
+		local burstPerSecond = 1 / timePerBurst
+
+        if( isNear )
+            return (burstPerSecond * burst_fire_count) * damage_near_value
+        else
+            return (burstPerSecond * burst_fire_count) * damage_far_value
+	}
+	else
+	{
+        if( isNear )
+            return fire_rate * damage_near_value
+        else
+            return fire_rate * damage_far_value
+	}
+}
+
+void function DelayedStartParticleSystem( entity thrownGun, asset fxAsset )
+{
+    if( fxAsset == $"" )
+        return
+    WaitFrame()
+    if( IsValid( thrownGun ) )
+        StartParticleEffectOnEntity( thrownGun, GetParticleSystemIndex( fxAsset ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+}
+
+// Hopup Functions
+// tediore_deployable_cover
+void function OnTedioreCoverPlanted( entity projectile, float powerScale )
+{
+    projectile.EndSignal( "OnDestroy" )
+	projectile.WaitSignal( "Planted" )
+	#if SERVER
+		if( !IsValid( projectile ) )
+            return
+		vector origin = projectile.GetOrigin()
+
+		vector endOrigin = origin - Vector( 0.0, 0.0, 32.0 )
+		vector surfaceAngles = projectile.proj.savedAngles
+		vector oldUpDir = AnglesToUp( surfaceAngles )
+
+		TraceResults traceResult = TraceLine( origin, endOrigin, [], TRACE_MASK_SOLID, TRACE_COLLISION_GROUP_NONE )
+		if ( traceResult.fraction < 1.0 )
+		{
+			vector forward = AnglesToForward( projectile.proj.savedAngles )
+			surfaceAngles = AnglesOnSurface( traceResult.surfaceNormal, forward )
+
+			vector newUpDir = AnglesToUp( surfaceAngles )
+			if ( DotProduct( newUpDir, oldUpDir ) < TEDIORE_SHIELD_ANGLE_LIMIT )
+				surfaceAngles = projectile.proj.savedAngles
+		}
+
+		projectile.SetAngles( surfaceAngles )
+
+        float lifeTime = TEDIORE_SHIELD_DURATION_MAX * powerScale
+        if( lifeTime < TEDIORE_SHIELD_DURATION_MIN )
+            lifeTime = TEDIORE_SHIELD_DURATION_MIN
+        int health = int( TEDIORE_SHIELD_HEALTH_MAX * powerScale )
+        if( health < TEDIORE_SHIELD_HEALTH_MIN )
+            health = TEDIORE_SHIELD_HEALTH_MIN
+
+		DeployCover( projectile, origin, surfaceAngles, lifeTime, health )
+	#endif
+}
+
+// tediore_impact_stickybomb
+void function DelayedSignalDetonation( entity thrownGun, float delay = TEDIORE_STICKYBOMB_EXPLOSION_DELAY )
+{
+    wait delay
+    if( IsValid( thrownGun ) )
+        thrownGun.Signal( "DetonateGun" )
+}
+
+// tediore_impact_mine
+function TedioreMineThink( entity thrownGun, entity owner, float clipLeftPercentage, float impulseForce, string impactFXName, int damageType, float explosionDelay = TEDIORE_MINE_EXPLOSION_DELAY )
+{
+	thrownGun.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function() : ( thrownGun )
+		{
+			if ( IsValid( thrownGun ) )
+				thrownGun.Destroy()
+		}
+	)
+	thread TedioreTrapExplodeOnDamage( thrownGun, owner, clipLeftPercentage, impulseForce, impactFXName, damageType )
+
+	wait PROXIMITY_MINE_ARMING_DELAY
+
+	int teamNum = thrownGun.GetTeam()
+	float explodeRadius = thrownGun.GetDamageRadius()
+	float triggerRadius = ( ( explodeRadius * 0.75 ) + 0.5 )
+	local lastTimeNPCsChecked = 0
+	local NPCTickRate = 0.5
+	local PlayerTickRate = 0.2
+
+	// Wait for someone to enter proximity
+	while( IsValid( thrownGun ) && IsValid( owner ) )
+	{
+		if ( lastTimeNPCsChecked + NPCTickRate <= Time() )
+		{
+			array<entity> nearbyNPCs = GetNPCArrayEx( "any", TEAM_ANY, teamNum, thrownGun.GetOrigin(), triggerRadius )
+		
+			foreach( ent in nearbyNPCs )
+			{
+				if ( ShouldSetOffTedioreMine( thrownGun, ent ) )
+				{
+					TedioreMine_Triggered( thrownGun, owner, clipLeftPercentage, impulseForce, impactFXName, damageType, explosionDelay )
+					return
+				}
+			}
+			lastTimeNPCsChecked = Time()
+		}
+
+		array<entity> nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, teamNum, thrownGun.GetOrigin(), triggerRadius )
+
+		foreach( ent in nearbyPlayers )
+		{
+			if ( ShouldSetOffTedioreMine( thrownGun, ent ) )
+			{
+				TedioreMine_Triggered( thrownGun, owner, clipLeftPercentage, impulseForce, impactFXName, damageType, explosionDelay )
+				return
+			}
+		}
+
+		wait PlayerTickRate
+	}
+}
+
+void function TedioreMine_Triggered( entity thrownGun, entity owner, float clipLeftPercentage, float impulseForce, string impactFXName, int damageType, float explosionDelay )
+{
+	local explodeTime = Time() + explosionDelay
+
+	EmitSoundOnEntity( thrownGun, TEDIORE_MINE_TRIGGERED_ALARM_SFX )
+
+	wait explosionDelay
+	TedioreMine_Explode( thrownGun, owner, clipLeftPercentage, impulseForce, impactFXName, damageType )
+}
+
+void function TedioreMine_Explode( entity thrownGun, entity owner, float clipLeftPercentage, float impulseForce, string impactFXName, int damageType )
+{
+    if ( !IsValid( thrownGun ) )
+        return
+
+    RadiusDamageData radiusDamage 	= GetRadiusDamageDataFromProjectile( thrownGun, owner )
+    local maxPilotDamage            = radiusDamage.explosionDamage * MAX_DAMAGE_SCALE
+    local minPilotDamage            = radiusDamage.explosionDamage * MIN_DAMAGE_SCALE
+    local actualPilotDamage 		= maxPilotDamage * clipLeftPercentage
+    if( actualPilotDamage < minPilotDamage )
+        actualPilotDamage = minPilotDamage
+    local maxTitanDamage            = radiusDamage.explosionDamageHeavyArmor * MAX_DAMAGE_SCALE
+    local minTitanDamage            = radiusDamage.explosionDamageHeavyArmor * MIN_DAMAGE_SCALE
+    local actualTitanDamage		    = maxTitanDamage * clipLeftPercentage
+    if( actualTitanDamage < minTitanDamage )
+        actualTitanDamage = minTitanDamage
+
+    float explosionRadius 			= radiusDamage.explosionRadius
+    float explosionInnerRadius 		= radiusDamage.explosionInnerRadius
+    int damageSourceId 				= thrownGun.ProjectileGetDamageSourceID()
+
+    PlayImpactFXTable( thrownGun.GetOrigin(), thrownGun, impactFXName )
+    RadiusDamage(
+    thrownGun.GetOrigin() + thrownGun.GetForwardVector(),						// center
+    thrownGun.GetOwner(),		                // attacker
+    thrownGun,									// inflictor
+    actualPilotDamage,		                    // damage
+    actualTitanDamage,			                // damageHeavyArmor
+    explosionInnerRadius,		                // innerRadius
+    explosionRadius,				            // outerRadius
+    damageType,			                        // flags
+    0,										    // distanceFromAttacker
+    impulseForce,				                // explosionForce
+    damageType,	                                // scriptDamageFlags
+    damageSourceId )                            //damageSourceID
+
+    thrownGun.Destroy()
+}
+
+bool function ShouldSetOffTedioreMine( entity thrownGun, entity ent )
+{
+	if ( !IsAlive( ent ) )
+		return false
+
+	if ( ent.IsPhaseShifted() )
+		return false
+
+	TraceResults results = TraceLine( thrownGun.GetOrigin(), ent.EyePosition(), thrownGun, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	if ( results.fraction >= 1 || results.hitEnt == ent )
+		return true
+
+	return false
+}
+
+void function TedioreTrapExplodeOnDamage( entity thrownGun, entity owner, float clipLeftPercentage, float impulseForce, string impactFXName, int damageType )
+{
+	if( !IsValid( thrownGun ) )
+        return
+	EndSignal( thrownGun, "OnDestroy" )
+
+	thrownGun.SetDamageNotifications( true )
+	var results //Really should be a struct
+	entity attacker
+	entity inflictor
+
+	while ( true )
+	{
+		if ( !IsValid( thrownGun ) )
+			return
+
+		results = WaitSignal( thrownGun, "OnDamaged" )
+		attacker = expect entity( results.activator )
+		inflictor = expect entity( results.inflictor )
+
+		if ( IsValid( inflictor ) && inflictor == thrownGun )
+			continue
+
+		bool shouldDamageTrap = false
+		if ( IsValid( attacker ) )
+		{
+            if ( thrownGun.GetTeam() == attacker.GetTeam() )
+            {
+                if ( thrownGun.GetOwner() != attacker )
+                    shouldDamageTrap = false
+                else
+                    shouldDamageTrap = true
+            }
+            else
+            {
+                shouldDamageTrap = true
+            }
+		}
+
+		if ( shouldDamageTrap )
+			break	
+	}
+
+	if ( !IsValid( thrownGun ) )
+		return
+
+	inflictor = expect entity( results.inflictor ) // waiting on code feature to pass inflictor with OnDamaged signal results table
+
+	if ( IsValid( inflictor ) && (inflictor.IsProjectile() || (inflictor instanceof CWeaponX)) )
+	{
+		int dmgSourceID
+		if ( inflictor.IsProjectile() )
+			dmgSourceID = inflictor.ProjectileGetDamageSourceID()
+		else
+			dmgSourceID = inflictor.GetDamageSourceID()
+
+		string inflictorClass = GetObitFromDamageSourceID( dmgSourceID )
+
+		if ( inflictorClass in level.trapChainReactClasses )
+		{
+			// chain reaction delay
+			Wait( RandomFloatRange( 0.2, 0.275 ) )
+		}
+	}
+
+	if ( !IsValid( thrownGun ) )
+		return
+
+	if ( IsValid( attacker ) )
+	{
+		if ( attacker.IsPlayer() )
+		{
+			thrownGun.SetOwner( attacker )
+		}
+		else
+		{
+			entity lastAttacker = GetLastAttacker( attacker )
+			if ( IsValid( lastAttacker ) )
+			{
+				// for chain explosions, figure out the attacking player that started the chain
+				thrownGun.SetOwner( lastAttacker )
+			}
+		}
+	}
+
+	TedioreMine_Explode( thrownGun, owner, clipLeftPercentage, impulseForce, impactFXName, damageType )
+}
+
+void function TrapDestroyOwnerDeath( entity trap, entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	trap.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function(): ( trap )
+		{
+			if( IsValid( trap ) )
+				trap.Destroy()
+		}
+	)
+
+	WaitForever()
+}
+
+// tediore_impact_phase_explosion
+void function OnPhaseGunPlanted( entity player, entity thrownGun, float clipLeftPercentage, float explosionInnerRadius, float explosionOuterRadius, float explosionDelay = PHASE_EXPLOSION_DELAY )
+{
+    player.EndSignal( "OnDestroy" )
+    thrownGun.EndSignal( "OnDestroy" )
+    thrownGun.WaitSignal( "DetonateGun" )
+
+    wait explosionDelay
+    if( IsValid( player ) && IsValid( thrownGun ) )
+        TediorePhaseExplode( thrownGun, clipLeftPercentage, explosionInnerRadius, explosionOuterRadius )
+}
+
+void function TediorePhaseExplode( entity thrownGun, float clipLeftPercentage, float explosionInnerRadius, float explosionOuterRadius )
+{
+    vector origin = thrownGun.GetOrigin()
+    PlayFX( TEDIORE_PHASE_EXPLOSION_FX, origin - < 0,0,80 > )
+    EmitSoundAtPosition( TEAM_UNASSIGNED, origin, TEDIORE_PHASE_EXPLOSION_SOUND )
+
+    float phaseTime = TEDIORE_PHASE_DURATION_MAX * clipLeftPercentage
+    if( phaseTime < TEDIORE_PHASE_DURATION_MIN  )
+        phaseTime = TEDIORE_PHASE_DURATION_MIN
+    foreach( entity player in GetPlayerArray() )
+    {
+        float distance = fabs( Distance( player.GetOrigin(), origin ) )
+        if( distance > explosionOuterRadius )
+            continue
+        else if( distance <= explosionInnerRadius )
+            PhaseShift( player, 0.0, phaseTime )
+        else
+            PhaseShift( player, 0.0, phaseTime * PHASE_DURATION_OUTER_RADIUS_SCALE )
+    }
+    thrownGun.Destroy()
+}
+
+// tediore_impact_chain_reaction
+void function TedioreChainReaction( entity owner, entity thrownGun, actualPilotDamage, actualTitanDamage, float explosionInnerRadius, float explosionOuterRadius, float impulseForce, string impactFXName, int damageType, float startDelay = TEDIORE_CHAIN_START_DELAY, int grenadeCount = TEDIORE_CHAIN_GRENADE_COUNT, float totalTime = TEDIORE_CHAIN_REACTION_DURATION, float offset = TEDIORE_CHAIN_OFFSET )
+{
+    owner.EndSignal( "OnDestroy" )
+    thrownGun.EndSignal( "OnDestroy" )
+    thrownGun.WaitSignal( "DetonateGun" )
+
+    vector origin = thrownGun.GetOrigin()
+
+    vector endOrigin = origin - Vector( 0.0, 0.0, 32.0 )
+    vector surfaceAngles = thrownGun.proj.savedAngles
+    vector oldUpDir = AnglesToUp( surfaceAngles )
+
+    TraceResults traceResult = TraceLine( origin, endOrigin, [], TRACE_MASK_SOLID, TRACE_COLLISION_GROUP_NONE )
+    if ( traceResult.fraction < 1.0 )
+    {
+        vector forward = AnglesToForward( thrownGun.proj.savedAngles )
+        surfaceAngles = AnglesOnSurface( traceResult.surfaceNormal, forward )
+
+        vector newUpDir = AnglesToUp( surfaceAngles )
+        if ( DotProduct( newUpDir, oldUpDir ) < TEDIORE_SHIELD_ANGLE_LIMIT )
+            surfaceAngles = thrownGun.proj.savedAngles
+    }
+
+	thrownGun.SetAngles( surfaceAngles )
+
+    vector center = thrownGun.GetOrigin()
+    vector startVector = VectorToAngles( thrownGun.GetForwardVector() ) // thrownGun.GetForwardVector()
+    float rotatePerGrenade = 360 / float( grenadeCount )
+    float explosionInterval = totalTime / grenadeCount
+
+    array<entity> grenadeProps
+    for( int i = 0; i < grenadeCount; i++ )
+    {
+        vector curPoint = center + AnglesToForward( < 0, startVector.y + rotatePerGrenade * i, 0 > ) * offset // center + AnglesToForward( < 0, rotatePerGrenade * i, 0 > ) * offset
+        entity grenadeProp = CreateEntity( "prop_dynamic" )
+        grenadeProp.SetValueForModelKey( $"models/weapons/bullets/mgl_grenade.mdl" )
+        grenadeProp.SetOrigin( curPoint )
+        DispatchSpawn( grenadeProp )
+        grenadeProps.append( grenadeProp )
+        //WaitFrame()
+    }
+
+    OnThreadEnd(
+        function() : ( grenadeProps )
+        {
+            foreach( entity prop in grenadeProps )
+            {
+                if( IsValid( prop ) )
+                    prop.Destroy()
+            }
+        }
+    )
+
+    wait startDelay
+    foreach( entity grenade in grenadeProps )
+    {
+        if( IsValid( grenade ) )
+        {
+            PlayImpactFXTable( grenade.GetOrigin(), grenade, impactFXName )
+            RadiusDamage(
+                grenade.GetOrigin() + thrownGun.proj.savedOrigin,						// center
+                thrownGun.GetOwner(),		                // attacker
+                thrownGun,									// inflictor
+                actualPilotDamage,		                    // damage
+                actualTitanDamage,			                // damageHeavyArmor
+                explosionInnerRadius,		                // innerRadius
+                explosionOuterRadius,				        // outerRadius
+                damageType,			                        // flags
+                0,										    // distanceFromAttacker
+                impulseForce,				                // explosionForce
+                damageType,	                                // scriptDamageFlags
+                thrownGun.ProjectileGetDamageSourceID() )   //damageSourceID
+            
+            grenade.Destroy()
+        }
+        wait explosionInterval
+    }
+    thrownGun.Destroy()
+    // if successfully reached this place, then there shouldn't be grenadeProps left, let's return to not to run "OnThreadEnd"
+    return
+}
+
+// tediore_missile_burst
+void function TedioreMissileBurst( entity weapon, entity player, int damageType, float clipLeftPercentage, asset fxAsset, float reloadDelay, int rocketsPerShot = TEDIORE_BURST_NUM_ROCKETS_PER_SHOT, float launchOutAng = TEDIORE_BURST_LAUNCH_OUT_ANG, float launchOutTime = TEDIORE_BURST_LAUNCH_OUT_TIME, float launchInAng = TEDIORE_BURST_LAUNCH_IN_ANG, float launchInTime = TEDIORE_BURST_LAUNCH_IN_TIME, float launchInLerpTime = TEDIORE_BURST_LAUNCH_IN_LERP_TIME, float launchStraightLerpTime = TEDIORE_BURST_LAUNCH_STRAIGHT_LERP_TIME, bool applyRandSpread = TEDIORE_BURST_APPLY_RANDOM_SPREAD, bool debugDrawPath = TEDIORE_BURST_DEBUG_DRAW_PATH )
+{
+    weapon.EndSignal( "OnDestroy" )
+    player.EndSignal( "OnDeath" )
+
+    string uid = player.GetUID()
+    asset gunModel = weapon.GetWeaponInfoFileKeyFieldAsset( "playermodel" )
+
+    float shotsInterval = 1 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
+    int burstCount = weapon.GetWeaponSettingInt( eWeaponVar.burst_fire_count )
+    reloadDelay += burstCount * shotsInterval
+    thread DelayedDeployWeapon( player, weapon, reloadDelay )
+
+    OnThreadEnd(
+        function() : ( weapon )
+        {
+            if( IsValid( weapon ) )
+                weapon.RemoveMod( "tediore_effect" )
+        }
+    )
+
+    for( int i = 0; i < burstCount; i++ )
+    {
+        vector pos = player.EyePosition()
+        vector dir = player.GetViewVector()
+        WeaponPrimaryAttackParams fakeAttackParams
+        fakeAttackParams.pos = pos
+        fakeAttackParams.dir = dir
+        fakeAttackParams.burstIndex = i + 1
+        array<entity> thrownGuns = FireExpandContractMissiles( weapon, fakeAttackParams, pos, dir, damageType, damageType, false, rocketsPerShot, 1, launchOutAng, launchOutTime, launchInAng, launchInTime, launchInLerpTime, launchStraightLerpTime, applyRandSpread, -1, TEDIORE_BURST_DEBUG_DRAW_PATH )
+        foreach( entity thrownGun in thrownGuns )
+        {
+            if( thrownGun )
+            {
+                playerHasThrowed[uid] = true
+                thrownGun.SetModel( gunModel )
+                thread DelayedStartParticleSystem( thrownGun, fxAsset )
+                thread DelayedEmitSound( player, weapon, thrownGun )
+                gunDamageScale[thrownGun] <- clipLeftPercentage
+                thrownGun.InitMissileForRandomDriftFromWeaponSettings( pos, dir )
+            }
+        }
+        wait shotsInterval
+    }
+}
+
+// tediore_deployable_stim_field
+void function OnStimFieldPlanted( entity thrownGun, float clipLeftPercentage, int health = DEPLOYABLE_STIM_FIELD_HEALTH, float maxLifeTime = DEPLOYABLE_STIM_FIELD_DURATION_MAX, float minLifeTime = DEPLOYABLE_STIM_FIELD_DURATION_MIN, float radius = DEPLOYABLE_STIM_FIELD_RADIUS, float height = DEPLOYABLE_STIM_FIELD_HEIGHT, float offset = DEPLOYABLE_STIM_FIELD_OFFSET )
+{
+    thrownGun.EndSignal( "OnDestroy" )
+	thrownGun.WaitSignal( "Planted" )
+
+    float actualLifeTime = maxLifeTime * clipLeftPercentage
+    if( actualLifeTime < minLifeTime )
+        actualLifeTime = minLifeTime
+
+    if( IsValid( thrownGun ) )
+    {
+        vector origin = thrownGun.GetOrigin()
+        vector angles = thrownGun.proj.savedAngles
+        entity owner = thrownGun.GetOwner()
+        asset gunModel = thrownGun.GetModelName()
+
+        wait 0.25
+        thread CreateStimBeacon( owner, origin, angles, gunModel, health, actualLifeTime, radius, height, offset )
+        if( IsValid( thrownGun ) )
+        {
+            PlayImpactFXTable( thrownGun.GetOrigin(), thrownGun, "exp_deployable_cover" )
+            thrownGun.Destroy()
+        }
+    }
+}
+
+void function CreateStimBeacon( entity owner, vector origin, vector angles, asset gunModel, int health, float lifeTime, float radius, float height, float offset )
+{
+	entity tower = CreatePropScript( gunModel, origin, angles, 2 )
+	// tower.EnableAttackableByAI( 10, 0, AI_AP_FLAG_NONE )
+	SetTeam( tower, owner.GetTeam() )
+	tower.SetMaxHealth( health )
+	tower.SetHealth( health )
+	tower.SetTakeDamageType( DAMAGE_YES )
+	tower.SetDamageNotifications( true )
+	tower.SetDeathNotifications( true )
+	SetVisibleEntitiesInConeQueriableEnabled( tower, true )//for arc cannon and emp titan
+	SetObjectCanBeMeleed( tower, true )
+	//temp fix
+	AddEntityCallback_OnDamaged(tower, OnBeaconDamaged)
+
+	OnThreadEnd(
+		function() : ( tower )
+		{
+			tower.Destroy()
+		}
+	)
+
+	tower.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	EmitSoundOnEntity( tower, CLOAKED_DRONE_WARP_IN_SFX )
+
+	wait 0.5
+
+	EmitSoundOnEntity( tower, CLOAKED_DRONE_LOOPING_SFX )
+	thread StimBeaconThink( tower, radius, height )
+
+	wait lifeTime
+}
+
+void function StimBeaconThink( entity tower, float radius, float height )
+{
+	tower.EndSignal( "OnDestroy" )
+
+	array<entity> fx = []
+	array<entity> cp = []
+
+	entity cpRadius = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpRadius, UniqueString( "stimBeacon_cpRadius" ) )
+	cpRadius.SetOrigin( Vector(DEPLOYABLE_STIM_FIELD_RADIUS,0,0) )
+	DispatchSpawn( cpRadius )
+	cp.append( cpRadius )
+	
+	// friendly fx
+	entity cpColorF = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpColorF, UniqueString( "stimBeacon_cpColorF" ) )
+	cpColorF.SetOrigin( DEPLOYABLE_STIM_FIELD_FRIENDLY_COLOR )
+	DispatchSpawn( cpColorF )
+	cp.append( cpColorF )
+
+	entity fxIdF1 = PlayFXWithControlPoint( DEPLOYABLE_STIM_FIELD_FX_ALL, tower.GetOrigin() - Vector(0,0,10), cpColorF )
+	SetTeam( fxIdF1, tower.GetTeam() )
+	fxIdF1.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	fx.append( fxIdF1 )
+	entity fxIdF2 = PlayFXWithControlPoint( DEPLOYABLE_STIM_FIELD_FX_ALL2, tower.GetOrigin() - Vector(0,0,10), cpColorF )
+	SetTeam( fxIdF2, tower.GetTeam() )
+	fxIdF2.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	fx.append( fxIdF2 )
+
+	entity fxIdF3 = CreateEntity( "info_particle_system" )
+	fxIdF3.kv.start_active = 1
+	fxIdF3.SetValueForEffectNameKey( DEPLOYABLE_STIM_FIELD_FX_TEAM )
+	SetTeam( fxIdF3, tower.GetTeam() )
+	fxIdF3.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	SetTargetName( fxIdF3, UniqueString() )
+	fxIdF3.kv.cpoint1 = cpColorF.GetTargetName()
+	fxIdF3.kv.cpoint5 = cpRadius.GetTargetName()
+	fxIdF3.SetOrigin( tower.GetOrigin() + Vector(0,0,3) )
+	fx.append( fxIdF3 )
+
+	// enemy fx
+	entity cpColorE = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpColorE, UniqueString( "stimBeacon_cpColorE" ) )
+	cpColorE.SetOrigin( DEPLOYABLE_STIM_FIELD_ENEMY_COLOR )
+	DispatchSpawn( cpColorE )
+	cp.append( cpColorE )
+
+	entity fxIdE1 = PlayFXWithControlPoint( DEPLOYABLE_STIM_FIELD_FX_ALL, tower.GetOrigin() - Vector(0,0,10), cpColorE )
+	SetTeam( fxIdE1, tower.GetTeam() )
+	fxIdE1.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+	fx.append( fxIdE1 )
+	entity fxIdE2 = PlayFXWithControlPoint( DEPLOYABLE_STIM_FIELD_FX_ALL2, tower.GetOrigin() - Vector(0,0,10), cpColorE )
+	SetTeam( fxIdE2, tower.GetTeam() )
+	fxIdE2.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+	fx.append( fxIdE2 )
+
+	entity fxIdE3 = CreateEntity( "info_particle_system" )
+	fxIdE3.kv.start_active = 1
+	fxIdE3.SetValueForEffectNameKey( DEPLOYABLE_STIM_FIELD_FX_TEAM )
+	SetTeam( fxIdE3, tower.GetTeam() )
+	fxIdE3.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+	SetTargetName( fxIdE3, UniqueString() )
+	fxIdE3.kv.cpoint1 = cpColorE.GetTargetName()
+	fxIdE3.kv.cpoint5 = cpRadius.GetTargetName()
+	fxIdE3.SetOrigin( tower.GetOrigin() + Vector(0,0,3) )
+	fx.append( fxIdE3 )
+
+	OnThreadEnd(
+		function() : ( tower, fx, cp )
+		{
+			StopSoundOnEntity( tower, CLOAKED_DRONE_LOOPING_SFX )
+			foreach ( fxId in fx )
+			{
+				if ( IsValid( fxId ) )
+					fxId.Destroy()
+			}
+			foreach( controlPoint in cp )
+			{
+				if( IsValid( controlPoint ) )
+					controlPoint.Destroy()
+			}
+		}
+	)
+
+	wait 0.25
+
+	DispatchSpawn( fxIdF3 )
+	DispatchSpawn( fxIdE3 )
+	StimerThink( tower, radius, height )
+}
+
+void function StimerThink( entity stimer, float radius, float height )
+{
+	stimer.EndSignal( "OnDestroy" )
+	entity trigger = CreateTriggerRadiusMultiple( stimer.GetOrigin(), radius, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, height, -height )
+	SetTeam( trigger, stimer.GetTeam() )
+
+    AddCallback_ScriptTriggerEnter( trigger, OnStimerTriggerEnter )
+    AddCallback_ScriptTriggerLeave( trigger, OnStimerTriggerLeave )
+
+	ScriptTriggerSetEnabled( trigger, true )
+
+	OnThreadEnd(
+		function(): ( trigger )
+		{
+			if( IsValid( trigger ) )
+				trigger.Destroy()
+		}
+	)
+
+	WaitForever()
+}
+
+void function OnStimerTriggerEnter( entity trigger, entity player )
+{
+    if( player.GetTeam() != trigger.GetTeam() )
+        return
+
+    float severity = DEPLOYABLE_STIM_FIELD_EFFECT_SEVERITY
+    thread StimerStimThink( player, severity, DEPLOYABLE_STIM_FIELD_DURATION_MIN )
+}
+
+void function OnStimerTriggerLeave( entity trigger, entity player )
+{
+    if( player.GetTeam() != trigger.GetTeam() )
+        return
+
+    //print( "leaving trigger!" )
+    player.Signal( "LeaveStimer" )
+}
+
+void function StimerStimThink( entity player, float severity, float leaveDuration )
+{
+    // clean last sound
+    StopSoundOnEntity( player, "pilot_stimpack_deactivate_1P" )
+	StopSoundOnEntity( player, "pilot_stimpack_deactivate_3P" )
+    StopSoundOnEntity( player, "pilot_stimpack_loop_1P" )
+	StopSoundOnEntity( player, "pilot_stimpack_loop_3P" )
+    // emit new sound
+    EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_stimpack_loop_1P" ) // this sound will increase volume of all sounds playing, play it before stim sound
+	EmitSoundOnEntityExceptToPlayer( player, player, "pilot_stimpack_loop_3P" )
+    EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_stimpack_activate_1P" )
+	EmitSoundOnEntityExceptToPlayer( player, player, "pilot_stimpack_activate_3P" )
+
+    player.Signal( "EnterStimer" )
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    player.EndSignal( "EnterStimer" )
+    int speedBoostHandle = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, severity )
+    int stimVisualHandle = StatusEffect_AddEndless( player, eStatusEffect.stim_visual_effect, severity )
+    
+    int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
+	entity stimFX = StartParticleEffectOnEntity_ReturnEntity( player, PILOT_STIM_HLD_FX, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+	stimFX.SetOwner( player )
+	stimFX.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) // not owner only
+    
+    OnThreadEnd(
+        function(): ( player, stimFX, speedBoostHandle, stimVisualHandle )
+        {
+            if( IsValid( player ) )
+            {
+                StatusEffect_Stop( player, speedBoostHandle )
+                StatusEffect_Stop( player, stimVisualHandle )
+                StopSoundOnEntity( player, "pilot_stimpack_loop_1P" )
+                StopSoundOnEntity( player, "pilot_stimpack_loop_3P" )
+            }
+            if( IsValid( stimFX ) )
+                EffectStop( stimFX )
+        }
+    )
+    player.WaitSignal( "LeaveStimer" )
+
+    if( leaveDuration == 2 )
+    {
+        StopSoundOnEntity( player, "pilot_stimpack_deactivate_1P" )
+        StopSoundOnEntity( player, "pilot_stimpack_deactivate_3P" )
+        EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_stimpack_deactivate_1P" )
+        EmitSoundOnEntityExceptToPlayer( player, player, "pilot_stimpack_deactivate_3P" )
+        wait 2
+    }
+    else if( leaveDuration > 2 )
+    {
+        wait leaveDuration - 2
+        StopSoundOnEntity( player, "pilot_stimpack_deactivate_1P" )
+        StopSoundOnEntity( player, "pilot_stimpack_deactivate_3P" )
+        EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_stimpack_deactivate_1P" )
+        EmitSoundOnEntityExceptToPlayer( player, player, "pilot_stimpack_deactivate_3P" )
+        wait 2
+    }
+    else if( leaveDuration > 0 )
+        wait leaveDuration
+}
+
+/* // using a better one now
+void function OnStimFieldPlanted( entity thrownGun, float clipLeftPercentage, int health = DEPLOYABLE_STIM_FIELD_HEALTH, float effectSeverity = DEPLOYABLE_STIM_FIELD_EFFECT_SEVERITY, float maxLifeTime = DEPLOYABLE_STIM_FIELD_DURATION_MAX, float minLifeTime = DEPLOYABLE_STIM_FIELD_DURATION_MIN, float radius = DEPLOYABLE_STIM_FIELD_RADIUS, float height = DEPLOYABLE_STIM_FIELD_HEIGHT, float offset = DEPLOYABLE_STIM_FIELD_OFFSET, float waitInterval = DEPLOYABLE_STIM_FIELD_WAIT_INTERVAL )
+{
+    thrownGun.EndSignal( "OnDestroy" )
+	thrownGun.WaitSignal( "Planted" )
+
+    float actualLifeTime = maxLifeTime * clipLeftPercentage
+    if( actualLifeTime < minLifeTime )
+        actualLifeTime = minLifeTime
+
+    if( IsValid( thrownGun ) )
+    {
+        vector origin = thrownGun.GetOrigin()
+        vector angles = thrownGun.proj.savedAngles
+        entity owner = thrownGun.GetOwner()
+        asset gunModel = thrownGun.GetModelName()
+
+        wait 0.25
+        thread CreateStimBeacon( owner, origin, angles, gunModel, health, effectSeverity, actualLifeTime, radius, height, offset, waitInterval )
+        if( IsValid( thrownGun ) )
+        {
+            PlayImpactFXTable( thrownGun.GetOrigin(), thrownGun, "exp_deployable_cover" )
+            thrownGun.Destroy()
+        }
+    }
+}
+
+void function CreateStimBeacon( entity owner, vector origin, vector angles, asset gunModel, int health, float effectSeverity, float lifeTime, float radius, float height, float offset, float waitInterval )
+{
+	entity tower = CreatePropScript( gunModel, origin, angles, 2 )
+	// tower.EnableAttackableByAI( 10, 0, AI_AP_FLAG_NONE )
+	SetTeam( tower, owner.GetTeam() )
+	tower.SetMaxHealth( health )
+	tower.SetHealth( health )
+	tower.SetTakeDamageType( DAMAGE_YES )
+	tower.SetDamageNotifications( true )
+	tower.SetDeathNotifications( true )
+	SetVisibleEntitiesInConeQueriableEnabled( tower, true )//for arc cannon and emp titan
+	SetObjectCanBeMeleed( tower, true )
+	//temp fix
+	AddEntityCallback_OnDamaged(tower, OnBeaconDamaged)
+
+	OnThreadEnd(
+		function() : ( tower )
+		{
+			tower.Destroy()
+		}
+	)
+
+	tower.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	EmitSoundOnEntity( tower, CLOAKED_DRONE_WARP_IN_SFX )
+
+	wait 0.5
+
+	EmitSoundOnEntity( tower, CLOAKED_DRONE_LOOPING_SFX )
+	thread StimBeaconThink( tower, radius, height, effectSeverity, offset, waitInterval )
+
+	wait lifeTime
+}
+
+void function StimBeaconThink( entity tower, float radius, float height, float effectSeverity, float offset, float waitInterval )
+{
+	tower.EndSignal( "OnDestroy" )
+
+	array<entity> fx = []
+	array<entity> cp = []
+
+	entity cpRadius = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpRadius, UniqueString( "stimBeacon_cpRadius" ) )
+	cpRadius.SetOrigin( Vector(DEPLOYABLE_STIM_FIELD_RADIUS,0,0) )
+	DispatchSpawn( cpRadius )
+	cp.append( cpRadius )
+	
+	// friendly fx
+	entity cpColorF = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpColorF, UniqueString( "stimBeacon_cpColorF" ) )
+	cpColorF.SetOrigin( DEPLOYABLE_STIM_FIELD_FRIENDLY_COLOR )
+	DispatchSpawn( cpColorF )
+	cp.append( cpColorF )
+
+	entity fxIdF1 = PlayFXWithControlPoint( DEPLOYABLE_STIM_FIELD_FX_ALL, tower.GetOrigin() - Vector(0,0,10), cpColorF )
+	SetTeam( fxIdF1, tower.GetTeam() )
+	fxIdF1.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	fx.append( fxIdF1 )
+	entity fxIdF2 = PlayFXWithControlPoint( DEPLOYABLE_STIM_FIELD_FX_ALL2, tower.GetOrigin() - Vector(0,0,10), cpColorF )
+	SetTeam( fxIdF2, tower.GetTeam() )
+	fxIdF2.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	fx.append( fxIdF2 )
+
+	entity fxIdF3 = CreateEntity( "info_particle_system" )
+	fxIdF3.kv.start_active = 1
+	fxIdF3.SetValueForEffectNameKey( DEPLOYABLE_STIM_FIELD_FX_TEAM )
+	SetTeam( fxIdF3, tower.GetTeam() )
+	fxIdF3.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	SetTargetName( fxIdF3, UniqueString() )
+	fxIdF3.kv.cpoint1 = cpColorF.GetTargetName()
+	fxIdF3.kv.cpoint5 = cpRadius.GetTargetName()
+	fxIdF3.SetOrigin( tower.GetOrigin() + Vector(0,0,3) )
+	fx.append( fxIdF3 )
+
+	// enemy fx
+	entity cpColorE = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpColorE, UniqueString( "stimBeacon_cpColorE" ) )
+	cpColorE.SetOrigin( DEPLOYABLE_STIM_FIELD_ENEMY_COLOR )
+	DispatchSpawn( cpColorE )
+	cp.append( cpColorE )
+
+	entity fxIdE1 = PlayFXWithControlPoint( DEPLOYABLE_STIM_FIELD_FX_ALL, tower.GetOrigin() - Vector(0,0,10), cpColorE )
+	SetTeam( fxIdE1, tower.GetTeam() )
+	fxIdE1.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+	fx.append( fxIdE1 )
+	entity fxIdE2 = PlayFXWithControlPoint( DEPLOYABLE_STIM_FIELD_FX_ALL2, tower.GetOrigin() - Vector(0,0,10), cpColorE )
+	SetTeam( fxIdE2, tower.GetTeam() )
+	fxIdE2.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+	fx.append( fxIdE2 )
+
+	entity fxIdE3 = CreateEntity( "info_particle_system" )
+	fxIdE3.kv.start_active = 1
+	fxIdE3.SetValueForEffectNameKey( DEPLOYABLE_STIM_FIELD_FX_TEAM )
+	SetTeam( fxIdE3, tower.GetTeam() )
+	fxIdE3.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+	SetTargetName( fxIdE3, UniqueString() )
+	fxIdE3.kv.cpoint1 = cpColorE.GetTargetName()
+	fxIdE3.kv.cpoint5 = cpRadius.GetTargetName()
+	fxIdE3.SetOrigin( tower.GetOrigin() + Vector(0,0,3) )
+	fx.append( fxIdE3 )
+
+	OnThreadEnd(
+		function() : ( tower, fx, cp )
+		{
+			StopSoundOnEntity( tower, CLOAKED_DRONE_LOOPING_SFX )
+			foreach ( fxId in fx )
+			{
+				if ( IsValid( fxId ) )
+					fxId.Destroy()
+			}
+			foreach( controlPoint in cp )
+			{
+				if( IsValid( controlPoint ) )
+					controlPoint.Destroy()
+			}
+		}
+	)
+
+	wait 0.25
+
+	DispatchSpawn( fxIdF3 )
+	DispatchSpawn( fxIdE3 )
+	StimerThink( tower, radius, height, effectSeverity, offset, waitInterval )
+}
+
+function StimerThink( entity stimer, float radius, float height, float effectSeverity, float offset, float waitInterval )
+{
+    stimer.EndSignal( "OnDestroy" )
+    int teamNum = stimer.GetTeam()
+
+    entity trigger = CreateTriggerRadiusMultiple( stimer.GetOrigin(), radius, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, height, height )
+	SetTeam( trigger, stimer.GetTeam() )
+    inStimFieldPlayers[trigger] <- []
+
+	AddCallback_ScriptTriggerEnter( trigger, OnStimFieldTriggerEnter )
+	AddCallback_ScriptTriggerLeave( trigger, OnStimFieldTriggerLeave )
+
+	ScriptTriggerSetEnabled( trigger, true )
+
+	OnThreadEnd(
+		function() : ( trigger, teamNum )
+		{
+            if( IsValid( trigger ) )
+            {
+                trigger.Destroy()
+                inStimFieldPlayers[trigger].clear()
+            }
+            foreach( entity player in GetPlayerArrayOfTeam( teamNum ) )
+            {
+                if( player in playerStimEffectTable )
+                {
+                    if( playerStimEffectTable[player].len() > 0 )
+                    {
+                        foreach( int statusEffect in playerStimEffectTable[player] )
+                        {
+                            if( IsValid( player ) )
+                                StatusEffect_Stop( player, statusEffect )
+                        }
+                    }
+                }
+            }
+		}
+	)
+
+	while( true )
+	{
+        float startTime = Time()
+		vector origin = stimer.GetOrigin() + < 0, 0, offset >
+		array<entity> teamPlayers = GetPlayerArrayOfTeam( teamNum )
+        foreach( entity player in teamPlayers )
+        {
+            if( StimBeaconShouldStimGuy( stimer, player, radius, height ) )
+            {
+                int speedBoostHandle = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, effectSeverity )
+                playerStimEffectTable[player].append( speedBoostHandle )
+                int stimVisualHandle = StatusEffect_AddEndless( player, eStatusEffect.stim_visual_effect, 1.0 )
+                playerStimEffectTable[player].append( stimVisualHandle )
+            }
+            else if( !inStimFieldPlayers[trigger].contains( player ) )
+            {
+                if( player in playerStimEffectTable )
+                {
+                    if( playerStimEffectTable[player].len() > 0 )
+                    {
+                        foreach( int statusEffect in playerStimEffectTable[player] )
+                        {
+                            if( IsValid( player ) )
+                                StatusEffect_Stop( player, statusEffect )
+                        }
+                    }
+                }
+            }
+
+            float endTime = Time()
+            float elapsedTime = endTime - startTime
+            if ( elapsedTime < waitInterval )
+                wait waitInterval - elapsedTime
+        }
+	}
+}
+
+bool function StimBeaconShouldStimGuy( entity beacon, entity guy, float radius, float height )
+{
+	if ( !guy.IsPlayer() )
+		return false
+
+    if( !IsAlive( guy ) )
+        return false
+
+    if( fabs( Distance2D( guy.GetOrigin(), beacon.GetOrigin() ) ) <= radius && fabs( guy.GetOrigin().z - beacon.GetOrigin().z ) <= height && !( StatusEffect_Get( guy, eStatusEffect.stim_visual_effect ) > 0.0 ) )
+    {
+        //print( "Able to Stim" + guy.GetPlayerName() )
+        return true
+    }
+
+	return false
+}
+
+void function OnStimFieldTriggerEnter( entity trigger, entity ent )
+{
+	if ( !( trigger.GetTeam() == ent.GetTeam() ) )
+		return
+
+    if( !inStimFieldPlayers[trigger].contains( ent ) )
+	    inStimFieldPlayers[trigger].append( ent )
+}
+
+void function OnStimFieldTriggerLeave( entity trigger, entity ent )
+{
+	if ( !( trigger.GetTeam() == ent.GetTeam() ) )
+		return
+
+    if( inStimFieldPlayers[trigger].contains( ent ) )
+	    inStimFieldPlayers[trigger].fastremovebyvalue( ent )
+}
+*/
+
+void function OnBeaconDamaged( entity tower, var damageInfo )
+{
+	if( !IsValid( tower ) )
+		return
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if ( attacker.IsPlayer() )
+        attacker.NotifyDidDamage( tower, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
+}
+
+// tediore_knife_throw
+void function DelayedDestroyGun( entity player, entity thrownGun )
+{
+    player.EndSignal( "OnDestroy" )
+    thrownGun.EndSignal( "OnDestroy" )
+    thrownGun.WaitSignal( "DetonateGun" )
+
+    wait 5
+    if( IsValid( thrownGun ) )
+        thrownGun.GrenadeExplode( < 0,0,0 > )
+}
+
+// tediore_nessie_throw
+void function NessieDroneHandle( entity player, entity thrownGun, float clipLeftPercentage, float maxLifeTime = NESSIE_LIFETIME_MAX, float minLifeTime = NESSIE_LIFETIME_MIN )
+{
+    float actualLifeTime = maxLifeTime * clipLeftPercentage
+    if( actualLifeTime < minLifeTime )
+        actualLifeTime = minLifeTime
+    WaitFrame()
+    if( IsValid( player ) && IsValid( thrownGun ) )
+        GrenadesToDrones( thrownGun, actualLifeTime )
+}
+
+void function GrenadesToDrones( entity tick, float lifeTime )
+{
+	entity tickowner = tick.GetThrower()
+	vector tickpos = tick.GetOrigin()
+	vector tickang = tick.GetAngles()
+	int tickteam = tick.GetTeam()
+
+	int randomdrone = RandomInt(3)
+	string dronename = "npc_drone_worker"
+	switch( randomdrone )
+	{
+		case 0:
+			dronename = "npc_drone_beam"
+			break
+		case 1:
+			dronename = "npc_drone_rocket"
+			break
+		case 2:
+			dronename = "npc_drone_plasma"
+			break
+		default:
+			break
+	}
+
+	entity drone = CreateNPC("npc_drone" , tickteam , tickpos, tickang )
+	SetSpawnOption_AISettings( drone, dronename )
+	drone.kv.modelscale = 0.01
+	DispatchSpawn( drone )
+
+	entity nessie = CreateEntity( "script_mover" )
+	nessie.SetModel( NESSIE_DRONE_MODEL )
+	nessie.SetParent( drone, "CHESTFOCUS" )
+	nessie.SetAngles( < 0, -90, 0 > )
+
+	int attachmentIndex = drone.LookupAttachment( "CHESTFOCUS" )
+	entity fx = StartParticleEffectOnEntity_ReturnEntity( drone, GetParticleSystemIndex( NESSIE_DRONE_FX ), FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+	fx.SetOwner( drone )
+
+	drone.SetTitle( "小尼斯水怪" )
+	drone.SetHealth( 1 )
+	drone.SetOwner( tickowner )
+	drone.SetBossPlayer( tickowner )
+
+	NPCFollowsPlayer( drone, tickowner )
+    if( IsValid( tick ) )
+        tick.Destroy()
+
+	thread AfterTimeDissolveNessieDrone( drone, nessie, fx, lifeTime )
+}
+
+void function AfterTimeDissolveNessieDrone( entity drone, entity nessie, entity fx, float lifeTime )
+{
+	wait lifeTime
+	if( IsValid(drone) )
+		drone.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+	if( IsValid(nessie) )
+		nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+	if( IsValid(fx) )
+		EffectStop( fx )
+
+}
+#endif

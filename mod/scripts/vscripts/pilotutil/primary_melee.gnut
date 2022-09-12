@@ -1,0 +1,149 @@
+untyped
+global function Primary_MeleeWeapon_Init
+
+const float NO_LIMIT_EXECUTION_RANGE = 100
+
+void function Primary_MeleeWeapon_Init()
+{
+	AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_OnClientDisconnected( OnClientDisconnected )
+	// we just need melee commands
+	//AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	//AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+}
+
+void function OnPlayerRespawned( entity player )
+{
+	GivePrimaryMelee( player )
+}
+
+void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
+{
+	GivePrimaryMelee( player )
+}
+
+void function GivePrimaryMelee( entity player )
+{
+	foreach( entity weapon in player.GetMainWeapons() )
+	{
+		if( IsUselessAntiTitan( weapon ) )
+		{
+			player.TakeWeapon( weapon.GetWeaponClassName() )
+			
+		}
+	}
+	player.TakeOffhandWeapon( OFFHAND_MELEE )
+	if( player.GetMainWeapons().len() < 3 )
+	{
+		player.GiveOffhandWeapon( "melee_pilot_sword", OFFHAND_MELEE, ["allow_as_primary"] )
+	}
+}
+
+void function OnClientConnected( entity player )
+{
+	AddButtonPressedPlayerInputCallback( player, IN_MELEE, MeleeNotice )
+	// defined in sh_melee.gnut
+	if( IsSyncedMeleeNoLimit() )
+		AddPlayerHeldButtonEventCallback( player, IN_MELEE, TryNolimitExecution, 0.2 )
+	AddButtonPressedPlayerInputCallback( player, IN_ZOOM, SwitchOffMelee )
+	AddButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, SwitchOffMelee )
+}
+
+void function TryNolimitExecution( entity player )
+{
+#if SERVER
+	if( player.IsTitan() )
+		return
+	if( IsValid( player.GetMeleeWeapon() ) )
+		return
+	// AIRBORNE EXECUTIONS CODE
+	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * NO_LIMIT_EXECUTION_RANGE, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	if( !IsValid( traceResult.hitEnt ) )
+	{
+		//print( "hitEnt Invalid" )
+		return
+	}
+	//print( "hitEnt is " + traceResult.hitEnt.GetClassName() )
+	entity target = traceResult.hitEnt
+	if( !target.IsPlayer() && !IsGrunt( target ) && !IsSpectre( target ) )
+		return
+	//if ( player.Lunge_SetTargetEntity( target, true ) )
+	//{
+	if ( !target.IsTitan() )
+	{
+		bool canbackstab = CodeCallback_IsValidMeleeExecutionTarget( player, target )
+		if ( canbackstab )
+		{
+			SyncedMeleeChooser ornull actions = GetSyncedMeleeChooserForPlayerVsTarget( player, target )
+			if( actions == null )
+				return
+			expect SyncedMeleeChooser( actions )
+			SyncedMelee ornull action = FindBestSyncedMelee( player, target, actions )
+			if( action == null )
+				return
+			expect SyncedMelee( action )
+			thread MeleeThread_PilotVsEnemy( action, player, target )
+		}
+	}
+	//}
+#endif
+}
+
+void function OnClientDisconnected( entity player )
+{
+}
+
+void function MeleeNotice( entity player )
+{
+	if( IsAlive( player ) )
+	{
+		if( !IsValid( player.GetOffhandWeapon( OFFHAND_MELEE ) ) )
+			return
+		entity meleeWeapon = player.GetActiveWeapon()
+		if( IsValid( meleeWeapon ) )
+		{
+			if( meleeWeapon.HasMod( "allow_as_primary" ) && !meleeWeapon.HasMod( "dash_punch" ) )
+			{
+				SendHudMessage(player, "按瞄准键 收回近战武器",  -1, -0.4, 200, 200, 225, 255, 0.15, 3, 1)
+			}
+			// just want player able to switch off melee
+			//else
+			//	SendHudMessage(player, "近战武器不可用",  -1, -0.4, 200, 200, 225, 255, 0.15, 3, 1)
+		}
+	}
+}
+
+void function SwitchOffMelee( entity player )
+{
+	if( IsAlive( player ) )
+	{
+		if( !IsValid( player.GetOffhandWeapon( OFFHAND_MELEE ) ) )
+			return
+		entity meleeWeapon = player.GetActiveWeapon()
+		if( !IsValid( meleeWeapon ) )
+			return
+		if( meleeWeapon.HasMod( "dash_punch" ) )
+			return
+		if( meleeWeapon )
+		{
+			if( meleeWeapon.HasMod( "allow_as_primary" ) )
+				player.SetActiveWeaponByName( player.GetMainWeapons()[0].GetWeaponClassName() )
+		}
+	}
+}
+
+bool function IsTitanGameMode()
+{
+	if( Riff_TitanAvailability() == eTitanAvailability.Never )
+		return false
+
+	return true
+}
+
+bool function IsUselessAntiTitan( entity weapon )
+{
+	if( ["mp_weapon_rocket_launcher", "mp_weapon_mgl", "mp_weapon_arc_launcher"].contains( weapon.GetWeaponClassName() ) && Riff_TitanAvailability() == eTitanAvailability.Never )
+		return true
+
+	return false
+}

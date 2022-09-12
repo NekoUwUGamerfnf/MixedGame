@@ -1,0 +1,81 @@
+
+global function ModdedRocketJumper_Init
+
+const float SCALEPUSH_SOFTBALL = 1.1
+const float SCALEPUSH_EPG = 1.5
+const float SCALEPUSH_COLDWAR = 1.0
+const float SCALEPUSH_SMR = 1.3
+
+const float PUSH_RADIUS = 450
+
+void function ModdedRocketJumper_Init()
+{
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_softball, OnDamagedTarget_RocketJumper )
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_epg, OnDamagedTarget_RocketJumper )
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_pulse_lmg, OnDamagedTarget_RocketJumper )
+    AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_smr, OnDamagedTarget_RocketJumper )
+}
+
+void function OnDamagedTarget_RocketJumper( entity ent, var damageInfo )
+{
+	if ( !IsValid( ent ) )
+		return
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+
+	if ( !IsValid( attacker ) )
+		return
+
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if( !IsValid( inflictor ) )
+		return
+	if( !inflictor.IsProjectile() )
+		return
+
+	array<string> mods = inflictor.ProjectileGetMods()
+
+    int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+    float scale = 1.0
+    switch( damageSourceID )
+    {
+        case eDamageSourceId.mp_weapon_softball:
+            scale = SCALEPUSH_SOFTBALL
+        case eDamageSourceId.mp_weapon_epg:
+            scale = SCALEPUSH_EPG
+        case eDamageSourceId.mp_weapon_pulse_lmg:
+            scale = SCALEPUSH_COLDWAR
+        case eDamageSourceId.mp_weapon_smr:
+            scale = SCALEPUSH_SMR
+    }
+
+	if( mods.contains( "rocket_jumper" ) )
+	{
+        DamageInfo_SetDamage( damageInfo, 0 )
+		if ( ent.IsPlayer() )
+			RocketJumper_EffectsPlayer( ent, attacker, damageInfo, scale )
+	}
+}
+
+void function RocketJumper_EffectsPlayer( entity victim, entity attacker, var damageInfo, float scalePush )
+{
+	if ( victim.IsPhaseShifted() )
+		return
+
+    /** Dropoff */
+    entity inflictor = DamageInfo_GetInflictor( damageInfo )
+    vector origin = inflictor.GetOrigin()
+    float radius = PUSH_RADIUS
+    vector force = ( victim.GetOrigin() + /** Approx. player waist height */ <0,0,40> - origin )
+    float len = vmag(force) // Vector size
+    vector normForce = force * (1/len) // Normalized vector
+    float pushF = -1/radius * pow(len, 2) + radius // Quadratic force dropoff from origin
+    vector effectiveForce = normForce * pushF // Resize normalized vector with added force
+    if(victim.IsTitan())
+        effectiveForce = effectiveForce * 0.3
+
+    victim.SetVelocity( victim.GetVelocity() + effectiveForce * scalePush )
+}
+
+float function vmag( vector v ){
+    return sqrt(v.x*v.x + v.y*v.y + v.z*v.z)
+}

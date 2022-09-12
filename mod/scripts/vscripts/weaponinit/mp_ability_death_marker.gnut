@@ -1,0 +1,124 @@
+untyped
+global function MpAbilityDeathMarker_Init
+
+global function OnWeaponAbilityStart_Death_Marker
+
+const float DEATH_MARKER_DURATION = 18
+const float DEATH_MARKER_SONAR_DUATION = 8
+const float DEATH_MARKER_RADIUS = 1250
+
+array<string> activatingMarkerPlayer = []
+
+void function MpAbilityDeathMarker_Init()
+{
+    #if SERVER
+    AddCallback_OnClientConnected( AddDamagedCallbackToPlayer )
+    AddDeathCallback( "player", OnKilledByDeathMarker )
+    #endif
+}
+
+#if SERVER
+void function AddDamagedCallbackToPlayer( entity player )
+{
+    AddEntityCallback_OnDamaged( player, OnDeathMarkerDamagedPlayer )
+}
+#endif
+
+var function OnWeaponAbilityStart_Death_Marker( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    if( !weapon.HasMod( "death_marker" ) )
+        return 0
+    thread DeathMarkerThink( weapon )
+    return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
+}
+
+void function DeathMarkerThink( entity weapon )
+{
+    #if SERVER
+    entity owner = weapon.GetWeaponOwner()
+    if( !owner.IsPlayer() )
+        return
+    string uid = owner.GetUID()
+    owner.EndSignal( "OnDeath" )
+    owner.EndSignal( "OnDestroy" )
+    weapon.EndSignal( "OnDestroy" )
+    OnThreadEnd(
+        function(): ( uid, owner )
+        {
+            if( IsValid( owner ) )
+            {
+                SendHudMessage( owner, "死亡标记已结束", -1, -0.2, 255, 255, 100, 255, 0, 3, 0 )
+                EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Deactivated_1P" )
+            }
+            activatingMarkerPlayer.removebyvalue( uid )
+            // add right after player connect... which is better
+            //foreach( entity player in GetPlayerArray() )
+            //{
+            //    RemoveEntityCallback_OnDamaged( player, OnDeathMarkerDamagedPlayer )
+            //    SetDefaultMPEnemyHighlight( player )
+            //}
+        }
+    )
+    // add right after player connect... which is better
+    //foreach( entity player in GetPlayerArray() )
+    //    AddEntityCallback_OnDamaged( player, OnDeathMarkerDamagedPlayer )
+
+    SendHudMessage( owner, "激活死亡标记：\n击中的敌人将被高亮\n击杀玩家时高亮其附近所有玩家", -1, -0.1, 255, 255, 100, 255, 0, DEATH_MARKER_DURATION, 0 )
+    EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_1P" )
+    EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_3P" )
+    activatingMarkerPlayer.append( uid )
+    wait DEATH_MARKER_DURATION
+    #endif
+}
+
+#if SERVER
+void function OnDeathMarkerDamagedPlayer( entity victim, var damageInfo )
+{
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( !IsValid( attacker ) )
+        return
+    if( !attacker.IsPlayer() )
+        return
+    if( !activatingMarkerPlayer.contains( attacker.GetUID() ) )
+        return
+
+    if( !IsValid( victim ) )
+        return
+    if( !victim.IsNPC() && !victim.IsPlayer() )
+        return
+    StatusEffect_AddTimed( victim, eStatusEffect.sonar_detected, 1.0, DEATH_MARKER_SONAR_DUATION, 0.0 )
+}
+
+void function OnKilledByDeathMarker( entity victim, var damageInfo )
+{
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( !IsValid( attacker ) )
+        return
+    if( !attacker.IsPlayer() )
+        return
+    if( !activatingMarkerPlayer.contains( attacker.GetUID() ) )
+        return
+
+    vector deathPos = victim.GetOrigin()
+    thread DeathMarkerKillshotVisual( deathPos )
+    EmitSoundAtPositionExceptToPlayer( TEAM_UNASSIGNED, deathPos, attacker, "Titan_Tone_SonarLock_Impact_Pulse_3P" )
+	EmitSoundAtPositionOnlyToPlayer( TEAM_UNASSIGNED, deathPos, attacker, "Titan_Tone_SonarLock_Impact_Pulse_1P" )
+    array<entity> nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, deathPos, DEATH_MARKER_RADIUS )
+    foreach( entity player in nearbyPlayers )
+    {
+        if( player.GetTeam() == attacker.GetTeam() )
+            continue
+        StatusEffect_AddTimed( player, eStatusEffect.sonar_detected, 1.0, DEATH_MARKER_SONAR_DUATION, 0.0 )
+    }
+}
+
+void function DeathMarkerKillshotVisual( vector deathPos )
+{
+    for( int i = 0; i < 5; i ++ )
+    {
+        WaitFrame()
+        foreach( entity player in GetPlayerArray() )
+            Remote_CallFunction_Replay( player, "ServerCallback_SonarPulseFromPosition", deathPos.x, deathPos.y, deathPos.z, DEATH_MARKER_RADIUS, 1.0, true )
+    }
+}
+#endif

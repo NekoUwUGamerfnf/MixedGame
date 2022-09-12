@@ -1,0 +1,135 @@
+untyped
+global function MpWeaponThermiteGrenadeDoT_Init
+
+const float THERMITE_DOT_DURATION = 2.0 // better be a multipiler of THERMITE_DOT_TICK
+const float THERMITE_DOT_DAMAGE = 4
+const float THERMITE_DOT_DAMAGE_HEAVY_ARMOR = 20 // titans don't have stack limit and interval, should set this lower
+const float THERMITE_DOT_TICK = 0.2
+const int THERMITE_DOT_STACK_MAX = 4
+const float THERMITE_DOT_STACK_INTERVAL = 0.4
+
+struct ThermiteDotStruct
+{
+	float lastThermiteStackTime
+	int thermiteStack
+}
+table <entity, ThermiteDotStruct> pilotThermiteDotTable
+void function MpWeaponThermiteGrenadeDoT_Init()
+{
+	AddCallback_OnClientConnected( InitThermiteDotTable )
+	AddDeathCallback( "player", ClearThermiteTable )
+	AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_thermite_grenade, ThermiteGrenade_DamagedTarget )
+	AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_flame_wall, DotThermite_DamagedTarget )
+}
+
+void function InitThermiteDotTable( entity player )
+{
+	ThermiteDotStruct initStruct
+	initStruct.lastThermiteStackTime = 0
+	initStruct.thermiteStack = 0
+	pilotThermiteDotTable[player] <- initStruct
+}
+
+void function ClearThermiteTable( entity victim, var damageInfo )
+{
+	ThermiteDotStruct initStruct
+	initStruct.lastThermiteStackTime = 0
+	initStruct.thermiteStack = 0
+	pilotThermiteDotTable[victim] <- initStruct
+}
+
+void function ThermiteGrenade_DamagedTarget( entity ent, var damageInfo )
+{
+	if ( !IsValid( ent ) )
+		return
+
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+
+	if( !IsValid( inflictor ) )
+		return
+	if( !inflictor.IsProjectile() )
+		return
+
+	array<string> mods = inflictor.ProjectileGetMods()
+
+	if( mods.contains( "thermite_grenade" ) )
+	{
+		entity attacker = DamageInfo_GetAttacker( damageInfo )
+		DamageInfo_SetDamage( damageInfo, 1 )
+		if( !IsValid( attacker ) )
+			return
+		thread ThermiteStatusEffect_DoT( ent, attacker )
+	}
+}
+
+void function DotThermite_DamagedTarget( entity ent, var damageInfo )
+{
+	if ( !IsValid( ent ) )
+		return
+
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+
+	if( !IsValid( inflictor ) )
+		return
+	if( inflictor.GetScriptName() == "thermite_dot_inflictor" )
+	{
+		entity attacker = DamageInfo_GetAttacker( damageInfo )
+		DamageInfo_SetDamage( damageInfo, 1 )
+		if( !IsValid( attacker ) )
+			return
+		thread ThermiteStatusEffect_DoT( ent, attacker )
+	}
+}
+
+void function ThermiteStatusEffect_DoT( entity victim, entity attacker )
+{
+	if( !IsValid( victim ) || !IsValid( attacker ) )
+		return
+	if( victim.IsPlayer() && IsPilot( victim ) )
+	{
+		ThermiteDotStruct curStruct = pilotThermiteDotTable[victim]
+		if( Time() - curStruct.lastThermiteStackTime < THERMITE_DOT_STACK_INTERVAL )
+		{
+			//print( "In Dot Interval!" )
+			return
+		}
+		if( curStruct.thermiteStack >= THERMITE_DOT_STACK_MAX )
+		{
+			//print( "Dot Stack Max!" )
+			return
+		}
+		pilotThermiteDotTable[victim].thermiteStack += 1
+		pilotThermiteDotTable[victim].lastThermiteStackTime = Time()
+		//print( "Successfully Added Dot! Now having " + string( curStruct.thermiteStack ) )
+	}
+
+	StatusEffect_AddTimed( victim, eStatusEffect.thermite, 1.0, THERMITE_DOT_DURATION, 0.5 )
+
+	float startTime = Time()
+	while( true )
+	{
+		if( IsAlive( victim ) && IsValid( attacker ) )
+		{
+			Thermite_DamagePlayerOrNPCSounds( victim )
+			if( victim.IsInvulnerable() )
+				continue
+			if( victim.IsTitan() )
+				victim.TakeDamage( THERMITE_DOT_DAMAGE_HEAVY_ARMOR, attacker, attacker, { scriptType = DF_RAGDOLL | DF_EXPLOSION | DF_STOPS_TITAN_REGEN , damageSourceId = eDamageSourceId.burn } )
+			else
+				victim.TakeDamage( THERMITE_DOT_DAMAGE, attacker, attacker, { scriptType = DF_RAGDOLL | DF_EXPLOSION | DF_STOPS_TITAN_REGEN , damageSourceId = eDamageSourceId.burn } )
+		}
+		wait THERMITE_DOT_TICK
+		if( Time() - startTime >= THERMITE_DOT_DURATION )
+		{
+			if( IsAlive( victim ) )
+			{
+				if( victim.IsPlayer() && IsPilot( victim ) )
+				{
+					if( pilotThermiteDotTable[victim].thermiteStack > 0 )
+						pilotThermiteDotTable[victim].thermiteStack -= 1
+				}
+			}
+			return
+		}
+	}
+}

@@ -1,0 +1,317 @@
+untyped
+global function MpAbilityEMPDrone_Init
+
+global function OnAbilityStart_EMPDrone
+
+#if SERVER
+const float DRONE_FLIGHT_DISTANCE = 500
+const float DRONE_FLIGHT_DURATION = 3
+const float DRONE_RECALL_DELAY = 1
+
+const float DRONE_SCAN_RADIUS = 1250
+const float DRONE_SCAN_TICKRATE = 0.2
+
+// emp stats, hardcoded right now
+const float DRONE_EMP_COOLDOWN = 60
+const float DRONE_EMP_DAMAGE = 20
+const float DRONE_EMP_DAMAGE_HEAVYARMOR = 800
+const float DRONE_EMP_RADIUS = 600
+const float DRONE_EMP_STUN_DURATION = 2.0
+#endif
+void function MpAbilityEMPDrone_Init()
+{
+#if SERVER
+    RegisterSignal( "ActivateDroneEMP" )
+    RegisterSignal( "DroneRecall" )
+    RegisterSignal( "LeaveScanTrigger" )
+    RegisterSignal( "DroneThinkStart" )
+    RegisterSignal( "DroneThinkEnd" )
+    AddCallback_OnClientConnected( InitPlayerDroneStat )
+    //AddDamageCallbackSourceID
+#endif
+}
+
+var function OnAbilityStart_EMPDrone( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+#if SERVER
+    entity owner = weapon.GetWeaponOwner()
+    if( !owner.IsPlayer() )
+        return 0
+    owner.HolsterWeapon()
+    vector origin = attackParams.pos
+    vector angles = VectorToAngles( attackParams.dir )
+
+    entity drone = CreateNPC( "npc_drone", owner.GetTeam(), origin, angles )
+    drone.EnableNPCFlag( NPC_DISABLE_SENSING )
+    drone.SetOwner( owner )
+	drone.SetBossPlayer( owner )
+    drone.kv.modelscale = 0.5
+    TakeAllWeapons( drone )
+    drone.SetNameVisibleToEnemy( false )
+    Highlight_SetOwnedHighlight( drone, "sp_friendly_hero" )
+    DispatchSpawn( drone )
+
+    entity scanTrigger = CreateEntity( "trigger_cylinder" )
+	scanTrigger.SetRadius( DRONE_SCAN_RADIUS )
+	scanTrigger.SetAboveHeight( DRONE_SCAN_RADIUS * 0.5 )
+	scanTrigger.SetBelowHeight( DRONE_SCAN_RADIUS * 0.5 )
+	scanTrigger.SetOrigin( drone.GetOrigin() )
+	scanTrigger.SetParent( drone, "HEADSHOT" )
+	DispatchSpawn( scanTrigger )
+    scanTrigger.SetLeaveCallback( OnScanTriggerLeave )
+
+	//animate the drone properly from the player's hand
+	//thread PlayAnimTeleport( drone, "dr_activate_drone_indoor", origin, angles )
+    //thread PlayAnim( drone, "dr_activate_drone_indoor" )
+    
+    entity droneMover = CreateExpensiveScriptMover( origin, angles )
+	drone.SetParent( droneMover, "REF" )
+    TraceResults traceResult = TraceLine( owner.EyePosition(), owner.EyePosition() + attackParams.dir * DRONE_FLIGHT_DISTANCE, [ owner, drone ], (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+    droneMover.MoveTo( traceResult.endPos, DRONE_FLIGHT_DURATION, 0.25, 0.1 )
+    thread DelayedDestroyMover( drone, droneMover, DRONE_FLIGHT_DURATION + 1.0 )
+
+    thread DelayedRestoreWeapon( owner )
+    //thread DroneSolidDelayed( drone, 1.0 )
+
+    // main control functions
+    thread CameraDroneThink( owner, weapon, drone, scanTrigger )
+    thread DroneRecallThink( owner, weapon, drone )
+    thread DroneEMPThink( owner, weapon, drone )
+
+    weapon.SetWeaponPrimaryClipCountAbsolute( 0 )
+#endif
+}
+
+#if SERVER
+void function InitPlayerDroneStat( entity player )
+{
+    player.s.empDrone <- null               // entity
+    player.s.lastEmpActivateTime <- Time()  // float
+    player.s.inCameraDrone <- false              // bool
+}
+
+void function OnScanTriggerLeave( entity trigger, entity ent )
+{
+    if( ent.IsPlayer() )
+        ent.Signal( "LeaveScanTrigger" )
+}
+
+void function CameraDroneThink( entity player, entity weapon, entity drone, entity scanTrigger )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    weapon.EndSignal( "OnDestroy" )
+    drone.EndSignal( "OnDestroy" )
+
+    int buttonToRegister = GetDroneWeaponInput( weapon )
+    AddButtonPressedPlayerInputCallback( player, buttonToRegister, EMPActivateCheck )
+	AddPlayerHeldButtonEventCallback( player, buttonToRegister, DroneRecallCheck, 0.3 )
+
+    OnThreadEnd( 
+        function(): ( player, drone, scanTrigger, buttonToRegister )
+        {
+            print( "CameraDroneThink End!" )
+            if( IsValid( player ) )
+            {
+                player.s.empDrone = null
+                RemoveButtonPressedPlayerInputCallback( player, buttonToRegister, EMPActivateCheck )
+	            RemovePlayerHeldButtonEventCallback( player, buttonToRegister, DroneRecallCheck, 0.3 )
+            }
+            if( IsValid( drone ) )
+            {
+                drone.ClearParent()
+                drone.SetHealth( 0 )
+            }
+            if( IsValid( scanTrigger ) )
+            {
+                scanTrigger.ClearParent()
+                scanTrigger.Destroy()
+            }
+        }
+    )
+    player.s.empDrone = drone
+
+    while( true )
+    {
+        wait DRONE_SCAN_TICKRATE
+        array<entity> nearbyEnemies = GetPlayerArrayEx( "any", drone.GetTeam(), TEAM_ANY, drone.GetOrigin(), DRONE_SCAN_RADIUS )
+        foreach( entity enemy in nearbyEnemies )
+        {
+            if( CheckScanningTarget( enemy, drone ) )
+                thread DroneScanSonarThink( enemy, drone )
+        }
+    }
+}
+
+void function DroneScanSonarThink( entity player, entity drone )
+{
+    int team = drone.GetTeam()
+    player.s.inCameraDrone = true
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    drone.EndSignal( "OnDeath" )
+
+    OnThreadEnd(
+        function(): ( player, team )
+        {
+            if( IsValid( player ) )
+            {
+                SonarEnd( player, team )
+                player.s.inCameraDrone = false
+            }
+        }
+    )
+    SonarStart( player, drone.GetOrigin(),team , drone.GetOwner() )
+    player.WaitSignal( "LeaveScanTrigger" )
+}
+
+void function DroneRecallThink( entity player, entity weapon, entity drone )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    weapon.EndSignal( "OnDestroy" )
+    drone.EndSignal( "OnDestroy" )
+
+    player.WaitSignal( "DroneRecall" )
+    waitthread DroneRecalling( drone )
+    weapon.SetWeaponPrimaryClipCountAbsolute( weapon.GetWeaponPrimaryClipCountMax() )
+}
+
+void function DroneRecalling( entity drone )
+{
+    drone.EndSignal( "OnDestroy" )
+    entity recallMover = CreateScriptMover( drone.GetOrigin(), drone.GetAngles() )
+	drone.SetParent( recallMover, "REF" )
+    wait DRONE_RECALL_DELAY
+    recallMover.NonPhysicsMoveTo( drone.GetOrigin() + < 0,0,3000 >, 2, 0, 0 )
+    drone.SetInvulnerable()
+    drone.NotSolid()
+    waitthread DelayedDestroyMover( drone, recallMover, 1 )
+    drone.Destroy()
+}
+
+void function DroneEMPThink( entity player, entity weapon, entity drone )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    weapon.EndSignal( "OnDestroy" )
+    drone.EndSignal( "OnDestroy" )
+
+    while( true )
+    {
+        player.WaitSignal( "ActivateDroneEMP" )
+        waitthread DroneEMPAttack( drone )
+    }
+}
+
+void function DroneEMPAttack( entity drone )
+{
+
+}
+
+bool function CheckScanningTarget( entity target, entity drone )
+{
+    if( !IsValid( target ) || !IsValid( drone ) )
+        return false
+    if( !target.IsPlayer() )
+        return false
+    if( target.s.inCameraDrone )
+        return false
+    if( !IsAlive( target ) )
+        return false
+    if( target.IsPhaseShifted() )
+        return false
+    if( target.GetTeam() == drone.GetTeam() )
+        return false
+    vector targetPos = target.EyePosition()
+    targetPos.z = ( target.EyePosition().z + target.GetOrigin().z ) * 0.5
+    vector projPos = drone.GetOrigin()
+
+    TraceResults traceResult = TraceLine( targetPos, projPos, [target, drone], (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+    if( traceResult.hitEnt == null )
+        return true
+
+    return false
+}
+
+void function DroneSolidDelayed( entity drone, float delay )
+{
+    drone.NotSolid()
+	drone.EndSignal( "OnDestroy" )
+	wait delay // wait for custom scale to finish in the animation
+	drone.Solid()
+}
+
+void function EMPActivateCheck( entity player )
+{
+    if( player.IsInputCommandHeld( IN_USE ) || player.IsInputCommandHeld( IN_USE_AND_RELOAD ) )
+    {
+        float timeLeft = float( player.s.lastEmpActivateTime ) + DRONE_EMP_COOLDOWN - Time()
+        if( timeLeft > 0 )
+        {
+            SendHudMessage( player, "无人机电子脉冲未冷却完毕\n需要: " + string( int( timeLeft ) ), -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
+            return
+        }
+        player.Signal( "ActivateDroneEMP" )
+    }
+}
+
+void function DroneRecallCheck( entity player )
+{
+    player.Signal( "DroneRecall" )
+}
+
+void function DelayedDestroyMover( entity drone, entity mover, float delay )
+{
+    wait delay
+    if( IsValid( drone ) )
+        drone.ClearParent()
+    if( IsValid( mover ) )
+    {
+        mover.ClearParent()
+        mover.Destroy()
+    }
+}
+
+void function DelayedRestoreWeapon( entity player )
+{
+    wait 1
+    if( IsValid( player ) )
+        player.DeployWeapon()
+}
+
+int function GetDroneWeaponInput( entity weapon )
+{
+    switch( GetDroneWeaponSlot( weapon ) )
+    {
+        case 0:
+            return IN_OFFHAND0
+        case 1:
+            return IN_OFFHAND1
+        case 2:
+            return IN_OFFHAND2
+        // no IN_OFFHAND3, since it's for titan cores
+        case 4:
+            return IN_OFFHAND4
+    }
+    return IN_OFFHAND0
+}
+
+int function GetDroneWeaponSlot( entity weapon )
+{
+    entity owner = weapon.GetWeaponOwner()
+    if( !owner.IsPlayer() )
+        return 0
+    foreach( int index, entity offhand in owner.GetOffhandWeapons() )
+    {
+        if( index == OFFHAND_EQUIPMENT ) // titan core
+            continue
+        if( index > 4 ) // more than burncards
+            return 0
+        if( offhand == weapon )
+            return index
+    }
+
+    return 0
+}
+#endif

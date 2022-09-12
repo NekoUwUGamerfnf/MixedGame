@@ -1,0 +1,125 @@
+untyped
+
+#if SERVER
+
+global function SonarGrenadeThink_Softball
+#endif
+
+#if SERVER
+struct
+{
+	table< entity, array<int> > entitySonarHandles
+	table< int, int > teamSonarCount
+	array< void functionref( entity, vector, int, entity ) > sonarStartCallbacks = []
+} file
+
+void function SonarGrenadeThink_Softball( entity projectile )
+{
+	projectile.EndSignal( "OnDestroy" )
+
+	entity weaponOwner = projectile.GetOwner()
+
+	int team = projectile.GetTeam()
+	vector pulseOrigin = projectile.GetOrigin()
+	array<entity> ents = []
+
+	entity trigger = CreateTriggerRadiusMultiple( pulseOrigin, SONAR_GRENADE_RADIUS, ents, TRIG_FLAG_START_DISABLED | TRIG_FLAG_NO_PHASE_SHIFT )
+	SetTeam( trigger, team )
+	trigger.SetOwner( projectile.GetOwner() )
+
+	IncrementSonarPerTeam( team )
+
+	//entity owner = projectile.GetThrower()
+	entity owner = projectile.GetOwner()
+	if ( IsValid( owner ) && owner.IsPlayer() )
+	{
+		array<entity> offhandWeapons = owner.GetOffhandWeapons()
+		array<entity> mainWeapons = owner.GetMainWeapons()
+		foreach ( weapon in offhandWeapons )
+		{
+			//if ( weapon.GetWeaponClassName() == grenade.GetWeaponClassName() ) // function doesn't exist for grenade entities
+			if ( weapon.GetWeaponClassName() == "mp_weapon_grenade_sonar" )
+			{
+				float duration = weapon.GetWeaponSettingFloat( eWeaponVar.grenade_ignition_time ) + 0.75 // buffer cause these don't line up
+				StatusEffect_AddTimed( weapon, eStatusEffect.simple_timer, 1.0, duration, duration )
+				break
+			}
+		}
+	}
+
+
+	OnThreadEnd(
+		function() : ( projectile, trigger, team )
+		{
+			DecrementSonarPerTeam( team )
+			trigger.Destroy()
+			if ( IsValid( projectile ) )
+				projectile.Destroy()
+		}
+	)
+
+	AddCallback_ScriptTriggerEnter( trigger, OnSonarTriggerEnter )
+	AddCallback_ScriptTriggerLeave( trigger, OnSonarTriggerLeave )
+
+	ScriptTriggerSetEnabled( trigger, true )
+
+	if ( IsValid( weaponOwner ) && weaponOwner.IsPlayer() )
+	{
+		EmitSoundOnEntityExceptToPlayer( projectile, weaponOwner, "Pilot_PulseBlade_Activated_3P" )
+		EmitSoundOnEntityOnlyToPlayer( projectile, weaponOwner, "Pilot_PulseBlade_Activated_1P" )
+	}
+	else
+	{
+		EmitSoundOnEntity( projectile, "Pilot_PulseBlade_Activated_3P" )
+	}
+
+	while ( IsValid( projectile ) )
+	{
+		pulseOrigin = projectile.GetOrigin()
+		trigger.SetOrigin( pulseOrigin )
+
+		array<entity> players = GetPlayerArrayOfTeam( team )
+
+		foreach ( player in players )
+		{
+			Remote_CallFunction_Replay( player, "ServerCallback_SonarPulseFromPosition", pulseOrigin.x, pulseOrigin.y, pulseOrigin.z, SONAR_GRENADE_RADIUS )
+		}
+
+		wait 1.3333
+		if ( IsValid( projectile ) )
+		{
+			if ( IsValid( weaponOwner ) && weaponOwner.IsPlayer() )
+			{
+				EmitSoundOnEntityExceptToPlayer( projectile, weaponOwner, "Pilot_PulseBlade_Sonar_Pulse_3P" )
+				EmitSoundOnEntityOnlyToPlayer( projectile, weaponOwner, "Pilot_PulseBlade_Sonar_Pulse_1P" )
+			}
+			else
+			{
+				EmitSoundOnEntity( projectile, "Pilot_PulseBlade_Sonar_Pulse_3P" )
+			}
+		}
+	}
+}
+
+void function OnSonarTriggerEnter( entity trigger, entity ent )
+{
+	if ( !IsEnemyTeam( trigger.GetTeam(), ent.GetTeam() ) )
+		return
+
+	if ( ent.e.sonarTriggers.contains( trigger ) )
+		return
+
+	ent.e.sonarTriggers.append( trigger )
+	SonarStart( ent, trigger.GetOrigin(), trigger.GetTeam(), trigger.GetOwner() )
+}
+
+void function OnSonarTriggerLeave( entity trigger, entity ent )
+{
+	int triggerTeam = trigger.GetTeam()
+	if ( !IsEnemyTeam( triggerTeam, ent.GetTeam() ) )
+		return
+
+	OnSonarTriggerLeaveInternal( trigger, ent )
+}
+
+#endif

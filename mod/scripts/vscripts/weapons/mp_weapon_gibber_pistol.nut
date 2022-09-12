@@ -1,0 +1,95 @@
+untyped
+
+global function OnWeaponPrimaryAttack_weapon_gibber_pistol
+global function OnProjectileCollision_weapon_gibber_pistol
+#if SERVER
+global function OnWeaponNpcPrimaryAttack_weapon_gibber_pistol
+#endif // #if SERVER
+
+const FUSE_TIME 			= 0.5 //Applies once the grenade has stuck to a surface.
+const MAX_BONUS_VELOCITY	= 1250
+
+var function OnWeaponPrimaryAttack_weapon_gibber_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	if( weapon.HasMod( "gibber_pistol" ) || weapon.HasMod( "grenade_pistol" ) )
+	{
+		entity player = weapon.GetWeaponOwner()
+
+		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+		vector bulletVec = ApplyVectorSpread( attackParams.dir, player.GetAttackSpreadAngle() )
+		attackParams.dir = bulletVec
+
+		if ( IsServer() || weapon.ShouldPredictProjectiles() )
+		{
+			FireGrenade( weapon, attackParams )
+		}
+	}
+	else
+	{
+		//entity weaponOwner = weapon.GetWeaponOwner()
+		//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
+		//attackParams.dir = bulletVec
+		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, weapon.GetWeaponDamageFlags() )
+	}
+}
+
+#if SERVER
+var function OnWeaponNpcPrimaryAttack_weapon_gibber_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+	FireGrenade( weapon, attackParams, true )
+}
+#endif // #if SERVER
+
+function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isNPCFiring = false )
+{
+	//vector attackAngles = VectorToAngles( attackParams.dir )
+	//attackAngles.x -= 2
+	//attackParams.dir = AnglesToForward( attackAngles )
+
+	entity owner = weapon.GetWeaponOwner()
+	vector attackVec = attackParams.dir
+	vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
+	float fuseTime = 0.0
+	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackVec, angularVelocity, fuseTime, damageTypes.pinkMist, damageTypes.pinkMist, !isNPCFiring, true, false )
+
+	if ( nade )
+	{
+		#if SERVER
+			if( weapon.HasMod( "silencer" ) )
+				EmitSoundOnEntityExceptToPlayer( owner, owner, "Weapon_p2011_FireSuppressed_3P" )
+			else
+				EmitSoundOnEntityExceptToPlayer( owner, owner, "Weapon_P2011_Fire_3P" )
+			thread DelayedStartParticleSystem( nade )
+			EmitSoundOnEntity( nade, "Weapon_GibberPistol_Grenade_Emitter" )
+			Grenade_Init( nade, weapon )
+		#else
+			entity weaponOwner = weapon.GetWeaponOwner()
+			SetTeam( nade, weaponOwner.GetTeam() )
+		#endif
+	}
+}
+
+// trail fix
+void function DelayedStartParticleSystem( entity nade )
+{
+    WaitFrame()
+    if( IsValid( nade ) )
+        StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_frag_mag" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+}
+
+void function OnProjectileCollision_weapon_gibber_pistol( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+	array<string> mods = projectile.ProjectileGetMods()
+	if( mods.contains( "gibber_pistol" ) )
+	{
+		bool didStick = PlantSuperStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+		if ( !didStick )
+			return
+		#if SERVER
+		projectile.SetGrenadeTimer( FUSE_TIME )
+		#endif
+	}
+	else if( mods.contains( "grenade_pistol" ) )
+		return
+}

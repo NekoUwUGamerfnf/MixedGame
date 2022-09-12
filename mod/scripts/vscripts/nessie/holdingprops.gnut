@@ -1,0 +1,129 @@
+global function HoldingUp_Props_Init
+
+global function ButtonCallbackForEveryone
+
+table<string, bool> playerPickUpTable = {} // true = holding something
+array<entity> hasInputPlayer = []
+const float HOLDING_PROP_TICK = 0.1 // WaitFrame() value
+
+void function HoldingUp_Props_Init()
+{
+    AddCallback_OnClientConnected( OnClientConnected )
+}
+
+void function OnClientConnected( entity player )
+{
+	playerPickUpTable[player.GetUID()] <- false
+	ButtonCallbackSetting( player )
+}
+
+void function ButtonCallbackForEveryone()
+{
+	foreach( entity player in GetPlayerArray() )
+	{
+		if( !hasInputPlayer.contains( player ) )
+		{
+			ButtonCallbackSetting( player )
+			hasInputPlayer.append( player )
+		}
+	}
+}
+
+void function ButtonCallbackSetting( entity player )
+{
+	AddButtonPressedPlayerInputCallback( player, IN_USE, PickUpEntity )
+	AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, PickUpEntity )
+}
+
+void function PickUpEntity( entity player )
+{
+	string uid = player.GetUID()
+	if( playerPickUpTable[uid] )
+	{
+		playerPickUpTable[uid] = false
+		return
+	}
+	
+	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * 300, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	entity holdingProp = traceResult.hitEnt
+	if( !IsValid( holdingProp ) )
+	{
+		//Chat_ServerPrivateMessage( player, "目标不可用", false )
+		return
+	}
+	if( holdingProp.GetClassName() != "prop_dynamic" && holdingProp.GetClassName() != "prop_physics" )
+	{
+		//Chat_ServerPrivateMessage( player, "不可用的类型, 目标为: " + traceResult.hitEnt.GetClassName(), false )
+		return
+	}
+	if( holdingProp.GetOwner() != null || holdingProp.GetBossPlayer() != null )
+	{
+		//Chat_ServerPrivateMessage( player, "该物体拥有主人", false )
+		return
+	}
+	if( holdingProp.GetParent() != null )
+	{
+		//Chat_ServerPrivateMessage( player, "已有一人在控制该物体", false )
+		return
+	}
+	thread PlayerHoldingThink( player, holdingProp )
+}
+
+void function PlayerHoldingThink( entity player, entity holdingProp )
+{
+	string uid = player.GetUID()
+	playerPickUpTable[uid] = true
+	//entity beam = CreateEnvBeam( player, player, holdingProp )
+	entity mover = CreateEntity( "script_mover" )
+	mover.kv.SpawnAsPhysicsMover = 0
+	mover.SetValueForModelKey( $"models/dev/empty_model.mdl" )
+	mover.SetOrigin( holdingProp.GetOrigin() )
+	DispatchSpawn( mover )
+	//holdingProp.StopPhysics()
+	holdingProp.SetParent( mover )
+
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	holdingProp.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function(): ( player, holdingProp, mover, uid ) //( player, holdingProp, beam, mover )
+		{
+			playerPickUpTable[uid] = false
+			if( IsValid( holdingProp ) )
+				holdingProp.ClearParent()
+			if( IsValid( player ) && IsValid( holdingProp ) )
+			{
+				//holdingProp.StopPhysics()
+				holdingProp.SetVelocity( player.GetVelocity() )
+			}
+			//if( IsValid( beam ) )
+			//	beam.Destroy()
+			if( IsValid( mover ) )
+				mover.Destroy()
+		}
+	)
+
+	while( true )
+	{
+		wait HOLDING_PROP_TICK
+		vector eyePosition = player.EyePosition()
+		vector eyeAngle = player.EyeAngles()
+		vector holdingOffset = player.GetViewVector() * 100
+		TraceResults traceResult = TraceLine( eyePosition, eyePosition + holdingOffset, [ player, holdingProp ], (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+		if( !IsValid( traceResult.hitEnt ) )
+		{
+			mover.NonPhysicsMoveTo( eyePosition + holdingOffset, HOLDING_PROP_TICK + 0.0001, 0, 0 )
+			//holdingProp.SetOrigin( eyePosition + holdingOffset )
+		}
+		else
+		{
+			mover.NonPhysicsMoveTo( traceResult.endPos, HOLDING_PROP_TICK + 0.0001, 0, 0 )
+			//holdingProp.SetOrigin( traceResult.endPos )
+		}
+		//holdingProp.SetVelocity( < 0,0,0 > )
+		holdingProp.SetAngles( eyeAngle )
+		if( !playerPickUpTable[uid] )
+			break
+	}
+}

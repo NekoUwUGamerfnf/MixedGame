@@ -1,0 +1,214 @@
+global function CustomDamageEffect_Init
+
+global function Wargames_SetPlayerDissolveDisabled // defined for wargames, since level scripts don't load till enter level
+global function Wargames_IsPlayerDissolveDisabled
+
+struct
+{
+    bool playerDissolveDisabled = false
+} file
+
+void function CustomDamageEffect_Init()
+{
+    AddCallback_OnClientConnected( OnClientConnected )
+    AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+    AddCallback_OnPlayerKilled( OnPlayerKilled )
+    Wargames_SetPlayerDissolveDisabled( true ) // disable wargame dissolve for players
+
+    // uses npcs to test
+    //AddCallback_OnNPCKilled( OnPlayerKilled )
+    //AddSpawnCallback( "npc_soldier", TestCallback )
+}
+
+void function Wargames_SetPlayerDissolveDisabled( bool disabled )
+{
+	file.playerDissolveDisabled = disabled
+}
+
+bool function Wargames_IsPlayerDissolveDisabled()
+{
+    return file.playerDissolveDisabled
+}
+
+void function OnClientConnected( entity player )
+{
+    AddEntityCallback_OnDamaged( player, OnPlayerDamaged )
+}
+
+void function OnPlayerRespawned( entity player )
+{
+    player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // defensive fix for round ends
+}
+
+void function TestCallback( entity soldier )
+{
+    AddEntityCallback_OnDamaged( soldier, OnPlayerDamaged )
+}
+
+void function OnPlayerDamaged( entity player, var damageInfo )
+{
+    //if( player.IsMechanical() )
+        //thread RebootFX( player )
+}
+
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+    if( GetGameState() != eGameState.Playing || DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.round_end )
+        return // prevent do these ragdoll things between rounds
+    if( victim.IsTitan() )
+        return
+
+    int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+    switch( RandomInt( 4 ) )
+    {
+        case 0:
+            thread ShieldBrokeDeath( victim )
+            break
+        case 1:
+            if( !( damageType & DF_DISSOLVE ) ) // don't dissolve again
+                victim.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 ) //ENTITY_DISSOLVE_PINKMIST
+            EmitSoundOnEntity( victim, "Object_Dissolve" )
+            victim.BecomeRagdoll( < 0,0,0 >, false ) // stop death anim! or player will be like "flash" once
+            break
+        case 2:
+            if( !( damageType & DF_GIB ) ) // don't gib again
+                victim.Gib( < 0,0,0 > ) // gib death!
+            if( !victim.IsMechanical() )
+                EmitSoundAtPosition( TEAM_UNASSIGNED, victim.GetOrigin(), "death.pinkmist" )
+            break
+        case 3:
+            //RemoveMessingDamageType( damageInfo )
+            if( IsKnockbackDamageType( damageInfo ) )
+                thread EMP_FX_KILLING( $"P_emp_body_human", victim, "CHESTFOCUS", 2.5 )
+            else
+                thread EMPDeathAnim( victim )
+            break
+    }
+}
+
+bool function IsKnockbackDamageType( var damageInfo )
+{
+    int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+    // these will trigger "knockback" deathpackage in sh_death_package.gnut which will break ragdoll and animation
+    if( damageType & ( DF_KNOCK_BACK | DF_MELEE | DF_TITAN_STEP ) ) 
+        return true
+    
+    return false
+}
+
+void function RemoveMessingDamageType( var damageInfo )
+{
+    int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+
+    // these will trigger "knockback" deathpackage in sh_death_package.gnut which will break ragdoll and animation
+    if( damageType & DF_KNOCK_BACK ) 
+        DamageInfo_RemoveCustomDamageType( damageInfo, DF_KNOCK_BACK )
+    if( damageType & DF_MELEE ) 
+        DamageInfo_RemoveCustomDamageType( damageInfo, DF_MELEE )
+    if( damageType & DF_TITAN_STEP ) 
+        DamageInfo_RemoveCustomDamageType( damageInfo, DF_TITAN_STEP )
+}
+
+void function ShieldBrokeDeath( entity player )
+{
+    // shield broke: $"P_xo_armor_break_CP"
+    // shield damage: $"P_xo_armor_body_CP"
+    int shieldbodyFX = GetParticleSystemIndex( $"P_xo_armor_break_CP" )
+	int attachID = player.LookupAttachment( "CHESTFOCUS" )
+
+    EmitSoundOnEntity( player, "titan_energyshield_damage" )
+    EmitSoundOnEntity( player, "titan_energyshield_down" )
+	entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( player, shieldbodyFX, FX_PATTACH_POINT_FOLLOW, attachID )
+    shieldFXHandle.EndSignal( "OnDestroy" )
+    EffectSetControlPointVector( shieldFXHandle, 1, < 200, 80, 80 > )
+
+    wait 2.5
+    EffectStop( shieldFXHandle )
+}
+
+vector function GetShieldEffectCurrentColor( float healthFrac )
+{
+	vector color1 = < 115, 247, 255 > // blue
+	vector color2 = < 200, 128, 80 > // orange
+	vector color3 = < 200, 80, 80 > // red
+
+	float crossover1 = 0.75  // SHIELD_COLOR_CROSSOVERFRAC_FULL2MED: from zero to this fraction, fade between color1 and color2
+	float crossover2 = 0.95  // SHIELD_COLOR_CROSSOVERFRAC_MED2EMPTY: from crossover1 to this fraction, fade between color2 and color3
+
+	vector colorVec = < 0, 0, 0 >
+	// 0 = full charge, 1 = no charge remaining
+	if ( healthFrac < crossover1 )
+	{
+		colorVec.x = Graph( healthFrac, 0, crossover1, color1.x, color2.x )
+		colorVec.y = Graph( healthFrac, 0, crossover1, color1.y, color2.y )
+		colorVec.z = Graph( healthFrac, 0, crossover1, color1.z, color2.z )
+	}
+	else if ( healthFrac < crossover2 )
+	{
+		colorVec.x = Graph( healthFrac, crossover1, crossover2, color2.x, color3.x )
+		colorVec.y = Graph( healthFrac, crossover1, crossover2, color2.y, color3.y )
+		colorVec.z = Graph( healthFrac, crossover1, crossover2, color2.z, color3.z )
+	}
+	else
+	{
+		// for the last bit of overload timer, keep it max danger color
+		colorVec.x = color3.x
+		colorVec.y = color3.y
+		colorVec.z = color3.z
+	}
+
+	return colorVec
+}
+
+void function EMPDeathAnim( entity player )
+{
+    player.EndSignal( "OnDestroy" )
+    svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // defensive fix for round ends
+    thread EMP_FX_KILLING( $"P_emp_body_human", player, "CHESTFOCUS", 2.5 )
+    player.Anim_Play( "ACT_STUNNED" )
+    wait 2.5
+    player.BecomeRagdoll( < 0,0,0 >, false ) // stop current anim and die
+}
+
+void function EMP_FX_KILLING( asset effect, entity ent, string tag, float duration )
+{
+    ent.EndSignal( "OnDestroy" )
+
+	int fxId = GetParticleSystemIndex( effect )
+	int attachId = ent.LookupAttachment( tag )
+
+	entity fxHandle = StartParticleEffectOnEntity_ReturnEntity( ent, fxId, FX_PATTACH_POINT_FOLLOW, attachId )
+
+	OnThreadEnd(
+		function() : ( fxHandle, ent )
+		{
+			if ( IsValid( fxHandle ) )
+			{
+				EffectStop( fxHandle )
+			}
+
+			if ( IsValid( ent ) )
+				StopSoundOnEntity( ent, "Titan_Blue_Electricity_Cloud" )
+		}
+	)
+
+    EmitSoundOnEntity( ent, "Titan_Blue_Electricity_Cloud" )
+    wait duration
+}
+
+void function RebootFX( entity ent, float duration = 0.5 )
+{
+    ent.EndSignal( "OnDestroy" )
+    entity fx = PlayFXOnEntity( $"wpn_arc_cannon_beam", ent, "CHESTFOCUS" )  // $"acl_light_white"
+
+    OnThreadEnd(
+        function(): ( fx )
+        {
+            if( IsValid( fx ) )
+                EffectStop( fx )
+        }
+    )
+
+    wait duration
+    
+}

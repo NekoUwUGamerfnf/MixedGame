@@ -1,0 +1,373 @@
+untyped
+
+global function TauntRandom_Init
+
+struct CustomStat
+{
+	asset model
+	vector origin
+	int skinindex
+	int camoindex
+}
+
+const array<string> allowedplayers = [""]
+
+const asset JACK_MODEL = $"models/humans/heroes/mlt_hero_jack.mdl"
+const asset SARAH_MODEL = $"models/humans/heroes/mlt_hero_sarah.mdl"
+const asset BARKER_MODEL = $"models/humans/heroes/mlt_hero_barker.mdl"
+const asset GATES_MODEL = $"models/humans/pilots/sp_medium_geist_f.mdl"
+const asset BLISK_MODEL = $"models/humans/heroes/imc_hero_blisk.mdl"
+const asset MARDER_MODEL = $"models/humans/heroes/imc_hero_marder.mdl"
+const asset ASH_MODEL = $"models/humans/heroes/imc_hero_ash.mdl"
+const asset MARVIN_MODEL = $"models/robots/marvin/marvin.mdl"
+const asset FLASK_MODEL = $"models/props/flask/prop_flask_animated.mdl"
+const asset PISTOL_MODEL = $"models/Weapons/p2011/w_p2011.mdl"
+
+const array<string> drozDropshipAnims = [ "commander_DLC_flyin_Droz_finally", "commander_DLC_flyin_Droz_everytime", "commander_DLC_flyin_Droz_brother" ]
+const array<asset> drozDropshipProps = [ FD_MODEL_DROZ_TABLET_PROP, FD_MODEL_DROZ_TABLET_PROP, DATA_KNIFE_MODEL ]
+const array<string> davisDropshipAnims = [ "commander_DLC_flyin_Davis_finally", "commander_DLC_flyin_Davis_everytime", "commander_DLC_flyin_Davis_brother" ]
+const array<string> sarahDropshipAnims = [ "commander_MP_flyin_sarah", "commander_MP_flyin_sarah_silent", "commander_MP_flyin_sarah_alt" ]
+const array<asset> sarahDropshipProps = [ PISTOL_MODEL, PISTOL_MODEL ]
+const array<string> barkerDropshipAnims = [ "commander_MP_flyin_barker_victory", "commander_MP_flyin_barker", "commander_MP_flyin_barker_conductor", "commander_MP_flyin_barker_sit" ]
+const array<asset> barkerDropshipProps = [ FLASK_MODEL, FLASK_MODEL, FLASK_MODEL, FLASK_MODEL ]
+const array<string> gatesDropshipAnims = [  ]
+const array<asset> gatesDropshipProps = [ PISTOL_MODEL ]
+const array<string> bliskDropshipAnims = [ "commander_MP_flyin_blisk_silent", "commander_MP_flyin_blisk_alt1", "commander_MP_flyin_blisk_betta", "commander_MP_flyin_blisk", "commander_MP_flyin_blisk_alt3", "commander_MP_flyin_blisk_born" ]
+const array<asset> bliskDropshipProps = [ DATA_KNIFE_MODEL, DATA_KNIFE_MODEL, DATA_KNIFE_MODEL ]
+const array<string> marderDropshipAnims = [ "commander_MP_flyin_Marder", "commander_MP_flyin_Marder_alt1", "commander_MP_flyin_Marder_alt2" ]
+const array<string> ashDropshipAnims = [  ]
+const array<string> marvinDropshipAnims = [ "commander_MP_flyin_marvin_freestyle", "commander_MP_flyin_marvin_glitch", "commander_MP_flyin_marvin_greeter", "commander_MP_flyin_marvin_highfive", "commander_MP_flyin_marvin_salute" ]
+
+array<string> tauntingplayers = []
+
+void function TauntRandom_Init()
+{
+	AddCallback_OnClientConnected( OnClientConnected )
+}
+
+void function OnClientConnected( entity player )
+{
+	AddButtonPressedPlayerInputCallback( player, IN_MELEE, CallbackFuncRandomTaunt )
+}
+
+void function CallbackFuncRandomTaunt( entity player )
+{
+	if( !tauntingplayers.contains( player.GetUID() ) )
+		thread CheckModelAndPlayAnim( player )
+}
+
+void function CheckModelAndPlayAnim( entity player )
+{
+	if( !IsAlive( player ) )
+		return
+	if( !IsPilot( player ) )
+		return
+	if( !player.IsOnGround() || player.IsWallRunning() )
+		return
+	if( !GamePlaying() )
+		return
+	//if( !allowedplayers.contains( player.GetUID() ) )
+		//return
+	if( !tauntingplayers.contains( player.GetUID() ) )
+		tauntingplayers.append( player.GetUID() )
+
+	/*
+	if( player.GetModelName() == SARAH_MODEL )
+		thread PlayerAnimPlay( player, sarahDropshipAnims, sarahDropshipProps )
+	else if( player.GetModelName() == BLISK_MODEL )
+		thread PlayerAnimPlay( player, bliskDropshipAnims, bliskDropshipProps )
+	*/
+	//else
+	//{
+		switch( RandomInt( 6 ) )
+		{
+			case 0:
+				thread DrozAnimPlay( player )
+				break
+			case 1:
+				thread DavisAnimPlay( player )
+				break
+			case 2:
+				thread ModdedAnimPlay( player, barkerDropshipAnims, BARKER_MODEL, barkerDropshipProps )
+				break
+			case 3:
+				thread ModdedAnimPlay( player, marderDropshipAnims, MARDER_MODEL )
+				break
+			case 4:
+				thread PlayerAnimPlay( player, sarahDropshipAnims, sarahDropshipProps, SARAH_MODEL )
+				break
+			case 5:
+				thread PlayerAnimPlay( player, bliskDropshipAnims, bliskDropshipProps, BLISK_MODEL )
+				break
+			//case 6: // marvin being gibbed sometimes crashes client, and they don't have a "ORIGIN" attachment
+				//thread ModdedAnimPlay( player, marvinDropshipAnims, MARVIN_MODEL )
+				//break
+		}
+	//}
+}
+
+void function ThirdPersonCameraThink( entity player )
+{
+	entity camera = CreateEntity( "point_viewcontrol" )
+	OnThreadEnd(
+		function(): ( player, camera )
+		{
+			if( IsValid( camera ) )
+				camera.Destroy()
+			if( IsValid( player ) )
+				player.ClearViewEntity()
+		}
+	)
+	camera.EndSignal( "OnDestroy" )
+	camera.SetParent( player, "ORIGIN" )
+	camera.SetOrigin( < -100,0,80 > )
+	camera.kv.spawnflags = 56
+	DispatchSpawn( camera )
+	player.SetViewEntity( camera, true )
+	WaittillAnimDone( player )
+}
+
+void function DrozAnimPlay( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	int dropshipAnimIndex = RandomInt( drozDropshipAnims.len() )
+	CustomStat savedstats = GetPlayerPreviousStat( player )
+	entity drozProp = CreatePropDynamic( drozDropshipProps[ dropshipAnimIndex ] )
+	drozProp.MarkAsNonMovingAttachment()
+	drozProp.SetParent( player, "R_HAND" )
+	entity davis = CreatePropDynamic( FD_MODEL_DAVIS )
+	davis.MarkAsNonMovingAttachment()
+	string davisAnim = davisDropshipAnims[ dropshipAnimIndex ]
+	string drozAnim = drozDropshipAnims[ dropshipAnimIndex ]
+
+	HolsterAndDisableWeapons( player )
+	thread ThirdPersonCameraThink( player )
+	player.SetOrigin( player.GetOrigin() + < 0, 0, 65 > )
+	thread PlayAnim( player, drozAnim, player )
+	thread PlayAnim( davis, davisAnim, player )
+	thread DelayedStopIntroSound( player )
+
+	OnThreadEnd(
+		function(): ( player, savedstats, davis, drozProp )
+		{
+			if( IsValid( player ) )
+			{
+				DeployAndEnableWeapons( player )
+				player.Anim_Stop()
+				tauntingplayers.fastremovebyvalue( player.GetUID() )
+				//if( IsAlive( player ) ) // do need reset stat after death
+				ResetPlayerStat( player, savedstats )
+				if( IsValid( davis ) )
+					davis.Destroy()
+				if( IsValid( drozProp ) )
+					drozProp.Destroy()
+			}
+		}
+	)
+	WaittillAnimDone( player )
+}
+
+void function DavisAnimPlay( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	int dropshipAnimIndex = RandomInt( davisDropshipAnims.len() )
+	CustomStat savedstats = GetPlayerPreviousStat( player )
+	entity droz = CreatePropDynamic( FD_MODEL_DROZ )
+	droz.MarkAsNonMovingAttachment()
+	droz.SetSkin( 2 ) //FD only skin; replaces "64" on helmet with new faction logo
+	entity drozProp = CreatePropDynamic( drozDropshipProps[ dropshipAnimIndex ] )
+	drozProp.MarkAsNonMovingAttachment()
+	drozProp.SetParent( droz, "R_HAND" )
+	string davisAnim = davisDropshipAnims[ dropshipAnimIndex ]
+	string drozAnim = drozDropshipAnims[ dropshipAnimIndex ]
+
+	HolsterAndDisableWeapons( player )
+	thread ThirdPersonCameraThink( player )
+	player.SetOrigin( player.GetOrigin() + < 0, 0, 65 > )
+	thread PlayAnim( player, davisAnim, player )
+	thread PlayAnim( droz, drozAnim, player )
+	thread DelayedStopIntroSound( player )
+
+	OnThreadEnd(
+		function(): ( player, savedstats, droz, drozProp )
+		{
+			if( IsValid( player ) )
+			{
+				DeployAndEnableWeapons( player )
+				player.Anim_Stop()
+				tauntingplayers.fastremovebyvalue( player.GetUID() )
+				//if( IsAlive( player ) )
+				ResetPlayerStat( player, savedstats )
+				if( IsValid( droz ) )
+					droz.Destroy()
+				if( IsValid( drozProp ) )
+					drozProp.Destroy()
+			}
+		}
+	)
+	WaittillAnimDone( player )
+}
+
+void function PlayerAnimPlay( entity player, array<string> charaAnims, array<asset> charaProps = [], asset charaModel = $"" )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	int charaAnimIndex = RandomInt( charaAnims.len() )
+	CustomStat savedstats = GetPlayerPreviousStat( player )
+	string charaAnim = charaAnims[ charaAnimIndex ]
+	entity charaProp
+	if( charaProps.len() > 0 )
+	{
+		if( charaProps == bliskDropshipProps && charaAnimIndex < bliskDropshipProps.len() )
+		{
+			charaProp = CreatePropDynamic( charaProps[ charaAnimIndex ] )
+			charaProp.MarkAsNonMovingAttachment()
+			charaProp.SetParent( player, "R_HAND" )
+		}
+		if( charaProps == sarahDropshipProps && charaAnimIndex < sarahDropshipProps.len() )
+		{
+			charaProp = CreatePropDynamic( charaProps[ charaAnimIndex ] )
+			charaProp.MarkAsNonMovingAttachment()
+			charaProp.SetParent( player, "PROPGUN" )
+		}
+	}
+	if( charaModel != $"" )
+		player.SetModel( charaModel )
+
+	HolsterAndDisableWeapons( player )
+	thread ThirdPersonCameraThink( player )
+	player.SetOrigin( player.GetOrigin() + < 0, 0, 65 > )
+	thread PlayAnim( player, charaAnim, player )
+	thread DelayedStopIntroSound( player )
+
+	OnThreadEnd(
+		function(): ( player, savedstats, charaProp )
+		{
+			if( IsValid( player ) )
+			{
+				DeployAndEnableWeapons( player )
+				player.Anim_Stop()
+				tauntingplayers.fastremovebyvalue( player.GetUID() )
+				//if( IsAlive( player ) )
+				ResetPlayerStat( player, savedstats )
+				if( IsValid( charaProp ) )
+					charaProp.Destroy()
+			}
+		}
+	)
+	WaittillAnimDone( player )
+}
+
+void function ModdedAnimPlay( entity player, array<string> charaAnims, asset charaModel = $"", array<asset> charaProps = [] )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	int charaAnimIndex = RandomInt( charaAnims.len() )
+	CustomStat savedstats = GetPlayerPreviousStat( player )
+	string charaAnim = charaAnims[ charaAnimIndex ]
+	entity charaProp
+	if( charaProps.len() > 0 )
+	{
+		charaProp = CreatePropDynamic( charaProps[ charaAnimIndex ] )
+		charaProp.MarkAsNonMovingAttachment()
+		charaProp.SetParent( player, "PROPGUN" )
+	}
+	if( charaModel != $"" )
+		player.SetModel( charaModel )
+
+	player.MovementDisable()
+    player.ConsumeDoubleJump()
+    HolsterAndDisableWeapons( player )
+	thread ThirdPersonCameraThink( player )
+	player.SetOrigin( player.GetOrigin() + < 0, 0, 60 > )
+	thread PlayAnim( player, charaAnim, player )
+	thread DelayedStopIntroSound( player )
+
+	OnThreadEnd(
+		function(): ( player, savedstats, charaProp )
+		{
+			if( IsValid( player ) )
+			{
+				player.Anim_Stop()
+				player.MovementEnable()
+       			DeployAndEnableWeapons( player )
+				tauntingplayers.fastremovebyvalue( player.GetUID() )
+				//if( IsAlive( player ) )
+				ResetPlayerStat( player, savedstats )
+				if( IsValid( charaProp ) )
+					charaProp.Destroy()
+			}
+		}
+	)
+	WaittillAnimDone( player )
+}
+
+// avoid dropship sounds being played to all players
+void function DelayedStopIntroSound( entity player )
+{
+	wait 0.2 // make sure player is actually playing a sound
+	if( IsValid( player ) )
+	{
+		StopSoundOnEntity( player, "crow_mp_intro" )
+		StopSoundOnEntity( player, "goblin_mp_intro" )
+	}
+}
+
+CustomStat function GetPlayerPreviousStat( entity player )
+{
+	CustomStat stats
+	stats.model = player.GetModelName()
+	stats.origin = player.GetOrigin()
+	stats.skinindex = player.GetSkin()
+	stats.camoindex = player.GetCamo()
+
+	return stats
+}
+
+void function ResetPlayerStat( entity player, CustomStat savedstats )
+{
+	player.SetModel( savedstats.model )
+	player.SetOrigin( savedstats.origin )
+	player.SetSkin( savedstats.skinindex )
+	player.SetCamo( savedstats.camoindex )
+
+	//thread PlayerInSolidCheck( player )
+	if( PlayerPosInSolid_Nessie( player, player.GetOrigin() ) )
+	{
+        vector TargetPos = FindNearestSafePos_Nessie( player, player.GetOrigin(), 1 )
+        player.SetOrigin( TargetPos )
+	}
+}
+
+/*
+void function PlayerInSolidCheck( entity player )
+{
+	for( int i = 0; i < 5; i++ )
+	{
+		if( IsValid( player ) )
+		{
+			if( EntityInSolid( player ) )
+			{
+				vector ornull clampedPos
+				entity tempnpc = CreateNPC( "npc_soldier", TEAM_BOTH, player.GetOrigin(), < 0,0,0 >)
+			    SetSpawnOption_AISettings( tempnpc, "npc_soldier" )
+			    DispatchSpawn( tempnpc )
+				clampedPos = NavMesh_ClampPointForAIWithExtents( player.GetOrigin(), tempnpc, < 400, 400, 400 > )
+
+				if ( clampedPos != null )
+				{
+					player.SetOrigin( expect vector( clampedPos ) )
+					printt( player.GetPlayerName() + " was in solid, teleported" )
+				}
+
+				wait 0.1
+				if( IsValid( tempnpc ) )
+					tempnpc.Destroy()
+			}
+		}
+		WaitFrame()
+	}
+}
+*/
