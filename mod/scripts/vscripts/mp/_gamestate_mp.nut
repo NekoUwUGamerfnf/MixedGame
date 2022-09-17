@@ -13,6 +13,7 @@ global function SetTimerBased
 global function SetShouldUseRoundWinningKillReplay
 // I want my game to have this
 global function SetShouldPlayFactionDialogue
+global function GetShouldPlayFactionDialogue
 global function SetRoundWinningKillReplayKillClasses
 global function SetRoundWinningKillReplayAttacker
 global function SetWinner
@@ -342,12 +343,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	}
 	else if( !ClassicMP_ShouldRunEpilogue() )
 	{
-		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY - 1.5
-		
-		foreach( entity player in GetPlayerArray() )
-			ScreenFadeToBlackForever( player, 1.0 )
-
-		wait 1.5
+		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
 		CleanUpEntitiesForMatchEnd()
 	}
 	
@@ -553,7 +549,7 @@ void function ForceFadeToBlack( entity player )
 	while ( true )
 	{
 		WaitFrame()
-		ScreenFadeToBlackForever( player, 0.0 )
+		ScreenFadeToBlackForever( player, 1.0 )
 	}
 }
 
@@ -790,6 +786,11 @@ void function SetShouldUseRoundWinningKillReplay( bool shouldUse )
 void function SetShouldPlayFactionDialogue( bool shouldPlay )
 {
 	file.playFactionDialogue = shouldPlay
+}
+
+bool function GetShouldPlayFactionDialogue()
+{
+	return file.playFactionDialogue
 }
 
 void function SetRoundWinningKillReplayKillClasses( bool pilot, bool titan )

@@ -92,7 +92,11 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	if( !IsValid( weapon ) )
 		return
 	if( weapon.HasMod( "charge_ball" ) )
+	{
+		if( target.GetTeam() != attacker.GetTeam() )
+			OnBallLightningDamage( target, damageInfo )
 		return
+	}
 
 	if ( attacker.GetTeam() == target.GetTeam() )
 	{

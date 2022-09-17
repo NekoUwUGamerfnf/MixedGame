@@ -75,6 +75,7 @@ void function OnAbilityChargeEnd_StormWave( entity weapon )
 		if ( owner.IsPlayer() )
 		{
 			owner.Server_TurnOffhandWeaponsDisabledOff() // may need a little fix for animation
+			owner.Anim_Stop()
 		}
 
 		if ( owner.IsNPC() && IsAlive( owner ) )

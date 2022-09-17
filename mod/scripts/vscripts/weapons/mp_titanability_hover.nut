@@ -71,26 +71,29 @@ var function OnWeaponPrimaryAttack_TitanHover( entity weapon, WeaponPrimaryAttac
 		PlayerUsedOffhand( flyer, weapon )
 	}
 
-	entity soul = flyer.GetTitanSoul()
-
-	if( !IsValid( soul ) )
-		return
-
 	bool hasPasFlightCore = false
-	foreach( entity offhand in flyer.GetOffhandWeapons() )
+
+	entity soul = flyer.GetTitanSoul()
+	
+	if( IsValid( soul ) )
 	{
-		if ( !IsValid( offhand ) )
-			continue
-		if( offhand.GetWeaponClassName() == "mp_titanability_hover" )
+#if SERVER
+		if( SoulHasPassive( soul, ePassives.PAS_NORTHSTAR_FLIGHTCORE ) )
+			hasPasFlightCore = true
+#endif
+		foreach( entity offhand in flyer.GetOffhandWeapons() )
 		{
-			if( offhand.HasMod( "pas_northstar_flightcore" ) )
-				hasPasFlightCore = true
+			if ( !IsValid( offhand ) )
+				continue
+			if( offhand.GetWeaponClassName() == "mp_titanability_hover" )
+			{
+				if( offhand.HasMod( "pas_northstar_flightcore" ) )
+					hasPasFlightCore = true
+			}
 		}
 	}
 
 	#if SERVER
-	if( SoulHasPassive( soul, ePassives.PAS_NORTHSTAR_FLIGHTCORE ) )
-		hasPasFlightCore = true
 
 		HoverSounds soundInfo
 		soundInfo.liftoff_1p = "titan_flight_liftoff_1p"

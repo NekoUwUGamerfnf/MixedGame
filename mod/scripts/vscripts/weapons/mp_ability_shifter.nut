@@ -120,7 +120,10 @@ void function MpAbilityShifterWeapon_OnWeaponTossPrep( entity weapon, WeaponToss
 		int phaseResult = PhaseShift( weaponOwner, SHIFTER_WARMUP_TIME_WRAITH, weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration ) )
 		if( phaseResult )
 		{
-			StatusEffect_AddTimed( weapon.GetWeaponOwner(), eStatusEffect.move_slow, WRAITH_SEVERITY_SLOWMOVE, SHIFTER_SLOWMOVE_TIME_WRAITH, 0 )
+			StatusEffect_AddTimed( weaponOwner, eStatusEffect.move_slow, WRAITH_SEVERITY_SLOWMOVE, SHIFTER_SLOWMOVE_TIME_WRAITH, 0 )
+			#if SERVER
+			thread WraithPhaseTrailThink( weaponOwner, SHIFTER_WARMUP_TIME_WRAITH )
+			#endif
 			ammoreduce = weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
 		}
 		else
@@ -379,6 +382,39 @@ void function DoPhaseExitExplosion( entity player, entity phaseWeapon )
 #endif //
 }
 
+#if SERVER
+entity function CreatePhaseShiftTrail( entity player )
+{
+	entity portalTrail = StartParticleEffectOnEntity_ReturnEntity( player, HOLO_PILOT_TRAIL_FX, FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
+	return portalTrail
+}
+
+void function DestroyTrailAfterExitPhase( entity player, entity trail )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	OnThreadEnd(
+		function(): ( trail )
+		{
+			if( IsValid( trail ) )
+				EffectStop( trail )
+		}
+	)
+	player.WaitSignal( "StopPhaseShift" )
+}
+
+void function WraithPhaseTrailThink( entity player, float delay )
+{
+	wait delay + 0.1
+	if( !IsAlive( player ) )
+		return
+	if( !player.IsPhaseShifted() )
+		return
+	entity phaseTrail = CreatePhaseShiftTrail( player )
+	thread DestroyTrailAfterExitPhase( player, phaseTrail )
+}
+#endif
+
 // Portal Stuff
 #if SERVER
 void function PortalStart( entity player, entity weapon )
@@ -410,9 +446,7 @@ void function PortalStart( entity player, entity weapon )
 	playerPlacingPortal[ playerUID ] = true
 
 	int statusEffect = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, WRAITH_SPEED_BOOST_SEVERITY )
-	entity portalTrail = StartParticleEffectOnEntity_ReturnEntity( player, HOLO_PILOT_TRAIL_FX, FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
-	portalTrail.SetOwner( player )
-	portalTrail.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY)
+	entity portalTrail = CreatePhaseShiftTrail( player )
 
 	EmitSoundOnEntityOnlyToPlayer( player, player, SHIFTER_START_SOUND_1P )
 	EmitSoundOnEntity( player, SHIFTER_START_SOUND_3P )
@@ -835,7 +869,7 @@ void function PortalTravelThink( entity trigger, entity player )
 		thread PortalCooldownThink( player, totalTime * phaseTimeMulti )
 		//print( "[PORTAL] Set someone in portal cooldown!" )
 	}
-	entity portalTrail = StartParticleEffectOnEntity_ReturnEntity( player, HOLO_PILOT_TRAIL_FX, FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
+	entity portalTrail = CreatePhaseShiftTrail( player )
 	entity mover = CreateOwnedScriptMover( player )
 	player.SetParent( mover )
 	player.HolsterWeapon()

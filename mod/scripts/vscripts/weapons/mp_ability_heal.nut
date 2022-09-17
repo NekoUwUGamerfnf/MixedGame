@@ -201,6 +201,8 @@ void function GiveJumpPadEffect( entity player )
 {
 	if( player.GetParent() != null )
 		return
+	if( player.IsTitan() )
+		return
 	float zVelocity = player.GetVelocity().z
 	if( zVelocity < 0 )
 		zVelocity = 0
@@ -211,6 +213,7 @@ void function GiveJumpPadEffect( entity player )
 			EmitSoundOnEntity( player, "Boost_Card_SentryTurret_Deployed_3P" )
 	}
 	thread JumpPadSoundLimit( player )
+	Remote_CallFunction_Replay( player, "ServerCallback_ScreenShake", 5, 10, 0.5 )
 
 	int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
 

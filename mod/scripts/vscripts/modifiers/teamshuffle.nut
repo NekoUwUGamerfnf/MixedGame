@@ -22,7 +22,7 @@ void function ShuffleTeams()
 		FixShuffle()
 		WaitFrame() // do need wait to make things shuffled
 	}
-	if( ClassicMP_GetIntroLength() >= 5 )
+	else if( ClassicMP_GetIntroLength() >= 5 )
 		thread FixShuffle( ClassicMP_GetIntroLength() - 0.5 ) // fix shuffle
 }
 
