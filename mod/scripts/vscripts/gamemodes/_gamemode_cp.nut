@@ -306,7 +306,7 @@ void function CapturePointForTeam(HardpointStruct hardpoint, int Team)
 	foreach(entity player in allCappers)
 	{
 		if(player.IsPlayer()){
-			AddPlayerScore(player,"ControlPointCapture")
+			AddPlayerScore( player,"ControlPointCapture", player )
 			player.AddToPlayerGameStat(PGS_ASSAULT_SCORE,POINTVALUE_HARDPOINT_CAPTURE)
 		}
 	}
@@ -418,6 +418,8 @@ void function HardpointThink( HardpointStruct hardpoint )
 	float lastTime = Time()
 	float lastScoreTime = Time()
 	bool hasBeenAmped = false
+
+	EmitSoundOnEntity( hardpointEnt, "hardpoint_console_idle" )
 
 	WaitFrame() // wait a frame so deltaTime is never zero
 
@@ -652,12 +654,41 @@ void function OnHardpointEntered( entity trigger, entity player )
 			hardpoint = hardpointStruct
 
 	if ( player.GetTeam() == TEAM_IMC )
+	{
 		hardpoint.imcCappers.append( player )
+		if( player.IsPlayer() )
+		{
+			EmitHardPointCapturingSound( hardpoint, player )
+			PlayFactionDialogueToPlayer( "amphp_friendlyCapping" + GetHardpointGroup(hardpoint.hardpoint), player )
+		}
+	}
 	else
+	{
 		hardpoint.militiaCappers.append( player )
+		if( player.IsPlayer() )
+		{
+			EmitHardPointCapturingSound( hardpoint, player )
+			PlayFactionDialogueToPlayer( "amphp_friendlyCapping" + GetHardpointGroup(hardpoint.hardpoint), player )
+		}
+	}
 	foreach(CP_PlayerStruct playerStruct in file.players)
 		if(playerStruct.player == player)
 			playerStruct.isOnHardpoint = true
+}
+
+void function EmitHardPointCapturingSound( HardpointStruct hardpoint, entity player )
+{
+	StopHardPointCapturingSound( player )
+	if( GetHardpointState(hardpoint)==CAPTURE_POINT_STATE_AMPED )
+		EmitSoundOnEntityOnlyToPlayer( player, player, "Hardpoint_Amped_ProgressBar" )
+	else
+		EmitSoundOnEntityOnlyToPlayer( player, player, "Hardpoint_ProgressBar" )
+}
+
+void function StopHardPointCapturingSound( entity player )
+{
+	StopSoundOnEntity( player, "Hardpoint_Amped_ProgressBar" )
+	StopSoundOnEntity( player, "Hardpoint_ProgressBar" )
 }
 
 void function OnHardpointLeft( entity trigger, entity player )
@@ -671,6 +702,8 @@ void function OnHardpointLeft( entity trigger, entity player )
 		FindAndRemove( hardpoint.imcCappers, player )
 	else
 		FindAndRemove( hardpoint.militiaCappers, player )
+	if( player.IsPlayer() )
+		StopHardPointCapturingSound( player )
 	foreach(CP_PlayerStruct playerStruct in file.players)
 		if(playerStruct.player == player)
 			playerStruct.isOnHardpoint = false

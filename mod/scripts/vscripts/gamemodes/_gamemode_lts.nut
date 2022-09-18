@@ -29,6 +29,7 @@ void function GamemodeLts_Init()
 	AddCallback_OnTitanBecomesPilot( RefreshThirtySecondWallhackHighlight )
 	
 	SetTimeoutWinnerDecisionFunc( CheckTitanHealthForDraw )
+	SetTimeoutWinnerDecisionReason( "#GAMEMODE_TITAN_DAMAGE_ADVANTAGE", "#GAMEMODE_TITAN_DAMAGE_DISADVANTAGE" )
 	TrackTitanDamageInPlayerGameStat( PGS_ASSAULT_SCORE )
 	
 	ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() )

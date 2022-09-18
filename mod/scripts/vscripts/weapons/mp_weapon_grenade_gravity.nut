@@ -34,7 +34,7 @@ const float FX_END_CAP_TIME_ANTI = 1.5
 
 //const int LIFT_SEGMENT_COUNT = 10
 //const float LIFT_HEIGHT_PER_SEGMENT = 50
-const float LIFT_HEIGHT = 900
+const float LIFT_HEIGHT = 1200
 const float LIFT_RADIUS = 120
 const float LIFT_RISE_SPEED = 300
 const float LIFT_HORIZON_MOVE_SPEED = 225
@@ -596,11 +596,7 @@ void function GravityLiftThink( entity projectile )
 					}
 					if( player.GetOrigin().z - bottomHeight >= LIFT_HEIGHT && !gravityLift.reachedHighestPlayers.contains( player ) )
 						thread OnPlayerReachedHighest( player, trigger )
-					if( PlayerPosInSolid_Nessie( player, player.GetOrigin() ) ) //may cause player fall outside the map
-					{
-						vector TargetPos = FindNearestSafePos_Nessie( player, player.GetOrigin(), 1 )
-						player.SetOrigin( TargetPos )
-					}
+					Nessie_PutPlayerInSafeSpot( player, 1 )
 				}
 			}
 		}
@@ -754,14 +750,10 @@ void function DestroyGravityLift( entity projectile, entity trigger, GravLiftStr
 	if( IsValid(trigger) )
 		trigger.Destroy()
 	gravityLifts.fastremovebyvalue( gravityLift )
-	foreach( entity player in GetPlayerArray() ) // fix!!! for sometimes ending lift stucks players
-	{	
-		if( PlayerPosInSolid_Nessie( player, player.GetOrigin() ) )
-		{
-			vector TargetPos = FindNearestSafePos_Nessie( player, player.GetOrigin(), 1 )
-			player.SetOrigin( TargetPos )
-		}
-	}
+	//foreach( entity player in GetPlayerArray() ) // fix!!! for sometimes ending lift stucks players
+	//{	
+	//	Nessie_PutPlayerInSafeSpot( player, 1 )
+	//}
 }
 
 void function DestroyPlacementHelper( entity cpRadius, entity cpColor )

@@ -595,7 +595,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 				break
 			tempVectors.append( progressPoses[ segment * i ] )
 		}
-		travelTime = tempVectors.len() * 0.15
+		travelTime = tempVectors.len() * 0.2
 		progressPoses = tempVectors
 	}
 	else if( progressPoses.len() > PORTAL_NODES_MAX * 2 )
@@ -606,7 +606,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 			if( i * 4 < progressPoses.len() - 1 )
 				tempVectors.append( progressPoses[ i * 4 ] )
 		}
-		travelTime = tempVectors.len() * 0.2
+		travelTime = tempVectors.len() * 0.25
 		progressPoses = tempVectors
 	}
 	else if( progressPoses.len() > PORTAL_NODES_MAX )
@@ -617,7 +617,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 			if( i * 3 < progressPoses.len() - 1 )
 				tempVectors.append( progressPoses[ i * 3 ] )
 		}
-		travelTime = tempVectors.len() * 0.22
+		travelTime = tempVectors.len() * 0.3
 		progressPoses = tempVectors
 	}
 	else if( progressPoses.len() > PORTAL_NODES_MAX * 0.5 )
@@ -628,11 +628,14 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 			if( i * 2 < progressPoses.len() - 1 )
 				tempVectors.append( progressPoses[ i * 2 ] )
 		}
-		travelTime = tempVectors.len() * 0.25
+		travelTime = tempVectors.len() * 0.35
 		progressPoses = tempVectors
 	}
 	else
 		travelTime = progressPoses.len() * 0.3
+
+	print( "Total travelTime is " + string( travelTime ) )
+	print( "Total nodes.len() is " + string( progressPoses.len() ) )
 
 	//if( progressPoses.len() >= PORTAL_NODES_MAX )
 	/* // HACK!!! using hardcoded checking now!
@@ -901,11 +904,7 @@ void function PortalTravelThink( entity trigger, entity player )
 					//player.SetAngles( < 0,viewAngles.y,0 > ) // so player won't face the ground or sky
 					//player.SetAngles( goalAngles )
 				}
-				if( PlayerPosInSolid_Nessie( player, player.GetOrigin() ) ) // re-exam
-				{
-					vector TargetPos = FindNearestSafePos_Nessie( player, player.GetOrigin(), 1 )
-					player.SetOrigin( TargetPos )
-				}
+				Nessie_PutPlayerInSafeSpot( player, 1 )
 			}
 			if( IsValid( portalTrail ) )
 				EffectStop( portalTrail )
@@ -1296,11 +1295,7 @@ void function PortalTravelThink( entity trigger, entity player )
 				player.TouchGround() // able to double jump after leaving
 				//whatever we get from segmented teleport, just set player to the right origin
 				player.SetOrigin( goalOrigin )
-				if( PlayerPosInSolid_Nessie( player, player.GetOrigin() ) ) // re-exam
-				{
-					vector TargetPos = FindNearestSafePos_Nessie( player, player.GetOrigin(), 1 )
-					player.SetOrigin( TargetPos )
-				}
+				Nessie_PutPlayerInSafeSpot( entity player, 1 )
 			}
 			if( IsValid( mover ) )
 				mover.Destroy()
@@ -1417,11 +1412,7 @@ void function moveback (entity player , vector origpos) {
 	wait 0.55;
 	player.SetVelocity(<0,0,0>)
 	player.ClearParent()
-	if( PlayerPosInSolid_Nessie( player, player.GetOrigin() ) )
-	{
-		vector TargetPos = FindNearestSafePos_Nessie( player, player.GetOrigin(), 1 )
-		player.SetOrigin( TargetPos )
-	}
+	Nessie_PutPlayerInSafeSpot( player, 1 )
 	mover.Destroy()
 
 }

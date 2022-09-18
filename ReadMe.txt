@@ -40,4 +40,8 @@ Modded_Gamemode_Zombie_Mfd_Init(): 修改猎杀标记为僵尸猎杀标记: 只�
 
 No_Iron_Sight_Weapons_Init(): 取消所有武器的机瞄模型(若有rui则保留准星)
 
+DropPodSpawn1Player_Init(): 从运兵舱中复活
+
+RespawnShip_Init(): 从运输船中复活
+
 NessieDebug_Init(): 测试的一堆笨比东西
