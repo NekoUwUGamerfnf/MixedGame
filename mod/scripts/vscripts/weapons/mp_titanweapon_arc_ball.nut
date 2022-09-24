@@ -111,7 +111,7 @@ var function OnWeaponPrimaryAttack_titanweapon_arc_ball( entity weapon, WeaponPr
 
 //void function FireArcBall( entity weapon, vector pos, vector dir, bool shouldPredict, float damage = BALL_LIGHTNING_DAMAGE, bool isCharged = false )
 // return a entity so we can modify arcballs not only through this function
-entity function FireArcBall( entity weapon, vector pos, vector dir, bool shouldPredict, float damage = BALL_LIGHTNING_DAMAGE, bool isCharged = false, float pilotDamage = BALL_LIGHTNING_DAMAGE_TO_PILOTS )
+entity function FireArcBall( entity weapon, vector pos, vector dir, bool shouldPredict, float damage = BALL_LIGHTNING_DAMAGE, bool isCharged = false )
 {
 	entity owner = weapon.GetWeaponOwner()
 
@@ -163,7 +163,6 @@ entity function FireArcBall( entity weapon, vector pos, vector dir, bool shouldP
 
 			entity ballLightning = expect entity( bolt.s.ballLightning )
 
-			ballLightning.e.ballLightningData.damageToPilots = pilotDamage
 			ballLightning.e.ballLightningData.damage = damage
 
 			// fix for charge balls

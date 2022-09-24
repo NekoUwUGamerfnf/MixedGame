@@ -1,4 +1,4 @@
-untyped
+untyped // almost everything is hardcoded here
 
 global function TitanPick_Init
 
@@ -81,7 +81,7 @@ void function DropPlayerTitanWeapon_Threaded( entity player, vector droppoint, v
             tempweapon.weaponName = name
             tempweapon.weaponClassname = weapons[0].GetWeaponClassName()
             tempweapon.weaponModel = weaponmodel
-            tempweapon.weaponMods = weapons[0].GetMods()
+            tempweapon.weaponMods = RemoveTacticalWeaponMods( weapons[0].GetMods() )
             tempweapon.weaponAmmo = weapons[0].IsChargeWeapon() ? 0 : weapons[0].GetWeaponPrimaryClipCount()
             tempweapon.weaponSkin = skin
             tempweapon.weaponCamo = camo
@@ -220,6 +220,22 @@ function GiveDroppedTitanWeapon( weaponmodel, player )
         DropPlayerTitanWeapon( player, weaponmodel.GetOrigin(), weaponmodel.GetAngles() )
         ReplaceTitanWeapon( player, weaponmodel )
     }
+}
+
+array<string> function RemoveTacticalWeaponMods( array<string> mods )
+{
+    array<string> replaceArray
+    foreach( string mod in mods )
+    {
+        if( mod == "Smart_Core" ||
+            mod == "rocketeer_ammo_swap" ||
+            mod == "LongRangeAmmo" )
+            continue
+
+        replaceArray.append( mod )
+    }
+
+    return replaceArray
 }
 
 string function GetWeaponName_ReturnString( entity weapon )

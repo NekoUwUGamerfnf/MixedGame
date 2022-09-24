@@ -34,7 +34,7 @@ void function MpTitanWeaponStormWave_Init()
 
 void function OnWeaponActivate_titancore_storm_wave( entity weapon )
 {
-	weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
+	//weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
 	OnAbilityCharge_TitanCore( weapon )
 }
 

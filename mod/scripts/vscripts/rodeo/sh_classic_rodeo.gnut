@@ -45,54 +45,50 @@ void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 
 	if ( attacker != weakpoint.s.pilot || titan != weakpoint.s.titan )
 		return
-	
-	// hitmarker
-	attacker.NotifyDidDamage( weakpoint, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ) | DF_CRITICAL, damageAmount, DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
-	
+		
 	// figure out damage to deal to titan
 	entity attackerWeapon = DamageInfo_GetWeapon( damageInfo )
 	if ( !IsValid( attackerWeapon ) )
 		attackerWeapon = attacker.GetActiveWeapon()
 	
-	int rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_rodeo ) // only really on weapons that were in tf1, unfortunately
-	
-	if ( rodeoDamage == 0 ) // would use headshot scale, but it's a bit low in most cases to be competitive with weapons with a valid damage_rodeo
+	// most weapons in ttf2 don't have damage_rodeo, let's use it's damage_near_value_titanarmor
+	string weaponName = attackerWeapon.GetWeaponClassName()
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	bool shouldMultiplierDamage = true
+	int rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+	bool canNormallyDamage = attackerWeapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+	if( canNormallyDamage )
+		shouldMultiplierDamage = false
+	float damageScale = attackerWeapon.GetWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
+
+	if( IsValid( inflictor ) )
 	{
-		string weaponName = attackerWeapon.GetWeaponClassName()
-		entity inflictor = DamageInfo_GetInflictor( damageInfo )
-		bool shouldMultiplierDamage = true
-		int damage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
-		float damageScale = attackerWeapon.GetWeaponSettingFloat( eWeaponVar.damage_headshot_scale )
-		if( damageScale < 1.5 )
-			damageScale = 1.5
-		// no need to check this I guess
-		if( IsValid( inflictor ) )
+		if( inflictor.IsProjectile() )
 		{
-			if( inflictor.IsProjectile() )
+			//print( "inflictor is projectile!" )
+			if( inflictor.GetClassName() == "grenade" )
 			{
-				if( inflictor.GetClassName() == "grenade" && inflictor.GetScriptName() != "did_damage_once_grenade" )
-				{ // reduced impact damage so grenades can have normal damage output!
-					damage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.explosion_damage_heavy_armor )
-					inflictor.SetScriptName( "did_damage_once_grenade" )
-				}
+				//print( "damaged by grenade!" )
+				shouldMultiplierDamage = false
 			}
 		}
-		if( weaponName == "mp_weapon_arc_launcher" ) // hardcode here, thunder bolt should't use normal damage
+		if( inflictor.GetClassName() == "script_mover_lightweight" ) // hardcoded, assuming this is ballLightning in vanilla
 		{
-			damage = 350 // ARC_LAUNCHER_ZAP_DAMAGE
+			//print( "damaged by arcball!" )
+			rodeoDamage = int( inflictor.e.ballLightningData.damage )
 			shouldMultiplierDamage = false
 		}
-		else if( weaponName == "mp_weapon_grenade_electric_smoke" )
-		{
-			damage = 150 // electric smoke grenade's damage per tick
-			shouldMultiplierDamage = false
-		}
-		if( shouldMultiplierDamage )
-			rodeoDamage = int( damage * damageScale * 1.5 )
-		else
-			rodeoDamage = damage
 	}
+	else if( weaponName == "mp_weapon_grenade_electric_smoke" ) // hardcoded here
+	{
+		rodeoDamage = 300 // electric smoke grenade's damage per tick
+		shouldMultiplierDamage = false
+	}
+	if( shouldMultiplierDamage )
+		rodeoDamage = int( rodeoDamage * damageScale * 1.5 )
 
+	// hitmarker
+	attacker.NotifyDidDamage( weakpoint, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ) | DF_CRITICAL, rodeoDamage, DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
 	// damage titan, make sure DF_BYPASS_SHIELD	is a thing for proper behaviour
 	titan.TakeDamage( rodeoDamage, attacker, attackerWeapon, { damageSourceId = eDamageSourceId.rodeo, scriptType = DamageInfo_GetCustomDamageType( damageInfo ) | DF_BYPASS_SHIELD } )
 }

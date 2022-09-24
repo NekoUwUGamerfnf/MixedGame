@@ -27,6 +27,7 @@ void function GamemodeLts_Init()
 
 	AddCallback_OnPilotBecomesTitan( RefreshThirtySecondWallhackHighlight )
 	AddCallback_OnTitanBecomesPilot( RefreshThirtySecondWallhackHighlight )
+	AddCallback_OnPlayerKilled( OnPlayerKilled )
 	
 	SetTimeoutWinnerDecisionFunc( CheckTitanHealthForDraw )
 	SetTimeoutWinnerDecisionReason( "#GAMEMODE_TITAN_DAMAGE_ADVANTAGE", "#GAMEMODE_TITAN_DAMAGE_DISADVANTAGE" )
@@ -71,6 +72,26 @@ void function RefreshThirtySecondWallhackHighlight( entity player, entity titan 
 		
 	if ( player.GetPetTitan() != null )
 		Highlight_SetEnemyHighlight( player.GetPetTitan(), "enemy_sonar" )
+}
+
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+	array<entity> allies = GetPlayerArrayOfTeam_Alive( victim.GetTeam() )
+	int teamTitanCount
+	entity latestCheckedPlayer
+	foreach( entity player in allies )
+	{
+		if( PlayerHasTitan( player ) )
+		{
+			teamTitanCount += 1
+			latestCheckedPlayer = player
+		}
+	}
+	if( teamTitanCount == 1 )
+	{
+		if( IsValid( latestCheckedPlayer ) )
+			PlayFactionDialogueToPlayer( "lts_playerLastTitanOnTeam", latestCheckedPlayer )
+	}
 }
 
 int function CheckTitanHealthForDraw()

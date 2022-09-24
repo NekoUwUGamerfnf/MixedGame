@@ -18,7 +18,7 @@ void function MpTitanweaponChargeBall_Init()
 
 	#if SERVER
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_stun_laser, ChargeBallOnDamage )
-		RegisterBallLightningDamage( eDamageSourceId.mp_titanweapon_stun_laser )
+		RegisterBallLightningDamage( eDamageSourceId.mp_titanweapon_stun_laser ) // doing check in stun laser damagesourceID
 	#endif
 }
 

@@ -4,7 +4,7 @@ global function OnWeaponPrimaryAttack_weapon_arc_launcher
 global function OnProjectileCollision_weapon_grenade_bangalore
 global function OnProjectileIgnite_weapon_grenade_bangalore
 const ARC_LAUNCHER_ZAP_DAMAGE = 350
-const int ARC_LAUNCHER_ZAP_DAMAGE_PILOT = 13
+const int ARC_LAUNCHER_ZAP_DAMAGE_PILOT = 15
 
 const int SMOKE_GRENADE_COUNT = 3
 const float SMOKE_LAUNCHER_DELAY = 0.7
@@ -56,10 +56,18 @@ var function OnWeaponPrimaryAttack_weapon_arc_launcher( entity weapon, WeaponPri
 		vector attackPos = attackParams.pos
 		vector attackDir = attackParams.dir
 
-		if( weapon.HasMod( "antipilot_arc_launcher" ) )
-			FireArcBall( weapon, attackPos, attackDir, shouldPredict, ARC_LAUNCHER_ZAP_DAMAGE * 0.2, true, ARC_LAUNCHER_ZAP_DAMAGE_PILOT )
-		else
-			FireArcBall( weapon, attackPos, attackDir, shouldPredict, ARC_LAUNCHER_ZAP_DAMAGE )
+		entity arcBall = FireArcBall( weapon, attackPos, attackDir, shouldPredict, ARC_LAUNCHER_ZAP_DAMAGE )
+		if( arcBall )
+		{
+#if SERVER
+			entity ballLightning = expect entity( arcBall.s.ballLightning )
+			if( weapon.HasMod( "antipilot_arc_launcher" ) )
+			{
+				ballLightning.e.ballLightningData.damageToPilots = ARC_LAUNCHER_ZAP_DAMAGE_PILOT
+				ballLightning.e.ballLightningData.damage = ARC_LAUNCHER_ZAP_DAMAGE * 0.2
+			}
+#endif
+		}
 
 		weapon.EmitWeaponSound_1p3p( "Weapon_ArcLauncher_Fire_1P", "Weapon_ArcLauncher_Fire_3P" )
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
