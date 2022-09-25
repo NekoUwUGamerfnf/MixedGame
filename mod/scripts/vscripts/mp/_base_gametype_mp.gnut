@@ -341,11 +341,14 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	// use info_intermission camera after deathcam, if it exists
 	if ( file.intermissionCamera != null )
 	{
-		player.SetObserverModeStaticPosition( file.intermissionCamera.GetOrigin() )
-		player.SetObserverModeStaticAngles( file.intermissionCamera.GetAngles() )
-		player.ClearParent() // why sometimes they're still parented?
-		if( !IsValid( player.GetParent() ) )
-			player.StartObserverMode( OBS_MODE_STATIC_LOCKED )
+		if( shouldDoReplay ) // if not doing replay, player's camera should be at their death location.
+		{
+			player.SetObserverModeStaticPosition( file.intermissionCamera.GetOrigin() )
+			player.SetObserverModeStaticAngles( file.intermissionCamera.GetAngles() )
+			player.ClearParent() // sometimes they're still parented, do a defensive fix
+			if( !IsValid( player.GetParent() ) )
+				player.StartObserverMode( OBS_MODE_STATIC_LOCKED )
+		}
 		player.SetObserverTarget( null )
 	}
 
@@ -384,7 +387,12 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		if( IsValid( attacker ) )
 		{
 			if( file.forcedRespawn && methodOfDeath != damagedef_despawn ) // check for spectator mod
-				thread ForcedRespawnThink( player )
+			{
+				float waitBeforeRespawn = 0.0
+				if( !shouldDoReplay || respawnDelay >= 3.0 ) // doing this so player can respawn as titan in 
+					waitBeforeRespawn = 3.0
+				thread ForcedRespawnThink( player, waitBeforeRespawn )
+			}
 		}
 
 		player.WaitSignal( "RespawnMe" ) // set in base_gametype: ClientCommand_RespawnPlayer
@@ -405,9 +413,10 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	}
 }
 
-void function ForcedRespawnThink( entity player )
+void function ForcedRespawnThink( entity player, float waitBeforeRespawn )
 {
 	player.EndSignal( "RespawnMe" )
+	player.s.isForcedRespawn <- false
 
 	OnThreadEnd(
 		function(): ( player )
@@ -415,15 +424,22 @@ void function ForcedRespawnThink( entity player )
 			if( GetGameState() != eGameState.Playing ) // no forced respawn
 				return 
 			if( IsValid( player ) )
+			{
+				if( expect bool( player.s.isForcedRespawn ) ) // reset player's presistent var if respawn is forced
+					player.SetPersistentVar( "spawnAsTitan", false )
 				player.Signal( "RespawnMe" )
+			}
 		}
 	)
-		
+	
 	WaitFrame()
 	if( !IsValid( player ) )
 		return
 	if( player.IsWatchingKillReplay() )
 		player.WaitSignal( "KillCamOver" )
+	if( waitBeforeRespawn > 0 )
+		wait waitBeforeRespawn
+	player.s.isForcedRespawn = true
 }
 
 void function PlayerWatchesKillReplayWrapper( entity player, entity attacker, float timeSinceAttackerSpawned, float timeOfDeath, float beforeTime, table replayTracker )
@@ -506,6 +522,7 @@ void function RespawnAsTitan( entity player, bool manualPosition = false )
 		{
 			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // show hud
 			player.isSpawning = false
+			ClearTitanAvailable( player ) // we've done everything, considering clear titan available
 		}
 	
 		if ( IsValid( titan ) )
