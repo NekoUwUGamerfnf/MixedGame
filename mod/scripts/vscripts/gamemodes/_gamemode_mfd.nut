@@ -129,6 +129,7 @@ void function MFDThink()
 			if ( !IsValid( imcMark ) || !IsValid( militiaMark ) )
 			{
 				shouldReset = true
+				MessageToAll( eEventNotifications.MarkedForDeathMarkedDisconnected )
 				break
 			}
 				

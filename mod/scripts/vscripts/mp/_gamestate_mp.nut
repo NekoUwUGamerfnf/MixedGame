@@ -1012,7 +1012,7 @@ float function GetTimeLimit_ForGameMode()
 
 void function DialoguePlayNormal()
 {
-	svGlobal.levelEnt.Signal( "GameStateChanged" ) // so this won't play when game not playing
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // so this won't play when game not playing
 	int totalScore = GameMode_GetScoreLimit( GameRules_GetGameMode() )
 	int winningTeam
 	int losingTeam
