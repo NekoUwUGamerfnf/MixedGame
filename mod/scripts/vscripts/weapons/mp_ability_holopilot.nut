@@ -16,6 +16,7 @@ global function SetupDecoy_Common
 
 global function Decoy_Init
 
+global function SetNessieDecoyOn
 #if MP
 global function GetDecoyActiveCountForPlayer
 #endif //if MP
@@ -26,6 +27,9 @@ const float PHASE_REWIND_PATH_SNAPSHOT_INTERVAL = 0.1
 struct
 {
 	table< entity, int > playerToDecoysActiveTable //Mainly used to track stat for holopilot unlock
+
+	// defined for nessy.gnut
+	bool isNessieOutfit = false
 }
 file
 
@@ -45,6 +49,10 @@ global table< entity, float > playerDecoyActiveFrom //CUSTOM used to set decoy a
 	PLAYER_DECOY_STATE_DYING,
 	PLAYER_DECOY_STATE_COUNT
 */
+
+// strange things
+bool isInfiniteDecoy = false
+bool isStrangeDecoy = false
 
 // mirage_decoy
 const float MIRAGE_DECOY_LIFETIME = 60.0
@@ -66,10 +74,6 @@ struct MirageDecoyStruct
 table< string, MirageDecoyStruct > mirageDecoyTable // use to track remote decoys
 //
 
-// defined for nessy.gnut
-global bool isNessieOutfit = false
-bool isInfiniteDecoy = false
-bool isStrangeDecoy = false
 const array<asset> randomDecoyAssetArray = [$"models/humans/pilots/pilot_medium_stalker_m.mdl", $"models/humans/pilots/pilot_medium_stalker_f.mdl", $"models/humans/pilots/pilot_light_ged_f.mdl", $"models/humans/pilots/pilot_light_ged_m.mdl", $"models/humans/pilots/pilot_light_jester_m.mdl", $"models/humans/pilots/pilot_light_jester_f.mdl", $"models/humans/pilots/pilot_medium_reaper_m.mdl", $"models/humans/pilots/pilot_medium_reaper_f.mdl", $"models/humans/pilots/pilot_medium_geist_m.mdl", $"models/humans/pilots/pilot_medium_geist_f.mdl", $"models/humans/grunts/mlt_grunt_lmg.mdl", $"models/humans/grunts/imc_grunt_lmg.mdl", $"models/humans/heroes/imc_hero_ash.mdl", $"models/humans/heroes/mlt_hero_jack.mdl", $"models/humans/heroes/mlt_hero_sarah.mdl", $"models/humans/heroes/imc_hero_blisk.mdl", $"models/humans/pilots/sp_medium_geist_f.mdl", $"models/humans/pilots/sp_medium_reaper_m.mdl", $"models/humans/pilots/sp_medium_stalker_m.mdl"]
 
 #if SERVER
@@ -259,7 +263,7 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 			DispatchSpawn( decoy )
 			//decoy.Anim_Play(  )
 		}
-		if( isNessieOutfit )
+		if( file.isNessieOutfit )
 		{
 			CreateNessyHat( hatassets, decoy )
 			CreateNessyBackpack( backpackassets, decoy )
@@ -525,6 +529,15 @@ bool function PlayerCanUseDecoy( entity weapon ) //For holopilot and HoloPilot N
 		return false
 	return true
 }
+
+// nessie modify
+#if SERVER
+void function SetNessieDecoyOn( bool isOn )
+{
+	file.isNessieOutfit = isOn
+}
+#endif
+
 #if SERVER
 void function PlayerUsesHoloRewind( entity player, entity decoy )
 {

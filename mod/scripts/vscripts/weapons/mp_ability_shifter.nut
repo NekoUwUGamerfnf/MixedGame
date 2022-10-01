@@ -117,12 +117,15 @@ void function MpAbilityShifterWeapon_OnWeaponTossPrep( entity weapon, WeaponToss
 		return
 	if( weapon.HasMod( "wraith_phase" ) )
 	{
-		int phaseResult = PhaseShift( weaponOwner, SHIFTER_WARMUP_TIME_WRAITH, weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration ) )
+		int phaseResult = PhaseShift( weaponOwner, SHIFTER_WARMUP_TIME_WRAITH, weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration ), true )
 		if( phaseResult )
 		{
 			StatusEffect_AddTimed( weaponOwner, eStatusEffect.move_slow, WRAITH_SEVERITY_SLOWMOVE, SHIFTER_SLOWMOVE_TIME_WRAITH, 0 )
 			#if SERVER
 			thread WraithPhaseTrailThink( weaponOwner, SHIFTER_WARMUP_TIME_WRAITH )
+			// all handle in server-side
+			EmitSoundOnEntityOnlyToPlayer( weaponOwner, weaponOwner, "Pilot_PhaseShift_PreActivate_1P" )
+			Remote_CallFunction_NonReplay( weaponOwner, "ServerCallback_PlayScreenFXWarpJump" )
 			#endif
 			ammoreduce = weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
 		}
@@ -839,11 +842,11 @@ void function PortalTravelThink( entity trigger, entity player )
 	array<vector> progressAngs = portalGoalTable[ trigger ].savedVecs.progAngs
 	
 	int totalSegments = progressPoses.len()
-	float timePerSigment = PORTAL_WARP_TIME_PER_SEGMENT//PORTAL_TICKRATE + 0.05 // needs defensive fix
+	float timePerSigment = PORTAL_WARP_TIME_PER_SEGMENT //PORTAL_TICKRATE + 0.05 // needs defensive fix
 	float totalTime = travelTime
 	float phaseTimeMulti = 1.1
 	if( shouldDoWarpEffect )
-		phaseTimeMulti = 0.85 // should set bit lower
+		phaseTimeMulti = 0.75 // should set bit lower
 	//if( shouldDoWarpEffect && totalTime >= PORTAL_TRAVEL_LENGTH_MAX ) // hardcoded now
 		//phaseTimeMulti = 0.75 // should set bit lower
 

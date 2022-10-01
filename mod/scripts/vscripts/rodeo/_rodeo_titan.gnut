@@ -44,6 +44,9 @@ global function Battery_StopFXAndHideIconForPlayer
 global function RemovePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 global function RestorePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 
+global function SetBatterySkinRandom // nessie modify
+global function IsBatteryNowRandom
+
 #if DEV
 global function SetDebugRodeoPrint
 global function GetDebugRodeoPrint
@@ -105,6 +108,8 @@ struct
 	table<entity, bool> playersThatWantToUseRodeoGrenade
 
 	void functionref(entity,entity,entity) applyBatteryCallback
+
+	bool shouldRandomBattery = false // nessie modify
 } file
 
 //-----------------------------------------------------------------------------
@@ -159,11 +164,14 @@ void function RodeoTitan_Init()
 		RegisterSignal( "TryNukeGrenade" )
 		RegisterSignal( "RodeoNukeWindowEnded" )
 		#endif
-	}
-	else
-	{
+
+		// nessie move
 		AddSoulInitFunc( DisableBTRodeo )
 	}
+	//else
+	//{
+		//AddSoulInitFunc( DisableBTRodeo )
+	//}
 }
 
 void function Rodeo_HealthDecayThink( entity soul ) //Remove if we don't want rodeo battery to drain health
@@ -1494,21 +1502,36 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 	batteryPack.s.touchEnabledTime <- 0
 	batteryPack.s.batteryCarriedStatusEffect <- 0
 
-	if( !hideIcon ) // for nessie batteries
+	bool shouldHideIcon = hideIcon
+
+	if( hideIcon )
+		batteryPack.s.hideIcon <- true
+	else // for nessie batteries
 	{
+		batteryPack.s.hideIcon <- false
 		batteryPack.Minimap_SetAlignUpright( true )
 		batteryPack.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
 		batteryPack.Minimap_SetClampToEdge( false )
 		batteryPack.Minimap_AlwaysShow( TEAM_MILITIA, null )
 		batteryPack.Minimap_AlwaysShow( TEAM_IMC, null )
 	}
-	batteryPack.SetSkin( RandomInt(3) )
+	if( file.shouldRandomBattery )
+		batteryPack.SetSkin( RandomInt(3) )
 	Battery_StartFX( batteryPack )
 
+	array<entity> batteryArray = GetEntArrayByClass_Expensive( "item_titan_battery" )
 	// fix for nessie
-	if( GetEntArrayByClass_Expensive( "item_titan_battery" ).len() >= WORLD_BATTERY_MAX_COUNT )
+	if( batteryArray.len() >= WORLD_BATTERY_MAX_COUNT )
 	{
-		GetEntArrayByClass_Expensive( "item_titan_battery" )[GetEntArrayByClass_Expensive( "item_titan_battery" ).len()-1].Destroy()
+		for( int i = batteryArray.len() - 1; i > 0; i-- )
+		{
+			if( batteryArray[i].GetParent() ) // assuming this is a battery carried by players
+				continue
+			batteryArray[i].Destroy()
+			break
+		}
+		
+		/* // never destroy batteries that player already carring
 		foreach( entity player in GetPlayerArray() )
 		{
 			while( GetPlayerBatteryCount( player ) > 0 )
@@ -1517,7 +1540,9 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 				if( IsValid( battery ) )
 					battery.Destroy()
 			}
+			batteryArray[batteryArray.len()-1].Destroy()
 		}
+		*/
 	}
 
 	if ( HAS_BATTERY_THIEF_ICON && batteryOwner != null )
@@ -1725,8 +1750,19 @@ entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 		if( !IsValid( battery ) )
 			return
 		SetBatteryOnBack( pilot, null ) //Defensive fix for 209362. Set it to null before doing any other actions on it which might cause execution to jump somewhere else. I think doing PutEntityInSafeSpot() might cause this?
-		battery.Minimap_AlwaysShow( TEAM_MILITIA, null )
-		battery.Minimap_AlwaysShow( TEAM_IMC, null )
+		
+		bool shouldHideIcon = false
+		if( "hideIcon" in battery.s ) // icon hide for battery
+		{
+			if( expect bool( battery.s.hideIcon ) )
+				shouldHideIcon = true
+		}
+
+		if( !shouldHideIcon )
+		{
+			battery.Minimap_AlwaysShow( TEAM_MILITIA, null )
+			battery.Minimap_AlwaysShow( TEAM_IMC, null )
+		}
 
 		battery.s.touchEnabledTime = Time() + 0.3
 
@@ -2520,6 +2556,16 @@ bool function ShouldThrowGrenadeInHatch( entity rodeoPilot )
 		return true
 
 	return false
+}
+
+void function SetBatterySkinRandom( bool random )
+{
+	file.shouldRandomBattery = random
+}
+
+bool function IsBatteryNowRandom()
+{
+	return file.shouldRandomBattery
 }
 
 

@@ -3,9 +3,14 @@ global function CustomDamageEffect_Init
 global function Wargames_SetPlayerDissolveDisabled // defined for wargames, since level scripts don't load till enter level
 global function Wargames_IsPlayerDissolveDisabled
 
+global function SetPlayerTPKillshotSoundEnabled
+
+const asset PLAYER_BURN_FX = $"P_burn_player"
+
 struct
 {
     bool playerDissolveDisabled = false
+    bool tpKillShotSoundEnabled = false
 } file
 
 void function CustomDamageEffect_Init()
@@ -14,6 +19,9 @@ void function CustomDamageEffect_Init()
     AddCallback_OnPlayerRespawned( OnPlayerRespawned )
     AddCallback_OnPlayerKilled( OnPlayerKilled )
     Wargames_SetPlayerDissolveDisabled( true ) // disable wargame dissolve for players
+
+    // precache
+    PrecacheParticleSystem( PLAYER_BURN_FX )
 
     // uses npcs to test
     //AddCallback_OnNPCKilled( OnPlayerKilled )
@@ -28,6 +36,11 @@ void function Wargames_SetPlayerDissolveDisabled( bool disabled )
 bool function Wargames_IsPlayerDissolveDisabled()
 {
     return file.playerDissolveDisabled
+}
+
+void function SetPlayerTPKillshotSoundEnabled( bool enabled )
+{
+    file.tpKillShotSoundEnabled = enabled
 }
 
 void function OnClientConnected( entity player )
@@ -58,8 +71,26 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
     if( victim.IsTitan() )
         return
 
+    if( file.tpKillShotSoundEnabled )
+    {
+        if( attacker.IsPlayer() )
+        {
+            if( victim.IsMechanical() )
+                EmitSoundOnEntityExceptToPlayer( victim, attacker, "android_bulletimpact_killshot_3p_vs_3p" )
+            else
+                EmitSoundOnEntityExceptToPlayer( victim, attacker, "flesh_heavy_bulletimpact_killshot_3p_vs_3p" )
+        }
+        else
+        {
+            if( victim.IsMechanical() )
+                EmitSoundOnEntity( victim, "android_bulletimpact_killshot_3p_vs_3p" )
+            else
+                EmitSoundOnEntity( victim, "flesh_heavy_bulletimpact_killshot_3p_vs_3p" )
+        }
+    }
+
     int damageType = DamageInfo_GetCustomDamageType( damageInfo )
-    switch( RandomInt( 4 ) )
+    switch( 5 ) //RandomInt( 6 )
     {
         case 0:
             thread ShieldBrokeDeath( victim )
@@ -78,10 +109,16 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
             break
         case 3:
             //RemoveMessingDamageType( damageInfo )
-            if( IsKnockbackDamageType( damageInfo ) )
-                thread EMP_FX_KILLING( $"P_emp_body_human", victim, "CHESTFOCUS", 2.5 )
+            if( IsKnockbackDamageType( damageInfo ) || IsSmashDamageType( damageInfo ) ) // don't last so long if player can't play animation
+                thread EMP_FX_KILLING( $"P_emp_body_human", victim, "CHESTFOCUS", 1.0 )
             else
                 thread EMPDeathAnim( victim )
+            break
+        case 4: 
+            thread ThermiteFieryDeath( victim, 1.0 )
+            break
+        case 5:
+            thread NessieBurstDeath( victim, 2.5 )
             break
     }
 }
@@ -91,6 +128,16 @@ bool function IsKnockbackDamageType( var damageInfo )
     int damageType = DamageInfo_GetCustomDamageType( damageInfo )
     // these will trigger "knockback" deathpackage in sh_death_package.gnut which will break ragdoll and animation
     if( damageType & ( DF_KNOCK_BACK | DF_MELEE | DF_TITAN_STEP ) ) 
+        return true
+    
+    return false
+}
+
+bool function IsSmashDamageType( var damageInfo )
+{
+    int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+    // these will trigger "knockback" deathpackage in sh_death_package.gnut which will break ragdoll and animation
+    if( damageType & ( DF_GIB | DF_DISSOLVE ) ) 
         return true
     
     return false
@@ -211,4 +258,101 @@ void function RebootFX( entity ent, float duration = 0.5 )
 
     wait duration
     
+}
+
+void function ThermiteFieryDeath( entity player, float duration )
+{
+    player.EndSignal( "OnDestroy" )
+    //entity fxHandle = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( PLAYER_BURN_FX ), FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
+    entity fxHandle = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_wpn_meteor_exp" ), FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
+
+    OnThreadEnd(
+		function() : ( fxHandle, player, duration )
+		{
+			if ( IsValid( fxHandle ) )
+			{
+				EffectStop( fxHandle )
+			}
+
+			if ( IsValid( player ) )
+				FadeOutSoundOnEntity( player, "flamewall_flame_burn_middle", duration )
+		}
+	)
+
+    EmitSoundOnEntity( player, "flamewall_flame_burn_middle" )
+    wait duration
+}
+
+void function NessieBurstDeath( entity player, float fadeTime )
+{
+    player.EndSignal( "OnDestroy" )
+
+    vector startAngles = < 0,player.EyeAngles().y, 0 >
+    vector startVelocity = player.GetVelocity()
+    array<vector> velocityGroup
+    array<entity> propArray
+    array<entity> nessieArray
+    int nessieCount = RandomIntRange( 1, 8 )
+    print( "nessieCount: " + string( nessieCount ) )
+    float rotPerNessie = 360 / float( nessieCount )
+    if( nessieCount == 1 )
+		vector newVector = startVelocity + < 0,0,100 >
+    else
+    {
+        for( int i = 0; i < nessieCount; i++ )
+        {
+            vector newAngles = < 0, startAngles.y + i * rotPerNessie, 0 >
+            vector newVector = startVelocity + AnglesToForward( newAngles ) * 100
+            newVector.z = startVelocity.z + 100
+            velocityGroup.append( newVector )
+        }
+    }
+
+    OnThreadEnd(
+        function(): ( propArray, nessieArray )
+        {
+            foreach( entity nessie in nessieArray )
+            {
+                if( IsValid( nessie ) )
+                {
+                    print( "Nessie Origin: " + string( nessie.GetOrigin() ) )
+                    nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+                }
+            }
+            foreach( entity prop in propArray )
+            {
+                if( IsValid( prop ) )
+                {
+                    print( "Prop Origin: " + string( prop.GetOrigin() ) )
+                    prop.Destroy()
+                }
+            }
+        }
+    )
+
+    for( int i = 0; i < velocityGroup.len(); i++ )
+	{
+		vector velocety = velocityGroup[i]
+
+		entity prop = CreateEntity( "prop_physics" )
+        prop.SetModel( $"models/dev/empty_physics.mdl" )
+        prop.SetOrigin( player.EyePosition() )
+        DispatchSpawn( prop )
+        StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_wpn_grenade_smoke_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+        propArray.append( prop )
+        player.SetOrigin( prop.GetOrigin() )
+
+        entity nessie = CreateEntity( "prop_dynamic" )
+        nessie.SetValueForModelKey( $"models/domestic/nessy_doll.mdl" )
+        nessie.kv.rendercolor = "81 130 151"  
+        DispatchSpawn( nessie )
+        nessie.SetParent( prop )
+        nessieArray.append( nessie )
+
+        prop.SetVelocity( velocety )
+
+        print( "Created One Nessie!" )
+	}
+
+    wait fadeTime
 }

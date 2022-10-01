@@ -162,7 +162,7 @@ void function OnProjectileIgnite_weapon_grenade_bangalore( entity projectile )
 	}
 	vector baseVector = AnglesToRight( projectile.proj.savedAngles )
 	vector baseAngles = < 0, VectorToAngles( baseVector ).y, 0 >
-	int smokeCount = isOddNumber ?SMOKE_GRENADE_COUNT - 1 : SMOKE_GRENADE_COUNT
+	int smokeCount = isOddNumber ? SMOKE_GRENADE_COUNT - 1 : SMOKE_GRENADE_COUNT
 	float rotPerGrenade = 360 / float( smokeCount )
 	for( int i = 0; i < smokeCount; i++ )
 	{

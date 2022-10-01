@@ -899,8 +899,12 @@ void function SetWinner( int team, string winningReason = "", string losingReaso
 		{	
 			if ( team != TEAM_UNASSIGNED )
 			{
-				file.announceRoundWinnerWinningSubstr = GetStringID( "#GAMEMODE_ROUND_LIMIT_REACHED" )
-				file.announceRoundWinnerLosingSubstr = GetStringID( "#GAMEMODE_ROUND_LIMIT_REACHED" )
+				// round limit reached!
+				if( GameRules_GetTeamScore( team ) == GameMode_GetRoundScoreLimit( GAMETYPE ) )
+				{
+					file.announceRoundWinnerWinningSubstr = GetStringID( "#GAMEMODE_ROUND_LIMIT_REACHED" )
+					file.announceRoundWinnerLosingSubstr = GetStringID( "#GAMEMODE_ROUND_LIMIT_REACHED" )
+				}
 				GameRules_SetTeamScore( team, GameRules_GetTeamScore( team ) + 1 )
 				GameRules_SetTeamScore2( team, GameRules_GetTeamScore2( team ) + 1 )
 			}

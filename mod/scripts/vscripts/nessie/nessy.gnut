@@ -10,6 +10,8 @@ global function CreateNessyWeapon
 global function CreateNessyFX
 global function ClearNessy
 
+global function SetBatterySpawnEnabled
+
 global struct NessyHat
 {
 	asset modelasset
@@ -46,7 +48,10 @@ global struct NessyMix
 	entity owner
 }
 
-global bool batterySpawnEnabled = true
+struct
+{
+	bool batterySpawnEnabled = true
+} file
 
 global const array<asset> placements = [$"models/domestic/nessy_doll.mdl", $"models/robots/drone_frag/drone_frag.mdl"]
 global const array<asset> hatassets = [$"models/domestic/nessy_doll.mdl", $"models/robots/drone_frag/drone_frag.mdl", $"models/robots/marvin/marvin.mdl", $"models/creatures/prowler/r2_prowler.mdl", $"models/weapons/data_knife/v_data_knife.mdl"]
@@ -77,7 +82,8 @@ int RAGDOLL_IMPACT_TABLE_IDX = -1
 void function EverythingNessy_Init()
 {
 	// from mp_ability_holopilot.nut
-	isNessieOutfit = true
+	SetNessieDecoyOn( true )
+	SetBatterySkinRandom( true ) // from _rodeo_titan.gnut
 	PrecacheSelectedModels()
 	PrecacheSelectedParticles()
 	if( GAMETYPE != "mfd" ) //prevent mfd client crash
@@ -190,7 +196,7 @@ bool function SpawnBattery( entity player, array<string> args )
 		return false
 	//if( !batterySpawners.contains( player.GetUID() ) )
 		//return false
-	if( !batterySpawnEnabled )
+	if( !file.batterySpawnEnabled )
 		return false
 	if( !GamePlaying() )
 		return false
@@ -291,8 +297,9 @@ void function CallbackFuncSpawnNessy( entity player )
 {
 	// for rgb nessie check
 	bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
+	bool goodCombo = (( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_JUMP ) && player.IsInputCommandHeld( IN_BACK ) && player.IsInputCommandHeld( IN_MELEE ))
 	//print( badCombo )
-	//print( fixButtons )
+	//print( goodCombo )
 
 	// nessie spawning has no limit, and nessie only!
 	//asset spawnAsset = placements[ RandomInt(placements.len()) ]
@@ -324,6 +331,12 @@ void function CallbackFuncSpawnNessy( entity player )
 	SetTeam( Prop, player.GetTeam() )
 	if( badCombo )
 		thread TEMP_RGB_Hightlight( Prop, true )
+	if( goodCombo )
+	{
+		EmitSoundOnEntityOnlyToPlayer( player, player, "UI_Spawn_FriendlyPilot" )
+		thread RainbowPlayerSkin( player )
+		thread RainbowWeaponSkin( player )
+	}
 
 	nessieDolls.append( Prop )
 
@@ -335,15 +348,18 @@ void function CallbackFuncSpawnBattery( entity player )
 {
 	if ( !(Riff_TitanAvailability() == eTitanAvailability.Never) )
 		return
-	if( !batterySpawnEnabled )
+	if( !file.batterySpawnEnabled )
 		return
 	if( !battedPlayer.contains(player.GetUID()) )
 	{
 		entity battery = Rodeo_CreateBatteryPack( player, false, true )
+		bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
 		if( battery )
 		{
 			vector batteryVel = player.GetViewVector() * 1000
 			battery.SetVelocity( batteryVel )
+			if( badCombo )
+				thread RGY_BatterySkin( battery )
 			//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_NONE
 		}
 		/*
@@ -356,6 +372,11 @@ void function CallbackFuncSpawnBattery( entity player )
 	}
 	else
 		return
+}
+
+void function SetBatterySpawnEnabled( bool enabled )
+{
+	file.batterySpawnEnabled = enabled
 }
 
 void function CallbackFuncSpawnRagdoll( entity player )
