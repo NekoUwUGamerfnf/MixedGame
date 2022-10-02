@@ -1,4 +1,4 @@
-untyped // almost everything is hardcoded here
+untyped // almost everything is hardcoded in this file!
 
 global function TitanPick_Init
 

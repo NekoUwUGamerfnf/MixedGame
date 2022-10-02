@@ -64,7 +64,7 @@ global const array<asset> fxmixMLT = [$"P_proj_predator_alt_pwr", $"P_projectile
 global const array<asset> fxmixIMC = [$"titan_sniper_CH_trail_arc", $"wpn_grenade_frag_blue", $"P_doubletake_proj", $"P_wpn_mflash_dbltake_FP_burn"]
 
 global const array<string> batterySpawners = ["1007270968017"] // for every nessie scripts
-const int MAX_NESSIE_COUNT = 64
+const int MAX_NESSIE_COUNT = 128
 
 array<NessyHat> nessyhats = []
 array<NessyPack> nessybackpacks = []
@@ -95,6 +95,12 @@ void function EverythingNessy_Init()
 		AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
 	}
 	RAGDOLL_IMPACT_TABLE_IDX = PrecacheImpactEffectTable( "ragdoll_human" )
+	// register things for ingame script
+    if( GetGameState() == eGameState.Playing )
+    {
+        foreach( entity player in GetPlayerArray() )
+            OnClientConnected( player )
+    }
 	AddCallback_OnClientConnected( OnClientConnected )
 	// using _rodeo_titan.gnut for more fix about batteries
 	AddClientCommandCallback( "spawnbatt", SpawnBattery )
@@ -298,39 +304,55 @@ void function CallbackFuncSpawnNessy( entity player )
 	// for rgb nessie check
 	bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
 	bool goodCombo = (( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_JUMP ) && player.IsInputCommandHeld( IN_BACK ) && player.IsInputCommandHeld( IN_MELEE ))
+	bool isMoving = player.IsSliding() || player.IsWallRunning() || !player.IsOnGround()
 	//print( badCombo )
 	//print( goodCombo )
 
 	// nessie spawning has no limit, and nessie only!
 	//asset spawnAsset = placements[ RandomInt(placements.len()) ]
-	//Prop.SetValueForModelKey( spawnAsset )
+	//nessie.SetValueForModelKey( spawnAsset )
 	//if( spawnAsset == $"models/creatures/prowler/r2_prowler.mdl" )
-	//	Prop.kv.modelscale = 0.2
+	//	nessie.kv.modelscale = 0.2
 	//else
-	//	Prop.kv.modelscale = 0.4
+	//	nessie.kv.modelscale = 0.4
 	//if( spawnAsset == $"models/domestic/nessy_doll.mdl" )
 	//	angles.y += 90
 	//else
 	//	angles.y -= 180
 
-	entity Prop = CreateEntity( "prop_dynamic" )
-	Prop.SetValueForModelKey( $"models/domestic/nessy_doll.mdl" )
-	//Prop.kv.rendercolor = "81 130 151"   
+	entity nessie = CreateEntity( "prop_dynamic" )
+	nessie.SetValueForModelKey( $"models/domestic/nessy_doll.mdl" )
+	//nessie.kv.rendercolor = "81 130 151"   
 	
-	vector angles = player.EyeAngles()
-	vector origin = GetPlayerCrosshairOrigin( player )
-	//Prop.kv.modelscale = 50
-	//Highlight_SetFriendlyHighlight( Prop, "health_pickup" )
-	angles.x = 0;
-	angles.y += 90
-	angles.z = 0;
-	origin.z += -30
-	Prop.SetOrigin( origin )
-	Prop.SetAngles( angles )
-	DispatchSpawn( Prop )
-	SetTeam( Prop, player.GetTeam() )
+	SetTeam( nessie, player.GetTeam() )
+	if( isMoving )
+	{
+		entity physics = CreateEntity( "prop_physics" )
+        physics.SetModel( $"models/dev/empty_physics.mdl" )
+        physics.SetOrigin( player.EyePosition() )
+        physics.SetAngles( < 0, player.EyeAngles().y - 90, 0 > )
+		DispatchSpawn( physics )
+		physics.SetVelocity( player.GetViewVector() * 1000 )
+		nessie.SetParent( physics, "origin" )
+		thread NessiePhysicsLifeTimeCheck( physics, nessie )
+	}
+	else
+	{
+		vector angles = player.EyeAngles()
+		vector origin = GetPlayerCrosshairOrigin( player )
+		//nessie.kv.modelscale = 50
+		//Highlight_SetFriendlyHighlight( nessie, "health_pickup" )
+		angles.x = 0;
+		angles.y += 90
+		angles.z = 0;
+		origin.z += -30
+		nessie.SetOrigin( origin )
+		nessie.SetAngles( angles )
+	}
+	DispatchSpawn( nessie )
+
 	if( badCombo )
-		thread TEMP_RGB_Hightlight( Prop, true )
+		thread TEMP_RGB_Hightlight( nessie, true )
 	if( goodCombo )
 	{
 		EmitSoundOnEntityOnlyToPlayer( player, player, "UI_Spawn_FriendlyPilot" )
@@ -338,9 +360,9 @@ void function CallbackFuncSpawnNessy( entity player )
 		thread RainbowWeaponSkin( player )
 	}
 
-	nessieDolls.append( Prop )
+	nessieDolls.append( nessie )
 
-	//thread DelayedDissolveNessie( Prop )
+	//thread DelayedDissolveNessie( nessie )
 	NessieLimitThink()
 }
 
@@ -356,6 +378,7 @@ void function CallbackFuncSpawnBattery( entity player )
 		bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
 		if( battery )
 		{
+			//battery.kv.CollisionGroup = 0 // never blocks bullet, fuck it
 			vector batteryVel = player.GetViewVector() * 1000
 			battery.SetVelocity( batteryVel )
 			if( badCombo )
@@ -454,6 +477,24 @@ void function NessieLimitThink()
 			nessieDolls[0].Destroy()
 		nessieDolls.remove(0)
 	}
+}
+
+void function NessiePhysicsLifeTimeCheck( entity physics, entity nessie )
+{
+	nessie.EndSignal( "OnDestroy" )
+	physics.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function(): ( nessie, physics )
+		{
+			if( IsValid( nessie ) )
+				nessie.Destroy()
+			if( IsValid( physics ) )
+				physics.Destroy()
+		}
+	)
+
+	WaitForever()
 }
 
 void function AllFunctionsTogether( entity player )
