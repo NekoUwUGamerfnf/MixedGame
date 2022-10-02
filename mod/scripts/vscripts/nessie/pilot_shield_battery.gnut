@@ -12,8 +12,8 @@ const float AMPED_SHIELD_BATTERY_USE_TIME = 5
 
 struct
 {
-    bool canUseShiledBattery = true
-    bool noLimitBattery = true // let player use batteries whenever they want, for fun
+    bool canUseShiledBattery = false
+    bool noLimitBattery = false // let player use batteries whenever they want, for fun
 } file
 
 void function Pilot_Shield_Battery_Init()
@@ -34,6 +34,7 @@ void function Pilot_Shield_Battery_Init()
 void function OnClientConnected( entity player )
 {
     player.s.shieldBatteryEndFunction <- false
+    player.s.usingShieldBattery <- false
     AddPlayerHeldButtonEventCallback( player, IN_USE, TryUseShieldBattery, 0.5 )
     AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, TryUseShieldBattery, 1.0 )
 }
@@ -47,6 +48,8 @@ void function TryUseShieldBattery_Threaded( entity player )
 {
     if( !file.canUseShiledBattery )
         return
+    if( expect bool( player.s.usingShieldBattery ) )
+        return
     if( !( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) ) )
         return
     if( !file.noLimitBattery && ( player.GetShieldHealthMax() < 1 || player.GetShieldHealth() == player.GetShieldHealthMax() ) )
@@ -59,8 +62,6 @@ void function TryUseShieldBattery_Threaded( entity player )
     player.EndSignal( "StopUseShieldBattery" )
     player.EndSignal( "OnDestroy" )
     player.EndSignal( "OnDeath" )
-    
-    player.s.shieldBatteryEndFunction = true
 
     entity battery = GetBatteryOnBack( player )
     if( !IsValid( battery ) )
@@ -70,7 +71,10 @@ void function TryUseShieldBattery_Threaded( entity player )
     }
 
     battery.EndSignal( "OnDestroy" )
-    int statusEffectHandle = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.5 )
+    player.s.shieldBatteryEndFunction = true
+    player.s.usingShieldBattery = true
+
+    int statusEffectHandle = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.4 )
 
     OnThreadEnd(
         function(): ( player, battery, statusEffectHandle )
@@ -78,11 +82,13 @@ void function TryUseShieldBattery_Threaded( entity player )
             //print( "Reached here! 1" )
             if( !IsValid( player ) )
                 return
+            player.s.usingShieldBattery = false
             player.DeployWeapon()
             player.Server_TurnOffhandWeaponsDisabledOff()
             StopSoundOnEntity( player, "Weapon_EnergySyphon_Charge_1P" )
-            StopSoundOnEntity( player, "Weapon_EnergySyphon_Charge_3P" )
-            StatusEffect_Stop( player, statusEffectHandle )
+            //StopSoundOnEntity( player, "Weapon_EnergySyphon_Charge_3P" )
+            if( statusEffectHandle != -1 )
+                StatusEffect_Stop( player, statusEffectHandle )
             
             if( !( expect bool( player.s.shieldBatteryEndFunction ) ) )
                 return
@@ -101,29 +107,30 @@ void function TryUseShieldBattery_Threaded( entity player )
             }
         }
     )
-    battery.ClearParent()
-    battery.SetParent( player, "PROPGUN" )
-    battery.SetAngles( < 0,90,90 > )
     bool isAmped = IsAmpedBattery( battery )
     float useTime = SHIELD_BATTERY_USE_TIME
     if( isAmped )
         useTime = AMPED_SHIELD_BATTERY_USE_TIME
     thread ButtonCancelCheck( player, useTime )
 
-    EmitSoundOnEntityOnlyToPlayer( player, player, "Weapon_EnergySyphon_Charge_1P" )
-    EmitSoundOnEntityExceptToPlayer( player, player, "Weapon_EnergySyphon_Charge_3P" )
     player.HolsterWeapon()
     player.Server_TurnOffhandWeaponsDisabledOn()
+    wait 0.6 // wait for player hoster their weapon
+    battery.ClearParent()
+    battery.SetParent( player, "PROPGUN" )
+    battery.SetAngles( < 0,90,90 > )
+    EmitSoundOnEntityOnlyToPlayer( player, player, "Weapon_EnergySyphon_Charge_1P" )
+    //EmitSoundOnEntityExceptToPlayer( player, player, "Weapon_EnergySyphon_Charge_3P" ) // can be too noisy
 
     float startTime = Time()
     while( startTime + useTime > Time() )
     {
-        player.HolsterWeapon()
+        player.HolsterWeapon() // defensive fix
         player.Server_TurnOffhandWeaponsDisabledOn()
         if( isAmped )
-            SendHudMessage( player, "正在使用强力护盾电池 [ " + CreateHudProgressBarThroughTime( Time(), startTime, useTime ) + " ]\n(按下使用以取消)", -1, -0.3, 255, 255, 100, 255, 0, 0.2, 0 )
+            SendHudMessage( player, "正在使用强力护盾电池 [ " + CreateHudProgressBarThroughTime( Time(), startTime, useTime ) + " ]\n(按下开火以取消)", -1, -0.3, 255, 255, 100, 255, 0, 0.2, 0 )
         else
-            SendHudMessage( player, "正在使用护盾电池 [ " + CreateHudProgressBarThroughTime( Time(), startTime, useTime ) + " ]\n(按下使用以取消)", -1, -0.3, 255, 255, 100, 255, 0, 0.2, 0 )
+            SendHudMessage( player, "正在使用护盾电池 [ " + CreateHudProgressBarThroughTime( Time(), startTime, useTime ) + " ]\n(按下开火以取消)", -1, -0.3, 255, 255, 100, 255, 0, 0.2, 0 )
         WaitFrame()
     }
 
@@ -206,16 +213,17 @@ void function ButtonCancelCheck( entity player, float maxTime )
     player.EndSignal( "OnDeath" )
     player.EndSignal( "StartButtonCancelCheck" )
     player.EndSignal( "DoneUseShieldBattery" )
+    player.EndSignal( "StopUseShieldBattery" )
 
     OnThreadEnd(
         function(): ( player )
         {
             if( IsValid( player ) )
-                RemoveButtonPressedPlayerInputCallback( player, IN_USE, InterruptShieldBattery )
+                RemoveButtonPressedPlayerInputCallback( player, IN_ATTACK, InterruptShieldBattery )
         }
     )
 
-    AddButtonPressedPlayerInputCallback( player, IN_USE, InterruptShieldBattery )
+    AddButtonPressedPlayerInputCallback( player, IN_ATTACK, InterruptShieldBattery )
     wait maxTime
 }
 
