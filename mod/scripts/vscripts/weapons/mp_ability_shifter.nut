@@ -431,9 +431,15 @@ void function PortalStart( entity player, entity weapon )
 	//player.EndSignal( "OnDestroy" )
 	//player.EndSignal( "PlacedPortal" )
 	//weapon.EndSignal( "OnDestroy" )
+	bool isInfiniteDistance = false
+	bool isInfiniteDuration = false
 	if( IsValid( weapon ) )
 	{
 		weapon.AddMod( "no_regen" )
+		if( weapon.HasMod( "infinite_distance_portal" ) )
+			isInfiniteDistance = true
+		if( weapon.HasMod( "infinite_duration_portal" ) )
+			isInfiniteDuration = true
 		//weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() / 2 )
 	}
 
@@ -448,7 +454,9 @@ void function PortalStart( entity player, entity weapon )
 	string playerUID = player.GetUID()
 	playerPlacingPortal[ playerUID ] = true
 
-	int statusEffect = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, WRAITH_SPEED_BOOST_SEVERITY )
+	int statusEffect = -1
+	if( !isInfiniteDistance ) // infinite duration portal don't have a speed boost
+		statusEffect = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, WRAITH_SPEED_BOOST_SEVERITY )
 	entity portalTrail = CreatePhaseShiftTrail( player )
 
 	EmitSoundOnEntityOnlyToPlayer( player, player, SHIFTER_START_SOUND_1P )
@@ -518,9 +526,15 @@ void function PortalStart( entity player, entity weapon )
 			{
 				progressPoses.append( player.GetOrigin() )
 				progressAngs.append( < 0, player.EyeAngles().y, player.EyeAngles().z > )
-				portalLeft -= fabs( Distance2D( lastTickPos, player.GetOrigin() ) )
+				if( !isInfiniteDistance )
+					portalLeft -= fabs( Distance2D( lastTickPos, player.GetOrigin() ) )
 				travelTime += PORTAL_TICKRATE
 				lastTickPos = player.GetOrigin()
+			}
+			if( isInfiniteDistance )
+			{
+				SendHudMessage( player,"传送门距离剩余：无限制", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
+				continue
 			}
 			float portalPercentage = portalLeft / PORTAL_MAX_DISTANCE * 100
 			if( portalPercentage <= 0 )
@@ -569,7 +583,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 		return
 	}
 	*/
-	if( portalLeft / PORTAL_MAX_DISTANCE >= PORTAL_CANCEL_PERCENTAGE )
+	if( portalLeft / PORTAL_MAX_DISTANCE >= PORTAL_CANCEL_PERCENTAGE && !weapon.HasMod( "infinite_distance_portal" ) )
 	{
 		SendHudMessage( player,"传送门放置已取消", -1, 0.65, 255, 255, 100, 1, 0, 4, 0 )
 		thread DelayedRechargeWeapon( weapon )
@@ -775,13 +789,16 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	thread DelayedMakeOwnerAbleToPortal( startTrig )
 	thread DelayedMakeOwnerAbleToPortal( endTrig )
 
-	thread PortalLifetimeManagement( startTrig, endTrig )
+	if( weapon.HasMod( "infinite_duration_portal" ) )
+		thread PortalLifetimeManagement( startTrig, endTrig, 99999 )
+	else
+		thread PortalLifetimeManagement( startTrig, endTrig, PORTAL_DURATION )
 }
 
-void function PortalLifetimeManagement( entity startTrig, entity endTrig )
+void function PortalLifetimeManagement( entity startTrig, entity endTrig, float duration )
 {
 	float startTime = Time()
-	while( Time() < startTime + PORTAL_DURATION )
+	while( Time() < startTime + duration )
 	{
 		if( IsValid( startTrig ) )
 		{
@@ -842,21 +859,19 @@ void function PortalTravelThink( entity trigger, entity player )
 	array<vector> progressAngs = portalGoalTable[ trigger ].savedVecs.progAngs
 	
 	int totalSegments = progressPoses.len()
+	int segmentsLeft = totalSegments
+	bool playedPreEndSound = false
 	float timePerSigment = PORTAL_WARP_TIME_PER_SEGMENT //PORTAL_TICKRATE + 0.05 // needs defensive fix
 	float totalTime = travelTime
 	float phaseTimeMulti = 1.1
-	if( shouldDoWarpEffect )
-	{
-		// CancelPhaseShift() version
-		phaseTimeMulti = 1.2 // should set bit higher
-		if( totalSegments > 11 )
-			phaseTimeMulti = 1.5 // tempfix
-		
+	// CancelPhaseShift() version, don't need this
+	//if( shouldDoWarpEffect )
+	//{
 		// player.WaitSignal( "StopPhaseShift" ) version
 		//phaseTimeMulti = 0.75 // should set bit lower
 		//if( totalSegments > 11 )
 			//phaseTimeMulti = 0.83 // tempfix
-	}
+	//}
 	//if( shouldDoWarpEffect && totalTime >= PORTAL_TRAVEL_LENGTH_MAX ) // hardcoded now
 		//phaseTimeMulti = 0.75 // should set bit lower
 
@@ -882,7 +897,11 @@ void function PortalTravelThink( entity trigger, entity player )
 	}
 	if( !inPortalCooldownPlayers.contains( player.GetUID() ) )
 	{
-		thread PortalCooldownThink( player, totalTime * phaseTimeMulti )
+		// CancelPhaseShift() version
+		if( shouldDoWarpEffect )
+			thread PortalCooldownThink( player, totalTime )
+		else
+			thread PortalCooldownThink( player, totalTime * phaseTimeMulti )
 		//print( "[PORTAL] Set someone in portal cooldown!" )
 	}
 	entity portalTrail = CreatePhaseShiftTrail( player )
@@ -892,7 +911,11 @@ void function PortalTravelThink( entity trigger, entity player )
 	player.Server_TurnOffhandWeaponsDisabledOn()
 	player.SetPredictionEnabled( false )
 	ViewConeZero( player )
-	PhaseShift( player, 0, totalTime * phaseTimeMulti ) // phase player, defensive fix
+	// CancelPhaseShift() version
+	if( shouldDoWarpEffect )
+		PhaseShift( player, 0, 9999 )
+	else
+		PhaseShift( player, 0, totalTime * phaseTimeMulti ) // phase player, defensive fix
 
 	//shouldn't be at the bottom of the function, or it will be pretty messed up
 	OnThreadEnd(
@@ -906,6 +929,7 @@ void function PortalTravelThink( entity trigger, entity player )
 				player.Server_TurnOffhandWeaponsDisabledOff()
 				player.SetPredictionEnabled( true )
 				ViewConeFree( player )
+				CancelPhaseShift( player ) // better, wraith be like this
 				player.TouchGround() // able to double jump after leaving
 				//whatever we get from segment teleports, just set player to the right origin
 				if( IsAlive( player ) && IsValid( trigger ) )
@@ -944,6 +968,15 @@ void function PortalTravelThink( entity trigger, entity player )
 						vector curAngle = CalculateFaceToOrigin( progressPoses[i+1], progressPoses[i] )
 						mover.NonPhysicsRotateTo( curAngle, timePerSigment, 0, 0 )
 					}
+					float travelTimeLeft = segmentsLeft * ( timePerSigment - 0.1 )
+					//print( travelTimeLeft )
+					if( travelTimeLeft < 0.8 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
+					{
+						playedPreEndSound = true
+						EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_WarningToEnd_1P" )
+						EmitSoundOnEntityExceptToPlayer( player, player, "Pilot_PhaseShift_WarningToEnd_3P" )
+					}
+					segmentsLeft -= 1
 					// rotation like this is messed up
 					//mover.NonPhysicsRotateTo( progressAngs[j], timePerSigment, 0, 0 )
 					wait timePerSigment - 0.1 // defensive fix
@@ -961,6 +994,15 @@ void function PortalTravelThink( entity trigger, entity player )
 						vector curAngle = CalculateFaceToOrigin( progressPoses[i-1], progressPoses[i] )
 						mover.NonPhysicsRotateTo( curAngle, timePerSigment, 0, 0 )
 					}
+					float travelTimeLeft = segmentsLeft * ( timePerSigment - 0.1 )
+					//print( travelTimeLeft )
+					if( travelTimeLeft < 0.8 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
+					{
+						playedPreEndSound = true
+						EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_WarningToEnd_1P" )
+						EmitSoundOnEntityExceptToPlayer( player, player, "Pilot_PhaseShift_WarningToEnd_3P" )
+					}
+					segmentsLeft -= 1
 					// rotation like this is messed up
 					//mover.NonPhysicsRotateTo( progressAngs[i], timePerSigment, 0, 0 )
 					wait timePerSigment - 0.1
@@ -973,7 +1015,6 @@ void function PortalTravelThink( entity trigger, entity player )
 		mover.NonPhysicsRotateTo( < 0,targetAngle.y,0 >, 0.2, 0, 0 ) // so player won't face the ground or sky
 		//player.WaitSignal( "StopPhaseShift" ) // wait till player exit phase, wraith's portal don't have this lmao
 		wait 0.3
-		CancelPhaseShift( player ) // better, wraith be like this
 		//player.Signal( "StopPhaseShift" )
 	}
 	else

@@ -722,14 +722,16 @@ void function BouncePlayerAway( entity player )
 {
 	if( IsValid( player ) )
 	{
-		//vector playerAngles = player.EyeAngles()
-		vector playerAngles = player.GetAngles()
-		vector forward = AnglesToForward( playerAngles )
-		vector directionVec = Vector(0,0,0)
-		directionVec += forward
-		vector directionAngles = VectorToAngles( directionVec )
-		vector directionForward = AnglesToForward( directionAngles )
-		vector airspeed = directionForward * LIFT_PULL_SPEED_HORIZON
+		vector playerAngles = player.EyeAngles()
+		//vector playerAngles = player.GetAngles()
+		//vector forward = AnglesToForward( playerAngles )
+		vector forward = AnglesToForward( < 0, playerAngles.y, 0 > ) // yaw only
+		//vector directionVec = Vector(0,0,0)
+		//directionVec += forward
+		//vector directionAngles = VectorToAngles( directionVec )
+		//vector directionForward = AnglesToForward( directionAngles )
+		//vector airspeed = directionForward * LIFT_PULL_SPEED_HORIZON
+		vector airspeed = forward * LIFT_PULL_SPEED_HORIZON
 		airspeed.z = LIFT_PULL_SPEED_VERTICAl
 		player.SetVelocity( airspeed )
 	}
