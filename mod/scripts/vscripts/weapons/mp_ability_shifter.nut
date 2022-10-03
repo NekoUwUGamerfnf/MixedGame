@@ -848,9 +848,9 @@ void function PortalTravelThink( entity trigger, entity player )
 	if( shouldDoWarpEffect )
 	{
 		// CancelPhaseShift() version
-		phaseTimeMulti = 0.9 // should set bit lower
+		phaseTimeMulti = 1.2 // should set bit higher
 		if( totalSegments > 11 )
-			phaseTimeMulti = 1.1 // tempfix
+			phaseTimeMulti = 1.5 // tempfix
 		
 		// player.WaitSignal( "StopPhaseShift" ) version
 		//phaseTimeMulti = 0.75 // should set bit lower
