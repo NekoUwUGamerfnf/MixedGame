@@ -637,8 +637,8 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	else
 		travelTime = progressPoses.len() * 0.3
 
-	print( "Total travelTime is " + string( travelTime ) )
-	print( "Total nodes.len() is " + string( progressPoses.len() ) )
+	//print( "Total travelTime is " + string( travelTime ) )
+	//print( "Total nodes.len() is " + string( progressPoses.len() ) )
 
 	//if( progressPoses.len() >= PORTAL_NODES_MAX )
 	/* // HACK!!! using hardcoded checking now!
@@ -846,7 +846,17 @@ void function PortalTravelThink( entity trigger, entity player )
 	float totalTime = travelTime
 	float phaseTimeMulti = 1.1
 	if( shouldDoWarpEffect )
-		phaseTimeMulti = 0.75 // should set bit lower
+	{
+		// CancelPhaseShift() version
+		phaseTimeMulti = 0.9 // should set bit lower
+		if( totalSegments > 11 )
+			phaseTimeMulti = 1.1 // tempfix
+		
+		// player.WaitSignal( "StopPhaseShift" ) version
+		//phaseTimeMulti = 0.75 // should set bit lower
+		//if( totalSegments > 11 )
+			//phaseTimeMulti = 0.83 // tempfix
+	}
 	//if( shouldDoWarpEffect && totalTime >= PORTAL_TRAVEL_LENGTH_MAX ) // hardcoded now
 		//phaseTimeMulti = 0.75 // should set bit lower
 
@@ -961,11 +971,14 @@ void function PortalTravelThink( entity trigger, entity player )
 		mover.NonPhysicsMoveTo( goalOrigin, 0.2 ,0, 0 )
 		vector targetAngle = CalculateFaceToOrigin( mover.GetOrigin(), goalOrigin )
 		mover.NonPhysicsRotateTo( < 0,targetAngle.y,0 >, 0.2, 0, 0 ) // so player won't face the ground or sky
-		player.WaitSignal( "StopPhaseShift" ) // wait till player exit phase
+		//player.WaitSignal( "StopPhaseShift" ) // wait till player exit phase, wraith's portal don't have this lmao
+		wait 0.3
+		CancelPhaseShift( player ) // better, wraith be like this
+		//player.Signal( "StopPhaseShift" )
 	}
 	else
 	{
-		mover.NonPhysicsMoveTo( goalOrigin, totalTime ,0, 0 )
+		mover.NonPhysicsMoveTo( goalOrigin, totalTime, 0, 0 )
 		wait totalTime * phaseTimeMulti
 	}
 	
@@ -1443,7 +1456,7 @@ void function cooldownmngmnt (entity weapon,entity indicatorent) {
 		)
 
 			//possible rewind window//
-			if (weapon.HasMod( "phase_rework" )) 
+			if (weapon.HasMod( "phase_rework" ) && weapon.HasMod( "amped_tacticals" )) // no amped tacticals = dash only
 			{
 				playerongoingcounttable[playername] <- true
 				int x = 0

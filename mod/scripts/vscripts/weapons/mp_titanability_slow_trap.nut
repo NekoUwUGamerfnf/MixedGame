@@ -26,21 +26,34 @@ const float FIRE_TRAP_MINI_EXPLOSION_RADIUS = 75
 const float FIRE_TRAP_LIFETIME = 10.5
 const int GAS_FX_HEIGHT = 45
 
-const float GAS_TRAP_BUILD_TIME = 0.3
-const float GAS_TRAP_LIFETIME = 8.0
+const float GAS_TRAP_BUILD_TIME = 1.5
+const float GAS_TRAP_LIFETIME = 60
+const float GAS_TRAP_TOXIC_DURATION = 12.0
+const float GAS_TRAP_ALARM_TIME = 5.0
+const float GAS_TRAP_ALARM_INTERVAL = 1.0
 const float GAS_TRAP_DAMAGE_TICK = 0.5
-const float GAS_TRAP_DAMAGE_PERCENTAGE = 0.1
-const float GAS_TRAP_SLOW_DURATION_PER_TICK = 1.5 // should be damagetick * 3
-const float GAS_TRAP_SLOW_DURATION_LEAVING = 1
-const float GAS_SEVERITY_SLOWMOVE = 0.1
-const float GAS_TRAP_RADIUS = 240
-const int GAS_TRAP_HEALTH = 140
+const float GAS_TRAP_DETECTION_RADIUS = 140.0
+const float GAS_TRAP_RADIUS = 256
+const float GAS_TRAP_HEIGHT = 60
+const int GAS_TRAP_HEALTH = 300
+//const float GAS_TRAP_SLOW_DURATION_PER_TICK = 1.5 // should be damagetick * 3
+//const float GAS_TRAP_SLOW_DURATION_LEAVING = 1
+// gas settings
+const float GAS_SLOWMOVE_DURATION = 2.0
+const float GAS_SLOWMOVE_FADEOUT_DURATION = 0.5
+const int GAS_MAX_STACKS = 4
+const float GAS_STACK_CLEAR_DELAY = 3.0
+const int GAS_BASE_DAMAGE = 5
+const int GAS_ADDITIONAL_DAMAGE_PER_STACK = 4
+const float GAS_SEVERITY_SLOWMOVE = 0.1 
+const float GAS_DAMAGE_INTERVAL = 1.5
 
+// molotov
 const float MOLOTOV_IGNITE_DELAY = 0.2
 const float MOLOTOV_DAMAGE_TICK_PILOT = 9
 const float MOLOTOV_DAMAGE_TICK = 50
 
-array<entity> inGasPlayers = []
+//array<entity> inGasPlayers = []
 
 void function MpTitanAbilitySlowTrap_Init()
 {
@@ -60,7 +73,13 @@ void function MpTitanAbilitySlowTrap_Init()
 
 	#if SERVER
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanability_slow_trap, FireTrap_DamagedPlayerOrNPC )
+		
+		// modified
+		RegisterSignal( "GasDamaged" )
+		RegisterSignal( "GasTrapTriggered" )
 		AddDamageCallbackSourceID( eDamageSourceId.molotov, FireTrap_DamagedPlayerOrNPC )
+		AddDamageCallbackSourceID( eDamageSourceId.toxic_sludge, GasTrap_DamagedPlayer )
+		AddCallback_OnClientConnected( InitPlayerGasStat )
 	#endif
 }
 
@@ -100,12 +119,9 @@ function DeploySlowTrap( entity projectile )
 		return
 
 	array<string> projectileMods = projectile.ProjectileGetMods()
-	bool isExplosiveBarrel = false
-	bool isMolotov = false
-	if ( projectileMods.contains( "fd_explosive_barrel" ) )
-		isExplosiveBarrel = true
-	else if( projectileMods.contains( "molotov" ) )
-		isMolotov = true
+	bool isExplosiveBarrel = projectileMods.contains( "fd_explosive_barrel" )
+	bool isMolotov = projectileMods.contains( "molotov" )
+	bool isGasTrap = projectileMods.contains( "gas_trap" )
 
 	owner.EndSignal( "OnDestroy" )
 	if ( IsValid( projectile ) )
@@ -114,7 +130,11 @@ function DeploySlowTrap( entity projectile )
 	int team = owner.GetTeam()
 	entity tower = CreatePropScript( SLOW_TRAP_MODEL, origin, angles, SOLID_VPHYSICS )
 	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
-	if( projectileMods.contains( "gas_trap" ) )
+	//if( isGasTrap )
+	//	tower.kv.solid = 2
+	if( isGasTrap )
+		tower.Solid()
+	if( isGasTrap )
 	{
 		tower.SetMaxHealth( GAS_TRAP_HEALTH )
 		tower.SetHealth( GAS_TRAP_HEALTH )
@@ -124,22 +144,32 @@ function DeploySlowTrap( entity projectile )
 		tower.SetMaxHealth( 100 )
 		tower.SetHealth( 100 )
 	}
-	if( projectileMods.contains( "gas_trap" ) )
+	if( isGasTrap )
 		tower.SetTakeDamageType( DAMAGE_YES )
 	else
 		tower.SetTakeDamageType( DAMAGE_NO )
-	if( projectileMods.contains( "gas_trap" ) )
+	if( isGasTrap )
 		tower.SetDamageNotifications( true )
 	else
 		tower.SetDamageNotifications( false )
 	tower.SetDeathNotifications( false )
-	if( !projectileMods.contains( "gas_trap" ) )
+	if( !isGasTrap )
 		tower.SetArmorType( ARMOR_TYPE_HEAVY )
 	tower.SetTitle( "#WPN_TITAN_SLOW_TRAP" )
 	SetTargetName( tower, "#WPN_TITAN_SLOW_TRAP" )
 	tower.EndSignal( "OnDestroy" )
 	string noSpawnIdx = CreateNoSpawnArea( TEAM_INVALID, team, origin, SLOW_TRAP_BUILD_TIME + SLOW_TRAP_LIFETIME, SLOW_TRAP_RADIUS )
-	SetTeam( tower, team )
+	if( isGasTrap )
+	{
+		// gas trap use owner to get teams, but it will cause owner not able to damage it
+		//tower.SetOwner( owner )
+		tower.s.trapOwner <- owner
+		tower.s.gasTeam <- team // int
+		//SetTeam( tower, team )
+		//tower.e.noOwnerFriendlyFire = false
+	}
+	else
+		SetTeam( tower, team )
 	SetObjectCanBeMeleed( tower, false )
 	SetVisibleEntitiesInConeQueriableEnabled( tower, false )
 	thread TrapDestroyOnRoundEnd( owner, tower )
@@ -154,13 +184,19 @@ function DeploySlowTrap( entity projectile )
 	}
 
 	EmitSoundOnEntity( tower, "incendiary_trap_land" )
-	EmitSoundOnEntity( tower, "incendiary_trap_gas" )
-	PlayLoopFXOnEntity( SLOW_TRAP_FX_ALL, tower, "smoke" )
+	if( !isGasTrap )
+	{
+		EmitSoundOnEntity( tower, "incendiary_trap_gas" )
+		PlayLoopFXOnEntity( SLOW_TRAP_FX_ALL, tower, "smoke" )
+	}
 
-	if ( GetMapName() != "sp_s2s" )
-		CreateToxicFumesFXSpot( origin, tower )
-	else
-		CreateToxicFumesInWindFX( origin, tower )
+	if( !isGasTrap )
+	{
+		if ( GetMapName() != "sp_s2s" )
+			CreateToxicFumesFXSpot( origin, tower )
+		else
+			CreateToxicFumesInWindFX( origin, tower )
+	}
 
 	//TODO - HACK : Update to use Vortex Sphere once the Vortex Sphere explosion code feature is done.
 	entity damageArea = CreatePropScript( DAMAGE_AREA_MODEL, origin, angles, 0 )
@@ -213,8 +249,8 @@ function DeploySlowTrap( entity projectile )
 
 	damageArea.EndSignal( "OnDestroy" )
 
-	if( projectileMods.contains( "gas_trap" ) )
-		wait GAS_TRAP_BUILD_TIME
+	if( isGasTrap )
+		WaitFrame()
 	else if( projectileMods.contains( "molotov" ) )
 		wait MOLOTOV_IGNITE_DELAY
 	else
@@ -225,7 +261,7 @@ function DeploySlowTrap( entity projectile )
 		tower.Destroy()
 		damageArea.Destroy()
 	}
-	if( projectileMods.contains( "gas_trap" ) )
+	if( isGasTrap )
 	{
 		//gas trap trigger stuff
 		thread GasTrapThink( tower )
@@ -237,108 +273,10 @@ function DeploySlowTrap( entity projectile )
 		damageArea.SetTakeDamageType( DAMAGE_YES )
 	}
 
-	if( projectileMods.contains( "gas_trap" ) )
+	if( isGasTrap )
 		wait GAS_TRAP_LIFETIME
 	else
 		wait SLOW_TRAP_LIFETIME
-}
-
-void function GasTrapThink( entity tower )
-{
-	entity trigger = CreateTriggerRadiusMultiple( tower.GetOrigin(), GAS_TRAP_RADIUS, [], TRIG_FLAG_START_DISABLED | TRIG_FLAG_NO_PHASE_SHIFT, GAS_TRAP_RADIUS * 0.1, GAS_TRAP_RADIUS * 0.1 )
-	SetTeam( trigger, tower.GetTeam() )
-	trigger.SetOwner( tower.GetOwner() )
-
-	AddCallback_ScriptTriggerEnter( trigger, OnGasTrapTriggerEnter )
-	AddCallback_ScriptTriggerLeave( trigger, OnGasTrapTriggerLeave )
-
-	ScriptTriggerSetEnabled( trigger, true )
-
-	entity trapOwner = tower.GetOwner()
-	float startTime = Time()
-	float progressTime
-	while( true )
-	{
-		foreach( entity player in inGasPlayers )
-		{
-			if( IsValid(player) )
-			{
-				GiveGasStatusEffects( player, trapOwner )
-			}
-		}
-		wait GAS_TRAP_DAMAGE_TICK
-		progressTime = Time()
-		if( progressTime - startTime >= GAS_TRAP_LIFETIME )
-			break
-		if( !IsValid( tower ) )
-			break
-	}
-
-	if( IsValid(trigger) )
-		trigger.Destroy()
-	foreach( entity player in GetPlayerArray() )
-		SetDefaultMPEnemyHighlight( player )
-}
-
-void function OnGasTrapTriggerEnter( entity trigger, entity ent )
-{
-	if( !ent.IsPlayer() )
-		return
-
-	if ( !IsEnemyTeam( trigger.GetTeam(), ent.GetTeam() ) )
-		return
-
-	ScreenFade( ent, 100, 155, 0, 15, 0.1, GAS_TRAP_LIFETIME-0.1, FFADE_OUT | FFADE_PURGE )
-	if( !inGasPlayers.contains( ent ) )
-		inGasPlayers.append( ent )
-}
-
-void function OnGasTrapTriggerLeave( entity trigger, entity ent )
-{
-	if( !ent.IsPlayer() )
-		return
-
-	if ( !IsEnemyTeam( trigger.GetTeam(), ent.GetTeam() ) )
-		return
-
-	if( IsValid( trigger ) )
-		GiveGasStatusEffects_Leaving( ent, trigger.GetOwner() )
-	ScreenFadeFromColor( ent, 100, 155, 0, 15, 0.1, GAS_TRAP_SLOW_DURATION_LEAVING-0.1 )
-	if( inGasPlayers.contains( ent ) )
-		inGasPlayers.fastremovebyvalue( ent )
-}
-
-void function GiveGasStatusEffects( entity ent, entity trapOwner, float duration = GAS_TRAP_SLOW_DURATION_PER_TICK, float fadeoutDuration = 0.5, float slowMove = GAS_SEVERITY_SLOWMOVE )
-{
-	if( !IsValid(ent) )
-		return
-	if( !ent.IsTitan() )
-	{
-		Highlight_SetEnemyHighlight( ent, "health_pickup" )
-		StatusEffect_AddTimed( ent, eStatusEffect.move_slow, slowMove, duration, fadeoutDuration )
-		ent.TakeDamage( ent.GetMaxHealth() * GAS_TRAP_DAMAGE_PERCENTAGE, trapOwner, trapOwner, { damageSourceId = eDamageSourceId.toxic_sludge } )
-	}
-}
-
-void function GiveGasStatusEffects_Leaving( entity ent, entity trapOwner, float duration = GAS_TRAP_SLOW_DURATION_LEAVING, float fadeoutDuration = 0.5, float slowMove = GAS_SEVERITY_SLOWMOVE )
-{
-	if( !IsValid(ent) )
-		return
-	if( !ent.IsTitan() )
-	{
-		SetDefaultMPEnemyHighlight( ent )
-		StatusEffect_AddTimed( ent, eStatusEffect.move_slow, slowMove, duration, fadeoutDuration )
-		ent.TakeDamage( ent.GetHealth() * GAS_TRAP_DAMAGE_PERCENTAGE, trapOwner, trapOwner, { damageSourceId = eDamageSourceId.toxic_sludge } )
-	}
-}
-
-void function OnGasTrapDamaged( entity tower, var damageInfo )
-{
-	if( !IsValid( tower ) )
-		return
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
-    if ( attacker.IsPlayer() )
-        attacker.NotifyDidDamage( tower, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
 }
 
 void function OnSlowTrapDamaged( entity damageArea, var damageInfo )
@@ -776,3 +714,298 @@ void function FireTrap_DamagedPlayerOrNPC( entity ent, var damageInfo )
 
 //	TODO:
 //	Reassign damage to person who triggers the trap for FF reasons.
+
+// gas_trap
+#if SERVER
+void function GasTrapThink( entity tower )
+{
+	tower.EndSignal( "OnDestroy" )
+
+	tower.s.gasTrapTriggered <- false
+	entity trapOwner = expect entity( tower.s.trapOwner )//tower.GetOwner()
+	float startTime = Time()
+	float progressTime
+
+	OnThreadEnd(
+		function() : ( tower )
+		{
+			if ( IsValid( tower ) )
+				tower.Destroy()
+		}
+	)
+	wait GAS_TRAP_BUILD_TIME
+
+	// Wait for someone to trigger the trap
+	thread GasTrapTriggerThink( tower, trapOwner )
+
+	tower.WaitSignal( "GasTrapTriggered" )
+	tower.s.gasTrapTriggered = true
+	waitthread GasTrapToxicThink( tower )
+
+
+	/*
+	while( true )
+	{
+		foreach( entity player in inGasPlayers )
+		{
+			if( IsValid(player) )
+			{
+				GiveGasStatusEffects( player, trapOwner )
+			}
+		}
+		wait GAS_TRAP_DAMAGE_TICK
+		progressTime = Time()
+		if( progressTime - startTime >= GAS_TRAP_LIFETIME )
+			break
+		if( !IsValid( tower ) )
+			break
+	}
+	*/
+
+	//foreach( entity player in GetPlayerArray() )
+	//	SetDefaultMPEnemyHighlight( player )
+}
+
+void function GasTrapToxicThink( entity tower )
+{
+	tower.EndSignal( "OnDestroy" )
+	entity owner = expect entity( tower.s.trapOwner )
+	owner.EndSignal( "OnDestroy" )
+
+	EmitSoundOnEntity( tower, "Weapon_Vortex_Gun.ExplosiveWarningBeep" )
+	EmitSoundOnEntity( tower, "incendiary_trap_gas" )
+	PlayLoopFXOnEntity( SLOW_TRAP_FX_ALL, tower, "smoke" )
+
+	//if ( GetMapName() != "sp_s2s" ) // needs test to select a better one
+		CreateToxicFumesFXSpot( tower.GetOrigin(), tower )
+	//else
+	//	CreateToxicFumesInWindFX( origin, tower )
+
+	entity trigger = CreateTriggerRadiusMultiple( tower.GetOrigin(), GAS_TRAP_RADIUS, [], TRIG_FLAG_START_DISABLED | TRIG_FLAG_NO_PHASE_SHIFT, GAS_TRAP_RADIUS * 0.1, GAS_TRAP_RADIUS * 0.1 )
+	//SetTeam( trigger, tower.GetTeam() )
+	//trigger.SetOwner( tower.GetOwner() )
+
+	AddCallback_ScriptTriggerEnter( trigger, OnGasTrapTriggerEnter )
+	AddCallback_ScriptTriggerLeave( trigger, OnGasTrapTriggerLeave )
+
+	ScriptTriggerSetEnabled( trigger, true )
+
+	OnThreadEnd(
+		function(): ( trigger )
+		{
+			if( IsValid(trigger) )
+				trigger.Destroy()
+		}
+	)
+
+	float startTime = Time()
+	float alarmStartTime = GAS_TRAP_TOXIC_DURATION - GAS_TRAP_ALARM_TIME
+	float lastAlarmedTime = Time()
+	while( startTime + GAS_TRAP_TOXIC_DURATION > Time() )
+	{
+		RadiusDamage(
+			tower.GetOrigin(),									// origin
+			owner,												// owner
+			tower,		 										// inflictor
+			GAS_BASE_DAMAGE,									// pilot damage, for gas trap is now decided here
+			0,													// heavy armor damage
+			GAS_TRAP_RADIUS,									// inner radius
+			GAS_TRAP_RADIUS,									// outer radius
+			SF_ENVEXPLOSION_NO_NPC_SOUND_EVENT,					// explosion flags
+			0, 													// distanceFromAttacker
+			0, 													// explosionForce
+			DF_EXPLOSION,										// damage flags
+			eDamageSourceId.toxic_sludge						// damage source id
+		)
+
+		if( Time() > startTime + alarmStartTime )
+		{
+			if( Time() - lastAlarmedTime >= GAS_TRAP_ALARM_INTERVAL )
+			{
+				EmitSoundOnEntity( tower, "Weapon_ProximityMine_ArmedBeep" )
+				lastAlarmedTime = Time()
+			}
+		}
+		WaitFrame()
+	}
+}
+
+void function GasTrapTriggerThink( entity tower, entity owner )
+{
+	tower.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDestroy" )
+	tower.EndSignal( "GasTrapTriggered" )
+
+	float triggerRadius = GAS_TRAP_DETECTION_RADIUS
+	float PlayerTickRate = 0.2
+	int teamNum = owner.GetTeam()
+
+	while( IsValid( tower ) && IsValid( owner ) )
+	{
+		wait PlayerTickRate // do a wait first, defensive fix
+		array<entity> nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, teamNum, tower.GetOrigin() + < 0,0,30 >, triggerRadius )
+		foreach( ent in nearbyPlayers )
+		{
+			if ( ShouldSetOffGasTrap( tower, ent ) )
+			{
+				tower.Signal( "GasTrapTriggered" )
+				break
+			}
+		}
+	}
+}
+
+bool function ShouldSetOffGasTrap( entity tower, entity ent )
+{
+	if ( !IsAlive( ent ) )
+		return false
+
+	if ( ent.IsPhaseShifted() )
+		return false
+
+	TraceResults results = TraceLine( tower.GetOrigin(), ent.EyePosition(), tower, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	if ( results.fraction >= 1 || results.hitEnt == ent )
+		return true
+
+	return false
+}
+
+void function OnGasTrapTriggerEnter( entity trigger, entity ent )
+{
+	if( !ent.IsPlayer() )
+		return
+
+	//if ( !IsEnemyTeam( trigger.GetTeam(), ent.GetTeam() ) )
+	//	return
+
+	ScreenFade( ent, 100, 155, 0, 15, 0.1, GAS_TRAP_TOXIC_DURATION + GAS_SLOWMOVE_DURATION, FFADE_OUT | FFADE_PURGE )
+	//if( !inGasPlayers.contains( ent ) )
+	//	inGasPlayers.append( ent )
+}
+
+void function OnGasTrapTriggerLeave( entity trigger, entity ent )
+{
+	if( !ent.IsPlayer() )
+		return
+
+	ScreenFadeFromColor( ent, 100, 155, 0, 15, 0.1, GAS_SLOWMOVE_DURATION )
+
+	//if ( !IsEnemyTeam( trigger.GetTeam(), ent.GetTeam() ) )
+	//	return
+
+	//if( IsValid( trigger ) )
+	//	GiveGasStatusEffects_Leaving( ent, trigger.GetOwner() )
+	//ScreenFadeFromColor( ent, 100, 155, 0, 15, 0.1, GAS_TRAP_SLOW_DURATION_LEAVING-0.1 )
+	//if( inGasPlayers.contains( ent ) )
+	//	inGasPlayers.fastremovebyvalue( ent )
+}
+
+/*
+void function GiveGasStatusEffects( entity ent, entity trapOwner, float duration = GAS_TRAP_SLOW_DURATION_PER_TICK, float fadeoutDuration = 0.5, float slowMove = GAS_SEVERITY_SLOWMOVE )
+{
+	if( !IsValid(ent) )
+		return
+	if( !ent.IsTitan() )
+	{
+		Highlight_SetEnemyHighlight( ent, "health_pickup" )
+		StatusEffect_AddTimed( ent, eStatusEffect.move_slow, slowMove, duration, fadeoutDuration )
+		ent.TakeDamage( ent.GetMaxHealth() * GAS_TRAP_DAMAGE_PERCENTAGE, trapOwner, trapOwner, { damageSourceId = eDamageSourceId.toxic_sludge } )
+	}
+}
+  
+void function GiveGasStatusEffects_Leaving( entity ent, entity trapOwner, float duration = GAS_TRAP_SLOW_DURATION_LEAVING, float fadeoutDuration = 0.5, float slowMove = GAS_SEVERITY_SLOWMOVE )
+{
+	if( !IsValid(ent) )
+		return
+	if( !ent.IsTitan() )
+	{
+		SetDefaultMPEnemyHighlight( ent )
+		StatusEffect_AddTimed( ent, eStatusEffect.move_slow, slowMove, duration, fadeoutDuration )
+		ent.TakeDamage( ent.GetHealth() * GAS_TRAP_DAMAGE_PERCENTAGE, trapOwner, trapOwner, { damageSourceId = eDamageSourceId.toxic_sludge } )
+	}
+}
+*/
+
+void function GasTrap_DamagedPlayer( entity victim, var damageInfo )
+{
+	if( !victim.IsPlayer() || victim.IsTitan() )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 )
+		return
+	}
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if( IsValid( attacker ) )
+	{
+		if( victim.GetTeam() == attacker.GetTeam() )
+		{
+			DamageInfo_SetDamage( damageInfo, 0 )
+			return
+		}
+	}
+	if( victim.s.lastGasDamagedTime + GAS_DAMAGE_INTERVAL > Time() )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 )
+		return
+	}
+	vector damageOrigin = DamageInfo_GetDamagePosition( damageInfo )
+	if( fabs( damageOrigin.z - victim.GetOrigin().z ) > GAS_TRAP_HEIGHT ) // prevent damage players above
+	{
+		//print( "player's z is far away from trap!" )
+		DamageInfo_SetDamage( damageInfo, 0 )
+		return
+	}
+
+	victim.s.lastGasDamagedTime = Time()
+	victim.Signal( "GasDamaged" )
+	thread PlayerGasStackThink( victim )
+
+	// deal damage and apply effect
+	StatusEffect_AddTimed( victim, eStatusEffect.move_slow, GAS_SEVERITY_SLOWMOVE, GAS_SLOWMOVE_DURATION, GAS_SLOWMOVE_FADEOUT_DURATION )
+	DamageInfo_SetDamage( damageInfo, GAS_BASE_DAMAGE + expect int( victim.s.gasStack ) * GAS_ADDITIONAL_DAMAGE_PER_STACK )
+	EmitSoundOnEntityOnlyToPlayer( victim, victim, ELECTRIC_SMOKE_GRENADE_SFX_DAMAGE_PILOT_1P )
+	EmitSoundOnEntityExceptToPlayer( victim, victim, ELECTRIC_SMOKE_GRENADE_SFX_DAMAGE_PILOT_3P )
+	//print( victim.s.gasStack )
+}
+
+void function InitPlayerGasStat( entity player )
+{
+	player.s.gasStack <- 0 // int
+	player.s.lastGasDamagedTime <- 0 // float
+}
+
+void function PlayerGasStackThink( entity player )
+{
+	player.EndSignal( "GasDamaged" ) // end last thread
+	player.EndSignal( "OnDestroy" )
+	if( expect int( player.s.gasStack ) < GAS_MAX_STACKS )
+		player.s.gasStack += 1
+	else
+		player.s.gasStack = GAS_MAX_STACKS
+
+	wait GAS_STACK_CLEAR_DELAY
+	player.s.gasStack = 0
+}
+
+void function OnGasTrapDamaged( entity tower, var damageInfo )
+{
+	if( !IsValid( tower ) )
+		return
+	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	if( damageSourceId == eDamageSourceId.toxic_sludge )
+		return
+	entity owner = expect entity( tower.s.trapOwner )
+	int ownerTeam = TEAM_UNASSIGNED
+	if( IsValid( owner ) )
+		ownerTeam = owner.GetTeam()
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if ( attacker.IsPlayer() )
+	{
+		if( attacker.GetTeam() == ownerTeam )
+			DamageInfo_SetDamage( damageInfo, 0 )
+		else
+        	attacker.NotifyDidDamage( tower, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
+		if( !( expect bool( tower.s.gasTrapTriggered ) ) )
+			tower.Signal( "GasTrapTriggered" )
+	}
+}   
+#endif
