@@ -1,0 +1,84 @@
+global function Modded_Gamemode_Bleedout_Init
+
+const float GAMEMODE_BLEEDOUT_TIME = 30
+const float GAMEMODE_FIRSTAID_TIME = 4
+const float GAMEMODE_FIRSTAID_TIME_SELF = 8
+const float GAMEMODE_FIRSTAID_HEAL_PERCENT = 0.2
+const float GAMEMODE_AI_BLEEDING_PLAYER_MISS_CHANCE = 0.5
+const bool GAMEMODE_FORCE_WEAPON_HOLSTER = true
+const bool GAMEMODE_DEATH_ON_TEAM_BLEEDOUT = false
+
+const int BLEEDOUT_MODE_HEALTH = 100
+const int BLEEDOUT_MODE_SHIELD_HEALTH = 125
+
+void function Modded_Gamemode_Bleedout_Init()
+{
+    SetBurnCardAllBattery( true ) // from _burnmeter.gnut
+    SetPilotBatteryUsageAllowed( true )
+    Bleedout_AddCallback_OnPlayerStartBleedout( BleedoutMode_OnPlayerDowned )
+    Bleedout_AddCallback_OnPlayerGiveFirstAid( BleedoutMode_OnPlayerRevived )
+
+    AddCallback_GameStateEnter( eGameState.Playing, SetBleedoutState )
+    AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+    AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsPilotLoadout )
+    AddCallback_OnPlayerKilled( OnPlayerKilled )
+
+    Riff_ForceTitanAvailability( eTitanAvailability.Never )
+}
+
+void function SetBleedoutState()
+{
+    Riff_ForcePlayerBleedout( ePlayerBleedout.Enabled )
+    BleedoutShared_Init( 
+        GAMEMODE_BLEEDOUT_TIME, 
+        GAMEMODE_FIRSTAID_TIME,
+	    GAMEMODE_FIRSTAID_TIME_SELF, 
+        GAMEMODE_FIRSTAID_HEAL_PERCENT,
+	    GAMEMODE_AI_BLEEDING_PLAYER_MISS_CHANCE, 
+        GAMEMODE_FORCE_WEAPON_HOLSTER,
+	    GAMEMODE_DEATH_ON_TEAM_BLEEDOUT 
+        )
+
+    //BleedoutShared_Init( 30, 4,8, 0.4,0.5, true,true )
+}
+
+void function OnPlayerRespawned( entity player )
+{
+    thread Bleedout_HealthRegenThink( player )
+    SyncedMelee_Disable( player )
+    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
+    player.SetHealth( BLEEDOUT_MODE_HEALTH )
+    player.SetShieldHealthMax( BLEEDOUT_MODE_SHIELD_HEALTH )
+    player.SetShieldHealth( BLEEDOUT_MODE_SHIELD_HEALTH )
+}
+
+void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
+{
+    entity meleeWeapon = player.GetOffhandWeapon( OFFHAND_MELEE )
+    if( IsValid( meleeWeapon ) )
+        meleeWeapon.AddMod( "pushback_melee" )
+}
+
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+    entity battery = Rodeo_CreateBatteryPack()
+    if( IsValid( battery ) )
+    {
+        battery.SetOrigin( victim.EyePosition() )
+        battery.SetVelocity( < 0,0,1 > )
+    }
+}
+
+void function BleedoutMode_OnPlayerDowned( entity player )
+{
+    print( "Running OnPlayerDowned()" )
+    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH * 5 )
+    player.SetHealth( BLEEDOUT_MODE_HEALTH )
+}
+
+void function BleedoutMode_OnPlayerRevived( entity player )
+{
+    print( "Running OnPlayerRevived()" )
+    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
+    player.p.lastDamageTime = Time()
+}

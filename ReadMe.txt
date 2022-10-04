@@ -44,4 +44,6 @@ DropPodSpawn1Player_Init(): 从运兵舱中复活
 
 RespawnShip_Init(): 从运输船中复活
 
+Modded_Gamemode_Bleedout_Init(): 优化了流血系统的模式，未测试，不知道体验如何
+
 NessieDebug_Init(): 测试的一堆笨比东西

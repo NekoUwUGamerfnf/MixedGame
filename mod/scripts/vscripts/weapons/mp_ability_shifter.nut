@@ -44,7 +44,7 @@ const float PORTAL_CANCEL_PERCENTAGE = 0.95
 const float PORTAL_TRAVEL_LENGTH_MAX = 2.0 // // should match PORTAL_MAX_DISTANCE, but don't know how to calculate now
 const float PORTAL_TRAVEL_LENGTH_MIN = 0.4 // min phase duation, basically shouldn't have a limit
 //const float PORTAL_TRAVEL_TICKRATE = PORTAL_TICKRATE / 5 // travel tickrate, let's ingore this shit
-const float PORTAL_WARP_TIME_PER_SEGMENT = 0.2 // better don't change this, hardcoded now
+const float PORTAL_WARP_TIME_PER_SEGMENT = 0.2 // better don't change this, if changed, should set highter than 0.1
 const float PORTAL_NODES_MAX = PORTAL_TRAVEL_LENGTH_MAX / PORTAL_WARP_TIME_PER_SEGMENT // use for checking overloaded nodes
 //const float PORTAL_NODES_MIN = 8 // no need for now
 const float PORTAL_DEPLOY_TIME = 1.2 // defensive fix
@@ -66,6 +66,8 @@ struct PortalStruct
 	string ownerUID
 	bool canPortalOwner
 	PortalData savedVecs
+	bool infiniteDistance
+	bool infiniteDuration
 }
 
 table<string, bool> playerPlacingPortal = {}
@@ -460,9 +462,9 @@ void function PortalStart( entity player, entity weapon )
 	entity portalTrail = CreatePhaseShiftTrail( player )
 
 	EmitSoundOnEntityOnlyToPlayer( player, player, SHIFTER_START_SOUND_1P )
-	EmitSoundOnEntity( player, SHIFTER_START_SOUND_3P )
-	EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_Loop_1P" )
-	EmitSoundOnEntity( player, "Pilot_PhaseShift_Loop_3P" )
+	EmitSoundOnEntityExceptToPlayer( player, player, SHIFTER_START_SOUND_3P )
+	//EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_Loop_1P" )
+	//EmitSoundOnEntity( player, "Pilot_PhaseShift_Loop_3P" )
 	PlayFX( $"P_phase_shift_main", player.GetOrigin() )
 
 	vector startPos = player.GetOrigin()
@@ -499,7 +501,6 @@ void function PortalStart( entity player, entity weapon )
 	
 	while( true )
 	{
-		wait PORTAL_TICKRATE
 		if( IsAlive( player ) )
 		{
 			//float distance = fabs( Distance2D( startPos, player.GetOrigin() ) )
@@ -531,6 +532,7 @@ void function PortalStart( entity player, entity weapon )
 				travelTime += PORTAL_TICKRATE
 				lastTickPos = player.GetOrigin()
 			}
+			wait PORTAL_TICKRATE // wait before it can trigger "continue"
 			if( isInfiniteDistance )
 			{
 				SendHudMessage( player,"传送门距离剩余：无限制", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
@@ -551,13 +553,13 @@ void function PortalStart( entity player, entity weapon )
 		StatusEffect_Stop( player, statusEffect )
 		StopSoundOnEntity( player, "Pilot_PhaseShift_Loop_1P" )
 		StopSoundOnEntity( player, "Pilot_PhaseShift_Loop_3P" )
-		PortalEnd( player, weapon, startPos, startAng, progressPoses, progressAngs, travelTime, portalLeft )
+		PortalEnd( player, weapon, startPos, startAng, progressPoses, progressAngs, travelTime, portalLeft, isInfiniteDistance, isInfiniteDuration )
 	}
 	if( IsValid( portalTrail ) )
 		EffectStop( portalTrail )
 }
 
-void function PortalEnd( entity player, entity weapon, vector startPos, vector startAng, array<vector> progressPoses, array<vector> progressAngs, float travelTime, float portalLeft )
+void function PortalEnd( entity player, entity weapon, vector startPos, vector startAng, array<vector> progressPoses, array<vector> progressAngs, float travelTime, float portalLeft, bool isInfiniteDistance, bool isInfiniteDuration )
 {
 	if( IsValid( weapon ) )
 	{
@@ -583,7 +585,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 		return
 	}
 	*/
-	if( portalLeft / PORTAL_MAX_DISTANCE >= PORTAL_CANCEL_PERCENTAGE && !weapon.HasMod( "infinite_distance_portal" ) )
+	if( portalLeft / PORTAL_MAX_DISTANCE >= PORTAL_CANCEL_PERCENTAGE && !isInfiniteDistance )
 	{
 		SendHudMessage( player,"传送门放置已取消", -1, 0.65, 255, 255, 100, 1, 0, 4, 0 )
 		thread DelayedRechargeWeapon( weapon )
@@ -744,6 +746,8 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	startStruct.canPortalOwner = false
 	startStruct.savedVecs.progPoses = progressPoses // reverse while phasing back, see below
 	startStruct.savedVecs.progAngs = progressAngs
+	startStruct.infiniteDistance = isInfiniteDistance
+	startStruct.infiniteDuration = isInfiniteDuration
 	portalGoalTable[ startTrig ] <- startStruct
 	SetTeam( startTrig, TEAM_IMC ) // to check if it's start or end, imc = startTrig, mlt = endTrig
 
@@ -755,6 +759,8 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	endStruct.canPortalOwner = false
 	endStruct.savedVecs.progPoses = progressPoses
 	endStruct.savedVecs.progAngs = progressAngs
+	endStruct.infiniteDistance = isInfiniteDistance
+	endStruct.infiniteDuration = isInfiniteDuration
 	portalGoalTable[ endTrig ] <- endStruct
 	SetTeam( endTrig, TEAM_MILITIA )
 
@@ -789,7 +795,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	thread DelayedMakeOwnerAbleToPortal( startTrig )
 	thread DelayedMakeOwnerAbleToPortal( endTrig )
 
-	if( weapon.HasMod( "infinite_duration_portal" ) )
+	if( isInfiniteDuration )
 		thread PortalLifetimeManagement( startTrig, endTrig, 99999 )
 	else
 		thread PortalLifetimeManagement( startTrig, endTrig, PORTAL_DURATION )
@@ -857,11 +863,21 @@ void function PortalTravelThink( entity trigger, entity player )
 	bool canPortalOwner = portalGoalTable[ trigger ].canPortalOwner
 	array<vector> progressPoses = portalGoalTable[ trigger ].savedVecs.progPoses
 	array<vector> progressAngs = portalGoalTable[ trigger ].savedVecs.progAngs
+	bool isInfiniteDistance = portalGoalTable[ trigger ].infiniteDistance
+	bool isInfiniteDuration = portalGoalTable[ trigger ].infiniteDuration
 	
 	int totalSegments = progressPoses.len()
 	int segmentsLeft = totalSegments
 	bool playedPreEndSound = false
-	float timePerSigment = PORTAL_WARP_TIME_PER_SEGMENT //PORTAL_TICKRATE + 0.05 // needs defensive fix
+	float timePerSigment = PORTAL_WARP_TIME_PER_SEGMENT - 0.1 //controlls travel speed
+	if( timePerSigment <= 0 ) // defensive fix
+		timePerSigment = 0.1
+	float fixedTimePerSigment = timePerSigment + 0.06 //visual fix, controlls travel speed
+	if( isInfiniteDistance )
+	{
+		timePerSigment = PORTAL_WARP_TIME_PER_SEGMENT
+		fixedTimePerSigment = timePerSigment + 0.1 //visual fix
+	}
 	float totalTime = travelTime
 	float phaseTimeMulti = 1.1
 	// CancelPhaseShift() version, don't need this
@@ -962,15 +978,15 @@ void function PortalTravelThink( entity trigger, entity player )
 				{
 					player.HolsterWeapon() // defensive fix
 					player.Server_TurnOffhandWeaponsDisabledOn()
-					mover.NonPhysicsMoveTo( progressPoses[i] , timePerSigment, 0, 0 )
+					mover.NonPhysicsMoveTo( progressPoses[i] , fixedTimePerSigment, 0, 0 )
 					if( i < totalSegments - 2 ) // prevent calculate out of index
 					{
 						vector curAngle = CalculateFaceToOrigin( progressPoses[i+1], progressPoses[i] )
-						mover.NonPhysicsRotateTo( curAngle, timePerSigment, 0, 0 )
+						mover.NonPhysicsRotateTo( curAngle, fixedTimePerSigment, 0, 0 )
 					}
-					float travelTimeLeft = segmentsLeft * ( timePerSigment - 0.1 )
+					float travelTimeLeft = segmentsLeft * timePerSigment
 					//print( travelTimeLeft )
-					if( travelTimeLeft < 0.8 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
+					if( travelTimeLeft < 1.0 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
 					{
 						playedPreEndSound = true
 						EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_WarningToEnd_1P" )
@@ -979,7 +995,7 @@ void function PortalTravelThink( entity trigger, entity player )
 					segmentsLeft -= 1
 					// rotation like this is messed up
 					//mover.NonPhysicsRotateTo( progressAngs[j], timePerSigment, 0, 0 )
-					wait timePerSigment - 0.1 // defensive fix
+					wait timePerSigment
 				}
 			}
 			else if( trigger.GetTeam() == TEAM_IMC ) // startTrig confrimation, reversed array
@@ -988,15 +1004,15 @@ void function PortalTravelThink( entity trigger, entity player )
 				{
 					player.HolsterWeapon() // defensive fix
 					player.Server_TurnOffhandWeaponsDisabledOn()
-					mover.NonPhysicsMoveTo( progressPoses[i] , timePerSigment, 0, 0 )
+					mover.NonPhysicsMoveTo( progressPoses[i] , fixedTimePerSigment, 0, 0 )
 					if( i > 0 ) // prevent calculate out of index
 					{
 						vector curAngle = CalculateFaceToOrigin( progressPoses[i-1], progressPoses[i] )
-						mover.NonPhysicsRotateTo( curAngle, timePerSigment, 0, 0 )
+						mover.NonPhysicsRotateTo( curAngle, fixedTimePerSigment, 0, 0 )
 					}
-					float travelTimeLeft = segmentsLeft * ( timePerSigment - 0.1 )
+					float travelTimeLeft = segmentsLeft * timePerSigment
 					//print( travelTimeLeft )
-					if( travelTimeLeft < 0.8 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
+					if( travelTimeLeft < 1.0 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
 					{
 						playedPreEndSound = true
 						EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_WarningToEnd_1P" )
@@ -1005,16 +1021,16 @@ void function PortalTravelThink( entity trigger, entity player )
 					segmentsLeft -= 1
 					// rotation like this is messed up
 					//mover.NonPhysicsRotateTo( progressAngs[i], timePerSigment, 0, 0 )
-					wait timePerSigment - 0.1
+					wait timePerSigment
 				}
 			}
 		}
 		//wait totalTime * ( phaseTimeMulti - 0.9 ) // defensive fix, wait 0.1s more, hardcoded
-		mover.NonPhysicsMoveTo( goalOrigin, 0.2 ,0, 0 )
+		mover.NonPhysicsMoveTo( goalOrigin, fixedTimePerSigment ,0, 0 )
 		vector targetAngle = CalculateFaceToOrigin( mover.GetOrigin(), goalOrigin )
-		mover.NonPhysicsRotateTo( < 0,targetAngle.y,0 >, 0.2, 0, 0 ) // so player won't face the ground or sky
+		mover.NonPhysicsRotateTo( < 0,targetAngle.y,0 >, fixedTimePerSigment, 0, 0 ) // so player won't face the ground or sky
 		//player.WaitSignal( "StopPhaseShift" ) // wait till player exit phase, wraith's portal don't have this lmao
-		wait 0.3
+		wait fixedTimePerSigment + 0.1
 		//player.Signal( "StopPhaseShift" )
 	}
 	else
