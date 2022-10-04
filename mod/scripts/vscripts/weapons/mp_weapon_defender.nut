@@ -10,6 +10,7 @@ global function OnWeaponSustainedDischargeEnd_Defender
 
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_weapon_defender
+const array<string> chargeRifleSafePlayers = ["1007270968017"] // temp
 #endif // #if SERVER
 
 const float CHARGE_RIFLE_DAMAGE_COUNT = 10
@@ -181,17 +182,18 @@ void function ChargeRifleBeam_ServerSide( entity weapon, float duration )
 	}
 }
 
-void function CreateServerSideChargeRifleTracer( entity sourceEnt, entity destEnt, float lifeTime = 5.0, asset beamEffectName = $"P_wpn_charge_tool_beam" )
+void function CreateServerSideChargeRifleTracer( entity player, entity destEnt, float lifeTime = 5.0, asset beamEffectName = $"P_wpn_charge_tool_beam" )
 {
 	entity cpEnd = CreateEntity( "info_placement_helper" )
-	cpEnd.SetParent( sourceEnt, "PROPGUN", false, 0.0 )
+	cpEnd.SetParent( player, "PROPGUN", false, 0.0 )
 	SetTargetName( cpEnd, UniqueString( "arc_cannon_beam_cpEnd" ) )
 	DispatchSpawn( cpEnd )
 
 	entity tracer = CreateEntity( "info_particle_system" )
-	tracer.SetOwner( sourceEnt )
+	tracer.SetOwner( player )
 	tracer.kv.cpoint1 = cpEnd.GetTargetName()
-	tracer.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY // not owner only
+	if( chargeRifleSafePlayers.contains( player.GetUID() ) ) // temp
+		tracer.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY // not owner only
 
 	tracer.SetValueForEffectNameKey( beamEffectName )
 
@@ -200,7 +202,7 @@ void function CreateServerSideChargeRifleTracer( entity sourceEnt, entity destEn
 
 	DispatchSpawn( tracer )
 
-	sourceEnt.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDestroy" )
 	destEnt.EndSignal( "OnDestroy" )
 
 	OnThreadEnd( 
