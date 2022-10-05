@@ -5,6 +5,10 @@ const float CLOAK_FIELD_COOLDOWN_TIME = 40
 const float CLOAK_DRONE_LIFETIME = 20
 const float CLOAK_DRONE_COOLDOWN_TIME = 40
 
+// better check after changed base_gametype
+const float CLOAK_FIELD_NO_REGEN_TIME = 20
+const float CLOAK_DRONE_NO_REGEN_TIME = 20
+
 var function OnWeaponPrimaryAttack_cloak( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	entity ownerPlayer = weapon.GetWeaponOwner()
@@ -31,16 +35,22 @@ var function OnWeaponPrimaryAttack_cloak( entity weapon, WeaponPrimaryAttackPara
 		{
 			deployable = ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnDeployableCloakfieldPlanted )
 			#if SERVER
-			SendHudMessage(ownerPlayer, "扔出隐身力场\n特殊隐身技能进入冷却", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-			thread CheckModdedCloak( weapon, "cloak_field", CLOAK_FIELD_COOLDOWN_TIME )
+			SendHudMessage(ownerPlayer, "扔出隐身力场", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+			// made a better check in _base_gametype.gnut
+			//SendHudMessage(ownerPlayer, "扔出隐身力场\n特殊隐身技能进入冷却", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+			//thread CheckModdedCloak( weapon, "cloak_field", CLOAK_FIELD_COOLDOWN_TIME )
+			thread ModdedCloakCooldownThink( weapon, CLOAK_FIELD_NO_REGEN_TIME )
 			#endif
 		}
 		else if( weapon.HasMod( "cloak_drone" ) )
 		{
 			entity deployable = ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnCloakDroneReleased )
 			#if SERVER
-			SendHudMessage(ownerPlayer, "扔出隐身无人机\n特殊隐身技能进入冷却", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-			thread CheckModdedCloak( weapon, "cloak_drone", CLOAK_DRONE_COOLDOWN_TIME )
+			SendHudMessage(ownerPlayer, "扔出隐身无人机", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+			// made a better check in _base_gametype.gnut
+			//SendHudMessage(ownerPlayer, "扔出隐身无人机\n特殊隐身技能进入冷却", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+			//thread CheckModdedCloak( weapon, "cloak_drone", CLOAK_DRONE_COOLDOWN_TIME )
+			thread ModdedCloakCooldownThink( weapon, CLOAK_DRONE_NO_REGEN_TIME )
 			#endif
 		}
 		
@@ -91,6 +101,42 @@ void function OnCloakDroneReleased( entity projectile )
 }
 
 #if SERVER
+void function ModdedCloakCooldownThink( entity weapon, float cooldown )
+{
+	weapon.SetWeaponPrimaryClipCountAbsolute( 0 )
+	weapon.AddMod( "no_regen" )
+	entity weaponOwner = weapon.GetWeaponOwner()
+	weaponOwner.EndSignal( "OnDeath" )
+	weaponOwner.EndSignal( "OnDestroy" )
+
+	int offhandSlot = 0
+	for ( int i = 0; i <= OFFHAND_MELEE; i++ ) // OFFHAND_MELEE is the largest
+	{
+		entity nowWeapon = weaponOwner.GetOffhandWeapon( i )
+		if( IsValid( nowWeapon ))
+		{
+			if( nowWeapon.GetWeaponClassName() == "mp_ability_cloak" )
+				offhandSlot = i
+		}
+	}
+
+	OnThreadEnd(
+		function(): ( weapon, weaponOwner, offhandSlot )
+		{
+			if( IsValid( weapon ) )
+				weapon.RemoveMod( "no_regen" )
+			else if( IsValid( weaponOwner ) ) // player has interrupted their cloak and get a new one
+			{
+				entity cloakWeapon = weaponOwner.GetOffhandWeapon( offhandSlot )
+				if( IsValid( cloakWeapon ) )
+					cloakWeapon.RemoveMod( "no_regen" )
+			}
+		}
+	)
+
+	wait cooldown
+}
+
 void function CheckModdedCloak( entity weapon, string mod, float cooldown )
 {
 	int offhandslot = -1

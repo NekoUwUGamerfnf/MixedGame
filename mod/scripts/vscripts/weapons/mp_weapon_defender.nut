@@ -78,7 +78,7 @@ bool function OnWeaponSustainedDischargeBegin_Defender( entity weapon )
 		float duration = weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
 
 		thread ChargeRifleWingUpSound( weapon, duration + 0.1 )
-		thread ChargeRifleBeam_ServerSide( weapon, duration )
+		thread ChargeRifleBeam_ServerSide( weapon, duration ) // visual fix
 		//entity player = weapon.GetWeaponOwner()
 		//EmitSoundOnEntityOnlyToPlayer( weapon, player, "Weapon_ChargeRifle_Fire_1P" )
 		//EmitSoundOnEntityExceptToPlayer( weapon, player, "Weapon_ChargeRifle_Fire_3P" )
@@ -114,11 +114,18 @@ void function OnWeaponSustainedDischargeEnd_Defender( entity weapon )
 		attackParams.dir = weapon.GetAttackDirection()
 		attackParams.pos = weapon.GetAttackPosition()
 		
-		weapon.RemoveMod( "apex_charge_rifle" )
-		weapon.AddMod( "apex_charge_rifle_burst" )
-		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, DF_GIB | DF_EXPLOSION )
-		weapon.RemoveMod( "apex_charge_rifle_burst" )
-		weapon.AddMod( "apex_charge_rifle" )
+		if( IsAlive( owner ) ) // defensive fix
+		{
+			#if SERVER // defensive fix
+			weapon.RemoveMod( "apex_charge_rifle" )
+			weapon.AddMod( "apex_charge_rifle_burst" )
+			#endif
+			weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, DF_GIB | DF_EXPLOSION )
+			#if SERVER
+			weapon.RemoveMod( "apex_charge_rifle_burst" )
+			weapon.AddMod( "apex_charge_rifle" )
+			#endif
+		}
 	}
 
 }
@@ -162,7 +169,7 @@ void function ChargeRifleBeam_ServerSide( entity weapon, float duration )
 	entity destEntMover = CreateEntity( "script_mover_lightweight" )
 	destEntMover.kv.SpawnAsPhysicsMover = 0
 	DispatchSpawn( destEntMover )
-	CreateServerSideChargeRifleTracer( weaponOwner, destEntMover, duration, $"P_wpn_defender_beam" )
+	CreateServerSideWeaponTracer( weaponOwner, destEntMover, duration, $"P_wpn_defender_beam" )
 	float startTime = Time()
 
 	OnThreadEnd(
@@ -182,7 +189,7 @@ void function ChargeRifleBeam_ServerSide( entity weapon, float duration )
 	}
 }
 
-void function CreateServerSideChargeRifleTracer( entity player, entity destEnt, float lifeTime = 5.0, asset beamEffectName = $"P_wpn_charge_tool_beam" )
+void function CreateServerSideWeaponTracer( entity player, entity destEnt, float lifeTime = 5.0, asset beamEffectName = $"P_wpn_charge_tool_beam" )
 {
 	entity cpEnd = CreateEntity( "info_placement_helper" )
 	cpEnd.SetParent( player, "PROPGUN", false, 0.0 )

@@ -40,6 +40,7 @@ var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrima
 		//entity weaponOwner = weapon.GetWeaponOwner()
 		//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
 		//attackParams.dir = bulletVec
+		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, weapon.GetWeaponDamageFlags() )
 	}
 }
