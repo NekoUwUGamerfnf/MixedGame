@@ -154,7 +154,7 @@ void function WaitForPlayers()
 	{
 		foreach( entity player in GetPlayerArray() )
 			EmitSoundOnEntityOnlyToPlayer( player, player, "classicmp_warpjump" )
-		wait 7.2 
+		wait 7.3
 	}
 	
 	wait 1.0 // bit nicer
@@ -1037,7 +1037,6 @@ float function GetTimeLimit_ForGameMode()
 }
 
 // faction dialogue
-
 void function DialoguePlayNormal()
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // so this won't play when game not playing
