@@ -75,6 +75,7 @@ void function PIN_GameStart()
 	AddCallback_GameStateEnter( eGameState.WaitingForCustomStart, GameStateEnter_WaitingForCustomStart )
 	AddCallback_GameStateEnter( eGameState.WaitingForPlayers, GameStateEnter_WaitingForPlayers )
 	AddCallback_OnClientConnected( WaitingForPlayers_ClientConnected )
+	AddCallback_OnClientConnected( GamePlaying_OnClientConnected )
 	
 	AddCallback_GameStateEnter( eGameState.PickLoadout, GameStateEnter_PickLoadout )
 	AddCallback_GameStateEnter( eGameState.Prematch, GameStateEnter_Prematch )
@@ -193,7 +194,10 @@ void function GameStateEnter_PickLoadout_Threaded()
 
 // eGameState.Prematch
 void function GameStateEnter_Prematch()
-{	
+{
+	if( GetPlayerArray().len() == 0 ) // server empty again, wait until someone join
+		SetGameState( eGameState.WaitForPlayers )
+
 	int timeLimit = GameMode_GetTimeLimit( GAMETYPE ) * 60
 	if ( file.switchSidesBased )
 		timeLimit /= 2 // endtime is half of total per side
@@ -257,9 +261,11 @@ void function GameStateEnter_Playing_Threaded()
 			int winningTeam
 			if ( file.timeoutWinnerDecisionFunc != null )
 				winningTeam = file.timeoutWinnerDecisionFunc()
-			else
+			else if( IsFFAGame() )
 				winningTeam = GetWinningTeamWithFFASupport()
-			
+			else
+				winningTeam = GetWinningTeam()
+
 			if ( file.switchSidesBased && !file.hasSwitchedSides && !IsRoundBased() ) // in roundbased modes, we handle this in setwinner
 				SetGameState( eGameState.SwitchingSides )
 			else if ( file.suddenDeathBased && winningTeam == TEAM_UNASSIGNED ) // suddendeath if we draw and suddendeath is enabled and haven't switched sides
@@ -272,6 +278,14 @@ void function GameStateEnter_Playing_Threaded()
 		
 		WaitFrame()
 	}
+}
+
+void function GamePlaying_OnClientConnected( entity player )
+{
+	if( GetGameState() != eGameState.Playing )
+		return
+
+	
 }
 
 
@@ -290,10 +304,9 @@ void function GameStateEnter_WinnerDetermined()
 void function GameStateEnter_WinnerDetermined_Threaded()
 {
 	// do win announcement
-	int winningTeam = GetWinningTeamWithFFASupport()
-	
-	if( file.playFactionDialogue )
-		DialoguePlayWinnerDetermined() // play a faction dialogue when winner is determined
+	int winningTeam = GetWinningTeam()
+	if( IsFFAGame() )
+		winningTeam = GetWinningTeamWithFFASupport()
 
 	foreach ( entity player in GetPlayerArray() )
 	{
@@ -302,12 +315,23 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 			announcementSubstr = player.GetTeam() == winningTeam ? file.announceRoundWinnerWinningSubstr : file.announceRoundWinnerLosingSubstr
 
 		if ( IsRoundBased() )
+		{
 			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceRoundWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME, GameRules_GetTeamScore2( TEAM_MILITIA ), GameRules_GetTeamScore2( TEAM_IMC ) )
+			// SetTeamScore() should be done after announced winner
+			if ( winningTeam != TEAM_UNASSIGNED )
+			{
+				GameRules_SetTeamScore( winningTeam, GameRules_GetTeamScore( winningTeam ) + 1 )
+				GameRules_SetTeamScore2( winningTeam, GameRules_GetTeamScore2( winningTeam ) + 1 )
+			}
+		}
 		else
 			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME )
 	}
 	
 	WaitFrame() // wait a frame so other scripts can setup killreplay stuff
+
+	if( file.playFactionDialogue )
+		DialoguePlayWinnerDetermined() // play a faction dialogue when winner is determined
 	
 	// set gameEndTime to current time, so hud doesn't display time left in the match
 	SetServerVar( "gameEndTime", Time() )
@@ -357,6 +381,8 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 			player.UnfreezeControlsOnServer()
 
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
+	
+		wait 4.0 // to have better visual
 	}
 	else if( !ClassicMP_ShouldRunEpilogue() )
 	{
@@ -370,7 +396,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		int roundsPlayed = expect int ( GetServerVar( "roundsPlayed" ) )
 		SetServerVar( "roundsPlayed", roundsPlayed + 1 )
 		
-		int winningTeam = GetWinningTeamWithFFASupport()
+		int winningTeam = GetWinningTeam()//GetWinningTeamWithFFASupport() // seriously no need to use this, check should be done on winnerDetermined
 		
 		int highestScore = GameRules_GetTeamScore( winningTeam )
 		int roundScoreLimit = GameMode_GetRoundScoreLimit( GAMETYPE )
@@ -905,8 +931,6 @@ void function SetWinner( int team, string winningReason = "", string losingReaso
 					file.announceRoundWinnerWinningSubstr = GetStringID( "#GAMEMODE_ROUND_LIMIT_REACHED" )
 					file.announceRoundWinnerLosingSubstr = GetStringID( "#GAMEMODE_ROUND_LIMIT_REACHED" )
 				}
-				GameRules_SetTeamScore( team, GameRules_GetTeamScore( team ) + 1 )
-				GameRules_SetTeamScore2( team, GameRules_GetTeamScore2( team ) + 1 )
 			}
 			
 			SetGameState( eGameState.WinnerDetermined )
@@ -1017,47 +1041,36 @@ float function GetTimeLimit_ForGameMode()
 void function DialoguePlayNormal()
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // so this won't play when game not playing
-	int totalScore = GameMode_GetScoreLimit( GameRules_GetGameMode() )
-	int winningTeam
-	int losingTeam
-	float diagIntervel = 71 // play a faction dailogue every 70 + 1s to prevent play together with winner dialogue
+	float diagIntervel = 91 // play a faction dailogue every 70 + 1s to prevent play together with winner dialogue
 
 	while( GetGameState() == eGameState.Playing )
 	{
+		PlayScoreEventFactionDialogue( "winningLarge", "losingLarge", "winning", "losing", "winningClose", "losingClose" )
 		wait diagIntervel
-		if( GameRules_GetTeamScore( TEAM_MILITIA ) < GameRules_GetTeamScore( TEAM_IMC ) )
-		{
-			winningTeam = TEAM_IMC
-			losingTeam = TEAM_MILITIA
-		}
-		if( GameRules_GetTeamScore( TEAM_MILITIA ) > GameRules_GetTeamScore( TEAM_IMC ) )
-		{
-			winningTeam = TEAM_MILITIA
-			losingTeam = TEAM_IMC
-		}
-		if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) >= totalScore * 0.4 )
-		{
-			PlayFactionDialogueToTeam( "scoring_winningLarge", winningTeam )
-			PlayFactionDialogueToTeam( "scoring_losingLarge", losingTeam )
-		}
-		else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) <= totalScore * 0.2 )
-		{
-			PlayFactionDialogueToTeam( "scoring_winningClose", winningTeam )
-			PlayFactionDialogueToTeam( "scoring_losingClose", losingTeam )
-		}
-		else if( GameRules_GetTeamScore( winningTeam ) == GameRules_GetTeamScore( losingTeam ) )
-		{
-			continue
-		}
-		else
-		{
-			PlayFactionDialogueToTeam( "scoring_winning", winningTeam )
-			PlayFactionDialogueToTeam( "scoring_losing", losingTeam )
-		}
 	}
 }
 
 void function DialoguePlayWinnerDetermined()
+{
+	int winningTeam = TEAM_UNASSIGNED
+
+	if( GameRules_GetTeamScore( TEAM_MILITIA ) < GameRules_GetTeamScore( TEAM_IMC ) )
+		winningTeam = TEAM_IMC
+	if( GameRules_GetTeamScore( TEAM_MILITIA ) > GameRules_GetTeamScore( TEAM_IMC ) )
+		winningTeam = TEAM_MILITIA
+
+	if( IsRoundBased() ) // check for round based modes
+	{
+		if( winningTeam == TEAM_UNASSIGNED )
+			return
+		if( GameRules_GetTeamScore( winningTeam ) != GameMode_GetRoundScoreLimit( GAMETYPE ) ) // no winner dialogue till game really ends
+			return
+	}
+
+	PlayScoreEventFactionDialogue( "wonMercy", "lostMercy", "won", "lost", "wonClose", "lostClose", "tied" )
+}
+
+void function PlayScoreEventFactionDialogue( string winningLarge, string losingLarge, string winning, string losing, string winningClose, string losingClose, string tied = "" )
 {
 	int totalScore = GameMode_GetScoreLimit( GameRules_GetGameMode() )
 	int winningTeam
@@ -1078,30 +1091,28 @@ void function DialoguePlayWinnerDetermined()
 	{
 		scoreTied = true
 	}
-	if( IsRoundBased() ) // check for round based modes
-	{
-		if( GameRules_GetTeamScore( winningTeam ) != GameMode_GetRoundScoreLimit( GAMETYPE ) ) // no winner dialogue till game really ends
-			return
-	}
 	if( scoreTied )
 	{
-		PlayFactionDialogueToTeam( "scoring_tied", TEAM_IMC )
-		PlayFactionDialogueToTeam( "scoring_tied", TEAM_MILITIA )
+		if( tied != "" )
+		{
+			PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_IMC )
+			PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_MILITIA )
+		}
 	}
 	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) >= totalScore * 0.4 )
 	{
-		PlayFactionDialogueToTeam( "scoring_wonMercy", winningTeam )
-		PlayFactionDialogueToTeam( "scoring_lostMercy", losingTeam )
+		PlayFactionDialogueToTeam( "scoring_" + winningLarge, winningTeam )
+		PlayFactionDialogueToTeam( "scoring_" + losingLarge, losingTeam )
 	}
 	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) <= totalScore * 0.2 )
 	{
-		PlayFactionDialogueToTeam( "scoring_wonClose", winningTeam )
-		PlayFactionDialogueToTeam( "scoring_lostClose", losingTeam )
+		PlayFactionDialogueToTeam( "scoring_" + winningClose, winningTeam )
+		PlayFactionDialogueToTeam( "scoring_" + winningClose, losingTeam )
 	}
 	else
 	{
-		PlayFactionDialogueToTeam( "scoring_won", winningTeam )
-		PlayFactionDialogueToTeam( "scoring_lost", losingTeam )
+		PlayFactionDialogueToTeam( "scoring_" + winning, winningTeam )
+		PlayFactionDialogueToTeam( "scoring_" + losing, losingTeam )
 	}
 }
 

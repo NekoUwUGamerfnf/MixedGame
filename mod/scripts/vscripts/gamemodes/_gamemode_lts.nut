@@ -59,7 +59,25 @@ void function WaitForThirtySecondsLeftThreaded()
 		Remote_CallFunction_NonReplay( player, "ServerCallback_LTSThirtySecondWarning" )
 
 		// do initial highlight
-		RefreshThirtySecondWallhackHighlight( player, null )
+		//RefreshThirtySecondWallhackHighlight( player, null )
+		if( IsAlive( player ) )
+			thread ThirtySecondWallhackHighlightThink( player )
+	}
+}
+
+void function ThirtySecondWallhackHighlightThink( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+
+	while( true )
+	{
+		if( player.IsTitan() )
+			Highlight_SetEnemyHighlight( player, "enemy_sonar" )
+		else if( IsValid( player.GetPetTitan() ) )
+			Highlight_SetEnemyHighlight( player.GetPetTitan(), "enemy_sonar" )
+		WaitFrame()
 	}
 }
 
