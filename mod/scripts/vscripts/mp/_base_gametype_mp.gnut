@@ -30,6 +30,7 @@ struct {
 	array<entity> specCams
 	// modified
 	bool forcedRespawn = true
+	array<string> lateSpawnedPlayerUIDs = []
 } file
 
 void function BaseGametype_Init_MPSP()
@@ -199,20 +200,22 @@ void function CodeCallback_OnClientConnectionCompleted( entity player )
 				gameTime = float( GameMode_GetTimeLimit( GAMETYPE ) ) * 60
 			}
 
-			// do this so player don't have to wait so long till round end
-			if( RespawnsEnabled() )
+			if( file.lateSpawnedPlayerUIDs.contains( player.GetUID() ) ) // avoid multiple late spawns by disconnecting
 				shouldDoLateSpawn = false
-			else if( GetPlayerArrayOfTeam( player.GetTeam() ).len() > 1 )
-				shouldDoLateSpawn = false
-			else if( endTime - Time() < gameTime * 0.75 ) // early joiner can still be in elimination mode
-				shouldDoLateSpawn = false
+			
+			//else if( GetPlayerArrayOfTeam( player.GetTeam() ).len() > 1 )
+			//	shouldDoLateSpawn = false
+			//else if( endTime - Time() < gameTime * 0.75 ) // early joiner can still be in elimination mode
+			//	shouldDoLateSpawn = false
 
+			// do this so player don't have to wait so long till round end
 			if( shouldDoLateSpawn )
 			{
 				if ( Riff_SpawnAsTitan() == 1 )	// spawn as titan
 					thread RespawnAsTitan( player )
 				else // spawn as pilot
 					RespawnAsPilot( player )
+				file.lateSpawnedPlayerUIDs.append( player.GetUID() )
 			}
 			else
 				thread PlayerBecomesSpectator( player )
@@ -430,7 +433,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 					waitBeforeRespawn = 3.0
 				thread ForcedRespawnThink( player, waitBeforeRespawn )
 				if( !shouldDoReplay ) // if not doing replay, set player's camera to intermissionCam
-					SetPlayerCameraToIntermissionCam( player, waitBeforeRespawn )
+					thread SetPlayerCameraToIntermissionCam( player, waitBeforeRespawn )
 			}
 		}
 
@@ -446,7 +449,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	else if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
 	{
 		if ( shouldDoReplay && player.IsWatchingKillReplay() )
-			player.WaitSignal( "KillCamOver" )
+			WaitSignal( player, "KillCamOver", "RespawnMe" ) // allows player to skip replay
 		
 		thread PlayerBecomesSpectator( player )
 	}

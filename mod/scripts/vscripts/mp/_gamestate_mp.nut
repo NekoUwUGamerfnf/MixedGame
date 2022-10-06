@@ -261,10 +261,10 @@ void function GameStateEnter_Playing_Threaded()
 			int winningTeam
 			if ( file.timeoutWinnerDecisionFunc != null )
 				winningTeam = file.timeoutWinnerDecisionFunc()
-			else if( IsFFAGame() )
-				winningTeam = GetWinningTeamWithFFASupport()
-			else
+			else if( IsRoundBased() )
 				winningTeam = GetWinningTeam()
+			else
+				winningTeam = GetWinningTeamWithFFASupport()
 
 			if ( file.switchSidesBased && !file.hasSwitchedSides && !IsRoundBased() ) // in roundbased modes, we handle this in setwinner
 				SetGameState( eGameState.SwitchingSides )
@@ -311,21 +311,23 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	foreach ( entity player in GetPlayerArray() )
 	{
 		int announcementSubstr
-		if ( winningTeam != TEAM_UNASSIGNED )
+		if ( winningTeam > TEAM_UNASSIGNED )
 			announcementSubstr = player.GetTeam() == winningTeam ? file.announceRoundWinnerWinningSubstr : file.announceRoundWinnerLosingSubstr
 
 		if ( IsRoundBased() )
-		{
 			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceRoundWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME, GameRules_GetTeamScore2( TEAM_MILITIA ), GameRules_GetTeamScore2( TEAM_IMC ) )
-			// SetTeamScore() should be done after announced winner
-			if ( winningTeam != TEAM_UNASSIGNED )
-			{
-				GameRules_SetTeamScore( winningTeam, GameRules_GetTeamScore( winningTeam ) + 1 )
-				GameRules_SetTeamScore2( winningTeam, GameRules_GetTeamScore2( winningTeam ) + 1 )
-			}
-		}
 		else
 			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME )
+	}
+
+	// SetTeamScore() should be done after announced winner
+	if ( IsRoundBased() )
+	{
+		if ( winningTeam != TEAM_UNASSIGNED )
+		{
+			GameRules_SetTeamScore( winningTeam, GameRules_GetTeamScore( winningTeam ) + 1 )
+			GameRules_SetTeamScore2( winningTeam, GameRules_GetTeamScore2( winningTeam ) + 1 )
+		}
 	}
 	
 	WaitFrame() // wait a frame so other scripts can setup killreplay stuff
@@ -1071,25 +1073,50 @@ void function DialoguePlayWinnerDetermined()
 
 void function PlayScoreEventFactionDialogue( string winningLarge, string losingLarge, string winning, string losing, string winningClose, string losingClose, string tied = "" )
 {
-	int totalScore = GameMode_GetScoreLimit( GameRules_GetGameMode() )
+	int totalScore = GameMode_GetScoreLimit( GAMETYPE )
+	if( IsRoundBased() )
+		totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
+	print( "totalScore is: " + string( totalScore ) )
 	int winningTeam
 	int losingTeam
 	bool scoreTied
 
-	if( GameRules_GetTeamScore( TEAM_MILITIA ) < GameRules_GetTeamScore( TEAM_IMC ) )
+	if( IsRoundBased() )
 	{
-		winningTeam = TEAM_IMC
-		losingTeam = TEAM_MILITIA
+		if( GameRules_GetTeamScore2( TEAM_MILITIA ) < GameRules_GetTeamScore2( TEAM_IMC ) )
+		{
+			winningTeam = TEAM_IMC
+			losingTeam = TEAM_MILITIA
+		}
+		else if( GameRules_GetTeamScore2( TEAM_MILITIA ) > GameRules_GetTeamScore2( TEAM_IMC ) )
+		{
+			winningTeam = TEAM_MILITIA
+			losingTeam = TEAM_IMC
+		}
+		else if( GameRules_GetTeamScore2( TEAM_MILITIA ) == GameRules_GetTeamScore2( TEAM_IMC ) )
+		{
+			scoreTied = true
+		}
 	}
-	if( GameRules_GetTeamScore( TEAM_MILITIA ) > GameRules_GetTeamScore( TEAM_IMC ) )
+	else
 	{
-		winningTeam = TEAM_MILITIA
-		losingTeam = TEAM_IMC
+		if( GameRules_GetTeamScore( TEAM_MILITIA ) < GameRules_GetTeamScore( TEAM_IMC ) )
+		{
+			winningTeam = TEAM_IMC
+			losingTeam = TEAM_MILITIA
+		}
+		else if( GameRules_GetTeamScore( TEAM_MILITIA ) > GameRules_GetTeamScore( TEAM_IMC ) )
+		{
+			winningTeam = TEAM_MILITIA
+			losingTeam = TEAM_IMC
+		}
+		else if( GameRules_GetTeamScore( TEAM_MILITIA ) == GameRules_GetTeamScore( TEAM_IMC ) )
+		{
+			scoreTied = true
+		}
 	}
-	if( GameRules_GetTeamScore( TEAM_MILITIA ) == GameRules_GetTeamScore( TEAM_IMC ) )
-	{
-		scoreTied = true
-	}
+	print( "winningTeam is: " + string( winningTeam ) )
+	print( "losingTeam is: " + string( losingTeam ) )
 	if( scoreTied )
 	{
 		if( tied != "" )
@@ -1098,18 +1125,21 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 			PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_MILITIA )
 		}
 	}
-	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) >= totalScore * 0.4 )
+	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) >= totalScore * 0.5 )
 	{
+		print( "Now playing Large" )
 		PlayFactionDialogueToTeam( "scoring_" + winningLarge, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losingLarge, losingTeam )
 	}
-	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) <= totalScore * 0.2 )
+	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) <= totalScore * 0.25 )
 	{
+		print( "Now playing Close" )
 		PlayFactionDialogueToTeam( "scoring_" + winningClose, winningTeam )
-		PlayFactionDialogueToTeam( "scoring_" + losingLarge, losingTeam )
+		PlayFactionDialogueToTeam( "scoring_" + losingClose, losingTeam )
 	}
 	else
 	{
+		print( "Now playing Normal" )
 		PlayFactionDialogueToTeam( "scoring_" + winning, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losing, losingTeam )
 	}
