@@ -110,12 +110,12 @@ void function GamemodeCP_OnPlayerKilled(entity victim, entity attacker, var dama
 		{
 			if(victimCP.hardpoint.GetTeam()==attacker.GetTeam())
 			{
-				AddPlayerScore( attacker , "HardpointDefense", victim )
+				AddPlayerScore( attacker , "HardpointDefense", attacker )
 				attacker.AddToPlayerGameStat(PGS_DEFENSE_SCORE,POINTVALUE_HARDPOINT_DEFENSE)
 			}
 			else if((victimCP.hardpoint.GetTeam()==victim.GetTeam())||(GetHardpointCappingTeam(victimCP)==victim.GetTeam()))
 			{
-				AddPlayerScore( attacker, "HardpointAssault", victim )
+				AddPlayerScore( attacker, "HardpointAssault", attacker )
 				attacker.AddToPlayerGameStat(PGS_ASSAULT_SCORE,POINTVALUE_HARDPOINT_ASSAULT)
 			}
 		}
@@ -125,18 +125,18 @@ void function GamemodeCP_OnPlayerKilled(entity victim, entity attacker, var dama
 
 		if(Distance(victim.GetOrigin(),attacker.GetOrigin())>=1875)//1875 inches(units) are 47.625 meters
 		{
-			AddPlayerScore( attacker , "HardpointSnipe", victim )
+			AddPlayerScore( attacker , "HardpointSnipe", attacker )
 			attacker.AddToPlayerGameStat(PGS_ASSAULT_SCORE,POINTVALUE_HARDPOINT_SNIPE)
 		}
 		else{
-			AddPlayerScore( attacker , "HardpointSiege", victim )
+			AddPlayerScore( attacker , "HardpointSiege", attacker )
 			attacker.AddToPlayerGameStat(PGS_ASSAULT_SCORE,POINTVALUE_HARDPOINT_SIEGE)
 		}
 	}
 	else if(attackerCP.hardpoint!=null)//Perimeter Defense
 	{
 		if(attackerCP.hardpoint.GetTeam()==attacker.GetTeam())
-			AddPlayerScore( attacker , "HardpointPerimeterDefense", victim)
+			AddPlayerScore( attacker , "HardpointPerimeterDefense", attacker)
 			attacker.AddToPlayerGameStat(PGS_DEFENSE_SCORE,POINTVALUE_HARDPOINT_PERIMETER_DEFENSE)
 	}
 
@@ -374,12 +374,12 @@ void function PlayerThink(CP_PlayerStruct player)
 						player.timeOnPoints[index] -= 10
 						if(GetHardpointState(hardpoint)==CAPTURE_POINT_STATE_AMPED)
 						{
-							AddPlayerScore(player.player,"ControlPointAmpedHold")
+							AddPlayerScore(player.player,"ControlPointAmpedHold", player.player)
 							player.player.AddToPlayerGameStat( PGS_DEFENSE_SCORE, POINTVALUE_HARDPOINT_AMPED_HOLD )
 						}
 						else
 						{
-							AddPlayerScore(player.player,"ControlPointHold")
+							AddPlayerScore(player.player,"ControlPointHold", player.player)
 							player.player.AddToPlayerGameStat( PGS_DEFENSE_SCORE, POINTVALUE_HARDPOINT_HOLD )
 						}
 					}
@@ -574,7 +574,7 @@ void function HardpointThink( HardpointStruct hardpoint )
 						{
 							if(player.IsPlayer())
 							{
-								AddPlayerScore(player,"ControlPointAmped")
+								AddPlayerScore(player,"ControlPointAmped", player)
 								player.AddToPlayerGameStat(PGS_DEFENSE_SCORE,POINTVALUE_HARDPOINT_AMPED)
 							}
 						}

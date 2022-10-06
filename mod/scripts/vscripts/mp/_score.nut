@@ -96,7 +96,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// have to do this early before we reset victim's player killstreaks
 	// nemesis when you kill a player that is dominating you
 	if ( attacker.IsPlayer() && attacker in victim.p.playerKillStreaks && victim.p.playerKillStreaks[ attacker ] >= NEMESIS_KILL_REQUIREMENT )
-		AddPlayerScore( attacker, "Nemesis" )
+		AddPlayerScore( attacker, "Nemesis", attacker )
 	
 	// reset killstreaks on specific players
 	foreach ( entity killstreakPlayer, int numKills in victim.p.playerKillStreaks )
@@ -110,11 +110,11 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 
 	attacker.p.numberOfDeathsSinceLastKill = 0 // since they got a kill, remove the comeback trigger
 	// pilot kill
-	AddPlayerScore( attacker, "KillPilot", victim )
+	AddPlayerScore( attacker, "KillPilot", attacker ) // 
 	
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
-		AddPlayerScore( attacker, "Headshot", victim )
+		AddPlayerScore( attacker, "Headshot", attacker )
 	
 	// first strike
 	if ( !file.firstStrikeDone )
@@ -126,7 +126,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// comeback
 	if ( attacker.p.numberOfDeathsSinceLastKill >= COMEBACK_DEATHS_REQUIREMENT )
 	{
-		AddPlayerScore( attacker, "Comeback" )
+		AddPlayerScore( attacker, "Comeback", attacker )
 		attacker.p.numberOfDeathsSinceLastKill = 0
 	}
 	
@@ -134,9 +134,9 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// untimed killstreaks
 	attacker.s.currentKillstreak++
 	if ( attacker.s.currentKillstreak == 3 )
-		AddPlayerScore( attacker, "KillingSpree" )
+		AddPlayerScore( attacker, "KillingSpree", attacker )
 	else if ( attacker.s.currentKillstreak == 5 )
-		AddPlayerScore( attacker, "Rampage" )
+		AddPlayerScore( attacker, "Rampage", attacker )
 	
 	// increment untimed killstreaks against specific players
 	if ( !( victim in attacker.p.playerKillStreaks ) )
@@ -146,7 +146,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	
 	// dominating
 	if ( attacker.p.playerKillStreaks[ victim ] >= DOMINATING_KILL_REQUIREMENT )
-		AddPlayerScore( attacker, "Dominating" )
+		AddPlayerScore( attacker, "Dominating", attacker )
 	
 	if ( Time() - attacker.s.lastKillTime > CASCADINGKILL_REQUIREMENT_TIME )
 	{
@@ -160,9 +160,9 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		attacker.s.currentTimedKillstreak++
 		
 		if ( attacker.s.currentTimedKillstreak == DOUBLEKILL_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "DoubleKill" )
+			AddPlayerScore( attacker, "DoubleKill", attacker )
 		else if ( attacker.s.currentTimedKillstreak == TRIPLEKILL_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "TripleKill" )
+			AddPlayerScore( attacker, "TripleKill", attacker )
 		else if ( attacker.s.currentTimedKillstreak >= MEGAKILL_REQUIREMENT_KILLS )
 			AddPlayerScore( attacker, "MegaKill", attacker )
 	}
@@ -175,9 +175,9 @@ void function ScoreEvent_TitanDoomed( entity titan, entity attacker, var damageI
 	// will this handle npc titans with no owners well? i have literally no idea
 	
 	if ( titan.IsNPC() )
-		AddPlayerScore( attacker, "DoomAutoTitan", titan )
+		AddPlayerScore( attacker, "DoomAutoTitan", attacker )
 	else
-		AddPlayerScore( attacker, "DoomTitan", titan )
+		AddPlayerScore( attacker, "DoomTitan", attacker )
 }
 
 void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damageInfo )
@@ -211,7 +211,7 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 		if( attackerInfo.attacker != attacker && !exists )
 		{
 			alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
-			AddPlayerScore(attackerInfo.attacker, "TitanAssist" )
+			AddPlayerScore( attackerInfo.attacker, "TitanAssist", attackerInfo.attacker )
 			Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time ) 
 		}
 	}
@@ -222,7 +222,7 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 	try
 	{		
 		// have to trycatch this because marvins will crash on kill if we dont
-		AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), victim )
+		AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), attacker )
 	}
 	catch ( ex ) {}
 }

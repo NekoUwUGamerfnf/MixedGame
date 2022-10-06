@@ -196,6 +196,8 @@ void function MarkPlayers( entity imcMark, entity militiaMark )
 	// set marks
 	level.mfdActiveMarkedPlayerEnt[ TEAM_IMC ].SetOwner( imcMark )
 	level.mfdActiveMarkedPlayerEnt[ TEAM_MILITIA ].SetOwner( militiaMark )
+	AddPlayerScore( imcMark, "MFDMarked", imcMark )
+	AddPlayerScore( militiaMark, "MFDMarked", militiaMark )
 	imcMark.Minimap_AlwaysShow( TEAM_MILITIA, null )
 	militiaMark.Minimap_AlwaysShow( TEAM_IMC, null )
 

@@ -117,7 +117,7 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 	if ( GetFlagForTeam( GetOtherTeam( victim.GetTeam() ) ).GetParent() == victim )
 	{
 		if ( victim != attacker && attacker.IsPlayer() )
-			AddPlayerScore( attacker, "FlagCarrierKill", victim )
+			AddPlayerScore( attacker, "FlagCarrierKill", attacker )
 		
 		DropFlag( victim )
 	}
@@ -499,7 +499,6 @@ void function TryReturnFlag( entity player, entity flag )
 	// flag return succeeded
 	// return flag
 	ResetFlag( flag )
-	flag.Signal( "FlagReturnEnded" )
 
 	// do notifications for return
 	MessageToPlayer( player, eEventNotifications.YouReturnedFriendlyFlag )
@@ -513,4 +512,6 @@ void function TryReturnFlag( entity player, entity flag )
 	MessageToTeam( GetOtherTeam( flag.GetTeam() ), eEventNotifications.PlayerReturnedEnemyFlag, null, player )
 	EmitSoundOnEntityToTeam( flag, "UI_CTF_3P_EnemyReturnsFlag", GetOtherTeam( flag.GetTeam() ) )
 	PlayFactionDialogueToTeam( "ctf_flagReturnedEnemy", GetOtherTeam( flag.GetTeam() ) )
+
+	flag.Signal( "FlagReturnEnded" )
 }
