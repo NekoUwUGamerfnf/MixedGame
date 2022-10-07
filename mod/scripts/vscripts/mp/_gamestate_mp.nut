@@ -1076,7 +1076,6 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 	int totalScore = GameMode_GetScoreLimit( GAMETYPE )
 	if( IsRoundBased() )
 		totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
-	print( "totalScore is: " + string( totalScore ) )
 	int winningTeam
 	int losingTeam
 	bool scoreTied
@@ -1115,8 +1114,6 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 			scoreTied = true
 		}
 	}
-	print( "winningTeam is: " + string( winningTeam ) )
-	print( "losingTeam is: " + string( losingTeam ) )
 	if( scoreTied )
 	{
 		if( tied != "" )
@@ -1127,19 +1124,16 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 	}
 	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) >= totalScore * 0.5 )
 	{
-		print( "Now playing Large" )
 		PlayFactionDialogueToTeam( "scoring_" + winningLarge, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losingLarge, losingTeam )
 	}
 	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) <= totalScore * 0.25 )
 	{
-		print( "Now playing Close" )
 		PlayFactionDialogueToTeam( "scoring_" + winningClose, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losingClose, losingTeam )
 	}
 	else
 	{
-		print( "Now playing Normal" )
 		PlayFactionDialogueToTeam( "scoring_" + winning, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losing, losingTeam )
 	}
