@@ -35,6 +35,8 @@ function Anim_Init()
 	RegisterSignal( "NewFirstPersonSequence" )
 	RegisterSignal( "ScriptAnimStop" )
 	RegisterSignal( "AnimEventKill" )
+	// oh no
+	RegisterSignal( "HackedAnimStart" )
 
 	AddGlobalAnimEvent( "enable_weapon", GlobalAnimEvent_EnableWeapon )
 	AddGlobalAnimEvent( "disable_weapon", GlobalAnimEvent_DisableWeapon	)
@@ -471,9 +473,17 @@ function __PlayAnim( guy, animation_name, reference = null, optionalTag = null, 
 	}
 	catch( ex )
 	{
-		print( "Model animation error! resetting to $\"models/humans/pilots/pilot_medium_geist_m.mdl\"" )
+		asset modelName = $"models/humans/pilots/pilot_medium_geist_m.mdl"
+		if( guy.IsPlayer() )
+		{
+			if( guy.IsTitan() )
+				modelName = GetPlayerSettingsAssetForClassName( guy.s.storedPlayerSettings, "bodymodel" )
+			else
+				modelName = guy.GetPlayerSettingsAsset( "bodymodel" )
+		}
+		print( "Model animation error! resetting to " + string( modelName ) )
 		asset orgModel = guy.GetModelName()
-		guy.SetModel( $"models/humans/pilots/pilot_medium_geist_m.mdl" )
+		guy.SetModel( modelName )
 		thread __PlayAnim( guy, animation_name, reference, optionalTag, blendTime )
 		thread TrackHackedAnimationEnd( guy, orgModel )
 	}
@@ -486,6 +496,7 @@ void function TrackHackedAnimationEnd( guy, asset orgModel )
 	if( !IsValid( guy ) )
 		return
 
+	guy.Signal( "HackedAnimStart" )
 	guy.EndSignal( "OnDestroy" )
 	guy.EndSignal( "OnAnimationInterrupted" )
 	guy.EndSignal( "OnAnimationDone" )
@@ -495,17 +506,59 @@ void function TrackHackedAnimationEnd( guy, asset orgModel )
 		{
 			if( IsValid( guy ) )
 			{
-				if( guy.IsTitan() )
+				if( guy.IsTitan() && guy.IsPlayer() )
 				{
-					//thread TrackPlayerBecomePilot( guy )
+					thread TrackPlayerBecomePilot( guy, orgModel )
 					return
 				}
-				guy.SetModel( orgModel )
+				else if( !guy.IsTitan() )
+					guy.SetModel( orgModel )
 			}
 		}
 	)
 
 	WaitForever()
+}
+
+void function TrackPlayerBecomePilot( entity player, asset orgModel )
+{
+	print( "Hacked player has become titan, waiting for leaving.." )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "HackedAnimStart" )
+	
+	table result =  WaitSignal( player, "DisembarkingTitan", "TitanEjectionStarted" )
+	if( result.signal == "TitanEjectionStarted" )
+	{
+		print( "Player titan ejecting!" )
+		while( player.IsTitan() )
+		{
+			WaitFrame()
+		}
+		/* // will cause some delay
+		entity soul = player.GetTitanSoul()
+		while( IsValid( soul ) )
+		{
+			if( soul.IsEjecting() )
+			{
+				print( "Player titan ejecting!" )
+				WaitFrame()
+			}
+			else
+				break
+		}
+		*/
+	}
+	if( result.signal == "DisembarkingTitan" )
+	{
+		player.EndSignal( "OnAnimationInterrupted" )
+		player.WaitSignal( "OnAnimationDone" )
+	}
+	if( IsAlive( player ) )
+	{
+		player.SetModel( orgModel )
+		print( "Leaving titan! resetting model to " + string( orgModel ) )
+	}
 }
 
 function TeleportToAnimStart( _guy, animation_name, reference, optionalTag = null, smooth = false )
