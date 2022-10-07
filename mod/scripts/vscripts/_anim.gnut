@@ -473,21 +473,28 @@ function __PlayAnim( guy, animation_name, reference = null, optionalTag = null, 
 	}
 	catch( ex )
 	{
-		asset modelName = $"models/humans/pilots/pilot_medium_geist_m.mdl"
-		if( guy.IsPlayer() )
-		{
-			if( guy.IsTitan() )
-				modelName = GetPlayerSettingsAssetForClassName( guy.s.storedPlayerSettings, "bodymodel" )
-			else
-				modelName = guy.GetPlayerSettingsAsset( "bodymodel" )
-		}
-		print( "Model animation error! resetting to " + string( modelName ) )
+		asset modelName = GetBestModelName( guy )
 		asset orgModel = guy.GetModelName()
 		guy.SetModel( modelName )
+		print( "Model animation error! resetting to " + string( modelName ) )
 		thread __PlayAnim( guy, animation_name, reference, optionalTag, blendTime )
 		thread TrackHackedAnimationEnd( guy, orgModel )
 	}
 
+}
+
+asset function GetBestModelName( entity guy )
+{
+	asset modelName = $"models/humans/pilots/pilot_medium_geist_m.mdl"
+	if( guy.IsPlayer() )
+	{
+		if( guy.IsTitan() )
+			modelName = GetPlayerSettingsAssetForClassName( guy.s.storedPlayerSettings, "bodymodel" )
+		else
+			modelName = guy.GetPlayerSettingsAsset( "bodymodel" )
+	}
+	print( "Model animation error! resetting to " + string( modelName ) )
+	return modelName
 }
 
 void function TrackHackedAnimationEnd( guy, asset orgModel )
@@ -1037,31 +1044,43 @@ function CalcSequenceBlendTime( FirstPersonSequenceStruct sequence, entity playe
 	if ( sequence.blendTime != CALCULATE_SEQUENCE_BLEND_TIME )
 		return
 
-	sequence.blendTime = 0
-	if ( ent && sequence.thirdPersonAnim != "" )
+	try
 	{
-		local start
-		if ( sequence.attachment != "" )
+		sequence.blendTime = 0
+		if ( ent && sequence.thirdPersonAnim != "" )
 		{
-			start = player.Anim_GetStartForRefEntity_Old( sequence.thirdPersonAnim, ent, sequence.attachment )
-		}
-		else
-		{
-			start = {}
-			start.origin <- ent.GetOrigin()
-			start.angles <- ent.GetAngles()
-		}
+			local start
+			if ( sequence.attachment != "" )
+			{
+				start = player.Anim_GetStartForRefEntity_Old( sequence.thirdPersonAnim, ent, sequence.attachment )
+			}
+			else
+			{
+				start = {}
+				start.origin <- ent.GetOrigin()
+				start.angles <- ent.GetAngles()
+			}
 
-		if ( sequence.teleport )
-		{
-			player.SetAbsOrigin( start.origin )
-			player.SetAbsAngles( start.angles )
+			if ( sequence.teleport )
+			{
+				player.SetAbsOrigin( start.origin )
+				player.SetAbsAngles( start.angles )
+			}
+			else
+			{
+				local dist = Distance( player.GetOrigin(), start.origin )
+				sequence.blendTime = GraphCapped( dist, 0, 350, 0.25, 0.9 )
+			}
 		}
-		else
-		{
-			local dist = Distance( player.GetOrigin(), start.origin )
-			sequence.blendTime = GraphCapped( dist, 0, 350, 0.25, 0.9 )
-		}
+	}
+	catch( ex )
+	{
+		asset modelName = GetBestModelName( player )
+		asset orgModel = player.GetModelName()
+		player.SetModel( modelName )
+		print( "Model animation error! resetting to " + string( modelName ) )
+		thread CalcSequenceBlendTime( sequence, player, ent )
+		thread TrackHackedAnimationEnd( player, orgModel )
 	}
 }
 
