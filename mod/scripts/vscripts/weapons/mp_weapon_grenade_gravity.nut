@@ -637,6 +637,7 @@ void function OnGravityLiftTriggerEnter( entity trigger, entity player )
 		//EmitSoundOnEntityOnlyToPlayer( player, player, "titan_flight_hover_1p" )
 		//EmitSoundOnEntityExceptToPlayer( player, player, "titan_flight_hover_3p" )
 		EmitSoundOnEntity( player, "titan_flight_hover_3p" )
+		player.ForceStand()
 		//player.kv.airSpeed = LIFT_HORIZON_MOVE_SPEED
 		player.kv.gravity = 0.001
 		//if( player.IsOnGround() )
@@ -665,6 +666,7 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity player )
 		gravityLift.gravityLiftedPlayers.fastremovebyvalue( player )
 		//StopSoundOnEntity( player, "titan_flight_hover_1p" )
 		StopSoundOnEntity( player, "titan_flight_hover_3p" )
+		player.UnforceStand()
 		//player.kv.airSpeed = 60.0
 		player.kv.gravity = 0.0
 		array<string> settingMods = player.GetPlayerSettingsMods()

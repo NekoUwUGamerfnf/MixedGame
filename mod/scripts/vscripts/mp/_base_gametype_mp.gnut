@@ -28,6 +28,7 @@ struct {
 	
 	entity intermissionCamera
 	array<entity> specCams
+	
 	// modified
 	bool forcedRespawn = true
 	array<string> lateSpawnedPlayerUIDs = []
@@ -176,6 +177,7 @@ void function CodeCallback_OnClientConnectionCompleted( entity player )
 	// handle spawning late joiners
 	if ( GetGameState() == eGameState.Playing )
 	{
+		bool connectingRespawned = false
 		if ( RespawnsEnabled() )
 		{
 			// likely temp, deffo needs some work
@@ -183,10 +185,16 @@ void function CodeCallback_OnClientConnectionCompleted( entity player )
 				thread RespawnAsTitan( player )
 			else // spawn as pilot
 				RespawnAsPilot( player )
+			connectingRespawned = true
 		}
 		else // may not be useful, just want to make dedicated servers better
 		{
 			bool shouldDoLateSpawn = true
+			
+			if( file.lateSpawnedPlayerUIDs.contains( player.GetUID() ) || GetPlayerArrayOfTeam( player.GetTeam() ).len() > 1 ) // avoid multiple late spawns by disconnecting
+				shouldDoLateSpawn = false
+			
+			/*
 			float endTime
 			float gameTime
 			if ( IsRoundBased() )
@@ -199,14 +207,12 @@ void function CodeCallback_OnClientConnectionCompleted( entity player )
 				endTime = expect float( GetServerVar( "gameEndTime" ) )
 				gameTime = float( GameMode_GetTimeLimit( GAMETYPE ) ) * 60
 			}
-
-			if( file.lateSpawnedPlayerUIDs.contains( player.GetUID() ) ) // avoid multiple late spawns by disconnecting
-				shouldDoLateSpawn = false
 			
-			//else if( GetPlayerArrayOfTeam( player.GetTeam() ).len() > 1 )
-			//	shouldDoLateSpawn = false
-			//else if( endTime - Time() < gameTime * 0.75 ) // early joiner can still be in elimination mode
-			//	shouldDoLateSpawn = false
+			else if( GetPlayerArrayOfTeam( player.GetTeam() ).len() > 1 )
+				shouldDoLateSpawn = false
+			else if( endTime - Time() < gameTime * 0.75 ) // early joiner can still be in elimination mode
+				shouldDoLateSpawn = false
+			*/
 
 			// do this so player don't have to wait so long till round end
 			if( shouldDoLateSpawn )
@@ -215,12 +221,25 @@ void function CodeCallback_OnClientConnectionCompleted( entity player )
 					thread RespawnAsTitan( player )
 				else // spawn as pilot
 					RespawnAsPilot( player )
-				file.lateSpawnedPlayerUIDs.append( player.GetUID() )
+				connectingRespawned = true
+				if( !file.lateSpawnedPlayerUIDs.contains( player.GetUID() ) )
+					file.lateSpawnedPlayerUIDs.append( player.GetUID() )
 			}
 			else
 				thread PlayerBecomesSpectator( player )
 		}
+		if( connectingRespawned )
+			thread DelayedGamemodeAnnouncement( player )
 	}
+}
+
+void function DelayedGamemodeAnnouncement( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	
+	if( !IsAlive( player ) )
+		player.WaitSignal( "OnRespawned" )
+	TryGameModeAnnouncement( player )
 }
 
 void function CodeCallback_OnClientDisconnected( entity player, string reason )
@@ -621,10 +640,11 @@ void function RespawnAsTitan( entity player, bool manualPosition = false )
 		print( "batteryContainer is not a valid entity in RespawnAsTitan(). Skipping PilotBecomesTitan()." )
 }
 
-void function TryGameModeAnnouncement( entity player ) // only putting this here because it's here in gametype_sp lol
+void function TryGameModeAnnouncement( entity player bool doDialogue = true ) // only putting this here because it's here in gametype_sp lol
 {
 	Remote_CallFunction_NonReplay( player, "ServerCallback_GameModeAnnouncement" )
-	PlayFactionDialogueToPlayer( GameMode_GetGameModeAnnouncement( GAMETYPE ), player )
+	if( doDialogue )
+		PlayFactionDialogueToPlayer( GameMode_GetGameModeAnnouncement( GAMETYPE ), player )
 }
 
 void function SetKillcamsEnabled( bool enabled )
