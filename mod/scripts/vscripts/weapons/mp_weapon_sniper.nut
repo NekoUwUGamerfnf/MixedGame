@@ -102,9 +102,10 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 			}
 			else
 			{
-				entity weaponOwner = weapon.GetWeaponOwner()
-				vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
-				attackParams.dir = bulletVec
+				// better not adjust itself
+				//entity weaponOwner = weapon.GetWeaponOwner()
+				//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
+				//attackParams.dir = bulletVec
 				SmartAmmo_SetMissileSpeed( weapon, 10000 )
 				SmartAmmo_SetMissileHomingSpeed( weapon, 10000 )
 				SmartAmmo_SetMissileSpeedLimit( weapon, 10000 )
@@ -116,14 +117,15 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 		else
 		{
 			bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, boltSpeed, damageFlags, damageFlags, playerFired, 0 )
-		
+			//bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, 1.0, damageFlags, damageFlags, playerFired, 0 )
+
 			if ( bolt != null )
 			{
 				if( weapon.HasMod( "nessie_sniper" ) )
 					bolt.SetModel( $"models/domestic/nessy_doll.mdl" )
 				if( weapon.HasMod( "nessie_balance" ) )
 				{
-					bolt.kv.gravity = 1.0
+					bolt.kv.gravity = 0.0
 				}
 				else if( weapon.HasMod( "floating_bolt_sniper" ) )
 				{
@@ -229,10 +231,10 @@ void function EffectVictim( entity victim, var damageInfo )
 		}
 		else if( mods.contains( "stim_sniper" ) )
 		{
+			DamageInfo_SetDamage( damageInfo, 0 )
 			// stimming requires victim be a player
 			if( !victim.IsPlayer() )
 				return
-			DamageInfo_SetDamage( damageInfo, 0 )
 			StimPlayer( victim, 3 )
 		}
 	}

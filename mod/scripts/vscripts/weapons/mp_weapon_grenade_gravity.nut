@@ -653,6 +653,7 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity player )
 		return
 
 	player.Signal( "LeaveGravityLift" )
+	player.UnforceStand()
 
 	GravLiftStruct gravityLift
 	foreach( GravLiftStruct lift in gravityLifts )
@@ -666,7 +667,6 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity player )
 		gravityLift.gravityLiftedPlayers.fastremovebyvalue( player )
 		//StopSoundOnEntity( player, "titan_flight_hover_1p" )
 		StopSoundOnEntity( player, "titan_flight_hover_3p" )
-		player.UnforceStand()
 		//player.kv.airSpeed = 60.0
 		player.kv.gravity = 0.0
 		array<string> settingMods = player.GetPlayerSettingsMods()

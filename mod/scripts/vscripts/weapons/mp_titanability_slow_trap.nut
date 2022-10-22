@@ -162,11 +162,18 @@ function DeploySlowTrap( entity projectile )
 	if( isGasTrap )
 	{
 		// gas trap use owner to get teams, but it will cause owner not able to damage it
-		//tower.SetOwner( owner )
-		tower.s.trapOwner <- owner
-		tower.s.gasTeam <- team // int
-		//SetTeam( tower, team )
-		//tower.e.noOwnerFriendlyFire = false
+		//tower.s.trapOwner <- owner
+		//tower.s.gasTeam <- team // int
+		// using this setting, doing a check in base_gametype
+		tower.s.takeFriendlyDamage <- true
+		SetTeam( tower, team )
+		//tower.SetOwner( owner ) // still can't set owner, which will cause tower to have no collision
+		tower.SetBossPlayer( owner )
+		tower.e.noOwnerFriendlyFire = false
+		Highlight_SetFriendlyHighlight( tower, "sp_enemy_pilot" )
+		tower.Highlight_SetParam( 1, 0, < 3,3,3 > )
+		Highlight_SetOwnedHighlight( tower, "sp_friendly_hero" )
+		//Highlight_SetEnemyHighlight( reaper, "enemy_titan" )
 	}
 	else
 		SetTeam( tower, team )
@@ -722,7 +729,8 @@ void function GasTrapThink( entity tower )
 	tower.EndSignal( "OnDestroy" )
 
 	tower.s.gasTrapTriggered <- false
-	entity trapOwner = expect entity( tower.s.trapOwner )//tower.GetOwner()
+	//entity trapOwner = expect entity( tower.s.trapOwner )//tower.GetOwner()
+	entity trapOwner = tower.GetBossPlayer()
 	float startTime = Time()
 	float progressTime
 
@@ -769,12 +777,16 @@ void function GasTrapThink( entity tower )
 void function GasTrapToxicThink( entity tower )
 {
 	tower.EndSignal( "OnDestroy" )
-	entity owner = expect entity( tower.s.trapOwner )
+	//entity owner = expect entity( tower.s.trapOwner )
+	entity owner = tower.GetBossPlayer()
 	owner.EndSignal( "OnDestroy" )
 
 	EmitSoundOnEntity( tower, "Weapon_Vortex_Gun.ExplosiveWarningBeep" )
 	EmitSoundOnEntity( tower, "incendiary_trap_gas" )
 	PlayLoopFXOnEntity( SLOW_TRAP_FX_ALL, tower, "smoke" )
+	// highlight for friendly and owner
+	tower.Highlight_SetParam( 1, 0, < 1,3,0 > ) // friendly
+	tower.Highlight_SetParam( 3, 0, < 0,1,0 > ) // owner
 
 	//if ( GetMapName() != "sp_s2s" ) // needs test to select a better one
 		CreateToxicFumesFXSpot( tower.GetOrigin(), tower )
@@ -993,7 +1005,8 @@ void function OnGasTrapDamaged( entity tower, var damageInfo )
 	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	if( damageSourceId == eDamageSourceId.toxic_sludge )
 		return
-	entity owner = expect entity( tower.s.trapOwner )
+	//entity owner = expect entity( tower.s.trapOwner )
+	entity owner = tower.GetBossPlayer()
 	int ownerTeam = TEAM_UNASSIGNED
 	if( IsValid( owner ) )
 		ownerTeam = owner.GetTeam()

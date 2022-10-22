@@ -891,7 +891,7 @@ void function PortalTravelThink( entity trigger, entity player )
 	//if( shouldDoWarpEffect && totalTime >= PORTAL_TRAVEL_LENGTH_MAX ) // hardcoded now
 		//phaseTimeMulti = 0.75 // should set bit lower
 
-	if( player.IsPhaseShifted() )
+	if( player.IsPhaseShifted() || player.GetParent() )
 	{
 		return
 	}
@@ -922,6 +922,7 @@ void function PortalTravelThink( entity trigger, entity player )
 	}
 	entity portalTrail = CreatePhaseShiftTrail( player )
 	entity mover = CreateOwnedScriptMover( player )
+	player.ForceStand()
 	player.SetParent( mover )
 	player.HolsterWeapon()
 	player.Server_TurnOffhandWeaponsDisabledOn()
@@ -940,6 +941,7 @@ void function PortalTravelThink( entity trigger, entity player )
 			if( IsValid( player ) )
 			{
 				player.SetVelocity( < 0,0,0 > )
+				player.UnforceStand()
 				player.ClearParent()
 				player.DeployWeapon()
 				player.Server_TurnOffhandWeaponsDisabledOff()
@@ -1474,6 +1476,7 @@ void function moveback (entity player , vector origpos) {
     PlayFX( $"P_phase_shift_main", player.GetOrigin() )
 	playerrewindusedtable[playername] <- true
 	entity mover = CreateOwnedScriptMover (player)
+	player.ForceStand()
 	player.SetParent(mover)
 	PhaseShift(player, 0, 0.55 )
 	if( startposonground[playername] )
@@ -1484,6 +1487,7 @@ void function moveback (entity player , vector origpos) {
 		mover.NonPhysicsMoveTo (origpos, 0.5,0,0) //DB: Normal rewind
 	wait 0.55;
 	player.SetVelocity(<0,0,0>)
+	player.UnforceStand()
 	player.ClearParent()
 	Nessie_PutPlayerInSafeSpot( player, 1 )
 	mover.Destroy()

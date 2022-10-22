@@ -11,7 +11,7 @@ global function SetSwitchSidesBased
 global function SetSuddenDeathBased
 global function SetTimerBased
 global function SetShouldUseRoundWinningKillReplay
-// I want my game to have this
+
 global function SetShouldPlayFactionDialogue
 global function GetShouldPlayFactionDialogue
 global function SetRoundWinningKillReplayKillClasses
@@ -300,7 +300,6 @@ void function GamePlaying_OnClientConnected( entity player )
 	
 }
 
-
 // eGameState.WinnerDetermined
 void function GameStateEnter_WinnerDetermined()
 {	
@@ -360,6 +359,9 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		if ( "respawnTime" in replayAttacker.s && Time() - replayAttacker.s.respawnTime < replayLength )
 			replayLength += Time() - expect float ( replayAttacker.s.respawnTime )
 		
+		if( replayLength <= 0 ) // defensive fix
+			replayLength = 2.0 // extra delay
+
 		SetServerVar( "roundWinningKillReplayEntHealthFrac", file.roundWinningKillReplayHealthFrac )
 		
 		foreach ( entity player in GetPlayerArray() )
@@ -1051,8 +1053,8 @@ float function GetTimeLimit_ForGameMode()
 // faction dialogue
 void function DialoguePlayNormal()
 {
-	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // so this won't play when game not playing
-	float diagIntervel = 91 // play a faction dailogue every 70 + 1s to prevent play together with winner dialogue
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // so this will play right after roundbased game starts
+	float diagIntervel = 91 // play a faction dailogue every 90 + 1s to prevent play together with winner dialogue
 
 	while( GetGameState() == eGameState.Playing )
 	{
@@ -1149,7 +1151,6 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 	}
 }
 
-// faction dialogue
 void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 {
 	if( !attacker.IsPlayer() )

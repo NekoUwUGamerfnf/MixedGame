@@ -34,7 +34,7 @@ void function MpTitanWeaponStormWave_Init()
 
 void function OnWeaponActivate_titancore_storm_wave( entity weapon )
 {
-	//weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
+	weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
 	OnAbilityCharge_TitanCore( weapon )
 }
 
@@ -75,7 +75,7 @@ void function OnAbilityChargeEnd_StormWave( entity weapon )
 		if ( owner.IsPlayer() )
 		{
 			owner.Server_TurnOffhandWeaponsDisabledOff() // may need a little fix for animation
-			//thread TEMP_StormWaveAnimFix( owner )
+			thread TEMP_StormWaveAnimFix( owner )
 		}
 
 		if ( owner.IsNPC() && IsAlive( owner ) )
@@ -117,7 +117,7 @@ var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPr
 void function TEMP_StormWaveAnimFix( entity player )
 {
 	asset modelName = player.GetModelName()
-	player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 10, 10, 10 ) // temp fix
+	player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, -0.1 ) // temp fix
 	wait 0.1
 	if( IsValid( player ) )
 	{

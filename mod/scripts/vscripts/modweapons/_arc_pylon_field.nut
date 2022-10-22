@@ -31,7 +31,7 @@ const float ARC_PYLON_GRENADE_KILL_COST           = 4.2
 global const float ARC_PYLON_FIELD_RADIUS   = 500
 const float ARC_PYLON_FIELD_MAX_KILL_SPEED  = ARC_PYLON_FIELD_RADIUS * 10 //Don't kill things that can cross the entire radius in one check interval
 
-const DAMAGE_AGAINST_TITANS 			= 80   //150
+const DAMAGE_AGAINST_TITANS 			= 40   //80
 const DAMAGE_AGAINST_PILOTS 			= 8    //40
 const EMP_DAMAGE_TICK_RATE = 0.3                //We just damage every 0.1s atm (WaitFrame()), so not needed
 

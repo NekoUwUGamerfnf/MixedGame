@@ -135,7 +135,9 @@ bool function OnFlagCollected( entity player, entity flag )
 	if ( !IsAlive( player ) || flag.GetParent() != null || player.IsTitan() || player.IsPhaseShifted() ) 
 		return false
 
-	if ( player.GetTeam() != flag.GetTeam() && !expect bool( player.s.hasFlag ) )
+	//if ( player.GetTeam() != flag.GetTeam() && !expect bool( player.s.hasFlag ) ) 
+	// no team check
+	if ( !expect bool( player.s.hasFlag ) )
 		thread CarryFlag( player, flag ) // pickup enemy flag
 
 	return false // don't wanna delete the flag entity
@@ -150,6 +152,16 @@ void function CarryFlag( entity player, entity flag )
 	player.EndSignal( "StartPhaseShift" )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
+
+	flag.SetOwner( player ) // stop fx for carrier
+	FunnyFlag_StopFX( flag )
+	/*
+	entity curFlagFX = expect entity( flag.s.fxToHide )
+	if( IsValid( curFlagFX ) )
+		curFlagFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
+	*/
+	entity newFX = FunnyFlag_StartRandomFX( flag )
+	newFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
 	
 	OnThreadEnd(
 		function():( player, flag )
@@ -157,8 +169,11 @@ void function CarryFlag( entity player, entity flag )
 			if( IsValid( flag ) )
 			{
 				flag.ClearParent()
+				flag.SetOwner( null )
 				flag.SetAngles( < 0, 0, 0 > )
 				flag.SetVelocity( < 0, 0, 0 > )
+				FunnyFlag_StopFX( flag )
+				FunnyFlag_StartRandomFX( flag )
 			}
 			if( IsValid( player ) )
 			{
@@ -197,21 +212,62 @@ entity function CreateFunnyFlag( entity player )
 	// create flag
 	entity flag = CreateEntity( "item_flag" )
 	flag.SetValueForModelKey( CTF_FLAG_MODEL )
-	SetTeam( flag, player.GetTeam() )
-	//flag.MarkAsNonMovingAttachment()
+	flag.SetModel( CTF_FLAG_MODEL )
+	SetTeam( flag, player.GetTeam() ) // don't set a team if want to make player himself can't see the fx
+	flag.MarkAsNonMovingAttachment()
 	//flag.Minimap_AlwaysShow( TEAM_IMC, null ) // show flag icon on minimap
 	//flag.Minimap_AlwaysShow( TEAM_MILITIA, null )
 	flag.Minimap_Hide( TEAM_IMC, null )
 	flag.Minimap_Hide( TEAM_MILITIA, null )
 	flag.Minimap_SetAlignUpright( true )
+	FunnyFlag_StartRandomFX( flag )
+	/*
+	entity randomFX
+	if( CoinFlip() )
+		randomFX = PlayFXOnEntity( FLAG_FX_FRIENDLY, flag, "fx_end" )//StartParticleEffectOnEntity_ReturnEntity( flag, GetParticleSystemIndex( FLAG_FX_FRIENDLY ), FX_PATTACH_POINT_FOLLOW, attachID )
+	else
+		randomFX = PlayFXOnEntity( FLAG_FX_ENEMY, flag, "fx_end" )//StartParticleEffectOnEntity_ReturnEntity( flag, GetParticleSystemIndex( FLAG_FX_ENEMY ), FX_PATTACH_POINT_FOLLOW, attachID )
+	flag.s.fxToHide <- randomFX
+	*/
 	DispatchSpawn( flag )
 	flag.SetModel( CTF_FLAG_MODEL )
 	flag.SetOrigin( player.EyePosition() ) // ensure flag doesn't spawn clipped into geometry
+	int attachID = flag.LookupAttachment( "fx_end" )
 	//flag.SetVelocity( < 0, 0, 1 > )
+	
 	file.funnyFlags.append( flag )
 	CheckFunnyFlagsLimit()
 
 	return flag
+}
+
+entity function FunnyFlag_StartRandomFX( entity flag )
+{
+	entity flagFX
+	if( CoinFlip() )
+	{
+		flagFX = PlayLoopFXOnEntity( FLAG_FX_FRIENDLY, flag, "fx_end" )
+		//flagFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
+	}
+	else
+	{
+		flagFX = PlayLoopFXOnEntity( FLAG_FX_ENEMY, flag, "fx_end" )
+		//flagFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
+	}
+	flag.e.fxArray.append( flagFX )
+
+	return flagFX
+}
+
+void function FunnyFlag_StopFX( entity flag )
+{
+	foreach( entity fx in flag.e.fxArray )
+	{
+		if( IsValid( fx ) )
+			EffectStop( fx )
+	}
+
+	flag.e.fxArray.clear()
 }
 
 void function CheckFunnyFlagsLimit()

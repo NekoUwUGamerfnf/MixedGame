@@ -113,9 +113,9 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	attacker.p.numberOfDeathsSinceLastKill = 0 // since they got a kill, remove the comeback trigger
 	// pilot kill
 	if( IsPilotEliminationBased() || IsTitanEliminationBased() )
-		AddPlayerScore( attacker, "EliminatePilot", attacker ) // elimination gamemodes have a special medal
+		AddPlayerScore( attacker, "EliminatePilot", victim ) // elimination gamemodes have a special medal
 	else
-		AddPlayerScore( attacker, "KillPilot", attacker )
+		AddPlayerScore( attacker, "KillPilot", victim )
 	
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )

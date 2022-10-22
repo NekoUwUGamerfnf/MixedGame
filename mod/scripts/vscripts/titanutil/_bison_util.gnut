@@ -1,12 +1,13 @@
 global function Bison_Init
 
-const float BISON_DAMAGE_REDUCTION_SEVERITY = 0.2
+const float BISON_DAMAGE_REDUCTION_SEVERITY = 0.15
 const float BISON_SPEED_BOOST_SEVERITY = 0.15
 const float BISON_VICTIM_SLOW_DURATION = 0.2
 
 void function Bison_Init()
 {
-    AddCallback_OnPilotBecomesTitan( HandlePlayerBisonSettings )
+    AddCallback_OnPilotBecomesTitan( OnPlayerBecomeBison )
+    AddSpawnCallback( "npc_titan", OnBisonSpawned )
     AddDamageCallbackSourceID( eDamageSourceId.berserker_melee, BerserkerMelee_DamagedTarget )
 }
 
@@ -23,12 +24,44 @@ void function BerserkerMelee_DamagedTarget( entity victim, var damageInfo )
         DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * 1.5 )
 }
 
-void function HandlePlayerBisonSettings( entity player, entity titan )
+void function OnPlayerBecomeBison( entity player, entity titan )
 {
-    thread HandlePlayerBisonSettings_Threaded( player )
+    thread HandlePlayerBisonSpeedBoost( player )
 }
 
-void function HandlePlayerBisonSettings_Threaded( entity player )
+void function OnBisonSpawned( entity titan )
+{
+    entity soul = titan.GetTitanSoul()
+    if( !IsValid( soul ) )
+        return
+    entity meleeWeapon = titan.GetMeleeWeapon()
+    if( !IsValid( meleeWeapon ) )
+        return
+    if( !meleeWeapon.HasMod( "bison_punch" ) )
+        return
+    thread HandleBisonDamageReduction( soul, meleeWeapon )
+    
+}
+
+void function HandleBisonDamageReduction( entity soul, entity meleeWeapon )
+{
+    soul.EndSignal( "OnDestroy" )
+    meleeWeapon.EndSignal( "OnDestroy" ) // bison's confirmation: melee weapon
+
+    int damageReduction = StatusEffect_AddEndless( soul, eStatusEffect.damage_reduction, BISON_DAMAGE_REDUCTION_SEVERITY )
+
+    OnThreadEnd(
+        function(): ( soul, damageReduction )
+        {
+            if( IsValid( soul ) )
+                StatusEffect_Stop( soul, damageReduction )
+        }
+    )
+
+    WaitForever()
+}
+
+void function HandlePlayerBisonSpeedBoost( entity player )
 {
     wait 0.1
     if( !IsValid( player ) )
@@ -48,16 +81,13 @@ void function HandlePlayerBisonSettings_Threaded( entity player )
 	player.EndSignal( "DisembarkingTitan" )
 	player.EndSignal( "TitanEjectionStarted" )
 
-    int damageReduction = StatusEffect_AddEndless( soul, eStatusEffect.damage_reduction, BISON_DAMAGE_REDUCTION_SEVERITY )
     int speedBoost = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, BISON_SPEED_BOOST_SEVERITY )
 
     OnThreadEnd(
-        function(): ( player, soul, damageReduction, speedBoost )
+        function(): ( player, soul, speedBoost )
         {
             if( IsValid( player ) )
                 StatusEffect_Stop( player, speedBoost )
-            if( IsValid( soul ) )
-                StatusEffect_Stop( soul, damageReduction )
         }
     )
 
