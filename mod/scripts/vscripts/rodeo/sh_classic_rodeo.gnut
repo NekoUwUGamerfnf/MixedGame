@@ -4,6 +4,9 @@ global function ClassicRodeo_InitPlaylistVars
 
 #if SERVER
 global function CreateClassicRodeoWeakpoint
+
+const array<int> ELECTRIC_SMOKE_DAMAGETYPES = [ eDamageSourceId.mp_titanability_smoke, 
+									 eDamageSourceId.mp_weapon_grenade_electric_smoke ]
 #endif
 
 const asset RODEO_WEAKPOINT_HITBOX_MODEL = $"models/Weapons/ammoboxes/backpack_single.mdl"
@@ -42,7 +45,6 @@ void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 	entity titan = attacker.GetParent()
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
 	DamageInfo_SetDamage( damageInfo, 0 ) // make sure weakpoint ent doesn't die ever
-
 	if ( attacker != weakpoint.s.pilot || titan != weakpoint.s.titan )
 		return
 		
@@ -52,7 +54,7 @@ void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 		attackerWeapon = attacker.GetActiveWeapon()
 	
 	// most weapons in ttf2 don't have damage_rodeo, let's use it's damage_near_value_titanarmor
-	string weaponName = attackerWeapon.GetWeaponClassName()
+	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	bool shouldMultiplierDamage = true
 	int rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
@@ -70,6 +72,12 @@ void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 			{
 				//print( "damaged by grenade!" )
 				shouldMultiplierDamage = false
+				inflictor.s.rodeoDamagedOnce <- true
+				if( "rodeoDamagedOnce" in inflictor.s ) // prevent MGL from dealing damage twice as normal( explosion will have less damage )
+				{
+					if( expect bool( inflictor.s.rodeoDamagedOnce ) )
+						rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.explosion_damage_heavy_armor )
+				}
 			}
 		}
 		if( inflictor.GetScriptName() == "ball_lightning" ) // modified in _ball_lightning.gnut, assuming this is ballLightning 
@@ -79,10 +87,11 @@ void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 			shouldMultiplierDamage = false
 		}
 	}
-	else if( weaponName == "mp_weapon_grenade_electric_smoke" ) // hardcoded here
+	else if( ELECTRIC_SMOKE_DAMAGETYPES.contains( damageSourceID ) ) // hardcoded here
 	{
-		rodeoDamage = 300 // electric smoke grenade's damage per tick
-		shouldMultiplierDamage = false
+		return // don't do additional damage to smokes
+		//rodeoDamage = 300 // electric smoke grenade's damage per tick
+		//shouldMultiplierDamage = false
 	}
 	if( shouldMultiplierDamage )
 		rodeoDamage = int( rodeoDamage * damageScale * 1.5 )

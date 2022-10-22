@@ -196,7 +196,13 @@ void function GameStateEnter_PickLoadout_Threaded()
 void function GameStateEnter_Prematch()
 {
 	if( GetPlayerArray().len() == 0 ) // server empty again, wait until someone join
+	{
 		SetGameState( eGameState.WaitingForPlayers )
+		return
+	}
+
+	foreach( entity player in GetPlayerArray() )
+		ScreenFadeFromBlack( player, 1.0 ) // to have better visual
 
 	int timeLimit = GameMode_GetTimeLimit( GAMETYPE ) * 60
 	if ( file.switchSidesBased )
@@ -224,7 +230,13 @@ void function StartGameWithoutClassicMP()
 	foreach ( entity player in GetPlayerArray() )
 	{
 		if ( !IsPrivateMatchSpectator( player ) )
-			RespawnAsPilot( player )
+		{
+			// likely temp, deffo needs some work
+			if ( Riff_SpawnAsTitan() == 1 )	// spawn as titan
+				thread RespawnAsTitan( player )
+			else // spawn as pilot
+				RespawnAsPilot( player )
+		}
 			
 		ScreenFadeFromBlack( player, 0 )
 	}
@@ -290,12 +302,6 @@ void function GamePlaying_OnClientConnected( entity player )
 
 
 // eGameState.WinnerDetermined
-// these are likely innacurate
-const float ROUND_END_FADE_KILLREPLAY = 1.0
-const float ROUND_END_DELAY_KILLREPLAY = 3.0 
-const float ROUND_END_FADE_NOKILLREPLAY = 8.0
-const float ROUND_END_DELAY_NOKILLREPLAY = 10.0 
-
 void function GameStateEnter_WinnerDetermined()
 {	
 	thread GameStateEnter_WinnerDetermined_Threaded()
@@ -358,16 +364,18 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		
 		foreach ( entity player in GetPlayerArray() )
 			thread PlayerWatchesRoundWinningKillReplay( player, replayLength )
-	
+
+		// all waits below should be the same time as PlayerWatchesRoundWinningKillReplay() does
 		wait ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
 		wait replayLength 
-		
-		WaitFrame() // prevent a race condition with PlayerWatchesRoundWinningKillReplay
+		// done replay
 		file.roundWinningKillReplayAttacker = null // clear this
 		
 		if ( killcamsWereEnabled )
 			SetKillcamsEnabled( true )
+
+		wait ROUND_WINNING_KILL_REPLAY_POST_DEATH_TIME // to have better visual
 	}
 	else if ( IsRoundBased() )
 	{
@@ -384,7 +392,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
 	
-		wait 4.0 // to have better visual
+		wait ROUND_WINNING_KILL_REPLAY_POST_DEATH_TIME // to have better visual
 	}
 	else if( !ClassicMP_ShouldRunEpilogue() )
 	{
@@ -461,10 +469,12 @@ void function PlayerWatchesRoundWinningKillReplay( entity player, float replayLe
 	else
 		wait replayLength
 		
+	wait ROUND_WINNING_KILL_REPLAY_POST_DEATH_TIME // to have better visual
 	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
 	player.ClearReplayDelay()
 	player.ClearViewEntity()
-	player.UnfreezeControlsOnServer()
+	// no need to do this, as we will unfreeze next round
+	//player.UnfreezeControlsOnServer()
 }
 
 

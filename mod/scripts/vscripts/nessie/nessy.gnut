@@ -51,6 +51,9 @@ global struct NessyMix
 struct
 {
 	bool batterySpawnEnabled = true
+	bool flagSpawnEnabled = true
+	array<entity> nessieDolls = []
+	array<entity> funnyFlags = []
 } file
 
 global const array<asset> placements = [$"models/domestic/nessy_doll.mdl", $"models/robots/drone_frag/drone_frag.mdl"]
@@ -64,7 +67,8 @@ global const array<asset> fxmixMLT = [$"P_proj_predator_alt_pwr", $"P_projectile
 global const array<asset> fxmixIMC = [$"titan_sniper_CH_trail_arc", $"wpn_grenade_frag_blue", $"P_doubletake_proj", $"P_wpn_mflash_dbltake_FP_burn"]
 
 global const array<string> batterySpawners = ["1007270968017"] // for every nessie scripts
-const int MAX_NESSIE_COUNT = 80
+const int MAX_NESSIE_COUNT = 64
+const int MAX_FUNNY_FLAGS = 32
 
 array<NessyHat> nessyhats = []
 array<NessyPack> nessybackpacks = []
@@ -74,8 +78,6 @@ array<NessyFX> nessyfxs = []
 array<NessyMix> nessymixs = []
 array<string> nessyedplayer = []
 array<string> battedPlayer = []
-
-array<entity> nessieDolls = []
 
 int RAGDOLL_IMPACT_TABLE_IDX = -1
 
@@ -90,6 +92,8 @@ void function EverythingNessy_Init()
 	}
 	PrecacheSelectedModels()
 	PrecacheSelectedParticles()
+	PrecacheParticleSystem( FLAG_FX_FRIENDLY )
+	PrecacheParticleSystem( FLAG_FX_ENEMY )
 	if( GAMETYPE != "mfd" ) //prevent mfd client crash
 	{
 		AddCallback_OnPlayerRespawned( OnPlayerRespawned )
@@ -97,6 +101,11 @@ void function EverythingNessy_Init()
 		AddCallback_OnPlayerKilled( OnPlayerKilled )
 		AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
 		AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
+	}
+
+	if( IsNonFlagGamemode() )
+	{
+		AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
 	}
 	RAGDOLL_IMPACT_TABLE_IDX = PrecacheImpactEffectTable( "ragdoll_human" )
 	// register things for ingame script
@@ -113,11 +122,124 @@ void function EverythingNessy_Init()
 	//AddClientCommandCallback( "rgbnessie", SpawnRGBNessie ) // use a funnier nessie check
 }
 
+bool function IsNonFlagGamemode()
+{
+	if( GAMETYPE == "ctf" || GAMETYPE == "speedball" || GAMETYPE == "kr" )
+		return false
+
+	return true
+}
+
+bool function OnFlagCollected( entity player, entity flag )
+{
+	if ( !IsAlive( player ) || flag.GetParent() != null || player.IsTitan() || player.IsPhaseShifted() ) 
+		return false
+
+	if ( player.GetTeam() != flag.GetTeam() && !expect bool( player.s.hasFlag ) )
+		thread CarryFlag( player, flag ) // pickup enemy flag
+
+	return false // don't wanna delete the flag entity
+}
+
+void function CarryFlag( entity player, entity flag )
+{
+	print( player + " picked up the flag!" )
+
+	flag.SetParent( player, "FLAG" )
+	player.s.hasFlag = true
+	player.EndSignal( "StartPhaseShift" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	
+	OnThreadEnd(
+		function():( player, flag )
+		{
+			if( IsValid( flag ) )
+			{
+				flag.ClearParent()
+				flag.SetAngles( < 0, 0, 0 > )
+				flag.SetVelocity( < 0, 0, 0 > )
+			}
+			if( IsValid( player ) )
+			{
+				EmitSoundOnEntityOnlyToPlayer( player, player, "UI_CTF_1P_FlagDrop" )
+				player.s.hasFlag = false
+			}
+		}
+	)
+
+	// do notifications
+	EmitSoundOnEntityOnlyToPlayer( player, player, "UI_CTF_1P_GrabFlag" )
+	AddPlayerScore( player, "FlagTaken" )
+
+	WaitForever()
+}
+
+void function CallbackFuncSpawnFlag( entity player )
+{
+	if( !IsNonFlagGamemode() )
+		return
+	if( !file.flagSpawnEnabled )
+		return
+	if( !GamePlaying() )
+		return
+	if( IsValid( player.GetOffhandWeapon( OFFHAND_ANTIRODEO ) ) )
+		return
+	entity flag = CreateFunnyFlag( player )
+	if( flag )
+	{
+		flag.SetVelocity( player.GetViewVector() * 1000 )
+	}
+}
+
+entity function CreateFunnyFlag( entity player )
+{
+	// create flag
+	entity flag = CreateEntity( "item_flag" )
+	flag.SetValueForModelKey( CTF_FLAG_MODEL )
+	SetTeam( flag, player.GetTeam() )
+	//flag.MarkAsNonMovingAttachment()
+	//flag.Minimap_AlwaysShow( TEAM_IMC, null ) // show flag icon on minimap
+	//flag.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	flag.Minimap_Hide( TEAM_IMC, null )
+	flag.Minimap_Hide( TEAM_MILITIA, null )
+	flag.Minimap_SetAlignUpright( true )
+	DispatchSpawn( flag )
+	flag.SetModel( CTF_FLAG_MODEL )
+	flag.SetOrigin( player.EyePosition() ) // ensure flag doesn't spawn clipped into geometry
+	//flag.SetVelocity( < 0, 0, 1 > )
+	file.funnyFlags.append( flag )
+	CheckFunnyFlagsLimit()
+
+	return flag
+}
+
+void function CheckFunnyFlagsLimit()
+{
+	if( file.funnyFlags.len() > MAX_FUNNY_FLAGS )
+	{
+		for( int i = 0; i < file.funnyFlags.len() - 1; i++ )
+		{
+			if( !IsValid( file.funnyFlags[i] ) )
+			{
+				file.funnyFlags.remove( i )
+				continue
+			}
+			if( file.funnyFlags[i].GetParent() ) // assuming this is a flag carried by players
+				continue
+			file.funnyFlags[i].Destroy()
+			break
+		}
+	}
+}
+
 void function OnClientConnected( entity player )
 {
+	player.s.hasFlag <- false
 	AddButtonPressedPlayerInputCallback( player, IN_USE, CallbackFuncSpawnNessy )
 	AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, CallbackFuncSpawnNessy )
 	AddButtonPressedPlayerInputCallback( player, IN_MELEE, CallbackFuncSpawnBattery )
+	AddButtonPressedPlayerInputCallback( player, IN_OFFHAND2, CallbackFuncSpawnFlag )
 	//AddButtonPressedPlayerInputCallback( player, IN_MELEE, CallbackFuncSpawnRagdoll )
 }
 
@@ -297,7 +419,7 @@ bool function SpawnRGBNessie( entity player, array<string> args )
 	DispatchSpawn( Prop )
 	SetTeam( Prop, player.GetTeam() )
 	thread TEMP_RGB_Hightlight( Prop, true )
-	nessieDolls.append( Prop )
+	file.nessieDolls.append( Prop )
 
 	NessieLimitThink()
 	return true
@@ -364,7 +486,7 @@ void function CallbackFuncSpawnNessy( entity player )
 		thread RainbowWeaponSkin( player )
 	}
 
-	nessieDolls.append( nessie )
+	file.nessieDolls.append( nessie )
 
 	//thread DelayedDissolveNessie( nessie )
 	NessieLimitThink()
@@ -475,11 +597,11 @@ void function DelayedDissolveNessie( entity nessy )
 
 void function NessieLimitThink()
 {
-	if( nessieDolls.len() >= MAX_NESSIE_COUNT )
+	if( file.nessieDolls.len() > MAX_NESSIE_COUNT )
 	{
-		if( IsValid( nessieDolls[0] ) )
-			nessieDolls[0].Destroy()
-		nessieDolls.remove(0)
+		if( IsValid( file.nessieDolls[0] ) )
+			file.nessieDolls[0].Destroy()
+		file.nessieDolls.remove(0)
 	}
 }
 
@@ -573,7 +695,7 @@ void function SetNessyHatStats( NessyHat nessy )
 			return
 		}
 	}
-	if( CannotRemoveHelmet( nessy.owner ) )
+	else if( CannotRemoveHelmet( nessy.owner ) )
 	{
 		if( nessy.modelasset == $"models/domestic/nessy_doll.mdl" )
 		{
@@ -601,6 +723,38 @@ void function SetNessyHatStats( NessyHat nessy )
 		if( nessy.modelasset == $"models/weapons/data_knife/v_data_knife.mdl" )
 		{
 			nessy.hat.SetOrigin( < 2, 0, 7 > )
+			nessy.hat.SetAngles( < 0, 0, 0 > )
+			return
+		}
+	}
+	else if( HasFlatHead( nessy.owner ) )
+	{
+		if( nessy.modelasset == $"models/domestic/nessy_doll.mdl" )
+		{
+			nessy.hat.SetOrigin( < 0, 0, 0 > )
+			return
+		}
+		if( nessy.modelasset == $"models/robots/drone_frag/drone_frag.mdl" )
+		{
+			nessy.hat.SetOrigin( < 0, 0, -5 > )
+			nessy.hat.kv.modelscale = 0.3
+			return
+		}
+		if( nessy.modelasset == $"models/robots/marvin/marvin.mdl" )
+		{
+			nessy.hat.SetOrigin( < 0, 0, -12 > )
+			nessy.hat.kv.modelscale = 0.3
+			return
+		}
+		if( nessy.modelasset == $"models/creatures/prowler/r2_prowler.mdl" )
+		{
+			nessy.hat.SetOrigin( < 0, 0, 1 > )
+			nessy.hat.kv.modelscale = 0.15
+			return
+		}
+		if( nessy.modelasset == $"models/weapons/data_knife/v_data_knife.mdl" )
+		{
+			nessy.hat.SetOrigin( < 2, 0, 5 > )
 			nessy.hat.SetAngles( < 0, 0, 0 > )
 			return
 		}
@@ -1004,7 +1158,8 @@ bool function IsLightPilot( entity player )
 bool function HasBigBackpack( entity player )
 {
 	if( player.GetModelName() == $"models/humans/pilots/pilot_light_jester_m.mdl" || 
-		player.GetModelName() == $"models/humans/grunts/mlt_grunt_lmg.mdl" )
+		player.GetModelName() == $"models/humans/grunts/mlt_grunt_lmg.mdl" ||
+		player.GetModelName() == $"models/robots/spectre/imc_spectre.mdl" )
 		return true
 
 	return false
@@ -1035,8 +1190,15 @@ bool function CannotRemoveHelmet( entity player )
 {
 	if( player.GetModelName() == $"models/humans/heroes/mlt_hero_sarah.mdl" || 
 		player.GetModelName() == $"models/Humans/heroes/imc_hero_blisk.mdl" || 
-		player.GetModelName() == $"models/Humans/heroes/imc_hero_ash.mdl" ||
-		player.GetModelName() == $"models/robots/spectre/imc_spectre.mdl" )
+		player.GetModelName() == $"models/Humans/heroes/imc_hero_ash.mdl" )
+		return true
+
+	return false
+}
+
+bool function HasFlatHead( entity player )
+{
+	if( player.GetModelName() == $"models/robots/spectre/imc_spectre.mdl" )
 		return true
 
 	return false

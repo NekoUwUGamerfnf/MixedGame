@@ -52,11 +52,15 @@ void function SvLoadoutsMP_Init()
 		AddClientCommandCallback( "LoadoutMenuClosed", ClientCommandCallback_LoadoutMenuClosed )
 	}
 	
-	AddCallback_OnPlayerKilled( DestroyDroppedWeapon )
+	AddCallback_OnPlayerKilled( LoadoutsMP_OnPlayerKilled )
 
 	AddCallback_OnPlayerRespawned( GracePeriodThink )
-	AddCallback_OnPlayerKilled( RestoreGracePeriod )
-	AddCallback_GameStateEnter( eGameState.Prematch, RestoreGracePeriodForRoundStart )
+}
+
+void function LoadoutsMP_OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+	DestroyDroppedWeapon( victim )
+	victim.s.inGracePeriod = true
 }
 
 void function SetLoadoutGracePeriodEnabled( bool enabled )
@@ -69,7 +73,7 @@ void function SetWeaponDropsEnabled( bool enabled )
 	file.weaponDropsEnabled = enabled
 }
 
-void function DestroyDroppedWeapon( entity victim, entity attacker, var damageInfo )
+void function DestroyDroppedWeapon( entity victim )
 {
 	if ( !file.weaponDropsEnabled && IsValid( victim.GetActiveWeapon() ) )
 		thread DelayDestroyDroppedWeapon( victim.GetActiveWeapon() )
@@ -183,6 +187,8 @@ bool function ClientCommandCallback_SetPersistentLoadoutValue( entity player, ar
 	if ( args[0] == "pilot" )
 		SetPlayerLoadoutDirty( player ) 
 	
+	UnlockAchievement( player, achievements.CUSTOMIZE_LOADOUT )
+	
 	return true
 }
 
@@ -226,7 +232,6 @@ bool function ClientCommandCallback_SetBurnCardPersistenceSlot( entity player, a
 	
 	print( player + " SetBurnCardPersistenceSlot " + args[0] )
 	
-	// insecure, could be used to set invalid burnmeterslot potentially
 	if ( IsRefValidAndOfType( args[0], eItemTypes.BURN_METER_REWARD ) )
 		player.SetPersistentVar( "burnmeterSlot", BurnReward_GetByRef( args[0] ).id )
 	else
@@ -278,7 +283,10 @@ bool function ClientCommandCallback_LoadoutMenuClosed( entity player, array<stri
 
 bool function ClientCommandCallback_InGameMPMenuClosed( entity player, array<string> args )
 {
-	TryGivePilotLoadoutForGracePeriod( player )
+	if( player.IsTitan() )
+		SendHudMessage( player, "#LOADOUT_CHANGE_NEXT_TITAN", -1, 0.3, 255, 255, 255, 255, 1.0, 5.0, 2.0 ) // like 90% sure this is innacurate lol
+	else
+		TryGivePilotLoadoutForGracePeriod( player )
 	return true
 }
 
@@ -298,28 +306,35 @@ void function TryGivePilotLoadoutForGracePeriod( entity player )
 	if ( !IsLobby() && IsAlive( player ) && player.s.loadoutDirty && !player.IsTitan() && !player.ContextAction_IsActive() )
 	{
 		player.s.loadoutDirty = false
-	
+
 		// for intros
-		float respawnTimeReal
-		if ( GetGameState() == eGameState.Playing && Time() - expect float( GetServerVar( "gameStateChangeTime" ) ) <= CLASS_CHANGE_GRACE_PERIOD )
-			respawnTimeReal = expect float( GetServerVar( "gameStateChangeTime" ) )
-		else
-			respawnTimeReal = expect float( player.s.respawnTime )
-		
-		if ( ( ( Time() - respawnTimeReal <= CLASS_CHANGE_GRACE_PERIOD && Loadouts_CanGivePilotLoadout( player ) || GetGameState() < eGameState.Playing ) && file.loadoutGracePeriodEnabled ) || player.p.usingLoadoutCrate )
+		if ( !Loadouts_CanGivePilotLoadout( player ) && player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
 		{
-			if ( !Loadouts_CanGivePilotLoadout( player ) && player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
-				thread GiveLoadoutWhenIntroOver( player )
-			else
-				Loadouts_TryGivePilotLoadout( player )
-			
-			player.p.usingLoadoutCrate = false
+			print( "Player in dropship Intro, waiting" )
+			thread GiveLoadoutWhenIntroOver( player )
+		}
+		else if( Loadouts_CanGivePilotLoadout( player )  )
+		{
+			print( "Can give loadout" )
+			Loadouts_TryGivePilotLoadout( player )
 		}
 		else
 		{
-			SendHudMessage( player, "#LOADOUT_CHANGE_NEXT_BOTH", -1, 0.3, 255, 255, 255, 255, 1.0, 3.0, 1.5 ) // like 90% sure this is innacurate lol
+			SendHudMessage( player, "#LOADOUT_CHANGE_NEXT_PILOT", -1, 0.3, 255, 255, 255, 255, 1.0, 5.0, 2.0 )
 		}
+		player.p.usingLoadoutCrate = false
 	}
+}
+
+void function GiveLoadoutWhenIntroOver( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	
+	while ( player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
+		WaitFrame()
+	
+	Loadouts_TryGivePilotLoadout( player )
 }
 
 void function GracePeriodThink( entity player )
@@ -333,14 +348,12 @@ void function GracePeriodThink_Threaded( entity player )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 
-	player.s.inGracePeriod = true
-
 	OnThreadEnd(
 		function(): ( player )
 		{
 			if( IsValid( player ) )
 			{
-				if( IsAlive( player ) && GetGameState() != eGameState.Playing() ) // if player died we don't reset this( mostly because round end )
+				if( IsAlive( player ) && GetGameState() == eGameState.Playing ) // if player died we don't reset this( mostly because round end )
 				{
 					player.s.inGracePeriod = false
 					player.Signal( "GracePeriodDone" )
@@ -349,30 +362,13 @@ void function GracePeriodThink_Threaded( entity player )
 		}
 	)
 
-	while ( player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
-		WaitFrame()
+	float countingTime
+	while( countingTime <= CLASS_CHANGE_GRACE_PERIOD )
+	{
+		wait 0.2
+		if( player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
+			continue
 
-	wait CLASS_CHANGE_GRACE_PERIOD
+		countingTime += 0.2
+	}
 }
-
-void function RestoreGracePeriod( entity victim, entity attacker, var damageInfo )
-{
-	victim.s.inGracePeriod = true
-}
-
-void function RestoreGracePeriodForRoundStart()
-{
-	foreach( entity player in GetPlayerArray() )
-		player.s.inGracePeriod = true
-}
-
-void function GiveLoadoutWhenIntroOver( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnDeath" )
-	
-	while ( player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
-		WaitFrame()
-	
-	Loadouts_TryGivePilotLoadout( player )
-}	

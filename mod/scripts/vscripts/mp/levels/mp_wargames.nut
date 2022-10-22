@@ -10,6 +10,8 @@ struct {
 	
 	vector militiaPodFXEyePos
 	vector imcPodFXEyePos
+
+	isFirstRound = true
 } file
 
 const float MARVIN_RESPAWN_DELAY = 30
@@ -362,7 +364,17 @@ void function DelayedGamemodeAnnouncement( entity player )
 {
 	wait 1.0
 	if( IsValid( player ) )
-		TryGameModeAnnouncement( player )
+	{
+		if( file.isFirstRound )
+		{
+			TryGameModeAnnouncement( player )
+			file.isFirstRound = false
+		}
+		else
+		{
+			TryGameModeAnnouncement( player, false )
+		}
+	}
 }
 
 void function PlaySound_SimPod_DoorShut( entity playerFirstPersonProxy  ) // stolen from sp_training

@@ -6,8 +6,10 @@ global function OnCoreChargeEnd_Shield_Core
 
 global function OnAbilityStart_Shield_Core
 
-const FX_AMPED_XO16_3P = $"P_wpn_lasercannon_aim"
-const FX_AMPED_XO16 = $"P_wpn_lasercannon_aim"
+const float SHIELD_CORE_REGEN_DELAY = 1.0
+const int SHILED_CORE_REGEN_RATE = 250
+const float SHIELD_CORE_REGEN_TICKRATE = 0.2
+const int SHIELD_CORE_MAX_SHIELD = 3500
 
 void function Shield_Core_Init()
 {
@@ -68,6 +70,8 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 
 	entity soul = owner.GetTitanSoul()
 	int storedShield = soul.GetShieldHealth()
+	int orgMaxShield = soul.GetShieldHealthMax()
+	soul.SetShieldHealthMax( SHIELD_CORE_MAX_SHIELD )
 
 	if ( owner.IsPlayer() )
 	{
@@ -75,7 +79,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 	}
 
 	OnThreadEnd(
-	function() : ( weapon, soul, owner, storedShield )
+	function() : ( weapon, soul, owner, storedShield, orgMaxShield )
 		{
 			if ( IsValid( owner ) )
 			{
@@ -98,24 +102,23 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			{
 				CleanupCoreEffect( soul )
 				soul.SetShieldHealth( storedShield )
+				soul.SetShieldHealthMax( orgMaxShield )
 			}
 		}
 	)
 
 	float startTime = Time()
+	owner.p.lastDamageTime = Time() - SHIELD_CORE_REGEN_DELAY // reset lastDamageTime, start player regen
 	while( true )
 	{
 		if( IsValid( soul ) )
 		{
-			wait 0.1
 			if( Time() >= startTime + coreDuration )
 				break
-			if( soul.GetShieldHealth() >= soul.GetShieldHealthMax() )
-			{
-				soul.SetShieldHealth( soul.GetShieldHealthMax() )
-				continue
-			}
-			soul.SetShieldHealth( soul.GetShieldHealth() + 250 )
+			if ( Time() - owner.p.lastDamageTime >= SHIELD_CORE_REGEN_DELAY )
+				soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + SHILED_CORE_REGEN_RATE ) )
+			
+			wait SHIELD_CORE_REGEN_TICKRATE
 		}
 	}
 	#endif

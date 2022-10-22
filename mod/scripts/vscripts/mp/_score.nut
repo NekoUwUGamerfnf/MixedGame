@@ -92,6 +92,8 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	victim.s.currentTimedKillstreak = 0
 	
 	victim.p.numberOfDeathsSinceLastKill++ // this is reset on kill
+	victim.p.lastDeathTime = Time()
+	victim.p.lastKiller = attacker
 	
 	// have to do this early before we reset victim's player killstreaks
 	// nemesis when you kill a player that is dominating you
@@ -110,7 +112,10 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 
 	attacker.p.numberOfDeathsSinceLastKill = 0 // since they got a kill, remove the comeback trigger
 	// pilot kill
-	AddPlayerScore( attacker, "KillPilot", attacker ) // 
+	if( IsPilotEliminationBased() || IsTitanEliminationBased() )
+		AddPlayerScore( attacker, "EliminatePilot", attacker ) // elimination gamemodes have a special medal
+	else
+		AddPlayerScore( attacker, "KillPilot", attacker )
 	
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
@@ -122,14 +127,22 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		file.firstStrikeDone = true
 		AddPlayerScore( attacker, "FirstStrike", attacker )
 	}
-	
+
+	// revenge && quick revenge
+	if( attacker.p.lastKiller == victim )
+	{
+		if( attacker.p.lastDeathTime <= Time() + QUICK_REVENGE_TIME_LIMIT )
+			AddPlayerScore( attacker, "QuickRevenge", attacker )
+		else
+			AddPlayerScore( attacker, "Revenge", attacker )
+	}
+
 	// comeback
 	if ( attacker.p.numberOfDeathsSinceLastKill >= COMEBACK_DEATHS_REQUIREMENT )
 	{
 		AddPlayerScore( attacker, "Comeback", attacker )
 		attacker.p.numberOfDeathsSinceLastKill = 0
 	}
-	
 	
 	// untimed killstreaks
 	attacker.s.currentKillstreak++

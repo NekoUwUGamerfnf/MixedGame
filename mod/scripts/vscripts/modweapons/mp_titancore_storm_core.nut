@@ -117,12 +117,12 @@ var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPr
 void function TEMP_StormWaveAnimFix( entity player )
 {
 	asset modelName = player.GetModelName()
-	//player.Anim_Play( "ACT_MP_STAND_IDLE" ) // temp fix
+	player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 10, 10, 10 ) // temp fix
 	wait 0.1
 	if( IsValid( player ) )
 	{
 		player.SetModel( modelName )
-		//player.Anim_Stop()
+		player.Anim_Stop()
 	}
 }
 #endif
