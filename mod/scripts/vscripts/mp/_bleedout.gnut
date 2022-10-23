@@ -134,6 +134,7 @@ void function PlayerDying( entity player )
 	file.isBleeding[ player ] = true
 
 	player.ForceCrouch()
+	string playerTitle = player.GetTitle()
 	player.SetTitle( "#DEATH_BLEEDOUT" )
 	Bleedout_DiableWallrunAndDoubleJump( player )
 	player.SetOneHandedWeaponUsageOn()
@@ -146,7 +147,7 @@ void function PlayerDying( entity player )
 	}
 
 	OnThreadEnd(
-	function() : ( player, ids, forceHolster )
+	function() : ( player, ids, forceHolster, playerTitle )
 		{
 			if ( IsValid( player ) )
 			{
@@ -157,7 +158,7 @@ void function PlayerDying( entity player )
 				file.lastAttacker[ player ] = svGlobal.worldspawn
 
 				player.UnforceCrouch()
-				player.SetTitle( "" )
+				player.SetTitle( playerTitle )
 				Bleedout_EnableWallrunAndDoubleJump( player )
 				player.SetOneHandedWeaponUsageOff()
 				//Remote_CallFunction_NonReplay( player, "ServerCallback_BLEEDOUT_PlayerRevivedDOF" )
@@ -285,6 +286,18 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 	playerHealer.EndSignal( "OnDestroy" )
 	playerHealer.EndSignal( "OnContinousUseStopped" )
 
+
+	bool isSelfRes
+	string healerTitle = playerHealer.GetTitle()
+	string playerTitle = playerToRes.GetTitle()
+
+	playerToRes.SetTitle( "#BLEEDOUT_APPLYING_FIRST_AID" )
+	if( playerHealer != playerToRes )
+	{
+		playerHealer.SetTitle( "#BLEEDOUT_APPLYING_FIRST_AID" )
+		playerToRes.SetTitle( "#BLEEDOUT_RECIEVING_FIRST_AID" )
+	}
+
 	if( playerHealer != playerToRes )
 		HolsterAndDisableWeapons( playerHealer )
 
@@ -305,7 +318,7 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 	file.IsGettingFirstAidFrom[ playerToRes ] = playerHealer
 
 	OnThreadEnd(
-	function() : ( playerHealer, playerToRes, attemptID )
+	function() : ( playerHealer, playerToRes, attemptID, healerTitle, playerTitle )
 		{
 			if ( IsValid( playerHealer ) )
 			{
@@ -316,6 +329,8 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 				}
 				playerHealer.MovementEnable()
 				Remote_CallFunction_NonReplay( playerHealer, "ServerCallback_BLEEDOUT_StopFirstAidProgressBar", attemptID )
+			
+				playerHealer.SetTitle( healerTitle )
 			}
 
 			if ( IsValid( playerToRes ) )
@@ -323,6 +338,8 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 				file.IsGettingFirstAidFrom[ playerToRes ] = null
 				playerToRes.MovementEnable()
 				Remote_CallFunction_NonReplay( playerToRes, "ServerCallback_BLEEDOUT_StopFirstAidProgressBar", attemptID )
+			
+				playerToRes.SetTitle( playerTitle )
 			}
 		}
 	)
@@ -557,11 +574,19 @@ void function Bleedout_PlayerSlidePrevention( entity player )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "BleedOut_StopBleeding" )
 	player.EndSignal( "BleedOut_OnRevive" )
+	bool lastFrameSlide // for checks
 	while( true )
 	{
 		WaitFrame()
 		if( player.IsSliding() )
+		{
 			player.SetVelocity( < 0,0,0 > )
+			lastFrameSlide = true
+			continue
+		}
+		if( lastFrameSlide && !player.IsOnGround() ) // prevent player being stopped midair
+			player.SetVelocity( < 0,0,100 > )
+		lastFrameSlide = false
 	}
 }
 
