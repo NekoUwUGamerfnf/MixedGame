@@ -1,5 +1,6 @@
 global function FirstPersonSequenceForce1P_Init
 global function FirstPersonSequenceForce1P_InitPlaylistVars
+global function ShouldForce1PFirstPersonSequence
 
 #if SERVER
 	global function FirstPersonSequenceForce1P
@@ -10,6 +11,16 @@ global function FirstPersonSequenceForce1P_InitPlaylistVars
 #if CLIENT
 	global function ServerCallback_HideHudForFPHackAnim
 #endif
+
+global enum eFirstPersonSequenceForce1PSetting
+{
+	DISABLED,
+	ENABLED, // force all embark/execution anims to 1p
+	
+	// assume these are above ENABLED
+	CLASSIC_EXECUTION, // don't force any animations to 1p, but use the tf1 animations for titan executions (tf1 necksnap is not ingame unfortunately)
+	CLASSIC_EXECUTION_CUSTOM_EMBARK // use the classic animations for executions, but force everything else to 1p
+}
 
 global const string FORCE1P_PILOT_1P_ATTACHMENT = "HEADFOCUS"
 global const string FORCE1P_TITAN_1P_ATTACHMENT = "HATCH_HEAD" // CHEST_LASER could be better, but is only on atlas titans
@@ -42,12 +53,18 @@ void function FirstPersonSequenceForce1P_Init()
 
 void function FirstPersonSequenceForce1P_InitPlaylistVars()
 {
-	AddPrivateMatchModeSettingEnum( "#MODE_SETTING_CATEGORY_RIFF", "fp_embark_enabled", [ "#SETTING_DISABLED", "#SETTING_ENABLED" ], "0" )
+	AddPrivateMatchModeSettingEnum( "#MODE_SETTING_CATEGORY_RIFF", "fp_embark_enabled", [ "#SETTING_DISABLED", "#SETTING_ENABLED", "#SETTING_FPEMBARK_CLASSIC", "#SETTING_FPEMBARK_CLASSIC_AND_NEW_EMBARK" ], "0" )
 }
 
 void function FirstPersonSequenceForce1P_RegisterCustomNetworkFunctions()
 {
 	Remote_RegisterFunction( "ServerCallback_HideHudForFPHackAnim" )
+}
+
+bool function ShouldForce1PFirstPersonSequence()
+{
+	int ret = GetCurrentPlaylistVarInt( "fp_embark_enabled", eFirstPersonSequenceForce1PSetting.DISABLED )
+	return ret == eFirstPersonSequenceForce1PSetting.ENABLED || ret == eFirstPersonSequenceForce1PSetting.CLASSIC_EXECUTION_CUSTOM_EMBARK
 }
 
 #if SERVER
@@ -130,23 +147,19 @@ Forced1PSequenceData function FirstPersonSequenceForce1P( FirstPersonSequenceStr
 	thread FirstPersonSequence( sequence, thirdPersonProxy, other )
 	
 	// create the viewpoint entity
-	if ( player.IsPlayer() ) // Check if the victim is an NPC
-	{
-		entity camera = CreateEntity( "point_viewcontrol" )
-		camera.SetParent( ownerProxy, attachment )
-		camera.kv.spawnflags = 56
-		DispatchSpawn( camera )
-		player.SetViewEntity( camera, true )
-		cleanupData.camera = camera
-	}
+	entity camera = CreateEntity( "point_viewcontrol" )
+	camera.SetParent( ownerProxy, attachment )
+	camera.kv.spawnflags = 56
+	DispatchSpawn( camera )
+	player.SetViewEntity( camera, true )
+	cleanupData.camera = camera
 
 	// note for potential thing that could be done
 	// entity e = CreatePropDynamic($"models/weapons/arms/pov_titan_light_cockpit.mdl"); e.SetParent(GetPlayerArray()[0].GetPetTitan(), "HATCH_HEAD"); e.SetOrigin(<0.75,0,-195>)
 	// this is so we get a cockpit in these anims, issue with it is that the cockpit seems to break alot of rendering stuff
 	// which really sucks since it'd be awesome to have a cockpit over these anims, really makes them better, even the client func to render through cockpits doesn't seem to work for it, just makes stuff rendering through the cockpit invisible rather than rendering in a broken way
 	
-	if ( player.IsPlayer() ) // Check if the victim is an NPC
-		Remote_CallFunction_NonReplay( player, "ServerCallback_HideHudForFPHackAnim" )
+	Remote_CallFunction_NonReplay( player, "ServerCallback_HideHudForFPHackAnim" )
 	// play this anim now, so we can cleanup after it's done
 	thread CleanupForced1PSequenceAfterAnimDone( sequence, ownerProxy, other, cleanupData )
 	return cleanupData
@@ -159,7 +172,7 @@ void function CleanupForced1PSequenceAfterAnimDone( FirstPersonSequenceStruct se
 
 	OnThreadEnd( function() : ( cleanupData )
 	{
-		if ( IsValid( cleanupData.player ) && cleanupData.player.IsPlayer() )
+		if ( IsValid( cleanupData.player ) )
 			CleanupForced1PSequence( cleanupData )
 	})
 
@@ -230,9 +243,11 @@ void function ServerCallback_HideHudForFPHackAnim()
 	// in an ideal world we wouldn't even have to turn off this rui stuff because it would be parented to our camera but unfortunately we do not live in an ideal world
 	//thread MainHud_TurnOff_RUI( true )
 	//HidePermanentCockpitRui()
-	RuiTopology_UpdatePos( clGlobal.topoCockpitHud, < -1000, -1000, -1000 >, < -1000, -1000, -1000 >, < -1000, -1000, -1000 > )
-	RuiTopology_UpdatePos( clGlobal.topoCockpitHudPermanent, < -1000, -1000, -1000 >, < -1000, -1000, -1000 >, < -1000, -1000, -1000 > )
-		
+
+	if ( !GetConVarBool( "rui_drawEnable" ) )
+		return
+	
+	SetConVarBool( "rui_drawEnable", false )
 	thread EnableHudOnViewRestored()
 }
 
@@ -241,7 +256,6 @@ void function EnableHudOnViewRestored()
 	while ( GetViewEntity() != GetLocalClientPlayer() )
 		WaitFrame()
 	
-	thread MainHud_TurnOn_RUI( true )
-	ShowPermanentCockpitRui()
+	SetConVarBool( "rui_drawEnable", true )
 }
 #endif
