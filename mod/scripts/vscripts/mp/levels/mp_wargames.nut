@@ -11,7 +11,7 @@ struct {
 	vector militiaPodFXEyePos
 	vector imcPodFXEyePos
 
-	isFirstRound = true
+	bool isFirstRound = true
 } file
 
 const float MARVIN_RESPAWN_DELAY = 30
