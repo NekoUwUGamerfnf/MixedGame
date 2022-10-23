@@ -13,7 +13,7 @@ global function OnWeaponNpcPrimaryAttack_peacekraber
 
 
 const PEACEKRABER_MAX_BOLTS = 11 // this is the code limit for bolts per frame... do not increase.
-const float PEACEKRABER_NERFED_BOLT_LIFETIME = 0.7
+const float PEACEKRABER_BOLT_LIFETIME = 1.0
 bool isWeaponActive = false;
 entity clientWeapon = null;
 
@@ -171,7 +171,7 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 				if ( weapon.GetWeaponClassName() == "mp_weapon_peacekraber" )
 				{
 					//bolt.SetProjectileLifetime( RandomFloatRange( 1.0, 1.3 ) )
-					bolt.SetProjectileLifetime( PEACEKRABER_NERFED_BOLT_LIFETIME )
+					bolt.SetProjectileLifetime( PEACEKRABER_BOLT_LIFETIME )
 				}
 				else
 					bolt.SetProjectileLifetime( RandomFloatRange( 0.50, 0.65 ) )
