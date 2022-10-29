@@ -6,8 +6,8 @@ global function OnCoreChargeEnd_Shield_Core
 
 global function OnAbilityStart_Shield_Core
 
-const float SHIELD_CORE_REGEN_DELAY = 1.0
-const int SHILED_CORE_REGEN_RATE = 250
+const float SHIELD_CORE_REGEN_DELAY = 0.4
+const int SHILED_CORE_REGEN_RATE = 300
 const float SHIELD_CORE_REGEN_TICKRATE = 0.2
 const int SHIELD_CORE_MAX_SHIELD = 3500
 
@@ -72,6 +72,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 	int storedShield = soul.GetShieldHealth()
 	int orgMaxShield = soul.GetShieldHealthMax()
 	soul.SetShieldHealthMax( SHIELD_CORE_MAX_SHIELD )
+	AddEntityCallback_OnDamaged( owner, TrackShieldCoreBeingDamaged )
 
 	if ( owner.IsPlayer() )
 	{
@@ -85,6 +86,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			{
 				StopSoundOnEntity( owner, "Titan_Legion_Smart_Core_ActiveLoop_1P" )
 				EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Deactivated_1P" )
+				RemoveEntityCallback_OnDamaged( owner, TrackShieldCoreBeingDamaged )
 				if ( owner.IsPlayer() )
 				{
 					ScreenFade( owner, 0, 0, 0, 0, 0.1, 0.1, FFADE_OUT | FFADE_PURGE )
@@ -101,7 +103,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			if ( IsValid( soul ) )
 			{
 				CleanupCoreEffect( soul )
-				soul.SetShieldHealth( storedShield )
+				soul.SetShieldHealth( min( orgMaxShield, soul.GetShieldHealth() ) )
 				soul.SetShieldHealthMax( orgMaxShield )
 			}
 		}
@@ -123,3 +125,10 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 	}
 	#endif
 }
+
+#if SERVER
+void function TrackShieldCoreBeingDamaged( entity player, var damageInfo )
+{
+	player.p.lastDamageTime = Time()
+}
+#endif

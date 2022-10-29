@@ -43,6 +43,8 @@ const float LIFT_PULL_SPEED_HORIZON = 400
 const float LIFT_PULL_SPEED_VERTICAl = 300
 const float LIFT_TOP_TIME_LIMIT = 2
 const float LIFT_LIFETIME = 10
+const float LIFT_COOLDOWN = 2 // time between second lift
+
 //array<entity> hasGravityLifted = []
 struct GravLiftStruct
 {
@@ -52,6 +54,7 @@ struct GravLiftStruct
 }
 
 array<GravLiftStruct> gravityLifts = []
+array<entity> inGravLiftCooldownPlayers = []
 //array<entity> gravityLiftedPlayers = []
 //array<entity> reachedHighestPlayers = []
 
@@ -98,9 +101,15 @@ var function OnWeaponTossReleaseAnimEvent_weapon_greanade_gravity( entity weapon
 void function OnProjectileCollision_weapon_grenade_gravity( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	array<string> mods = projectile.ProjectileGetMods()
+	entity owner = projectile.GetOwner()
 	if( mods.contains( "gravity_lift" ) )
 	{
 		#if SERVER
+		if( !IsAlive( owner ) )
+		{
+			if( IsValid( projectile ) )
+				return
+		}
 		OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
 		#endif
 	}
@@ -119,7 +128,6 @@ void function OnProjectileCollision_weapon_grenade_gravity( entity projectile, v
 		#if SERVER
 		if( mods.contains( "shuriken" ) )
 		{
-			entity owner = projectile.GetOwner()
 			if( IsValid( owner ) )
 			{
 				EmitSoundAtPositionExceptToPlayer( TEAM_UNASSIGNED, pos, owner, "Pilot_PulseBlade_Activated_3P" )
@@ -580,10 +588,15 @@ void function GravityLiftThink( entity projectile )
 			{
 				if( IsValid( player ) )
 				{
-					if( player.IsWallRunning() || player.IsWallHanging() || player.GetParent() != null )
+					//if( player.IsWallRunning() || player.IsWallHanging() || player.GetParent() != null )
+					if( inGravLiftCooldownPlayers.contains( player ) || player.GetParent() != null )
+					{
+						player.kv.gravity = 0.0
 						continue
+					}
 					if( !gravityLift.reachedHighestPlayers.contains( player ) )
 					{
+						player.kv.gravity = 0.001
 						vector airspeed = GetPlayerVelocityFromInput( player, LIFT_HORIZON_MOVE_SPEED )
 						airspeed.z = LIFT_RISE_SPEED
 						player.SetVelocity( airspeed )
@@ -636,10 +649,11 @@ void function OnGravityLiftTriggerEnter( entity trigger, entity player )
 		gravityLift.gravityLiftedPlayers.append( player )
 		//EmitSoundOnEntityOnlyToPlayer( player, player, "titan_flight_hover_1p" )
 		//EmitSoundOnEntityExceptToPlayer( player, player, "titan_flight_hover_3p" )
+		StopSoundOnEntity( player, "titan_flight_hover_3p" )
 		EmitSoundOnEntity( player, "titan_flight_hover_3p" )
 		player.ForceStand()
 		//player.kv.airSpeed = LIFT_HORIZON_MOVE_SPEED
-		player.kv.gravity = 0.001
+		//player.kv.gravity = 0.001
 		//if( player.IsOnGround() )
 		//	player.SetOrigin( player.GetOrigin() + < 0,0,20 > ) //may get stuck, but should set this on if radius is small
 		//else
@@ -653,7 +667,6 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity player )
 		return
 
 	player.Signal( "LeaveGravityLift" )
-	player.UnforceStand()
 
 	GravLiftStruct gravityLift
 	foreach( GravLiftStruct lift in gravityLifts )
@@ -668,13 +681,18 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity player )
 		//StopSoundOnEntity( player, "titan_flight_hover_1p" )
 		StopSoundOnEntity( player, "titan_flight_hover_3p" )
 		//player.kv.airSpeed = 60.0
-		player.kv.gravity = 0.0
+		player.kv.gravity = 0.0 // defensive fix
 		array<string> settingMods = player.GetPlayerSettingsMods()
 		//if( settingMods.contains( "wallclimber" ) ) // wallclimber uses settings gravity now, not kv.gravity
 		//	player.kv.gravity = player.GetPlayerSettingsField( "gravityScale" )
-		vector airspeed = GetPlayerVelocityFromInput( player, LIFT_PULL_SPEED_HORIZON )
-		airspeed.z = LIFT_PULL_SPEED_VERTICAl
-		player.SetVelocity( airspeed )
+		player.UnforceStand()
+		if( !inGravLiftCooldownPlayers.contains( player ) )
+		{
+			vector airspeed = GetPlayerVelocityFromInput( player, LIFT_PULL_SPEED_HORIZON )
+			airspeed.z = LIFT_PULL_SPEED_VERTICAl
+			player.SetVelocity( airspeed )
+			thread GravLiftCooldownThink( player )
+		}
 		//print( "[MIXED_GAME]" + player.GetPlayerName() + " left gravitylift and has been bounced away" )
 	}
 }
@@ -705,7 +723,7 @@ void function OnPlayerReachedHighest( entity player, entity trigger )
 
 	if( IsValid( player ) && IsAlive( player ) )
 	{
-		BouncePlayerAway( player )
+		BouncePlayerForward( player )
 		//StopSoundOnEntity( player, "titan_flight_hover_1p" )
 		StopSoundOnEntity( player, "titan_flight_hover_3p" )
 		if( gravityLift.gravityLiftedPlayers.contains( player ) )
@@ -720,10 +738,11 @@ void function OnPlayerReachedHighest( entity player, entity trigger )
 	}
 }
 
-void function BouncePlayerAway( entity player )
+void function BouncePlayerForward( entity player )
 {
 	if( IsValid( player ) )
 	{
+		player.UnforceStand()
 		vector playerAngles = player.EyeAngles()
 		//vector playerAngles = player.GetAngles()
 		//vector forward = AnglesToForward( playerAngles )
@@ -736,7 +755,28 @@ void function BouncePlayerAway( entity player )
 		vector airspeed = forward * LIFT_PULL_SPEED_HORIZON
 		airspeed.z = LIFT_PULL_SPEED_VERTICAl
 		player.SetVelocity( airspeed )
+		thread GravLiftCooldownThink( player )
 	}
+}
+
+void function GravLiftCooldownThink( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	inGravLiftCooldownPlayers.append( player )
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+			{
+				inGravLiftCooldownPlayers.fastremovebyvalue( player )
+			}
+		}
+	)
+
+
+	wait LIFT_COOLDOWN
 }
 
 void function DestroyGravityLift( entity projectile, entity trigger, GravLiftStruct gravityLift, entity gravliftbeam )

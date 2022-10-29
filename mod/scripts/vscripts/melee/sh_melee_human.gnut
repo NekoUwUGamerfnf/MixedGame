@@ -5,7 +5,7 @@ global function MeleeHumanShared_Init
 global function HumanUnsyncedMelee
 global function HumanMeleeAttack
 
-const int NO_LIMIT_EXECUTION_RANGE = 60
+const float NERFED_LUNGE_RANGE = 50
 
 function MeleeHumanShared_Init()
 {
@@ -48,9 +48,10 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 
 	player.PlayerMelee_StartAttack( meleeAttackType )
 	
-	bool isApexMelee = meleeWeapon.HasMod( "apex_melee" )
+	bool isDashMelee = meleeWeapon.HasMod( "apex_melee" ) || meleeWeapon.HasMod( "pushback_melee" )
+	bool isNerfedLunge = meleeWeapon.HasMod( "pushback_melee" )
 	bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" )
-	
+
 	//if( isApexMelee ) // you can't avoid unsynced melee if player pressed "MELEE"
 	//{
 //#if SERVER
@@ -75,7 +76,7 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 		}
 		else
 		{
-			if( isApexMelee )
+			if( isDashMelee )
 			{
 #if SERVER
 				thread HumanMeleeAttack_DashThread( player, meleeWeapon )
@@ -107,6 +108,13 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 							if ( player.IsOnGround() )
 								player.Lunge_LockPitch( true )
 						}
+						#if SERVER
+						if( isNerfedLunge )
+						{
+							if( Distance( player.GetOrigin(), lungeTarget.GetOrigin() ) > NERFED_LUNGE_RANGE )
+								thread DelayedCancelLunge( player ) // better nerf for client visual
+						}
+						#endif
 					}
 				}
 			}
@@ -331,22 +339,46 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 	vector damageOrigin = expect vector( traceResult.position )
 
 	vector targetDirection = VectorToAngles( traceResult.position - traceResult.startPosition )
-	//Push enemy back first before doing damage to get rid of some dependencies
-	vector targetVelocity
-	targetVelocity = target.GetVelocity()
-	targetVelocity += pushBackVelocity
 
-	// Put a floor on the targetVelocity: has to be at least 0.85 of the pushback velocity to be able to push back players far enough
-	// so that their slow melee attack doesn't still connect after being hit by a fast melee.
-	float clampRatio = 0.85
-	if ( ShouldClampTargetVelocity( targetVelocity, pushBackVelocity, clampRatio ) )
-		targetVelocity = pushBackVelocity * clampRatio
+	if( target.IsPlayer() || target.IsNPC() )
+	{
+		//Push enemy back first before doing damage to get rid of some dependencies
+		vector targetVelocity
+		targetVelocity = target.GetVelocity()
+		targetVelocity += pushBackVelocity 
 
-	targetVelocity += Vector( 0,0,100 )
-	targetVelocity = ClampVerticalVelocity( targetVelocity, 550 ) // max velocity
+		// Put a floor on the targetVelocity: has to be at least 0.85 of the pushback velocity to be able to push back players far enough
+		// so that their slow melee attack doesn't still connect after being hit by a fast melee.
+		float clampRatio = 0.85
+		if ( ShouldClampTargetVelocity( targetVelocity, pushBackVelocity, clampRatio ) )
+			targetVelocity = pushBackVelocity * clampRatio
+		/*
+		print( targetVelocity.z )
+		bool shouldAddVel = false
+		if( fabs( targetVelocity.z ) <= 150 )
+			shouldAddVel = true
+		print( fabs( targetVelocity.z ) )
+		*/
+		if( target.IsOnGround() && targetVelocity.z <= 0 )
+			targetVelocity.z = -targetVelocity.z // in order to bounce players on ground
 
-	// enemyTitan.SetVelocity( targetVelocity )
-	PushEntWithVelocity( target, targetVelocity )
+		//targetVelocity.z += 100
+		if( targetVelocity.z <= 220 && targetVelocity.z >= 0 )
+			targetVelocity.z = 220 // lowest velocity to push a pilot off ground
+		else if( targetVelocity.z >= -220 && targetVelocity.z <= 0 && target.IsOnGround() )
+			targetVelocity.z = 220
+		print( targetVelocity.z )
+		targetVelocity = ClampVerticalVelocity( targetVelocity, 550 ) // max velocity
+		/*
+		if( shouldAddVel ) // additional knockback
+		{
+			print( "Adding Velocity this time" )
+			targetVelocity.z = 150
+		}
+		*/
+		// enemyTitan.SetVelocity( targetVelocity )
+		PushEntWithVelocity( target, targetVelocity )
+	}
 
 	vector backVel = -0.5*pushBackVelocity + player.GetVelocity() // player receive less pushback
 	backVel.z = 0
@@ -414,14 +446,23 @@ void function DelayedEnablePrediction( entity player )
 		player.SetPredictionEnabled( true )
 }
 
+void function DelayedCancelLunge( entity player )
+{
+	wait 0.11
+	if( IsAlive( player ) )
+	{
+		player.Lunge_SetTargetEntity( null, true )
+	}
+}
+
 void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
 {
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
 
-	float dashScale = 110
-	if( player.IsSprinting() )
-		dashScale = 130
+	float dashScale = 130//110
+	//if( player.IsSprinting() )
+	//	dashScale = 130
 
 	WaitFrame()
 	if( !IsValidMeleeState( player ) )

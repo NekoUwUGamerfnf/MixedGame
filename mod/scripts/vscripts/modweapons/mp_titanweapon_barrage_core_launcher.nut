@@ -89,7 +89,7 @@ void function StartClusterAfterDelay( entity projectile, vector normal) {
 		// ""Base delay"": 0.4s, avg delay between (each group): 0.25s, total duration: 1.5s
 		popcornInfo.weaponName = "mp_titanweapon_flightcore_launcher"
 		popcornInfo.weaponMods = projectile.ProjectileGetMods()
-		popcornInfo.damageSourceId = eDamageSourceId.mp_titanweapon_flightcore_rockets
+		popcornInfo.damageSourceId = eDamageSourceId.mp_titanweapon_multi_cluster
 		popcornInfo.count = 5
 		popcornInfo.delay = projectile.ProjectileGetMods().contains( "rapid_detonator" ) ? 0.225 : 0.15 // avg delay and duration -30%
 		popcornInfo.offset = 0.1

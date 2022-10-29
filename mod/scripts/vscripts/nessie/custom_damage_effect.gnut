@@ -79,7 +79,8 @@ void function OnPlayerDamaged( entity player, var damageInfo )
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
-    if( GetGameState() != eGameState.Playing || DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.round_end )
+    int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+    if( GetGameState() != eGameState.Playing || damageSourceID == eDamageSourceId.round_end )
         return // prevent do these ragdoll things between rounds
     if( victim.IsTitan() )
         return
@@ -137,7 +138,13 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
             thread ThermiteFieryDeath( victim, 1.0 )
             break
         case 5:
-            thread NessieBurstDeath( victim, 5 )
+            if( damageSourceID == eDamageSourceId.human_execution ) // nessie props are solid, avoid it messing executions
+            {
+                return
+                //thread NessieBurstDeath( victim, 5, true )
+            }
+            else
+                thread NessieBurstDeath( victim, 5 )
             break
     }
 }
@@ -284,6 +291,8 @@ void function ThermiteFieryDeath( entity player, float duration )
     player.EndSignal( "OnDestroy" )
     //entity fxHandle = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( PLAYER_BURN_FX ), FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
     entity fxHandle = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_wpn_meteor_exp" ), FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
+    fxHandle.SetOwner( player )
+    fxHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY // not owner
 
     OnThreadEnd(
 		function() : ( fxHandle, player, duration )
@@ -302,7 +311,7 @@ void function ThermiteFieryDeath( entity player, float duration )
     wait duration
 }
 
-void function NessieBurstDeath( entity player, float fadeTime )
+void function NessieBurstDeath( entity player, float fadeTime, bool notSolid = false )
 {
     player.EndSignal( "OnDestroy" )
 
@@ -358,6 +367,12 @@ void function NessieBurstDeath( entity player, float fadeTime )
         prop.SetModel( $"models/dev/empty_physics.mdl" )
         prop.SetOrigin( player.EyePosition() + < 0,0,40 > )
         prop.SetAngles( < 0, RandomIntRange( 0, 360 ), 0 > )
+        if( notSolid )
+        {
+            // cant find a way to make it notSloid
+            prop.NotSolid()
+            //prop.kv.CollisionGroup = 0
+        }
         //prop.kv.CollisionGroup = TRACE_COLLISION_GROUP_NONE
         DispatchSpawn( prop )
         //StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_xo_battery" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )

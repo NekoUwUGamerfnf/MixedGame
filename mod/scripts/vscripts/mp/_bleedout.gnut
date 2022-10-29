@@ -12,17 +12,22 @@ const float BLEEDOUT_MAX_USE_DIST2_MOD = 64 * 64
 global function Bleedout_HealthRegenThink
 global function Bleedout_SetHealthRegenRate
 
+// TEMP!!!
+const int BLEEDOUT_MODE_HEALTH = 100
+const int BLEEDOUT_MODE_SHIELD_HEALTH = 125
+
 struct
 {
 	table<entity,bool> isBleeding
 	table<entity, entity> IsGettingFirstAidFrom
-	table<entity,entity> lastAttacker
+	table<entity, entity> lastAttacker
 	array<void functionref( entity )> Callbacks_OnPlayerStartBleedout 
 	array<void functionref( entity )> Callbacks_OnPlayerGiveFirstAid 
 	int firstAidAttemptID = 0 //The ID that identifies the first aid attempt. Used to distinguish between simultainous healing attempts on the client
 
 	// modified variable
 	float bleedoutHealthRegenRate = 1.0
+	table<entity, string> playerSavedTitle
 } file
 
 void function Bleedout_Init()
@@ -39,6 +44,14 @@ void function Bleedout_Init()
 	AddCallback_OnClientDisconnected( Bleedout_OnClientDisconnected )
 
 	PrecacheParticleSystem( FX_BLOODTRAIL )
+
+	//TEMP!!!
+	SetBurnCardAllBattery( true ) // from _burnmeter.gnut
+    SetPilotBatteryUsageAllowed( true )
+
+    AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+    AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsPilotLoadout )
+    AddCallback_OnPlayerKilled( OnPlayerKilled )
 }
 
 void function Bleedout_OnClientConnected( entity player )
@@ -46,6 +59,7 @@ void function Bleedout_OnClientConnected( entity player )
 	file.isBleeding[ player ] <- false
 	file.IsGettingFirstAidFrom[ player ] <- null
 	file.lastAttacker[ player ] <- svGlobal.worldspawn
+	file.playerSavedTitle[ player ] <- ""
 }
 
 void function Bleedout_OnClientDisconnected( entity player )
@@ -53,6 +67,7 @@ void function Bleedout_OnClientDisconnected( entity player )
 	delete file.isBleeding[ player ]
 	delete file.IsGettingFirstAidFrom[ player ]
 	delete file.lastAttacker[ player ]
+	delete file.playerSavedTitle[ player ]
 }
 
 void function Bleedout_AddCallback_OnPlayerStartBleedout( void functionref(entity) callback )
@@ -97,6 +112,8 @@ void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 			//callbackFunc( player )
 		callbackFunc( player )
 	}
+	// TEMP!!!
+	BleedoutMode_OnPlayerDowned( player )
 
 	thread Bleedout_DeathProtection( player )
 
@@ -135,6 +152,8 @@ void function PlayerDying( entity player )
 
 	player.ForceCrouch()
 	string playerTitle = player.GetTitle()
+	if( playerTitle != "#DEATH_BLEEDOUT" )
+		file.playerSavedTitle[player] = playerTitle
 	player.SetTitle( "#DEATH_BLEEDOUT" )
 	Bleedout_DiableWallrunAndDoubleJump( player )
 	player.SetOneHandedWeaponUsageOn()
@@ -158,7 +177,10 @@ void function PlayerDying( entity player )
 				file.lastAttacker[ player ] = svGlobal.worldspawn
 
 				player.UnforceCrouch()
-				player.SetTitle( playerTitle )
+				thread Bleedout_PlayerForceStand( player )
+				player.SetTitle( file.playerSavedTitle[player] )
+				// no idea how to avoid "#DEATH_BLEEDOUT", hardcoded right now
+				//player.SetTitle( "" )
 				Bleedout_EnableWallrunAndDoubleJump( player )
 				player.SetOneHandedWeaponUsageOff()
 				//Remote_CallFunction_NonReplay( player, "ServerCallback_BLEEDOUT_PlayerRevivedDOF" )
@@ -287,18 +309,24 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 	playerHealer.EndSignal( "OnContinousUseStopped" )
 
 
-	bool isSelfRes
+	bool isSelfRes = playerHealer == playerToRes
 	string healerTitle = playerHealer.GetTitle()
 	string playerTitle = playerToRes.GetTitle()
 
-	playerToRes.SetTitle( "#BLEEDOUT_APPLYING_FIRST_AID" )
-	if( playerHealer != playerToRes )
+	if( !isSelfRes )
 	{
+		EmitSoundOnEntityOnlyToPlayer( playerToRes, playerHealer, "pilot_healthpack_small_healing" )
+		EmitSoundOnEntityOnlyToPlayer( playerToRes, playerToRes, "pilot_healthpack_small_healing" )
 		playerHealer.SetTitle( "#BLEEDOUT_APPLYING_FIRST_AID" )
 		playerToRes.SetTitle( "#BLEEDOUT_RECIEVING_FIRST_AID" )
 	}
+	else
+	{
+		EmitSoundOnEntityOnlyToPlayer( playerToRes, playerToRes, "pilot_healthpack_large_healing" )
+		playerToRes.SetTitle( "#BLEEDOUT_APPLYING_FIRST_AID" )
+	}
 
-	if( playerHealer != playerToRes )
+	if( !isSelfRes )
 		HolsterAndDisableWeapons( playerHealer )
 
 	playerHealer.MovementDisable()
@@ -318,19 +346,25 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 	file.IsGettingFirstAidFrom[ playerToRes ] = playerHealer
 
 	OnThreadEnd(
-	function() : ( playerHealer, playerToRes, attemptID, healerTitle, playerTitle )
+	function() : ( playerHealer, playerToRes, attemptID, isSelfRes, healerTitle, playerTitle )
 		{
 			if ( IsValid( playerHealer ) )
 			{
 				if ( IsValid( playerToRes ) )
 				{
-					if( playerHealer != playerToRes )
+					if( !isSelfRes )
+					{
 						DeployAndEnableWeapons( playerHealer )
+						playerHealer.SetTitle( healerTitle )
+						if( file.isBleeding[ playerToRes ] ) // interrupted revive
+							EmitSoundOnEntityOnlyToPlayer( playerToRes, playerHealer, "pilot_healthpack_drop" )
+						else
+							EmitSoundOnEntityOnlyToPlayer( playerToRes, playerHealer, "pilot_healthpack_small_healing_end" )
+					}
 				}
 				playerHealer.MovementEnable()
 				Remote_CallFunction_NonReplay( playerHealer, "ServerCallback_BLEEDOUT_StopFirstAidProgressBar", attemptID )
 			
-				playerHealer.SetTitle( healerTitle )
 			}
 
 			if ( IsValid( playerToRes ) )
@@ -338,8 +372,24 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 				file.IsGettingFirstAidFrom[ playerToRes ] = null
 				playerToRes.MovementEnable()
 				Remote_CallFunction_NonReplay( playerToRes, "ServerCallback_BLEEDOUT_StopFirstAidProgressBar", attemptID )
-			
-				playerToRes.SetTitle( playerTitle )
+				StopSoundOnEntity( playerToRes, "pilot_healthpack_small_healing" )
+				StopSoundOnEntity( playerToRes, "pilot_healthpack_large_healing" )
+
+				if( file.isBleeding[ playerToRes ] ) // interrupted revive
+				{
+					playerToRes.SetTitle( playerTitle )
+					if( isSelfRes )
+						EmitSoundOnEntityOnlyToPlayer( playerToRes, playerToRes, "pilot_healthpack_drop" )
+					else
+						EmitSoundOnEntityOnlyToPlayer( playerToRes, playerToRes, "pilot_healthpack_drop" )
+				}
+				else
+				{
+					if( isSelfRes )
+						EmitSoundOnEntityOnlyToPlayer( playerToRes, playerToRes, "pilot_healthpack_large_healing_end" )
+					else
+						EmitSoundOnEntityOnlyToPlayer( playerToRes, playerToRes, "pilot_healthpack_small_healing_end" )
+				}
 			}
 		}
 	)
@@ -363,6 +413,8 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 		//}
 		callbackFunc( playerToRes )
 	}
+	// TEMP!!!
+	BleedoutMode_OnPlayerRevived( playerToRes )
 
 	playerToRes.Signal( "BleedOut_OnRevive" )
 
@@ -574,19 +626,19 @@ void function Bleedout_PlayerSlidePrevention( entity player )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "BleedOut_StopBleeding" )
 	player.EndSignal( "BleedOut_OnRevive" )
-	bool lastFrameSlide // for checks
+	//bool lastFrameSlide // for checks
 	while( true )
 	{
 		WaitFrame()
-		if( player.IsSliding() )
+		if( player.IsSliding() && player.IsOnGround() ) // sometimes sliding off a roof will remain slide state, do a check
 		{
 			player.SetVelocity( < 0,0,0 > )
-			lastFrameSlide = true
-			continue
+		//	lastFrameSlide = true
+		//	continue
 		}
-		if( lastFrameSlide && !player.IsOnGround() ) // prevent player being stopped midair
-			player.SetVelocity( < 0,0,100 > )
-		lastFrameSlide = false
+		//if( lastFrameSlide && !player.IsOnGround() ) // prevent player being stopped midair
+		//	player.SetVelocity( < 0,0,100 > )
+		//lastFrameSlide = false
 	}
 }
 
@@ -690,4 +742,54 @@ void function Bleedout_HealthRegenThink( entity player )
 void function Bleedout_SetHealthRegenRate( float rate )
 {
 	file.bleedoutHealthRegenRate = rate
+}
+
+void function Bleedout_PlayerForceStand( entity player )
+{
+	player.ForceStand()
+	wait 0.2
+	if( IsValid( player ) )
+		player.UnforceStand()
+}
+
+// TEMP!!!
+void function OnPlayerRespawned( entity player )
+{
+    thread Bleedout_HealthRegenThink( player )
+    SyncedMelee_Disable( player )
+    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
+    player.SetHealth( BLEEDOUT_MODE_HEALTH )
+    player.SetShieldHealthMax( BLEEDOUT_MODE_SHIELD_HEALTH )
+    player.SetShieldHealth( BLEEDOUT_MODE_SHIELD_HEALTH )
+}
+
+void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
+{
+    entity meleeWeapon = player.GetOffhandWeapon( OFFHAND_MELEE )
+    if( IsValid( meleeWeapon ) )
+        meleeWeapon.AddMod( "pushback_melee" )
+}
+
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+    entity battery = Rodeo_CreateBatteryPack()
+    if( IsValid( battery ) )
+    {
+        battery.SetOrigin( victim.EyePosition() )
+        battery.SetVelocity( < 0,0,1 > )
+    }
+}
+
+void function BleedoutMode_OnPlayerDowned( entity player )
+{
+    print( "Running OnPlayerDowned()" )
+    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH * 5 )
+    player.SetHealth( BLEEDOUT_MODE_HEALTH )
+}
+
+void function BleedoutMode_OnPlayerRevived( entity player )
+{
+    print( "Running OnPlayerRevived()" )
+    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
+    player.p.lastDamageTime = Time()
 }
