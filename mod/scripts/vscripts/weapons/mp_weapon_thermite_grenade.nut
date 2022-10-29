@@ -3,6 +3,8 @@ untyped
 global function ThermiteBurn
 global const float THERMITE_GRENADE_BURN_TIME = 6.0
 global const float THERMITE_TRAIL_SOUND_TIME = 2.0
+
+global const float BLEEDOUT_BALANCE_BURN_TIME = 1.0
 #endif
 
 global function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade
@@ -59,6 +61,13 @@ void function OnProjectileCollision_weapon_thermite_grenade( entity projectile, 
 	else
 	{
 		bool result = PlantStickyEntity( projectile, collisionParams )
+		if( hitEnt.IsPlayer() )
+		{
+			#if SERVER
+			if( mods.contains( "bleedout_balance" ) )
+				thread EarlyExtinguishFireStar( projectile, BLEEDOUT_BALANCE_BURN_TIME )
+			#endif
+		}
 
 		if( mods.contains( "meteor_grenade" ) )
 		{
@@ -350,5 +359,12 @@ bool function ShouldAddThermiteStatusEffect( entity attachedEnt, entity thermite
 		return false
 
 	return true
+}
+
+void function EarlyExtinguishFireStar( entity projectile, float duration )
+{
+	wait duration
+	if( IsValid( projectile ) )
+		projectile.Destroy()
 }
 #endif

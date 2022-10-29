@@ -12,10 +12,6 @@ const float BLEEDOUT_MAX_USE_DIST2_MOD = 64 * 64
 global function Bleedout_HealthRegenThink
 global function Bleedout_SetHealthRegenRate
 
-// TEMP!!!
-const int BLEEDOUT_MODE_HEALTH = 100
-const int BLEEDOUT_MODE_SHIELD_HEALTH = 125
-
 struct
 {
 	table<entity,bool> isBleeding
@@ -26,7 +22,8 @@ struct
 	int firstAidAttemptID = 0 //The ID that identifies the first aid attempt. Used to distinguish between simultainous healing attempts on the client
 
 	// modified variable
-	float bleedoutHealthRegenRate = 1.0
+	float bleedoutHealthRegenRate = 4.0
+	float bleedoutHealthRegenDelay = 4.0
 	table<entity, string> playerSavedTitle
 } file
 
@@ -44,14 +41,6 @@ void function Bleedout_Init()
 	AddCallback_OnClientDisconnected( Bleedout_OnClientDisconnected )
 
 	PrecacheParticleSystem( FX_BLOODTRAIL )
-
-	//TEMP!!!
-	SetBurnCardAllBattery( true ) // from _burnmeter.gnut
-    SetPilotBatteryUsageAllowed( true )
-
-    AddCallback_OnPlayerRespawned( OnPlayerRespawned )
-    AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsPilotLoadout )
-    AddCallback_OnPlayerKilled( OnPlayerKilled )
 }
 
 void function Bleedout_OnClientConnected( entity player )
@@ -64,10 +53,12 @@ void function Bleedout_OnClientConnected( entity player )
 
 void function Bleedout_OnClientDisconnected( entity player )
 {
+	/* unhandled delete, no need for now
 	delete file.isBleeding[ player ]
 	delete file.IsGettingFirstAidFrom[ player ]
 	delete file.lastAttacker[ player ]
 	delete file.playerSavedTitle[ player ]
+	*/
 }
 
 void function Bleedout_AddCallback_OnPlayerStartBleedout( void functionref(entity) callback )
@@ -105,6 +96,9 @@ void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	Bleedout_PlayerDownedSound( player, attacker )
 	Bleedout_PlayerDownedObit( player, attacker, damageInfo )
 
+	// this should done before callbacks since it triggers a "OnClassChange"
+	Bleedout_DiableWallrunAndDoubleJump( player ) 
+
 	EmitSoundOnEntityToTeam( player, "UI_Spawn_FriendlyPilot", player.GetTeam() )
 	foreach( void functionref( entity ) callbackFunc in file.Callbacks_OnPlayerStartBleedout )
 	{
@@ -112,8 +106,6 @@ void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 			//callbackFunc( player )
 		callbackFunc( player )
 	}
-	// TEMP!!!
-	BleedoutMode_OnPlayerDowned( player )
 
 	thread Bleedout_DeathProtection( player )
 
@@ -155,7 +147,6 @@ void function PlayerDying( entity player )
 	if( playerTitle != "#DEATH_BLEEDOUT" )
 		file.playerSavedTitle[player] = playerTitle
 	player.SetTitle( "#DEATH_BLEEDOUT" )
-	Bleedout_DiableWallrunAndDoubleJump( player )
 	player.SetOneHandedWeaponUsageOn()
 	thread Bleedout_PlayerSlidePrevention( player )
 
@@ -181,7 +172,6 @@ void function PlayerDying( entity player )
 				player.SetTitle( file.playerSavedTitle[player] )
 				// no idea how to avoid "#DEATH_BLEEDOUT", hardcoded right now
 				//player.SetTitle( "" )
-				Bleedout_EnableWallrunAndDoubleJump( player )
 				player.SetOneHandedWeaponUsageOff()
 				//Remote_CallFunction_NonReplay( player, "ServerCallback_BLEEDOUT_PlayerRevivedDOF" )
 
@@ -396,12 +386,16 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 
 	waitthread TrackContinuousUse( playerHealer, playerToRes, firstAidTime, true )
 
-	//Heal player health
-	playerToRes.SetHealth( playerToRes.GetMaxHealth() * firstAidHealPercent )
 	file.isBleeding[ playerToRes ] = false
 	file.lastAttacker[ playerToRes ] = svGlobal.worldspawn
 	if ( IsPilotEliminationBased() )
 		ClearPlayerEliminated( playerToRes )
+
+	// this should done before callbacks since it triggers a "OnClassChange"
+	Bleedout_EnableWallrunAndDoubleJump( playerToRes )
+
+	//Heal player health
+	playerToRes.SetHealth( playerToRes.GetMaxHealth() * firstAidHealPercent )
 
 	foreach( void functionref( entity ) callbackFunc in file.Callbacks_OnPlayerGiveFirstAid )
 	{
@@ -413,8 +407,6 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 		//}
 		callbackFunc( playerToRes )
 	}
-	// TEMP!!!
-	BleedoutMode_OnPlayerRevived( playerToRes )
 
 	playerToRes.Signal( "BleedOut_OnRevive" )
 
@@ -644,8 +636,10 @@ void function Bleedout_PlayerSlidePrevention( entity player )
 
 void function Bleedout_DiableWallrunAndDoubleJump( entity player )
 {
+	// WARN!!! This triggers a "OnClassChange"
 	int skin = player.GetSkin()
 	int camo = player.GetCamo()
+	asset modelName = player.GetModelName()
 
 	string setFile = player.GetPlayerSettings()
 	array<string> settingMods = player.GetPlayerSettingsMods()
@@ -657,12 +651,15 @@ void function Bleedout_DiableWallrunAndDoubleJump( entity player )
 	player.SetPlayerSettingsWithMods( setFile, settingMods )
 	player.SetSkin( skin )
 	player.SetCamo( camo )
+	player.SetModel( modelName )
 }
 
 void function Bleedout_EnableWallrunAndDoubleJump( entity player )
 {
+	// WARN!!! This triggers a "OnClassChange"
 	int skin = player.GetSkin()
 	int camo = player.GetCamo()
+	asset modelName = player.GetModelName()
 
 	string setFile = player.GetPlayerSettings()
 	array<string> settingMods = player.GetPlayerSettingsMods()
@@ -672,6 +669,7 @@ void function Bleedout_EnableWallrunAndDoubleJump( entity player )
 	player.SetPlayerSettingsWithMods( setFile, settingMods )
 	player.SetSkin( skin )
 	player.SetCamo( camo )
+	player.SetModel( modelName )
 }
 
 void function Bleedout_PlayerHolsterWeapon( entity player )
@@ -689,6 +687,14 @@ void function Bleedout_PlayerHolsterWeapon( entity player )
 	}
 }
 
+void function Bleedout_PlayerForceStand( entity player )
+{
+	player.ForceStand()
+	wait 0.2
+	if( IsValid( player ) )
+		player.UnforceStand()
+}
+
 void function Bleedout_HealthRegenThink( entity player )
 {
     player.EndSignal( "OnDestroy" )
@@ -697,10 +703,11 @@ void function Bleedout_HealthRegenThink( entity player )
 	player.EndSignal( "BleedoutHealthRegenThink" )
 	player.EndSignal( "StopHealthRegenThink" )
 
-	float healthRegenStartDelay = Bleedout_GetFirstAidTime()
+	float healthRegenStartDelay = file.bleedoutHealthRegenDelay
 
 	while ( IsValid( player ) )
 	{
+		//print( "Bleedout Health Regen Think" )
 		wait( HEALTH_REGEN_TICK_TIME )
 
 		if ( !IsAlive( player ) )
@@ -744,52 +751,7 @@ void function Bleedout_SetHealthRegenRate( float rate )
 	file.bleedoutHealthRegenRate = rate
 }
 
-void function Bleedout_PlayerForceStand( entity player )
+void function Bleedout_SetHealthRegenDelay( float delay )
 {
-	player.ForceStand()
-	wait 0.2
-	if( IsValid( player ) )
-		player.UnforceStand()
-}
-
-// TEMP!!!
-void function OnPlayerRespawned( entity player )
-{
-    thread Bleedout_HealthRegenThink( player )
-    SyncedMelee_Disable( player )
-    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
-    player.SetHealth( BLEEDOUT_MODE_HEALTH )
-    player.SetShieldHealthMax( BLEEDOUT_MODE_SHIELD_HEALTH )
-    player.SetShieldHealth( BLEEDOUT_MODE_SHIELD_HEALTH )
-}
-
-void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
-{
-    entity meleeWeapon = player.GetOffhandWeapon( OFFHAND_MELEE )
-    if( IsValid( meleeWeapon ) )
-        meleeWeapon.AddMod( "pushback_melee" )
-}
-
-void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
-{
-    entity battery = Rodeo_CreateBatteryPack()
-    if( IsValid( battery ) )
-    {
-        battery.SetOrigin( victim.EyePosition() )
-        battery.SetVelocity( < 0,0,1 > )
-    }
-}
-
-void function BleedoutMode_OnPlayerDowned( entity player )
-{
-    print( "Running OnPlayerDowned()" )
-    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH * 5 )
-    player.SetHealth( BLEEDOUT_MODE_HEALTH )
-}
-
-void function BleedoutMode_OnPlayerRevived( entity player )
-{
-    print( "Running OnPlayerRevived()" )
-    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
-    player.p.lastDamageTime = Time()
+	file.bleedoutHealthRegenDelay = delay
 }

@@ -5,10 +5,11 @@ global function MpWeaponGrenadeGravity_Init
 
 //int hopupindex = 0
 
-const float MAX_WAIT_TIME = 6.0
-const float POP_DELAY = 0.8
-const float PULL_DELAY = 2.0
-const float PUSH_DELAY = 0.2
+// Vanilla
+const float MAX_WAIT_TIME = 6.0 // trigger wait time
+const float POP_DELAY = 0.8 // pre ignition time
+const float PULL_DELAY = 2.0 // explosion delay
+const float PUSH_DELAY = 0.2 // grenade timer after all delays
 const float POP_HEIGHT = 60
 const float PULL_RANGE = 150.0
 const float PULL_STRENGTH_MAX = 300.0
@@ -17,6 +18,7 @@ const float PUSH_STRENGTH_MAX = 125.0
 const float EXPLOSION_DELAY = 0.1
 const float FX_END_CAP_TIME = 1.5
 
+// Anti Gravity Star
 const float MAX_WAIT_TIME_ANTI = 6.0
 const float POP_DELAY_ANTI = 0.1
 const float PULL_DELAY_ANTI = 2.0
@@ -32,6 +34,7 @@ const float FX_END_CAP_TIME_ANTI = 1.5
 //const float PULL_VERTICAL_KNOCKUP_MIN = 55.0
 //const float PUSH_STRENGTH_MIN = 100.0
 
+// Gravity Lift
 //const int LIFT_SEGMENT_COUNT = 10
 //const float LIFT_HEIGHT_PER_SEGMENT = 50
 const float LIFT_HEIGHT = 1200
@@ -57,6 +60,9 @@ array<GravLiftStruct> gravityLifts = []
 array<entity> inGravLiftCooldownPlayers = []
 //array<entity> gravityLiftedPlayers = []
 //array<entity> reachedHighestPlayers = []
+
+// Bleedout balance
+const float PULL_DELAY_BLEEDOUT = 1.0
 
 struct
 {
@@ -290,6 +296,8 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 
 	if( mods.contains( "anti_gravity_star" ) )
 		wait PULL_DELAY_ANTI
+	else if( mods.contains( "bleedout_balance" ) )
+		wait PULL_DELAY_BLEEDOUT
 	else
 		wait PULL_DELAY
 
@@ -297,6 +305,7 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 		projectile.SetGrenadeTimer( EXPLOSION_DELAY_ANTI )
 	else
 		projectile.SetGrenadeTimer( EXPLOSION_DELAY )
+		
 	if( mods.contains( "anti_gravity_star" ) )
 		wait EXPLOSION_DELAY_ANTI - 0.1 // ensure gravTrig is destroyed before detonation
 	else
