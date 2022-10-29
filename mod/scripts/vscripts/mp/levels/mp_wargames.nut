@@ -3,6 +3,7 @@ global function CodeCallback_MapInit
 
 struct {
 	array<entity> marvinSpawners
+	bool marvinSpawnerAdded = false
 
 	float introStartTime
 	entity militiaPod
@@ -10,8 +11,6 @@ struct {
 	
 	vector militiaPodFXEyePos
 	vector imcPodFXEyePos
-
-	bool isFirstRound = true
 } file
 
 const float MARVIN_RESPAWN_DELAY = 30
@@ -78,7 +77,10 @@ void function EnsureWargamesDeathEffectIsClearedForPlayer( entity player )
 
 void function AddMarvinSpawner( entity spawn )
 {
+	if( file.marvinSpawnerAdded ) // only add spawners once, or it will be more and more marvins
+		return
 	file.marvinSpawners.append( spawn )
+	file.marvinSpawnerAdded = true
 }
 
 void function SpawnMarvinsForRound()
@@ -365,15 +367,10 @@ void function DelayedGamemodeAnnouncement( entity player )
 	wait 1.0
 	if( IsValid( player ) )
 	{
-		if( file.isFirstRound )
-		{
+		if( GetRoundsPlayed() < 1 && !HasSwitchedSides() )
 			TryGameModeAnnouncement( player )
-			file.isFirstRound = false
-		}
 		else
-		{
 			TryGameModeAnnouncement( player, false )
-		}
 	}
 }
 

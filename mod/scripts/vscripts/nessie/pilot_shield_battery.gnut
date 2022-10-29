@@ -7,6 +7,7 @@ global function SetShieldBatteryUseTime
 global function SetShieldBatteryRegenAmount
 
 global function IsShieldBatteryEnabled
+global function GetPlayerLastShieldBatteryUsedTime // default return 0
 
 const float SHIELD_BATTERY_USE_TIME = 3
 const int SHIELD_BATTERY_REGEN_AMOUNT = 50
@@ -45,6 +46,7 @@ void function OnClientConnected( entity player )
 {
     player.s.shieldBatteryEndFunction <- false
     player.s.usingShieldBattery <- false
+    player.s.lastShieldBatteryUsedTime <- 0
     AddPlayerHeldButtonEventCallback( player, IN_USE, TryUseShieldBattery, SHIELD_BATTERY_BUTTON_HOLD_TIME )
     AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, TryUseShieldBattery, SHIELD_BATTERY_BUTTON_HOLD_TIME * 2 )
 }
@@ -90,7 +92,8 @@ void function TryUseShieldBattery_Threaded( entity player )
     array<string> settingMods = player.GetPlayerSettingsMods()
     if( !settingMods.contains( "disable_wallrun" ) )
         settingMods.append( "disable_wallrun" )
-    player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), settingMods )
+    // WARNS!!! This will cause a "OnClassChange" callback!!!
+    //player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), settingMods )
     int statusEffectHandle = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.4 )
 
     OnThreadEnd(
@@ -104,7 +107,8 @@ void function TryUseShieldBattery_Threaded( entity player )
             player.Server_TurnOffhandWeaponsDisabledOff()
             StopSoundOnEntity( player, "Weapon_EnergySyphon_Charge_1P" )
             //StopSoundOnEntity( player, "Weapon_EnergySyphon_Charge_3P" )
-            player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), savedMods )
+            // WARNS!!! This will cause a "OnClassChange" callback!!!
+            //player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), savedMods )
             if( statusEffectHandle != -1 )
                 StatusEffect_Stop( player, statusEffectHandle )
             
@@ -129,8 +133,14 @@ void function TryUseShieldBattery_Threaded( entity player )
             {
                 if( IsValid( battery ) )
                 {
-                    battery.Minimap_Hide( TEAM_MILITIA, null )
-	                battery.Minimap_Hide( TEAM_IMC, null )
+                    if( "hideIcon" in battery.s )
+                    {
+                        if( expect bool( battery.s.hideIcon ) )
+                        {
+                            battery.Minimap_Hide( TEAM_MILITIA, null )
+                            battery.Minimap_Hide( TEAM_IMC, null )
+                        }
+                    }
                 }
             }
         }
@@ -164,6 +174,7 @@ void function TryUseShieldBattery_Threaded( entity player )
 
     // done using
     player.s.shieldBatteryEndFunction = false
+    player.s.lastShieldBatteryUsedTime = Time()
     player.Signal( "DoneUseShieldBattery" )
 
     int currentShieldHealth = player.GetShieldHealth()
@@ -285,4 +296,13 @@ void function SetShieldBatteryRegenAmount( int batteryRegenAmount, int ampedBatt
 bool function IsShieldBatteryEnabled()
 {
     return file.canUseShiledBattery
+}
+
+float function GetPlayerLastShieldBatteryUsedTime( entity player )
+{
+    if( "lastShieldBatteryUsedTime" in player.s )
+    {
+        return expect float( player.s.lastShieldBatteryUsedTime )
+    }
+    return 0 // default
 }

@@ -22,6 +22,8 @@ global function Bleedout_IsPlayerBleeding
 global function Bleedout_HealthRegenThink
 global function Bleedout_SetHealthRegenRate
 
+const bool BLEEDOUT_DEBUG = true
+
 struct
 {
 	table<entity,bool> isBleeding
@@ -415,8 +417,11 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 			}
 		}
 	)
-
+#if BLEEDOUT_DEBUG
+	waitthread DEBUG_AutoUsePress( playerHealer, playerToRes, firstAidTime )
+#else
 	waitthread TrackContinuousUse( playerHealer, playerToRes, firstAidTime, true )
+#endif
 
 	file.isBleeding[ playerToRes ] = false
 	file.lastAttacker[ playerToRes ] = svGlobal.worldspawn
@@ -554,6 +559,37 @@ void function TrackContinuousUse( entity player, entity useTarget, float useTime
 		WaitFrame()
 
 	if ( ( !doRequireUseButtonHeld || player.UseButtonPressed() ) && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2  )
+		result.success = true
+}
+
+void function DEBUG_AutoUsePress( entity player, entity useTarget, float useTime )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	useTarget.EndSignal( "OnDeath" )
+	useTarget.EndSignal( "OnDestroy" )
+
+	table result = {}
+	result.success <- false
+
+	float maxDist2 = DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) + BLEEDOUT_MAX_USE_DIST2_MOD
+
+	OnThreadEnd
+	(
+		function() : ( player, result )
+		{
+			if ( !result.success )
+			{
+				player.Signal( "OnContinousUseStopped" )
+			}
+		}
+	)
+
+	float startTime = Time()
+	while ( Time() < startTime + useTime && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
+		WaitFrame()
+
+	if ( DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
 		result.success = true
 }
 
