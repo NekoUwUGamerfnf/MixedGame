@@ -14,7 +14,7 @@ const asset FX_BLOODTRAIL = $"skit_blood_decal_LG"
 const float BLEEDOUT_MAX_USE_DIST2_MOD = 64 * 64
 
 // modified function
-global function Bleedout_EnableExecutingBleeingPlayer
+global function Bleedout_EnableExecutingBleedingPlayer
 
 global function Bleedout_IsPlayerSelfHealing
 global function Bleedout_IsPlayerGettingFirstAid
@@ -26,6 +26,7 @@ global function Bleedout_HealthRegenThink
 global function Bleedout_SetHealthRegenRate
 
 const bool BLEEDOUT_DEBUG = false
+const float BLEEDOUT_PROTECTION_DURATION = 1.05
 const BLEEDOUT_EXECUTION_HITBOX_MODEL = $"models/weapons/bullets/mgl_grenade.mdl"
 
 struct
@@ -607,7 +608,7 @@ int function GetNewFirstAidAttemptID()
 }
 
 // modified function
-void function Bleedout_EnableExecutingBleeingPlayer( bool enable )
+void function Bleedout_EnableExecutingBleedingPlayer( bool enable )
 {
 	file.executingBleedingEnabled = enable
 }
@@ -701,7 +702,7 @@ void function Bleedout_PlayerDownedObit( entity ent, entity attacker, var damage
 void function Bleedout_DeathProtection( entity player )
 {
 	player.SetInvulnerable()
-	wait 1.05
+	wait BLEEDOUT_PROTECTION_DURATION
 	player.ClearInvulnerable()
 }
 
@@ -817,6 +818,8 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 	player.EndSignal( "BleedOut_StopBleeding" )
 	player.EndSignal( "BleedOut_OnRevive" )
 
+	wait BLEEDOUT_PROTECTION_DURATION // do need this
+
 	entity hitBox = CreateHitboxEntityForPlayer( player )
 	hitBox.EndSignal( "OnDestroy" )
 
@@ -840,6 +843,7 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 		else if( !player.ContextAction_IsActive() ) // assuming this is player being executing, wait for it
 		{	
 			hitBox.SetUsable()
+			hitBox.SetUsableByGroup( "enemies pilot" )
 			//print( "hitBox being SetUsable()" )
 		}
 
@@ -847,6 +851,7 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 		if( !player.ContextAction_IsActive() ) 
 		{
 			hitBox.SetUsable()
+			hitBox.SetUsableByGroup( "enemies pilot" )
 			//print( "hitBox being SetUsable()" )
 		}
 		else
@@ -891,7 +896,15 @@ var function ExecuteHitboxOwner( var hitBox, var player )
 void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 {
 	entity owner = hitBox.GetOwner()
+	
 	hitBox.UnsetUsable()
+	// avoid this kind of crash... redo a SetUsable
+	if( owner.GetTeam() == player.GetTeam() )
+	{
+		hitBox.SetUsable() // reset usable
+		hitBox.SetUsableByGroup( "enemies pilot" )
+		return
+	}
 
 	SyncedMeleeChooser ornull actions = GetSyncedMeleeChooserForPlayerVsTarget( player, owner )
 	if( actions == null )
@@ -908,7 +921,10 @@ void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 		if( !IsAlive( owner ) ) // owner died
 			hitBox.Destroy()
 		else
+		{
 			hitBox.SetUsable() // reset usable
+			hitBox.SetUsableByGroup( "enemies pilot" )
+		}
 	}
 }
 
