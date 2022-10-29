@@ -21,7 +21,7 @@ const float GAMEMODE_AI_BLEEDING_PLAYER_MISS_CHANCE = 0.5
 const bool GAMEMODE_FORCE_WEAPON_HOLSTER = true
 const bool GAMEMODE_DEATH_ON_TEAM_BLEEDOUT = false
 
-const float BLEEDOUT_MODE_SHIELD_BATTERY_USETIME = 3.2 // avoid sound issue
+const float BLEEDOUT_MODE_SHIELD_BATTERY_USETIME = 2.8 // remember try to avoid sound issue
 const float BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_USETIME = 7.0
 const int BLEEDOUT_MODE_SHIELD_BATTERY_REGEN_AMOUNT = 80
 const int BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_REGEN_AMOUNT = 300
@@ -35,9 +35,10 @@ const string BLEEDOUT_MODE_REPLACEMENT_TACTICAL = "mp_ability_grapple"
 void function Modded_Gamemode_Bleedout_Init()
 {
     Rodeo_SetBatterySkinRandom( false ) // from _rodeo_titan.gnut
-    Rodeo_SetBatteryThrowEnabled( true )
+    //Rodeo_SetBatteryThrowEnabled( true ) // messed up
     SetBurnCardAllBattery( true ) // from _burnmeter.gnut
-    SetAltPilotChance( 1 ) // always change model
+    //SetAltPilotChance( 1 ) // always change model, caused issue?
+    ScoreEvent_ForceUsePilotEliminateEvent( true ) // from _score.nut, do special "Eliminate Pilot" Score event
 
     SetShouldFUCKOFFCLOAK( true ) // fuck them
     
@@ -54,6 +55,7 @@ void function Modded_Gamemode_Bleedout_Init()
     AddCallback_OnPlayerRespawned( OnPlayerRespawned )
     AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsPilotLoadout )
     AddCallback_OnPlayerKilled( OnPlayerKilled )
+    AddCallback_OnTouchHealthKit( "item_titan_battery", OnTouchBatteryPack )
 
     /* // do these in riff
     Riff_ForcePlayerBleedout( ePlayerBleedout.Enabled )
@@ -137,15 +139,26 @@ void function DelayedCheckMelee( entity player )
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
     ClearNessy( victim )
+    // abandoned, only using emergency batteries
+    /*
     entity battery = Rodeo_CreateBatteryPack()
     if( IsValid( battery ) )
     {
         battery.SetOrigin( victim.EyePosition() )
         battery.SetVelocity( < 0,0,1 > )
     }
+    */
 }
 
-void function BleedoutMode_OnPlayerDowned( entity player )
+bool function OnTouchBatteryPack( entity player, entity batteryPack )
+{
+    SendHudMessage( player, "按住 蹲下 和 使用\n激活护盾电池", -1, -0.3, 255, 0, 128, 128, 0, 4, 0 )
+
+    //Basically always return false since we don't want the battery pack to go away when being touched. ApplyBatteryToTitan() etc will deal with lifetime of battery
+	return false
+}
+
+void function BleedoutMode_OnPlayerDowned( entity player, entity attakcer, var damageInfo )
 {
     print( "Running OnPlayerDowned()" )
 	//player.Signal( "StopHealthRegenThink" )
@@ -153,10 +166,22 @@ void function BleedoutMode_OnPlayerDowned( entity player )
     player.SetHealth( BLEEDOUT_MODE_HEALTH )
 }
 
-void function BleedoutMode_OnPlayerRevived( entity player )
+void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHealer )
 {
     print( "Running OnPlayerRevived()" )
 	//player.Signal( "StopHealthRegenThink" )
-    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
-    player.p.lastDamageTime = Time()
+    playerToRes.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
+    playerToRes.p.lastDamageTime = Time()
+
+    // do a reward for playerHealer
+    if( playerHealer == playerToRes ) // selfRes
+        return
+    entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( playerHealer, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, playerHealer.LookupAttachment( "CHESTFOCUS" ) )
+    EffectSetControlPointVector( shieldFXHandle, 1, < 30, 255, 100 > )
+    
+    int currentShieldHealth = playerHealer.GetShieldHealth()
+    int shieldToRestore = int( min( playerHealer.GetShieldHealthMax() - currentShieldHealth, BLEEDOUT_MODE_SHIELD_BATTERY_REGEN_AMOUNT ) )
+    playerHealer.SetShieldHealth( min( playerHealer.GetShieldHealthMax(), playerHealer.GetShieldHealth() + shieldToRestore ) )
+    SendHudMessage( playerHealer, "复活一名队友, 已回复" + string(shieldToRestore) + "点护盾! ", -1, -0.3, 255, 0, 128, 128, 0, 2, 0 )
+    MessageToPlayer( playerHealer, eEventNotifications.Rodeo_PilotAppliedBatteryToYou, playerHealer, false )
 }

@@ -13,7 +13,11 @@ const asset FX_BLOODTRAIL = $"skit_blood_decal_LG"
 const float BLEEDOUT_MAX_USE_DIST2_MOD = 64 * 64
 
 // modified function
+global function Bleedout_IsPlayerSelfHealing
+global function Bleedout_IsPlayerGettingFirstAid
+
 global function Bleedout_IsPlayerBleeding
+//global function Bleedout_IsRevivingFriendly // no idea how to make it
 
 global function Bleedout_HealthRegenThink
 global function Bleedout_SetHealthRegenRate
@@ -23,8 +27,10 @@ struct
 	table<entity,bool> isBleeding
 	table<entity, entity> IsGettingFirstAidFrom
 	table<entity, entity> lastAttacker
-	array<void functionref( entity )> Callbacks_OnPlayerStartBleedout 
-	array<void functionref( entity )> Callbacks_OnPlayerGiveFirstAid 
+	// victim, attacker, damageInfo
+	array<void functionref( entity, entity, var )> Callbacks_OnPlayerStartBleedout 
+	// playerToRes, playerHealer
+	array<void functionref( entity, entity )> Callbacks_OnPlayerGiveFirstAid 
 	int firstAidAttemptID = 0 //The ID that identifies the first aid attempt. Used to distinguish between simultainous healing attempts on the client
 
 	// modified variable
@@ -42,6 +48,8 @@ void function Bleedout_Init()
 
 	// modifed signal
 	RegisterSignal( "BleedoutHealthRegenThink" )
+	RegisterSignal( "Bleedout_PlayerAttemptRes" )
+	RegisterSignal( "Bleedout_OnStartReviving" )
 
 	AddCallback_OnClientConnected( Bleedout_OnClientConnected )
 	AddCallback_OnClientDisconnected( Bleedout_OnClientDisconnected )
@@ -67,12 +75,12 @@ void function Bleedout_OnClientDisconnected( entity player )
 	*/
 }
 
-void function Bleedout_AddCallback_OnPlayerStartBleedout( void functionref(entity) callback )
+void function Bleedout_AddCallback_OnPlayerStartBleedout( void functionref(entity, entity, var) callback )
 {
 	file.Callbacks_OnPlayerStartBleedout.append( callback )
 }
 
-void function Bleedout_AddCallback_OnPlayerGiveFirstAid( void functionref(entity) callback )
+void function Bleedout_AddCallback_OnPlayerGiveFirstAid( void functionref(entity, entity) callback )
 {
 	file.Callbacks_OnPlayerGiveFirstAid.append( callback )
 }
@@ -106,11 +114,11 @@ void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	Bleedout_DiableWallrunAndDoubleJump( player ) 
 
 	EmitSoundOnEntityToTeam( player, "UI_Spawn_FriendlyPilot", player.GetTeam() )
-	foreach( void functionref( entity ) callbackFunc in file.Callbacks_OnPlayerStartBleedout )
+	foreach( void functionref( entity, entity, var ) callbackFunc in file.Callbacks_OnPlayerStartBleedout )
 	{
 		//if ( IsValid( callbackFunc ) && !file.isBleeding[ player ] )
 			//callbackFunc( player )
-		callbackFunc( player )
+		callbackFunc( player, attacker, damageInfo )
 	}
 
 	thread Bleedout_DeathProtection( player )
@@ -177,8 +185,6 @@ void function PlayerDying( entity player )
 				player.UnforceCrouch()
 				thread Bleedout_PlayerForceStand( player )
 				player.SetTitle( file.playerSavedTitle[player] )
-				// no idea how to avoid "#DEATH_BLEEDOUT", hardcoded right now
-				//player.SetTitle( "" )
 				player.SetOneHandedWeaponUsageOff()
 				//Remote_CallFunction_NonReplay( player, "ServerCallback_BLEEDOUT_PlayerRevivedDOF" )
 
@@ -220,7 +226,7 @@ void function PlayerDying( entity player )
 	
 	if( IsValid( player ) )
 	{
-		if( IsPlayerGettingFirstAid( player ) )
+		if( Bleedout_IsPlayerGettingFirstAid( player ) )
 			waitthread Bleedout_OverTimeFirstAid( player )
 	}
 
@@ -254,7 +260,7 @@ void function EnablePlayerRes( entity player )
 	while ( true )
 	{
 		//If the player is not currently being treated or is self healing. (Team healing should always override self-healing)
-		if (  !IsPlayerGettingFirstAid( player ) || IsPlayerSelfHealing( player ) )
+		if ( !Bleedout_IsPlayerGettingFirstAid( player ) || Bleedout_IsPlayerSelfHealing( player ) )
 		{
 			player.SetUsableByGroup( "friendlies pilot" )
 			player.SetUsePrompts( "#BLEEDOUT_USE_TEAMMATE_RES", "#BLEEDOUT_USE_TEAMMATE_RES_PC" )
@@ -262,8 +268,18 @@ void function EnablePlayerRes( entity player )
 			entity playerHealer = expect entity ( player.WaitSignal( "OnPlayerUse" ).player )
 			player.UnsetUsable()
 
+			/* // tryed to adjust, not using right now
+			entity playerHealer = expect entity ( player.WaitSignal( "OnPlayerUse", "BleedOut_OnStartReviving" ).player )
+			player.UnsetUsable()
+			if( Bleedout_IsPlayerSelfHealing( player ) ) // not showing prompts while selfres
+			{
+				WaitFrame()
+				continue
+			}
+			*/
+
 			//Player can only res other players if they are not bleeding out themselves.
-			if ( !file.isBleeding[ playerHealer ] && ( !IsPlayerGettingFirstAid( player ) || IsPlayerSelfHealing( player ) ) )
+			if ( !file.isBleeding[ playerHealer ] && ( !Bleedout_IsPlayerGettingFirstAid( player ) || Bleedout_IsPlayerSelfHealing( player ) ) )
 				waitthread PlayerAttemptRes( playerHealer, player )
 		}
 		else
@@ -283,10 +299,10 @@ void function EnablePlayerSelfRes( entity player )
 
 	while ( true )
 	{
-		if (  !IsPlayerGettingFirstAid( player ) )
+		if (  !Bleedout_IsPlayerGettingFirstAid( player ) )
 			MessageToPlayer( player, eEventNotifications.BLEEDOUT_SelfHealPrompt )
 
-		if ( player.UseButtonPressed() && !IsPlayerGettingFirstAid( player ) )
+		if ( player.UseButtonPressed() && !Bleedout_IsPlayerGettingFirstAid( player ) )
 		{
 			MessageToPlayer( player, eEventNotifications.Clear )
 			waitthread PlayerAttemptRes( player, player )
@@ -299,14 +315,20 @@ void function EnablePlayerSelfRes( entity player )
 void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 {
 	Assert( IsNewThread(), "Must be threaded off." )
+	playerToRes.Signal( "Bleedout_PlayerAttemptRes" ) // so teammates can interrupt selfRes
+	//playerToRes.Signal( "Bleedout_OnStartReviving" ) // not using right now, needs untyped
 	playerToRes.EndSignal( "OnDeath" )
 	playerToRes.EndSignal( "OnDestroy" )
+	playerToRes.EndSignal( "Bleedout_PlayerAttemptRes" )
 	playerHealer.EndSignal( "OnDeath" )
 	playerHealer.EndSignal( "OnDestroy" )
 	playerHealer.EndSignal( "OnContinousUseStopped" )
 
+	if( Bleedout_IsPlayerSelfHealing( playerToRes ) )
+		WaitFrame() // do a extra wait if player was selfResing, this means a friendly is interupting their selfRes
 
-	bool isSelfRes = playerHealer == playerToRes
+	bool isSelfRes = playerHealer == playerToRes // different check, but works better
+
 	string healerTitle = playerHealer.GetTitle()
 	string playerTitle = playerToRes.GetTitle()
 
@@ -351,13 +373,16 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 				{
 					if( !isSelfRes )
 					{
-						DeployAndEnableWeapons( playerHealer )
-						playerHealer.SetTitle( healerTitle )
 						if( file.isBleeding[ playerToRes ] ) // interrupted revive
 							EmitSoundOnEntityOnlyToPlayer( playerToRes, playerHealer, "pilot_healthpack_drop" )
 						else
 							EmitSoundOnEntityOnlyToPlayer( playerToRes, playerHealer, "pilot_healthpack_small_healing_end" )
 					}
+				}
+				if( !isSelfRes )
+				{
+					DeployAndEnableWeapons( playerHealer )
+					playerHealer.SetTitle( healerTitle )
 				}
 				playerHealer.MovementEnable()
 				Remote_CallFunction_NonReplay( playerHealer, "ServerCallback_BLEEDOUT_StopFirstAidProgressBar", attemptID )
@@ -404,7 +429,7 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 	//Heal player health
 	playerToRes.SetHealth( playerToRes.GetMaxHealth() * firstAidHealPercent )
 
-	foreach( void functionref( entity ) callbackFunc in file.Callbacks_OnPlayerGiveFirstAid )
+	foreach( void functionref( entity, entity ) callbackFunc in file.Callbacks_OnPlayerGiveFirstAid )
 	{
 		//if ( IsValid( callbackFunc ) )
 		//{
@@ -412,7 +437,7 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 		//	if ( playerHealer != playerToRes )
 		//		callbackFunc( playerHealer )
 		//}
-		callbackFunc( playerToRes )
+		callbackFunc( playerToRes, playerHealer )
 	}
 
 	playerToRes.Signal( "BleedOut_OnRevive" )
@@ -486,12 +511,14 @@ bool function Bleedout_ShouldAIMissBleedingPlayer( entity player )
 	return true
 }
 
-bool function IsPlayerGettingFirstAid( entity player )
+//bool function Bleedout_IsPlayerGettingFirstAid( entity player ) // function name adjustment
+bool function Bleedout_IsPlayerGettingFirstAid( entity player )
 {
 	return file.IsGettingFirstAidFrom[ player ] != null
 }
 
-bool function IsPlayerSelfHealing( entity player )
+//bool function IsPlayerSelfHealing( entity player ) // function name adjustment
+bool function Bleedout_IsPlayerSelfHealing( entity player )
 {
 	return file.IsGettingFirstAidFrom[ player ] == player
 }
@@ -542,6 +569,12 @@ bool function Bleedout_IsPlayerBleeding( entity player )
 	return file.isBleeding[player]
 }
 
+// no idea
+//bool function Bleedout_IsRevivingFriendly( entity player )
+//{
+//	return 
+//}
+
 void function Bleedout_OverTimeFirstAid( entity player )		
 {
 	player.EndSignal( "OnDeath" )
@@ -551,7 +584,7 @@ void function Bleedout_OverTimeFirstAid( entity player )
 	while( true )
 	{
 		WaitFrame()
-		if( IsPlayerGettingFirstAid( player ) )
+		if( Bleedout_IsPlayerGettingFirstAid( player ) )
 			continue
 		else
 			break

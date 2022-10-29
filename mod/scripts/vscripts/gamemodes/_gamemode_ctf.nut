@@ -117,7 +117,7 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 	if ( GetFlagForTeam( GetOtherTeam( victim.GetTeam() ) ).GetParent() == victim )
 	{
 		if ( victim != attacker && attacker.IsPlayer() )
-			AddPlayerScore( attacker, "FlagCarrierKill", attacker )
+			AddPlayerScore( attacker, "FlagCarrierKill", victim )
 		
 		DropFlag( victim )
 	}
