@@ -59,6 +59,9 @@ struct {
 	float roundWinningKillReplayHealthFrac
 	
 	array<void functionref()> roundEndCleanupCallbacks
+
+	// modified
+	bool enteredSuddenDeath = false
 	bool playFactionDialogue = true
 } file
 
@@ -354,11 +357,16 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		bool killcamsWereEnabled = KillcamsEnabled()
 		if ( killcamsWereEnabled ) // dont want killcams to interrupt stuff
 			SetKillcamsEnabled( false )
+
+		wait ROUND_WINNING_KILL_REPLAY_STARTUP_WAIT
 	
 		replayLength = ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
-		if ( "respawnTime" in replayAttacker.s && Time() - replayAttacker.s.respawnTime < replayLength )
-			replayLength += Time() - expect float ( replayAttacker.s.respawnTime )
-		
+		if( IsValid( replayAttacker ) )
+		{
+			if ( "respawnTime" in replayAttacker.s && Time() - replayAttacker.s.respawnTime < replayLength )
+				replayLength += Time() - expect float ( replayAttacker.s.respawnTime )
+		}
+
 		if( replayLength <= 0 ) // defensive fix
 			replayLength = 2.0 // extra delay
 
@@ -371,13 +379,18 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		wait ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
 		wait replayLength 
+		
 		// done replay
 		file.roundWinningKillReplayAttacker = null // clear this
 		
 		if ( killcamsWereEnabled )
 			SetKillcamsEnabled( true )
 
-		wait ROUND_WINNING_KILL_REPLAY_POST_DEATH_TIME // to have better visual
+		foreach( entity player in GetPlayerArray() )
+			SetPlayerCameraToIntermissionCam( player )
+
+		wait GAME_POSTROUND_CLEANUP_WAIT // to have better visual and do a extra wait
+
 	}
 	else if ( IsRoundBased() )
 	{
@@ -389,12 +402,18 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		}
 		
 		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
-		foreach( entity player in GetPlayerArray() )
-			player.UnfreezeControlsOnServer()
-
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
-	
-		wait ROUND_WINNING_KILL_REPLAY_POST_DEATH_TIME // to have better visual
+
+		foreach( entity player in GetPlayerArray() )
+		{
+			player.UnfreezeControlsOnServer()
+			ScreenFadeToBlackForever( player, GAME_POSTROUND_CLEANUP_WAIT - 0.1 )
+		}
+
+		foreach( entity player in GetPlayerArray() )
+			SetPlayerCameraToIntermissionCam( player )
+
+		wait GAME_POSTROUND_CLEANUP_WAIT // to have better visual
 	}
 	else if( !ClassicMP_ShouldRunEpilogue() )
 	{
@@ -474,7 +493,7 @@ void function PlayerWatchesRoundWinningKillReplay( entity player, float replayLe
 	else
 		wait replayLength
 		
-	wait ROUND_WINNING_KILL_REPLAY_POST_DEATH_TIME // to have better visual
+	//wait ROUND_WINNING_KILL_REPLAY_POST_DEATH_TIME // to have better visual
 	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
 	player.ClearReplayDelay()
 	player.ClearViewEntity()
@@ -536,6 +555,11 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	SetServerVar( "switchedSides", 1 )
 	file.roundWinningKillReplayAttacker = null // reset this after replay
 	
+	foreach( entity player in GetPlayerArray() )
+		SetPlayerCameraToIntermissionCam( player )
+	
+	wait GAME_POSTROUND_CLEANUP_WAIT
+
 	if ( file.usePickLoadoutScreen )
 		SetGameState( eGameState.PickLoadout )
 	else
@@ -578,7 +602,7 @@ void function PlayerWatchesSwitchingSidesKillReplay( entity player, bool doRepla
 			wait replayLength
 	}
 	else
-		wait SWITCHING_SIDES_DELAY_REPLAY // extra delay if no replay
+		wait SWITCHING_SIDES_DELAY // extra delay if no replay
 	
 	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
 	player.ClearReplayDelay()
@@ -591,6 +615,7 @@ void function GameStateEnter_SuddenDeath()
 {
 	// disable respawns, suddendeath calling is done on a kill callback
 	SetRespawnsEnabled( false )
+	file.enteredSuddenDeath = true
 
 	// defensive fixes, so game won't stuck in SuddenDeath forever
 	bool mltElimited = false
@@ -728,9 +753,6 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 				SetWinner( GetOtherTeam( victim.GetTeam() ), "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
 		}
 	}
-
-	if( file.playFactionDialogue && victim.IsTitan() )
-		KilledPlayerTitanDialogue( attacker, victim )
 }
 
 void function OnTitanKilled( entity victim, var damageInfo )
@@ -792,9 +814,6 @@ void function OnTitanKilled( entity victim, var damageInfo )
 				SetWinner( GetOtherTeam( victim.GetTeam() ), "#GAMEMODE_ENEMY_TITANS_DESTROYED", "#GAMEMODE_FRIENDLY_TITANS_DESTROYED" )
 		}
 	}
-
-	if( file.playFactionDialogue && victim.GetBossPlayer() != null ) // don't let killing a npc titan plays dialogue
-		KilledPlayerTitanDialogue( attacker, victim )
 }
 
 void function AddCallback_OnRoundEndCleanup( void functionref() callback )
@@ -1073,6 +1092,21 @@ void function DialoguePlayWinnerDetermined()
 {
 	int winningTeam = TEAM_UNASSIGNED
 
+	if( file.enteredSuddenDeath && !IsFFAGame() )
+	{
+		if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() > GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() )
+			winningTeam = TEAM_MILITIA
+		else if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() < GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() )
+			winningTeam = TEAM_IMC
+
+		if( winningTeam != TEAM_UNASSIGNED )
+		{
+			PlayFactionDialogueToTeam( "scoring_won" , winningTeam )
+			PlayFactionDialogueToTeam( "scoring_", GetOtherTeam( winningTeam ) )
+		}
+		return
+	}
+
 	if( GameRules_GetTeamScore( TEAM_MILITIA ) < GameRules_GetTeamScore( TEAM_IMC ) )
 		winningTeam = TEAM_IMC
 	if( GameRules_GetTeamScore( TEAM_MILITIA ) > GameRules_GetTeamScore( TEAM_IMC ) )
@@ -1154,43 +1188,5 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 	{
 		PlayFactionDialogueToTeam( "scoring_" + winning, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losing, losingTeam )
-	}
-}
-
-void function KilledPlayerTitanDialogue( entity attacker, entity victim )
-{
-	if( !attacker.IsPlayer() )
-		return
-	entity titan
-	if ( victim.IsTitan() )
-		titan = victim
-
-	if( !IsValid( titan ) )
-		return
-	string titanCharacterName = GetTitanCharacterName( titan )
-
-	switch( titanCharacterName )
-	{
-		case "ion":
-			PlayFactionDialogueToPlayer( "kc_pilotkillIon", attacker )
-			return
-		case "tone":
-			PlayFactionDialogueToPlayer( "kc_pilotkillTone", attacker )
-			return
-		case "legion":
-			PlayFactionDialogueToPlayer( "kc_pilotkillLegion", attacker )
-			return
-		case "scorch":
-			PlayFactionDialogueToPlayer( "kc_pilotkillScorch", attacker )
-			return
-		case "ronin":
-			PlayFactionDialogueToPlayer( "kc_pilotkillRonin", attacker )
-			return
-		case "northstar":
-			PlayFactionDialogueToPlayer( "kc_pilotkillNorthstar", attacker )
-			return
-		default:
-			PlayFactionDialogueToPlayer( "kc_pilotkilltitan", attacker )
-			return
 	}
 }

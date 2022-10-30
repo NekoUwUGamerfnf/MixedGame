@@ -341,6 +341,12 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 
 	string healerTitle = playerHealer.GetTitle()
 	string playerTitle = playerToRes.GetTitle()
+	if( healerTitle == "#BLEEDOUT_APPLYING_FIRST_AID" ||
+		healerTitle == "#BLEEDOUT_RECIEVING_FIRST_AID" )
+		healerTitle = "" // clear title if something goes wrong
+	if( playerTitle == "#BLEEDOUT_APPLYING_FIRST_AID" ||
+		playerTitle == "#BLEEDOUT_RECIEVING_FIRST_AID" )
+		playerTitle = ""
 
 	if( !isSelfRes )
 	{
@@ -392,8 +398,9 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 				if( !isSelfRes )
 				{
 					DeployAndEnableWeapons( playerHealer )
-					playerHealer.SetTitle( healerTitle )
+					//playerHealer.SetTitle( healerTitle ) // try to fix this
 				}
+				playerHealer.SetTitle( healerTitle )
 				playerHealer.MovementEnable()
 				Remote_CallFunction_NonReplay( playerHealer, "ServerCallback_BLEEDOUT_StopFirstAidProgressBar", attemptID )
 			
@@ -406,10 +413,11 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 				Remote_CallFunction_NonReplay( playerToRes, "ServerCallback_BLEEDOUT_StopFirstAidProgressBar", attemptID )
 				StopSoundOnEntity( playerToRes, "pilot_healthpack_small_healing" )
 				StopSoundOnEntity( playerToRes, "pilot_healthpack_large_healing" )
+				playerToRes.SetTitle( playerTitle )
 
 				if( file.isBleeding[ playerToRes ] ) // interrupted revive
 				{
-					playerToRes.SetTitle( playerTitle )
+					//playerToRes.SetTitle( playerTitle ) // try to fix this
 					if( isSelfRes )
 						EmitSoundOnEntityOnlyToPlayer( playerToRes, playerToRes, "pilot_healthpack_drop" )
 					else
@@ -564,7 +572,11 @@ void function TrackContinuousUse( entity player, entity useTarget, float useTime
 
 	float startTime = Time()
 	while ( Time() < startTime + useTime && (!doRequireUseButtonHeld || player.UseButtonPressed()) && !player.IsPhaseShifted() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
+	{
+		if( player.ContextAction_IsActive() ) // being interupted!
+			break
 		WaitFrame()
+	}
 
 	if ( ( !doRequireUseButtonHeld || player.UseButtonPressed() ) && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2  )
 		result.success = true
@@ -838,16 +850,17 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 		if( Bleedout_IsPlayerGettingFirstAid( player ) && !Bleedout_IsPlayerSelfHealing( player ) )
 		{	
 			hitBox.UnsetUsable()
-			//print( "hitBox being UnsetUsable()" )
+			print( "hitBox being UnsetUsable()" )
 		}
 		else if( !player.ContextAction_IsActive() ) // assuming this is player being executing, wait for it
 		{	
 			hitBox.SetUsable()
 			hitBox.SetUsableByGroup( "enemies pilot" )
-			//print( "hitBox being SetUsable()" )
+			print( "hitBox being SetUsable()" )
 		}
 
-		// defensive fixs
+		// defensive fixs( actually messed things up
+		/*
 		if( !player.ContextAction_IsActive() ) 
 		{
 			hitBox.SetUsable()
@@ -859,6 +872,7 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 			hitBox.UnsetUsable()
 			//print( "hitBox being UnsetUsable()" )
 		}
+		*/
 		WaitFrame()
 	}
 }
@@ -880,7 +894,7 @@ entity function CreateHitboxEntityForPlayer( entity player )
 	
 	hitBox.SetUsable()
     hitBox.SetUsableByGroup( "enemies pilot" )
-    hitBox.SetUsePrompts( "在身後按住 %use% 以進行處決", "在身後按下 %use% 以進行處決" )
+    hitBox.SetUsePrompts( "在目標身後按住 %use% 進行處決", "在目標身後按下 %use% 進行處決" )
 
     AddCallback_OnUseEntity( hitBox, ExecuteHitboxOwner )
 	return hitBox
@@ -901,8 +915,12 @@ void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 	// avoid this kind of crash... redo a SetUsable
 	if( owner.GetTeam() == player.GetTeam() )
 	{
-		hitBox.SetUsable() // reset usable
-		hitBox.SetUsableByGroup( "enemies pilot" )
+		WaitFrame()
+		if( IsValid( hitBox ) )
+		{
+			hitBox.SetUsable() // reset usable
+			hitBox.SetUsableByGroup( "enemies pilot" )
+		}
 		return
 	}
 
