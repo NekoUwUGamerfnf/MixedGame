@@ -59,6 +59,17 @@ void function BleedoutDamage_Init()
 		
 		AddDamageCallback( "player", HandleDamageForBleedout ) // do this irregardless of whether scripts inited, given it should always be used for bleedout
 		
+		// register signals here to avoid issue
+		RegisterSignal( "BleedOut_StopBleeding" )
+		RegisterSignal( "BleedOut_OnRevive" )
+		RegisterSignal( "BleedOut_OnStartDying" )
+		RegisterSignal( "OnContinousUseStopped" )
+
+		// modifed signal
+		RegisterSignal( "BleedoutHealthRegenThink" )
+		RegisterSignal( "Bleedout_PlayerAttemptRes" )
+		RegisterSignal( "Bleedout_OnStartReviving" )
+
 		// nessie mix for better behavior
 		//Bleedout_SetCallback_OnPlayerStartBleedout( OnPlayerBleedoutBegin ) // kinda sucks we have to use this callback since game scripts could be using it		
 		// abandoned, using a better check now
@@ -108,8 +119,38 @@ void function HandleDamageForBleedout( entity player, var damageInfo )
 {
 	//if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || player.IsTitan() || file.bleedingPlayers.contains( player ) )
 	// doing a better check through _bleedout.gnut
-	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || player.IsTitan() || Bleedout_IsPlayerBleeding( player ) )	
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || player.IsTitan() )	
 		return
+	// handling downed player damages
+	if( Bleedout_IsPlayerBleeding( player ) )
+	{
+		if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
+		{	
+			DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+			// Delete any shield health remaining
+			player.SetShieldHealth( 0 )
+			entity attacker = DamageInfo_GetAttacker( damageInfo )
+			entity realAttacker = Bleedout_GetLastAttacker( player )
+			if( IsValid( attacker ) && IsValid( realAttacker ) ) // real attacker exists
+			{
+				if( realAttacker.IsPlayer() && attacker.IsPlayer() && realAttacker != player && realAttacker != attacker )
+				{ // player is killed by other players, redirect score to knockdowner
+					DamageInfo_SetDamage( damageInfo, 1 )
+					player.TakeDamage( player.GetMaxHealth() + 1, 
+									   realAttacker, 
+									   realAttacker, 
+									   { // damage table
+										weapon = DamageInfo_GetWeapon( damageInfo ), 
+										origin = DamageInfo_GetDamagePosition( damageInfo ), 
+										force = DamageInfo_GetDamageForce( damageInfo ), 
+										scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+										damageSourceId = eDamageSourceId.bleedout // proper damageSource for now
+										})
+				}
+			}
+		}
+		return // then codes below should handle "!Bleedout_IsPlayerBleeding( player )" conditions
+	}
 	
 	if ( file.shouldPlayerStartBleedoutFunc != null )
 		if ( !file.shouldPlayerStartBleedoutFunc( player, damageInfo ) )
@@ -117,6 +158,7 @@ void function HandleDamageForBleedout( entity player, var damageInfo )
 	
 	// check if damage would kill player, should leave a check for shield health!
 	//if ( player.GetHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
+	// doing a better check including shield health
 	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
 	{	
 		// nessie mixing, adding killshot sound stuffs

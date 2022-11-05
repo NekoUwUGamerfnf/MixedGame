@@ -1,4 +1,5 @@
 //Bleed Out Mechanic Shared by several game modes.
+// WIP: Health limited incap shield, maybe not necessary
 /*
 WARNING BY NESSIE: Bleedout_DiableWallrunAndDoubleJump() and Bleedout_EnableWallrunAndDoubleJump()
 existing, which will do a "OnClassChange" after being downed or revived, please notice!
@@ -66,6 +67,7 @@ struct
 
 void function Bleedout_Init()
 {
+	/* Registrations should be done in sh_bleedout_damage.gnut
 	RegisterSignal( "BleedOut_StopBleeding" )
 	RegisterSignal( "BleedOut_OnRevive" )
 	RegisterSignal( "BleedOut_OnStartDying" )
@@ -75,6 +77,7 @@ void function Bleedout_Init()
 	RegisterSignal( "BleedoutHealthRegenThink" )
 	RegisterSignal( "Bleedout_PlayerAttemptRes" )
 	RegisterSignal( "Bleedout_OnStartReviving" )
+	*/
 
 	AddCallback_OnClientConnected( Bleedout_OnClientConnected )
 	AddCallback_OnClientDisconnected( Bleedout_OnClientDisconnected )
@@ -147,7 +150,8 @@ void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	Bleedout_PlayerDownedObit( player, attacker, damageInfo )
 
 	// this should done before callbacks since it triggers a "OnClassChange"
-	Bleedout_DiableWallrunAndDoubleJump( player ) 
+	// done using Bleedout_PlayerMovementLimiter()
+	//Bleedout_DiableWallrunAndDoubleJump( player ) 
 
 	EmitSoundOnEntityToTeam( player, "UI_Spawn_FriendlyPilot", player.GetTeam() )
 	foreach( void functionref( entity, entity, var ) callbackFunc in file.Callbacks_OnPlayerStartBleedout )
@@ -190,7 +194,7 @@ void function PlayerDying( entity player )
 	//ids.append( StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.25 ) )
 	//ids.append( StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.3 ) )
 	ids.append( StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.2 ) )
-	ids.append( StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.1 ) )
+	ids.append( StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.2 ) )
 
 	//if ( bleedoutTime > 0 )
 	//	ids.append( StatusEffect_AddEndless( player, eStatusEffect.bleedoutDOF, 1.0 ) )
@@ -205,7 +209,8 @@ void function PlayerDying( entity player )
 	*/
 	player.SetTitle( "#DEATH_BLEEDOUT" )
 	player.SetOneHandedWeaponUsageOn()
-	thread Bleedout_PlayerSlidePrevention( player )
+	//thread Bleedout_PlayerSlidePrevention( player )
+	thread Bleedout_PlayerMovementLimiter( player )
 	thread Bleedout_EnemySpottingHighlight( player )
 
 	if ( forceHolster )
@@ -487,7 +492,8 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 		ClearPlayerEliminated( playerToRes )
 
 	// this should done before callbacks since it triggers a "OnClassChange"
-	Bleedout_EnableWallrunAndDoubleJump( playerToRes )
+	// done using Bleedout_PlayerMovementLimiter()
+	//Bleedout_EnableWallrunAndDoubleJump( playerToRes )
 
 	//Heal player health
 	playerToRes.SetHealth( playerToRes.GetMaxHealth() * firstAidHealPercent )
@@ -780,6 +786,30 @@ void function Bleedout_DeathProtection( entity player )
 	wait file.protectionDuration
 	if( IsValid( player ) )
 		player.ClearInvulnerable()
+}
+
+void function Bleedout_PlayerMovementLimiter( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "BleedOut_StopBleeding" )
+	player.EndSignal( "BleedOut_OnRevive" )
+	//bool lastFrameSlide // for checks
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+				player.SetGroundFrictionScale( 1 )
+		}
+	)
+
+	while( true )
+	{
+		player.SetGroundFrictionScale( 9999 ) // really high to prevent sliding
+		player.ConsumeDoubleJump()
+		WaitFrame()
+	}
 }
 
 void function Bleedout_PlayerSlidePrevention( entity player )
@@ -1129,6 +1159,21 @@ void function Bleedout_IncapShieldThink( entity player )
 	}
 }
 
+void function UpdateShieldPosition( entity mover, entity owner )
+{
+	mover.NonPhysicsMoveTo( owner.GetOrigin(), 0.1, 0.0, 0.0 )
+	vector angles = owner.EyeAngles()
+	float yaw = angles.y
+	yaw %= 360
+	mover.NonPhysicsRotateTo( <0,yaw,180>, 1.35, 0, 0 )
+
+//	float yaw = GetYawForEnemyOrLKP( owner )
+//	float boost = sin( Time() * 1.5 ) * 65
+//	yaw += boost
+//	yaw %= 360
+//	mover.NonPhysicsRotateTo( <0,yaw,0>, 0.95, 0, 0 )
+}
+
 bool function IsInValidIncapShieldState( entity player )
 {
 	if( Bleedout_IsPlayerGettingFirstAid( player ) ||
@@ -1139,7 +1184,7 @@ bool function IsInValidIncapShieldState( entity player )
 	return true
 }
 
-void function CreateIncapShieldForBleedingPlayer( entity player )
+entity function CreateIncapShieldForBleedingPlayer( entity player )
 {
 	vector angles = VectorToAngles( player.EyeAngles() )
 	int maxHealth = file.incapShieldMaxHealth
@@ -1159,6 +1204,7 @@ void function CreateIncapShieldForBleedingPlayer( entity player )
 	vortexSphere.SetOrigin( < 31,0,31 > )
 	EffectSetControlPointVector( vortexSphere.e.shieldWallFX, 1, GetIncapShieldCurrentColor( 1.0 - GetHealthFrac( vortexSphere ) ) )
 
+	return vortexSphere
 	// abandoned, player should have a invulnerable shield
 	//AddEntityCallback_OnDamaged( vortexSphere, IncapShieldTableUpdate )
 
@@ -1200,9 +1246,9 @@ void function Stop1PFXOnDestroy( entity vortexSphere, entity shieldWallFX1P )
 	WaitForever()
 }
 
-const vector BLEEDOUT_INCAP_SHIELD_COLOR_FULL		 = <46, 75, 100>	// blue
-const vector BLEEDOUT_INCAP_SHIELD_COLOR_MED		 = <122, 64, 40>	// orange
-const vector BLEEDOUT_INCAP_SHIELD_COLOR_EMPTY		 = <122, 40, 40>	// red
+const vector BLEEDOUT_INCAP_SHIELD_COLOR_FULL		 = <125, 150, 200>	// blue
+const vector BLEEDOUT_INCAP_SHIELD_COLOR_MED		 = <255, 128, 80>	// orange
+const vector BLEEDOUT_INCAP_SHIELD_COLOR_EMPTY		 = <255, 80, 80>	// red
 
 vector function GetIncapShieldCurrentColor( float chargeFrac, vector fullHealthColor = BLEEDOUT_INCAP_SHIELD_COLOR_FULL, vector medHealthColor = BLEEDOUT_INCAP_SHIELD_COLOR_MED, vector emptyHealthColor = BLEEDOUT_INCAP_SHIELD_COLOR_EMPTY )
 {

@@ -6,6 +6,9 @@ global function SetShieldBatteryNoLimit
 global function SetShieldBatteryUseTime
 global function SetShieldBatteryRegenAmount
 
+// mainly for bleedout modes
+global function SetShieldBatteryInputOverwritesBoost
+
 global function IsShieldBatteryEnabled
 global function GetPlayerLastShieldBatteryUsedTime // default return 0
 
@@ -24,6 +27,7 @@ struct
     int ampedBatteryRegenAmount = 999
 
     bool canUseShiledBattery = false
+    bool shieldBatteryOverwritesBoost = false
     bool noLimitBattery = false // let player use batteries whenever they want, for fun
 } file
 
@@ -47,8 +51,15 @@ void function OnClientConnected( entity player )
     player.s.shieldBatteryEndFunction <- false  // bool
     player.s.usingShieldBattery <- false        // bool
     player.s.lastShieldBatteryUsedTime <- 0.0   // float
-    AddPlayerHeldButtonEventCallback( player, IN_USE, TryUseShieldBattery, SHIELD_BATTERY_BUTTON_HOLD_TIME )
-    AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, TryUseShieldBattery, SHIELD_BATTERY_BUTTON_HOLD_TIME * 2 )
+    if( file.shieldBatteryOverwritesBoost )
+    {
+        AddButtonPressedPlayerInputCallback( player, IN_OFFHAND4, TryUseShieldBattery )
+    }
+    else
+    {
+        AddPlayerHeldButtonEventCallback( player, IN_USE, TryUseShieldBattery, SHIELD_BATTERY_BUTTON_HOLD_TIME )
+        AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, TryUseShieldBattery, SHIELD_BATTERY_BUTTON_HOLD_TIME * 2 )
+    }
 }
 
 void function TryUseShieldBattery( entity player )
@@ -64,28 +75,63 @@ void function TryUseShieldBattery_Threaded( entity player )
         return
     if( expect bool( player.s.usingShieldBattery ) )
         return
-    if( !( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) ) )
-        return
+    if( !file.shieldBatteryOverwritesBoost )
+    {
+        if( !( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) ) )
+            return
+    }
 
     //thread ContinuousUseThink( player )
     player.EndSignal( "StopUseShieldBattery" )
     player.EndSignal( "OnDestroy" )
     player.EndSignal( "OnDeath" )
+    // bleedout mode checks
+    player.EndSignal( "BleedOut_StopBleeding" )
+	player.EndSignal( "BleedOut_OnRevive" )
 
+    entity batteryWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
     entity battery = GetBatteryOnBack( player )
     if( !IsValid( battery ) )
     {
-        SendHudMessage( player, "未持有电池", -1, -0.3, 255, 255, 100, 255, 0, 1, 0 )
-        return
+        if( file.shieldBatteryOverwritesBoost && IsValid( batteryWeapon ) )
+        {
+            if( batteryWeapon.HasMod( "burnmeter_emergency_battery" ) )
+            {
+                SendHudMessage( player, "未持有电池, 尝试使用强化卡...", -1, -0.3, 255, 255, 100, 255, 0, 1, 0 )
+                waitthread WaitForPlayerGetBatteryFromBoost( player )
+                wait 0.1 // defensive fix for script to get batteryOnBack
+                battery = GetBatteryOnBack( player ) // done use boost, check battery again
+                if( !IsValid( battery ) )
+                {
+                    SendHudMessage( player, "获取电池失败!", -1, -0.3, 255, 255, 100, 255, 0, 1, 0 )
+                    return
+                }
+            }
+            else
+            {
+                SendHudMessage( player, "未持有电池", -1, -0.3, 255, 255, 100, 255, 0, 1, 0 )
+                return
+            }
+        }
+        else
+        {
+            SendHudMessage( player, "未持有电池", -1, -0.3, 255, 255, 100, 255, 0, 1, 0 )
+            return
+        }
     }
     if( !file.noLimitBattery && ( player.GetShieldHealthMax() < 1 || player.GetShieldHealth() == player.GetShieldHealthMax() ) )
     {
         SendHudMessage( player, "护盾已满", -1, -0.3, 255, 255, 100, 255, 0, 1, 0 )
+        if( file.shieldBatteryOverwritesBoost )
+        { // re-deploy weapon if shield is full
+            player.HolsterWeapon()
+            player.DeployWeapon()
+        }
         return
     }
 
     battery.EndSignal( "OnDestroy" )
-    player.s.shieldBatteryEndFunction = true
+    player.s.shieldBatteryEndFunction = true // if player cancels usage it will run more functions
     player.s.usingShieldBattery = true
 
     array<string> savedMods = player.GetPlayerSettingsMods()
@@ -153,7 +199,7 @@ void function TryUseShieldBattery_Threaded( entity player )
 
     player.HolsterWeapon()
     player.Server_TurnOffhandWeaponsDisabledOn()
-	SendHudMessage( player, "正在取出护盾电池\n(按下开火以取消)", -1, -0.3, 255, 255, 100, 255, 0, 0.2, 0 )
+	SendHudMessage( player, "正在取出护盾电池\n(按下开火以取消)", -1, -0.3, 255, 255, 100, 255, 0, 1.0, 0 )
     wait 0.6 // wait for player hoster their weapon
     battery.ClearParent()
     battery.SetParent( player, "PROPGUN" )
@@ -188,12 +234,16 @@ void function TryUseShieldBattery_Threaded( entity player )
 
     entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
     //EmitSoundOnEntityOnlyToPlayer( player, player, "UI_TitanBattery_Pilot_Give_TitanBattery" )
+    SetTeam( shieldFXHandle, player.GetTeam() )
+    shieldFXHandle.SetOwner( player )
 
     if( isAmped )
         EffectSetControlPointVector( shieldFXHandle, 1, < 255, 165, 0 > )
     else
         EffectSetControlPointVector( shieldFXHandle, 1, < 30, 255, 100 > )
     //print( "Reached here! 3" )
+    if( shieldToRestore <= file.batteryRegenAmount ) // consider shield is full, not showing a extra fx
+        shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
 
     SendHudMessage( player, "已回复" + string(shieldToRestore) + "点护盾! ", -1, -0.3, 255, 255, 100, 255, 0, 2, 0 )
 
@@ -205,6 +255,25 @@ void function TryUseShieldBattery_Threaded( entity player )
         //print( "Reached here! 4" )
         if( battery == newestBattery )
             newestBattery.Destroy()
+    }
+}
+
+void function WaitForPlayerGetBatteryFromBoost( entity player )
+{
+    entity batteryWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
+    batteryWeapon.EndSignal( "OnDestroy" )
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+
+    float maxWaitTime = 1.5 // defensive fix, maybe player will stuck in this thread?
+    float startTime = Time()
+    while( true )
+    {
+        WaitFrame()
+        if( Time() > startTime + maxWaitTime )
+            break
+        if( IsValid( GetBatteryOnBack( player ) ) ) // player got their battery
+            break
     }
 }
 
@@ -280,6 +349,11 @@ void function SetPilotBatteryUsageAllowed( bool allowed )
 void function SetShieldBatteryNoLimit( bool nolimit )
 {
     file.noLimitBattery = nolimit
+}
+
+void function SetShieldBatteryInputOverwritesBoost( bool overwrite )
+{
+    file.shieldBatteryOverwritesBoost = overwrite
 }
 
 void function SetShieldBatteryUseTime( float batteryUseTime, float ampedBatteryUseTime )

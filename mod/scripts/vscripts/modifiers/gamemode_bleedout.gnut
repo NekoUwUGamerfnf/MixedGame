@@ -25,14 +25,17 @@ const bool GAMEMODE_DEATH_ON_TEAM_BLEEDOUT = false
 const float BLEEDOUT_MODE_SHIELD_BATTERY_USETIME = 2.1 // remember try to avoid sound issue
 const float BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_USETIME = 7.0
 const int BLEEDOUT_MODE_SHIELD_BATTERY_REGEN_AMOUNT = 125
-const int BLEEDOUT_MODE_REVIVING_FRIENDLY_REWARD = 80
+const int BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD = 80
+const int BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD = 80
 const int BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_REGEN_AMOUNT = 300
 
 const int BLEEDOUT_MODE_HEALTH = 100
 const int BLEEDOUT_MODE_SHIELD_HEALTH = 125
 
 const float BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE = 0.1
-const float BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE = 0.2
+const float BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE = 0.3
+const float BLEEDOUT_MODE_PILOT_ASSIST_EARNED_VALUE = 0.3
+const float BLEEDOUT_MODE_PILOT_ASSIST_OWNED_VALUE = 0.0
 
 const array<string> BLEEDOUT_MODE_DISABLED_TACTICALS = [ "mp_weapon_deployable_cover", "mp_ability_cloak" ]
 const string BLEEDOUT_MODE_REPLACEMENT_TACTICAL = "mp_ability_grapple"
@@ -40,11 +43,11 @@ const string BLEEDOUT_MODE_REPLACEMENT_TACTICAL = "mp_ability_grapple"
 void function Modded_Gamemode_Bleedout_Init()
 {
     Rodeo_SetBatterySkinRandom( false ) // from _rodeo_titan.gnut
-    SetShouldDoShieldBatteryNotification( true ) // from _rodeo_titan.gnut
     Bleedout_EnableExecutingBleedingPlayer( true ) // funny
     //SetSyncedMeleeNoLimit( true ) // so you can execute anywhere
     //Rodeo_SetBatteryThrowEnabled( true ) // messed up
     SetBurnCardAllBattery( true ) // from _burnmeter.gnut
+    SetShieldBatteryInputOverwritesBoost( true )
     //SetAltPilotChance( 1 ) // always change model, caused issue?
     //SetShouldFUCKOFFCLOAK( true ) // fuck them
     ScoreEvent_ForceUsePilotEliminateEvent( true ) // from _score.nut, do special "Eliminate Pilot" Score event
@@ -58,6 +61,7 @@ void function Modded_Gamemode_Bleedout_Init()
     Bleedout_AddCallback_OnPlayerGiveFirstAid( BleedoutMode_OnPlayerRevived )
 
     //AddCallback_GameStateEnter( eGameState.Playing, SetBleedoutState )
+    AddCallback_OnClientConnected( OnClientConnected )
     AddCallback_PlayerClassChanged( OnPlayerClassChanged )
     AddCallback_OnPlayerRespawned( OnPlayerRespawned )
     AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsPilotLoadout )
@@ -90,6 +94,12 @@ void function SetBleedoutState()
     
 
     //BleedoutShared_Init( 30, 4,8, 0.4,0.5, true,true )
+}
+
+void function OnClientConnected( entity player )
+{
+    AddButtonPressedPlayerInputCallback( player, IN_USE, GetShieldLeft )
+    AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, GetShieldLeft )
 }
 
 void function OnPlayerClassChanged( entity player )
@@ -151,6 +161,26 @@ void function DelayedCheckMelee( entity player )
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
     ClearNessy( victim )
+    int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    // reward for executions
+    if( !IsValid( attacker ) )
+        return
+    if( damageSourceID == eDamageSourceId.human_execution && attacker.IsPlayer() )
+    {
+        entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( attacker, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, attacker.LookupAttachment( "CHESTFOCUS" ) )
+        SetTeam( shieldFXHandle, attacker.GetTeam() )
+        shieldFXHandle.SetOwner( attacker )
+        EffectSetControlPointVector( shieldFXHandle, 1, < 30, 255, 100 > )
+        
+        int currentShieldHealth = attacker.GetShieldHealth()
+        int shieldToRestore = int( min( attacker.GetShieldHealthMax() - currentShieldHealth, BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD ) )
+        if( shieldToRestore <= BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD ) // consider shield is full, not showing a extra fx
+            shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
+        attacker.SetShieldHealth( min( attacker.GetShieldHealthMax(), attacker.GetShieldHealth() + shieldToRestore ) )
+        SendHudMessage( attacker, "处决一名敌人, 已回复" + string(shieldToRestore) + "点护盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+        MessageToPlayer( attacker, eEventNotifications.VANGUARD_ShieldGain, attacker )
+    }
     // abandoned, only using emergency batteries
     /*
     entity battery = Rodeo_CreateBatteryPack()
@@ -174,7 +204,7 @@ bool function OnTouchBatteryPack( entity player, entity batteryPack )
         print( GetPlayerLastShieldBatteryUsedTime( player ) >= Time() - 1.0 )    
         return false
     }
-    SendHudMessage( player, "按住 蹲下 和 上机 按键\n使用护盾电池", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+    SendHudMessage( player, "按 强化 按键\n使用护盾电池", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
 
     //Basically always return false since we don't want the battery pack to go away when being touched. ApplyBatteryToTitan() etc will deal with lifetime of battery
 	return false
@@ -183,6 +213,7 @@ bool function OnTouchBatteryPack( entity player, entity batteryPack )
 void function SetBleedoutModeScoreEvent()
 {
     ScoreEvent_SetEarnMeterValues( "EliminatePilot", BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE, BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE )
+    ScoreEvent_SetEarnMeterValues( "PilotAssist", BLEEDOUT_MODE_PILOT_ASSIST_EARNED_VALUE, BLEEDOUT_MODE_PILOT_ASSIST_OWNED_VALUE )
 }
 
 void function BleedoutMode_OnPlayerDowned( entity player, entity attakcer, var damageInfo )
@@ -206,11 +237,20 @@ void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHea
     if( playerHealer == playerToRes ) // selfRes
         return
     entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( playerHealer, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, playerHealer.LookupAttachment( "CHESTFOCUS" ) )
+    SetTeam( shieldFXHandle, playerHealer.GetTeam() )
+    shieldFXHandle.SetOwner( playerHealer )
     EffectSetControlPointVector( shieldFXHandle, 1, < 30, 255, 100 > )
     
     int currentShieldHealth = playerHealer.GetShieldHealth()
-    int shieldToRestore = int( min( playerHealer.GetShieldHealthMax() - currentShieldHealth, BLEEDOUT_MODE_REVIVING_FRIENDLY_REWARD ) )
+    int shieldToRestore = int( min( playerHealer.GetShieldHealthMax() - currentShieldHealth, BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD ) )
+    if( shieldToRestore <= BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD ) // consider shield is full, not showing a extra fx
+        shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
     playerHealer.SetShieldHealth( min( playerHealer.GetShieldHealthMax(), playerHealer.GetShieldHealth() + shieldToRestore ) )
     SendHudMessage( playerHealer, "复活一名队友, 已回复" + string(shieldToRestore) + "点护盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
-    MessageToPlayer( playerHealer, eEventNotifications.Rodeo_PilotAppliedBatteryToYou, playerHealer, false )
+    MessageToPlayer( playerHealer, eEventNotifications.VANGUARD_ShieldGain, playerHealer )
+}
+
+void function GetShieldLeft( entity player )
+{
+    SendHudMessage( player, "剩余护盾值: " + string( player.GetShieldHealth() ) + " / " + string( player.GetShieldHealthMax() ), -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
 }
