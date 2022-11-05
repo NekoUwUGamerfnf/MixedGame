@@ -112,7 +112,7 @@ void function OnProjectileCollision_FlameWall( entity projectile, vector pos, ve
 }
 
 #if SERVER
-void function BeginFlameWave( entity projectile, int projectileCount, entity inflictor, WeaponPrimaryAttackParams attackParams, vector direction, bool shouldHavePeriod = true )
+void function BeginFlameWave( entity projectile, int projectileCount, entity inflictor, WeaponPrimaryAttackParams attackParams, vector direction )
 {
 	projectile.EndSignal( "OnDestroy" )
 	projectile.SetAbsOrigin( projectile.GetOrigin() )
@@ -123,10 +123,7 @@ void function BeginFlameWave( entity projectile, int projectileCount, entity inf
 	projectile.Hide()
 	projectile.NotSolid()
 	projectile.proj.savedOrigin = < -999999.0, -999999.0, -999999.0 >
-	vector startPos = attackParams.pos
-	if( shouldHavePeriod )
-		startPos = attackParams.pos + direction * 25.0
-	waitthread WeaponAttackWave( projectile, projectileCount, inflictor, startPos, attackParams.dir, CreateThermiteWallSegment )
+	waitthread WeaponAttackWave( projectile, projectileCount, inflictor, attackParams.pos + direction * 25.0, direction, CreateThermiteWallSegment )
 	projectile.Destroy()
 }
 

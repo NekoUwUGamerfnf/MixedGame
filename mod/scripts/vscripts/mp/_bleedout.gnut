@@ -1,7 +1,8 @@
 //Bleed Out Mechanic Shared by several game modes.
 // WIP: Health limited incap shield, maybe not necessary
 /*
-WARNING BY NESSIE: Bleedout_DiableWallrunAndDoubleJump() and Bleedout_EnableWallrunAndDoubleJump()
+WARNING BY NESSIE( fixed by Bleedout_PlayerMovementLimiter() ): 
+Bleedout_DiableWallrunAndDoubleJump() and Bleedout_EnableWallrunAndDoubleJump()
 existing, which will do a "OnClassChange" after being downed or revived, please notice!
 maybe when bleeding player is wallrunning we FreezeControl could be better? like SlidePrevention()
 */
@@ -146,6 +147,7 @@ void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 		}
 	}
 	
+	player.ClearParent()
 	Bleedout_PlayerDownedSound( player, attacker )
 	Bleedout_PlayerDownedObit( player, attacker, damageInfo )
 
@@ -201,7 +203,7 @@ void function PlayerDying( entity player )
 
 	file.isBleeding[ player ] = true
 
-	player.ForceCrouch()
+	//player.ForceCrouch() // handle in PlayerMovementLimiter()
 	/*
 	string playerTitle = player.GetTitle()
 	if( playerTitle != "#DEATH_BLEEDOUT" && playerTitle !=  )
@@ -211,6 +213,7 @@ void function PlayerDying( entity player )
 	player.SetOneHandedWeaponUsageOn()
 	//thread Bleedout_PlayerSlidePrevention( player )
 	thread Bleedout_PlayerMovementLimiter( player )
+	thread Bleedout_ScreenFadeThink( player )
 	thread Bleedout_EnemySpottingHighlight( player )
 
 	if ( forceHolster )
@@ -231,7 +234,7 @@ void function PlayerDying( entity player )
 				file.isBleeding[ player ] = false
 				file.lastAttacker[ player ] = svGlobal.worldspawn
 
-				player.UnforceCrouch()
+				//player.UnforceCrouch()
 				thread Bleedout_PlayerForceStand( player )
 				//player.SetTitle( file.playerSavedTitle[player] ) // no more this
 				player.SetTitle( "" )
@@ -495,9 +498,6 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 	// done using Bleedout_PlayerMovementLimiter()
 	//Bleedout_EnableWallrunAndDoubleJump( playerToRes )
 
-	//Heal player health
-	playerToRes.SetHealth( playerToRes.GetMaxHealth() * firstAidHealPercent )
-
 	foreach( void functionref( entity, entity ) callbackFunc in file.Callbacks_OnPlayerGiveFirstAid )
 	{
 		//if ( IsValid( callbackFunc ) )
@@ -508,6 +508,8 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 		//}
 		callbackFunc( playerToRes, playerHealer )
 	}
+	//Heal player health
+	playerToRes.SetHealth( playerToRes.GetMaxHealth() * firstAidHealPercent )
 
 	playerToRes.Signal( "BleedOut_OnRevive" )
 
@@ -608,27 +610,46 @@ void function TrackContinuousUse( entity player, entity useTarget, float useTime
 
 	table result = {}
 	result.success <- false
+	result.unsetUsable <- false
 
 	float maxDist2 = DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) + BLEEDOUT_MAX_USE_DIST2_MOD
 
 	OnThreadEnd
 	(
-		function() : ( player, result )
+		function() : ( player, useTarget, result )
 		{
 			if ( !result.success )
 			{
-				player.Signal( "OnContinousUseStopped" )
+				if( IsValid( player ) )
+					player.Signal( "OnContinousUseStopped" )
+			}
+			if( result.unsetUsable )
+			{
+				if( IsAlive( useTarget ) )
+				{
+					useTarget.SetUsableByGroup( "friendlies pilot" )
+					useTarget.SetUsePrompts( "#BLEEDOUT_USE_TEAMMATE_RES", "#BLEEDOUT_USE_TEAMMATE_RES_PC" )
+				}
 			}
 		}
 	)
 
+	bool isSelfUse = player == useTarget
 	float startTime = Time()
+	float unsetUsableTime = useTime - Bleedout_GetFirstAidTime()
+	if( unsetUsableTime <= 0 )
+		unsetUsableTime = 9999
 	while ( Time() < startTime + useTime && (!doRequireUseButtonHeld || player.UseButtonPressed()) && !player.IsPhaseShifted() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
 	{
 		if( player.ContextAction_IsActive() ) // being interupted!
 			return
-		if( player != useTarget && Bleedout_IsPlayerBleeding( player ) ) // not selfRes and being downed!
+		if( !isSelfUse && Bleedout_IsPlayerBleeding( player ) ) // not selfRes and being downed!
 			return
+		if( isSelfUse && Time() >= startTime + unsetUsableTime )
+		{ // prevent almostDoned selfRes being interrupt
+			player.UnsetUsable()
+			result.unsetUsable = true
+		}
 		WaitFrame()
 	}
 
@@ -645,27 +666,48 @@ void function DEBUG_AutoUsePress( entity player, entity useTarget, float useTime
 
 	table result = {}
 	result.success <- false
+	result.unsetUsable <- false
 
 	float maxDist2 = DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) + BLEEDOUT_MAX_USE_DIST2_MOD
 
 	OnThreadEnd
 	(
-		function() : ( player, result )
+		function() : ( player, useTarget, result )
 		{
 			if ( !result.success )
 			{
-				player.Signal( "OnContinousUseStopped" )
+				if( IsValid( player ) )
+					player.Signal( "OnContinousUseStopped" )
+			}
+			if( result.unsetUsable )
+			{
+				if( IsAlive( useTarget ) )
+				{
+					useTarget.SetUsableByGroup( "friendlies pilot" )
+					useTarget.SetUsePrompts( "#BLEEDOUT_USE_TEAMMATE_RES", "#BLEEDOUT_USE_TEAMMATE_RES_PC" )
+				}
 			}
 		}
 	)
 
+	bool isSelfUse = player == useTarget
 	float startTime = Time()
+	float unsetUsableTime = useTime - Bleedout_GetFirstAidTime()
+	if( unsetUsableTime <= 0 )
+		unsetUsableTime = 9999
 	while ( Time() < startTime + useTime && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
 	{
+		if( Time() >= startTime + 0.5 && player.IsInputCommandHeld( IN_USE ) ) // manually stop
+			return
 		if( player.ContextAction_IsActive() ) // being interupted!
 			return
-		if( player != useTarget && Bleedout_IsPlayerBleeding( player ) ) // not selfRes and being downed!
+		if( !isSelfUse && Bleedout_IsPlayerBleeding( player ) ) // not selfRes and being downed!
 			return
+		if( isSelfUse && Time() >= startTime + unsetUsableTime )
+		{ // prevent almostDoned selfRes being interrupt
+			player.UnsetUsable()
+			result.unsetUsable = true
+		}
 		WaitFrame()
 	}
 
@@ -800,12 +842,16 @@ void function Bleedout_PlayerMovementLimiter( entity player )
 		function(): ( player )
 		{
 			if( IsValid( player ) )
+			{
+				player.UnforceCrouch()
 				player.SetGroundFrictionScale( 1 )
+			}
 		}
 	)
 
 	while( true )
 	{
+		player.ForceCrouch()
 		player.SetGroundFrictionScale( 9999 ) // really high to prevent sliding
 		player.ConsumeDoubleJump()
 		WaitFrame()
@@ -889,6 +935,7 @@ void function Bleedout_PlayerHolsterWeapon( entity player )
 
 void function Bleedout_PlayerForceStand( entity player )
 {
+	player.UnforceCrouch()
 	player.ForceStand()
 	wait 0.2
 	if( IsValid( player ) )
@@ -948,7 +995,6 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 		}
 		else if( !player.ContextAction_IsActive() ) // assuming this is player being executing, wait for it
 		{	
-			hitBox.SetUsable()
 			hitBox.SetUsableByGroup( "enemies pilot" )
 			//print( "hitBox being SetUsable()" )
 		}
@@ -957,7 +1003,6 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 		/*
 		if( !player.ContextAction_IsActive() ) 
 		{
-			hitBox.SetUsable()
 			hitBox.SetUsableByGroup( "enemies pilot" )
 			//print( "hitBox being SetUsable()" )
 		}
@@ -986,7 +1031,6 @@ entity function CreateHitboxEntityForPlayer( entity player )
 	
 	hitBox.SetOwner( player )
 	
-	hitBox.SetUsable()
     hitBox.SetUsableByGroup( "enemies pilot" )
     hitBox.SetUsePrompts( "在目標身後按住 %use% 進行處決", "在目標身後按下 %use% 進行處決" )
 
@@ -1012,7 +1056,6 @@ void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 		WaitFrame()
 		if( IsValid( hitBox ) )
 		{
-			hitBox.SetUsable() // reset usable
 			hitBox.SetUsableByGroup( "enemies pilot" )
 		}
 		return
@@ -1034,7 +1077,6 @@ void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 			hitBox.Destroy()
 		else
 		{
-			hitBox.SetUsable() // reset usable
 			hitBox.SetUsableByGroup( "enemies pilot" )
 		}
 	}
@@ -1315,6 +1357,31 @@ void function IncapShieldTableUpdate( entity vortexSphere, var damageInfo )
 	//file.incapShieldHealthTable[ owner ] = max( int( calcDamage ), 0 )
 }
 
+void function Bleedout_ScreenFadeThink( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "BleedOut_StopBleeding" )
+	player.EndSignal( "BleedOut_OnRevive" )
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+			{
+				ScreenFade( player, 0, 0, 0, 125, 0.1, 0.1, FFADE_IN | FFADE_PURGE )
+			}
+		}
+	)
+
+	float bleedingTime = Bleedout_GetBleedoutTime()
+
+	wait bleedingTime * 0.5
+	
+	ScreenFade( player, 0, 0, 0, 225, bleedingTime * 0.5, 999, FFADE_OUT | FFADE_PURGE )
+	WaitForever()
+}
+
 void function Bleedout_SetProtectionDuration( float duration )
 {
 	file.protectionDuration = duration
@@ -1328,9 +1395,9 @@ void function Bleedout_SetIncapShieldHealth( int health )
 void function Bleedout_HealthRegenThink( entity player )
 {
     player.EndSignal( "OnDestroy" )
-	player.Signal( "BleedoutHealthRegenThink" )
+	//player.Signal( "BleedoutHealthRegenThink" ) // why this not getting registered most of time..
 	player.Signal( "StopHealthRegenThink" ) // end normal health regen in _health_regen.gnut
-	player.EndSignal( "BleedoutHealthRegenThink" )
+	//player.EndSignal( "BleedoutHealthRegenThink" )
 	player.EndSignal( "StopHealthRegenThink" )
 
 	float healthRegenStartDelay = file.bleedoutHealthRegenDelay

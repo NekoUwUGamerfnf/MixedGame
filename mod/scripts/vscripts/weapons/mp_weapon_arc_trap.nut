@@ -61,7 +61,8 @@ function MpWeaponArcTrap_Init()
 	RegisterSignal( "ActivateArcTrap" )
 	RegisterSignal( "DeployArcTrap" )
 
-	if( GameRules_GetGameMode() != "fd" )
+	// make arc traps usable in any modes
+	//if( GameRules_GetGameMode() != "fd" )
 	RegisterSignal( "BoostRefunded" )
 	#endif
 }
@@ -90,6 +91,17 @@ var function OnWeaponTossReleaseAnimEvent_weapon_arc_trap( entity weapon, Weapon
 	{
 		entity player = weapon.GetWeaponOwner()
 		PlayerUsedOffhand( player, weapon )
+		if( weapon.HasMod( "multiplayer_arc_trap" ) )
+		{ // enable attackable by players
+			Grenade_Init( deployable, weapon )
+			#if SERVER
+			deployable.proj.onlyAllowSmartPistolDamage = false
+			// not working, why?
+			//thread TrapExplodeOnDamage( deployable, 50 )
+			//thread TrapDestroyOnRoundEnd( deployable.GetOwner(), deployable )
+			thread TrapDestroyOwnerDeath( deployable, deployable.GetOwner() )
+			#endif
+		}
 
 		#if SERVER
 		deployable.e.fd_roundDeployed = weapon.e.fd_roundDeployed
@@ -143,8 +155,7 @@ void function OnArcTrapPlanted( entity projectile )
 		}
 
 		projectile.SetAngles( surfaceAngles )
-		if( projectile.ProjectileGetMods().contains( "limited_arc_trap" ) )
-			thread TrapDestroyOnRoundEnd( projectile.GetOwner(), projectile )
+		//thread TrapDestroyOnRoundEnd( projectile.GetOwner(), projectile )
 		thread DeployArcTrap( projectile )
 	#endif
 }
@@ -167,7 +178,8 @@ void function DeployArcTrap( entity projectile )
 	entity owner = projectile.GetOwner()
 	entity mover = CreateScriptMover( projectile.GetOrigin() )
 
-	if( projectile.ProjectileGetMods().contains( "limited_arc_trap" ) )
+	array<string> projectileMods = projectile.ProjectileGetMods()
+	if( projectileMods.contains( "limited_arc_trap" ) )
 	{
 		if( !deployedTrap.contains( owner.GetUID() ) )
 		{
@@ -203,8 +215,7 @@ void function DeployArcTrap( entity projectile )
 			}
 		}
 	}
-
-	if( projectile.ProjectileGetMods().contains( "one_time_arc_trap" ) )
+	else if( projectileMods.contains( "one_time_arc_trap" ) )
 		thread AfterTimeDestroyTrap( projectile, ARC_TRAP_LIFETIME )
 
 	entity fx
@@ -222,12 +233,15 @@ void function DeployArcTrap( entity projectile )
 	minimapObj.Minimap_SetObjectScale( 0.02 )
 	minimapObj.DisableHibernation()
 
+	//respawn why lol
 	entity eyeButton = CreatePropDynamic( RODEO_BATTERY_MODEL, projectile.GetOrigin() - <0,0,10>, <0,0,0>, 2, -1 )
 	eyeButton.Hide()
 	eyeButton.e.burnReward = projectile.e.burnReward
 	eyeButton.SetBossPlayer( owner )
 	if ( BoostStoreEnabled() )
 		thread BurnRewardRefundThink( eyeButton, projectile )
+	else if( projectileMods.contains( "multiplayer_arc_trap" ) )
+		eyeButton.NotSolid() // so player can destroy the trap
 
 	owner.Signal( "DeployArcTrap", { projectile = projectile } )
 
@@ -293,8 +307,11 @@ void function DeployArcTrap( entity projectile )
 	{
 		if ( BoostStoreEnabled() )
 		{
-			eyeButton.SetUsable()
-			eyeButton.SetUsableByGroup( "owner pilot" )
+			if( IsValid( eyeButton ) )
+			{
+				eyeButton.SetUsable()
+				eyeButton.SetUsableByGroup( "owner pilot" )
+			}
 		}
 
 		array<entity> other
@@ -542,6 +559,23 @@ void function AfterTimeDestroyTrap( entity projectile, float delay )
 	wait delay
 	if( IsValid(projectile) )
 		projectile.GrenadeExplode( < 0,0,1 > )
+}
+
+void function TrapDestroyOwnerDeath( entity trap, entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	trap.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function(): ( trap )
+		{
+			if( IsValid( trap ) )
+				trap.GrenadeExplode( < 0,0,1 > )
+		}
+	)
+
+	WaitForever()
 }
 
 #endif

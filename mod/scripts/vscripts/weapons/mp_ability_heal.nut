@@ -16,7 +16,6 @@ struct JumpPadStruct
 }
 array<JumpPadStruct> placedJumpPads
 // not letting too much jump pads play sounds
-global table< string, bool > playerJumpPadSoundTable
 
 var function OnWeaponPrimaryAttack_ability_heal( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
@@ -174,72 +173,195 @@ void function DeployJumpPad( entity projectile, vector origin, vector angles )
 void function JumpPadThink( entity tower )
 {
 	tower.EndSignal( "OnDestroy" )
-	entity trigger = CreateTriggerRadiusMultiple( tower.GetOrigin(), 64, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, 24, 0 )
+	entity trigger = CreateEntity( "trigger_cylinder" )
+	trigger.SetRadius( 64 )
+	trigger.SetAboveHeight( 24 )
+	trigger.SetBelowHeight( 0 )
+	trigger.SetOrigin( tower.GetOrigin() )
 	SetTeam( trigger, tower.GetTeam() )
+	DispatchSpawn( trigger )
 
-	AddCallback_ScriptTriggerEnter( trigger, OnJumpPadTriggerEnter )
+	trigger.EndSignal( "OnDestroy" )
 
-	ScriptTriggerSetEnabled( trigger, true )
+	trigger.SearchForNewTouchingEntity() //JFS: trigger.GetTouchingEntities() will not return entities already in the trigger unless this is called. See bug 202843
 
 	OnThreadEnd(
-		function(): ( trigger )
+		function(): ( tower, trigger )
 		{
+			if( IsValid( tower ) )
+				tower.Destroy()
 			if( IsValid( trigger ) )
 				trigger.Destroy()
 		}
 	)
 
-	WaitForever()
+	while( true )
+	{
+		array<entity> touchingEnts = trigger.GetTouchingEntities()
+
+		foreach( entity ent in touchingEnts )
+		{
+			GiveJumpPadEffect( trigger, ent )
+			//ScriptTriggerRemoveEntity( trigger, ent ) // don't remove since we are checking entities touching
+		}
+
+		WaitFrame()
+	}
 }
 
-void function OnJumpPadTriggerEnter( entity trigger, entity ent )
+void function GiveJumpPadEffect( entity trigger, entity player )
 {
-	thread GiveJumpPadEffect( ent )
-}
-
-void function GiveJumpPadEffect( entity player )
-{
+	if( !IsValid( player ) )
+		return
+	if( !player.IsPlayer() )
+		return
 	if( player.GetParent() != null )
 		return
 	if( player.IsTitan() )
 		return
-	float zVelocity = player.GetVelocity().z
-	if( zVelocity < 0 )
-		zVelocity = 0
-	player.SetVelocity( < player.GetVelocity().x * 1.5, player.GetVelocity().y * 1.5, zVelocity + 750 >  )
-	if( !playerJumpPadSoundTable[ player.GetUID() ] )
-	{
-		for( int i = 0; i < 5; i++ )
-			EmitSoundOnEntity( player, "Boost_Card_SentryTurret_Deployed_3P" )
-	}
-	thread JumpPadSoundLimit( player )
+	if( IsPlayerInJumpPadCooldown( player ) )
+		return
+
+	StopSoundOnEntity( player, "Boost_Card_SentryTurret_Deployed_3P" ) // prevent sound stacking
+	for( int i = 0; i < 5; i++ )
+		EmitSoundOnEntity( player, "Boost_Card_SentryTurret_Deployed_3P" )
+
+	vector targetVelocity
+	if( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) ) // further but lower
+		targetVelocity = < player.GetVelocity().x * 1.5, player.GetVelocity().y * 1.5, 550 >
+	else // higher
+		targetVelocity = < player.GetVelocity().x * 1.3, player.GetVelocity().y * 1.3, 750 >
+	thread JumpPadForcedVelocity( player, targetVelocity ) // prevent jump higher through manually jump input
+
+	player.TouchGround() // regen doublejump
+
+	thread JumpPadFlying( player ) // signal sender
+	thread JumpPadCooldownThink( player )
+	thread JumpPadTrailThink( player )
+	thread JumpPadTripleJumpThink( player )
 	Remote_CallFunction_Replay( player, "ServerCallback_ScreenShake", 5, 10, 0.5 )
+}
 
-	int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
+void function JumpPadFlying( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.Signal( "JumpPadFlyStart" )
+	player.EndSignal( "JumpPadFlyStart" )
 
-	if( !playerJumpPadSoundTable[ player.GetUID() ] )
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+				player.Signal( "JumpPadPlayerTouchGround" )
+		}
+	)
+
+	wait 1 // wait for player leave ground
+
+	while( true )
 	{
-		entity fx = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_titan_sniper1" ), FX_PATTACH_POINT_FOLLOW, attachmentIndex )
-		fx.SetOwner( player )
-		fx.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY)
+		if( player.IsOnGround() )
+			break
 
-		OnThreadEnd(
-			function(): ( fx ){
-				if( IsValid(fx) )
-					EffectStop(fx)
-			}
-		)
-
-		wait 1
+		WaitFrame()
 	}
 }
 
-void function JumpPadSoundLimit( entity player )
+void function JumpPadForcedVelocity( entity player, vector targetVelocity )
 {
-	string uid = player.GetUID()
-	playerJumpPadSoundTable[uid] <- true
-	wait 0.1
-	playerJumpPadSoundTable[uid] <- false
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "JumpPadPlayerTouchGround" )
+	player.Signal( "JumpPadForcedVelocityStart" )
+	player.EndSignal( "JumpPadForcedVelocityStart" )
+
+	float forcedTime = 0.2
+	float startTime = Time()
+	while( Time() < startTime + forcedTime )
+	{
+		player.SetVelocity( targetVelocity )
+		WaitFrame()
+	}
+}
+
+void function JumpPadTripleJumpThink( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "JumpPadPlayerTouchGround" )
+	player.EndSignal( "JumpPadGainTripleJump" )
+	player.Signal( "JumpPadTripleJumpThinkStart" )
+	player.EndSignal( "JumpPadTripleJumpThinkStart" )
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+				RemovePlayerMovementEventCallback( player, ePlayerMovementEvents.DOUBLE_JUMP, RegenDoubleJump )
+		}
+	)
+
+	AddPlayerMovementEventCallback( player, ePlayerMovementEvents.DOUBLE_JUMP, RegenDoubleJump )
+
+	WaitForever()
+}
+
+void function RegenDoubleJump( entity player )
+{
+	player.TouchGround()
+	player.Signal( "JumpPadGainTripleJump" )
+}
+
+void function JumpPadTrailThink( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "JumpPadPlayerTouchGround" )
+	player.Signal( "JumpPadTrailStart" )
+	player.EndSignal( "JumpPadTrailStart" )
+
+	array<entity> jumpJetFX
+
+	OnThreadEnd(
+		function(): ( jumpJetFX )
+		{
+			foreach( entity fx in jumpJetFX )
+			{
+				if( IsValid( fx ) )
+					EffectStop( fx )
+			}
+		}
+	)
+
+	int indexLeft = player.LookupAttachment( "vent_left_out" )
+	int indexRight = player.LookupAttachment( "vent_right_out" )
+	if( indexLeft != 0 )
+	{
+		entity fxJetBurstLeft = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_DBL" ), FX_PATTACH_POINT_FOLLOW, indexLeft )
+		jumpJetFX.append( fxJetBurstLeft )
+		entity fxJetTrailLeft = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_ON_trails" ), FX_PATTACH_POINT_FOLLOW, indexLeft )
+		jumpJetFX.append( fxJetTrailLeft )
+		entity fxJetLeft = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_ON" ), FX_PATTACH_POINT_FOLLOW, indexLeft )
+		jumpJetFX.append( fxJetLeft )
+	}
+	if( indexRight != 0 )
+	{
+		entity fxJetBurstRight = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_DBL" ), FX_PATTACH_POINT_FOLLOW, indexRight )
+		jumpJetFX.append( fxJetBurstRight )
+		entity fxJetTrailRight = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_ON_trails" ), FX_PATTACH_POINT_FOLLOW, indexRight )
+		jumpJetFX.append( fxJetTrailRight )
+		entity fxJetRight = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_ON" ), FX_PATTACH_POINT_FOLLOW, indexRight )
+		jumpJetFX.append( fxJetRight )
+	}
+
+	WaitForever()
+	
+}
+
+void function JumpPadCooldownThink( entity player )
+{
+	SetPlayerInJumpPadCooldown( player, 1.0 ) // hardcoded now
 }
 
 void function CleanupJumpPad( entity tower, entity projectile, float delay )
@@ -284,6 +406,8 @@ void function OctaneStimThink( entity player, float duration )
 {
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
+	player.Signal( "OctaneStimStart" )
+	player.EndSignal( "OctaneStimStart" )
 	OnThreadEnd(
 		function(): ( player )
 		{

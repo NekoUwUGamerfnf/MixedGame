@@ -552,15 +552,20 @@ function ProximityMineThink( entity proximityMine, entity owner, float explosion
 	local NPCTickRate = 0.5
 	local PlayerTickRate = 0.2
 
+	// modified
+	bool isAntiTitanMine = mods.contains( "anti_titan_mine" )
+
 	// Wait for someone to enter proximity
 	while( IsValid( proximityMine ) && IsValid( owner ) )
 	{
 		if ( lastTimeNPCsChecked + NPCTickRate <= Time() )
 		{
-			array<entity> nearbyNPCs = GetNPCArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+			array<entity> nearbyNPCs
 			// modified for anti_titan_mine
-			if( mods.contains( "anti_titan_mine" ) )
+			if( isAntiTitanMine )
 				nearbyNPCs = GetNPCArrayEx( "npc_titan", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+			else
+				nearbyNPCs = GetNPCArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
 			foreach( ent in nearbyNPCs )
 			{
 				if ( ShouldSetOffProximityMine( proximityMine, ent ) )
@@ -572,8 +577,8 @@ function ProximityMineThink( entity proximityMine, entity owner, float explosion
 			lastTimeNPCsChecked = Time()
 		}
 
-		array<entity> nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
-		if( mods.contains( "anti_titan_mine" ) )
+		array<entity> nearbyPlayers
+		if( isAntiTitanMine )
 		{
 			array<entity> tempTitanArray
 			foreach( entity player in nearbyPlayers )
@@ -583,6 +588,9 @@ function ProximityMineThink( entity proximityMine, entity owner, float explosion
 			}
 			nearbyPlayers = tempTitanArray
 		}
+		else
+			nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+		
 		foreach( ent in nearbyPlayers )
 		{
 			if ( ShouldSetOffProximityMine( proximityMine, ent ) )

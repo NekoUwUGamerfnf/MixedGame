@@ -1330,15 +1330,18 @@ function AddPlayerScoreForTrapDestruction( entity player, entity trapEnt )
 	// don't get score for killing your own trap
 	if ( "originalOwner" in trapEnt.s && trapEnt.s.originalOwner == player )
 		return
-
+	
 	string trapClass = trapEnt.ProjectileGetWeaponClassName()
+	// nessie adding additional checks
+	array<string> trapMods = trapEnt.ProjectileGetMods()
+
 	if ( trapClass == "" )
 		return
 
 	string scoreEvent
 	if ( trapClass == "mp_weapon_satchel" )
 		scoreEvent = "Destroyed_Satchel"
-	else if ( trapClass == "mp_weapon_proximity_mine" )
+	else if ( trapClass == "mp_weapon_proximity_mine" || trapMods.contains( "proximity_mine" ) )
 		scoreEvent = "Destored_Proximity_Mine"
 
 	if ( scoreEvent == "" )

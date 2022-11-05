@@ -21,6 +21,8 @@ const float GAMEMODE_AI_BLEEDING_PLAYER_MISS_CHANCE = 0.5
 const bool GAMEMODE_FORCE_WEAPON_HOLSTER = true
 const bool GAMEMODE_DEATH_ON_TEAM_BLEEDOUT = false
 */
+// fake apex loadouts
+const bool BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT = false
 
 const float BLEEDOUT_MODE_SHIELD_BATTERY_USETIME = 2.1 // remember try to avoid sound issue
 const float BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_USETIME = 7.0
@@ -37,8 +39,10 @@ const float BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE = 0.3
 const float BLEEDOUT_MODE_PILOT_ASSIST_EARNED_VALUE = 0.3
 const float BLEEDOUT_MODE_PILOT_ASSIST_OWNED_VALUE = 0.0
 
-const array<string> BLEEDOUT_MODE_DISABLED_TACTICALS = [ "mp_weapon_deployable_cover", "mp_ability_cloak" ]
-const string BLEEDOUT_MODE_REPLACEMENT_TACTICAL = "mp_ability_grapple"
+struct
+{
+    table< string, bool > useFakeApexLoadout // player's uid, whether to use
+} file
 
 void function Modded_Gamemode_Bleedout_Init()
 {
@@ -72,6 +76,7 @@ void function Modded_Gamemode_Bleedout_Init()
     AddCallback_GameStateEnter( eGameState.Playing, SetBleedoutModeScoreEvent )
     //ScoreEvent_SetEarnMeterValues( "EliminatePilot", BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE, BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE )
 
+    RegisterSignal( "GiveMeleeAfterGracePeriod" )
     /* // do these in riff
     Riff_ForcePlayerBleedout( ePlayerBleedout.Enabled )
     BleedoutShared_Init( 
@@ -98,18 +103,27 @@ void function SetBleedoutState()
 
 void function OnClientConnected( entity player )
 {
-    AddButtonPressedPlayerInputCallback( player, IN_USE, GetShieldLeft )
-    AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, GetShieldLeft )
+    file.useFakeApexLoadout[ player.GetUID() ] <- false
+    if( BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT )
+        AddButtonPressedPlayerInputCallback( player, IN_MELEE, SwitchLoadoutType )
+    //AddButtonPressedPlayerInputCallback( player, IN_USE, GetShieldLeft )
+    //AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, GetShieldLeft )
 }
 
 void function OnPlayerClassChanged( entity player )
 {
+    print( "Running OnPlayerClassChanged()" )
     thread Bleedout_HealthRegenThink( player )
 }
 
 void function OnPlayerRespawned( entity player )
 {
-    
+    if( !BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT )
+        return
+    if( !file.useFakeApexLoadout[player.GetUID()] )
+        SendHudMessage( player, "当前装备: 原版\n按 近战 切换至伪apex技能", -1, -0.3, 0, 255, 255, 255, 0, 10, 0 )
+    else if( file.useFakeApexLoadout[player.GetUID()] )
+        SendHudMessage( player, "当前装备: 伪apex技能\n按 近战 切换至原版", -1, -0.3, 0, 255, 255, 255, 0, 10, 0 )
 }
 
 void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
@@ -127,10 +141,15 @@ void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
         if( IsValid( nowWeapon ))
         {
             string className = nowWeapon.GetWeaponClassName()
-            if( BLEEDOUT_MODE_DISABLED_TACTICALS.contains( className ) )
+            if( className == "mp_ability_cloak" )
             {
                 player.TakeWeaponNow( className )
-                player.GiveOffhandWeapon( BLEEDOUT_MODE_REPLACEMENT_TACTICAL, i )
+                player.GiveOffhandWeapon( "mp_ability_grapple", i )
+            }
+            else if( className == "mp_weapon_deployable_cover" )
+            {
+                player.TakeWeaponNow( className )
+                player.GiveOffhandWeapon( "mp_weapon_hard_cover", i, ["hard_cover_always"] )
             }
         }
     }
@@ -145,7 +164,33 @@ void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
 	player.GiveExtraWeaponMod( "pushback_melee" )
 	player.GiveExtraWeaponMod( "fuckoff_ordnance" )
 
-    thread DelayedCheckMelee( player )
+    if( file.useFakeApexLoadout[player.GetUID()] ) // apex loadout players
+    {
+        AltPilot_ReplacePilotModel( player )
+        GiveFakeApexLoadout( player )
+    }
+    if( BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT )
+        thread GiveMeleeAfterGracePeriod( player )
+    else
+        thread DelayedCheckMelee( player )
+}
+
+void function GiveMeleeAfterGracePeriod( entity player )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    player.Signal( "GiveMeleeAfterGracePeriod" )
+    player.EndSignal( "GiveMeleeAfterGracePeriod" )
+    player.TakeOffhandWeapon( OFFHAND_MELEE )
+
+    while( true )
+    {
+        if( !( expect bool( player.s.inGracePeriod ) ) )
+            break
+        WaitFrame()
+    }
+    if( !IsValid( player.GetOffhandWeapon( OFFHAND_MELEE ) ) )
+        player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE )
 }
 
 void function DelayedCheckMelee( entity player )
@@ -168,10 +213,12 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
         return
     if( damageSourceID == eDamageSourceId.human_execution && attacker.IsPlayer() )
     {
+        if( attacker.GetShieldHealth() == attacker.GetShieldHealthMax() ) // shield full!
+            return
         entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( attacker, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, attacker.LookupAttachment( "CHESTFOCUS" ) )
         SetTeam( shieldFXHandle, attacker.GetTeam() )
         shieldFXHandle.SetOwner( attacker )
-        EffectSetControlPointVector( shieldFXHandle, 1, < 30, 255, 100 > )
+        EffectSetControlPointVector( shieldFXHandle, 1, <125, 150, 200> )
         
         int currentShieldHealth = attacker.GetShieldHealth()
         int shieldToRestore = int( min( attacker.GetShieldHealthMax() - currentShieldHealth, BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD ) )
@@ -239,7 +286,7 @@ void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHea
     entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( playerHealer, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, playerHealer.LookupAttachment( "CHESTFOCUS" ) )
     SetTeam( shieldFXHandle, playerHealer.GetTeam() )
     shieldFXHandle.SetOwner( playerHealer )
-    EffectSetControlPointVector( shieldFXHandle, 1, < 30, 255, 100 > )
+    EffectSetControlPointVector( shieldFXHandle, 1, <125, 150, 200> )
     
     int currentShieldHealth = playerHealer.GetShieldHealth()
     int shieldToRestore = int( min( playerHealer.GetShieldHealthMax() - currentShieldHealth, BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD ) )
@@ -248,6 +295,110 @@ void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHea
     playerHealer.SetShieldHealth( min( playerHealer.GetShieldHealthMax(), playerHealer.GetShieldHealth() + shieldToRestore ) )
     SendHudMessage( playerHealer, "复活一名队友, 已回复" + string(shieldToRestore) + "点护盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
     MessageToPlayer( playerHealer, eEventNotifications.VANGUARD_ShieldGain, playerHealer )
+}
+
+void function SwitchLoadoutType( entity player )
+{
+    if( !Loadouts_CanGivePilotLoadout( player ) )
+        return
+
+    string uid = player.GetUID()
+
+    if( !file.useFakeApexLoadout[uid] )
+    {
+        file.useFakeApexLoadout[uid] = true
+        SendHudMessage( player, "当前装备: 伪apex技能\n按 近战 切换至原版", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+        Loadouts_TryGivePilotLoadout( player )
+    }
+    else if( file.useFakeApexLoadout[uid] )
+    {
+        file.useFakeApexLoadout[uid] = false
+        SendHudMessage( player, "当前装备: 原版\n按 近战 切换至伪apex技能", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+        Loadouts_TryGivePilotLoadout( player )
+    }
+}
+
+void function GiveFakeApexLoadout( entity player )
+{
+    string tacticalName = player.GetOffhandWeapon( OFFHAND_SPECIAL ).GetWeaponClassName()
+    string ordnanceName = player.GetOffhandWeapon( OFFHAND_ORDNANCE ).GetWeaponClassName()
+
+    if( ordnanceName == "mp_weapon_grenade_gravity" )
+        GiveReplacementOrdnance( player )
+
+    player.TakeWeaponNow( tacticalName )
+    player.TakeWeaponNow( ordnanceName )
+
+    switch( tacticalName )
+    {
+        case "mp_weapon_hard_cover":
+            player.GiveOffhandWeapon( "mp_weapon_hard_cover", OFFHAND_SPECIAL, ["gibraltar_shield"] )
+            break
+        case "mp_ability_heal":
+			player.GiveOffhandWeapon( "mp_ability_heal", OFFHAND_SPECIAL, ["jump_pad"] )
+            break
+		case "mp_ability_grapple":
+			player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL, ["zipline_grapple"] )
+            break
+		case "mp_ability_holopilot":
+			player.GiveOffhandWeapon( "mp_ability_holopilot", OFFHAND_SPECIAL, ["holoshift"] )
+            break
+		case "mp_ability_shifter":
+            player.GiveOffhandWeapon( "mp_ability_shifter", OFFHAND_SPECIAL, ["wraith_portal", "amped_tacticals"] )
+            break
+        case "mp_weapon_grenade_sonar":
+            player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_SPECIAL, ["gravity_lift"] )
+            break
+    }
+
+    switch( ordnanceName )
+    {
+        case "mp_weapon_frag_grenade":
+            player.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ORDNANCE, ["pilot_tether"] )
+            break
+        case "mp_weapon_grenade_emp":
+			player.GiveOffhandWeapon( "mp_weapon_arc_trap", OFFHAND_ORDNANCE, ["limited_arc_trap", "multiplayer_arc_trap"] )
+            break
+        case "mp_weapon_thermite_grenade":
+			player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE, ["flamewall_grenade"] )
+            break
+        case "mp_weapon_grenade_electric_smoke":
+			player.GiveOffhandWeapon( "mp_titanability_slow_trap", OFFHAND_ORDNANCE, ["gas_trap"] )
+            break
+        case "mp_weapon_satchel":
+            player.GiveOffhandWeapon( "mp_weapon_satchel", OFFHAND_ORDNANCE, ["proximity_mine"] )
+            break
+        default:
+            player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE )
+    }
+}
+
+void function GiveReplacementOrdnance( entity player )
+{
+    string tacticalName = player.GetOffhandWeapon( OFFHAND_SPECIAL ).GetWeaponClassName()
+    string ordnanceName = player.GetOffhandWeapon( OFFHAND_ORDNANCE ).GetWeaponClassName()
+        
+    player.TakeWeaponNow( ordnanceName )
+    switch( tacticalName )
+    {
+        case "mp_ability_grapple":
+            player.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ORDNANCE, ["pilot_tether"] )
+            break
+        case "mp_ability_heal":
+			player.GiveOffhandWeapon( "mp_weapon_arc_trap", OFFHAND_ORDNANCE, ["limited_arc_trap", "multiplayer_arc_trap"] )
+            break
+        case "mp_weapon_hard_cover":
+			player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE, ["flamewall_grenade"] )
+            break
+        case "mp_ability_shifter":
+			player.GiveOffhandWeapon( "mp_titanability_slow_trap", OFFHAND_ORDNANCE, ["gas_trap"] )
+            break
+        case "mp_ability_holopilot":
+            player.GiveOffhandWeapon( "mp_weapon_satchel", OFFHAND_ORDNANCE, ["proximity_mine"] )
+            break
+        default:
+            player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE )
+    }
 }
 
 void function GetShieldLeft( entity player )

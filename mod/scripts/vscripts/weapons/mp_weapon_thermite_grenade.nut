@@ -5,6 +5,15 @@ global const float THERMITE_GRENADE_BURN_TIME = 6.0
 global const float THERMITE_TRAIL_SOUND_TIME = 2.0
 
 global const float BLEEDOUT_BALANCE_BURN_TIME = 1.0
+
+// flamewall_grenade stuff
+const asset FLAME_WALL_FX = $"P_wpn_meteor_wall"
+
+const string FLAME_WALL_PROJECTILE_SFX = "flamewall_flame_start"
+const string FLAME_WALL_GROUND_SFX = "Explo_ThermiteGrenade_Impact_3P"
+const string FLAME_WALL_GROUND_BEGINNING_SFX = "flamewall_flame_burn_front"
+const string FLAME_WALL_GROUND_MIDDLE_SFX = "flamewall_flame_burn_middle"
+const string FLAME_WALL_GROUND_END_SFX = "flamewall_flame_burn_end"
 #endif
 
 global function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade
@@ -172,97 +181,6 @@ void function OnProjectileIgnite_weapon_thermite_grenade( entity projectile )
 }
 
 #if SERVER
-void function FlameWallGrenadeThink( entity projectile, entity thermiteWeapon )
-{
-	entity inflictor = CreateOncePerTickDamageInflictorHelper( 6 )
-	projectile.EndSignal( "OnDestroy" )
-	projectile.SetTakeDamageType( DAMAGE_NO )
-	WeaponPrimaryAttackParams fakeParams
-	fakeParams.pos = projectile.GetOrigin() + projectile.proj.savedOrigin
-	vector fireAng = projectile.proj.savedAngles
-	fakeParams.dir = AnglesToForward( < 0,fireAng.y - 90,0 > )
-	thread WeaponAttackWave( projectile, 0, inflictor, fakeParams.pos + fakeParams.dir * 25.0, fakeParams.dir, CreateThermiteWallSegment )
-	fakeParams.dir = AnglesToForward( < 0,fireAng.y + 90,0 > )
-	waitthread WeaponAttackWave( projectile, 0, inflictor, fakeParams.pos + fakeParams.dir * 25.0, fakeParams.dir, CreateThermiteWallSegment )
-	print( projectile.GetOrigin() )
-	//projectile.Destroy()
-}
-
-void function StartFlameWall( entity weapon, entity projectile )
-{
-	entity inflictor = CreateOncePerTickDamageInflictorHelper( 6 )
-	inflictor.SetScriptName( "thermite_dot_inflictor" )
-
-	WeaponPrimaryAttackParams attackParams
-	vector startPos = projectile.GetOrigin() + < 0,0,30 >
-	vector fireAng = projectile.proj.savedAngles
-	// hardcoded!!!!
-	array<entity> fakeProjectiles
-	array<vector> vectorGroup = [AnglesToForward( < 0,fireAng.y - 90,0 > ), AnglesToForward( < 0,fireAng.y + 90,0 > )]
-	attackParams.pos = startPos
-	attackParams.dir = vectorGroup[0]
-	fakeProjectiles.append( weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true ) )
-	attackParams.pos = startPos
-	attackParams.dir = vectorGroup[1]
-	fakeProjectiles.append( weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true ) )
-	
-	foreach( int index, entity projectile in fakeProjectiles )
-	{
-		if ( projectile )
-		{
-			attackParams.pos = startPos - vectorGroup[index] * 150 // should do this or flame walls will have a period
-			attackParams.dir = vectorGroup[index]
-			projectile.SetModel( $"models/dev/empty_model.mdl" )
-			EmitSoundOnEntity( projectile, "flamewall_flame_start" )
-			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
-			thread BeginFlameWave( projectile, 0, inflictor, attackParams, attackParams.dir, false )
-		}
-	}
-
-	/* // don't know why code below will never stop creating new thermite trails
-	entity inflictor = CreateOncePerTickDamageInflictorHelper( 6 )
-
-	WeaponPrimaryAttackParams attackParams
-	attackParams.pos = projectile.GetOrigin() + projectile.proj.savedOrigin
-	vector fireAng = projectile.proj.savedAngles
-	array<vector> vectorGroup = [AnglesToForward( < 0,fireAng.y - 90,0 > ), AnglesToForward( < 0,fireAng.y + 90,0 > )]
-	foreach( int index, vector direction in vectorGroup )
-	{
-		attackParams.dir = vectorGroup[index]
-		entity fakeProjectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true )
-		if ( projectile )
-		{
-			projectile.SetModel( $"models/dev/empty_model.mdl" )
-			EmitSoundOnEntity( projectile, "flamewall_flame_start" )
-			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
-			thread BeginFlameWave( projectile, 0, inflictor, attackParams, true )
-		}
-	}
-
-	entity inflictor = CreateOncePerTickDamageInflictorHelper( 6 )
-
-	vector fireAng = projectile.proj.savedAngles
-	array<vector> vectorGroup = [AnglesToForward( < 0,fireAng.y - 90,0 > ), AnglesToForward( < 0,fireAng.y + 90,0 > )]
-
-	for( int i = 0; i < 2; i++ )
-	{
-		WeaponPrimaryAttackParams attackParams
-		attackParams.pos = projectile.GetOrigin() + projectile.proj.savedOrigin
-		attackParams.dir = vectorGroup[i]
-		entity fakeProjectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true )
-
-		if ( fakeProjectile )
-		{
-			projectile.SetModel( $"models/dev/empty_model.mdl" )
-			EmitSoundOnEntity( projectile, "flamewall_flame_start" )
-			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
-			thread BeginFlameWave( projectile, 0, inflictor, attackParams, true )
-		}
-		
-	}
-	*/
-}
-
 void function ThermiteBurn( float burnTime, entity owner, entity projectile, entity vortexSphere = null )
 {
 	if ( !IsValid( projectile ) ) //MarkedForDeletion check
@@ -359,6 +277,182 @@ bool function ShouldAddThermiteStatusEffect( entity attachedEnt, entity thermite
 		return false
 
 	return true
+}
+
+// flamewall_grenade stuff
+void function FlameWallGrenadeThink( entity projectile, entity thermiteWeapon )
+{
+	entity inflictor = CreateOncePerTickDamageInflictorHelper( 6 )
+	projectile.EndSignal( "OnDestroy" )
+	projectile.SetTakeDamageType( DAMAGE_NO )
+	WeaponPrimaryAttackParams fakeParams
+	fakeParams.pos = projectile.GetOrigin() + projectile.proj.savedOrigin
+	vector fireAng = projectile.proj.savedAngles
+	fakeParams.dir = AnglesToForward( < 0,fireAng.y - 90,0 > )
+	thread WeaponAttackWave( projectile, 0, inflictor, fakeParams.pos + fakeParams.dir * 25.0, fakeParams.dir, CreateThermiteWallSegment )
+	fakeParams.dir = AnglesToForward( < 0,fireAng.y + 90,0 > )
+	waitthread WeaponAttackWave( projectile, 0, inflictor, fakeParams.pos + fakeParams.dir * 25.0, fakeParams.dir, CreateThermiteWallSegment )
+	print( projectile.GetOrigin() )
+	//projectile.Destroy()
+}
+
+void function StartFlameWall( entity weapon, entity projectile )
+{
+	entity inflictor = CreateOncePerTickDamageInflictorHelper( 6 )
+	inflictor.SetScriptName( "thermite_dot_inflictor" )
+
+	WeaponPrimaryAttackParams attackParams
+	vector startPos = projectile.GetOrigin() + < 0,0,30 >
+	vector fireAng = projectile.proj.savedAngles
+	// hardcoded!!!!
+	array<entity> fakeProjectiles
+	array<vector> vectorGroup = [AnglesToForward( < 0,fireAng.y - 90,0 > ), AnglesToForward( < 0,fireAng.y + 90,0 > )]
+	attackParams.pos = startPos
+	attackParams.dir = vectorGroup[0]
+	fakeProjectiles.append( weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true ) )
+	attackParams.pos = startPos
+	attackParams.dir = vectorGroup[1]
+	fakeProjectiles.append( weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true ) )
+	
+	foreach( int index, entity projectile in fakeProjectiles )
+	{
+		if ( projectile )
+		{
+			attackParams.pos = startPos - vectorGroup[index] * 150 // should do this or flame walls will have a period
+			attackParams.dir = vectorGroup[index]
+			projectile.SetModel( $"models/dev/empty_model.mdl" )
+			EmitSoundOnEntity( projectile, "flamewall_flame_start" )
+			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
+			thread BeginFlameWall( projectile, 0, inflictor, attackParams, attackParams.dir )
+		}
+	}
+
+	/* // don't know why code below will never stop creating new thermite trails
+	entity inflictor = CreateOncePerTickDamageInflictorHelper( 6 )
+
+	WeaponPrimaryAttackParams attackParams
+	attackParams.pos = projectile.GetOrigin() + projectile.proj.savedOrigin
+	vector fireAng = projectile.proj.savedAngles
+	array<vector> vectorGroup = [AnglesToForward( < 0,fireAng.y - 90,0 > ), AnglesToForward( < 0,fireAng.y + 90,0 > )]
+	foreach( int index, vector direction in vectorGroup )
+	{
+		attackParams.dir = vectorGroup[index]
+		entity fakeProjectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true )
+		if ( projectile )
+		{
+			projectile.SetModel( $"models/dev/empty_model.mdl" )
+			EmitSoundOnEntity( projectile, "flamewall_flame_start" )
+			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
+			thread BeginFlameWave( projectile, 0, inflictor, attackParams, true )
+		}
+	}
+
+	entity inflictor = CreateOncePerTickDamageInflictorHelper( 6 )
+
+	vector fireAng = projectile.proj.savedAngles
+	array<vector> vectorGroup = [AnglesToForward( < 0,fireAng.y - 90,0 > ), AnglesToForward( < 0,fireAng.y + 90,0 > )]
+
+	for( int i = 0; i < 2; i++ )
+	{
+		WeaponPrimaryAttackParams attackParams
+		attackParams.pos = projectile.GetOrigin() + projectile.proj.savedOrigin
+		attackParams.dir = vectorGroup[i]
+		entity fakeProjectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true )
+
+		if ( fakeProjectile )
+		{
+			projectile.SetModel( $"models/dev/empty_model.mdl" )
+			EmitSoundOnEntity( projectile, "flamewall_flame_start" )
+			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
+			thread BeginFlameWave( projectile, 0, inflictor, attackParams, true )
+		}
+		
+	}
+	*/
+}
+
+void function BeginFlameWall( entity projectile, int projectileCount, entity inflictor, WeaponPrimaryAttackParams attackParams, vector direction )
+{
+	projectile.EndSignal( "OnDestroy" )
+	projectile.SetAbsOrigin( projectile.GetOrigin() )
+	projectile.SetAbsAngles( projectile.GetAngles() )
+	projectile.SetVelocity( Vector( 0, 0, 0 ) )
+	projectile.StopPhysics()
+	projectile.SetTakeDamageType( DAMAGE_NO )
+	projectile.Hide()
+	projectile.NotSolid()
+	projectile.proj.savedOrigin = < -999999.0, -999999.0, -999999.0 >
+	vector startPos = attackParams.pos
+	waitthread WeaponAttackWave( projectile, projectileCount, inflictor, startPos, attackParams.dir, CreateFlameWallSegment )
+	projectile.Destroy()
+}
+
+bool function CreateFlameWallSegment( entity projectile, int projectileCount, entity inflictor, entity movingGeo, vector pos, vector angles, int waveCount )
+{
+	projectile.SetOrigin( pos )
+	entity owner = projectile.GetOwner()
+
+	if ( projectile.proj.savedOrigin != < -999999.0, -999999.0, -999999.0 > )
+	{
+		array<string> mods = projectile.ProjectileGetMods()
+		float duration = THERMITE_GRENADE_BURN_TIME
+		int damageSource = eDamageSourceId.mp_titanweapon_flame_wall
+			
+		entity thermiteParticle
+		//regular script path
+		if ( !movingGeo )
+		{
+			thermiteParticle = CreateThermiteTrail( pos, angles, owner, inflictor, duration, FLAME_WALL_FX, damageSource )
+			EffectSetControlPointVector( thermiteParticle, 1, projectile.proj.savedOrigin )
+			AI_CreateDangerousArea_Static( thermiteParticle, projectile, METEOR_THERMITE_DAMAGE_RADIUS_DEF, TEAM_INVALID, true, true, pos )
+		}
+		else
+		{
+			thermiteParticle = CreateThermiteTrailOnMovingGeo( movingGeo, pos, angles, owner, inflictor, duration, FLAME_WALL_FX, damageSource )
+
+			if ( movingGeo == projectile.proj.savedMovingGeo )
+			{
+				thread EffectUpdateControlPointVectorOnMovingGeo( thermiteParticle, 1, projectile.proj.savedRelativeDelta, projectile.proj.savedMovingGeo )
+			}
+			else
+			{
+				thread EffectUpdateControlPointVectorOnMovingGeo( thermiteParticle, 1, GetRelativeDelta( pos, movingGeo ), movingGeo )
+			}
+			AI_CreateDangerousArea( thermiteParticle, projectile, METEOR_THERMITE_DAMAGE_RADIUS_DEF, TEAM_INVALID, true, true )
+		}
+
+		//EmitSoundOnEntity( thermiteParticle, FLAME_WALL_GROUND_SFX )
+		int maxSegments = expect int( projectile.ProjectileGetWeaponInfoFileKeyField( "wave_max_count" ) )
+		//figure out why it's starting at 1 but ending at 14.
+		if ( waveCount == 1 )
+			EmitSoundOnEntity( thermiteParticle, FLAME_WALL_GROUND_BEGINNING_SFX )
+		else if ( waveCount == ( maxSegments - 1 ) )
+			EmitSoundOnEntity( thermiteParticle, FLAME_WALL_GROUND_END_SFX )
+		else if ( waveCount == maxSegments / 2  )
+			EmitSoundOnEntity( thermiteParticle, FLAME_WALL_GROUND_MIDDLE_SFX )
+	}
+
+	projectile.proj.savedOrigin = pos
+	if ( IsValid( movingGeo ) )
+	{
+		projectile.proj.savedRelativeDelta = GetRelativeDelta( pos, movingGeo )
+		projectile.proj.savedMovingGeo = movingGeo
+	}
+
+	return true
+}
+
+void function EffectUpdateControlPointVectorOnMovingGeo( entity thermiteParticle, int cpIndex, vector relativeDelta, entity movingGeo )
+{
+	thermiteParticle.EndSignal( "OnDestroy" )
+
+	while ( 1 )
+	{
+		vector origin = GetWorldOriginFromRelativeDelta( relativeDelta, movingGeo )
+
+		EffectSetControlPointVector( thermiteParticle, cpIndex, origin )
+		WaitFrame()
+	}
 }
 
 void function EarlyExtinguishFireStar( entity projectile, float duration )

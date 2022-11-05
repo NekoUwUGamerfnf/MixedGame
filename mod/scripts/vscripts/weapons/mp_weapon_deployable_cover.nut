@@ -169,11 +169,12 @@ void function OnDeployableCoverPlanted( entity projectile )
 		}
 
 		projectile.SetAngles( surfaceAngles )
-
-		bool isAmpedWall = !( projectile.ProjectileGetMods().contains( "burn_card_weapon_mod" ) ) //Unusual, but deliberate: the boost version of the weapon does not have amped functionality
+		
+		array<string> projectileMods = projectile.ProjectileGetMods()
+		bool isAmpedWall = !( projectileMods.contains( "burn_card_weapon_mod" ) || projectileMods.contains( "hard_cover_always" ) ) //Unusual, but deliberate: the boost version of the weapon does not have amped functionality
 		entity player = projectile.GetOwner()
 		
-		if( projectile.ProjectileGetMods().contains( "gibraltar_shield" ) )
+		if( projectileMods.contains( "gibraltar_shield" ) )
 		{
 			SendHudMessage(player, "部署圆顶护罩", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
 			DeployDomeShield( projectile, origin, surfaceAngles )
