@@ -31,6 +31,8 @@ TauntRandom_Init(): Press melee to do a taunt( unfinished )
 
 EverythingNessy_Init(): Enable funny nessy outfits and throwable nessies
 
+AltPilot_Enable_Init(): Enable model change for pilots, now supporting spectres with a hacking code
+
 CustomDamageEffect_Init(): Variant killing effects, including: Gib, Dissolve, Electric, Shield Crack, Burning, Nessie Burst
 
 Modded_Gamemode_Fighter_Init(): Testing gamemode: melee only with no lunge
