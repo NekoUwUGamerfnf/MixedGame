@@ -1,3 +1,57 @@
+English
+
+use loadedinits_after.gnut and loadedinits_before.gnut to Toggle gamemode modifiers
+
+Avaliable modifiers:
+RandomTitanGamemode_Init(): Always respawn as titans. Both change map and gamemode after a match
+
+RandomPilotGamemode_Init()：Titans and boosts never avaliable. Both change map and gamemode after a match
+
+TitanReplace_Init(): Replace Ronin Prime with Stryder, Legion Prime with Ogre, Tone Prime with Atlas, Scorch Prime with Bison( No mod required ). Replace Ion Prime with Archon, Northstar Prime with Brute4( mod required, so only enable to specific players by a uid check in titan_utils.gnut )
+
+BTReplace_Init(): Replace Frontier Warpaint Monarch with SB-7274( Mod is required to have correct titanOS )
+
+TitanPick_Init()：Titans will drop their primary weapon after death
+
+PP_HarvesterPush_init(): From PeePeePoPoMan, protect your harvester and destroy enemy's
+
+TeamShuffle_Init(): Shuffle team when game starts, also shuffle when team isn't balanced
+
+AutoKick_Init(): Kick AFK players
+
+MixedLoadout_Init(): Random loadouts with a punch( may not support controllers, will change it )
+
+RandomizedEvent_Init(): From LegonZaur and PeePee, mutator pack including: gain speedboost on kill, switch all equipments on kill, switch positions on kill, elitist, moonGravity
+
+TacticalReplace_Init()：Disable melee, hold melee to switch offhand type, hold use to switch main weapon type
+
+flipside_init(): From PeePee, flipside with better behavior( may not support controllers, will change it )
+
+TauntRandom_Init(): Press melee to do a taunt( unfinished )
+
+EverythingNessy_Init(): Enable funny nessy outfits and throwable nessies
+
+CustomDamageEffect_Init(): Variant killing effects, including: Gib, Dissolve, Electric, Shield Crack, Burning, Nessie Burst
+
+Modded_Gamemode_Fighter_Init(): Testing gamemode: melee only with no lunge
+
+Modded_Gamemode_Zombie_Mfd_Init(): Replace MFD, only marked players using guns, other players behave like zombies
+
+No_Iron_Sight_Weapons_Init(): Remove all iron sight models if possible
+
+DropPodSpawn1Player_Init(): Respawn from droppod
+
+Modded_Gamemode_Bleedout_Init(): Much better bleedout gamemode, many funny? mechanics
+
+RespawnShip_Init(): Respawn from dropship
+
+Fake_Scope_Sniper_Rifles_Init(): Sniper rifles with stock sights will have different scope models
+
+
+NessieDebug_Init(): TEST SHITS.
+
+
+中文
 loadedinits.gnut 更改启用的主函数
 主函数：
 RandomTitanGamemode_Init(): 泰坦模式 + 地图轮换
