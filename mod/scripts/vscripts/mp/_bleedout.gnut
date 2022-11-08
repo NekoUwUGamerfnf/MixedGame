@@ -17,6 +17,7 @@ const float BLEEDOUT_MAX_USE_DIST2_MOD = 64 * 64
 
 // modified function
 global function Bleedout_EnableExecutingBleedingPlayer
+global function Bleedout_AllowInterruptSelfRes
 
 global function Bleedout_IsPlayerSelfHealing
 global function Bleedout_IsPlayerGettingFirstAid
@@ -33,6 +34,7 @@ const BLEEDOUT_EXECUTION_HITBOX_MODEL = $"models/weapons/bullets/mgl_grenade.mdl
 
 global function Bleedout_SetProtectionDuration
 global function Bleedout_SetIncapShieldHealth
+global function Bleedout_SetIncapShieldInvulnerable
 
 const float BLEEDOUT_PROTECTION_DURATION = 1.05
 const int BLEEDOUT_INCAP_SHIELD_MAX_HEALTH = 5000 // make it a almost invulnerable shield
@@ -56,6 +58,7 @@ struct
 
 	// modified variable
 	bool executingBleedingEnabled = false
+	bool selfResInterruptable = true
 	float bleedoutHealthRegenRate = 4.0
 	float bleedoutHealthRegenDelay = 4.0
 	float protectionDuration = BLEEDOUT_PROTECTION_DURATION
@@ -64,6 +67,7 @@ struct
 	int incapShieldMaxHealth = BLEEDOUT_INCAP_SHIELD_MAX_HEALTH
 	//table<entity, IncapShieldStruct> playerIncapShieldTable // no need to use 1p things
 	table<entity, entity> playerIncapShieldTable
+	bool invulnerableIncapShield
 } file
 
 void function Bleedout_Init()
@@ -125,16 +129,11 @@ void function Bleedout_AddCallback_OnPlayerGiveFirstAid( void functionref(entity
 	file.Callbacks_OnPlayerGiveFirstAid.append( callback )
 }
 
-void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var damageInfo ) // victim, attacker, damageInfo
+bool function Bleedout_StartPlayerBleedout( entity player, entity attacker, var damageInfo ) // victim, attacker, damageInfo
 {
 	//if the player is already bleeding don't restart bleeding logic.
 	if ( file.isBleeding[ player ] )
-		return
-
-	player.Signal( "BleedOut_StopBleeding" )
-	player.Signal( "BleedOut_OnStartDying" )
-
-	file.lastAttacker[ player ] = attacker
+		return false
 
 	if ( Bleedout_GetDeathOnTeamBleedout() )
 	{
@@ -143,9 +142,15 @@ void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 		{
 			// player will just die
 			//player.Die( DamageInfo_GetAttacker( damageInfo ), DamageInfo_GetAttacker( damageInfo ), { damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo ) } )
-			return
+			return false
 		}
 	}
+	
+	// starting bleedout!
+	player.Signal( "BleedOut_StopBleeding" )
+	player.Signal( "BleedOut_OnStartDying" )
+
+	file.lastAttacker[ player ] = attacker
 	
 	player.ClearParent()
 	player.Anim_Stop() // interupt current executions etc.
@@ -178,6 +183,9 @@ void function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	// nessie mix, better support for killshot sounds
 	//if ( Bleedout_GetDeathOnTeamBleedout() )
 	//	CheckForTeamBleedout( player.GetTeam() )
+	
+	// bleedout successfully functioning
+	return true
 }
 
 void function PlayerDying( entity player )
@@ -564,6 +572,9 @@ bool function CheckForTeamBleedout( entity player )
 	//All players on team are bleeding out
 	foreach ( entity teamPlayer in teamPlayers )
 	{
+		// doing a check in sh_bleedout_damage.gnut, last survivor will take correct damageSource instead of "Bleed out"
+		if( player == teamPlayer )
+			continue
 		if ( IsAlive( teamPlayer ) )
 			PlayerDiesFromBleedout( teamPlayer, file.lastAttacker[ teamPlayer ] )
 	}
@@ -637,20 +648,19 @@ void function TrackContinuousUse( entity player, entity useTarget, float useTime
 
 	bool isSelfUse = player == useTarget
 	float startTime = Time()
-	float unsetUsableTime = useTime - Bleedout_GetFirstAidTime()
-	if( unsetUsableTime <= 0 )
-		unsetUsableTime = 9999
+	if( isSelfUse && !file.selfResInterruptable )
+	{
+		// prevent almostDoned selfRes being interrupt
+		player.UnsetUsable()
+		result.unsetUsable = true
+	}
+	
 	while ( Time() < startTime + useTime && (!doRequireUseButtonHeld || player.UseButtonPressed()) && !player.IsPhaseShifted() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
 	{
-		if( player.ContextAction_IsActive() ) // being interupted!
+		if( player.ContextAction_IsActive() ) // being interupted by executions!
 			return
-		if( !isSelfUse && Bleedout_IsPlayerBleeding( player ) ) // not selfRes and being downed!
+		if( !isSelfUse && Bleedout_IsPlayerBleeding( player ) ) //being downed during reviving teammates!
 			return
-		if( isSelfUse && Time() >= startTime + unsetUsableTime )
-		{ // prevent almostDoned selfRes being interrupt
-			player.UnsetUsable()
-			result.unsetUsable = true
-		}
 		WaitFrame()
 	}
 
@@ -693,22 +703,21 @@ void function DEBUG_AutoUsePress( entity player, entity useTarget, float useTime
 
 	bool isSelfUse = player == useTarget
 	float startTime = Time()
-	float unsetUsableTime = useTime - Bleedout_GetFirstAidTime()
-	if( unsetUsableTime <= 0 )
-		unsetUsableTime = 9999
+	if( isSelfUse && !file.selfResInterruptable )
+	{
+		// prevent almostDoned selfRes being interrupt
+		player.UnsetUsable()
+		result.unsetUsable = true
+	}
+	
 	while ( Time() < startTime + useTime && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
 	{
 		if( Time() >= startTime + 0.5 && player.IsInputCommandHeld( IN_USE ) ) // manually stop
 			return
-		if( player.ContextAction_IsActive() ) // being interupted!
+		if( player.ContextAction_IsActive() ) // being interupted by executions!
 			return
-		if( !isSelfUse && Bleedout_IsPlayerBleeding( player ) ) // not selfRes and being downed!
+		if( !isSelfUse && Bleedout_IsPlayerBleeding( player ) ) // being downed during reviving teammates!
 			return
-		if( isSelfUse && Time() >= startTime + unsetUsableTime )
-		{ // prevent almostDoned selfRes being interrupt
-			player.UnsetUsable()
-			result.unsetUsable = true
-		}
 		WaitFrame()
 	}
 
@@ -726,6 +735,11 @@ int function GetNewFirstAidAttemptID()
 void function Bleedout_EnableExecutingBleedingPlayer( bool enable )
 {
 	file.executingBleedingEnabled = enable
+}
+
+void function Bleedout_AllowInterruptSelfRes( bool allow )
+{
+	file.selfResInterruptable = allow
 }
 
 bool function Bleedout_IsPlayerBleeding( entity player )
@@ -1187,7 +1201,7 @@ void function Bleedout_IncapShieldThink( entity player )
 				//print( "ReCreating Incap Shield" )
 				CreateIncapShieldForBleedingPlayer( player )
 				statusEffectHandles.append( StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.5 ) )
-				statusEffectHandles.append( StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.2 ) )
+				statusEffectHandles.append( StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.3 ) )
 			}
 			else // last vortexSphere exists
 			{
@@ -1260,6 +1274,9 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 	vortexSphere.SetOrigin( < 31,0,31 > )
 	EffectSetControlPointVector( vortexSphere.e.shieldWallFX, 1, GetIncapShieldCurrentColor( 1.0 - GetHealthFrac( vortexSphere ) ) )
 
+	if( file.invulnerableIncapShield )
+		vortexSphere.SetInvulnerable()
+
 	return vortexSphere
 	// abandoned, player should have a invulnerable shield
 	//AddEntityCallback_OnDamaged( vortexSphere, IncapShieldTableUpdate )
@@ -1284,6 +1301,11 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 
 	thread Stop1PFXOnDestroy( vortexSphere, shieldWallFX1P )
 	*/
+}
+
+void function Bleedout_SetIncapShieldInvulnerable( bool invulnerable )
+{
+	file.invulnerableIncapShield = invulnerable
 }
 
 void function Stop1PFXOnDestroy( entity vortexSphere, entity shieldWallFX1P )
@@ -1409,9 +1431,9 @@ void function Bleedout_SetIncapShieldHealth( int health )
 void function Bleedout_HealthRegenThink( entity player )
 {
     player.EndSignal( "OnDestroy" )
-	//player.Signal( "BleedoutHealthRegenThink" ) // why this not getting registered most of time..
+	player.Signal( "BleedoutHealthRegenThink" ) // why this not getting registered most of time..
 	player.Signal( "StopHealthRegenThink" ) // end normal health regen in _health_regen.gnut
-	//player.EndSignal( "BleedoutHealthRegenThink" )
+	player.EndSignal( "BleedoutHealthRegenThink" )
 	player.EndSignal( "StopHealthRegenThink" )
 
 	float healthRegenStartDelay = file.bleedoutHealthRegenDelay

@@ -1,3 +1,4 @@
+untyped // spectre.s needs to be untyped
 global function SuicideSpectres_Init
 global function MakeSuicideSpectre
 global function SpectreSuicideOnDamaged
@@ -104,6 +105,14 @@ void function FragDroneDeath( entity spectre, var damageInfo )
 // for reloadscripts
 void function FragDroneDeath_Think( entity spectre, var damageInfo )
 {
+	// modified!!!
+	bool shouldDoExplosion = true
+	if( "noExplosionOnDeath" in spectre.s )
+	{
+		if( expect bool( spectre.s.noExplosionOnDeath ) )
+			shouldDoExplosion = false
+	}
+	
 	vector pos = spectre.GetOrigin()
 	int tagID = spectre.LookupAttachment( "CHESTFOCUS" )
 	vector fxOrg = spectre.GetAttachmentOrigin( tagID )
@@ -120,12 +129,20 @@ void function FragDroneDeath_Think( entity spectre, var damageInfo )
 	int team = GetExplosionTeamBasedOnGamemode( spectre )
 
 	int damageDef = GetDamageDefForFragDrone( spectre )
-
-	RadiusDamage_DamageDefSimple( damageDef, pos, attackerEnt, spectre, 0 )
-	EmitSoundAtPosition( spectre.GetTeam(), pos, expSFX )
-	CreateShake( pos, 10, 105, 1.25, 768 )
-	StartParticleEffectInWorld( expFX, fxOrg, Vector( 0, 0, 0 ) )
-
+	
+	if( shouldDoExplosion )
+	{
+		RadiusDamage_DamageDefSimple( damageDef, pos, attackerEnt, spectre, 0 )
+		EmitSoundAtPosition( spectre.GetTeam(), pos, expSFX )
+		CreateShake( pos, 10, 105, 1.25, 768 )
+		StartParticleEffectInWorld( expFX, fxOrg, Vector( 0, 0, 0 ) )
+	}
+	else // fake explosion
+	{
+		StartParticleEffectInWorld( GetParticleSystemIndex( $"impact_air_40mm" ), fxOrg, Vector( 0, 0, 0 ) )
+		EmitSoundAtPosition( spectre.GetTeam(), pos, "Explo_40mm_Impact_3P" )
+	}
+	
 	spectre.Gib( <0, 0, 100> ) //Used to do .Destroy() on the frag drones immediately, but this meant you can't display the obiturary correctly. Instead, since it's dead already just hide it
 }
 
@@ -257,9 +274,14 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 	spectre.EndSignal( "SuicideSpectreForceExplode" )
 
 	bool pursuitSoundPlaying = false
-
-	float minScale = expect float( spectre.Dev_GetAISettingByKeyField( "minSpeedScale" ) )
-	float maxScale = expect float( spectre.Dev_GetAISettingByKeyField( "maxSpeedScale" ) )
+	
+	float minScale = 0.5 // hardcoded for now
+	float maxScale = 1.0 // hardcoded for now
+	if( IsFragDrone( spectre ) )
+	{
+		minScale = expect float( spectre.Dev_GetAISettingByKeyField( "minSpeedScale" ) )
+		maxScale = expect float( spectre.Dev_GetAISettingByKeyField( "maxSpeedScale" ) )
+	}	
 
 	while ( true )
 	{
@@ -335,7 +357,10 @@ entity function SuicideSpectre_NearEnemy( entity spectre )
 		enemies.append( currentEnemy )
 
 	vector origin = spectre.GetOrigin()
-	float dist = expect float( spectre.Dev_GetAISettingByKeyField( "suicideExplosionDistance" ) )
+
+	float dist = 200 // hardcoded for now
+	if( IsFragDrone( spectre ) )
+		dist = expect float( spectre.Dev_GetAISettingByKeyField( "suicideExplosionDistance" ) )
 	foreach ( enemy in enemies )
 	{
 		if ( !IsAlive( enemy ) )

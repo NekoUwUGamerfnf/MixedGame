@@ -128,8 +128,10 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 	player.EndSignal( "TitanEjectionStarted" )
 
 	thread AirborneThink( player, soundInfo )
+	float airaccel
 	if ( player.IsPlayer() )
 	{
+		airaccel = expect string(player.kv.airAcceleration).tofloat()
 		player.Server_TurnDodgeDisabledOn()
 	    player.kv.airSpeed = horizVel
 	    player.kv.airAcceleration = 540
@@ -146,7 +148,7 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 	player.SetGroundFrictionScale( 0 )
 
 	OnThreadEnd(
-		function() : ( activeFX, player, soundInfo )
+		function() : ( activeFX, player, airaccel, soundInfo )
 		{
 			if ( IsValid( player ) )
 			{
@@ -157,7 +159,8 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 				{
 					player.Server_TurnDodgeDisabledOff()
 					player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
-					player.kv.airAcceleration = player.GetPlayerSettingsField( "airAcceleration" )
+					//player.kv.airAcceleration = player.GetPlayerSettingsField( "airAcceleration" )
+					player.kv.airAcceleration = airaccel
 					if( IsPilot( player ) )
 						player.kv.gravity = 0.0
 					else

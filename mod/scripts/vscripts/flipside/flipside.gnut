@@ -1,18 +1,39 @@
-global function flipside_init
-#if SERVER
+global function flipside_enabled_init
+global function flipside_init // always run this to precache models
+global function SetFlipSideWallDisabled
+global function IsFlipSideWallEnabled
+
 global function FindNearestSafeTeleport
 global function TeleportPlayer
-#endif
 
 // defined for mp_glitch.nut
-global bool wallEnabled = false
+struct
+{
+	bool flipsideEnabled = false
+	bool wallEnabled = false
+} file
 
-void function flipside_init() {
-    #if SERVER
+void function flipside_enabled_init()
+{
+	file.flipsideEnabled = true
+	file.wallEnabled = true
+}
+
+void function SetFlipSideWallDisabled()
+{
+	file.wallEnabled = false
+}
+
+bool function IsFlipSideWallEnabled()
+{
+	return file.wallEnabled
+}
+
+void function flipside_init() 
+{
 	if( GetMapName() == "mp_glitch" )
     {
         //wallLocation = RandomInt( 4 )
-        wallEnabled = true // in mp_glitch.nut
 		//AddCallback_OnPlayerRespawned(OnPlayerRespawn)
         AddClientCommandCallback("!Stuck", UnstuckPlayer)
         AddClientCommandCallback("!stuck", UnstuckPlayer)
@@ -20,12 +41,14 @@ void function flipside_init() {
         AddClientCommandCallback("!Unstuck", UnstuckPlayer)
         AddClientCommandCallback("!UNSTUCK", UnstuckPlayer)
         AddClientCommandCallback("!unstuck", UnstuckPlayer)
-        AddCallback_PlayerClassChanged(OnPlayerRespawn)
-        AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout)
-        AddCallback_GameStateEnter( eGameState.Playing, OnStart )
-        PrecacheParticleSystem ($"P_smokescreen_FD")
+		
+		if( file.flipsideEnabled )
+		{
+			AddCallback_PlayerClassChanged(OnPlayerRespawn)
+			AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout)
+			AddCallback_GameStateEnter( eGameState.Playing, OnStart )
+		}
     }
-	#endif
 }
 vector function GetMapOrigin(){
         switch(GetMapName()){
@@ -57,7 +80,6 @@ bool function FlipsideEnabled(){
     return true//GetCurrentPlaylistVarInt("Flipside", 0) == 1
 }
 void function OnStart(){
-    #if SERVER
     if(FlipsideEnabled() && (GetCurrentPlaylistVarInt("Smoke_wall", 0) == 1)){
 SmokescreenStruct smokescreen
     smokescreen.smokescreenFX = $"P_smokescreen_FD"
@@ -305,12 +327,10 @@ SmokescreenStruct smokescreen
     smokescreen.fxOffsets = smokes
     Smokescreen(smokescreen)
 }
-#endif
 }
 int ZONE_BLUE = 0
 int ZONE_RED = 1
 table<entity, int> CurrentZone = {}
-#if SERVER
 void function PlayerBoundry(entity player){
     while(IsValid(player)){
             if(!IsAlive(player))
@@ -327,15 +347,17 @@ void function PlayerBoundry(entity player){
     }
 }
 
-#endif
-#if SERVER
 void function OnPlayerRespawn(entity player)
 {
     if(FlipsideEnabled())
     {
-        if( !IsValid( player.GetOffhandWeapon( OFFHAND_ANTIRODEO ) ) && IsPilot( player ) )
-            player.GiveOffhandWeapon( "mp_ability_shifter_super", OFFHAND_ANTIRODEO, ["flipside"] )
-
+        if( IsPilot( player ) )
+		{
+			entity ordnance = player.GetOffhandWeapon( OFFHAND_ORDNANCE )
+			if( IsValid( ordnance ) )
+				player.TakeWeaponNow( ordnance.GetWeaponClassName() )
+            player.GiveOffhandWeapon( "mp_ability_shifter_super", OFFHAND_ORDNANCE, ["flipside"] )
+		}
         if( !player.IsTitan() && !PlayerHasWeapon( player, "mp_ability_shifter_super" ) )
             thread DelayedGiveFlipSide( player )
             
@@ -530,6 +552,3 @@ void function RestoreAirAccel(float airaccel, entity player){
     player.kv.airAcceleration = airaccel}
 }
 
-
-
-#endif

@@ -25,7 +25,7 @@ RandomizedEvent_Init(): From LegonZaur and PeePee, mutator pack including: gain 
 
 TacticalReplace_Init()：Disable melee, hold melee to switch offhand type, hold use to switch main weapon type
 
-flipside_init(): From PeePee, flipside with better behavior( may not support controllers, will change it )
+flipside_enabled_init(): From PeePee, flipside with better behavior( may not support controllers, will change it )
 
 TauntRandom_Init(): Press melee to do a taunt( unfinished )
 
@@ -80,7 +80,7 @@ RandomizedEvent_Init(): (不保证能在有泰坦的模式里使用) 随机玩�
 
 TacticalReplace_Init()：(不保证能在有泰坦的模式里使用) 禁用近战，按近战键更换装备类型，可使用原版装备与mod装备
 
-flipside_init(): 改的PeePeePoPoMan的mod。使用双充相位移动至地图对角位置，只会在异常启用同时修改异常的地图
+flipside_enabled_init(): 改的PeePeePoPoMan的mod。使用双充相位移动至地图对角位置，只会在异常启用同时修改异常的地图
 
 TauntRandom_Init(): 需要白名单，按近战使用表情动作
 

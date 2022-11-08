@@ -1,0 +1,79 @@
+untyped
+global function Pilot_Pet_Spawner_Init
+
+global function PlayerThrowsPetBall
+
+void function Pilot_Pet_Spawner_Init()
+{
+	AddCallback_OnClientConnected( OnClientConneted )
+}
+
+void function OnClientConneted( entity player )
+{
+	AddButtonPressedPlayerInputCallback( player, IN_USE, PlayerThrowsPetBall )
+}
+
+void function PlayerThrowsPetBall( entity player )
+{
+	// why it always spawn twice?
+	entity ball = CreateEntity( "prop_physics" )
+	//entity ball = Entities_CreateProjectileByClassname( "grenade", "mp_weapon_grenade_emp" )
+	ball.SetValueForModelKey( $"models/weapons/bullets/triple_threat_projectile.mdl" )
+	ball.SetModel( $"models/weapons/bullets/triple_threat_projectile.mdl" )
+	ball.SetOrigin( player.EyePosition() + player.GetViewVector() * 100 + < 0,0,40 > ) // don't spawn so close, or it will interrupt zipline
+	//ball.SetAngles( < 0, player.EyeAngles().y - 90, 0 > )
+	DispatchSpawn( ball )
+	ball.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS
+	entity effectHandle = StartParticleEffectOnEntity_ReturnEntity( ball, GetParticleSystemIndex( $"wpn_grenade_frag_blue" ), FX_PATTACH_ABSORIGIN_FOLLOW, 0 )
+	ball.SetVelocity( player.GetVelocity() + player.GetViewVector() * 500 )
+	
+	//thread TrackParticleEffect( ball, effectHandle )
+	thread BallBecomesPet( player, ball )
+	
+}
+
+void function BallBecomesPet( entity player, entity ball )
+{
+	ball.EndSignal( "OnDestroy" )
+	wait RandomFloatRange( 1.2, 1.8 )
+	
+	vector origin = ball.GetOrigin()
+	vector angles = < 0, player.EyeAngles().y, 0 >
+	int team = player.GetTeam()
+	PlayFX( $"P_plasma_exp_SM", origin, angles )
+	EmitSoundAtPosition( TEAM_UNASSIGNED, origin, "Explo_TripleThreat_Impact_3P" )
+	
+	//"npc_marvin"
+	//"npc_frag_drone"
+	//"npc_spectre"
+	entity pet = CreateNPC( "npc_frag_drone", team, origin, angles )
+	pet.s.noExplosionOnDeath <- true
+	pet.EnableNPCFlag( NPC_IGNORE_ALL )
+	pet.kv.modelscale = 0.5
+	HideName( pet )
+	pet.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS // no collision with player thing I guess
+	DispatchSpawn( pet )
+	//MakeSuicideSpectre( pet )
+	if( IsValid( player ) )
+	{
+		NPCFollowsPlayer( pet, player )
+		Highlight_ClearOwnedHighlight( pet )
+	}
+		
+	ball.Destroy()
+}
+
+void function TrackParticleEffect( entity ball, entity effectHandle )
+{
+	effectHandle.EndSignal( "OnDestroy" )
+	OnThreadEnd(
+		function():( effectHandle )
+		{
+			if( !IsValid( effectHandle ) )
+				print( "effectHandle Destroyed!" )
+		}
+	)
+	ball.WaitSignal( "OnDestroy" )
+	print( "Ball Destroyed!" )
+	WaitForever()
+}
