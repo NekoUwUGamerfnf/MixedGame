@@ -22,6 +22,7 @@ function MpWeaponProximityMine_Init()
 {
 	#if SERVER
 		RegisterSignal( "ProxMineTriggered" )
+		PrecacheModel( $"models/weapons/caber_shot/caber_shot_thrown.mdl" )
 		AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_satchel, OnDamagedTarget_Proximity_Mine )
 	#endif
 }
@@ -62,7 +63,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 	if ( proximityMine == null )
 		return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 
-	proximityMine.SetModel( $"models/weapons/caber_shot/caber_shot_thrown_xl.mdl" )
+	proximityMine.SetModel( $"models/weapons/caber_shot/caber_shot_thrown.mdl" ) //caber_shot_thrown_xl
 
 	Grenade_Init( proximityMine, weapon )
 	PlayerUsedOffhand( player, weapon )
