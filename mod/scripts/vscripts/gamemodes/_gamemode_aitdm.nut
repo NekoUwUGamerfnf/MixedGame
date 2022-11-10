@@ -1,6 +1,8 @@
 untyped
 global function GamemodeAITdm_Init
 
+global function Modded_Gamemode_GruntMode_Enable_Init
+
 const SQUADS_PER_TEAM = 3
 
 const REAPERS_PER_TEAM = 2
@@ -15,35 +17,46 @@ struct
 	array< int > levels = [ LEVEL_SPECTRES, LEVEL_SPECTRES ]
 	array< array< string > > podEntities = [ [ "npc_soldier" ], [ "npc_soldier" ] ]
 	array< bool > reapers = [ false, false ]
+	
+	bool gruntmode
 } file
 
+void function Modded_Gamemode_GruntMode_Enable_Init()
+{
+	file.gruntmode = true
+}
 
 void function GamemodeAITdm_Init()
 {
-	SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
-
-	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
-	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
-	
-	AddCallback_OnNPCKilled( HandleScoreEvent )
-	AddCallback_OnPlayerKilled( HandleScoreEvent )
-		
-	AddCallback_OnClientConnected( OnPlayerConnected )
-	
-	AddCallback_NPCLeeched( OnSpectreLeeched )
-	
-	if ( GetCurrentPlaylistVarInt( "aitdm_archer_grunts", 0 ) == 0 )
-	{
-		AiGameModes_SetGruntWeapons( [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
-		AiGameModes_SetSpectreWeapons( [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
-	}
+	if( file.gruntmode )
+		Modded_Gamemode_GruntMode_Init()
 	else
 	{
-		AiGameModes_SetGruntWeapons( [ "mp_weapon_rocket_launcher" ] )
-		AiGameModes_SetSpectreWeapons( [ "mp_weapon_rocket_launcher" ] )
+		SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
+
+		AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
+		AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
+		
+		AddCallback_OnNPCKilled( HandleScoreEvent )
+		AddCallback_OnPlayerKilled( HandleScoreEvent )
+			
+		AddCallback_OnClientConnected( OnPlayerConnected )
+		
+		AddCallback_NPCLeeched( OnSpectreLeeched )
+		
+		if ( GetCurrentPlaylistVarInt( "aitdm_archer_grunts", 0 ) == 0 )
+		{
+			AiGameModes_SetGruntWeapons( [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
+			AiGameModes_SetSpectreWeapons( [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
+		}
+		else
+		{
+			AiGameModes_SetGruntWeapons( [ "mp_weapon_rocket_launcher" ] )
+			AiGameModes_SetSpectreWeapons( [ "mp_weapon_rocket_launcher" ] )
+		}
+		
+		ScoreEvent_SetupEarnMeterValuesForMixedModes()
 	}
-	
-	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 }
 
 // Starts skyshow, this also requiers AINs but doesn't crash if they're missing
