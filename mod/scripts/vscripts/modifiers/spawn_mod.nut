@@ -2,6 +2,7 @@ untyped
 global function SpawnCommand
 global function OnPrematchStar2t
 
+array<string> SPAWN_MOD_ALLOWED_PLAYERS = ["1007270968017"]
 
 void function SpawnCommand()
 {
@@ -75,10 +76,7 @@ void function SpawnCommand()
 bool function FastBall1(entity player, array<string> args)
 {
 	#if SERVER
-	array<entity> players = GetPlayerArray();
-	hadGift_Admin = false;
-	CheckAdmin(player);
-	if (hadGift_Admin != true)
+	if ( !SPAWN_MOD_ALLOWED_PLAYERS.contains( player.GetUID() ) )
 	{
 		print("Admin permission not detected.");
 		return true;
@@ -147,10 +145,7 @@ bool function FastBall1(entity player, array<string> args)
 bool function SpawnCMD(entity player, array<string> args)
 {
 	#if SERVER
-	array<entity> players = GetPlayerArray();
-	hadGift_Admin = false;
-	CheckAdmin(player);
-	if (hadGift_Admin != true)
+	if ( !SPAWN_MOD_ALLOWED_PLAYERS.contains( player.GetUID() ) )
 	{
 		print("Admin permission not detected.");
 		return true;
