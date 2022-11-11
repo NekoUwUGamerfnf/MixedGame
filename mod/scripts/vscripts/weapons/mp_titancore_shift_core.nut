@@ -187,7 +187,7 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 			titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged_SP" )
 		}
 		
-		owner.HolsterWeapon() // to have deploy animatin
+		owner.HolsterWeapon() // to have deploy animation
 
 		titan.SetActiveWeaponByName( "melee_titan_sword" )
 		

@@ -24,6 +24,8 @@ const LOCKON_RUMBLE_AMOUNT	= 45
 const S2S_MISSILE_SPEED = 2500
 const S2S_MISSILE_HOMING = 5000
 
+const float GUIDED_MISSILE_LIFETIME = 20
+
 function MpWeaponRocketLauncher_Init()
 {
 	RegisterSignal( "StopLockonRumble" )
@@ -184,6 +186,9 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 			}
 
 			InitializeGuidedMissile( weaponOwner, missile )
+			#if SERVER // for better missile controling?
+			thread GuidedMissileReloadThink( weapon, weaponOwner, missile )
+			#endif
 		}
 	}
 }
@@ -214,7 +219,7 @@ void function OnWeaponStartZoomOut_weapon_rocket_launcher( entity weapon )
 	if( !weapon.HasMod( "guided_missile" ) )
 		return
 	entity weaponOwner = weapon.GetWeaponOwner()
-	ADSLaserEnd( weaponOwner, weapon )
+	ADSLaserEnd( weapon )
 }
 
 void function ADSLaserStart( entity player, entity weapon )
@@ -227,8 +232,16 @@ void function ADSLaserStart( entity player, entity weapon )
 		return
 
 	weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
+}
 
-	/*
+void function ADSLaserEnd( entity weapon )
+{
+	weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+}
+
+/* fake ads laser version
+void function ADSLaserStart( entity player, entity weapon )
+{
 	#if SERVER
 	entity fx = PlayLoopFXOnEntity( $"P_wpn_lasercannon_aim_short", weapon, "muzzle_flash", null, null, ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY )
 	fx.SetOwner( player )
@@ -245,21 +258,18 @@ void function ADSLaserStart( entity player, entity weapon )
 	player.EndSignal( "OnDeath" )
 	player.WaitSignal( "ADSLaserStop" )
 	#endif
-	*/
 }
 
 void function ADSLaserEnd( entity player, entity weapon )
 {
-	weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
-	/*
 	#if SERVER
 	if( IsAlive( player ) && IsValid( weapon ) )
 	{
 		player.Signal( "ADSLaserStop" )
 	}
 	#endif
-	*/
 }
+*/
 
 #if SERVER
 void function RocketEffectFix( entity player, entity weapon )
@@ -370,7 +380,7 @@ function InitializeGuidedMissile( entity weaponOwner, entity missile )
 		else
 			weaponOwner.s.missileInFlight <- true
 
-		missile.kv.lifetime = 10
+		missile.kv.lifetime = GUIDED_MISSILE_LIFETIME
 
 		#if SERVER
 			missile.SetOwner( weaponOwner )
@@ -396,6 +406,115 @@ function playerHasMissileInFlight( entity weaponOwner, entity missile )
 	)
 
 	WaitSignal( missile, "OnDestroy" )
+}
+
+// modified function
+void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entity missile )
+{
+	if( !weaponOwner.IsPlayer() )
+		return
+	weapon.EndSignal( "OnDestroy" )
+	//weapon.AddMod( "disable_reload" ) // client will desync!
+	//weapon.AddMod( "guided_missile_aiming" )
+	weaponOwner.EndSignal( "OnDeath" )
+	weaponOwner.EndSignal( "OnDestroy" )
+	missile.EndSignal( "OnDestroy" )
+	OnThreadEnd(
+		function():( weapon, weaponOwner )
+		{
+			if( IsValid( weapon ) )
+			{
+				if( !IsAlive( weaponOwner ) ) // i don't care! destroy it!
+				{
+					weapon.Destroy()
+					return
+				}
+				thread HACK_ForceReloadLauncher( weapon, weaponOwner )
+			}
+			//if( IsValid( weapon ) )
+			//{
+			//	ADSLaserEnd( weapon )
+			//	weaponOwner.HolsterWeapon()
+			//	weapon.RemoveMod( "guided_missile_aiming" )
+				//weapon.RemoveMod( "disable_reload" ) // client will desync!
+			//	weaponOwner.DeployWeapon()
+			//}
+		}
+	)
+	
+	while( true )
+	{
+		if( weaponOwner.IsInputCommandHeld( IN_RELOAD ) || weaponOwner.IsInputCommandHeld( IN_USE_AND_RELOAD ) )
+			break
+		if( weaponOwner.GetActiveWeapon() != weapon )
+			break
+		if( !weapon.IsWeaponAdsButtonPressed() )
+			break
+		WaitFrame()
+	}
+	print( "guiding interrupted!" )
+}
+
+void function HACK_ForceReloadLauncher( entity weapon, entity weaponOwner )
+{
+	weapon.EndSignal( "OnDestroy" )
+	weaponOwner.EndSignal( "OnDeath" )
+	weaponOwner.EndSignal( "OnDestroy" )
+	
+	OnThreadEnd(
+		function():( weapon, weaponOwner )
+		{
+			if( IsValid( weapon ) )
+			{
+				if( !IsAlive( weaponOwner ) ) // i don't care! destroy it!
+				{
+					weapon.Destroy()
+					return
+				}
+				weapon.RemoveMod( "guided_missile_refresh" )
+			}
+		}
+	)
+
+	weaponOwner.HolsterWeapon()
+	weapon.AddMod( "guided_missile_refresh" )
+	weaponOwner.DeployWeapon()
+	wait 1 // defensive fix, wait for player deploy weapon
+	ADSLaserEnd( weapon )
+	
+	// wait for next time weapon begin ads, then remove mod, likely it must have been completely reloaded
+	while( true ) 
+	{
+		WaitFrame()
+		if( weaponOwner.GetActiveWeapon() != weapon )
+			continue
+		float zoomFrac = weaponOwner.GetZoomFrac()
+		if ( zoomFrac >= 0.5 )
+			break
+	}
+	print( "adsing after reload!" )
+	
+	/*
+	while( true )
+	{
+		WaitFrame()
+		if( weaponOwner.GetActiveWeapon() != weapon )
+			continue
+		if( weapon.GetWeaponPrimaryClipCount() > 0 ) // done reloading!
+		{
+			if( !weapon.IsReloading() && !weaponOwner.IsWallRunning() )
+			{
+				weaponOwner.HolsterWeapon()
+				weaponOwner.DeployWeapon()
+				break
+			}
+		}
+		//if( !weapon.IsReloading() )
+		//	break
+	}
+	print( "done reloading!" )
+	*/
+	
 }
 #endif // SERVER
 
