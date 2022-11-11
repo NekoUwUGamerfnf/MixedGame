@@ -1,27 +1,48 @@
-untyped // for entity.s to functioning
 global function Pilot_Pet_Spawner_Init
 
+global function PilotPet_SetShouldCleanUpPetOnDeath
 global function PlayerThrowsPetBall
+
+global function CreateRandomPet
 
 struct
 {
+	// controller variables
+	bool cleanUpPetOnDeath = true
+
 	table< entity, bool > playerHasPetTable
 } file
 
 void function Pilot_Pet_Spawner_Init()
 {
+	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
 	AddCallback_OnClientConnected( OnClientConneted )
+	// ingame script
+	if( GetGameState() >= eGameState.Prematch )
+    {
+        foreach( entity player in GetPlayerArray() )
+            OnClientConneted( player )
+    }
+}
+
+void function OnPlayerRespawned( entity player )
+{
+	PlayerThrowsPetBall( player )
 }
 
 void function OnClientConneted( entity player )
 {
 	file.playerHasPetTable[player] <- false
-	AddButtonPressedPlayerInputCallback( player, IN_USE, PlayerThrowsPetBall )
+	//AddButtonPressedPlayerInputCallback( player, IN_USE, PlayerThrowsPetBall )
+}
+
+void function PilotPet_SetShouldCleanUpPetOnDeath( bool should )
+{
+	file.cleanUpPetOnDeath = should
 }
 
 void function PlayerThrowsPetBall( entity player )
 {
-	// why it always spawn twice?
 	entity ball = CreateEntity( "prop_physics" )
 	//entity ball = Entities_CreateProjectileByClassname( "grenade", "mp_weapon_grenade_emp" )
 	ball.SetValueForModelKey( $"models/weapons/bullets/triple_threat_projectile.mdl" )
@@ -46,49 +67,154 @@ void function BallBecomesPet( entity player, entity ball )
 	vector origin = ball.GetOrigin()
 	vector angles = < 0, player.EyeAngles().y, 0 >
 	int team = player.GetTeam()
-	PlayFX( $"P_plasma_exp_SM", origin, angles )
-	EmitSoundAtPosition( TEAM_UNASSIGNED, origin, "Explo_TripleThreat_Impact_3P" )
 	
 	//"npc_marvin"
-	//"npc_frag_drone"
 	//"npc_spectre"
-	//entity pet = CreateRandomPet( player, origin, angles )
-	entity pet = CreateNPC( "npc_spectre", team, origin, angles )
-	
-	//pet.EnableNPCFlag( NPC_IGNORE_ALL )
-	//pet.kv.modelscale = 0.5
-	//pet.kv.modelscale = 0.01
-	//pet.Hide()
-	HideName( pet )
-	//pet.SetInvulnerable()
-	pet.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS // no collision with player thing I guess
-	DispatchSpawn( pet )
-	//entity nessie = CreateEntity( "prop_dynamic" )
-	//nessie.SetValueForModelKey( $"models/domestic/nessy_doll.mdl" )
-	//DispatchSpawn( nessie )
-	//nessie.SetParent( pet, "ref" )
-	//nessie.SetAngles( < 0, -90, 0 > )
-	MakeSuicideSpectre( pet )
-	//SetSuicideSpectreNotExploding( pet )
-	//if( IsValid( player ) )
-	//{
-	//	NPCFollowsPlayer( pet, player )
-	//	Highlight_ClearOwnedHighlight( pet )
-	//}
+	entity pet = CreateRandomPet( player, origin, angles )
 		
 	ball.Destroy()
 }
 
 entity function CreateRandomPet( entity owner, vector origin, vector angles )
 {
+	switch( RandomInt( 3 ) ) // this must up on date!
+	{
+		case 0:
+			return CreateNessieTick( owner, origin, angles )
+		case 1:
+			return CreateNessieDrone( owner, origin, angles )
+		case 2:
+			return CreatePetMarvin( owner, origin, angles )
+	}
+}
 
+void function TrackPetLifeTime( entity owner, entity pet )
+{
+	if( file.cleanUpPetOnDeath )
+		owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	pet.EndSignal( "OnDeath" )
+	pet.EndSignal( "OnDestroy" )
+	
+	OnThreadEnd(
+		function():( pet )
+		{
+			if( IsValid( pet ) )
+			{
+				PlayFX( $"P_plasma_exp_SM", pet.GetOrigin(), < 0,pet.GetAngles().y,0 > )
+				EmitSoundAtPosition( TEAM_UNASSIGNED, pet.GetOrigin(), "Explo_TripleThreat_Impact_3P" )
+				pet.Destroy()
+			}
+		}
+	)
+	
+	WaitForever()
+}
+
+entity function CreateNessieTick( entity owner, vector origin, vector angles )
+{
+	entity pet = CreateNPC( "npc_frag_drone", owner.GetTeam(), origin, angles )
+	SetSuicideSpectreNotExploding( pet )
+	
+	pet.EnableNPCFlag( NPC_IGNORE_ALL )
+	pet.kv.modelscale = 0.01
+	pet.Hide()
+	pet.SetInvulnerable()
+	pet.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS // no collision with player but still blocks bullet trace
+	HideName( pet )
+	NPCFollowsPlayer( pet, owner )
+	Highlight_ClearOwnedHighlight( pet )
+	thread TrackPetLifeTime( owner, pet )
+	
+	DispatchSpawn( pet )
+
+	entity nessie = CreateEntity( "prop_dynamic" )
+	nessie.SetValueForModelKey( $"models/domestic/nessy_doll.mdl" )
+	DispatchSpawn( nessie )
+	nessie.SetParent( pet, "CHESTFOCUS" )
+	nessie.SetAngles( < 0, -90, 0 > )
+	thread TrackNessieLifeTime( pet, nessie )
+	
+	return pet
+}
+
+entity function CreateNessieDrone( entity owner, vector origin, vector angles )
+{
+	entity pet = CreateNPC( "npc_drone", owner.GetTeam(), origin, angles )
+	//TakeAllWeapons( pet )
+	thread DisableDroneSound( pet )
+	
+	pet.EnableNPCFlag( NPC_IGNORE_ALL )
+	pet.kv.modelscale = 0.01
+	pet.Hide()
+	pet.SetInvulnerable()
+	pet.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS // no collision with player but still blocks bullet trace
+	HideName( pet )
+	NPCFollowsPlayer( pet, owner )
+	Highlight_ClearOwnedHighlight( pet )
+	thread TrackPetLifeTime( owner, pet )
+	
+	DispatchSpawn( pet )
+
+	entity nessie = CreateEntity( "prop_dynamic" )
+	nessie.SetValueForModelKey( $"models/domestic/nessy_doll.mdl" )
+	DispatchSpawn( nessie )
+	nessie.SetParent( pet, "CHESTFOCUS" )
+	nessie.SetAngles( < 0, -90, 0 > )
+	thread TrackNessieLifeTime( pet, nessie )
+	
+	return pet
+}
+
+void function DisableDroneSound( entity drone ) // annoying sound!
+{
+	drone.EndSignal( "OnDestroy" )
+	
+	while( true )
+	{
+		StopSoundOnEntity( drone, "Drone_Mvmt_Hover_Hero" )
+		StopSoundOnEntity( drone, "Drone_Mvmt_Hover" )
+		StopSoundOnEntity( drone, "Drone_Mvmt_Turn" )
+		
+		WaitFrame()
+	}
+}
+
+void function TrackNessieLifeTime( entity pet, entity nessie )
+{
+	pet.EndSignal( "OnDestroy" )
+	nessie.EndSignal( "OnDestroy" )
+	
+	OnThreadEnd(
+		function():( nessie )
+		{
+			if( IsValid( nessie ) )
+				nessie.Destroy()
+		}
+	)
+	
+	WaitForever()
 }
 
 entity function CreatePetMarvin( entity owner, vector origin, vector angles )
 {
-
+	entity pet = CreateNPC( "npc_marvin", owner.GetTeam(), origin, angles )
+	
+	pet.EnableNPCFlag( NPC_IGNORE_ALL )
+	pet.kv.modelscale = 0.5
+	pet.SetInvulnerable()
+	pet.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS
+	HideName( pet )
+	NPCFollowsPlayer( pet, owner )
+	Highlight_ClearOwnedHighlight( pet )
+	thread TrackPetLifeTime( owner, pet )
+	
+	DispatchSpawn( pet )
+	
+	return pet
 }
 
+// test lol
 void function TrackParticleEffect( entity ball, entity effectHandle )
 {
 	effectHandle.EndSignal( "OnDestroy" )

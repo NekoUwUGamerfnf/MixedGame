@@ -30,7 +30,7 @@ struct
 	// modified!
 	array<entity> suicideSpectres
 	array<entity> noExplosionSpectres
-	
+	table<entity, entity> suicideSpectreChasingTable // for better behavior
 } file
 
 const SFX_TICK_OVERLOAD 				= "corporate_spectre_overload_beep"
@@ -61,10 +61,11 @@ void function SuicideSpectres_Init()
 	AddDeathCallback( "npc_frag_drone", FragDroneDeath )
 	
 	// modified!!
+	RegisterSignal( "SuicideSpectreEnemyChanged" )
 	// did a confirmation for normal spectres
 	AddDamageCallback( "npc_spectre", SpectreSuicideOnDamaged_Callback )
 	AddDeathCallback( "npc_spectre", FragDroneDeath )
-	AddDamageCallbackSourceID( eDamageSourceId.suicideSpectreAoE, SuicideSPectre_DamagedPlayerOrNPC )
+	AddDamageCallbackSourceID( eDamageSourceId.suicideSpectreAoE, SuicideSpectre_DamagedPlayerOrNPC )
 }
 
 /************************************************************************************************\
@@ -95,6 +96,7 @@ void function MakeSuicideSpectre( entity spectre )
 	{
 		// prefer chasing players
 		TakeAllWeapons( spectre )
+		file.suicideSpectreChasingTable[spectre] <- null // for better behavior
 	}
 	
 	spectre.kv.allowShoot = 0
@@ -250,7 +252,7 @@ int function GetDamageDefForFragDrone( entity drone )
 	return damagedef_frag_drone_throwable_NPC
 }
 
-void function SuicideSPectre_DamagedPlayerOrNPC( entity victim, var damageInfo )
+void function SuicideSpectre_DamagedPlayerOrNPC( entity victim, var damageInfo )
 {
 	// only allow suicide spectres damaging themselves as teammates, to trigger chain reactions
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
@@ -293,6 +295,8 @@ void function SuicideSpectreEnemyChanged( entity spectre )
 	// Spectre "Speaks"
 	if ( ( RandomFloat( 1.0 ) ) < 0.02 )
 		EmitSoundOnEntity( spectre, "diag_imc_spectre_gs_spotenemypilot_01_1" )
+	if( IsSpectre( spectre ) ) // modified check for suicide spectres
+		spectre.Signal( "SuicideSpectreEnemyChanged" )
 }
 
 /************************************************************************************************\
@@ -432,6 +436,26 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 			}
 			float speed = GraphCapped( dist, 200, 850, maxScale, minScale )
 			spectre.SetNPCMoveSpeedScale( speed )
+			if( IsSpectre( spectre ) )
+			{	
+				entity target = file.suicideSpectreChasingTable[spectre]
+				print( string( spectre ) + "'s enemy is " + string( enemy ) )
+				print( string( spectre ) + "'s chasing target is " + string( target ) )
+				if( target != enemy )
+				{
+					print( string( spectre ) + "'s target changed to " + string( enemy ) )
+					file.suicideSpectreChasingTable[spectre] = enemy
+					int followBehavior = GetDefaultNPCFollowBehavior( spectre )
+					spectre.InitFollowBehavior( enemy, followBehavior )
+					spectre.DisableBehavior( "Assault" )
+					spectre.EnableBehavior( "Follow" )
+					thread TrackSpectreEnemy( spectre, enemy )
+					
+					// no need to track dist, since spectre will never clear enemy automatically
+					//int chaseDist = expect int( spectre.Dev_GetAISettingByKeyField( "aiEnemy_usePriorityDist" ) )
+					//thread TrackEnemyDistance( spectre, enemy, chaseDist )
+				}
+			}
 		}
 
 		// offset the overload time
@@ -445,6 +469,61 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 			//Assert( 0 ) // never reached
 			return
 		}
+	}
+}
+
+void function TrackSpectreEnemy( entity spectre, entity enemy )
+{
+	enemy.EndSignal( "OnDeath" )
+	enemy.EndSignal( "OnDestroy" )
+	spectre.EndSignal( "OnDeath" )
+	spectre.EndSignal( "SuicideSpectreEnemyChanged" )
+	
+	OnThreadEnd(
+		function():( spectre )
+		{
+			if( IsValid( spectre ) )
+			{
+				file.suicideSpectreChasingTable[spectre] = null
+				spectre.ClearEnemy()
+				print( string( spectre ) + "'s target is cleared" )
+				spectre.DisableBehavior( "Follow" )
+				spectre.EnableBehavior( "Assault" )
+			}
+		}
+	)
+
+	WaitForever()
+}
+
+// prevent spectres chase down players even after they respawn! works pretty bad!
+void function TrackEnemyDistance( entity spectre, entity enemy, int chaseDist )
+{
+	enemy.EndSignal( "OnDeath" )
+	enemy.EndSignal( "OnDestroy" )
+	spectre.EndSignal( "OnDeath" )
+	spectre.EndSignal( "SuicideSpectreExploding" )
+	spectre.EndSignal( "SuicideSpectreForceExplode" )
+	
+	OnThreadEnd(
+		function():( spectre )
+		{
+			if( IsValid( spectre ) )
+			{
+				file.suicideSpectreChasingTable[spectre] = null
+				spectre.ClearEnemy()
+				print( string( spectre ) + "'s target is cleared" )
+				spectre.DisableBehavior( "Follow" )
+				spectre.EnableBehavior( "Assault" )
+			}
+		}
+	)
+	
+	while( true )
+	{
+		if( Distance( enemy.GetOrigin(), spectre.GetOrigin() ) > chaseDist )
+			break
+		wait 0.2
 	}
 }
 
@@ -462,7 +541,7 @@ entity function SuicideSpectre_NearEnemy( entity spectre )
 
 	vector origin = spectre.GetOrigin()
 
-	float dist = 100 // base stat
+	float dist = 200 // base stat
 	if( IsFragDrone( spectre ) )
 		dist = expect float( spectre.Dev_GetAISettingByKeyField( "suicideExplosionDistance" ) )
 	else if( IsSpectre( spectre ) ) // fuck respawn, have to do this or spectres will stop ahead of players
@@ -628,6 +707,10 @@ void function SpectreOverloads( entity spectre )
 		if ( overrideAnim != null )
 		{
 			anim = expect string( overrideAnim )
+		}
+		else if( IsSpectre( spectre ) ) // suicide spectres specific
+		{
+			anim = "sp_suicide_spectre_explode"
 		}
 
 		waitthread PlayAnim( spectre, anim )
