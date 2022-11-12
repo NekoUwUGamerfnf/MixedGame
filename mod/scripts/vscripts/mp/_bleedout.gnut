@@ -1,5 +1,5 @@
 //Bleed Out Mechanic Shared by several game modes.
-// WIP: Health limited incap shield, maybe not necessary
+// WIP: Health limited incap shield, Downed Fake Player
 /*
 WARNING BY NESSIE( fixed by Bleedout_PlayerMovementLimiter() ): 
 Bleedout_DiableWallrunAndDoubleJump() and Bleedout_EnableWallrunAndDoubleJump()
@@ -24,6 +24,8 @@ global function Bleedout_IsPlayerGettingFirstAid
 
 global function Bleedout_IsPlayerBleeding
 global function Bleedout_GetLastAttacker
+global function Bleedout_GetLastAttackerWeapon
+//global function Bleedout_GetLastDamageInfo // no idea now
 //global function Bleedout_IsRevivingFriendly // no idea how to make it
 
 global function Bleedout_HealthRegenThink
@@ -37,7 +39,7 @@ global function Bleedout_SetIncapShieldHealth
 global function Bleedout_SetIncapShieldInvulnerable
 
 const float BLEEDOUT_PROTECTION_DURATION = 1.05
-const int BLEEDOUT_INCAP_SHIELD_MAX_HEALTH = 5000 // make it a almost invulnerable shield
+const int BLEEDOUT_INCAP_SHIELD_MAX_HEALTH = 350
 
 struct IncapShieldStruct
 {
@@ -50,6 +52,8 @@ struct
 	table<entity,bool> isBleeding
 	table<entity, entity> IsGettingFirstAidFrom
 	table<entity, entity> lastAttacker
+	table<entity, entity> lastAttackerWeapon
+	//table<entity, var> lastDamageInfo // no idea now
 	// victim, attacker, damageInfo
 	array<void functionref( entity, entity, var )> Callbacks_OnPlayerStartBleedout 
 	// playerToRes, playerHealer
@@ -68,6 +72,7 @@ struct
 	//table<entity, IncapShieldStruct> playerIncapShieldTable // no need to use 1p things
 	table<entity, entity> playerIncapShieldTable
 	bool invulnerableIncapShield
+	table<entity, entity> bleedoutFakePlayers
 } file
 
 void function Bleedout_Init()
@@ -95,9 +100,12 @@ void function Bleedout_OnClientConnected( entity player )
 	file.isBleeding[ player ] <- false
 	file.IsGettingFirstAidFrom[ player ] <- null
 	file.lastAttacker[ player ] <- svGlobal.worldspawn
+	file.lastAttackerWeapon[ player ] <- null
+	//file.lastDamageInfo[ player ] <- null // no idea now
 	//file.playerSavedTitle[ player ] <- ""
 	file.incapShieldHealthTable[ player ] <- file.incapShieldMaxHealth
 	file.playerIncapShieldTable[ player ] <- null
+	file.bleedoutFakePlayers[ player ] <- null
 
 	/*
 	IncapShieldStruct emptyStruct
@@ -151,6 +159,8 @@ bool function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	player.Signal( "BleedOut_OnStartDying" )
 
 	file.lastAttacker[ player ] = attacker
+	file.lastAttackerWeapon[ player ] = DamageInfo_GetWeapon( damageInfo )
+	//file.lastDamageInfo[ player ] = damageInfo // no idea now
 	
 	player.ClearParent()
 	player.Anim_Stop() // interupt current executions etc.
@@ -170,7 +180,6 @@ bool function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	}
 
 	thread Bleedout_DeathProtection( player )
-	thread Bleedout_IncapShieldThink( player )
 
 	thread BloodTrail( player )
 	thread PlayerDying( player )
@@ -224,6 +233,8 @@ void function PlayerDying( entity player )
 	thread Bleedout_PlayerMovementLimiter( player )
 	thread Bleedout_ScreenFadeThink( player )
 	thread Bleedout_EnemySpottingHighlight( player )
+	thread Bleedout_IncapShieldThink( player )
+	//thread Bleedout_FakePlayerThink( player )
 
 	if ( forceHolster )
 	{
@@ -242,6 +253,8 @@ void function PlayerDying( entity player )
 
 				file.isBleeding[ player ] = false
 				file.lastAttacker[ player ] = svGlobal.worldspawn
+				file.lastAttackerWeapon[ player ] = null
+				//file.lastDamageInfo[ player ] = null  // no idea now
 
 				//player.UnforceCrouch()
 				thread Bleedout_PlayerForceStand( player )
@@ -500,6 +513,8 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 
 	file.isBleeding[ playerToRes ] = false
 	file.lastAttacker[ playerToRes ] = svGlobal.worldspawn
+	file.lastAttackerWeapon[ playerToRes ] = null
+	//file.lastDamageInfo[ playerToRes ] = null // no idea now
 	if ( IsPilotEliminationBased() )
 		ClearPlayerEliminated( playerToRes )
 
@@ -755,6 +770,21 @@ entity function Bleedout_GetLastAttacker( entity player )
 		return null
 	return file.lastAttacker[player]
 }
+
+entity function Bleedout_GetLastAttackerWeapon( entity player )
+{
+	if( !( player in file.lastAttackerWeapon ) )
+		return null
+	return file.lastAttackerWeapon[player]
+}
+
+ // no idea now
+//var function Bleedout_GetLastDamageInfo( entity player )
+//{
+//	if( !( player in file.lastDamageInfo ) )
+//		return null
+//	return file.lastDamageInfo[player]
+//}
 
 // no idea
 //bool function Bleedout_IsRevivingFriendly( entity player )
@@ -1134,8 +1164,6 @@ void function Bleedout_IncapShieldThink( entity player )
 	player.EndSignal( "BleedOut_OnRevive" )
 
 	// before OnThreadEnd()
-	float lastDryFireTime = 0
-	bool loopSoundPlaying = false
 	array<int> statusEffectHandles = []
 
 	OnThreadEnd(
@@ -1154,7 +1182,6 @@ void function Bleedout_IncapShieldThink( entity player )
 				entity vortexSphere = file.playerIncapShieldTable[ player ]
 				if( IsValid( vortexSphere ) )
 					vortexSphere.Destroy()
-				file.incapShieldHealthTable[ player ] = file.incapShieldMaxHealth // restore shield
 				
 				foreach( int effect in statusEffectHandles )
 					StatusEffect_Stop( player, effect )
@@ -1163,7 +1190,54 @@ void function Bleedout_IncapShieldThink( entity player )
 	)
 	
 	wait BLEEDOUT_PROTECTION_DURATION *0.5
+	entity vortexSphere = CreateIncapShieldForBleedingPlayer( player )
+	vortexSphere.EndSignal( "OnDestroy" )
 
+	float lastDryFireTime = 0
+	bool vortexShown = false
+	bool hasStatusEffect = true
+	while( true )
+	{
+		WaitFrame()
+
+		// not holding attack or be in special state
+		if( IsInValidIncapShieldState( player ) && player.IsInputCommandHeld( IN_ATTACK ) ) 
+		{
+			if( !hasStatusEffect )
+			{
+				statusEffectHandles.append( StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.5 ) )
+				statusEffectHandles.append( StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.3 ) )
+				hasStatusEffect = true
+			}
+
+			if( !vortexShown )
+			{
+				EmitSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
+				HACK_ShowIncapShieldVortexSphere( vortexSphere, player ) // hacking function
+				CreateIncapShieldWallFX( vortexSphere )
+				vortexShown = true
+			}
+			if( IsValid( vortexSphere.e.shieldWallFX ) )
+				EffectSetControlPointVector( vortexSphere.e.shieldWallFX, 1, GetIncapShieldCurrentColor( 1.0 - GetHealthFrac( vortexSphere ) ) )
+			
+		}
+		else// if( player.IsInputCommandHeld( IN_ATTACK ) )
+		{
+			//print( "Stopping Incap Shield" )
+			StopSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
+			StopIncapShieldWallFX( vortexSphere )
+			HACK_TempHideIncapShieldVortexSphere( vortexSphere ) // hacking function
+			vortexShown = false
+			if( hasStatusEffect )
+			{
+				foreach( int effect in statusEffectHandles )
+					StatusEffect_Stop( player, effect )
+			}
+			hasStatusEffect = false
+		}
+	}
+
+	/* // really should rework this
 	while( true )
 	{
 		WaitFrame()
@@ -1205,6 +1279,7 @@ void function Bleedout_IncapShieldThink( entity player )
 			}
 			else // last vortexSphere exists
 			{
+				EffectSetControlPointVector( vortexSphere.e.shieldWallFX, 1, GetIncapShieldCurrentColor( 1.0 - GetHealthFrac( vortexSphere ) ) )
 				if( !loopSoundPlaying )
 				{
 					EmitSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
@@ -1219,7 +1294,6 @@ void function Bleedout_IncapShieldThink( entity player )
 			{
 				//print( "Stopping Incap Shield" )
 				StopSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
-				StopSoundOnEntity( player, "ShieldWall_End" )
 				loopSoundPlaying = false
 				vortexSphere.Destroy()
 				foreach( int effect in statusEffectHandles )
@@ -1227,6 +1301,7 @@ void function Bleedout_IncapShieldThink( entity player )
 			}
 		}
 	}
+	*/
 }
 
 void function UpdateShieldPosition( entity mover, entity owner )
@@ -1254,6 +1329,13 @@ bool function IsInValidIncapShieldState( entity player )
 	return true
 }
 
+// should set a different one since it has been redirected
+const int INCAP_SHIELD_RADIUS = 35
+const int INCAP_SHIELD_HEIGHT = 60
+const int INCAP_SHIELD_FOV = 75
+
+const asset INCAP_SHIELD_EFFECT_NAME = $"P_anti_titan_shield_3P"
+
 entity function CreateIncapShieldForBleedingPlayer( entity player )
 {
 	vector angles = VectorToAngles( player.EyeAngles() )
@@ -1262,28 +1344,33 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 
 	// doing hardcode here, guess no need to change( and I cant easily change it
 	// vortexSphere
-	entity vortexSphere = CreateShieldWithSettings( player.GetOrigin(), angles, 50, 100, PLAYER_SHIELD_WALL_FOV, 999, maxHealth, $"P_anti_titan_shield_3P" )
+	entity vortexSphere = CreateShieldWithSettings( player.GetOrigin(), angles, INCAP_SHIELD_RADIUS, INCAP_SHIELD_HEIGHT, INCAP_SHIELD_FOV, 9999, maxHealth, INCAP_SHIELD_EFFECT_NAME )
 	//file.playerIncapShieldTable[ player ].vortexSphere = vortexSphere // no need to use 1p things
 	file.playerIncapShieldTable[ player ] = vortexSphere
 	
 	vortexSphere.SetHealth( health )
 	vortexSphere.SetOwner( player )
+	vortexSphere.SetBlocksRadiusDamage( true )
 	SetTeam( vortexSphere, player.GetTeam() )
 	vortexSphere.SetParent( player, "ORIGIN" )
-	vortexSphere.SetAngles( < 20,0,94 > )
-	vortexSphere.SetOrigin( < 31,0,31 > )
-	EffectSetControlPointVector( vortexSphere.e.shieldWallFX, 1, GetIncapShieldCurrentColor( 1.0 - GetHealthFrac( vortexSphere ) ) )
-
+	vortexSphere.e.shieldWallFX.SetAngles( < 20,0,94 > )
+	vortexSphere.e.shieldWallFX.SetOrigin( < 31,0,32 > )
+	
+	vortexSphere.SetDamageNotifications( false ) // no hitmarkers?
 	if( file.invulnerableIncapShield )
 	{
+		vortexSphere.SetInvulnerable()
 		vortexSphere.SetTakeDamageType( DAMAGE_NO )
-		vortexSphere.SetDamageNotifications( false )
-		//vortexSphere.SetInvulnerable()
+	}
+	else
+	{	
+		// this thing don't work for a vortexSphere?
+		//AddEntityCallback_OnDamaged( vortexSphere, IncapShieldTableUpdate )
+		thread TrackPlayerIncapShieldHealth( vortexSphere, player )
 	}
 
 	return vortexSphere
-	// abandoned, player should have a invulnerable shield
-	//AddEntityCallback_OnDamaged( vortexSphere, IncapShieldTableUpdate )
+	
 
 	// temp
 	//vortexSphere.e.shieldWallFX.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY)
@@ -1305,6 +1392,49 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 
 	thread Stop1PFXOnDestroy( vortexSphere, shieldWallFX1P )
 	*/
+}
+
+void function HACK_ShowIncapShieldVortexSphere( entity vortexSphere, entity player )
+{
+	vortexSphere.SetParent( player, "ORIGIN" )
+}
+
+void function HACK_TempHideIncapShieldVortexSphere( entity vortexSphere )
+{
+	vortexSphere.ClearParent()
+	vortexSphere.SetOrigin( < -9999, -9999, -9999 > ) // so player can never hit it
+}
+
+void function StopIncapShieldWallFX( entity vortexSphere )
+{
+	entity shieldWallFX = vortexSphere.e.shieldWallFX
+	if( !IsValid( shieldWallFX ) )
+		return
+
+	entity cpoint = shieldWallFX.e.cpoint
+	shieldWallFX.e.cpoint = null
+	if( IsValid( cpoint ) )
+		cpoint.Destroy()
+
+	StopShieldWallFX( vortexSphere )
+}
+
+entity function CreateIncapShieldWallFX( entity vortexSphere )
+{
+	// Shield wall fx control point
+	entity cpoint = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpoint, UniqueString( "shield_wall_controlpoint" ) )
+	DispatchSpawn( cpoint )
+
+	// Shield wall fx
+	entity shieldWallFX = PlayFXWithControlPoint( INCAP_SHIELD_EFFECT_NAME, < 0,0,0 >, cpoint, -1, null, < 0,0,0 >, C_PLAYFX_LOOP )
+	vortexSphere.e.shieldWallFX = shieldWallFX
+	shieldWallFX.e.cpoint = cpoint
+	shieldWallFX.SetParent( vortexSphere )
+	shieldWallFX.SetAngles( < 20,0,94 > )
+	shieldWallFX.SetOrigin( < 31,0,32 > )
+
+	return shieldWallFX
 }
 
 void function Bleedout_SetIncapShieldInvulnerable( bool invulnerable )
@@ -1372,12 +1502,17 @@ vector function GetTriLerpColor( float fraction, vector color1, vector color2, v
 	unreachable
 }
 
+// why vortex_sphere don't have a damaged callback?
 void function IncapShieldTableUpdate( entity vortexSphere, var damageInfo )
 {
+	//print( "try to update incap shield health!" )
 	entity owner = vortexSphere.GetOwner()
 	if( !IsValid( owner ) )
 		return
-	float damageDifference = vortexSphere.GetHealth() - DamageInfo_GetDamage( damageInfo )
+	float baseDamage = DamageInfo_GetDamage( damageInfo )
+	float damageDifference = vortexSphere.GetHealth() - baseDamage
+	if( baseDamage >= 300 ) // basically for krabers
+		baseDamage = 300
 	if( damageDifference < 0 ) // shield broke damage
 	{
 		owner.TakeDamage( fabs( damageDifference ), 
@@ -1393,8 +1528,42 @@ void function IncapShieldTableUpdate( entity vortexSphere, var damageInfo )
 		file.incapShieldHealthTable[ owner ] = 0
 		return
 	}
-	//var calcDamage = file.incapShieldHealthTable[ owner ] - int( DamageInfo_GetDamage( damageInfo ) )
-	//file.incapShieldHealthTable[ owner ] = max( int( calcDamage ), 0 )
+	int calcDamage = file.incapShieldHealthTable[ owner ] - int( DamageInfo_GetDamage( damageInfo ) )
+	file.incapShieldHealthTable[ owner ] = int( max( calcDamage, 0 ) )
+	//print( "incap Shield health left: "+ string( file.incapShieldHealthTable[ owner ] ) )
+}
+
+void function TrackPlayerIncapShieldHealth( entity vortexSphere, entity player )
+{
+	vortexSphere.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDestroy" )
+	OnThreadEnd(
+		function():( vortexSphere, player )
+		{
+			if( !IsValid( vortexSphere ) )
+			{
+				file.incapShieldHealthTable[ player ] = 0
+				//print( "incap Shield down" )
+			}
+			if( IsValid( player ) )
+			{
+				file.incapShieldHealthTable[ player ] = file.incapShieldMaxHealth // restore shield
+				if( file.isBleeding[player] ) // otherwise player has been revived
+					EmitSoundOnEntity( player, "ShieldWall_Destroyed" )
+			}
+		}
+	)
+
+	int lastTickHealth = vortexSphere.GetHealth()
+	while( true )
+	{
+		int calcDamage = lastTickHealth - vortexSphere.GetHealth()
+		file.incapShieldHealthTable[ player ] = int( max( file.incapShieldHealthTable[ player ] - calcDamage, 0 ) )
+
+		lastTickHealth = vortexSphere.GetHealth()
+		//print( "incap Shield health left: "+ string( file.incapShieldHealthTable[ player ] ) )
+		WaitFrame()
+	}
 }
 
 void function Bleedout_ScreenFadeThink( entity player )
@@ -1420,6 +1589,27 @@ void function Bleedout_ScreenFadeThink( entity player )
 	
 	ScreenFade( player, 0, 0, 0, 225, bleedingTime * 0.5, 999, FFADE_OUT | FFADE_PURGE )
 	WaitForever()
+}
+
+void function Bleedout_FakePlayerThink( entity player )
+{
+	float fadeDist 	= 10000.0
+	int solidType = 0// 0 = no collision, 2 = bounding box, 6 = use vPhysics, 8 = hitboxes only
+
+	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
+	entity fakePlayer = CreatePropDynamic( player.GetModelName(), < 0,0,0 >, < 0,0,0 >, solidType, fadeDist )
+	fakePlayer.SetOwner( player )
+	SetTeam( fakePlayer, player.GetTeam() )
+	fakePlayer.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
+	entity mover = CreateScriptMover()
+	mover.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	mover.SetModel( $"models/dev/empty_model.mdl" )
+	mover.SetParent( player, "ORIGIN" )
+	mover.SetOrigin( < -35, 50, 0 > ) // redirect fake player
+	SetForceDrawWhileParented( mover, true )
+	fakePlayer.SetParent( mover, "REF" )
+	file.bleedoutFakePlayers[ player ] = fakePlayer
+	fakePlayer.Anim_Play( "pt_wounded_drag_zinger_A_idle" )
 }
 
 void function Bleedout_SetProtectionDuration( float duration )

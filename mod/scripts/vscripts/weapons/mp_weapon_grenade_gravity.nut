@@ -46,7 +46,7 @@ const float LIFT_PULL_SPEED_HORIZON = 400
 const float LIFT_PULL_SPEED_VERTICAl = 300
 const float LIFT_TOP_TIME_LIMIT = 2
 const float LIFT_LIFETIME = 10
-const float LIFT_COOLDOWN = 2 // time between second lift
+const float LIFT_COOLDOWN = 0.5 // time between second lift
 
 //array<entity> hasGravityLifted = []
 struct GravLiftStruct
