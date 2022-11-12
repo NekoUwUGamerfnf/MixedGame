@@ -33,12 +33,32 @@ const array< string > LAUNCHER_MODS = [ "pas_run_and_gun", "pas_fast_ads", "pas_
 
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
-array< string > usedplayer = []
+// basically medium animation pilots!
+const array<asset> NPC_PILOT_ALLOWED_MODELS = [ $"models/humans/pilots/pilot_medium_stalker_m.mdl", 
+												$"models/humans/pilots/pilot_medium_stalker_f.mdl", 
+												$"models/humans/pilots/pilot_medium_geist_m.mdl", 
+												$"models/humans/pilots/pilot_medium_geist_f.mdl", 
+												$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
+												$"models/humans/pilots/pilot_medium_reaper_m.mdl",  
+												$"models/humans/grunts/mlt_grunt_lmg.mdl", 
+												$"models/humans/grunts/imc_grunt_lmg.mdl", 
+												$"models/humans/grunts/imc_grunt_shield_captain.mdl", 
+												$"models/Humans/heroes/imc_hero_ash.mdl", 
+												$"models/Humans/heroes/imc_hero_blisk.mdl", 
+												$"models/Humans/heroes/mlt_hero_jack.mdl", 
+												$"models/Humans/heroes/mlt_hero_sarah.mdl", 
+												$"models/Humans/heroes/imc_hero_blisk.mdl", 
+												$"models/humans/pilots/sp_medium_geist_f.mdl", 
+												$"models/humans/pilots/sp_medium_reaper_m.mdl", 
+												$"models/humans/pilots/sp_medium_stalker_m.mdl"]
 
 struct
 {
-	array< string > gruntWeapons = [ "mp_weapon_rspn101" ]
-	array< string > spectreWeapons = [ "mp_weapon_hemlok_smg" ]
+	array< string > pilotWeapons = [ "mp_weapon_rspn101_og", 
+									 "mp_weapon_r97", 
+									 "mp_weapon_wingman_n" ]
+
+	array< string > usedplayer = []
 } file
 
 void function ExtraAISpawner_Init()
@@ -52,6 +72,9 @@ void function ExtraAISpawner_Init()
 		AddCallback_OnNpcPilotBecomesTitan( OnNpcPilotBecomesTitan )
 		AddCallback_OnNpcTitanBecomesPilot( OnNpcTitanBecomesPilot )
 	}
+
+	// npc pilot score event
+	AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
 	
 	// no need since we already got these in _ai_pilots.gnut
 	//AddCallback_OnNpcPilotBecomesTitan( NpcPilotBecomesTitan )
@@ -76,6 +99,16 @@ void function ProwlerPrecache()
     PrecacheModel($"models/creatures/prowler/prowler_dead_static_11.mdl")
     PrecacheModel($"models/creatures/prowler/prowler_death1_static.mdl")
     PrecacheModel($"models/creatures/prowler/r2_prowler.mdl")
+}
+
+void function KilledNPCPilotScoreEvent( entity pilot, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if( !IsValid( attacker ) )
+		return
+	if( !attacker.IsPlayer() )
+		return
+	AddPlayerScore( attacker, "EliminatePilot", pilot )
 }
 
 //------------------------------------------------------
@@ -263,17 +296,19 @@ void function AiGameModes_SpawnPilotCanEmbark( vector pos, vector rot, int team 
 	wait 2
 	DispatchSpawn( pilot )
 
-	if( team == TEAM_MILITIA )
-		pilot.SetModel( $"models/humans/pilots/sp_medium_reaper_m.mdl" )
-	if( team == TEAM_IMC )
-		pilot.SetModel( $"models/humans/pilots/sp_medium_stalker_m.mdl" )
-	pilot.SetTitle( "Pilot" )
+	//if( team == TEAM_MILITIA )
+	//	pilot.SetModel( $"models/humans/pilots/sp_medium_reaper_m.mdl" )
+	//if( team == TEAM_IMC )
+	//	pilot.SetModel( $"models/humans/pilots/sp_medium_stalker_m.mdl" )
+	//pilot.SetTitle( "Pilot" )
+
+	pilot.SetModel( NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ] )
 	pilot.SetMaxHealth( 1000 )
 	pilot.SetHealth( 1000 )
 	Highlight_SetEnemyHighlight( pilot, "enemy_player" )
 
-	ReplaceWeapon( pilot, file.gruntWeapons[ RandomInt( file.gruntWeapons.len() ) ], [] ) //["npc_elite_weapon"]
-	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	ReplaceWeapon( pilot, file.pilotWeapons[ RandomInt( file.pilotWeapons.len() ) ], [] ) //["npc_elite_weapon"]
+	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS )
 
 	thread DropPodActiveThink( pod, 1 )
 
@@ -355,7 +390,7 @@ void function ForceStartTitan( entity titan, entity pilot )
 			NPCFollowsNPC( titan, pilot )
 			pilot.Signal( "ForceStartMove" )
 			thread PilotHandler( pilot )
-			if( titan.Anim_IsActive() ) // embarking?
+			if( titan.ContextAction_IsBusy() ) // embarking?
 				return
 			thread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
 		}
@@ -377,35 +412,43 @@ entity function AiGameModes_SpawnTitanForPilot( entity pilot, vector pos, vector
 	int randomindex = RandomInt( 7 )
 	string setfile = ""
 	string aiset = ""
+	string executionRef = ""
 	switch( randomindex )
 	{
 		case 0:
 			setfile = "titan_atlas_stickybomb"
 			aiset = "npc_titan_auto_atlas_stickybomb"
+			executionRef = "execution_ion" // "execution_random_0", ion's prime execution is bugged
 			break
 		case 1:
-			setfile = "titan_atlas_tracker"
-			aiset = "npc_titan_auto_atlas_tracker"
-			break
-		case 2:
-			setfile = "titan_stryder_leadwall"
-			aiset = "npc_titan_auto_stryder_leadwall"
-			break
-		case 3:
-			setfile = "titan_stryder_sniper"
-			aiset = "npc_titan_auto_stryder_sniper"
-			break
-		case 4:
 			setfile = "titan_ogre_meteor"
 			aiset = "npc_titan_auto_ogre_meteor"
+			executionRef = "execution_random_1"
+			break
+		case 2:
+			setfile = "titan_stryder_sniper"
+			aiset = "npc_titan_auto_stryder_sniper"
+			executionRef = "execution_random_2"
+			break
+		case 3:
+			setfile = "titan_stryder_leadwall"
+			aiset = "npc_titan_auto_stryder_leadwall"
+			executionRef = "execution_random_3"
+			break
+		case 4:
+			setfile = "titan_atlas_tracker"
+			aiset = "npc_titan_auto_atlas_tracker"
+			executionRef = "execution_random_4"
 			break
 		case 5:
 			setfile = "titan_ogre_minigun"
 			aiset = "npc_titan_auto_ogre_minigun"
+			executionRef = "execution_random_5"
 			break
 		case 6:
 			setfile = "titan_atlas_vanguard"
 			aiset = "npc_titan_auto_atlas_vanguard"
+			executionRef = "execution_random_6"
 			break
 	}
 	foreach ( entity player in GetPlayerArrayOfTeam( pilot.GetTeam() ) )
@@ -418,6 +461,7 @@ entity function AiGameModes_SpawnTitanForPilot( entity pilot, vector pos, vector
     titan.ai.titanSpawnLoadout.setFile = setfile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 	DispatchSpawn( titan )
+	titan.GetTitanSoul().soul.titanLoadout.titanExecution = executionRef //"execution_vanguard_kit" // handle in melee_synced_titan to use random execution
 
 	NpcPilotSetPetTitan( pilot, titan )
 	thread NPCTitanHotdrops( titan, false )
@@ -445,7 +489,7 @@ void function AiGameModes_SpawnPilotCanEmbark( vector pos, vector rot,entity tit
 	pilot.SetMaxHealth( 500 )
 	pilot.SetHealth( 500 )
 
-	ReplaceWeapon( pilot, file.gruntWeapons[ RandomInt( file.gruntWeapons.len() ) ], [] )
+	ReplaceWeapon( pilot, file.pilotWeapons[ RandomInt( file.pilotWeapons.len() ) ], [] )
 	//pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	
 	thread DropPodActiveThink( pod )
@@ -509,7 +553,7 @@ void function AiGameModes_SpawnPilotWithTitan( vector pos, vector rot, int team,
 
 	foreach ( pilot in pilots )
 	{
-		ReplaceWeapon( pilot, file.gruntWeapons[ RandomInt( file.gruntWeapons.len() ) ], ["npc_elite_weapon"] )
+		ReplaceWeapon( pilot, file.pilotWeapons[ RandomInt( file.pilotWeapons.len() ) ], ["npc_elite_weapon"] )
 		pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	}
 	
@@ -684,7 +728,7 @@ void function AiGameModes_SpawnDropPodToGetWeapons( vector pos, vector rot )
 
 void function AiGameModes_SpawnDropPodToGetWeapons_Threaded( vector pos, vector rot, float lifeTime = 30 )
 {
-	usedplayer.clear()
+	file.usedplayer.clear()
 	wait 5
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	Highlight_SetOwnedHighlight( pod, "friendly_ai" )
@@ -733,7 +777,7 @@ function GiveAirDropWeapon( pod , player )
 	vector pos = player.GetOrigin()
 	string uid = player.GetUID()
 
-	if( usedplayer.contains( uid ) )
+	if( file.usedplayer.contains( uid ) )
 	{
 		SendHudMessage(player, "Once Robbed Weapon from Care Package\nPlease Wait for Next Delivery",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
 		return
@@ -743,7 +787,7 @@ function GiveAirDropWeapon( pod , player )
 		player.DropWeapon( player.GetMainWeapons()[1] )
 	GiveModdedWeapons( player, WEAPONS, MODS )
     SendHudMessage(player, "Got Weapon from Care Package",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-    usedplayer.append( uid )
+    file.usedplayer.append( uid )
 
 }
 
