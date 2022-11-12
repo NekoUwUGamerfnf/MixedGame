@@ -476,7 +476,7 @@ void function PlayerWatchesRoundWinningKillReplay( entity player, float replayLe
 	player.SetPredictionEnabled( false ) // prediction fucks with replays
 	
 	entity attacker = file.roundWinningKillReplayAttacker
-	if( IsValid( player ) )
+	if( IsValid( player ) && IsValid( attacker ) )
 	{
 		player.SetKillReplayDelay( Time() - replayLength, THIRD_PERSON_KILL_REPLAY_ALWAYS )
 		player.SetKillReplayInflictorEHandle( attacker.GetEncodedEHandle() )
@@ -584,7 +584,7 @@ void function PlayerWatchesSwitchingSidesKillReplay( entity player, bool doRepla
 		// delay seems weird for switchingsides? ends literally the frame the flag is collected
 	
 		entity attacker = file.roundWinningKillReplayAttacker
-		if( IsValid( player ) )
+		if( IsValid( player ) && IsValid( attacker ) )
 		{
 			player.SetKillReplayDelay( Time() - replayLength, THIRD_PERSON_KILL_REPLAY_ALWAYS )
 			player.SetKillReplayInflictorEHandle( attacker.GetEncodedEHandle() )
