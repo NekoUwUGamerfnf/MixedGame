@@ -49,9 +49,15 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 	player.PlayerMelee_StartAttack( meleeAttackType )
 	
 	bool isDashMelee = meleeWeapon.HasMod( "apex_melee" ) || meleeWeapon.HasMod( "pushback_melee" )
-	bool isNerfedLunge = false //meleeWeapon.HasMod( "pushback_melee" ) // not nerfing anything
+	bool isNerfedLunge = false //meleeWeapon.HasMod( "pushback_melee" ) // not nerfing anything, lunge is so fast this messed up many thing
 	bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" )
-
+#if SERVER
+	bool applyKickDamage = meleeWeapon.HasMod( "fake_human_melee" ) && IsDoingMeleeKickEvent( player )
+	if( !( "applyKickDamage" in player.s ) )
+		player.s.applyKickDamage <- false
+	if( applyKickDamage )
+		thread KickMeleeApplyingThink( player )
+#endif
 	//if( isApexMelee ) // you can't avoid unsynced melee if player pressed "MELEE"
 	//{
 //#if SERVER
@@ -273,6 +279,10 @@ function HumanMeleeAttack_DoImpact( entity player, entity meleeWeapon, traceResu
 	local damageSource = eDamageSourceId[weaponName]
 	int damageAmount = GetDamageAmountForTarget( meleeWeapon, target )
 
+	bool applyKickDamage = expect bool( player.s.applyKickDamage )
+	if( applyKickDamage )
+		damageSource = eDamageSourceId.human_melee
+
 	if ( IsHumanSized( target ) )
 	{
 		if ( target.IsPlayer() ) //Strip away rodeo protection
@@ -296,7 +306,7 @@ function HumanMeleeAttack_DoImpact( entity player, entity meleeWeapon, traceResu
 	if ( target.IsNPC() && target.CanBeGroundExecuted() )
 		target.TakeDamage( target.GetHealth(), player, player, { scriptType = DF_RAGDOLL | meleeWeapon.GetWeaponDamageFlags(), damageType = DMG_MELEE_ATTACK, damageSourceId = damageSource, origin = traceResult.position, force = Vector( 0, 0, 0 ) } )
 	else if( isPushBackMelee )
-		return HumanMeleeAttack_PushBackAttack( player, target, meleeWeapon, traceResult, shouldFixVisual )
+		return HumanMeleeAttack_PushBackAttack( player, target, meleeWeapon, traceResult, applyKickDamage, shouldFixVisual )
 	else
 		target.TakeDamage( damageAmount, player, player, { scriptType = meleeWeapon.GetWeaponDamageFlags(), damageType = DMG_MELEE_ATTACK, damageSourceId = damageSource, origin = traceResult.position, force = damageForce } )
 
@@ -323,16 +333,36 @@ function HumanMeleeAttack_DoImpact( entity player, entity meleeWeapon, traceResu
 
 void function MeleeLungeClientVisualFix( entity player, entity meleeWeapon )
 {
-#if SERVER
 	if( player.IsInputCommandHeld( IN_MELEE ) )
 	{
 		player.SetPredictionEnabled( false ) // avoid unsynced lunge on clientside
 		thread DelayedEnablePrediction( player )
 	}
-#endif
 }
 
-void function HumanMeleeAttack_PushBackAttack( entity player, entity target, entity meleeWeapon, traceResult, bool forceClientFix = true )
+bool function IsDoingMeleeKickEvent( entity player )
+{
+	if( ( !player.IsOnGround() && !player.IsWallRunning() ) || player.IsWallHanging() )
+		return true
+	return false
+}
+
+void function KickMeleeApplyingThink( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.s.applyKickDamage = true
+
+	while( true )
+	{
+		if( !player.PlayerMelee_IsAttackActive() )
+			break
+		WaitFrame()
+	}
+	//print( "kick damagesource end" )
+	player.s.applyKickDamage = false
+}
+
+void function HumanMeleeAttack_PushBackAttack( entity player, entity target, entity meleeWeapon, traceResult, bool applyKickDamage, bool forceClientFix = true )
 {
 	vector angles = player.EyeAngles()
 	vector pushBackVelocity = AnglesToForward( angles ) * meleeWeapon.GetWeaponDamageForce()
@@ -411,7 +441,7 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 		scriptType = meleeWeapon.GetWeaponDamageFlags()
 		forceKill = false
 		damageType = DMG_MELEE_ATTACK
-		damageSourceId = GetMeleeDamageSourceIDForWeapon( meleeWeapon )
+		damageSourceId = applyKickDamage ? eDamageSourceId.human_melee : GetMeleeDamageSourceIDForWeapon( meleeWeapon )
 		origin = damageOrigin
 	}
 
