@@ -7,6 +7,10 @@ global function OnWeaponChargeEnd_MpTitanWeaponChargeBall
 const CHARGEBALL_CHARGE_FX_1P = $"wpn_arc_cannon_charge_fp"
 const CHARGEBALL_CHARGE_FX_3P = $"wpn_arc_cannon_charge"
 
+const int CHARGEBALL_LIGHTNING_DAMAGE = 250 // uncharged, only fires 1 ball
+const int CHARGEBALL_LIGHTNING_DAMAGE_CHARGED = 125
+const int CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD = 85
+
 void function MpTitanweaponChargeBall_Init()
 {
 	PrecacheParticleSystem( $"Weapon_ArcLauncher_Fire_1P" )
@@ -68,20 +72,20 @@ var function OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall( entity weapon
 	{
 		if ( weapon.HasMod( "thylord_module" ) )
 		{
-			FireArcBall( weapon, attackPos, attackDir, shouldPredict, 85 )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*1.6, shouldPredict, 85 )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*1.6, shouldPredict, 85 )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*3.2, shouldPredict, 85 )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*3.2, shouldPredict, 85 )
+			FireArcBall( weapon, attackPos, attackDir, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
+			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
+			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
+			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*3.2, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
+			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*3.2, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
 			weapon.EmitWeaponSound_1p3p( "Weapon_ArcLauncher_Fire_1P", "Weapon_ArcLauncher_Fire_3P" )
 			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 			//weapon.StopWeaponEffect( CHARGEBALL_CHARGE_FX_1P, CHARGEBALL_CHARGE_FX_3P )
 		}
 		else
 		{
-			FireArcBall( weapon, attackPos, attackDir, shouldPredict, 125 )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*1.6, shouldPredict, 125 )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*1.6, shouldPredict, 125 )
+			FireArcBall( weapon, attackPos, attackDir, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false, true )
+			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false, true )
+			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false, true )
 			weapon.EmitWeaponSound_1p3p( "Weapon_ArcLauncher_Fire_1P", "Weapon_ArcLauncher_Fire_3P" )
 			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 			//weapon.StopWeaponEffect( CHARGEBALL_CHARGE_FX_1P, CHARGEBALL_CHARGE_FX_3P )
@@ -90,7 +94,7 @@ var function OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall( entity weapon
 
 	if (charge != 1.0)
 	{
-		FireArcBall( weapon, attackPos, attackDir, shouldPredict, 250 )
+		FireArcBall( weapon, attackPos, attackDir, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE )
 		weapon.EmitWeaponSound_1p3p( "Weapon_ArcLauncher_Fire_1P", "Weapon_ArcLauncher_Fire_3P" )
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 		//weapon.StopWeaponEffect( CHARGEBALL_CHARGE_FX_1P, CHARGEBALL_CHARGE_FX_3P )

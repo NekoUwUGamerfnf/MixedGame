@@ -174,13 +174,28 @@ function ArcCannon_ChargeBegin( entity weapon )
 	if(file.canDestroyMissiles == true) file.canDestroyMissiles = false
 
 	file.isCharging = true
-	if( !weapon.HasMod( "capacitor" ) ) // only emit sound if no capacitor mod
-		weapon.EmitWeaponSound("Weapon_EnergySyphon_Charge_3P")
+	
+	// using charge sound in Key/Values
+	//if( !weapon.HasMod( "capacitor" ) ) // only emit sound if no capacitor mod
+	//{ //1p sound is done by Key/Values
+		//if( weapon.HasMod( "arc_cannon_charge_sound" ) )
+		//	weapon.EmitWeaponSound_1p3p( "", "Weapon_EnergySyphon_Charge_3P" )
+		//if( weapon.HasMod( "archon_arc_cannon_charge_sound" ) )
+		//	weapon.EmitWeaponSound_1p3p( "", "MegaTurret_Laser_ChargeUp_3P" )
+	//}
 	//thread MonitorChargeFraction(weapon)
 	#if SERVER
+		entity weaponOwner = weapon.GetWeaponOwner()
+		// client sound fix
+		if( !weapon.HasMod( "capacitor" ) )
+		{
+			if( weapon.HasMod( "arc_cannon_charge_sound" ) )
+				EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "Weapon_EnergySyphon_Charge_3P" )
+			if( weapon.HasMod( "archon_arc_cannon_charge_sound" ) )
+				EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "MegaTurret_Laser_ChargeUp_3P" )
+		}
 		if ( weapon.HasMod( "overcharge" ) )
 		{
-			entity weaponOwner = weapon.GetWeaponOwner()
 			if ( weaponOwner.IsTitan() )
 			{
 				entity soul = weaponOwner.GetTitanSoul()
@@ -202,10 +217,17 @@ function ArcCannon_ChargeBegin( entity weapon )
 function ArcCannon_ChargeEnd( entity weapon, entity player = null )
 {
 	file.isCharging = false
-	weapon.StopWeaponSound("Weapon_EnergySyphon_Charge_3P")
+	//weapon.StopWeaponSound("Weapon_EnergySyphon_Charge_3P")
 	#if SERVER
 		if ( IsValid( weapon ) )
+		{
 			weapon.Signal( ARC_CANNON_SIGNAL_CHARGEEND )
+			if( !weapon.HasMod( "capacitor" ) ) // match the fix above
+			{
+				StopSoundOnEntity( weapon, "Weapon_EnergySyphon_Charge_3P" )
+				StopSoundOnEntity( weapon, "MegaTurret_Laser_ChargeUp_3P" )
+			}
+		}
 	#endif
 
 	#if CLIENT

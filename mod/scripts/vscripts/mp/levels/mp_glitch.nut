@@ -1,7 +1,8 @@
+
 global function CodeCallback_MapInit
 
 void function CodeCallback_MapInit() {
-	if( wallEnabled )
+	if( IsFlipSideWallEnabled() )
 	{
 		PrecacheModel($"models/foliage/tree_cherry_blossom_large_01.mdl")
 		PrecacheModel($"models/training/sp_training_tree_01.mdl")

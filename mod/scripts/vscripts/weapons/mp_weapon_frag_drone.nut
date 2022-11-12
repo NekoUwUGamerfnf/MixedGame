@@ -13,7 +13,7 @@ void function MpWeaponFragDrone_Init()
 
 	#if SERVER
 		PrecacheModel( $"models/robots/drone_frag/frag_drone_proj.mdl" )
-		AddDamageCallbackSourceID( eDamageSourceId.damagedef_frag_drone_throwable_PLAYER, FragDrone_OnDamagePlayerOrNPC )
+		AddDamageCallbackSourceID( damagedef_frag_drone_throwable_PLAYER, FragDrone_OnDamagePlayerOrNPC )
 	#endif
 }
 

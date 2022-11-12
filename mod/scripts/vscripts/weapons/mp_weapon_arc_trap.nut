@@ -241,7 +241,7 @@ void function DeployArcTrap( entity projectile )
 	if ( BoostStoreEnabled() )
 		thread BurnRewardRefundThink( eyeButton, projectile )
 	else if( projectileMods.contains( "multiplayer_arc_trap" ) )
-		eyeButton.NotSolid() // so player can destroy the trap
+		eyeButton.NotSolid() // so player can destroy the trap, or not. idk why
 
 	owner.Signal( "DeployArcTrap", { projectile = projectile } )
 

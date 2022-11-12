@@ -178,11 +178,20 @@ function DeployArcPylon( entity projectile )
 	tower.SetArmorType( ARMOR_TYPE_HEAVY )
 	tower.SetTitle( "Laser Tripwire" )
 	tower.EndSignal( "OnDestroy" )
-	EmitSoundOnEntity( tower, "Wpn_LaserTripMine_Land" )
+	EmitSoundOnEntity( tower, "Wpn_ArcTrap_Land" ) //Wpn_LaserTripMine_Land
 	tower.e.noOwnerFriendlyFire = true
 
 	tower.Anim_Play( "trip_wire_closed_to_open" )
 	tower.Anim_DisableUpdatePosition()
+	
+	// deployment fx
+	entity fxModel = CreatePropDynamic( $"models/weapons/sentry_shield/sentry_shield_proj.mdl", origin, angles )
+	fxModel.Hide()
+	int startAttachID = fxModel.LookupAttachment( "fx_center" )
+	int startFxId = GetParticleSystemIndex( $"P_wpn_arcTrap_start" )
+	int ringFxId = GetParticleSystemIndex( $"P_arcTrap_light" )
+	StartParticleEffectOnEntity( fxModel, startFxId, FX_PATTACH_POINT_FOLLOW, startAttachID )
+	StartParticleEffectOnEntity( fxModel, ringFxId, FX_PATTACH_POINT_FOLLOW, startAttachID )
 
 	if ( attachparent != null )
 		tower.SetParent( attachparent )
@@ -245,7 +254,7 @@ function DeployArcPylon( entity projectile )
 
 
 	OnThreadEnd(
-	function() : ( projectile, inflictor, tower, pylon, noSpawnIdx, team, pylonOrigin )
+	function() : ( projectile, inflictor, tower, pylon, fxModel, noSpawnIdx, team, pylonOrigin )
 		{
 			PlayFX( LASER_TRIP_EXPLODE_FX, pylonOrigin, < -90.0, 0.0, 0.0 > )
 			EmitSoundAtPosition( team, pylonOrigin, "Wpn_LaserTripMine_MineDestroyed" )
@@ -260,6 +269,9 @@ function DeployArcPylon( entity projectile )
 			{
 				pylon.Destroy()
 			}
+			
+			if( IsValid( fxModel ) )
+				fxModel.Destroy()
 
 			if ( IsValid( projectile ) )
 				projectile.Destroy()

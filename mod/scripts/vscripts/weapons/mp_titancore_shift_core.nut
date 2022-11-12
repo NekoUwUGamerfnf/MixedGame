@@ -186,11 +186,17 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		{
 			titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged_SP" )
 		}
+		
+		owner.HolsterWeapon() // to have deploy animation
 
 		titan.SetActiveWeaponByName( "melee_titan_sword" )
-
-		entity mainWeapon = titan.GetMainWeapons()[0]
-		mainWeapon.AllowUse( false )
+		
+		owner.DeployWeapon()
+		
+		foreach( entity mainWeapon in titan.GetMainWeapons() )
+			mainWeapon.AllowUse( false )
+		//entity mainWeapon = titan.GetMainWeapons()[0]
+		//mainWeapon.AllowUse( false )
 	}
 
 	float delay = weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
@@ -294,13 +300,16 @@ void function RestorePlayerWeapons( entity player )
 				meleeWeapon.RemoveMod( "super_charged_SP" )
 			}
 		}
-
-		array<entity> mainWeapons = titan.GetMainWeapons()
-		if ( mainWeapons.len() > 0 )
-		{
-			entity mainWeapon = titan.GetMainWeapons()[0]
+		
+		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( true )
-		}
+			
+		//array<entity> mainWeapons = titan.GetMainWeapons()
+		//if ( mainWeapons.len() > 0 )
+		//{
+		//	entity mainWeapon = titan.GetMainWeapons()[0]
+		//	mainWeapon.AllowUse( true )
+		//}
 
 		if ( titan.IsNPC() )
 		{

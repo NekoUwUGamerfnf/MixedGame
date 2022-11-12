@@ -232,6 +232,8 @@ void function GrenadesToDronesThreaded( entity tick )
 	entity drone = CreateNPC("npc_drone" , tickteam , tickpos, tickang )
 	SetSpawnOption_AISettings( drone, dronename )
 	drone.kv.modelscale = 0.01
+	//drone.kv.modelscale = 0.5
+	//drone.Hide() // this one can't show a title!
 	DispatchSpawn( drone )
 
 	entity nessie = CreateEntity( "script_mover" )
@@ -239,18 +241,52 @@ void function GrenadesToDronesThreaded( entity tick )
 	nessie.SetParent( drone, "CHESTFOCUS" )
 	nessie.SetAngles( < 0, -90, 0 > )
 
-	int attachmentIndex = drone.LookupAttachment( "CHESTFOCUS" )
-	entity fx = StartParticleEffectOnEntity_ReturnEntity( drone, GetParticleSystemIndex( NESSIE_DRONE_FX ), FX_PATTACH_POINT_FOLLOW, attachmentIndex )
-	fx.SetOwner( drone )
-
 	drone.SetTitle( "小尼斯水怪" )
 	drone.SetHealth( 1 )
 	drone.SetOwner( tickowner )
 	drone.SetBossPlayer( tickowner )
 
 	NPCFollowsPlayer( drone, tickowner )
+	
+	thread DisableNessieDroneSound( drone )
+	thread NessieDroneLifetime( drone, nessie, NESSIE_DRONE_TIME )
+	//thread AfterTimeDissolveNessieDrone( drone, nessie, fx, NESSIE_DRONE_TIME )
+}
 
-	thread AfterTimeDissolveNessieDrone( drone, nessie, fx, NESSIE_DRONE_TIME )
+void function DisableNessieDroneSound( entity drone ) // annoying sound!
+{
+	drone.EndSignal( "OnDestroy" )
+	
+	while( true )
+	{
+		StopSoundOnEntity( drone, "Drone_Mvmt_Hover_Hero" )
+		StopSoundOnEntity( drone, "Drone_Mvmt_Hover" )
+		StopSoundOnEntity( drone, "Drone_Mvmt_Turn" )
+		
+		WaitFrame()
+	}
+}
+
+void function NessieDroneLifetime( entity drone, entity nessie, float delay )
+{
+	drone.EndSignal( "OnDestroy" )
+	OnThreadEnd(
+		function(): ( drone, nessie )
+		{
+			if( IsValid( nessie ) )
+			{
+				nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+			}
+			if( IsValid( drone ) )
+			{
+				PlayFX( $"P_plasma_exp_SM", drone.GetOrigin(), drone.GetAngles() )
+				EmitSoundAtPosition( TEAM_UNASSIGNED, drone.GetOrigin(), "explo_plasma_small" )
+				drone.Destroy()
+			}
+		}
+	)
+	
+	wait delay
 }
 
 void function AfterTimeDissolveNessieDrone( entity drone, entity nessie, entity fx, float delay )

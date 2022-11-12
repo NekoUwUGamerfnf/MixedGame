@@ -56,6 +56,7 @@ struct PortalData
 {
 	array<vector> progPoses
 	array<vector> progAngs
+	array<bool> crouchedArray
 }
 
 struct PortalStruct
@@ -472,6 +473,7 @@ void function PortalStart( entity player, entity weapon )
 	startAng.x = 0
 	array<vector> progressPoses
 	array<vector> progressAngs
+	array<bool> wasCrouchedArray
 	float travelTime = 0
 	if( player.IsOnGround() )
 		startPos += < 0,0,FIX_AMOUNT >
@@ -526,6 +528,8 @@ void function PortalStart( entity player, entity weapon )
 			if( player.GetVelocity() != < 0,0,0 > )
 			{
 				progressPoses.append( player.GetOrigin() )
+				bool isCrouched = player.IsCrouched()
+				wasCrouchedArray.append( isCrouched )
 				progressAngs.append( < 0, player.EyeAngles().y, player.EyeAngles().z > )
 				if( !isInfiniteDistance )
 					portalLeft -= fabs( Distance2D( lastTickPos, player.GetOrigin() ) )
@@ -553,13 +557,13 @@ void function PortalStart( entity player, entity weapon )
 		StatusEffect_Stop( player, statusEffect )
 		StopSoundOnEntity( player, "Pilot_PhaseShift_Loop_1P" )
 		StopSoundOnEntity( player, "Pilot_PhaseShift_Loop_3P" )
-		PortalEnd( player, weapon, startPos, startAng, progressPoses, progressAngs, travelTime, portalLeft, isInfiniteDistance, isInfiniteDuration )
+		PortalEnd( player, weapon, startPos, startAng, progressPoses, progressAngs, wasCrouchedArray, travelTime, portalLeft, isInfiniteDistance, isInfiniteDuration )
 	}
 	if( IsValid( portalTrail ) )
 		EffectStop( portalTrail )
 }
 
-void function PortalEnd( entity player, entity weapon, vector startPos, vector startAng, array<vector> progressPoses, array<vector> progressAngs, float travelTime, float portalLeft, bool isInfiniteDistance, bool isInfiniteDuration )
+void function PortalEnd( entity player, entity weapon, vector startPos, vector startAng, array<vector> progressPoses, array<vector> progressAngs, array<bool> wasCrouchedArray, float travelTime, float portalLeft, bool isInfiniteDistance, bool isInfiniteDuration )
 {
 	if( IsValid( weapon ) )
 	{
@@ -746,6 +750,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	startStruct.canPortalOwner = false
 	startStruct.savedVecs.progPoses = progressPoses // reverse while phasing back, see below
 	startStruct.savedVecs.progAngs = progressAngs
+	startStruct.savedVecs.crouchedArray = wasCrouchedArray
 	startStruct.infiniteDistance = isInfiniteDistance
 	startStruct.infiniteDuration = isInfiniteDuration
 	portalGoalTable[ startTrig ] <- startStruct
@@ -759,6 +764,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	endStruct.canPortalOwner = false
 	endStruct.savedVecs.progPoses = progressPoses
 	endStruct.savedVecs.progAngs = progressAngs
+	endStruct.savedVecs.crouchedArray = wasCrouchedArray
 	endStruct.infiniteDistance = isInfiniteDistance
 	endStruct.infiniteDuration = isInfiniteDuration
 	portalGoalTable[ endTrig ] <- endStruct
@@ -863,6 +869,8 @@ void function PortalTravelThink( entity trigger, entity player )
 	bool canPortalOwner = portalGoalTable[ trigger ].canPortalOwner
 	array<vector> progressPoses = portalGoalTable[ trigger ].savedVecs.progPoses
 	array<vector> progressAngs = portalGoalTable[ trigger ].savedVecs.progAngs
+	array<bool> crouchedArray = portalGoalTable[ trigger ].savedVecs.crouchedArray
+	bool goalShouldCrouch = trigger.GetTeam() == TEAM_MILITIA ? crouchedArray[0] : crouchedArray[crouchedArray.len()-1]
 	bool isInfiniteDistance = portalGoalTable[ trigger ].infiniteDistance
 	bool isInfiniteDuration = portalGoalTable[ trigger ].infiniteDuration
 	
@@ -922,7 +930,7 @@ void function PortalTravelThink( entity trigger, entity player )
 	}
 	entity portalTrail = CreatePhaseShiftTrail( player )
 	entity mover = CreateOwnedScriptMover( player )
-	player.ForceStand()
+	//player.ForceStand()
 	player.SetParent( mover )
 	player.HolsterWeapon()
 	player.Server_TurnOffhandWeaponsDisabledOn()
@@ -936,12 +944,14 @@ void function PortalTravelThink( entity trigger, entity player )
 
 	//shouldn't be at the bottom of the function, or it will be pretty messed up
 	OnThreadEnd(
-		function() : ( player, trigger, mover, portalTrail, goalOrigin )
+		function() : ( player, trigger, mover, portalTrail, goalOrigin, goalAngles, goalShouldCrouch )
 		{
 			if( IsValid( player ) )
 			{
 				player.SetVelocity( < 0,0,0 > )
-				player.UnforceStand()
+				//player.UnforceStand()
+				if( goalShouldCrouch )
+					thread TravelEndForceCrouch( player )
 				player.ClearParent()
 				player.DeployWeapon()
 				player.Server_TurnOffhandWeaponsDisabledOff()
@@ -978,6 +988,9 @@ void function PortalTravelThink( entity trigger, entity player )
 				//for( int i = totalSegments - 1, j = 0; i >= 0 && j <= totalSegments - 1; i--, j++ )
 				for( int i = totalSegments - 1; i >= 0; i-- )
 				{
+					player.UnforceCrouch()
+					if( crouchedArray[i] )
+						player.ForceCrouch() // make player's view lower
 					player.HolsterWeapon() // defensive fix
 					player.Server_TurnOffhandWeaponsDisabledOn()
 					mover.NonPhysicsMoveTo( progressPoses[i] , fixedTimePerSigment, 0, 0 )
@@ -1000,10 +1013,13 @@ void function PortalTravelThink( entity trigger, entity player )
 					wait timePerSigment
 				}
 			}
-			else if( trigger.GetTeam() == TEAM_IMC ) // startTrig confrimation, reversed array
+			else if( trigger.GetTeam() == TEAM_IMC ) // startTrig confrimation
 			{
 				for( int i = 0; i <= totalSegments - 1; i++ )
 				{
+					player.UnforceCrouch()
+					if( crouchedArray[i] )
+						player.ForceCrouch() // make player's view lower
 					player.HolsterWeapon() // defensive fix
 					player.Server_TurnOffhandWeaponsDisabledOn()
 					mover.NonPhysicsMoveTo( progressPoses[i] , fixedTimePerSigment, 0, 0 )
@@ -1041,6 +1057,15 @@ void function PortalTravelThink( entity trigger, entity player )
 		wait totalTime * phaseTimeMulti
 	}
 	
+}
+
+void function TravelEndForceCrouch( entity player )
+{
+	// make player crouch
+	player.ForceCrouch()
+	wait 0.2
+	if( IsValid( player ) )
+		player.UnforceCrouch()
 }
 
 void function PortalCooldownThink( entity player, float travelTime )
