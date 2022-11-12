@@ -18,6 +18,8 @@ const DEPLOYABLE_SHIELD_FX = $"P_pilot_cover_shield"
 const DEPLOYABLE_SHIELD_FX_AMPED = $"P_pilot_amped_shield"
 const DEPLOYABLE_SHIELD_HEALTH = 850
 
+const DEPLOYABLE_SHIELD_HEALTH_NERFED = 500
+
 const DEPLOYABLE_SHIELD_RADIUS = 84
 const DEPLOYABLE_SHIELD_HEIGHT = 89
 const DEPLOYABLE_SHIELD_FOV = 150
@@ -192,6 +194,9 @@ void function DeployCover( entity projectile, vector origin, vector angles, floa
 	Assert( IsValid( projectile ) )
 	if ( !IsValid( projectile ) )
 		return
+	array<string> mods = projectile.ProjectileGetMods()
+	if( mods.contains( "bleedout_balance" ) )
+		health = DEPLOYABLE_SHIELD_HEALTH_NERFED
 
 	EmitSoundOnEntity( projectile, "Hardcover_Shield_Start_3P" )
 
@@ -214,18 +219,24 @@ void function DeployCover( entity projectile, vector origin, vector angles, floa
 	UpdateShieldWallColorForFrac( vortexSphere.e.shieldWallFX, GetHealthFrac( vortexSphere ) )
 
 	OnThreadEnd(
-		function() : ( vortexSphere, projectile )
+		function() : ( vortexSphere, projectile, mods )
 		{
 			StopSoundOnEntity( projectile, "Hardcover_Shield_Start_3P" )
 			EmitSoundOnEntity( projectile, "Hardcover_Shield_End_3P" )
 			
-			// fix for kraber throwing
-			//if ( IsValid( projectile ) && projectile.IsProjectile() )
-			//	projectile.GrenadeExplode( Vector(0,0,0) )
-			if ( IsValid( projectile ) )
+			// modified
+			if ( IsValid( projectile ) && projectile.IsProjectile() )
 			{
-				PlayImpactFXTable( projectile.GetOrigin(), projectile, "exp_deployable_cover" )
-				projectile.Destroy()
+				// fix for kraber throwing
+				if( mods.contains( "tediore_deployable_cover" ) )
+				{
+					PlayImpactFXTable( projectile.GetOrigin(), projectile, "exp_deployable_cover" )
+					projectile.Destroy()
+				}
+				else
+				{
+					projectile.GrenadeExplode( Vector(0,0,0) )
+				}
 			}
 
 			if ( IsValid( vortexSphere ) )
