@@ -23,6 +23,11 @@ global function ShouldEntTakeDamage_SPMP
 global function GetTitanBuildTime
 global function TitanPlayerHotDropsIntoLevel
 
+// funny HACKs!
+global function SetHackedDeathEnabled
+global function IsHackedDeathEnabled
+global function IsPlayerHackedDeath
+
 struct {
 	bool killcamsEnabled = true
 	bool playerDeathsHidden = false
@@ -34,6 +39,9 @@ struct {
 	// modified
 	bool forcedRespawn = true
 	array<string> lateSpawnedPlayerUIDs = []
+	
+	// funny HACKs!
+	bool hackedDeathEnabled = false
 } file
 
 void function BaseGametype_Init_MPSP()
@@ -48,6 +56,36 @@ void function BaseGametype_Init_MPSP()
 
 	RegisterSignal( "PlayerRespawnStarted" )
 	RegisterSignal( "KillCamOver" )
+	
+	// funny HACKs!
+	AddCallback_OnClientConnected( InitHackedDeathForPlayer )
+}
+
+void function InitHackedDeathForPlayer( entity player )
+{	
+	player.s.hackedDeath <- false
+	AddEntityCallback_OnDamaged( player, HACK_OnPlayerDamaged )
+}
+
+void function HACK_OnPlayerDamaged( entity player, var damageInfo )
+{
+	if( !file.hackedDeathEnabled )
+		return
+	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
+	{
+		DamageInfo_SetDamage( damageInfo, max( player.GetHealth() - 1, 0 ) )
+		player.SetInvulnerable()
+		player.SetHealth( 1 )
+		player.Signal( "OnDeath" )
+		player.Signal( "StopHealthRegenThink" )
+		StopSoundOnEntity( player, "pilot_critical_breath_loop_1p" )
+		StopSoundOnEntity( player, "pilot_wounded_loop_1p" )
+		StopSoundOnEntity( player, "pilot_critical_drone_loop_1p" )
+		CodeCallback_OnEntityKilled( player, damageInfo )
+		CodeCallback_OnPlayerKilled( player, damageInfo )
+		HolsterAndDisableWeapons( player )
+		TakeAllWeapons( player )
+	}
 }
 
 void function SetIntermissionCamera( entity camera )
@@ -277,6 +315,12 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.s.inGracePeriod = true // defensive fix
 	player.s.respawnCount++
 	player.s.respawnTime = Time()
+	if( file.hackedDeathEnabled )
+	{
+		player.SetNoTarget( false )
+		player.SetNoTargetSmartAmmo( false )
+		player.s.hackedDeath = false
+	}
 	ClearRecentDamageHistory( player )
 	
 	player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
@@ -360,8 +404,17 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 
 	player.cloakedForever = false
 	player.stimmedForever = false
-	player.SetNoTarget( false )
-	player.SetNoTargetSmartAmmo( false )
+	if( file.hackedDeathEnabled )
+	{
+		player.SetNoTarget( true )
+		player.SetNoTargetSmartAmmo( true )
+		player.s.hackedDeath = true
+	}
+	else
+	{
+		player.SetNoTarget( false )
+		player.SetNoTargetSmartAmmo( false )
+	}
 	player.ClearExtraWeaponMods()
 	
 	// disable prediction to prevent it messing with ragdoll in some places, as well as killreplay and such
@@ -500,6 +553,11 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 			thread ForcedRespawnThink( player, waitBeforeRespawn )// if not doing replay, set player's camera to intermissionCam
 
 		}
+		if( file.hackedDeathEnabled && !file.forcedRespawn )
+		{
+			if( IsAlive( player ) )
+				player.Die( player, player, { damageSourceId = damagedef_despawn } )
+		}
 
 		player.WaitSignal( "RespawnMe" ) // set in base_gametype: ClientCommand_RespawnPlayer
 		
@@ -568,7 +626,15 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn )
 	if( player.IsWatchingKillReplay() )
 		player.WaitSignal( "KillCamOver" )
 	if( waitBeforeRespawn > 0 )
-		wait waitBeforeRespawn
+	{
+		if( file.hackedDeathEnabled )
+		{
+			if( IsAlive( player ) )
+				player.Die( player, player, { damageSourceId = damagedef_despawn } )
+		}
+		else
+			wait waitBeforeRespawn
+	}
 	player.s.isForcedRespawn = true
 }
 
@@ -779,4 +845,22 @@ float function GetTitanBuildTime(entity player)
 void function TitanPlayerHotDropsIntoLevel( entity player )
 {
 
+}
+
+// funny HACKs!
+void function SetHackedDeathEnabled( bool enabled )
+{
+	file.hackedDeathEnabled = enabled
+}
+
+bool function IsHackedDeathEnabled()
+{
+	return file.hackedDeathEnabled
+}
+
+bool function IsPlayerHackedDeath( entity player )
+{
+	if( !player.IsPlayer() )
+		return false
+	return expect bool( player.s.hackedDeath )
 }
