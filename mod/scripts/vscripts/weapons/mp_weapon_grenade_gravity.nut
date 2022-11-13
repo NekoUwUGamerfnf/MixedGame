@@ -46,7 +46,7 @@ const float LIFT_PULL_SPEED_HORIZON = 400
 const float LIFT_PULL_SPEED_VERTICAl = 300
 const float LIFT_TOP_TIME_LIMIT = 2
 const float LIFT_LIFETIME = 10
-const float LIFT_COOLDOWN = 0.5 // time between second lift
+const float LIFT_COOLDOWN = 0.0 // 0.5 // time between second lift, I guess it's no need for titanfall?
 
 //array<entity> hasGravityLifted = []
 struct GravLiftStruct
@@ -770,6 +770,9 @@ void function BouncePlayerForward( entity player )
 
 void function GravLiftCooldownThink( entity player )
 {
+	if( LIFT_COOLDOWN <= 0 )
+		return
+
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 	inGravLiftCooldownPlayers.append( player )

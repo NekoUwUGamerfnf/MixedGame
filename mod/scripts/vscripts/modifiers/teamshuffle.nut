@@ -97,19 +97,24 @@ void function FixShuffle( float delay = 0 )
 	array<entity> largerTeamPlayers = GetPlayerArrayOfTeam( largerTeam )
 	
 	int largerTeamIndex = 0
+	entity poorGuy
+	int oldTeam
 	for( int i = 0; i < timeShouldBeDone; i ++ )
 	{
-		entity poorGuy = largerTeamPlayers[ largerTeamIndex ]
+		poorGuy = largerTeamPlayers[ largerTeamIndex ]
 		largerTeamIndex += 1
 
 		if( IsAlive( poorGuy ) ) // poor guy
-			poorGuy.Die()
+			poorGuy.Die( null, null, { damageSourceId = eDamageSourceId.team_switch } ) // better
 		int oldTeam = poorGuy.GetTeam()
 		SetTeam( poorGuy, GetOtherTeam( largerTeam ) )
-		Chat_ServerPrivateMessage( poorGuy, "由于队伍人数不平衡，你已被重新分队", false )
-		NotifyClientsOfTeamChange( poorGuy, oldTeam, poorGuy.GetTeam() )
 		if( !RespawnsEnabled() ) // do need respawn the guy if respawnsdisabled
 			RespawnAsPilot( poorGuy )
+	}
+	if( IsValid( poorGuy ) )
+	{ // only notice once
+		Chat_ServerPrivateMessage( poorGuy, "由于队伍人数不平衡，你已被重新分队", false )
+		NotifyClientsOfTeamChange( poorGuy, oldTeam, poorGuy.GetTeam() ) 
 	}
 }
 

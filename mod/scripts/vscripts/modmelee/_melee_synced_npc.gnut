@@ -1,0 +1,215 @@
+global function MeleeSyncedNPC_Init
+
+global function MeleeSycnedNPC_EnableAll_Init
+
+global function MeleeSyncedNPC_AllowNPCTitanExecutions
+global function MeleeSyncedNPC_AllowNPCPilotExecutions
+global function MeleeSyncedNPC_AllowNPCSpectreExecutions
+global function MeleeSyncedNPC_AllowNPCGruntExecutions
+
+global function MeleeSyncedNPC_IsTitanAbleToExecute
+global function MeleeSyncedNPC_IsPilotAbleToExecute
+global function MeleeSyncedNPC_IsSpectreAbleToExecute
+global function MeleeSyncedNPC_IsGruntAbleToExecute
+
+// must match npcs modifed in this file
+const array<string> NPC_EXECUTION_ALLOWED_CLASSES = [ "npc_titan", 
+                                                      "npc_pilot_elite", 
+                                                      "npc_spectre", 
+                                                      "npc_soldier" ]
+
+struct
+{
+    bool npcTitanExecution = false
+    bool npcPilotExecution = false
+    bool npcSpectreExecution = false
+    bool npcGruntExecution = false
+} file
+
+void function MeleeSyncedNPC_Init()
+{
+    print( "Running MeleeSyncedNPC_Init()" )
+    
+    // for debug
+    AddClientCommandCallback( "spawnpilot", ClientCommand_SpawnPilotAndTitan )
+    AddClientCommandCallback( "selfdamage", ClientCommand_SelfDamage )
+
+    AddDamageCallbackSourceID( eDamageSourceId.auto_titan_melee, NPCTrysSyncedMelee )
+    //AddDamageCallbackSourceID( eDamageSourceId.human_melee, NPCTrysSyncedMelee ) // npc pilot uses grunt_melee
+    AddDamageCallbackSourceID( eDamageSourceId.spectre_melee, NPCTrysSyncedMelee )
+    AddDamageCallbackSourceID( eDamageSourceId.grunt_melee, NPCTrysSyncedMelee )
+
+    // test!
+    //AddCallback_OnClientConnected( OnClientConnected )
+}
+
+void function MeleeSycnedNPC_EnableAll_Init()
+{
+    file.npcTitanExecution = true
+    file.npcPilotExecution = true
+    file.npcSpectreExecution = true
+    file.npcGruntExecution = true
+}
+
+bool function ClientCommand_SpawnPilotAndTitan( entity player, array<string> args )
+{   
+    Point dropPoint = GetTitanReplacementPoint( player )
+    thread AiGameModes_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, GetOtherTeam( player.GetTeam() ) )
+    return true
+}
+
+bool function ClientCommand_SelfDamage( entity player, array<string> args )
+{
+    if( IsAlive( player ) )
+        player.TakeDamage( 10000, null, null, 0 )
+    return true
+}
+
+void function NPCTrysSyncedMelee( entity victim, var damageInfo )
+{
+    if( !IsValid( victim ) )
+        return
+    if( !victim.IsPlayer() )
+        return
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( !IsValid( attacker ) )
+        return
+    if( !attacker.IsNPC() )
+        return
+    if( attacker.ContextAction_IsActive() || victim.ContextAction_IsActive() ) // doing a execution?
+		return
+    if( attacker.IsTitan() && !file.npcTitanExecution )
+        return
+    if( IsPilotElite( attacker ) && !file.npcPilotExecution )
+        return
+    if( IsSpectre( attacker ) && !file.npcSpectreExecution )
+        return
+    if( IsGrunt( attacker ) && !file.npcGruntExecution )
+        return
+    if( !NPC_EXECUTION_ALLOWED_CLASSES.contains( attacker.GetClassName() ) )
+        return
+    //if( DamageInfo_GetDamage( damageInfo ) >= victim.GetHealth() + victim.GetShieldHealth() ) // this hit will kill the victim
+    //    return
+    // all checks passed
+    // get synced melee action
+    SyncedMeleeChooser ornull actions = GetSyncedMeleeChooserForPlayerVsTarget( attacker, victim )
+    print( actions )
+    if( actions == null )
+        return
+    expect SyncedMeleeChooser( actions )
+    SyncedMelee ornull action = FindBestSyncedMelee( attacker, victim, actions )
+    print( action )
+    if( action == null )
+        return
+    expect SyncedMelee( action )
+    if( action.ref == "execution_holopilot" || action.ref == "execution_cloak" ) // not valid for npcs
+        return NPCTrysSyncedMelee( victim, damageInfo ) // do it again...
+    if( victim.IsTitan() ) // titan executions
+    {
+        entity soul = victim.GetTitanSoul()
+        if( !IsValid( soul ) )
+            return
+        if( !soul.IsDoomed() )
+            return
+        // succeed! reset damage
+        DamageInfo_SetDamage( damageInfo, 0 ) // sometimes resetting damage don't work?
+        thread PlayerBeingSyncedMelee( victim )
+        thread MeleeThread_TitanVsTitan( action, attacker, victim )
+    }
+    else
+    {
+        // succeed! reset damage
+        DamageInfo_SetDamage( damageInfo, 0 )
+        thread PlayerBeingSyncedMelee( victim )
+        thread MeleeThread_PilotVsEnemy( action, attacker, victim )
+    }
+}
+
+void function PlayerBeingSyncedMelee( entity target )
+{
+	if ( !target )
+		return
+	if ( !IsAlive( target ) )
+		return
+    if( !target.IsPlayer() )
+        return
+
+    target.EndSignal( "OnDeath" )
+    target.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function() : ( target )
+		{
+			if ( IsValid( target ) )
+			{
+				RemoveCinematicFlag( target, CE_FLAG_TITAN_3P_CAM )
+				RemoveCinematicFlag( target, CE_FLAG_EXECUTION )
+                RemoveCinematicFlag( target, CE_FLAG_HIDE_MAIN_HUD )
+			}
+		}
+	)
+
+    if( target.IsTitan() )
+    {
+        entity titanSoul = target.GetTitanSoul()
+        if( IsValid( titanSoul ) )
+            target.e.recentDamageHistory = titanSoul.e.recentDamageHistory
+    }
+
+    if( target.IsTitan() )
+        AddCinematicFlag( target, CE_FLAG_TITAN_3P_CAM )
+    AddCinematicFlag( target, CE_FLAG_EXECUTION )
+    AddCinematicFlag( target, CE_FLAG_HIDE_MAIN_HUD )
+
+    WaittillAnimDone( target )
+}
+
+void function MeleeSyncedNPC_AllowNPCTitanExecutions( bool allow )
+{
+    file.npcTitanExecution = allow
+}
+
+void function MeleeSyncedNPC_AllowNPCPilotExecutions( bool allow )
+{
+    file.npcPilotExecution = allow
+}
+
+void function MeleeSyncedNPC_AllowNPCSpectreExecutions( bool allow )
+{
+    file.npcSpectreExecution = allow
+}
+
+void function MeleeSyncedNPC_AllowNPCGruntExecutions( bool allow )
+{
+    file.npcGruntExecution = allow
+}
+
+bool function MeleeSyncedNPC_IsTitanAbleToExecute()
+{
+    return file.npcTitanExecution
+}
+
+bool function MeleeSyncedNPC_IsPilotAbleToExecute()
+{
+    return file.npcPilotExecution
+}
+
+bool function MeleeSyncedNPC_IsSpectreAbleToExecute()
+{
+    return file.npcSpectreExecution
+}
+
+bool function MeleeSyncedNPC_IsGruntAbleToExecute()
+{
+    return file.npcGruntExecution
+}
+
+void function OnClientConnected( entity player )
+{
+    AddEntityCallback_OnDamaged( player, TEST_GetNPCPilotMeleeDamageSourceID )
+}
+
+void function TEST_GetNPCPilotMeleeDamageSourceID( entity player, var damageInfo )
+{
+    print( "DamageSourceID index is: " + DamageSourceIDToString( DamageInfo_GetDamageSourceIdentifier( damageInfo ) ) )
+}

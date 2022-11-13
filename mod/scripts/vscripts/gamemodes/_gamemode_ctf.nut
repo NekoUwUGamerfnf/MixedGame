@@ -251,6 +251,7 @@ void function TrackFlagReturnTrigger( entity flag, entity returnTrigger )
 	// this is a bit of a hack, it seems parenting the return trigger to the flag actually sets the pickup radius of the flag to be the same as the trigger
 	// this isn't wanted since only pickups should use that additional radius
 	flag.EndSignal( "OnDestroy" )
+	returnTrigger.EndSignal( "OnDestroy" )
 		
 	while ( true )
 	{
@@ -498,6 +499,7 @@ void function TryReturnFlag( entity player, entity flag )
 	player.EndSignal( "FlagReturnEnded" )
 	flag.EndSignal( "FlagReturnEnded" ) // avoid multiple players to return one flag at once
 	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" ) // defensive fix
 	
 	wait CTF_GetFlagReturnTime()
 	

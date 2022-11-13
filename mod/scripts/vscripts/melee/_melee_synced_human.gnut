@@ -3,13 +3,33 @@ untyped
 global function MeleeThread_PilotVsEnemy
 global function MeleeSyncedServer_Init
 
-const bool DO_RANDOM_EXECUTIONS = false
-const bool AI_EXECUTIONS_ALWAYS = false
+// modified
+global function MeleeSyncedHuman_EnableRandomExecutions // false = vanilla executions, true = random executions including ai titan executions
+global function MeleeSyncedHuman_AlwaysDoAiExecutions // overwrites random executions, always do ai executions
+
+struct
+{
+	// modified
+	bool doingRandomExecutions = false 
+	bool alwaysAiExecutions = false 
+} file
 
 void function MeleeSyncedServer_Init()
 {
 	RegisterSignal( "NpcDealsExecutionDamage" )
 }
+
+// modifed
+void function MeleeSyncedHuman_EnableRandomExecutions( bool enabled )
+{
+	file.doingRandomExecutions = enabled
+}
+
+void function MeleeSyncedHuman_AlwaysDoAiExecutions( bool always )
+{
+	file.alwaysAiExecutions = always
+}
+// end
 
 bool function MeleeThread_PilotVsEnemy( SyncedMelee action, entity attacker, entity target )
 {
@@ -24,10 +44,18 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 	Assert( IsAlive( attacker ) )
 	Assert( IsAlive( target ) )
 
+	bool useClassicExecution = false
+	// could get some tf1 execution
+	if( "classicExecution" in attacker.s )
+	{
+		if( expect bool( attacker.s.classicExecution ) )
+			useClassicExecution = true
+	}
+
 	bool isAttackerRef
     #if MP
 	//if ( GetCurrentPlaylistVarInt( "fp_embark_enabled", eFirstPersonSequenceForce1PSetting.DISABLED ) >= eFirstPersonSequenceForce1PSetting.CLASSIC_EXECUTION )
-	if( IsSyncedMeleeNoLimit() && ShouldClassicExecutions() ) // modified in primary_melee.gnut
+	if( ShouldClassicExecutions() || useClassicExecution ) // modified in primary_melee.gnut
 	{
 		action.attackerAnimation1p = "ptpov_rspn101_melee_necksnap_rear"
 		action.attackerAnimation3p = "pt_rspn101_melee_necksnap_rear"
@@ -89,7 +117,8 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 
 			if ( IsValid( attacker ) )
 			{
-				attacker.PlayerMelee_SetState( PLAYER_MELEE_STATE_NONE )
+				if( attacker.IsPlayer() ) // save for npc executions
+					attacker.PlayerMelee_SetState( PLAYER_MELEE_STATE_NONE )
 			}
 
 			// Note that the original attacker/target origins are not guarranteed to be a safe spot now because we have moving geo in the game.
@@ -129,11 +158,11 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 	)
 
 	bool canRandomExecute = RandomInt( 2 ) == 1 ? true : false
-	if( AI_EXECUTIONS_ALWAYS )
+	if( file.alwaysAiExecutions )
 		canRandomExecute = true
 	
 	bool thisTimeShouldAiExecution = false
-	if( canRandomExecute && DO_RANDOM_EXECUTIONS )
+	if( canRandomExecute && file.doingRandomExecutions )
 		thisTimeShouldAiExecution = true
 
     int executionIndex = RandomInt(10) // do need to match all executions exists
@@ -158,9 +187,15 @@ void function ForceRemoveExecutioCinematic( entity attacker, entity target )
 {
 	wait 0.1
 	if( IsValid( attacker ) )
-		RemoveCinematicFlag( attacker, CE_FLAG_EXECUTION )
+	{
+		if( attacker.IsPlayer() )
+			RemoveCinematicFlag( attacker, CE_FLAG_EXECUTION )
+	}
 	if( IsValid( target ) )
-		RemoveCinematicFlag( target, CE_FLAG_EXECUTION )
+	{
+		if( target.IsPlayer() )
+			RemoveCinematicFlag( target, CE_FLAG_EXECUTION )
+	}
 }
 
 void function DisableCloakBeforeMelee( entity player, PilotVsEnemyStruct dataStruct )
@@ -433,7 +468,15 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 				else // target killed
 				{
 					if( IsValid( attacker ) )
-						AddPlayerScore( attacker, "Execution", target )
+					{
+						if( attacker.IsPlayer() )
+						{
+							if( IsValid( target ) ) // defensive fix
+								AddPlayerScore( attacker, "Execution", target )
+							else
+								AddPlayerScore( attacker, "Execution" )
+						}
+					}
 				}
 
 				// if no limit we kill player even if player isn't reached death anim event
