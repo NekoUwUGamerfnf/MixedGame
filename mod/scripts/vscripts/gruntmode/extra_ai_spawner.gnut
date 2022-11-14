@@ -39,24 +39,25 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS = [ $"models/humans/pilots/pilot_med
 												$"models/humans/pilots/pilot_medium_geist_m.mdl", 
 												$"models/humans/pilots/pilot_medium_geist_f.mdl", 
 												$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
-												$"models/humans/pilots/pilot_medium_reaper_m.mdl",  
+												$"models/humans/pilots/pilot_medium_reaper_f.mdl",  
 												$"models/humans/grunts/mlt_grunt_lmg.mdl", 
 												$"models/humans/grunts/imc_grunt_lmg.mdl", 
 												$"models/humans/grunts/imc_grunt_shield_captain.mdl", 
 												$"models/Humans/heroes/imc_hero_ash.mdl", 
 												$"models/Humans/heroes/imc_hero_blisk.mdl", 
-												$"models/Humans/heroes/mlt_hero_jack.mdl", 
-												$"models/Humans/heroes/mlt_hero_sarah.mdl", 
-												$"models/Humans/heroes/imc_hero_blisk.mdl", 
+												$"models/humans/heroes/mlt_hero_jack.mdl", 
+												$"models/humans/heroes/mlt_hero_sarah.mdl", 
 												$"models/humans/pilots/sp_medium_geist_f.mdl", 
 												$"models/humans/pilots/sp_medium_reaper_m.mdl", 
-												$"models/humans/pilots/sp_medium_stalker_m.mdl"]
+												$"models/humans/pilots/sp_medium_stalker_m.mdl" ]
 
 struct
 {
 	array< string > pilotWeapons = [ "mp_weapon_rspn101_og", 
 									 "mp_weapon_r97", 
-									 "mp_weapon_wingman_n" ]
+									 "mp_weapon_car",
+									 "mp_weapon_alternator_smg",
+									 "mp_weapon_vinson" ]
 
 	array< string > usedplayer = []
 } file
@@ -65,7 +66,9 @@ void function ExtraAISpawner_Init()
 {
 	ProwlerPrecache()
 	PrecacheModel( CAREPACKAGE_MODEL )
-	RegisterSignal( "ForceStartMove" )
+	PrecacheModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
+	// this should be in _ai_pilots.gnut
+	//RegisterSignal( "ForceStartMove" )
 	
 	if( GetMapName() != "mp_lobby" ) // prevent unable to enter lobby
 	{
@@ -75,7 +78,7 @@ void function ExtraAISpawner_Init()
 
 	// npc pilot score event
 	AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
-	
+
 	// no need since we already got these in _ai_pilots.gnut
 	//AddCallback_OnNpcPilotBecomesTitan( NpcPilotBecomesTitan )
 	//AddCallback_OnNpcTitanBecomesPilot( NpcTitanBecomesPilot )
@@ -268,13 +271,13 @@ void function AiGameModes_SpawnGunShip( vector pos, vector rot, int team )
 	if( RandomInt( 2 ) == 1 )
 	{
 		gunship2.TakeWeaponNow( "mp_weapon_gunship_missile" )
-		gunship2.GiveWeapon( "mp_weapon_gunship_turret", ["npc_elite_weapon"] )
+		gunship2.GiveWeapon( "mp_weapon_gunship_turret" ) //[ "npc_elite_weapon" ]
 		gunship2.SetActiveWeaponByName( "mp_weapon_gunship_turret" )
 	}
 	else
 	{
 		gunship2.TakeWeaponNow( "mp_weapon_gunship_missile" )
-		gunship2.GiveWeapon( "mp_weapon_gunship_missile", ["npc_elite_weapon"] )
+		gunship2.GiveWeapon( "mp_weapon_gunship_missile" ) //[ "npc_elite_weapon" ]
 		gunship2.SetActiveWeaponByName( "mp_weapon_gunship_missile" )
 	}
 
@@ -286,6 +289,8 @@ void function AiGameModes_SpawnPilotCanEmbark( vector pos, vector rot, int team 
 	entity pod = CreateDropPod( pos, rot )
 
 	entity pilot = CreateNPC( "npc_pilot_elite", team, pos, rot )//CreateNPC( "npc_soldier", team, pos, rot )
+	pilot.EndSignal( "OnDeath" )
+	pilot.EndSignal( "OnDestroy" )
 	pilot.s.petTitan <- null // initializing
 	pilot.s.nextTitanRespawnAvailable <- null
 
@@ -293,6 +298,8 @@ void function AiGameModes_SpawnPilotCanEmbark( vector pos, vector rot, int team 
 	thread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 	wait 3
 	entity titan = AiGameModes_SpawnTitanForPilot( pilot, pos, rot ) // send titan a little bit later
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
 	wait 2
 	DispatchSpawn( pilot )
 
@@ -302,20 +309,20 @@ void function AiGameModes_SpawnPilotCanEmbark( vector pos, vector rot, int team 
 	//	pilot.SetModel( $"models/humans/pilots/sp_medium_stalker_m.mdl" )
 	//pilot.SetTitle( "Pilot" )
 
-	pilot.SetModel( NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ] )
+	// many things below should have a reference in _ai_pilots.gnut, for npc pilots ejecting
+	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
+	print( modelAsset ) // testing...
+	pilot.SetModel( modelAsset )//
 	pilot.SetMaxHealth( 1000 )
 	pilot.SetHealth( 1000 )
+	pilot.SetInvulnerable() // at least don't let players kill pilots while their titans're not landing
+	AddEntityCallback_OnDamaged( pilot, NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
 	Highlight_SetEnemyHighlight( pilot, "enemy_player" )
 
 	ReplaceWeapon( pilot, file.pilotWeapons[ RandomInt( file.pilotWeapons.len() ) ], [] ) //["npc_elite_weapon"]
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS )
 
 	thread DropPodActiveThink( pod, 1 )
-
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" )
-	pilot.EndSignal( "OnDeath" )
-	pilot.EndSignal( "OnDestroy" )
 
 	OnThreadEnd( 
 		function(): ( pilot, titan )
@@ -333,6 +340,7 @@ void function AiGameModes_SpawnPilotCanEmbark( vector pos, vector rot, int team 
 	NpcPilotSetPetTitan( pilot, titan )
 	titan.SetTitle( pilot.GetTitle() + "'s Titan" )
 	titan.WaitSignal( "TitanHotDropComplete" )
+	pilot.ClearInvulnerable() // if pilots're killed before titan lands their titan will stuck in the sky!
 	
 	thread NpcPilotRunsToEmbarkTitan( pilot, titan )
 	wait 2.0
@@ -389,9 +397,9 @@ void function ForceStartTitan( entity titan, entity pilot )
 			titan.SetOwner( pilot )
 			NPCFollowsNPC( titan, pilot )
 			pilot.Signal( "ForceStartMove" )
-			thread PilotHandler( pilot )
 			if( titan.ContextAction_IsBusy() ) // embarking?
 				return
+			thread PilotHandler( pilot )
 			thread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
 		}
 	}
@@ -413,12 +421,12 @@ entity function AiGameModes_SpawnTitanForPilot( entity pilot, vector pos, vector
 	string setfile = ""
 	string aiset = ""
 	string executionRef = ""
-	switch( randomindex )
+	switch( randomindex ) //randomindex, sometimes changed for test
 	{
 		case 0:
 			setfile = "titan_atlas_stickybomb"
 			aiset = "npc_titan_auto_atlas_stickybomb"
-			executionRef = "execution_ion" // "execution_random_0", ion's prime execution is bugged
+			executionRef = "execution_ion" // was "execution_random_0", but ion's prime execution is bugged( maybe because using laser core will trigger a scripted animation? try to fix but not work )
 			break
 		case 1:
 			setfile = "titan_ogre_meteor"
