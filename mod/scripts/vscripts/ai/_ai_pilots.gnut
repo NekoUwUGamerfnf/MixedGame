@@ -31,6 +31,12 @@ global function NpcResetNextTitanRespawnAvailable
 global function AddCallback_OnNpcTitanBecomesPilot
 global function AddCallback_OnNpcPilotBecomesTitan
 
+global struct NPCPilotWeaponStruct
+{
+	string weaponName
+	array<string> weaponMods
+}
+
 global struct NPCPilotStruct
 {
 	bool isValid = false
@@ -41,8 +47,8 @@ global struct NPCPilotStruct
 	float proficieny
 	int health // why respawn?
 	float physDamageScale
-	string weapon
-	array<string> weaponMods
+	
+	array<NPCPilotWeaponStruct> weapons
 	string squadName
 
 	asset modelAsset
@@ -650,13 +656,13 @@ void function NpcPilotBecomesTitan( entity pilot, entity titan )
 	titanSoul.soul.seatedNpcPilot.isValid				= true
 
 	titanSoul.soul.seatedNpcPilot.team 					= pilot.GetTeam()
-	titanSoul.soul.seatedNpcPilot.weapon				= "mp_weapon_rspn101_og"
-	titanSoul.soul.seatedNpcPilot.weaponMods			= []
-	entity weapon = pilot.GetActiveWeapon()
-	if( IsValid( weapon ) )
+	
+	foreach( entity weapon in pilot.GetMainWeapons() )
 	{
-		titanSoul.soul.seatedNpcPilot.weapon			= weapon.GetWeaponClassName()
-		titanSoul.soul.seatedNpcPilot.weaponMods		= weapon.GetMods()
+		NPCPilotWeaponStruct weaponStruct
+		weaponStruct.weaponName = weapon.GetWeaponClassName()
+		weaponStruct.weaponMods = weapon.GetMods()
+		titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
 	}
 
 	titanSoul.soul.seatedNpcPilot.modelAsset 			= pilot.GetModelName()
@@ -703,7 +709,7 @@ entity function NpcTitanBecomesPilot( entity titan )
 	titanSoul.soul.seatedNpcPilot.isValid = false
 	bool isEjecting = titanSoul.IsEjecting()
 
-	string weapon 			= titanSoul.soul.seatedNpcPilot.weapon
+	array<NPCPilotWeaponStruct> weapons 	= titanSoul.soul.seatedNpcPilot.weapons
 	string squadName 		= titanSoul.soul.seatedNpcPilot.squadName
 	asset model 			= titanSoul.soul.seatedNpcPilot.modelAsset
 	string title 			= titanSoul.soul.seatedNpcPilot.title
@@ -726,9 +732,16 @@ entity function NpcTitanBecomesPilot( entity titan )
 	DispatchSpawn( pilot )
 	// hardcoded
 	pilot.SetTitle( title )
-	pilot.TakeActiveWeapon()
-	pilot.GiveWeapon( weapon ) //[ "npc_elite_weapon" ]
-	pilot.SetActiveWeaponByName( weapon )
+	if( weapons.len() >= 1 )
+	{
+		pilot.TakeActiveWeapon()
+		foreach( int index, NPCPilotWeaponStruct weapon in weapons )
+		{
+			pilot.GiveWeapon( weapon.weaponName, weapon.weaponMods ) //[ "npc_elite_weapon" ]
+			if( index == 0 ) // maybe main weapon
+				pilot.SetActiveWeaponByName( weapon.weaponName )
+		}
+	}
 	pilot.SetModel( model ) // this is a hack, trying to avoid having a model spawn option because its easy to abuse
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	AddEntityCallback_OnDamaged( pilot, NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
