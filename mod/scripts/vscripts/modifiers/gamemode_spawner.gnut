@@ -1,4 +1,4 @@
-
+untyped // for using GiveExtraWeaponMod()...
 ////////////////////////////
 ///// GLOBAL FUNCTIONS /////
 ////////////////////////////
@@ -9,11 +9,14 @@ global function Modded_Gamemode_Extra_Spawner_Init
 //////////////////
 ///// CONSTS /////
 //////////////////
-const REAPERS_PER_TEAM = 3
-const TITANS_PER_TEAM = 3
-const GUNSHIPS_PER_TEAM = 2
+const int SQUADS_PER_TEAM = 0
+const int REAPERS_PER_TEAM = 3
+const int TITANS_PER_TEAM = 4
+const int GUNSHIPS_PER_TEAM = 2
 
-const MARVINS_PER_TEAM = 5
+const int MARVINS_PER_TEAM = 5
+
+const int SPAWNER_MAX_NPCS = 40
 
 
 ////////////////////////////
@@ -22,6 +25,7 @@ const MARVINS_PER_TEAM = 5
 struct
 {
     // enable all ais for crazy
+	array< array< string > > podEntities = [ [ "npc_spectre" ], [ "npc_spectre" ] ]
 	array< bool > reapers = [ true, true ]
 	array< bool > gunships = [ true, true ]
 	array< bool > titans = [ true, true ]
@@ -37,8 +41,13 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 {
 	SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
 
+	// modifier settings!
+	ClassicRodeo_SetEnabled( true )
+	Rodeo_SetBatteryPickupAllowed( true )
     SetUseCustomHighlight( true ) // custom highlight settings
 	SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
+	SetAltPilotChance( 2 )
+
 
 	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
 	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
@@ -49,7 +58,10 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 	AddCallback_OnClientConnected( OnPlayerConnected )
 
 	AddCallback_NPCLeeched( OnSpectreLeeched )
+	AddSpawnCallback( "npc_spectre", BecomeSuicideSpectres )
     AddSpawnCallback( "npc_marvin", OverHealedMarvin )
+
+	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
 
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 
@@ -60,6 +72,15 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 /////////////////////
 ///// CALLBACKS /////
 /////////////////////
+void function OnPlayerRespawned( entity player )
+{
+	// mods has limit!
+	player.GiveExtraWeaponMod( "pas_power_cell" )
+	player.GiveExtraWeaponMod( "amped_tacticals" )
+	player.GiveExtraWeaponMod( "pas_ordnance_pack" )
+	player.GiveExtraWeaponMod( "at_unlimited_ammo" )
+}
+
 void function OnPrematchStart()
 {
 	thread StratonHornetDogfightsIntense()
@@ -134,12 +155,23 @@ void function OnSpectreLeeched( entity spectre, entity player )
 //////////////////////////
 ///// SPAWN SETTINGS /////
 //////////////////////////
+void function BecomeSuicideSpectres( entity spectre )
+{
+	thread DelayedMakeSuicideSpectre( spectre ) // avoid ReplaceWeapon() to work
+}
+
+void function DelayedMakeSuicideSpectre( entity spectre )
+{
+	spectre.EndSignal( "OnDestroy" )
+	wait 1
+	MakeSuicideSpectre( spectre )
+}
+
 void function OverHealedMarvin( entity marvin )
 {
     marvin.SetMaxHealth( 9999 )
     marvin.SetHealth( 9999 )
 }
-
 
 ///////////////////////
 ///// NPC SPAWNER /////
@@ -157,61 +189,73 @@ void function Spawner( int team )
 
 	while( true )
 	{
-		if( GetGameState() == eGameState.Playing )
+		int reaperCount = GetNPCArrayEx( "npc_super_spectre", team, -1, <0,0,0>, -1 ).len()
+		int marvinCount = GetNPCArrayEx( "npc_marvin", team, -1, <0,0,0>, -1 ).len()
+		int gunshipCount = GetNPCArrayEx( "npc_gunship", team, -1, <0,0,0>, -1 ).len()
+		int titanCount = GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
+
+		// WAIT FOR NPCS DIE
+		while( GetNPCArrayOfTeam( team ).len() > SPAWNER_MAX_NPCS )
 		{
-			int reaperCount = GetNPCArrayEx( "npc_super_spectre", team, -1, <0,0,0>, -1 ).len()
-            int marvinCount = GetNPCArrayEx( "npc_marvin", team, -1, <0,0,0>, -1 ).len()
-			int gunshipCount = GetNPCArrayEx( "npc_gunship", team, -1, <0,0,0>, -1 ).len()
-	        int titanCount = GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
+			WaitFrame()
+		}
 
-			// REAPERS
-			if ( file.reapers[ index ] )
-			{
-				array< entity > points = SpawnPoints_GetDropPod()
-				if ( reaperCount < REAPERS_PER_TEAM )
-				{
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					waitthread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
-				}
-			}
+		// SUICIDE SPECTRES
+		if ( GetNPCArrayOfTeam( team ).len() < SQUADS_PER_TEAM * 4 - 2 )
+		{
+			string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
+			
+			array< entity > points = SpawnPoints_GetDropPod()
 
-            // GUNSHIPS
-	        if ( file.gunships[ index ] )
-			{
-				array< entity > points = SpawnPoints_GetDropPod()
-				if ( gunshipCount < GUNSHIPS_PER_TEAM )
-				{
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					waitthread ExtraSpawner_SpawnGunShip( node.GetOrigin(), node.GetAngles(), team)
-				}
-			}
+			entity node = points[ GetSpawnPointIndex( points, team ) ]
+			waitthread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent, SquadHandler )
+		}
 
-			// PILOTS WITH TITANS
-			if ( file.titans[ index ] )
+		// REAPERS
+		if ( file.reapers[ index ] )
+		{
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( reaperCount < REAPERS_PER_TEAM )
 			{
-				array< entity > points = SpawnPoints_GetDropPod()
-				if ( titanCount < TITANS_PER_TEAM )
-				{
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					waitthread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
-				}
-			}
-
-			// MARVINS
-			if ( file.marvins[ index ] )
-			{
-				string ent = "npc_marvin"
-				array< entity > points = SpawnPoints_GetDropPod()
-				if ( marvinCount < MARVINS_PER_TEAM )
-				{
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					ExtraSpawner_SpawnNPC( node.GetOrigin(), node.GetAngles(), team, ent )
-					
-				}
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				waitthread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
 			}
 		}
-		else
-			break
+
+		// GUNSHIPS
+		if ( file.gunships[ index ] )
+		{
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( gunshipCount < GUNSHIPS_PER_TEAM )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				waitthread ExtraSpawner_SpawnGunShip( node.GetOrigin(), node.GetAngles(), team)
+			}
+		}
+
+		// PILOTS WITH TITANS
+		if ( file.titans[ index ] )
+		{
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( titanCount < TITANS_PER_TEAM )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				waitthread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
+			}
+		}
+
+		// MARVINS
+		if ( file.marvins[ index ] )
+		{
+			string ent = "npc_marvin"
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( marvinCount < MARVINS_PER_TEAM )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				ExtraSpawner_SpawnNPC( node.GetOrigin(), node.GetAngles(), team, ent )
+				
+			}
+		}
 		WaitFrame()
 	}
 }
@@ -243,6 +287,63 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 ///////////////////////
 ///// NPC HANDLER /////
 ///////////////////////
+void function SquadHandler( array<entity> guys )
+{
+	// Not all maps have assaultpoints / have weird assault points ( looking at you ac )
+	// So we use enemies with a large radius
+	array< entity > points = GetNPCArrayOfEnemies( guys[0].GetTeam() )
+	
+	if ( points.len()  == 0 )
+		return
+	
+	vector point
+	point = points[ RandomInt( points.len() ) ].GetOrigin()
+	
+	array<entity> players = GetPlayerArrayOfEnemies( guys[0].GetTeam() )
+	
+	// Setup AI
+	foreach ( guy in guys )
+	{
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultPoint( point )
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+		
+		// show on enemy radar
+		foreach ( player in players )
+			guy.Minimap_AlwaysShow( 0, player )
+		
+		
+		//thread AITdm_CleanupBoredNPCThread( guy )
+	}
+	
+	// Every 5 - 15 secs change AssaultPoint
+	while ( true )
+	{	
+		foreach ( guy in guys )
+		{
+			// Check if alive
+			if ( !IsAlive( guy ) )
+			{
+				guys.removebyvalue( guy )
+				continue
+			}
+			// Stop func if our squad has been killed off
+			if ( guys.len() == 0 )
+				return
+			
+			// Get point and send guy to it
+			points = GetNPCArrayOfEnemies( guy.GetTeam() )
+			if ( points.len() == 0 )
+				continue
+				
+			point = points[ RandomInt( points.len() ) ].GetOrigin()
+			
+			guy.AssaultPoint( point )
+		}
+		wait RandomFloatRange(5.0,15.0)
+	}
+}
+
 void function ReaperHandler( entity reaper )
 {
 	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
