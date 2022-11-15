@@ -187,12 +187,15 @@ function ArcCannon_ChargeBegin( entity weapon )
 	#if SERVER
 		entity weaponOwner = weapon.GetWeaponOwner()
 		// client sound fix
-		if( !weapon.HasMod( "capacitor" ) )
+		if( weaponOwner.IsPlayer() )
 		{
-			if( weapon.HasMod( "arc_cannon_charge_sound" ) )
-				EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "Weapon_EnergySyphon_Charge_3P" )
-			if( weapon.HasMod( "archon_arc_cannon_charge_sound" ) )
-				EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "MegaTurret_Laser_ChargeUp_3P" )
+			if( !weapon.HasMod( "capacitor" ) )
+			{
+				if( weapon.HasMod( "arc_cannon_charge_sound" ) )
+					EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "Weapon_EnergySyphon_Charge_3P" )
+				if( weapon.HasMod( "archon_arc_cannon_charge_sound" ) )
+					EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "MegaTurret_Laser_ChargeUp_3P" )
+			}
 		}
 		if ( weapon.HasMod( "overcharge" ) )
 		{
