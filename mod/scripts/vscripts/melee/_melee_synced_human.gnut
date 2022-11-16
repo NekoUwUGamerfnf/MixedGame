@@ -9,7 +9,6 @@ global function MeleeSyncedHuman_AlwaysDoAiExecutions // overwrites random execu
 
 struct
 {
-	// modified
 	bool doingRandomExecutions = false 
 	bool alwaysAiExecutions = false 
 } file
@@ -45,7 +44,7 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 	Assert( IsAlive( target ) )
 
 	bool useClassicExecution = false
-	// could get some tf1 execution
+	// could get some tf1 execution by using player.s
 	if( "classicExecution" in attacker.s )
 	{
 		if( expect bool( attacker.s.classicExecution ) )
@@ -63,20 +62,33 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 		action.targetAnimation3p = "pt_melee_necksnap_rear_attacked"
 		action.isAttackerRef = false
 		action.minDot = 0.2
+		// better sound: "Pilot_Mvmt_Execution_NeckBreak_Neck_Snapped_3P"
+		// fix sound! full of magic
+		thread ForcePlaySoundOnEntityAfterDelay( target, "Pilot_Mvmt_Execution_NeckBreak_Neck_Snapped_3P", 0.25 ) // magic sound
 		
 		entity meleeWeapon = attacker.GetOffhandWeapon( OFFHAND_MELEE )
-        if ( IsValid( meleeWeapon ) ) // funny unused content
-        {
+		// modifying!!!
+		bool thisTimeDoSwordExecution = false
+		if( IsValid( meleeWeapon ) )
+		{
 			if( meleeWeapon.GetWeaponClassName() == "melee_pilot_sword" )
-			{
-				action.attackerAnimation1p = "ptpov_assassin_melee_necksnap_rear"
-				action.attackerAnimation3p = "pt_assassin_melee_necksnap_rear"
-				action.targetAnimation1p = "ptpov_assassin_melee_necksnap_rear_attacked"
-				action.targetAnimation3p = "pt_assassin_melee_necksnap_rear_attacked"
-				action.attachModel1p = $"models/weapons/bolo_sword/w_bolo_sword.mdl"
-				action.attachTag1p = "PROPGUN"
-				action.minDot = 0.2
-			}
+				thisTimeDoSwordExecution = true
+		}
+		if( IsClassicExecutionRandom() && CoinFlip() )
+			thisTimeDoSwordExecution = true
+		// modified in primary_melee.gnut
+        if ( thisTimeDoSwordExecution ) // funny unused content
+        {
+			action.attackerAnimation1p = "ptpov_assassin_melee_necksnap_rear"
+			action.attackerAnimation3p = "pt_assassin_melee_necksnap_rear"
+			action.targetAnimation1p = "ptpov_assassin_melee_necksnap_rear_attacked"
+			action.targetAnimation3p = "pt_assassin_melee_necksnap_rear_attacked"
+			action.attachModel1p = $"models/weapons/bolo_sword/w_bolo_sword.mdl"
+			action.attachTag1p = "PROPGUN"
+			action.minDot = 0.2
+
+			// fix sound! full of magic
+			thread ForcePlaySoundOnEntityAfterDelay( target, "Pilot_Mvmt_Execution_Stab_Impacts_fr61_3P", 0.3 ) // magic sound
         }
 		
 		// need to hardcode false here otherwise it just doesnt work for some reason??
@@ -183,6 +195,14 @@ struct PilotVsEnemyStruct
 	float cloakEndTime = 0.0
 }
 
+///// modified functions!!!! /////
+void function ForcePlaySoundOnEntityAfterDelay( entity ent, string soundAlias, float delay )
+{
+	wait delay
+	if( IsAlive( ent ) )
+		EmitSoundOnEntity( ent, soundAlias )
+}
+
 void function ForceRemoveExecutioCinematic( entity attacker, entity target )
 {
 	wait 0.1
@@ -197,6 +217,7 @@ void function ForceRemoveExecutioCinematic( entity attacker, entity target )
 			RemoveCinematicFlag( target, CE_FLAG_EXECUTION )
 	}
 }
+///// end
 
 void function DisableCloakBeforeMelee( entity player, PilotVsEnemyStruct dataStruct )
 {
@@ -221,12 +242,35 @@ void function RestoreCloakAfterMelee( entity player, PilotVsEnemyStruct dataStru
 		EnableCloak( player, remainingCloakDuration, CLOAK_FADE_IN )
 }
 
+///// modified function!!!! /////
+float function HACK_GetHumanSyncedMeleeSequenceDuration( entity ent, string animationName )
+{
+	float duration
+	try
+	{
+		duration = ent.GetSequenceDuration( animationName )
+	}
+	catch( ex )
+	{
+		asset modelName = GetBestModelNameForHackedAnim( ent )
+		asset orgModel = ent.GetModelName()
+		ent.SetModel( modelName )
+		print( "Sequence on " + string( orgModel ) + " Not Valid! Resetting to " + string( modelName ) )
+		duration = ent.GetSequenceDuration( animationName )
+		thread TrackHackedAnimationEnd( ent, orgModel )
+	}
+
+	return duration
+}
+
 void function HandleCloakExecutionWithCloakedAttacker( entity player, PilotVsEnemyStruct dataStruct, SyncedMelee action  )
 {
 	if ( !IsCloaked( player ) )
 		return //No need to run DisableCloakBeforeMelee() either
 
-	float attackerSequenceEndTime = Time() + player.GetSequenceDuration( action.attackerAnimation3p )
+	// modified for unsupported models!
+	//float attackerSequenceEndTime = Time() + player.GetSequenceDuration( action.attackerAnimation3p )
+	float attackerSequenceEndTime = Time() + HACK_GetHumanSyncedMeleeSequenceDuration( player, action.attackerAnimation3p )
 	float scheduledCloakEndTime = player.GetCloakEndTime()
 
 	//printt( "attackerSequenceEndTime: " + attackerSequenceEndTime + ", scheduledCloakEndTime: " + scheduledCloakEndTime )
@@ -323,7 +367,7 @@ void function MeleeThread_PilotVsEnemy_Attacker( SyncedMelee action, entity atta
 		attackerSequence.thirdPersonAnim = ExecutionAttacker
 	    if( attacker.IsPlayer() )
 	    {	
-		    attackerSequence.thirdPersonCameraAttachments = [""] // left a check in _anim.gnut, not doing a CameraSetting
+		    attackerSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
 		    thread GruntExecutionCameraThink( attacker )
 	    }
 	}
@@ -339,7 +383,9 @@ void function MeleeThread_PilotVsEnemy_Attacker( SyncedMelee action, entity atta
 		attackerSequence.useAnimatedRefAttachment = true
 	}
 
-	float duration = attacker.GetSequenceDuration( attackerSequence.thirdPersonAnim )
+	// modified for unsupported models!!!
+	//float duration = attacker.GetSequenceDuration( attackerSequence.thirdPersonAnim )
+	float duration = HACK_GetHumanSyncedMeleeSequenceDuration( attacker, attackerSequence.thirdPersonAnim  )
 
 	if ( attacker.IsPlayer() )
 	{
@@ -525,7 +571,7 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 	    targetSequence.thirdPersonAnim = ExecutionVictim
 		if( target.IsPlayer() )
 		{
-			targetSequence.thirdPersonCameraAttachments = [""] // left a check in _anim.gnut, not doing a CameraSetting
+			targetSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
 			thread GruntExecutionCameraThink( target )
 		}
 	}

@@ -107,6 +107,10 @@ global const ArcCannonTargetClassnames = {
 	[ "rpg_missile" ] 			= true,
 	[ "script_mover" ] 			= true,
 	[ "turret" ] 				= true,
+	
+	// nessie adding
+	[ "npc_pilot_elite" ] 		= true,
+	[ "npc_gunship" ] 			= true,
 }
 
 struct {
