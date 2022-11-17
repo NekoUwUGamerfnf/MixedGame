@@ -20,9 +20,6 @@ global function NpcTitanBecomesPilot
 global function TitanHasNpcPilot
 global function NpcPilotGetPetTitan
 global function NpcPilotSetPetTitan
-
-// modified
-global function NPCPilotDamageAdjustments
 #endif
 
 global function NpcSetNextTitanRespawnAvailable
@@ -30,12 +27,6 @@ global function NpcResetNextTitanRespawnAvailable
 
 global function AddCallback_OnNpcTitanBecomesPilot
 global function AddCallback_OnNpcPilotBecomesTitan
-
-global struct NPCPilotWeaponStruct
-{
-	string weaponName
-	array<string> weaponMods
-}
 
 global struct NPCPilotStruct
 {
@@ -47,8 +38,8 @@ global struct NPCPilotStruct
 	float proficieny
 	int health // why respawn?
 	float physDamageScale
-	
-	array<NPCPilotWeaponStruct> weapons
+	string weapon
+	array<string> weaponMods
 	string squadName
 
 	asset modelAsset
@@ -73,9 +64,6 @@ function AiPilots_Init()
 	level.onNpcPilotBecomesTitanCallbacks	<- []
 	level.onNpcTitanBecomesPilotCallbacks	<- []
 
-	// modified
-	RegisterSignal( "ForceStartMove" )
-	RegisterSignal( "TryRunsToEmbark" )
 }
 
 function ScriptCallback_OnNpcPilotBecomesTitan( pilot, titan )
@@ -456,13 +444,10 @@ void function NpcPilotRunsToEmbarkTitan( entity pilot, entity titan )
 	titan.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
-	pilot.Signal( "TryRunsToEmbark" )
-	pilot.EndSignal( "TryRunsToEmbark" ) // avoid stacking up loops
 	pilot.EndSignal( "ForceStartMove" )
 
 	pilot.SetNoTarget( true )
 	pilot.Anim_Stop()
-	pilot.EnableNPCFlag( NPC_IGNORE_ALL )
 	pilot.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE )
 	pilot.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	pilot.DisableArrivalOnce( true )
@@ -476,7 +461,6 @@ void function NpcPilotRunsToEmbarkTitan( entity pilot, entity titan )
 				return
 
 			pilot.SetNoTarget( false )
-			pilot.DisableNPCFlag( NPC_IGNORE_ALL )
 			pilot.EnableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE )
 			pilot.DisableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 			pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, canMoveAndShoot )
@@ -656,13 +640,13 @@ void function NpcPilotBecomesTitan( entity pilot, entity titan )
 	titanSoul.soul.seatedNpcPilot.isValid				= true
 
 	titanSoul.soul.seatedNpcPilot.team 					= pilot.GetTeam()
-	
-	foreach( entity weapon in pilot.GetMainWeapons() )
+	titanSoul.soul.seatedNpcPilot.weapon				= "mp_weapon_rspn101_og"
+	titanSoul.soul.seatedNpcPilot.weaponMods			= []
+	entity weapon = pilot.GetActiveWeapon()
+	if( IsValid( weapon ) )
 	{
-		NPCPilotWeaponStruct weaponStruct
-		weaponStruct.weaponName = weapon.GetWeaponClassName()
-		weaponStruct.weaponMods = weapon.GetMods()
-		titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+		titanSoul.soul.seatedNpcPilot.weapon			= weapon.GetWeaponClassName()
+		titanSoul.soul.seatedNpcPilot.weaponMods		= weapon.GetMods()
 	}
 
 	titanSoul.soul.seatedNpcPilot.modelAsset 			= pilot.GetModelName()
@@ -709,7 +693,7 @@ entity function NpcTitanBecomesPilot( entity titan )
 	titanSoul.soul.seatedNpcPilot.isValid = false
 	bool isEjecting = titanSoul.IsEjecting()
 
-	array<NPCPilotWeaponStruct> weapons 	= titanSoul.soul.seatedNpcPilot.weapons
+	string weapon 			= titanSoul.soul.seatedNpcPilot.weapon
 	string squadName 		= titanSoul.soul.seatedNpcPilot.squadName
 	asset model 			= titanSoul.soul.seatedNpcPilot.modelAsset
 	string title 			= titanSoul.soul.seatedNpcPilot.title
@@ -732,19 +716,11 @@ entity function NpcTitanBecomesPilot( entity titan )
 	DispatchSpawn( pilot )
 	// hardcoded
 	pilot.SetTitle( title )
-	if( weapons.len() >= 1 )
-	{
-		pilot.TakeActiveWeapon()
-		foreach( int index, NPCPilotWeaponStruct weapon in weapons )
-		{
-			pilot.GiveWeapon( weapon.weaponName, weapon.weaponMods ) //[ "npc_elite_weapon" ]
-			if( index == 0 ) // maybe main weapon
-				pilot.SetActiveWeaponByName( weapon.weaponName )
-		}
-	}
+	pilot.TakeActiveWeapon()
+	pilot.GiveWeapon( weapon ) //[ "npc_elite_weapon" ]
+	pilot.SetActiveWeaponByName( weapon )
 	pilot.SetModel( model ) // this is a hack, trying to avoid having a model spawn option because its easy to abuse
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
-	AddEntityCallback_OnDamaged( pilot, NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
 	Highlight_SetEnemyHighlight( pilot, "enemy_player" )
 
 	//NpcResetNextTitanRespawnAvailable( pilot )
@@ -802,46 +778,6 @@ void function NPCPilotEjectingAnimation( entity pilot )
 	//pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
 	
 	pilot.Anim_Stop()
-}
-
-// re-adjust damages for npc pilots!
-const int PLAYER_TITAN_MELEE_DAMAGE_NPC_PILOT = 100
-// why eDamageSourceId. can't be in arrays?
-const array<int> PLAYER_TITAN_DAMAGESOURCEIDS = [ /* eDamageSourceId.melee_titan_punch, // basically save for redirecting damage 
-												  eDamageSourceId.melee_titan_punch_ion, 
-												  eDamageSourceId.melee_titan_punch_tone, 
-												  eDamageSourceId.melee_titan_punch_northstar, 
-												  eDamageSourceId.melee_titan_punch_scorch, 
-												  eDamageSourceId.melee_titan_punch_legion, 
-												  eDamageSourceId.melee_titan_punch_vanguard */ ]
-const int NPC_TITAN_MELEE_DAMAGE_NPC_PILOT = 300
-const int TITAN_SOWRD_DAMAGE_NPC_PILOT = 250
-const int TITAN_STEPPING_ON_DAMAGE_NPC_PILOT = 250
-void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
-{
-	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
-
-	// titan step
-	if( damageSourceID == damagedef_titan_step ) 
-		DamageInfo_SetDamage( damageInfo, TITAN_STEPPING_ON_DAMAGE_NPC_PILOT )
-
-	// player's titan melee, can't use a array
-	if( damageSourceID == eDamageSourceId.melee_titan_punch ||
-		damageSourceID == eDamageSourceId.melee_titan_punch_ion ||
-		damageSourceID == eDamageSourceId.melee_titan_punch_tone ||
-		damageSourceID == eDamageSourceId.melee_titan_punch_northstar ||
-		damageSourceID == eDamageSourceId.melee_titan_punch_scorch ||
-		damageSourceID == eDamageSourceId.melee_titan_punch_legion ||
-		damageSourceID == eDamageSourceId.melee_titan_punch_vanguard )
-		DamageInfo_SetDamage( damageInfo, PLAYER_TITAN_MELEE_DAMAGE_NPC_PILOT )
-
-	// npc's titan melee
-	if( damageSourceID == eDamageSourceId.auto_titan_melee ) 
-		DamageInfo_SetDamage( damageInfo, NPC_TITAN_MELEE_DAMAGE_NPC_PILOT )
-
-	// ronin sword
-	if( damageSourceID == eDamageSourceId.melee_titan_sword ) 
-		DamageInfo_SetDamage( damageInfo, TITAN_SOWRD_DAMAGE_NPC_PILOT )
 }
 
 bool function TitanHasNpcPilot( entity titan )

@@ -1,10 +1,7 @@
 untyped
 global function GamemodeAITdm_Init
 
-
-// modified gamemodes!
 global function Modded_Gamemode_GruntMode_Enable_Init
-global function Modded_Gamemode_Extra_Spawner_Enable_Init
 
 const SQUADS_PER_TEAM = 3
 
@@ -21,8 +18,7 @@ struct
 	array< array< string > > podEntities = [ [ "npc_soldier" ], [ "npc_soldier" ] ]
 	array< bool > reapers = [ false, false ]
 	
-	bool gruntmode = false
-	bool extraSpawner = false
+	bool gruntmode
 } file
 
 void function Modded_Gamemode_GruntMode_Enable_Init()
@@ -30,17 +26,10 @@ void function Modded_Gamemode_GruntMode_Enable_Init()
 	file.gruntmode = true
 }
 
-void function Modded_Gamemode_Extra_Spawner_Enable_Init()
-{
-	file.extraSpawner = true
-}
-
 void function GamemodeAITdm_Init()
 {
 	if( file.gruntmode )
 		Modded_Gamemode_GruntMode_Init()
-	else if( file.extraSpawner )
-		Modded_Gamemode_Extra_Spawner_Init()
 	else
 	{
 		SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
