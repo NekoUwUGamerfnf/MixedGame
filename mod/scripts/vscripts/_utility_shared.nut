@@ -567,12 +567,7 @@ bool function IsAlive( entity ent )
 		return false
 	if ( !ent.IsValidInternal() )
 		return false
-	
-	#if SERVER
-	if( IsHackedDeathEnabled() )
-		return !IsPlayerHackedDeath( ent ) || ent.IsEntAlive()
-	#endif
-	
+
 	return ent.IsEntAlive()
 }
 

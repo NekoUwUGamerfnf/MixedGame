@@ -32,7 +32,7 @@ global function Bleedout_HealthRegenThink
 global function Bleedout_SetHealthRegenRate
 
 const bool BLEEDOUT_DEBUG = false
-const BLEEDOUT_EXECUTION_HITBOX_MODEL = $"models/weapons/bullets/mgl_grenade.mdl"
+const asset BLEEDOUT_EXECUTION_HITBOX_MODEL = $"models/weapons/bullets/mgl_grenade.mdl"
 
 global function Bleedout_SetProtectionDuration
 global function Bleedout_SetIncapShieldHealth
@@ -93,6 +93,8 @@ void function Bleedout_Init()
 	AddCallback_OnClientDisconnected( Bleedout_OnClientDisconnected )
 
 	PrecacheParticleSystem( FX_BLOODTRAIL )
+	PrecacheParticleSystem( $"death_pinkmist_LG_nochunk" )
+	PrecacheParticleSystem( $"xo_damage_exp_2" )
 }
 
 void function Bleedout_OnClientConnected( entity player )
@@ -165,7 +167,8 @@ bool function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	player.ClearParent()
 	player.Anim_Stop() // interupt current executions etc.
 	Bleedout_PlayerDownedSound( player, attacker )
-	Bleedout_PlayerDownedObit( player, attacker, damageInfo )
+	Bleedout_PlayerDownedEffect( player )
+	Bleedout_PlayerDownedObit( player, attacker, damageInfo ) // now only shows to attacker!
 
 	// this should done before callbacks since it triggers a "OnClassChange"
 	// done using Bleedout_PlayerMovementLimiter()
@@ -234,7 +237,7 @@ void function PlayerDying( entity player )
 	thread Bleedout_ScreenFadeThink( player )
 	thread Bleedout_EnemySpottingHighlight( player )
 	thread Bleedout_IncapShieldThink( player )
-	//thread Bleedout_FakePlayerThink( player )
+	//thread Bleedout_FakePlayerThink( player ) // don't know how to do this
 
 	if ( forceHolster )
 	{
@@ -834,12 +837,40 @@ void function Bleedout_PlayerDownedSound( entity victim, entity attacker )
 	}
 }
 
+void function Bleedout_PlayerDownedEffect( entity player )
+{
+	if( player.IsMechanical() )
+	{
+		int particleIndex = GetParticleSystemIndex( $"xo_damage_exp_2" )
+		int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
+		StartParticleEffectOnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+		//entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+		//thread FastStopParticle( fx )
+	}
+	else
+	{
+		int particleIndex = GetParticleSystemIndex( $"death_pinkmist_LG_nochunk" )
+		int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
+		StartParticleEffectOnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+	}
+}
+
+void function FastStopParticle( entity fx )
+{
+	fx.EndSignal( "OnDestroy" )
+	wait 2.5
+	EffectStop( fx )
+}
+
 void function Bleedout_PlayerDownedObit( entity ent, entity attacker, var damageInfo )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	// trigger_hurt is no longer networked, so the "attacker" fails to display obituaries
 	if ( attacker )
 	{
+		if( !attacker.IsPlayer() || ent == attacker ) // now only shows to attacker!
+			return
+
 		string attackerClassname = attacker.GetClassName()
 
 		if ( attackerClassname == "trigger_hurt" || attackerClassname == "trigger_multiple" )
@@ -859,12 +890,14 @@ void function Bleedout_PlayerDownedObit( entity ent, entity attacker, var damage
 		scriptDamageType = scriptDamageType | DF_HEADSHOT
 	else
 		scriptDamageType = scriptDamageType & (~DF_HEADSHOT)
-
-	foreach ( entity player in GetPlayerArray() )
-	{
-		if( player != ent )
-			Remote_CallFunction_NonReplay( player, "ServerCallback_OnEntityKilled", attackerEHandle, victimEHandle, scriptDamageType, damageSourceId )
-	}
+	
+	// now only shows to attacker!
+	Remote_CallFunction_NonReplay( attacker, "ServerCallback_OnEntityKilled", attackerEHandle, victimEHandle, scriptDamageType, damageSourceId )
+	//foreach ( entity player in GetPlayerArray() )
+	//{
+		//if( player != ent )
+			//Remote_CallFunction_NonReplay( player, "ServerCallback_OnEntityKilled", attackerEHandle, victimEHandle, scriptDamageType, damageSourceId )
+	//}
 }
 
 void function Bleedout_DeathProtection( entity player )
@@ -1127,6 +1160,8 @@ void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 	if( action == null )
 		return
 	expect SyncedMelee( action )
+	thread Bleedout_PlayerSyncedMeleeEffect( player ) // screen effect
+	thread Bleedout_PlayerSyncedMeleeEffect( owner )
 	waitthread MeleeThread_PilotVsEnemy( action, player, owner )
 	
 	if( IsValid( hitBox ) )
@@ -1138,6 +1173,28 @@ void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 			hitBox.SetUsableByGroup( "enemies pilot" )
 		}
 	}
+}
+
+void function Bleedout_PlayerSyncedMeleeEffect( entity player )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function() : ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				RemoveCinematicFlag( player, CE_FLAG_EXECUTION )
+                RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+			}
+		}
+	)
+
+    AddCinematicFlag( player, CE_FLAG_EXECUTION )
+    AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+
+    WaittillAnimDone( player )
 }
 
 void function Bleedout_OverTimeAnimation( entity player )
@@ -1206,7 +1263,7 @@ void function Bleedout_IncapShieldThink( entity player )
 			if( !hasStatusEffect )
 			{
 				statusEffectHandles.append( StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.5 ) )
-				statusEffectHandles.append( StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.3 ) )
+				//statusEffectHandles.append( StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.3 ) )
 				hasStatusEffect = true
 			}
 
@@ -1591,7 +1648,7 @@ void function Bleedout_ScreenFadeThink( entity player )
 	WaitForever()
 }
 
-void function Bleedout_FakePlayerThink( entity player )
+void function Bleedout_FakePlayerThink( entity player ) // don't know how to do this
 {
 	float fadeDist 	= 10000.0
 	int solidType = 0// 0 = no collision, 2 = bounding box, 6 = use vPhysics, 8 = hitboxes only
