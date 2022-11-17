@@ -41,7 +41,7 @@ struct {
 	array<string> lateSpawnedPlayerUIDs = []
 
 	// funny HACKs!
-	bool hackedDeathEnabled = false
+	bool hackedDeathEnabled = true
 } file
 
 void function BaseGametype_Init_MPSP()
@@ -73,19 +73,56 @@ void function HACK_OnPlayerDamaged( entity player, var damageInfo )
 		return
 	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
 	{
-		DamageInfo_SetDamage( damageInfo, max( player.GetHealth() - 1, 0 ) )
-		player.SetInvulnerable()
-		player.SetHealth( 1 )
-		player.Signal( "OnDeath" )
-		player.Signal( "StopHealthRegenThink" )
-		StopSoundOnEntity( player, "pilot_critical_breath_loop_1p" )
-		StopSoundOnEntity( player, "pilot_wounded_loop_1p" )
-		StopSoundOnEntity( player, "pilot_critical_drone_loop_1p" )
-		CodeCallback_OnEntityKilled( player, damageInfo )
-		CodeCallback_OnPlayerKilled( player, damageInfo )
-		HolsterAndDisableWeapons( player )
-		TakeAllWeapons( player )
+		PlayerStartHackedDeath( player, damageInfo )
 	}
+}
+
+void function PlayerStartHackedDeath( entity player, var damageInfo )
+{
+	HideName( player )
+	DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+	DamageInfo_SetDamage( damageInfo, max( player.GetHealth() - 1, 0 ) )
+	player.SetInvulnerable()
+	player.SetHealth( player.GetMaxHealth() )
+	player.Signal( "OnDeath" )
+	player.Signal( "StopHealthRegenThink" )
+	StopSoundOnEntity( player, "pilot_critical_breath_loop_1p" )
+	StopSoundOnEntity( player, "pilot_wounded_loop_1p" )
+	StopSoundOnEntity( player, "pilot_critical_drone_loop_1p" )
+	EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
+	CodeCallback_OnEntityKilled( player, damageInfo )
+	CodeCallback_OnPlayerKilled( player, damageInfo )
+	CreateHackedDeathFakeCorpse( player, damageInfo )
+	player.kv.VisibilityFlags = 0
+	player.StopPhysics()
+	HolsterAndDisableWeapons( player )
+	TakeAllWeapons( player )
+	AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+}
+
+void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
+{
+	entity fakeBody
+	if( player.IsMechanical() )
+		fakeBody = CreateNPC( "npc_spectre", player.GetTeam(), player.GetOrigin(), player.GetAngles() )
+	else
+		fakeBody = CreateNPC( "npc_soldier", player.GetTeam(), player.GetOrigin(), player.GetAngles() )
+	fakeBody.SetModel( player.GetModelName() )
+	fakeBody.SetValueForModelKey( player.GetModelName() )
+	DispatchSpawn( fakeBody )
+	fakeBody.SetModel( player.GetModelName() )
+	TakeAllWeapons( fakeBody )
+	// not using DamageInfo_GetAttacker( damageInfo ) cause extra_spanwer has given killing npcPilots a scoreEvent
+	fakeBody.TakeDamage( fakeBody.GetMaxHealth() + 1, 
+						null, 
+						null, 
+						{ // damage table
+						weapon = DamageInfo_GetWeapon( damageInfo ), 
+						origin = DamageInfo_GetDamagePosition( damageInfo ), 
+						force = DamageInfo_GetDamageForce( damageInfo ), 
+						scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+						damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo ) 
+						} )
 }
 
 void function SetIntermissionCamera( entity camera )
@@ -320,11 +357,8 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	ClearRecentDamageHistory( player )
 	if( file.hackedDeathEnabled )
 	{
-		player.SetNoTarget( false )
-		player.SetNoTargetSmartAmmo( false )
-		player.s.hackedDeath = false
+		PlayerRecoverFromFakedDeath( player )
 	}
-	
 	
 	player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
 	
@@ -341,6 +375,17 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 		
 	Remote_CallFunction_NonReplay( player, "ServerCallback_YouRespawned" )
 	ClearLastAttacker( player ) // so dying to anything doesn't credit the same attacker after respawning
+}
+
+void function PlayerRecoverFromFakedDeath( entity player )
+{
+	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	ShowName( player )
+	StopSoundOnEntity( player, "pilot_wounded_breathloop_end_1p" )
+	player.SetNoTarget( false )
+	player.SetNoTargetSmartAmmo( false )
+	player.s.hackedDeath = false
+	RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
 }
 
 void function GracePeriodThink( entity player )
@@ -383,7 +428,8 @@ void function GracePeriodThink_Threaded( entity player )
 void function CodeCallback_OnPlayerKilled( entity player, var damageInfo )
 {
 	PlayerOrNPCKilled( player, damageInfo )
-	HandleDeathPackage( player, damageInfo )
+	if( !file.hackedDeathEnabled )
+		HandleDeathPackage( player, damageInfo )
 	thread PostDeathThread_MP( player, damageInfo )
 }
 
@@ -856,6 +902,7 @@ void function TitanPlayerHotDropsIntoLevel( entity player )
 void function SetHackedDeathEnabled( bool enabled )
 {
 	file.hackedDeathEnabled = enabled
+	SetWeaponDropsEnabled( enabled ) // bind together
 }
 
 bool function IsHackedDeathEnabled()
