@@ -1,0 +1,416 @@
+untyped // for using GiveExtraWeaponMod()...
+////////////////////////////
+///// GLOBAL FUNCTIONS /////
+////////////////////////////
+// using Modded_Gamemode_Extra_Spawner_Enable_Init in _gamemode_aitdm.nut to enable
+global function Modded_Gamemode_Extra_Spawner_Init
+
+
+//////////////////
+///// CONSTS /////
+//////////////////
+const int SQUADS_PER_TEAM = 0
+const int REAPERS_PER_TEAM = 3
+const int TITANS_PER_TEAM = 5
+const int GUNSHIPS_PER_TEAM = 2
+
+const int MARVINS_PER_TEAM = 5
+
+const int SPAWNER_MAX_NPCS = 40
+
+
+////////////////////////////
+///// SETTINGS IN FILE /////
+////////////////////////////
+struct
+{
+    // enable all ais for crazy
+	array< array< string > > podEntities = [ [ "npc_spectre" ], [ "npc_spectre" ] ]
+	array< bool > reapers = [ true, true ]
+	array< bool > gunships = [ true, true ]
+	array< bool > titans = [ true, true ]
+
+    array< bool > marvins = [ true, true ]
+} file
+
+
+/////////////////////////
+///// MAIN FUNCTION /////
+/////////////////////////
+void function Modded_Gamemode_Extra_Spawner_Init()
+{
+	SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
+
+	// modifier settings!
+	ClassicRodeo_SetEnabled( true )
+	//Rodeo_SetBatteryPickupAllowed( true ) // save for later...
+    SetUseCustomHighlight( true ) // custom highlight settings
+	SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
+	SetAltPilotChance( 2 )
+
+	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
+	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
+
+	AddCallback_OnNPCKilled( HandleScoreEvent )
+	AddCallback_OnPlayerKilled( HandleScoreEvent )
+
+	AddCallback_OnClientConnected( OnPlayerConnected )
+
+	AddCallback_NPCLeeched( OnSpectreLeeched )
+	AddSpawnCallback( "npc_spectre", BecomeSuicideSpectres )
+    AddSpawnCallback( "npc_marvin", OverHealedMarvin )
+
+	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+
+	ScoreEvent_SetupEarnMeterValuesForMixedModes()
+
+	ClassicMP_ForceDisableEpilogue( true )
+}
+
+
+/////////////////////
+///// CALLBACKS /////
+/////////////////////
+void function OnPlayerRespawned( entity player )
+{
+	// mods has limit!
+	player.GiveExtraWeaponMod( "pas_power_cell" )
+	player.GiveExtraWeaponMod( "amped_tacticals" )
+	player.GiveExtraWeaponMod( "pas_ordnance_pack" )
+	player.GiveExtraWeaponMod( "at_unlimited_ammo" )
+}
+
+void function OnPrematchStart()
+{
+	thread StratonHornetDogfightsIntense()
+}
+
+void function OnPlaying()
+{
+	// don't run spawning code if ains and nms aren't up to date
+	if ( GetAINScriptVersion() == AIN_REV && GetNodeCount() != 0 )
+	{
+		thread SpawnIntroBatch( TEAM_MILITIA )
+		thread SpawnIntroBatch( TEAM_IMC )
+	}
+}
+
+void function OnPlayerConnected( entity player )
+{
+	Remote_CallFunction_NonReplay( player, "ServerCallback_AITDM_OnPlayerConnected" )
+}
+
+
+///////////////////////
+///// SCORE EVENT /////
+///////////////////////
+void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
+{
+	if ( !( victim != attacker && attacker.IsPlayer() || attacker.IsTitan() && attacker.GetBossPlayer() != null && GetGameState() == eGameState.Playing ) ) //add getowner to this since it crash my game everytime when am trying to deploy a npctitan without a owner
+		return
+
+	int score
+	string eventName
+
+	if ( victim.IsPlayer() )
+		score = 3
+
+	if ( victim.GetClassName() == "npc_marvin" )
+		score = 10
+
+	if ( victim.GetClassName() == "npc_super_spectre" )
+		score = 5
+
+	if ( victim.GetClassName() == "npc_gunship" )
+		score = 5
+
+    if ( victim.GetClassName() == "npc_pilot_elite" )
+        score = 5
+
+	// Player ejecting triggers this without the extra check
+	if ( victim.IsTitan() && victim.GetBossPlayer() != attacker )
+		score += 10
+
+	// make npc able to earn score?
+	AddTeamScore( attacker.GetTeam(), score )
+	if( !attacker.IsNPC() )
+	{
+		attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, score )
+		attacker.SetPlayerNetInt( "AT_bonusPoints", attacker.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+	}
+}
+
+void function OnSpectreLeeched( entity spectre, entity player )
+{
+	// Set Owner so we can filter in HandleScore
+	spectre.SetOwner( player )
+	// Add score + update network int to trigger the "Score +n" popup
+	AddTeamScore( player.GetTeam(), 1 )
+	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 )
+	player.SetPlayerNetInt("AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+}
+
+
+//////////////////////////
+///// SPAWN SETTINGS /////
+//////////////////////////
+void function BecomeSuicideSpectres( entity spectre )
+{
+	thread DelayedMakeSuicideSpectre( spectre ) // avoid ReplaceWeapon() to work
+}
+
+void function DelayedMakeSuicideSpectre( entity spectre )
+{
+	spectre.EndSignal( "OnDestroy" )
+	wait 1
+	MakeSuicideSpectre( spectre )
+}
+
+void function OverHealedMarvin( entity marvin )
+{
+    marvin.SetMaxHealth( 9999 )
+    marvin.SetHealth( 9999 )
+}
+
+///////////////////////
+///// NPC SPAWNER /////
+///////////////////////
+void function SpawnIntroBatch( int team )
+{
+	thread Spawner( team )
+}
+
+void function Spawner( int team )
+{
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+
+	int index = team == TEAM_MILITIA ? 0 : 1
+
+	while( true )
+	{
+		int reaperCount = GetNPCArrayEx( "npc_super_spectre", team, -1, <0,0,0>, -1 ).len()
+		int marvinCount = GetNPCArrayEx( "npc_marvin", team, -1, <0,0,0>, -1 ).len()
+		int gunshipCount = GetNPCArrayEx( "npc_gunship", team, -1, <0,0,0>, -1 ).len()
+		int titanCount = GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
+
+		// WAIT FOR NPCS DIE
+		while( GetNPCArrayOfTeam( team ).len() > SPAWNER_MAX_NPCS )
+		{
+			WaitFrame()
+		}
+
+		// SUICIDE SPECTRES
+		if ( GetNPCArrayOfTeam( team ).len() < SQUADS_PER_TEAM * 4 - 2 )
+		{
+			string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
+			
+			array< entity > points = SpawnPoints_GetDropPod()
+
+			entity node = points[ GetSpawnPointIndex( points, team ) ]
+			waitthread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent, SquadHandler )
+		}
+
+		// REAPERS
+		if ( file.reapers[ index ] )
+		{
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( reaperCount < REAPERS_PER_TEAM )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				waitthread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
+			}
+		}
+
+		// GUNSHIPS
+		if ( file.gunships[ index ] )
+		{
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( gunshipCount < GUNSHIPS_PER_TEAM )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				waitthread ExtraSpawner_SpawnGunShip( node.GetOrigin(), node.GetAngles(), team)
+			}
+		}
+
+		// PILOTS WITH TITANS
+		if ( file.titans[ index ] )
+		{
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( titanCount < TITANS_PER_TEAM )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				waitthread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
+			}
+		}
+
+		// MARVINS
+		if ( file.marvins[ index ] )
+		{
+			string ent = "npc_marvin"
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( marvinCount < MARVINS_PER_TEAM )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				ExtraSpawner_SpawnNPC( node.GetOrigin(), node.GetAngles(), team, ent )
+				
+			}
+		}
+		WaitFrame()
+	}
+}
+
+
+///////////////////////
+///// SPAWN POINT /////
+///////////////////////
+int function GetSpawnPointIndex( array< entity > points, int team )
+{
+	entity zone = DecideSpawnZone_Generic( points, team )
+
+	if ( IsValid( zone ) )
+	{
+		// 20 Tries to get a random point close to the zone
+		for ( int i = 0; i < 20; i++ )
+		{
+			int index = RandomInt( points.len() )
+
+			if ( Distance2D( points[ index ].GetOrigin(), zone.GetOrigin() ) < 6000 )
+				return index
+		}
+	}
+
+	return RandomInt( points.len() )
+}
+
+
+///////////////////////
+///// NPC HANDLER /////
+///////////////////////
+void function SquadHandler( array<entity> guys )
+{
+	// Not all maps have assaultpoints / have weird assault points ( looking at you ac )
+	// So we use enemies with a large radius
+	array< entity > points = GetNPCArrayOfEnemies( guys[0].GetTeam() )
+	
+	if ( points.len()  == 0 )
+		return
+	
+	vector point
+	point = points[ RandomInt( points.len() ) ].GetOrigin()
+	
+	array<entity> players = GetPlayerArrayOfEnemies( guys[0].GetTeam() )
+	
+	// Setup AI
+	foreach ( guy in guys )
+	{
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultPoint( point )
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+		
+		// show on enemy radar
+		foreach ( player in players )
+			guy.Minimap_AlwaysShow( 0, player )
+		
+		
+		//thread AITdm_CleanupBoredNPCThread( guy )
+	}
+	
+	// Every 5 - 15 secs change AssaultPoint
+	while ( true )
+	{	
+		foreach ( guy in guys )
+		{
+			// Check if alive
+			if ( !IsAlive( guy ) )
+			{
+				guys.removebyvalue( guy )
+				continue
+			}
+			// Stop func if our squad has been killed off
+			if ( guys.len() == 0 )
+				return
+			
+			// Get point and send guy to it
+			points = GetNPCArrayOfEnemies( guy.GetTeam() )
+			if ( points.len() == 0 )
+				continue
+				
+			point = points[ RandomInt( points.len() ) ].GetOrigin()
+			
+			guy.AssaultPoint( point )
+		}
+		wait RandomFloatRange(5.0,15.0)
+	}
+}
+
+void function ReaperHandler( entity reaper )
+{
+	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+	foreach ( player in players )
+		reaper.Minimap_AlwaysShow( 0, player )
+
+	thread AITdm_CleanupBoredNPCThread( reaper )
+}
+
+
+///////////////////////
+///// NPC CLEANUP /////
+///////////////////////
+void function AITdm_CleanupBoredNPCThread( entity guy )
+{
+	guy.EndSignal( "OnDestroy" )
+	wait 15.0 // cover spawning time from dropship/pod + before we start cleaning up
+
+	int cleanupFailures = 0 // when this hits 2, cleanup the npc
+	while ( cleanupFailures < 2 )
+	{
+		wait 10.0
+
+		if ( guy.GetParent() != null )
+			continue // never cleanup while spawning
+
+		array<entity> otherGuys = GetPlayerArray()
+		otherGuys.extend( GetNPCArrayOfTeam( GetOtherTeam( guy.GetTeam() ) ) )
+
+		bool failedChecks = false
+
+		foreach ( entity otherGuy in otherGuys )
+		{
+			// skip dead people
+			if ( !IsAlive( otherGuy ) )
+				continue
+
+			failedChecks = false
+
+			// don't kill if too close to anything
+			if ( Distance( otherGuy.GetOrigin(), guy.GetOrigin() ) < 2000.0 )
+				break
+
+			// don't kill if ai or players can see them
+			if ( otherGuy.IsPlayer() )
+			{
+				if ( PlayerCanSee( otherGuy, guy, true, 135 ) )
+					break
+			}
+			else
+			{
+				if ( otherGuy.CanSee( guy ) )
+					break
+			}
+
+			// don't kill if they can see any ai
+			if ( guy.CanSee( otherGuy ) )
+				break
+
+			failedChecks = true
+		}
+
+		if ( failedChecks )
+			cleanupFailures++
+		else
+			cleanupFailures--
+	}
+
+	print( "cleaning up bored npc: " + guy + " from team " + guy.GetTeam() )
+	guy.Destroy()
+}

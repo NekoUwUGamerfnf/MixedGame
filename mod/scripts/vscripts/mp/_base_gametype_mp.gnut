@@ -39,7 +39,7 @@ struct {
 	// modified
 	bool forcedRespawn = true
 	array<string> lateSpawnedPlayerUIDs = []
-	
+
 	// funny HACKs!
 	bool hackedDeathEnabled = false
 } file
@@ -56,7 +56,7 @@ void function BaseGametype_Init_MPSP()
 
 	RegisterSignal( "PlayerRespawnStarted" )
 	RegisterSignal( "KillCamOver" )
-	
+
 	// funny HACKs!
 	AddCallback_OnClientConnected( InitHackedDeathForPlayer )
 }
@@ -170,6 +170,8 @@ void function CodeCallback_OnClientConnectionStarted( entity player )
 // playerconnected
 void function CodeCallback_OnClientConnectionCompleted( entity player )
 {
+	InitPersistentData( player ) // defensive fix
+
 	if ( IsLobby() )
 	{
 		Lobby_OnClientConnectionCompleted( player )
@@ -269,10 +271,10 @@ void function CodeCallback_OnClientConnectionCompleted( entity player )
 			else
 				thread PlayerBecomesSpectator( player )
 		}
-		if( connectingRespawned && GetGameState() == eGameState.Playing )
+		if( connectingRespawned )
 			thread DelayedGamemodeAnnouncement( player )
 	}
-	else if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue ) // don't know why northstar not handling these
+	else if ( GetGameState() >= eGameState.Playing && !RespawnsEnabled() )// don't know why northstar not handling these
 		thread PlayerBecomesSpectator( player )
 }
 
@@ -315,18 +317,20 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.s.inGracePeriod = true // defensive fix
 	player.s.respawnCount++
 	player.s.respawnTime = Time()
+	ClearRecentDamageHistory( player )
 	if( file.hackedDeathEnabled )
 	{
 		player.SetNoTarget( false )
 		player.SetNoTargetSmartAmmo( false )
 		player.s.hackedDeath = false
 	}
-	ClearRecentDamageHistory( player )
+	
 	
 	player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
 	
 	Loadouts_TryGivePilotLoadout( player )
-	GracePeriodThink( player ) // grace period done here
+	if( IsLoadoutGracePeriodEnabled() )
+		GracePeriodThink( player ) // grace period done here
 	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this
 	
 	foreach ( entity weapon in player.GetMainWeapons() )
@@ -404,6 +408,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 
 	player.cloakedForever = false
 	player.stimmedForever = false
+
 	if( file.hackedDeathEnabled )
 	{
 		player.SetNoTarget( true )
@@ -553,7 +558,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 			thread ForcedRespawnThink( player, waitBeforeRespawn )// if not doing replay, set player's camera to intermissionCam
 
 		}
-		if( file.hackedDeathEnabled && !file.forcedRespawn )
+		if( file.hackedDeathEnabled && !file.forcedRespawn ) // to enable respawn button
 		{
 			if( IsAlive( player ) )
 				player.Die( player, player, { damageSourceId = damagedef_despawn } )
@@ -568,7 +573,8 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		else // spawn as pilot
 			RespawnAsPilot( player )
 	}
-	else if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
+	//else if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
+	else if( GetGameState() >= eGameState.Playing ) // respawn not valid, handling all situations
 	{
 		if ( shouldDoReplay && player.IsWatchingKillReplay() )
 			WaitSignal( player, "KillCamOver", "RespawnMe" ) // allows player to skip replay
@@ -644,7 +650,6 @@ void function PlayerWatchesKillReplayWrapper( entity player, entity attacker, fl
 	player.EndSignal( "OnRespawned" )
 	
 	player.EndSignal( "OnDestroy" )
-	attacker.EndSignal( "OnDestroy" )
 	
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 	

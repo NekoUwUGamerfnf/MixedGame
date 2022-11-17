@@ -3,33 +3,45 @@ global function CustomDamageEffect_Init
 global function Wargames_SetPlayerDissolveDisabled // defined for wargames, since level scripts don't load till enter level
 global function Wargames_IsPlayerDissolveDisabled
 
+global function SetPlayerRandomDeathEffectEnabled
 global function SetPlayerTPKillshotSoundEnabled
 global function SetPlayerDeathFlashHidden
+global function SetKillPlayerBrutalEffectEnabled
 
 const asset PLAYER_BURN_FX = $"P_burn_player"
 
+// brutal kills
+const asset FLESH_PINKMIST_FX = $"death_pinkmist_LG_nochunk"
+const asset MECHNAICAL_PINKMIST_FX = $"xo_damage_exp_2"
+
 struct
 {
+    bool randomDeathEffect = false
     bool playerDissolveDisabled = false
     bool tpKillShotSoundEnabled = false
     bool deathFlashHidden = false
+    bool brutalKillEffect = false
 } file
 
 void function CustomDamageEffect_Init()
 {
+    // always init now, no need to do this
     // register things for ingame script
-    if( GetGameState() >= eGameState.Prematch )
-    {
-        foreach( entity player in GetPlayerArray() )
-            OnClientConnected( player )
-    }
+    //if( GetGameState() >= eGameState.Prematch )
+    //{
+    //    foreach( entity player in GetPlayerArray() )
+    //        OnClientConnected( player )
+    //}
     AddCallback_OnClientConnected( OnClientConnected )
     AddCallback_OnPlayerRespawned( OnPlayerRespawned )
     AddCallback_OnPlayerKilled( OnPlayerKilled )
-    Wargames_SetPlayerDissolveDisabled( true ) // disable wargame dissolve for players
+    // this has been bind to SetKillPlayerRandomEffectEnabled()
+    //Wargames_SetPlayerDissolveDisabled( true ) // disable wargame dissolve for players
 
     // precache
     PrecacheParticleSystem( PLAYER_BURN_FX )
+    PrecacheParticleSystem( FLESH_PINKMIST_FX )
+	PrecacheParticleSystem( MECHNAICAL_PINKMIST_FX )
 
     // uses npcs to test
     //AddCallback_OnNPCKilled( OnPlayerKilled )
@@ -46,6 +58,12 @@ bool function Wargames_IsPlayerDissolveDisabled()
     return file.playerDissolveDisabled
 }
 
+void function SetPlayerRandomDeathEffectEnabled( bool enabled )
+{
+    file.randomDeathEffect = enabled
+    file.playerDissolveDisabled = enabled // bind together
+}
+
 void function SetPlayerTPKillshotSoundEnabled( bool enabled )
 {
     file.tpKillShotSoundEnabled = enabled
@@ -54,6 +72,11 @@ void function SetPlayerTPKillshotSoundEnabled( bool enabled )
 void function SetPlayerDeathFlashHidden( bool hidden )
 {
     file.deathFlashHidden = hidden
+}
+
+void function SetKillPlayerBrutalEffectEnabled( bool enabled )
+{
+    file.brutalKillEffect = enabled
 }
 
 void function OnClientConnected( entity player )
@@ -75,7 +98,6 @@ void function OnPlayerDamaged( entity player, var damageInfo )
 {
     //if( player.IsMechanical() )
         //thread RebootFX( player )
-	//DamageInfo_AddCustomDamageType( damageInfo, DF_MAX_RANGE )
 }
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
@@ -83,8 +105,52 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
     int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
     if( GetGameState() != eGameState.Playing || damageSourceID == eDamageSourceId.round_end )
         return // prevent do these ragdoll things between rounds
+    if( damageSourceID == eDamageSourceId.human_execution )
+        return // prevent messup executions
     if( victim.IsTitan() )
         return
+    
+    if( file.randomDeathEffect )
+    {
+        int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+        switch( RandomInt( 6 ) )
+        {
+            case 0:
+                thread ShieldBrokeDeath( victim )
+                break
+            case 1:
+                if( !( damageType & DF_DISSOLVE ) ) // don't dissolve again
+                    victim.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 ) //ENTITY_DISSOLVE_PINKMIST
+                EmitSoundOnEntity( victim, "Object_Dissolve" )
+                victim.BecomeRagdoll( < 0,0,0 >, false ) // stop death anim! or player will be like "flash" once
+                break
+            case 2:
+                if( !( damageType & DF_GIB ) ) // don't gib again
+                    victim.Gib( < 0,0,0 > ) // gib death!
+                if( !victim.IsMechanical() )
+                    EmitSoundAtPosition( TEAM_UNASSIGNED, victim.GetOrigin(), "death.pinkmist" )
+                break
+            case 3:
+                //RemoveMessingDamageType( damageInfo )
+                if( IsKnockbackDamageType( damageInfo ) || IsSmashDamageType( damageInfo ) || victim.GetParent() ) // don't last so long if player can't play animation
+                    thread EMP_FX_KILLING( $"P_emp_body_human", victim, "CHESTFOCUS", 1.0 )
+                else
+                    thread EMPDeathAnim( victim )
+                break
+            case 4: 
+                thread ThermiteFieryDeath( victim, 1.0 )
+                break
+            case 5:
+                if( damageSourceID == eDamageSourceId.human_execution ) // nessie props are solid, avoid it messing executions
+                {
+                    return
+                    //thread NessieBurstDeath( victim, 5, true )
+                }
+                else
+                    thread NessieBurstDeath( victim, 5 )
+                break
+        }
+    }
 
     if( file.tpKillShotSoundEnabled )
     {
@@ -104,49 +170,27 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
         }
     }
 
-    if( file.deathFlashHidden )
+    if( file.deathFlashHidden ) // not good!
     {
         ScreenFadeFromColor( victim, 0, 0, 0, 255, 2.3, 0.6 )
         //ScreenFadeFromBlack( victim, 0.6, 0.6 )
     }
 
-    int damageType = DamageInfo_GetCustomDamageType( damageInfo )
-    switch( RandomInt( 6 ) )
+    if( file.brutalKillEffect && attacker.IsPlayer() && attacker != victim ) // basically checking DF_KILLSHOT
     {
-        case 0:
-            thread ShieldBrokeDeath( victim )
-            break
-        case 1:
-            if( !( damageType & DF_DISSOLVE ) ) // don't dissolve again
-                victim.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 ) //ENTITY_DISSOLVE_PINKMIST
-            EmitSoundOnEntity( victim, "Object_Dissolve" )
-            victim.BecomeRagdoll( < 0,0,0 >, false ) // stop death anim! or player will be like "flash" once
-            break
-        case 2:
-            if( !( damageType & DF_GIB ) ) // don't gib again
-                victim.Gib( < 0,0,0 > ) // gib death!
-            if( !victim.IsMechanical() )
-                EmitSoundAtPosition( TEAM_UNASSIGNED, victim.GetOrigin(), "death.pinkmist" )
-            break
-        case 3:
-            //RemoveMessingDamageType( damageInfo )
-            if( IsKnockbackDamageType( damageInfo ) || IsSmashDamageType( damageInfo ) || victim.GetParent() ) // don't last so long if player can't play animation
-                thread EMP_FX_KILLING( $"P_emp_body_human", victim, "CHESTFOCUS", 1.0 )
-            else
-                thread EMPDeathAnim( victim )
-            break
-        case 4: 
-            thread ThermiteFieryDeath( victim, 1.0 )
-            break
-        case 5:
-            if( damageSourceID == eDamageSourceId.human_execution ) // nessie props are solid, avoid it messing executions
-            {
-                return
-                //thread NessieBurstDeath( victim, 5, true )
-            }
-            else
-                thread NessieBurstDeath( victim, 5 )
-            break
+        if( victim.IsMechanical() )
+        {
+            int particleIndex = GetParticleSystemIndex( $"xo_damage_exp_2" )
+            int attachmentIndex = victim.LookupAttachment( "CHESTFOCUS" )
+            entity fx = StartParticleEffectOnEntity_ReturnEntity( victim, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+            thread FastStopParticle( fx )
+        }
+        else
+        {
+            int particleIndex = GetParticleSystemIndex( $"death_pinkmist_LG_nochunk" )
+            int attachmentIndex = victim.LookupAttachment( "CHESTFOCUS" )
+            StartParticleEffectOnEntity( victim, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+        }
     }
 }
 
@@ -168,6 +212,13 @@ bool function IsSmashDamageType( var damageInfo )
         return true
     
     return false
+}
+
+void function FastStopParticle( entity fx )
+{
+    wait 3
+    if( IsValid( fx ) )
+        EffectStop( fx )
 }
 
 void function RemoveMessingDamageType( var damageInfo )
@@ -239,8 +290,7 @@ void function EMPDeathAnim( entity player )
     player.EndSignal( "OnDestroy" )
     svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // defensive fix for round ends
     thread EMP_FX_KILLING( $"P_emp_body_human", player, "CHESTFOCUS", 2.5 )
-	//player.Anim_Play( "ACT_STUNNED" )
-	thread PlayAnimGravity( player, "ACT_STUNNED" )
+    player.Anim_Play( "ACT_STUNNED" )
     wait 2.5
     player.BecomeRagdoll( < 0,0,0 >, false ) // stop current anim and die
 }
