@@ -38,6 +38,9 @@ void function SvLoadoutsMP_Init()
 	RegisterSignal( "EndUpdateCachedLoadouts" )
 	RegisterSignal( "GracePeriodDone" ) // temp to get weapons\_weapon_utility.nut:2271 to behave
 	
+	// modified
+	RegisterSignal( "WaitingForIntroOver" )
+
 	AddCallback_OnClientConnected( LoadoutsMPInitPlayer )
 	
 	AddClientCommandCallback( "RequestPilotLoadout", ClientCommandCallback_RequestPilotLoadout )
@@ -328,26 +331,27 @@ void function TryGivePilotLoadoutForGracePeriod( entity player )
 {
 	if( !file.loadoutGracePeriodEnabled )
 	{
-		SendHudMessage( player, "#LOADOUT_CHANGE_NEXT_PILOT", -1, 0.3, 255, 255, 255, 255, 1.0, 5.0, 2.0 )
-		return
+		if( !file.recentNoticedPlayers.contains( player.GetUID() ) )
+		{
+			SendHudMessage( player, "#LOADOUT_CHANGE_NEXT_PILOT", -1, 0.3, 255, 255, 255, 255, 1.0, 5.0, 2.0 )
+			thread DelayedRemoveNoticeLimit( player.GetUID() )
+		}
 	}
 	if ( !IsLobby() && IsAlive( player ) && player.s.loadoutDirty && !player.IsTitan() && !player.ContextAction_IsActive() )
 	{
 		player.s.loadoutDirty = false
 
-		if( player.s.inGracePeriod ) // using this to decide loadout avaibility
+		// for intros
+		if ( !Loadouts_CanGivePilotLoadout( player ) && player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
 		{
-			// for intros
-			if ( !Loadouts_CanGivePilotLoadout( player ) && player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
-			{
-				//print( "Player in dropship Intro, waiting" )
-				thread GiveLoadoutWhenIntroOver( player )
-			}
-			else if( Loadouts_CanGivePilotLoadout( player )  )
-			{
-				//print( "Can give loadout" )
-				Loadouts_TryGivePilotLoadout( player )
-			}
+			//print( "Player in dropship Intro, waiting" )
+			thread GiveLoadoutWhenIntroOver( player )
+			player.p.usingLoadoutCrate = false
+		}
+		else if( Loadouts_CanGivePilotLoadout( player )  )
+		{
+			//print( "Can give loadout" )
+			Loadouts_TryGivePilotLoadout( player )
 			player.p.usingLoadoutCrate = false
 		}
 		else
@@ -365,6 +369,8 @@ void function GiveLoadoutWhenIntroOver( entity player )
 {
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
+	player.Signal( "WaitingForIntroOver" ) // don't let it loop many times!
+	player.EndSignal( "WaitingForIntroOver" )
 	
 	while ( player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
 		WaitFrame()
