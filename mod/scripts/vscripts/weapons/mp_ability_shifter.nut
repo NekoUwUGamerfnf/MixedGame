@@ -528,7 +528,7 @@ void function PortalStart( entity player, entity weapon )
 			if( player.GetVelocity() != < 0,0,0 > )
 			{
 				progressPoses.append( player.GetOrigin() )
-				bool isCrouched = player.IsCrouched()
+				bool isCrouched = player.IsCrouched() && player.IsOnGround()
 				wasCrouchedArray.append( isCrouched )
 				progressAngs.append( < 0, player.EyeAngles().y, player.EyeAngles().z > )
 				if( !isInfiniteDistance )
