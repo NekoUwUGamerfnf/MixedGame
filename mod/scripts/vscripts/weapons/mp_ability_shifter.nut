@@ -949,7 +949,7 @@ void function PortalTravelThink( entity trigger, entity player )
 			if( IsValid( player ) )
 			{
 				player.SetVelocity( < 0,0,0 > )
-				//player.UnforceStand()
+				player.UnforceStand() // have to do this to clean up last forceStand state
 				player.UnforceCrouch()
 				if( goalShouldCrouch )
 					thread TravelEndForceCrouch( player )
@@ -990,8 +990,11 @@ void function PortalTravelThink( entity trigger, entity player )
 				for( int i = totalSegments - 1; i >= 0; i-- )
 				{
 					player.UnforceCrouch()
+					player.UnforceStand()
 					if( crouchedArray[i] )
 						player.ForceCrouch() // make player's view lower
+					else
+						player.ForceStand()
 					player.HolsterWeapon() // defensive fix
 					player.Server_TurnOffhandWeaponsDisabledOn()
 					mover.NonPhysicsMoveTo( progressPoses[i] , fixedTimePerSigment, 0, 0 )
