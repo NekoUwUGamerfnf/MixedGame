@@ -950,6 +950,7 @@ void function PortalTravelThink( entity trigger, entity player )
 			{
 				player.SetVelocity( < 0,0,0 > )
 				//player.UnforceStand()
+				player.UnforceCrouch()
 				if( goalShouldCrouch )
 					thread TravelEndForceCrouch( player )
 				player.ClearParent()
