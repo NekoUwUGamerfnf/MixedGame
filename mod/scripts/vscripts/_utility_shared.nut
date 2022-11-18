@@ -561,12 +561,29 @@ bool function IsValid_ThisFrame( entity ent )
 	return expect bool( ent.IsValidInternal() )
 }
 
-bool function IsAlive( entity ent )
+bool function IsAlive( entity ent, bool ignoreHackedDeath = false )
 {
 	if ( ent == null )
 		return false
 	if ( !ent.IsValidInternal() )
 		return false
+
+#if SERVER // extra check for hackedDeaths!
+	if( !ignoreHackedDeath ) // for real killing players... they should ignore this check
+	{
+		if( IsHackedDeathEnabled() && GetGameState() > eGameState.Prematch )
+		{
+			if( ent.IsPlayer() )
+			{
+				bool isHackedDeath = false // avoid gamestate_mp forceDie crash
+				if( "hackedDeath" in ent.s )
+					isHackedDeath = expect bool( ent.s.hackedDeath )
+				//print( "isHackedDeath state: " + string( isHackedDeath ) )
+				return ent.IsEntAlive() || !isHackedDeath
+			}
+		}
+	}
+#endif
 
 	return ent.IsEntAlive()
 }

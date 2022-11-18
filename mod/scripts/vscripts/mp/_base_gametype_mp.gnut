@@ -59,6 +59,7 @@ void function BaseGametype_Init_MPSP()
 
 	// funny HACKs!
 	AddPostDamageCallback( "player", HackedDeath_PlayerPostDamage ) // this can get player's real taken damage
+	AddDeathCallback( "player", HackedDeath_PlayerRealDeath )
 	AddCallback_OnClientConnected( InitHackedDeathForPlayer )
 }
 
@@ -79,6 +80,7 @@ void function HackedDeath_PlayerPostDamage( entity player, var damageInfo )
 
 void function PlayerStartHackedDeath( entity player, var damageInfo )
 {
+	player.s.hackedDeath = true // for IsAlive() checks
 	HideName( player )
 	DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
 	DamageInfo_SetDamage( damageInfo, max( player.GetHealth() - 1, 0 ) )
@@ -100,6 +102,17 @@ void function PlayerStartHackedDeath( entity player, var damageInfo )
 	HolsterAndDisableWeapons( player )
 	TakeAllWeapons( player )
 	AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+}
+
+void function HackedDeath_PlayerRealDeath( entity player, var damageInfo )
+{
+	if( !file.hackedDeathEnabled )
+		return
+
+	if( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == damagedef_despawn ) // killed by purpose
+		return
+
+	player.s.hackedDeath = true // ensure this
 }
 
 void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
@@ -383,14 +396,14 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 
 void function PlayerRecoverFromHackedDeath( entity player )
 {
+	player.s.hackedDeath = false
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
-	ShowName( player )
-	StopSoundOnEntity( player, "pilot_wounded_breathloop_end_1p" )
-	StopSoundOnEntity( player, "player_death_begin" )
 	player.Solid()
 	player.SetNoTarget( false )
 	player.SetNoTargetSmartAmmo( false )
-	player.s.hackedDeath = false
+	ShowName( player )
+	StopSoundOnEntity( player, "pilot_wounded_breathloop_end_1p" )
+	StopSoundOnEntity( player, "player_death_begin" )
 	RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
 }
 
@@ -615,7 +628,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		}
 		if( file.hackedDeathEnabled && !file.forcedRespawn ) // to enable respawn button
 		{
-			if( IsAlive( player ) )
+			if( IsAlive( player, true ) )
 				player.Die( player, player, { damageSourceId = damagedef_despawn } )
 		}
 
@@ -690,7 +703,7 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn )
 	{
 		if( file.hackedDeathEnabled )
 		{
-			if( IsAlive( player ) )
+			if( IsAlive( player, true ) )
 				player.Die( player, player, { damageSourceId = damagedef_despawn } )
 		}
 		else
