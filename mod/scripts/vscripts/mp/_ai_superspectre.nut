@@ -373,7 +373,8 @@ void function SuperSpectre_LaunchFragDrone_Think( entity npc, int activeMinions_
 	}
 }
 
-void function ReaperMinionLauncherThink( entity reaper )
+// !!!!! this has been modified
+void function ReaperMinionLauncherThink( entity reaper, string tickType = "npc_frag_drone_fd" )
 {
 	if ( GetBugReproNum() != 221936 )
 		reaper.kv.squadname = ""

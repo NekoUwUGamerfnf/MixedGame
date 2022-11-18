@@ -323,6 +323,8 @@ void function OnWeaponReload_weapon_softball( entity weapon, int milestoneIndex 
 	if( !weapon.HasMod( "reload_repeat" ) )
 		return
 #if SERVER
+	// softball only have one milestone, maybe impossible to use this to fix
+	//print( "current milestoneIndex is: " + string( milestoneIndex ) )
 	entity owner = weapon.GetWeaponOwner()
     vector pos = owner.EyePosition()
     vector dir = owner.GetViewVector()
