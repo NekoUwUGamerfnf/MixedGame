@@ -571,11 +571,11 @@ bool function IsAlive( entity ent, bool ignoreHackedDeath = false )
 #if SERVER // extra check for hackedDeaths!
 	if( !ignoreHackedDeath ) // for real killing players... they should ignore this check
 	{
-		if( IsHackedDeathEnabled() && GetGameState() > eGameState.Prematch )
+		if( IsHackedDeathEnabled() && GetGameState() > eGameState.Prematch ) // avoid intro forceDie crash
 		{
 			if( ent.IsPlayer() )
 			{
-				bool isHackedDeath = false // avoid gamestate_mp forceDie crash
+				bool isHackedDeath = false // default is alive
 				if( "hackedDeath" in ent.s )
 					isHackedDeath = expect bool( ent.s.hackedDeath )
 				//print( "isHackedDeath state: " + string( isHackedDeath ) )
