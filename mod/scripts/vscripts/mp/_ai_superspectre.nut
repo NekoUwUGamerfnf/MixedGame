@@ -408,7 +408,7 @@ void function ReaperMinionLauncherThink( entity reaper, string tickType = "npc_f
 		}
 
 		printt( reaper," LAUNCH:", launchPos.origin )
-		waitthread Reaper_LaunchFragDrone_Think( reaper, "npc_frag_drone_fd" )
+		waitthread Reaper_LaunchFragDrone_Think( reaper, tickType )
 		printt( reaper," END LAUNCH:", launchPos.origin )
 		while ( GetScriptManagedEntArrayLen( reaper.ai.activeMinionEntArrayID ) > 2 )
 			WaitFrame()

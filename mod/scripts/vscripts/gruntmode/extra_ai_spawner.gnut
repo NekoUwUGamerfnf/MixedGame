@@ -15,8 +15,10 @@ global function ExtraSpawner_SpawnDropPodToGetWeapons
 //global function ExtraSpawner_SpawnDropPodWithWeapons
 //global function ExtraSpawner_SpawnReaperDorpsWeapons
 
-global function ExtraSpawner_SpawnReaperCanSpawnTicks
+global function ExtraSpawner_SpawnReaperCanLaunchTicks
 
+
+array<string> spawnerDebugger = ["1007270968017"]
 
 const array<string> WEAPONS = [ "mp_weapon_alternator_smg", "mp_weapon_arc_launcher", "mp_weapon_autopistol", "mp_weapon_car", "mp_weapon_defender", "mp_weapon_dmr", "mp_weapon_doubletake", "mp_weapon_epg", "mp_weapon_esaw", "mp_weapon_g2", "mp_weapon_hemlok", "mp_weapon_hemlok_smg", "mp_weapon_lmg", "mp_weapon_lstar", "mp_weapon_mastiff", "mp_weapon_mgl", "mp_weapon_pulse_lmg", "mp_weapon_r97", "mp_weapon_rocket_launcher", "mp_weapon_rspn101", "mp_weapon_rspn101_og", "mp_weapon_semipistol", "mp_weapon_shotgun", "mp_weapon_shotgun_pistol", "mp_weapon_smr", "mp_weapon_sniper", "mp_weapon_softball", "mp_weapon_vinson", "mp_weapon_wingman", "mp_weapon_wingman_n" ]
 const array<string> MODS = [ "pas_run_and_gun", "threat_scope", "pas_fast_ads", "pas_fast_reload", "extended_ammo", "pas_fast_swap" ]
@@ -80,6 +82,12 @@ void function ExtraAISpawner_Init()
 		AddCallback_OnNpcTitanBecomesPilot( OnNpcTitanBecomesPilot )
 	}
 
+	// for debug
+	AddClientCommandCallback( "spawnpilot", ClientCommand_SpawnPilotCanEmbark )
+	AddClientCommandCallback( "spawnreaper", ClientCommand_SpawnReaperCanLaunchTicks )
+	AddClientCommandCallback( "spawngunship", ClientCommand_SpawnGunShip )
+	//AddClientCommandCallback( "selfdamage", ClientCommand_SelfDamage )
+
 	// npc pilot score event
 	AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
 
@@ -119,6 +127,42 @@ void function KilledNPCPilotScoreEvent( entity pilot, var damageInfo )
 }
 
 //------------------------------------------------------
+
+bool function ClientCommand_SpawnPilotCanEmbark( entity player, array<string> args )
+{   
+	if( !spawnerDebugger.contains( player.GetUID() ) )
+		return false
+    Point dropPoint = GetTitanReplacementPoint( player )
+    thread ExtraSpawner_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, GetOtherTeam( player.GetTeam() ) )
+    return true
+}
+
+bool function ClientCommand_SpawnReaperCanLaunchTicks( entity player, array<string> args )
+{
+	if( !spawnerDebugger.contains( player.GetUID() ) )
+		return false
+	Point dropPoint = GetTitanReplacementPoint( player )
+    thread ExtraSpawner_SpawnReaperCanLaunchTicks( dropPoint.origin, dropPoint.angles, GetOtherTeam( player.GetTeam() ) )
+    return true
+}
+
+bool function ClientCommand_SpawnGunShip( entity player, array<string> args )
+{
+	if( !spawnerDebugger.contains( player.GetUID() ) )
+		return false
+	Point dropPoint = GetTitanReplacementPoint( player )
+    thread ExtraSpawner_SpawnGunShip( dropPoint.origin + < 0,0,100 >, dropPoint.angles, GetOtherTeam( player.GetTeam() ) )
+    return true
+}
+
+bool function ClientCommand_SelfDamage( entity player, array<string> args )
+{
+	if( !spawnerDebugger.contains( player.GetUID() ) )
+		return false
+    if( IsAlive( player ) )
+        player.TakeDamage( 10000, null, null, 0 )
+    return true
+}
 
 // copied from cl_replacement_titan_hud.gnut
 void function Reaper_Spawnpoint( vector origin, int team, float impactTime, bool hasFriendlyWarning = false )
@@ -310,7 +354,9 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 
 	ReplaceWeapon( pilot, file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ], [] ) //["npc_elite_weapon"]
 	pilot.GiveWeapon( file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ] )
-	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS )
+	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
+	pilot.SetEnemyChangeCallback( OnEnemyChanged_NPCPilotTrySwitchWeapon ) // in _ai_pilots.gnut
 
 	pilot.SetParent( pod, "ATTACH", true )
 	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
@@ -417,6 +463,8 @@ void function ForceStartTitan( entity titan, entity pilot )
 			waitthread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
 			if( IsAlive( titan ) )
 				titan.ClearInvulnerable()
+			if( IsAlive( pilot ) )
+				pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
 		}
 	}
 	else
@@ -439,7 +487,7 @@ entity function ExtraSpawner_SpawnTitanForPilot( entity pilot, vector pos, vecto
 	int randomindex = RandomInt( 7 )
 	string setfile = ""
 	string aiset = ""
-	string executionRef = ""
+	string executionRef = "" // funny with MeleeSyncedNPC
 	switch( randomindex ) //randomindex, sometimes changed for test
 	{
 		case 0:
@@ -546,7 +594,6 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot,entity ti
 			break
 	}
 }
-*/
 
 void function TeleportPilotToTitan( entity pilot , entity titan )
 {
@@ -556,6 +603,7 @@ void function TeleportPilotToTitan( entity pilot , entity titan )
 	pilot.SetOrigin(origin)
 	pilot.SetAngles(angles)
 }
+*/
 
 // not using right now, just saving it
 /*
@@ -662,7 +710,7 @@ void function DelayedPilotHandler( entity pilot )
 void function ExtraSpawner_PilotHandler( entity pilot )
 {	
 	// Setup AI, no need for now
-	//pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS )
+	//pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	
 	// First AssaultPoint
 	array< entity > points = GetNPCArrayOfEnemies( pilot.GetTeam() )
@@ -948,7 +996,7 @@ void function HighlightDropPod( entity pod )
 	Highlight_SetNeutralHighlight( pod, "enemy_boss_bounty" )
 }
 
-void function ExtraSpawner_SpawnReaperCanSpawnTicks( vector pos, vector rot, int team, string reaperSettings = "", string tickSettings = "npc_frag_drone", void functionref( entity reaper ) reaperHandler = null )
+void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, int team, string reaperSettings = "npc_super_spectre_aitdm", string tickSettings = "npc_frag_drone" )
 {
 	// nessie fix
 	thread Reaper_Spawnpoint( pos, team, 11.2 )
@@ -963,12 +1011,54 @@ void function ExtraSpawner_SpawnReaperCanSpawnTicks( vector pos, vector rot, int
 	SetSpawnOption_Titanfall( reaper )
 	SetSpawnOption_Warpfall( reaper )
 	
-	if ( reaperSettings != "" )
-		SetSpawnOption_AISettings( reaper, reaperSettings )
+	SetSpawnOption_AISettings( reaper, reaperSettings )
 	
 	DispatchSpawn( reaper )
-	thread ReaperMinionLauncherThink( reaper, tickSettings ) // this has been modified
+	// this has been modified, but northstar don't support stational point for now, write my own one
+	//thread ReaperMinionLauncherThink( reaper, tickSettings ) 
+	thread ExtraSpawner_ReaperTickLaunchThink( reaper, tickSettings )
 	
-	if ( reaperHandler != null )
-		thread reaperHandler( reaper )
+	thread ExtraSpawner_ReaperHandler( reaper )
+}
+
+void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType )
+{
+	reaper.EndSignal( "OnDeath" )
+
+	wait 10 // startup time
+	while ( true )
+	{
+		//wait RandomFloatRange( 45.0, 60.0 ) // every 45 - 60 secs do a tickLaunch, simple right?
+		WaitFrame() // wasn't good! reapers won't launch if they can see their enemies, should keep letting them launch!
+
+		//printt( reaper,"REAPER TICK LAUNCH:", reaper.GetOrigin() )
+		waitthread Reaper_LaunchFragDrone_Think( reaper, tickType )
+		//printt( reaper,"REAPER END TICK LAUNCH:", reaper.GetOrigin() )
+		while ( GetScriptManagedEntArrayLen( reaper.ai.activeMinionEntArrayID ) > 2 )
+			WaitFrame()
+	}
+}
+
+// Same as SquadHandler, just for reapers
+void function ExtraSpawner_ReaperHandler( entity reaper )
+{
+	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+	foreach ( player in players )
+		reaper.Minimap_AlwaysShow( 0, player )
+	
+	reaper.AssaultSetGoalRadius( 500 )
+	
+	// Every 10 - 20 secs get a player and go to him
+	// Definetly not annoying or anything :)
+	while( IsAlive( reaper ) )
+	{
+		players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+		if ( players.len() != 0 )
+		{
+			entity player = GetClosest2D( players, reaper.GetOrigin() )
+			reaper.AssaultPoint( player.GetOrigin() )
+		}
+		wait RandomFloatRange( 10.0, 20.0 )
+	}
+	// thread AITdm_CleanupBoredNPCThread( reaper )
 }

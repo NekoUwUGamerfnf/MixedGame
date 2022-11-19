@@ -17,7 +17,7 @@ const int GUNSHIPS_PER_TEAM = 2
 const int MARVINS_PER_TEAM = 5
 
 const int SPAWNER_MAX_NPCS = 40
-
+const int SPAWNER_MAX_TICKS = 32
 
 ////////////////////////////
 ///// SETTINGS IN FILE /////
@@ -48,6 +48,26 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 	SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
 	SetAltPilotChance( 2 )
 
+	// bull shit
+	SetFriendlyFireOn( true )
+
+	// copied from equipments_filter.gnut, make things funnier
+	SetAltPilotChance( 1 ) // left forfollowing checks, always replace
+	// funny one: always replace or never replace, choose one
+	if( CoinFlip() )
+		AltPilot_SetShouldReplaceModel( false )
+	else
+		AltPilot_SetShouldReplaceModel( true )
+
+	// cool killing effect, choose a random one
+	if( CoinFlip() )
+		SetPlayerRandomDeathEffectEnabled( true )
+	else
+		SetKillPlayerBrutalEffectEnabled( true ) 
+	SetPlayerTPKillshotSoundEnabled( true ) // in custom_damage_effect.gnut, not that useful...
+
+	SetSyncedMeleeNoLimit( true ) // modified function in sh_melee.gnut, so player can do synced melee with no limit( even with no melee weapon )
+
 	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
 	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
 
@@ -59,8 +79,10 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 	AddCallback_NPCLeeched( OnSpectreLeeched )
 	AddSpawnCallback( "npc_spectre", BecomeSuicideSpectres )
     AddSpawnCallback( "npc_marvin", OverHealedMarvin )
+	AddSpawnCallback( "npc_titan", EnableEmbarkToAllPlayers )
 
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
 
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 
@@ -73,11 +95,17 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 /////////////////////
 void function OnPlayerRespawned( entity player )
 {
+	
+}
+
+void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
+{
 	// mods has limit!
 	player.GiveExtraWeaponMod( "pas_power_cell" )
 	player.GiveExtraWeaponMod( "amped_tacticals" )
 	player.GiveExtraWeaponMod( "pas_ordnance_pack" )
 	player.GiveExtraWeaponMod( "at_unlimited_ammo" )
+	player.GiveExtraWeaponMod( "fake_human_melee" )
 }
 
 void function OnPrematchStart()
@@ -172,6 +200,25 @@ void function OverHealedMarvin( entity marvin )
     marvin.SetHealth( 9999 )
 }
 
+void function EnableEmbarkToAllPlayers( entity titan )
+{
+	thread TryEnableEmbarkToAllPlayers( titan )
+}
+
+void function TryEnableEmbarkToAllPlayers( entity titan )
+{
+	titan.EndSignal( "OnDestroy" )
+
+	while( true )
+	{
+		if( TitanHasNpcPilot( titan ) ) // titan has become pilot controled?
+			return
+		titan.SetUsable()
+		titan.SetUsableByGroup( "pilot" )
+		WaitFrame()
+	}
+}
+
 ///////////////////////
 ///// NPC SPAWNER /////
 ///////////////////////
@@ -192,15 +239,20 @@ void function Spawner( int team )
 		int marvinCount = GetNPCArrayEx( "npc_marvin", team, -1, <0,0,0>, -1 ).len()
 		int gunshipCount = GetNPCArrayEx( "npc_gunship", team, -1, <0,0,0>, -1 ).len()
 		int titanCount = GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
-
+		
 		// WAIT FOR NPCS DIE
-		while( GetNPCArrayOfTeam( team ).len() > SPAWNER_MAX_NPCS )
+		while( CalculateTotalNPCCountOfTeam( team ) > SPAWNER_MAX_NPCS )
 		{
+			CleanUpOverloadedTicks()
+
 			WaitFrame()
 		}
 
+		// MAKE SURE DO A CLEAN EVERY LOOP
+		CleanUpOverloadedTicks()
+
 		// SUICIDE SPECTRES
-		if ( GetNPCArrayOfTeam( team ).len() < SQUADS_PER_TEAM * 4 - 2 )
+		if ( CalculateTotalNPCCountOfTeam( team ) < SQUADS_PER_TEAM * 4 - 2 )
 		{
 			string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
 			
@@ -217,7 +269,7 @@ void function Spawner( int team )
 			if ( reaperCount < REAPERS_PER_TEAM )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				waitthread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
+				waitthread ExtraSpawner_SpawnReaperCanLaunchTicks( node.GetOrigin(), node.GetAngles(), team )
 			}
 		}
 
@@ -259,6 +311,29 @@ void function Spawner( int team )
 	}
 }
 
+int function CalculateTotalNPCCountOfTeam( int team ) // this will ignore player's titans and ticks
+{
+	int totalNpcCount = GetNPCArrayOfTeam( team ).len()
+	foreach( entity npc in GetNPCArrayOfTeam( team ) )
+	{
+		if( npc.GetOwner() != null || npc.GetBossPlayer() != null )
+		{
+			if( totalNpcCount > 0 )
+				totalNpcCount -= 1
+		}
+	}
+	return totalNpcCount
+}
+
+void function CleanUpOverloadedTicks()
+{
+	array<entity> tickArray = GetNPCArrayByClass( "npc_frag_drone" )
+	if( tickArray.len() > SPAWNER_MAX_TICKS ) // clean up ticks spawned by reapers
+	{
+		if( IsValid( tickArray[0] ) )
+			tickArray[0].Destroy()
+	}
+}
 
 ///////////////////////
 ///// SPAWN POINT /////
@@ -343,15 +418,29 @@ void function SquadHandler( array<entity> guys )
 	}
 }
 
+// Same as SquadHandler, just for reapers
 void function ReaperHandler( entity reaper )
 {
 	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
 	foreach ( player in players )
 		reaper.Minimap_AlwaysShow( 0, player )
-
-	thread AITdm_CleanupBoredNPCThread( reaper )
+	
+	reaper.AssaultSetGoalRadius( 500 )
+	
+	// Every 10 - 20 secs get a player and go to him
+	// Definetly not annoying or anything :)
+	while( IsAlive( reaper ) )
+	{
+		players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+		if ( players.len() != 0 )
+		{
+			entity player = GetClosest2D( players, reaper.GetOrigin() )
+			reaper.AssaultPoint( player.GetOrigin() )
+		}
+		wait RandomFloatRange(10.0,20.0)
+	}
+	// thread AITdm_CleanupBoredNPCThread( reaper )
 }
-
 
 ///////////////////////
 ///// NPC CLEANUP /////

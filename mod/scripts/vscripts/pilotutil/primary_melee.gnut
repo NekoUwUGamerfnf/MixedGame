@@ -14,6 +14,8 @@ global function IsClassicExecutionRandom
 global function SetSyncedMeleeAlwaysKillEnabled
 global function IsSyncedMeleeAlwaysKill
 
+global function EnableFriendlyExecution
+
 const float NO_LIMIT_EXECUTION_RANGE = 150
 
 struct
@@ -21,12 +23,16 @@ struct
 	bool doClassicExecutions = false
 	bool randomClassicExecutions = false
 	bool alwaysKillTarget = false
+	bool friendlyExecution = false
 } file
 
 void function Primary_MeleeWeapon_Init()
 {
 	AddCallback_OnClientConnected( OnClientConnected )
 	AddCallback_OnClientDisconnected( OnClientDisconnected )
+
+	AddDamageCallback( "player", TryExecuteFriendlyTitan )
+	AddDamageCallback( "npc_titan", TryExecuteFriendlyTitan )
 	// we just need melee commands
 	//AddCallback_OnPlayerRespawned( OnPlayerRespawned )
 	//AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
@@ -83,6 +89,11 @@ bool function IsSyncedMeleeAlwaysKill()
 	return file.alwaysKillTarget
 }
 
+void function EnableFriendlyExecution( bool enabled )
+{
+	file.friendlyExecution = enabled
+}
+
 void function GivePrimaryMelee( entity player )
 {
 	foreach( entity weapon in player.GetMainWeapons() )
@@ -115,8 +126,8 @@ void function TryNolimitExecution( entity player )
 		return
 	if( player.IsTitan() )
 		return
-	if( IsValid( player.GetMeleeWeapon() ) )
-		return
+	//if( IsValid( player.GetMeleeWeapon() ) ) // do this later to support executing friendlies
+	//	return
 	if( player.IsPhaseShifted() )
 		return
 	// AIRBORNE EXECUTIONS CODE
@@ -134,14 +145,17 @@ void function TryNolimitExecution( entity player )
 		return
 	if( !target.IsPlayer() && !IsGrunt( target ) && !IsSpectre( target ) )
 		return
+	if( target.GetTeam() != player.GetTeam() && IsValid( player.GetMeleeWeapon() ) ) // if player has meleeWeapon, target enemies normally. since friendlies pilot isn't solid for players, do this check to make nolimitExecutions targeting them
+		return
 	if( target.IsPhaseShifted() )
 		return
 	//if ( player.Lunge_SetTargetEntity( target, true ) )
 	//{
 	if( player.ContextAction_IsActive() || target.ContextAction_IsActive() ) // doing a execution?
 		return
+	// ignore backstab check will allow player executing friendlies
 	bool canbackstab = CodeCallback_IsValidMeleeExecutionTarget( player, target )
-	if ( canbackstab )
+	if ( canbackstab || file.friendlyExecution || IsFriendlyFireOn() )
 	{
 		SyncedMeleeChooser ornull actions = GetSyncedMeleeChooserForPlayerVsTarget( player, target )
 		if( actions == null )
@@ -151,16 +165,66 @@ void function TryNolimitExecution( entity player )
 		if( action == null )
 			return
 		expect SyncedMelee( action )
+		player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, 0.1 ) // temp fix, stop melee animations, which triggers when you try to execute a friendly
+		thread MeleeThread_PilotVsEnemy( action, player, target )
 		// classic executions should have no CinematicFlag, this has been done in _melee_synced_human's ForceRemoveExecutioCinematic()
 		//if( !file.doClassicExecutions ) 
 		//{
 		thread PlayerSyncedMeleeScreenEffect( player )
 		if( target.IsPlayer() )
-			thread PlayerSyncedMeleeScreenEffect( player )
+			thread PlayerSyncedMeleeScreenEffect( target )
 		//}
-		thread MeleeThread_PilotVsEnemy( action, player, target )
 	}
 	//}
+}
+
+void function TryExecuteFriendlyTitan( entity player, var damageInfo )
+{
+	if( !file.friendlyExecution && !IsFriendlyFireOn() )
+		return
+	if( DamageInfo_GetDamage( damageInfo ) >= player.GetHealth() + player.GetShieldHealth() )
+		return
+
+	if( !( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE ) ) // not a melee attack?
+		return
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if( !IsValid( attacker ) )
+		return
+	if( !attacker.IsPlayer() )
+		return
+	if( !attacker.IsTitan() )
+		return
+	if( attacker.GetTeam() != player.GetTeam() )
+		return
+
+	entity titanSoul = player.GetTitanSoul()
+	if( !IsValid( titanSoul ) )
+		return
+	if( !titanSoul.IsDoomed() )
+		return
+
+	// all checks passed!
+	DamageInfo_SetDamage( damageInfo, 0 )
+	ExecuteFriendlyTitan( attacker, player )
+}
+
+void function ExecuteFriendlyTitan( entity attacker, entity target )
+{
+	if( attacker.ContextAction_IsActive() || target.ContextAction_IsActive() ) // doing a execution?
+		return
+	SyncedMeleeChooser ornull actions = GetSyncedMeleeChooserForPlayerVsTarget( attacker, target )
+	if( actions == null )
+		return
+	expect SyncedMeleeChooser( actions )
+	SyncedMelee ornull action = FindBestSyncedMelee( attacker, target, actions )
+	if( action == null )
+		return
+	expect SyncedMelee( action )
+	thread MeleeThread_TitanVsTitan( action, attacker, target )
+	thread PlayerSyncedMeleeScreenEffect( attacker )
+	if( target.IsPlayer() )
+		thread PlayerSyncedMeleeScreenEffect( target )
 }
 
 void function PlayerSyncedMeleeScreenEffect( entity player )
@@ -173,12 +237,15 @@ void function PlayerSyncedMeleeScreenEffect( entity player )
 		{
 			if ( IsValid( player ) )
 			{
+				RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
 				RemoveCinematicFlag( player, CE_FLAG_EXECUTION )
                 RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
 			}
 		}
 	)
 
+	if( player.IsTitan() )
+		AddCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
     AddCinematicFlag( player, CE_FLAG_EXECUTION )
     AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
 
