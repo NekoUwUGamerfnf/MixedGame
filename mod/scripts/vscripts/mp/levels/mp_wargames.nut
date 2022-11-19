@@ -224,36 +224,53 @@ void function OnPrematchStart()
 	FirstPersonSequenceStruct podCloseSequence
 	podCloseSequence.thirdPersonAnim = "trainingpod_doors_close"
 	podCloseSequence.thirdPersonAnimIdle = "trainingpod_doors_close_idle"
-	thread FirstPersonSequence( podCloseSequence, file.imcPod )
-	thread FirstPersonSequence( podCloseSequence, file.militiaPod )
+	if( IsValid( file.imcPod ) )
+		thread FirstPersonSequence( podCloseSequence, file.imcPod )
+	if( IsValid( file.militiaPod ) )
+		thread FirstPersonSequence( podCloseSequence, file.militiaPod )
 	
 	wait 7.0
-	thread PodBootFXThread( file.imcPod )
-	thread PodBootFXThread( file.militiaPod )
+	if( IsValid( file.imcPod ) )
+		thread PodBootFXThread( file.imcPod )
+	if( IsValid( file.militiaPod ) )
+		thread PodBootFXThread( file.militiaPod )
 	
 	wait 6.0
 	ClassicMP_OnIntroFinished()
 	
 	// make sure we stop using viewmodels for these otherwise everyone can see them in the floor 24/7
-	file.imcPod.RenderWithViewModels( false )
-	file.militiaPod.RenderWithViewModels( false )
+	if( IsValid( file.imcPod ) )
+		file.imcPod.RenderWithViewModels( false )
+	if( IsValid( file.militiaPod ) )
+		file.militiaPod.RenderWithViewModels( false )
 	
 	//PodFXCleanup( file.imcPod )
 	//PodFXCleanup( file.militiaPod )
 	
 	// cleanup intro objects
-	militiaOgre.Destroy()
-	militiaIon.Destroy()
-	militiaPilot.Destroy()
-	militiaOgreMarvin1.Destroy()
-	militiaOgreMarvin2.Destroy()
-	militiaOgreMarvin3.Destroy()
-	militiaMarvinChillin.Destroy()
+	if( IsValid( militiaOgre ) )
+		militiaOgre.Destroy()
+	if( IsValid( militiaIon ) )
+		militiaIon.Destroy()
+	if( IsValid( militiaPilot ) )
+		militiaPilot.Destroy()
+	if( IsValid( militiaOgreMarvin1 ) )
+		militiaOgreMarvin1.Destroy()
+	if( IsValid( militiaOgreMarvin2 ) )
+		militiaOgreMarvin2.Destroy()
+	if( IsValid( militiaOgreMarvin3 ) )
+		militiaOgreMarvin3.Destroy()
+	if( IsValid( militiaMarvinChillin ) )
+		militiaMarvinChillin.Destroy()
 	
-	imcGrunt1.Destroy()
-	imcGrunt2.Destroy()
-	imcGrunt3.Destroy()
-	imcGrunt4.Destroy()
+	if( IsValid( imcGrunt1 ) )
+		imcGrunt1.Destroy()
+	if( IsValid( imcGrunt2 ) )
+		imcGrunt2.Destroy()
+	if( IsValid( imcGrunt3 ) )
+		imcGrunt3.Destroy()
+	if( IsValid( imcGrunt4 ) )
+		imcGrunt4.Destroy()
 }
 
 void function PlayerWatchesWargamesIntro( entity player )
