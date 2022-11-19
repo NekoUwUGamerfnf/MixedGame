@@ -3,12 +3,19 @@ global function MpWeaponWreckingBall_Init
 global function OnWeaponPrimaryAttack_weapon_wrecking_ball
 global function OnProjectileCollision_weapon_wrecking_ball
 
+const asset WRECKING_BALL_MODEL = $"models/weapons/bullets/triple_threat_projectile.mdl" // $"models/weapons/bullets/projectile_arc_ball.mdl" // this having a freaking small collisionGroup
+const asset SPEED_PAD_PROJECTILE_MODEL = $"models/weapons/bullets/mgl_grenade.mdl"
+const asset SPEED_PAD_DEPLOYED_MODEL = $"models/robots/drone_frag/frag_drone_proj.mdl"
+
+const string WRECKING_BALL_SCRIPT_NAME = "wrecking_ball_projectile" // need this so speed pads won't spawn more of themselves
+const string SPEED_PAD_SCRIPT_NAME = "wrecking_ball_speed_pad"
+
 // most things of the wrecking ball is hardcoded here
 const asset WRECKING_BALL_TRAIL = $"P_wpn_arcball_trail" // better be in code
 const float WRECKING_BALL_LIFETIME = 10.0
 const float WRECKING_BALL_LIFETIME_PILOT = 8.0 // pilot one is nerfed
-const float WRECKING_BALL_GRAVITY = 5.0
-const float WRECKING_BALL_SPEED_PAD_SPAWN_INTERVAL = 0.5 // was 0.5
+const float WRECKING_BALL_GRAVITY = 4.0 // bit higher
+const float WRECKING_BALL_SPEED_PAD_SPAWN_INTERVAL = 0.7 // was 0.5, need match midair time
 const float WRECKING_BALL_LAUNCH_SPEED = 1100
 const float WRECKING_BALL_BOUNCE_SPEED_HORIZON = 600
 const float WRECKING_BALL_BOUNCE_SPEED_VERTICAL = 800
@@ -74,6 +81,11 @@ var function OnWeaponPrimaryAttack_weapon_wrecking_ball( entity weapon, WeaponPr
     entity weaponOwner = weapon.GetWeaponOwner()
     if( !weaponOwner.IsPlayer() )
         return
+    bool shouldPredict = weapon.ShouldPredictProjectiles()
+	#if CLIENT
+		if ( !shouldPredict )
+			return 1
+	#endif
     vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
 	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0, damageTypes.explosive, damageTypes.explosive, true, true, false )
 
@@ -86,7 +98,7 @@ var function OnWeaponPrimaryAttack_weapon_wrecking_ball( entity weapon, WeaponPr
         Grenade_Init( nade, weapon )
         vector attackAngle = VectorToAngles( attackParams.dir )
         nade.proj.savedAngles = < 0,attackAngle.y,0 >
-        nade.SetScriptName( "wrecking_ball_projectile" ) // need this so speed pads won't spawn more of themselves
+        nade.SetScriptName( WRECKING_BALL_SCRIPT_NAME ) // need this so speed pads won't spawn more of themselves
         thread DelayedStartParticleSystem( nade, WRECKING_BALL_TRAIL )
         //nade.SetGrenadeTimer( WRECKING_BALL_LIFETIME )
         //EmitSoundOnEntity( nade, "TDay_MilitiaCharge_MissileTrail" )
@@ -96,7 +108,7 @@ var function OnWeaponPrimaryAttack_weapon_wrecking_ball( entity weapon, WeaponPr
 #else
         SetTeam( nade, weaponOwner.GetTeam() )
 #endif
-		nade.SetModel( $"models/weapons/bullets/projectile_arc_ball.mdl" )
+		nade.SetModel( WRECKING_BALL_MODEL )
         // hardcoded launch speed!
         vector attackVector = AnglesToForward( < 0,VectorToAngles( attackParams.dir ).y,0 > )
         nade.SetVelocity( attackParams.dir * WRECKING_BALL_LAUNCH_SPEED )
@@ -122,7 +134,7 @@ void function OnProjectileCollision_weapon_wrecking_ball( entity projectile, vec
     }
     //if( curBounceCount > 2 ) // so owner won't receive loud noise, well it's still very noisy
         //EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Android_ReaperMelee_Impact_3p_vs_3p" )
-    if( hitEnt.IsPlayer() || hitEnt.IsNPC() )
+    if( hitEnt.IsPlayer() || hitEnt.IsNPC() ) // actually this will never explode, since this grenade has bounced once
     {
         if( hitEnt.GetTeam() != projectile.GetTeam() )
             WreckingBallExplode( projectile, owner, normal )
@@ -190,6 +202,13 @@ void function OnProjectileCollision_weapon_wrecking_ball( entity projectile, vec
     }
     if( targetArray.len() > 0 )
     {
+        float explodeRadius = projectile.GetProjectileWeaponSettingFloat( eWeaponVar.explosion_inner_radius )
+        entity explodeTarget = GetClosest( targetArray, projectile.GetOrigin(), explodeRadius )
+        if( IsValid( explodeTarget ) ) // target valid! make ball explode and return
+        {
+            WreckingBallExplode( projectile, owner )
+            return
+        }
         float searchRadius = owner.IsTitan() ? WRECKING_BALL_SEARCH_BOUNCE_RADIUS : WRECKING_BALL_SEARCH_BOUNCE_RADIUS_PILOT
         entity closestTarget = GetClosest( targetArray, projectile.GetOrigin(), searchRadius )
         if( IsValid( closestTarget ) )
@@ -204,7 +223,7 @@ void function OnProjectileCollision_weapon_wrecking_ball( entity projectile, vec
     purVector.z = WRECKING_BALL_BOUNCE_SPEED_VERTICAL
     projectile.SetVelocity( purVector )
 
-    //SpawnSpeedPad( owner, pos, purAngles, curBounceCount ) // should use a loop after projectile launched, not every time it collisions!
+    //FireSpeedPad( owner, pos, purAngles, curBounceCount ) // should use a loop after projectile launched, not every time it collisions!
 
     /* // normal bounce version, seems uncontrollable
     projectile.proj.projectileBounceCount++
@@ -249,7 +268,7 @@ void function OnProjectileCollision_weapon_wrecking_ball( entity projectile, vec
     }
     purVector.z = WRECKING_BALL_BOUNCE_SPEED_VERTICAL
     projectile.SetVelocity( purVector )
-    SpawnSpeedPad( owner, pos, purAngles, curBounceCount )
+    FireSpeedPad( owner, pos, purAngles, curBounceCount )
     */
 #endif
 }
@@ -260,8 +279,8 @@ void function WreckingBallExplode( entity projectile, entity owner, vector expOr
     //EmitSoundAtPosition( TEAM_UNASSIGNED, projectile.GetOrigin(), "beacon_straton_missilefire_rocketexplo" )
     vector padAngles = projectile.proj.savedAngles
     vector origin = projectile.GetOrigin()
-    SpawnSpeedPad( owner, origin, padAngles, 1, SPEED_PAD_LAUNCH_POWER_EXPLOSION )
-    SpawnSpeedPad( owner, origin, padAngles, 2, SPEED_PAD_LAUNCH_POWER_EXPLOSION )
+    FireSpeedPad( owner, origin, padAngles, 1, SPEED_PAD_LAUNCH_POWER_EXPLOSION )
+    FireSpeedPad( owner, origin, padAngles, 2, SPEED_PAD_LAUNCH_POWER_EXPLOSION )
     projectile.GrenadeExplode( expOrigin )
 }
 
@@ -273,7 +292,7 @@ void function WreckingBallThink( entity projectile, entity owner )
     float startTime = Time()
     projectile.WaitSignal( "FirstCollision" )
     vector origin = projectile.GetOrigin()
-    SpawnSpeedPad( owner, origin, < 0,0,0 >, 0, 0 )
+    FireSpeedPad( owner, origin, < 0,0,0 >, 0, 0 )
     float ballLifeTime = owner.IsTitan() ? WRECKING_BALL_LIFETIME : WRECKING_BALL_LIFETIME_PILOT
     wait WRECKING_BALL_SPEED_PAD_SPAWN_INTERVAL
     while( true )
@@ -287,12 +306,12 @@ void function WreckingBallThink( entity projectile, entity owner )
         vector padAngles = projectile.proj.savedAngles
         vector origin = projectile.GetOrigin()
         float throwPower = owner.IsTitan() ? SPEED_PAD_LAUNCH_POWER_TITAN : SPEED_PAD_LAUNCH_POWER
-        SpawnSpeedPad( owner, origin, padAngles, bounceIndex, throwPower )
+        FireSpeedPad( owner, origin, padAngles, bounceIndex, throwPower )
         wait WRECKING_BALL_SPEED_PAD_SPAWN_INTERVAL
     }
 }
 
-void function SpawnSpeedPad( entity player, vector startOrigin, vector startAngles, int bounceCount, float throwPower = SPEED_PAD_LAUNCH_POWER )
+void function FireSpeedPad( entity player, vector startOrigin, vector startAngles, int bounceCount, float throwPower = SPEED_PAD_LAUNCH_POWER )
 {
     entity wreckinBallWeapon
     foreach( entity offhand in player.GetOffhandWeapons() )
@@ -318,8 +337,8 @@ void function SpawnSpeedPad( entity player, vector startOrigin, vector startAngl
     {
         speedPad.SetVelocity( attackParams.dir * SPEED_PAD_LAUNCH_POWER )
         thread WaitForSpeedPadDeployment( speedPad )
-        speedPad.SetModel( $"models/weapons/bullets/mgl_grenade.mdl" )
-        speedPad.SetScriptName( "wrecking_ball_speed_pad" )
+        speedPad.SetModel( SPEED_PAD_PROJECTILE_MODEL )
+        speedPad.SetScriptName( SPEED_PAD_SCRIPT_NAME )
         StartParticleEffectOnEntity( speedPad, GetParticleSystemIndex( $"wpn_grenade_frag_blue" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
     }
 }
@@ -358,7 +377,7 @@ void function OnSpeedPadPlanted( entity projectile )
 
     int team = projectile.GetTeam()
 	entity tower = CreateEntity( "prop_dynamic" )
-	tower.SetModel( $"models/robots/drone_frag/frag_drone_proj.mdl" ) //$"models/weapons/sentry_frag/sentry_frag_proj.mdl" // $"models/weapons/sentry_shield/sentry_shield_proj.mdl"
+	tower.SetModel( SPEED_PAD_DEPLOYED_MODEL ) //$"models/weapons/sentry_frag/sentry_frag_proj.mdl" // $"models/weapons/sentry_shield/sentry_shield_proj.mdl"
 	tower.SetOrigin( origin )
     tower.SetOwner( player )
 	tower.SetAngles( surfaceAngles )
