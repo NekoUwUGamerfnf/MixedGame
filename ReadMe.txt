@@ -21,7 +21,7 @@ AutoKick_Init(): Kick AFK players
 
 MixedLoadout_Init(): Random loadouts with a punch( may not support controllers, will change it )
 
-RandomizedEvent_Init(): From LegonZaur and PeePee, mutator pack including: gain speedboost on kill, switch all equipments on kill, switch positions on kill, elitist, moonGravity
+RandomizedEvent_Init(): From LegonZaur and PeePee, mutator pack including: gain speedboost on kill, switch all equipments on kill, switch positions on kill, elitist, moonGravity, twinTacticals, twinGrenades, classWar
 
 TacticalReplace_Init()：Disable melee, hold melee to switch offhand type, hold use to switch main weapon type
 
@@ -32,8 +32,6 @@ TauntRandom_Init(): Press melee to do a taunt( unfinished )
 EverythingNessy_Init(): Enable funny nessy outfits and throwable nessies
 
 AltPilot_Enable_Init(): Enable model change for pilots, now supporting spectres with a hacking code
-
-CustomDamageEffect_Init(): Variant killing effects, including: Gib, Dissolve, Electric, Shield Crack, Burning, Nessie Burst
 
 Modded_Gamemode_Fighter_Init(): Testing gamemode: melee only with no lunge
 
@@ -49,6 +47,7 @@ RespawnShip_Init(): Respawn from dropship
 
 Fake_Scope_Sniper_Rifles_Init(): Sniper rifles with stock sights will have different scope models
 
+Modded_Gamemode_Extra_Spawner_Enable_Init(): Replaces AiTDM, Extra Spawners that contains Tick Launcher Reapers, Npc Pilots with Titans, etc. Enables friendly fire.
 
 NessieDebug_Init(): TEST SHITS.
 
@@ -88,18 +87,20 @@ EverythingNessy_Init(): 装饰mod，脚本里可以启用更多东西，默认�
 
 AltPilot_Init(): 装饰mod，修改玩家模型，并且再也不会出现隐身和a盾铁驭的模型
 
-CustomDamageEffect_Init(): 不同的击杀效果，包括: 碎尸，消散，电击，破盾
-
 Modded_Gamemode_Fighter_Init(): 修改游戏模式为纯近战( 无吸附 )
 
 Modded_Gamemode_Zombie_Mfd_Init(): 修改猎杀标记为僵尸猎杀标记: 只有标记玩家可以用枪械，其他玩家为僵尸
 
 No_Iron_Sight_Weapons_Init(): 取消所有武器的机瞄模型(若有rui则保留准星)
 
+Modded_Gamemode_Bleedout_Init(): 优化了流血系统的模式，未测试，不知道体验如何
+
 DropPodSpawn1Player_Init(): 从运兵舱中复活
 
 RespawnShip_Init(): 从运输船中复活
 
-Modded_Gamemode_Bleedout_Init(): 优化了流血系统的模式，未测试，不知道体验如何
+Fake_Scope_Sniper_Rifles_Init(): 狙击枪的原厂镜会替换为随机模型，不影响实际效果
+
+Modded_Gamemode_Extra_Spawner_Enable_Init(): 启用友伤，会刷各种各样的npc敌人出来，替换消耗战
 
 NessieDebug_Init(): 测试的一堆笨比东西
