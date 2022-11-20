@@ -169,7 +169,7 @@ void function OnPrematchStart()
 	entity militiaOgreMarvin1 = CreateMarvin( TEAM_UNASSIGNED, < -2113, 2911, -1412 >, < 0, 20, 0 > )
 	DispatchSpawn( militiaOgreMarvin1 )
 	thread PlayAnim( militiaOgreMarvin1, "mv_idle_weld" )
-	
+
 	entity militiaOgreMarvin2 = CreateMarvin( TEAM_UNASSIGNED, < -2040, 2788, -1412 >, < 0, 140, 0 > )
 	DispatchSpawn( militiaOgreMarvin2 )
 	thread PlayAnim( militiaOgreMarvin2, "mv_idle_weld" )

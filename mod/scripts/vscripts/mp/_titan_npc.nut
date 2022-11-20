@@ -367,7 +367,7 @@ function SetupAutoTitan( entity npcTitan, entity player )
 	npcTitan.SetUsePrompts( "#HOLD_TO_EMBARK", "#PRESS_TO_EMBARK" )
 	#endif
 
-	//npc.SetUsableByGroup( "owner pilot" )
+	npcTitan.SetUsableByGroup( "owner pilot" )
 
 	NPCTitanFollowPilotInit( npcTitan, player )
 
