@@ -5,7 +5,7 @@ global function ClassWar_init
 struct{
     PilotLoadoutDef& StoredPilotLoadout
     string storedPilotName = "UNASSIGNED"
-    string storedPlayerSettings = "pilot_medium_female"
+	array<string> chosenPilotNames
     //PilotLoadoutDef& StoredPilotLoadoutMilitia
     //PilotLoadoutDef& StoredPilotLoadoutIMC
 }file
@@ -16,7 +16,7 @@ void function ClassWar_init()
     //AddPrivateMatchModeSettingEnum("#MODE_SETTING_CATEGORY_RIFFPACK", "ClassWar", ["#SETTING_DISABLED", "#CLASSWAR_TEAMS", "#CLASSWAR_GLOBAL"], "0")
     #if SERVER
     // modified settings
-    IgnoreEquipmentsFilter( "Offhand" )
+    IgnoreEquipmentsFilter( "All" )
     SetLoadoutGracePeriodEnabled( false )
 
     //AddCallback_OnPlayerRespawned( OnPlayerRespawn )
@@ -116,6 +116,7 @@ void function PopulatePilotLoadout(entity player)
             player.TakeWeaponNow(weapon.GetWeaponClassName())
         
         array<string> primaryMods = file.StoredPilotLoadout.primaryMods
+		primaryMods.append( file.StoredPilotLoadout.primaryAttachment )
         primaryMods.removebyvalue( "null" )
         player.GiveWeapon( file.StoredPilotLoadout.primary, primaryMods )
 
@@ -129,7 +130,7 @@ void function PopulatePilotLoadout(entity player)
 
         player.GiveOffhandWeapon(file.StoredPilotLoadout.ordnance, OFFHAND_RIGHT, file.StoredPilotLoadout.ordnanceMods)
         player.GiveOffhandWeapon(file.StoredPilotLoadout.special, OFFHAND_LEFT,   file.StoredPilotLoadout.specialMods)
-        player.SetPlayerSettings( file.storedPlayerSettings )
+        player.SetPlayerSettings( file.StoredPilotLoadout.setFile )
 
         NSSendInfoMessageToPlayer( player, "正在使用 " + file.storedPilotName + " 的配裝! " )
     }
@@ -142,24 +143,33 @@ void function ClassWarLoadoutSettingsThink()
     bool firstLoadout = true
     while( GetGameState() == eGameState.Playing )
     {
-        entity chosenPilot
+		WaitFrame() // always do a wait here
+	
+        entity chosePilot
+		int playerCount = GetPlayerArray().len()
         if( firstLoadout ) // first choose, won't have same players
-            chosenPilot = GetPlayerArray()[RandomInt(GetPlayerArray().len())]
+            chosePilot = GetPlayerArray()[RandomInt(playerCount)]
         else
         {
-            string lastPilotName = file.storedPilotName
-            chosenPilot = GetPlayerArray()[RandomInt(GetPlayerArray().len())]
-            while( chosenPilot.GetPlayerName() == lastPilotName ) // avoid choose twice!
-                chosenPilot = GetPlayerArray()[RandomInt(GetPlayerArray().len())] // choose a new one
-        }
-        file.StoredPilotLoadout = GetActivePilotLoadout( chosenPilot )
-        file.storedPilotName = chosenPilot.GetPlayerName()
-        file.storedPlayerSettings = chosenPilot.GetPlayerSettings()
+            chosePilot = GetPlayerArray()[RandomInt(playerCount)]
+
+			if( file.chosenPilotNames.contains( chosePilot.GetPlayerName() ) ) // avoid choose twice!
+				continue // loop back choose a new one
+		}
+		if( !IsValid( chosePilot ) ) // no pilot chosen, maybe because no players in game, loop again
+			continue
+	
+        file.StoredPilotLoadout = GetActivePilotLoadout( chosePilot )
+        file.storedPilotName = chosePilot.GetPlayerName()
+		file.chosenPilotNames.append( chosePilot.GetPlayerName() )
         if( !firstLoadout )
         {
             foreach( entity player in GetPlayerArray() )
-                NSSendLargeMessageToPlayer( player, "配裝已更新! ", "現在起重生后將使用 " + file.storedPilotName + " 的配裝", 10, "rui/callsigns/callsign_69_col" )
-        }
+			{
+                NSSendLargeMessageToPlayer( player, "配裝已更新! ", "現在起將使用 " + file.storedPilotName + " 的配裝", 10, "rui/callsigns/callsign_69_col" )
+				OnPlayerRespawn( player ) // change loadout immediately
+			}
+		}
         else // first loadout, replace all player's loadouts
         {
             foreach( entity player in GetPlayerArray() )
@@ -167,7 +177,7 @@ void function ClassWarLoadoutSettingsThink()
         }
         firstLoadout = false
 
-        wait 120 // every 2min change loadout
+        wait 10 // every 2min change loadout
     }
 }
 #endif
