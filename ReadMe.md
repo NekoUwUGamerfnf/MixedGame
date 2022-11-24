@@ -1,19 +1,25 @@
 **This repository contains contents from:**
 
 https://github.com/Legonzaur/Northstar-HoloShift
+
 https://github.com/uniboi/ImpulseGrenade
+
 https://github.com/JMM889901/PeePee.Flipside
+
 https://github.com/JMM889901/Northstar.MutatorPack
+
 https://github.com/GalacticMoblin/Moblin.Archon
+
 https://github.com/Dinorush/Brute4
 
-I made them compatible with my own scripts, really thankful with that!
+I made them compatible with my own scripts! Thanks to their support!
 
 **English**
 
 use loadedinits_after.gnut and loadedinits_before.gnut to Toggle gamemode modifiers
 
 Avaliable modifiers:
+
 RandomTitanGamemode_Init(): Always respawn as titans. Both change map and gamemode after a match
 
 RandomPilotGamemode_Init()：Titans and boosts never avaliable. Both change map and gamemode after a match
@@ -68,6 +74,7 @@ NessieDebug_Init(): TEST SHITS.
 loadedinits.gnut 更改启用的主函数
 
 主函数：
+
 RandomTitanGamemode_Init(): 泰坦模式 + 地图轮换
 
 RandomPilotGamemode_Init()：铁驭模式 + 地图轮换
