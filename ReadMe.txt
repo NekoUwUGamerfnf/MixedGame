@@ -1,4 +1,13 @@
-English
+**This repository contains contents from:**
+https://github.com/Legonzaur/Northstar-HoloShift
+https://github.com/uniboi/ImpulseGrenade
+https://github.com/JMM889901/PeePee.Flipside
+https://github.com/JMM889901/Northstar.MutatorPack
+https://github.com/GalacticMoblin/Moblin.Archon
+https://github.com/Dinorush/Brute4
+I made them compatible with my own scripts, really thankful with that!
+
+**English**
 
 use loadedinits_after.gnut and loadedinits_before.gnut to Toggle gamemode modifiers
 
@@ -52,8 +61,10 @@ Modded_Gamemode_Extra_Spawner_Enable_Init(): Replaces AiTDM, Extra Spawners that
 NessieDebug_Init(): TEST SHITS.
 
 
-中文
+**中文**
+
 loadedinits.gnut 更改启用的主函数
+
 主函数：
 RandomTitanGamemode_Init(): 泰坦模式 + 地图轮换
 
