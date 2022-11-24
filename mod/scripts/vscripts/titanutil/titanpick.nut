@@ -184,42 +184,26 @@ function GiveDroppedTitanWeapon( weaponmodel, player )
 {
     expect entity(player)
     expect entity(weaponmodel)
-
-    if( player.GetModelName() == $"models/titans/medium/titan_medium_vanguard.mdl" )
-    {
-        SendHudMessage(player, "帝王不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-        return
-    }
-    else if( player.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
-    {
-        SendHudMessage(player, "BT不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-        return
-    }
-    else if( player.GetTitle() == "執政官" )
-    {
-        SendHudMessage(player, "执政官不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-        return
-    }
-    else if( player.GetTitle() == "野獸四號" )
-    {
-        SendHudMessage(player, "野兽四号不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-        return
-    }
-    else if( player.GetTitle() == "野牛" )
-    {
-        SendHudMessage(player, "野牛不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-        return
-    }
-    else
-    {
-        if( IsCoreActive( player ) )
-        {
-            SendHudMessage( player, "核心启动期间不可更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
-            return
-        }
-        DropPlayerTitanWeapon( player, weaponmodel.GetOrigin(), weaponmodel.GetAngles() )
-        ReplaceTitanWeapon( player, weaponmodel )
-    }
+	
+	bool canPickUp = true
+	if( "disableTitanPick" in player.s )
+	{
+		canPickUp = expect bool( player.s.disableTitanPick )
+	}
+	if( !canPickUp )
+	{
+		string title = player.GetTitle()
+		SendHudMessage(player, title + " 不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
+		return
+	}
+	if( IsTitanCoreFiring( player ) )
+	{
+		SendHudMessage( player, "核心启动期间不可更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
+		return
+	}
+        
+	DropPlayerTitanWeapon( player, weaponmodel.GetOrigin(), weaponmodel.GetAngles() )
+	ReplaceTitanWeapon( player, weaponmodel )
 }
 
 array<string> function RemoveTacticalWeaponMods( array<string> mods )

@@ -1,10 +1,10 @@
 untyped // I really don't like this thing but .SetPlayerSettings() need it...
-#if SERVER
+
 global function TitanReplace_Init
 
 global function GetTitanPassiveType
 global function RemoveUnmatchedPassive
-global function IsCoreActive
+global function IsCoreActive // abandoned function, using IsTitanCoreFiring() now
 global function BecomeIon
 global function BecomeTone
 global function BecomeAtlas
@@ -18,20 +18,19 @@ global function BecomeBison
 global function BecomeMonarch
 global function BecomeBrute4
 global function BecomeArchon
-#endif
+
 
 const array<string> moddedPlayers = ["1007270968017", "1003302185211", "2311706887", "1011338569992", "1007340426216", "1010087865132", "1007606851794", "1000374987953", "1006403284636", "1007932882179", "1011146305825", "1006393068081", "1011667472349", "1007468387616", "1003338759893", "1008061878974", "1013455793584", "1006799764479"]
 //me, dz, mite, g41, Jerry_Wang#8123, chillyue#5400, 军团#7939, .RCtd#0852, wodemaya#0028, 抑郁寡欢Z骡子#1903, H_A#3930, 一位屑中屑的屑铁驭屑铁驭#3838, COOPER#7592, LOGIC0214( logic#0886 ), R9390X#1342, Kyogre416#1123, 114514#1281, ILoveSteam#6158
 
 void function TitanReplace_Init() 
 {
-    #if SERVER
-		AddSpawnCallback("npc_titan", OnTitanfall )
+		AddSpawnCallback( "npc_titan", OnTitanSpawned )
 		AddCallback_OnPlayerKilled( OnTitanKilled )
     	AddCallback_OnNPCKilled( OnTitanKilled )
 		AddCallback_OnPilotBecomesTitan( SetPlayerTitanTitle )
 		AddCallback_OnTitanBecomesPilot( SetOffhandSmokeStat )
-		AddCallback_GameStateEnter( eGameState.Prematch, TitanTitleFix )
+		AddCallback_GameStateEnter( eGameState.Prematch, TitanSettingsFix )
 		// register things for ingame script
 		if( GetGameState() >= eGameState.Prematch )
 		{
@@ -39,13 +38,17 @@ void function TitanReplace_Init()
 				InitPlayerStat( player )
 		}
 		AddCallback_OnClientConnected( InitPlayerStat )
-
-    #endif
 }
 
-#if SERVER
-void function OnTitanfall( entity titan )
+void function OnTitanSpawned( entity titan )
 {
+	entity player = GetPetTitanOwner( titan )
+	if( !IsValid( player ) )
+		return
+	// check if player has a titan dropping, if not it means player disembarked and created their pet titans, don't give loadouts if so.
+	bool isTitanDropping = expect bool( player.s.replacementDropInProgress )
+	if( !isTitanDropping )
+		return
 	SetTitanLoadoutReplace( titan )
 }
 
@@ -54,6 +57,12 @@ void function SetTitanLoadoutReplace( entity titan )
 	entity player = GetPetTitanOwner( titan )
 	if( !IsValid( player ) )
 		return
+	player.s.titanPassiveType = GetTitanPassiveType( titan ) // for checking player's passiveType
+	if( titan.GetModelName() == $"models/titans/medium/titan_medium_vanguard.mdl" ||
+		titan.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
+	{
+		player.s.disableTitanPick = true // setting players unable to replace weapons from ground
+	}
 	if( titan.GetModelName() == $"models/titans/medium/titan_medium_tone_prime.mdl" )
 	{
 		SendHudMessage(player, "已启用天图泰坦装备，取消至尊泰坦以使用原版强力",  -1, 0.3, 200, 200, 225, 255, 0.15, 5, 1)
@@ -72,6 +81,7 @@ void function SetTitanLoadoutReplace( entity titan )
 	if( titan.GetModelName() == $"models/titans/heavy/titan_heavy_scorch_prime.mdl" )
 	{
 		SendHudMessage(player, "已启用野牛泰坦装备，取消至尊泰坦以使用原版烈焰",  -1, 0.3, 200, 200, 225, 255, 0.15, 5, 1);
+		player.s.disableTitanPick = true // setting players unable to replace weapons from ground
 		BecomeBison( titan, false, true )
 	}
 	//temp fix
@@ -80,11 +90,13 @@ void function SetTitanLoadoutReplace( entity titan )
 	if( titan.GetModelName() == $"models/titans/medium/titan_medium_ion_prime.mdl" )
 	{
 		SendHudMessage(player, "已启用执政官泰坦装备，取消至尊泰坦以使用原版离子",  -1, 0.3, 200, 200, 225, 255, 0.15, 5, 1);
+		player.s.disableTitanPick = true // setting players unable to replace weapons from ground
 		BecomeArchon( titan, false, true )
 	}
 	if( titan.GetModelName() == $"models/titans/light/titan_light_northstar_prime.mdl" )
 	{
 		SendHudMessage(player, "已启用野兽四号泰坦装备，取消至尊泰坦以使用原版北极星",  -1, 0.3, 200, 200, 225, 255, 0.15, 5, 1);
+		player.s.disableTitanPick = true // setting players unable to replace weapons from ground
 		BecomeBrute4( titan, false, true )
 	}
 }
@@ -93,8 +105,16 @@ void function OnTitanKilled( entity victim, entity attacker,var damageInfo )
 {
 	if( !victim.IsTitan() )
 		return
+	// Clean up settings!
 	if( victim.IsPlayer() )
+	{
 		victim.s.titanTitle = ""
+		victim.s.shouldFPEmbark = false
+		victim.s.disableOffhandSmoke = false
+		victim.s.classicExecution = false
+		victim.s.titanPassiveType = ""
+		victim.s.disableTitanPick = false
+	}
 	else if( IsPetTitan( victim ) )
 	{
 		entity owner = GetPetTitanOwner(victim)
@@ -105,16 +125,17 @@ void function OnTitanKilled( entity victim, entity attacker,var damageInfo )
 			owner.s.titanTitle = ""
 			owner.s.shouldFPEmbark = false
 			owner.s.disableOffhandSmoke = false
+			owner.s.classicExecution = false
+			owner.s.titanPassiveType = ""
+			owner.s.disableTitanPick = false
 		}
 	}
 }
 
 void function SetPlayerTitanTitle( entity player, entity titan )
 {
-	#if SERVER
 	if( player.s.titanTitle != "" )
 		player.SetTitle( player.s.titanTitle )
-	#endif
 }
 
 void function SetOffhandSmokeStat( entity player, entity titan )
@@ -122,21 +143,26 @@ void function SetOffhandSmokeStat( entity player, entity titan )
 	titan.s.disableOffhandSmoke <- player.s.disableOffhandSmoke
 }
 
-void function TitanTitleFix()
+void function TitanSettingsFix()
 {
 	foreach( entity player in GetPlayerArray() )
 	{
 		player.s.titanTitle = ""
 		player.s.shouldFPEmbark = false
+		player.s.disableOffhandSmoke = false
+		player.s.titanPassiveType = ""
+		player.s.disableTitanPick = false
 	}
 }
 
 void function InitPlayerStat( entity player )
 {
-	player.s.titanTitle <- "" // string
-	player.s.shouldFPEmbark <- false // bool
-	player.s.disableOffhandSmoke <- false // bool
-	player.s.classicExecution <- false // bool
+	player.s.titanTitle <- "" 				// string
+	player.s.shouldFPEmbark <- false 		// bool
+	player.s.disableOffhandSmoke <- false 	// bool
+	player.s.classicExecution <- false 		// bool
+	player.s.titanPassiveType <- ""			// string
+	player.s.disableTitanPick <- true		// bool
 }
 
 void function BecomeIon( entity titan, bool isPickup = false, bool isSpawning = false )
@@ -153,9 +179,7 @@ void function BecomeIon( entity titan, bool isPickup = false, bool isSpawning = 
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -176,16 +200,25 @@ void function BecomeIon( entity titan, bool isPickup = false, bool isSpawning = 
 			player.s.shouldFPEmbark = false
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
-			if( GetTitanPassiveType( titan ) == "Defence" )
+			if( passiveType == "Defence" )
+			{
 				titan.GiveOffhandWeapon("mp_titanweapon_vortex_shield_ion", OFFHAND_SPECIAL, ["pas_ion_vortex"] )
-            else
+				GivePassive( titan, ePassives.PAS_ION_VORTEX )
+			}
+			else
 				titan.GiveOffhandWeapon("mp_titanweapon_vortex_shield_ion", OFFHAND_SPECIAL)
 
 			//Tactical
-			if( GetTitanPassiveType( titan ) == "Tactical" )
+			if( passiveType == "Tactical" )
+			{
 				titan.GiveOffhandWeapon("mp_titanability_laser_trip", OFFHAND_ANTIRODEO, ["pas_ion_tripwire"] )
+				GivePassive( titan, ePassives.PAS_ION_TRIPWIRE )
+			}
 			else
 				titan.GiveOffhandWeapon("mp_titanability_laser_trip", OFFHAND_ANTIRODEO )
 
@@ -195,25 +228,33 @@ void function BecomeIon( entity titan, bool isPickup = false, bool isSpawning = 
 			//Weapon
             if( !isPickup )
 			{
-                if( GetTitanPassiveType( titan ) == "Weapon" )
+                if( passiveType == "Weapon" )
                 {
                     titan.GiveWeapon ("mp_titanweapon_particle_accelerator", ["pas_ion_weapon"])
                     GivePassive( titan, ePassives.PAS_ION_WEAPON )
                 }
-                else if( GetTitanPassiveType( titan ) == "Offence" )
+                else if( passiveType == "Offence" )
+				{
                     titan.GiveWeapon ("mp_titanweapon_particle_accelerator", ["pas_ion_weapon_ads"])
-                else
+					GivePassive( titan, ePassives.PAS_ION_WEAPON_ADS )
+				}
+				else
                     titan.GiveWeapon ("mp_titanweapon_particle_accelerator")
             }
 
 			//Titan Core
-			if( GetTitanPassiveType( titan ) == "Core" )
+			if( passiveType == "Core" )
+			{
 				titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT, ["pas_ion_lasercannon"] )
+				GivePassive( titan, ePassives.PAS_ION_LASERCANNON )
+			}
 			else
 				titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT )
 		
             //Melee
             titan.GiveOffhandWeapon( "melee_titan_punch_ion", OFFHAND_MELEE )
+			
+			
         }
 	}
 }
@@ -232,9 +273,7 @@ void function BecomeTone( entity titan, bool isPickup = false, bool isSpawning =
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -255,9 +294,12 @@ void function BecomeTone( entity titan, bool isPickup = false, bool isSpawning =
 			player.s.shouldFPEmbark = false
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
-			if( GetTitanPassiveType( titan ) == "Defence" )
+			if( passiveType == "Defence" )
             {
 				titan.GiveOffhandWeapon("mp_titanability_particle_wall", OFFHAND_SPECIAL, ["pas_tone_wall"] )
                 GivePassive( titan, ePassives.PAS_TONE_WALL )
@@ -266,25 +308,37 @@ void function BecomeTone( entity titan, bool isPickup = false, bool isSpawning =
 				titan.GiveOffhandWeapon("mp_titanability_particle_wall", OFFHAND_SPECIAL)
 
 			//Tactical
-			if( GetTitanPassiveType( titan ) == "Tactical" )
+			if( passiveType == "Tactical" )
+			{
 				titan.GiveOffhandWeapon("mp_titanability_sonar_pulse", OFFHAND_ANTIRODEO, ["pas_tone_sonar"] )
+				GivePassive( titan, ePassives.PAS_TONE_SONAR )
+			}
 			else
 				titan.GiveOffhandWeapon("mp_titanability_sonar_pulse", OFFHAND_ANTIRODEO )
 
 			//Offence
-            if( GetTitanPassiveType( titan ) == "Offence" )
+            if( passiveType == "Offence" )
+			{
 				titan.GiveOffhandWeapon("mp_titanweapon_tracker_rockets", OFFHAND_ORDNANCE, ["pas_tone_rockets"] )
-            else
+				GivePassive( titan, ePassives.PAS_TONE_ROCKETS )
+			}
+			else
                 titan.GiveOffhandWeapon("mp_titanweapon_tracker_rockets", OFFHAND_ORDNANCE )
 
 			//Weapon
             if( !isPickup )
 			{
-                if( GetTitanPassiveType( titan ) == "Weapon" )
+                if( passiveType == "Weapon" )
+				{
                     titan.GiveWeapon ("mp_titanweapon_sticky_40mm", ["pas_tone_weapon"])
-                else if( GetTitanPassiveType( titan ) == "Core" )
+					GivePassive( titan, ePassives.PAS_TONE_WEAPON )
+				}
+				else if( passiveType == "Core" )
+				{
                     titan.GiveWeapon ("mp_titanweapon_sticky_40mm", ["pas_tone_burst"])
-                else
+					GivePassive( titan, ePassives.PAS_TONE_BURST )
+				}
+				else
                     titan.GiveWeapon ("mp_titanweapon_sticky_40mm")
             }
 
@@ -311,9 +365,7 @@ void function BecomeAtlas( entity titan, bool isPickup = false, bool isSpawning 
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -334,6 +386,9 @@ void function BecomeAtlas( entity titan, bool isPickup = false, bool isSpawning 
 			player.s.shouldFPEmbark = true
 			player.s.disableOffhandSmoke = true
 			player.s.classicExecution = true
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
 			titan.GiveOffhandWeapon("mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "atlas_vortex"] )
@@ -374,9 +429,7 @@ void function BecomeRonin( entity titan, bool isPickup = false, bool isSpawning 
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -398,39 +451,54 @@ void function BecomeRonin( entity titan, bool isPickup = false, bool isSpawning 
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
 
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
+
 			//Defence
             titan.GiveOffhandWeapon("mp_titanability_basic_block", OFFHAND_SPECIAL )
 
 			//Tactical
-			if( GetTitanPassiveType( titan ) == "Defence" )
+			if( passiveType == "Defence" )
             {
 				titan.GiveOffhandWeapon("mp_titanability_phase_dash", OFFHAND_ANTIRODEO, ["pas_ronin_autoshift"] )
                 GivePassive( titan, ePassives.PAS_RONIN_AUTOSHIFT )
             }
-            else if( GetTitanPassiveType( titan ) == "Tactical" )
+            else if( passiveType == "Tactical" )
+			{
                 titan.GiveOffhandWeapon("mp_titanability_phase_dash", OFFHAND_ANTIRODEO, ["pas_ronin_phase"] )
-            else
+				GivePassive( titan, ePassives.PAS_RONIN_PHASE )
+			}
+			else
 				titan.GiveOffhandWeapon("mp_titanability_phase_dash", OFFHAND_ANTIRODEO)
 
 			//Offence
-            if( GetTitanPassiveType( titan ) == "Offence" )
+            if( passiveType == "Offence" )
+			{
 				titan.GiveOffhandWeapon("mp_titanweapon_arc_wave", OFFHAND_ORDNANCE, ["pas_ronin_arcwave"] )
-            else
+				GivePassive( titan, ePassives.PAS_RONIN_ARCWAVE )
+			}
+			else
                 titan.GiveOffhandWeapon("mp_titanweapon_arc_wave", OFFHAND_ORDNANCE )
 
 			//Weapon
             if( !isPickup )
 			{
-                if( GetTitanPassiveType( titan ) == "Weapon" )
+                if( passiveType == "Weapon" )
+				{
                     titan.GiveWeapon ("mp_titanweapon_leadwall", ["pas_ronin_weapon"])
-                else
+					GivePassive( titan, ePassives.PAS_RONIN_WEAPON )
+				}
+				else
                     titan.GiveWeapon ("mp_titanweapon_leadwall")
             }
 
 			//Titan Core
-            if( GetTitanPassiveType( titan ) == "Core" )
+            if( passiveType == "Core" )
+			{
 				titan.GiveOffhandWeapon( "mp_titancore_shift_core", OFFHAND_EQUIPMENT, ["pas_ronin_swordcore"] )
-            else
+				GivePassive( titan, ePassives.PAS_RONIN_SWORDCORE )
+			}
+			else
 				titan.GiveOffhandWeapon( "mp_titancore_shift_core", OFFHAND_EQUIPMENT )
 		
             //Melee
@@ -453,9 +521,7 @@ void function BecomeNorthstar( entity titan, bool isPickup = false, bool isSpawn
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -476,36 +542,53 @@ void function BecomeNorthstar( entity titan, bool isPickup = false, bool isSpawn
 			player.s.shouldFPEmbark = false
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
-            if( GetTitanPassiveType( titan ) == "Defence" )
+            if( passiveType == "Defence" )
+			{
                 titan.GiveOffhandWeapon("mp_titanability_tether_trap", OFFHAND_SPECIAL, ["pas_northstar_trap"] )
-            else
+				GivePassive( titan, ePassives.PAS_NORTHSTAR_TRAP )
+			}
+			else
                 titan.GiveOffhandWeapon("mp_titanability_tether_trap", OFFHAND_SPECIAL )
 
-			//Tacticals
-			if( GetTitanPassiveType( titan ) == "Tactical" )
+			//Tacticals, northstar is a bit special
+			if( passiveType == "Core" )
                 titan.GiveOffhandWeapon("mp_titanability_hover", OFFHAND_ANTIRODEO, ["pas_northstar_flightcore"] )
-            else
+			else
 				titan.GiveOffhandWeapon("mp_titanability_hover", OFFHAND_ANTIRODEO)
 
 			//Offence
-            if( GetTitanPassiveType( titan ) == "Offence" )
+            if( passiveType == "Offence" )
+			{
 				titan.GiveOffhandWeapon("mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE, ["pas_northstar_cluster"] )
-            else
+				GivePassive( titan, ePassives.PAS_NORTHSTAR_CLUSTER )
+			}
+			else
                 titan.GiveOffhandWeapon("mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE )
 
 			//Weapon
             if( !isPickup )
 			{
-                if( GetTitanPassiveType( titan ) == "Weapon" )
-                    titan.GiveWeapon ("mp_titanweapon_sniper", ["pas_northstar_optics"])
-                else
+                if( passiveType == "Weapon" )
+				{
+                    titan.GiveWeapon ("mp_titanweapon_sniper", ["pas_northstar_weapon"])
+					GivePassive( titan, ePassives.PAS_NORTHSTAR_WEAPON )
+				}
+				else if( passiveType == "Tactical" )
+				{
+					titan.GiveWeapon ("mp_titanweapon_sniper", ["pas_northstar_optics"])
+					GivePassive( titan, ePassives.PAS_NORTHSTAR_OPTICS )
+				}
+				else
                     titan.GiveWeapon ("mp_titanweapon_sniper")
             }
 
 			//Titan Core
-            if( GetTitanPassiveType( titan ) == "Core" )
+            if( passiveType == "Core" )
             {
 				titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT, ["pas_northstar_flightcore"] )
                 GivePassive( titan, ePassives.PAS_NORTHSTAR_FLIGHTCORE )
@@ -533,9 +616,7 @@ void function BecomeStryder( entity titan, bool isPickup = false, bool isSpawnin
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -556,6 +637,9 @@ void function BecomeStryder( entity titan, bool isPickup = false, bool isSpawnin
 			player.s.shouldFPEmbark = true
 			player.s.disableOffhandSmoke = true
 			player.s.classicExecution = true
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
 			titan.GiveOffhandWeapon("mp_titanweapon_stun_laser", OFFHAND_SPECIAL, ["energy_field", "stryder_laser"] )
@@ -597,9 +681,7 @@ void function BecomeScorch( entity titan, bool isPickup = false, bool isSpawning
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -620,37 +702,52 @@ void function BecomeScorch( entity titan, bool isPickup = false, bool isSpawning
 			player.s.shouldFPEmbark = false
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
-            if( GetTitanPassiveType( titan ) == "Defence" )
+            if( passiveType == "Defence" )
+			{
                 titan.GiveOffhandWeapon("mp_titanweapon_heat_shield", OFFHAND_SPECIAL, ["pas_scorch_shield"] )
-            else
+				GivePassive( titan, ePassives.PAS_SCORCH_SHIELD )
+			}
+			else
                 titan.GiveOffhandWeapon("mp_titanweapon_heat_shield", OFFHAND_SPECIAL )
 
-			//Tacticals
-			if( GetTitanPassiveType( titan ) == "Tactical" )
+			//Tacticals, scorch is a bit special
+			if( passiveType == "Tactical" )
                 GivePassive( titan, ePassives.PAS_SCORCH_SELFDMG )
             titan.GiveOffhandWeapon("mp_titanability_slow_trap", OFFHAND_ANTIRODEO )
 
 			//Offence
-            if( GetTitanPassiveType( titan ) == "Offence" )
+            if( passiveType == "Offence" )
+			{
 				titan.GiveOffhandWeapon("mp_titanweapon_flame_wall", OFFHAND_ORDNANCE, ["pas_scorch_firewall"] )
-            else
+				GivePassive( titan, ePassives.PAS_SCORCH_FIREWALL )
+			}
+			else
                 titan.GiveOffhandWeapon("mp_titanweapon_flame_wall", OFFHAND_ORDNANCE )
 
 			//Weapon
             if( !isPickup )
 			{
-                if( GetTitanPassiveType( titan ) == "Weapon" )
+                if( passiveType == "Weapon" )
+				{
                     titan.GiveWeapon ("mp_titanweapon_meteor", ["pas_scorch_weapon"])
-                else
+					GivePassive( titan, ePassives.PAS_SCORCH_WEAPON )
+				}
+				else
                     titan.GiveWeapon ("mp_titanweapon_meteor")
             }
 
 			//Titan Core
-            if( GetTitanPassiveType( titan ) == "Core" )
+            if( passiveType == "Core" )
+			{
 				titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT, ["pas_scorch_flamecore"] )
-            else
+				GivePassive( titan, ePassives.PAS_SCORCH_FLAMECORE )
+			}
+			else
 				titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT )
 		
             //Melee
@@ -673,9 +770,7 @@ void function BecomeLegion( entity titan, bool isPickup = false, bool isSpawning
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -696,9 +791,12 @@ void function BecomeLegion( entity titan, bool isPickup = false, bool isSpawning
 			player.s.shouldFPEmbark = false
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
-            if( GetTitanPassiveType( titan ) == "Defence" )
+            if( passiveType == "Defence" )
             {
                 titan.GiveOffhandWeapon("mp_titanability_gun_shield", OFFHAND_SPECIAL, ["pas_legion_gunshield"] )
                 GivePassive( titan, ePassives.PAS_LEGION_GUNSHIELD )
@@ -710,26 +808,38 @@ void function BecomeLegion( entity titan, bool isPickup = false, bool isSpawning
             titan.GiveOffhandWeapon("mp_titanability_ammo_swap", OFFHAND_ANTIRODEO )
 
 			//Offence
-            if( GetTitanPassiveType( titan ) == "Offence" )
+            if( passiveType == "Offence" )
+			{
 				titan.GiveOffhandWeapon("mp_titanability_power_shot", OFFHAND_ORDNANCE, ["pas_legion_chargeshot"] )
-            else
+				GivePassive( titan, ePassives.PAS_LEGION_CHARGESHOT )
+			}
+			else
                 titan.GiveOffhandWeapon("mp_titanability_power_shot", OFFHAND_ORDNANCE )
 
 			//Weapon
             if( !isPickup )
 			{
-                if( GetTitanPassiveType( titan ) == "Weapon" )
+                if( passiveType == "Weapon" )
+				{
                     titan.GiveWeapon ("mp_titanweapon_predator_cannon", ["pas_legion_weapon"])
-                if( GetTitanPassiveType( titan ) == "Tactical" )
+					GivePassive( titan, ePassives.PAS_LEGION_WEAPON)
+				}
+				if( passiveType == "Tactical" )
+				{
                     titan.GiveWeapon ("mp_titanweapon_predator_cannon", ["pas_legion_spinup"])
-                else
+					GivePassive( titan, ePassives.PAS_LEGION_SPINUP )
+				}
+				else
                     titan.GiveWeapon ("mp_titanweapon_predator_cannon")
             }
 
 			//Titan Core
-            if( GetTitanPassiveType( titan ) == "Core" )
+            if( passiveType == "Core" )
+			{
 				titan.GiveOffhandWeapon( "mp_titancore_siege_mode", OFFHAND_EQUIPMENT, ["pas_legion_smartcore"] )
-            else
+				GivePassive( titan, ePassives.PAS_LEGION_SMARTCORE )
+			}
+			else
 				titan.GiveOffhandWeapon( "mp_titancore_siege_mode", OFFHAND_EQUIPMENT )
 		
             //Melee
@@ -752,9 +862,7 @@ void function BecomeOgre( entity titan, bool isPickup = false, bool isSpawning =
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -775,6 +883,9 @@ void function BecomeOgre( entity titan, bool isPickup = false, bool isSpawning =
 			player.s.shouldFPEmbark = true
 			player.s.disableOffhandSmoke = true
 			player.s.classicExecution = true
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
 			titan.GiveOffhandWeapon("mp_titanweapon_heat_shield", OFFHAND_SPECIAL, ["ogre_shield"] )
@@ -817,9 +928,7 @@ void function BecomeBison( entity titan, bool isPickup = false, bool isSpawning 
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -842,6 +951,9 @@ void function BecomeBison( entity titan, bool isPickup = false, bool isSpawning 
 			player.s.shouldFPEmbark = false
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
 			titan.GiveOffhandWeapon("mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_bubble_shield", "molting_dome", "bison_dome"] )
@@ -878,9 +990,7 @@ void function BecomeMonarch( entity titan, bool isPickup = false, bool isSpawnin
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-            RemoveUnmatchedPassive( titan )
-
-            if( IsCoreActive( player ) )
+            if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -901,6 +1011,9 @@ void function BecomeMonarch( entity titan, bool isPickup = false, bool isSpawnin
 			player.s.shouldFPEmbark = false
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
+			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
 
 			//Defence
 			titan.GiveOffhandWeapon("mp_titanweapon_stun_laser", OFFHAND_SPECIAL )
@@ -941,9 +1054,7 @@ void function BecomeBrute4( entity titan, bool isPickup = false, bool isSpawning
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-			RemoveUnmatchedPassive( titan )
-
-			if( IsCoreActive( player ) )
+			if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -965,20 +1076,23 @@ void function BecomeBrute4( entity titan, bool isPickup = false, bool isSpawning
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
 			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
+			
 			//Defence
-			if( GetTitanPassiveType( titan ) == "Defence" )
+			if( passiveType == "Defence" )
 				titan.GiveOffhandWeapon("mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_bubble_shield", "molting_dome"] )
 			else
 				titan.GiveOffhandWeapon("mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_bubble_shield"] )
 
 			//Tactical
-			if( GetTitanPassiveType( titan ) == "Tactical" )
+			if( passiveType == "Tactical" )
 				titan.GiveOffhandWeapon("mp_titanability_rocketeer_ammo_swap", OFFHAND_ANTIRODEO, ["explosive_reserves"] )
 			else
 				titan.GiveOffhandWeapon("mp_titanability_rocketeer_ammo_swap", OFFHAND_ANTIRODEO )
 
 			//Offence
-			if( GetTitanPassiveType( titan ) == "Offence" )
+			if( passiveType == "Offence" )
 				titan.GiveOffhandWeapon("mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["grenade_launcher", "magnetic_rollers"] )
 			else
 				titan.GiveOffhandWeapon("mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["grenade_launcher"] )
@@ -986,14 +1100,14 @@ void function BecomeBrute4( entity titan, bool isPickup = false, bool isSpawning
 			//Weapon
 			if( !isPickup )
 			{
-				if( GetTitanPassiveType( titan ) == "Weapon" )
+				if( passiveType == "Weapon" )
 					titan.GiveWeapon ("mp_titanweapon_rocketeer_rocketstream", ["brute4_rocket_launcher", "straight_shot"])
 				else
 					titan.GiveWeapon ("mp_titanweapon_rocketeer_rocketstream", ["brute4_rocket_launcher"])
 			}
 
 			//Titan Core
-			if( GetTitanPassiveType( titan ) == "Core" )
+			if( passiveType == "Core" )
 				titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT, ["barrage_core", "rapid_detonator"] )
 			else
 				titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT, ["barrage_core"] )
@@ -1018,9 +1132,7 @@ void function BecomeArchon( entity titan, bool isPickup = false, bool isSpawning
 		}
 		if (IsValid( soul ) && IsValid( player ))
 		{
-			RemoveUnmatchedPassive( titan )
-
-			if( IsCoreActive( player ) )
+			if( IsTitanCoreFiring( player ) )
             {
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
@@ -1042,8 +1154,11 @@ void function BecomeArchon( entity titan, bool isPickup = false, bool isSpawning
 			player.s.disableOffhandSmoke = false
 			player.s.classicExecution = false
 			
+			string passiveType = expect string( player.s.titanPassiveType )
+			RemoveUnmatchedPassive( titan )
+			
 			//Defence
-			if( GetTitanPassiveType( titan ) == "Defence" )
+			if( passiveType == "Defence" )
 				titan.GiveOffhandWeapon("mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "shock_shield", "immobilizer_shield"] )
 			else
 				titan.GiveOffhandWeapon("mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "shock_shield"] )
@@ -1055,7 +1170,7 @@ void function BecomeArchon( entity titan, bool isPickup = false, bool isSpawning
 				titan.GiveOffhandWeapon("mp_titanability_laser_trip", OFFHAND_ANTIRODEO, ["tesla_node"] )
 
 			//Offence
-			if( GetTitanPassiveType( titan ) == "Offence" )
+			if( passiveType == "Offence" )
 				titan.GiveOffhandWeapon("mp_titanweapon_stun_laser", OFFHAND_ORDNANCE, ["charge_ball", "thylord_module"] )
 			else
 				titan.GiveOffhandWeapon("mp_titanweapon_stun_laser", OFFHAND_ORDNANCE, ["charge_ball"] )
@@ -1063,16 +1178,16 @@ void function BecomeArchon( entity titan, bool isPickup = false, bool isSpawning
 			//Weapon
 			if( !isPickup )
 			{
-				if( GetTitanPassiveType( titan ) == "Tactical" )
+				if( passiveType == "Tactical" )
 					titan.GiveWeapon ("mp_titanweapon_sniper", ["arc_cannon", "archon_arc_cannon", "archon_arc_cannon_charge_sound", "chain_reaction"])
-				else if( GetTitanPassiveType( titan ) == "Weapon" )
+				else if( passiveType == "Weapon" )
 					titan.GiveWeapon ("mp_titanweapon_sniper", ["arc_cannon", "archon_arc_cannon", "archon_arc_cannon_charge_sound", "generator_mod"])
 				else
 					titan.GiveWeapon ("mp_titanweapon_sniper", ["arc_cannon", "archon_arc_cannon", "archon_arc_cannon_charge_sound"])
 			}
 
 			//Titan Core
-			if( GetTitanPassiveType( titan ) == "Core" )
+			if( passiveType == "Core" )
 				titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT, ["storm_core", "bring_the_thunder"] )
 			else
 				titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT, ["storm_core"] )
@@ -1165,45 +1280,83 @@ void function RemoveUnmatchedPassive( entity titan )
         setFile != "titan_atlas_stickybomb" ||
         setFile != "titan_atlas_ion_prime"
     )
-        TakePassive( titan, ePassives.PAS_ION_WEAPON )
+	{
+		TakePassive( titan, ePassives.PAS_ION_TRIPWIRE )
+		TakePassive( titan, ePassives.PAS_ION_VORTEX )
+		TakePassive( titan, ePassives.PAS_ION_LASERCANNON )
+		TakePassive( titan, ePassives.PAS_ION_WEAPON )
+		TakePassive( titan, ePassives.PAS_ION_WEAPON_ADS )
+	}
 
     if(
         setFile != "titan_atlas_tracker" ||
         setFile != "titan_atlas_tone_prime"
     )
-        TakePassive( titan, ePassives.PAS_TONE_WALL )
+	{
+        TakePassive( titan, ePassives.PAS_TONE_BURST )
+		TakePassive( titan, ePassives.PAS_TONE_ROCKETS )
+		TakePassive( titan, ePassives.PAS_TONE_SONAR )
+		TakePassive( titan, ePassives.PAS_TONE_WALL )
+		TakePassive( titan, ePassives.PAS_TONE_WEAPON )
+	}
 
     if(
         setFile != "titan_stryder_leadwall" ||
         setFile != "titan_stryder_ronin_prime"
     )
-        TakePassive( titan, ePassives.PAS_RONIN_AUTOSHIFT )
+	{
+        TakePassive( titan, ePassives.PAS_RONIN_ARCWAVE )
+		TakePassive( titan, ePassives.PAS_RONIN_AUTOSHIFT )
+		TakePassive( titan, ePassives.PAS_RONIN_PHASE )
+		TakePassive( titan, ePassives.PAS_RONIN_SWORDCORE )
+		TakePassive( titan, ePassives.PAS_RONIN_WEAPON )
+	}
 
     if(
         setFile != "titan_stryder_sniper" ||
         setFile != "titan_stryder_northstar_prime"
     )
-        TakePassive( titan, ePassives.PAS_NORTHSTAR_FLIGHTCORE )
+	{
+        TakePassive( titan, ePassives.PAS_NORTHSTAR_CLUSTER )
+		TakePassive( titan, ePassives.PAS_NORTHSTAR_FLIGHTCORE )
+		TakePassive( titan, ePassives.PAS_NORTHSTAR_OPTICS )
+		TakePassive( titan, ePassives.PAS_NORTHSTAR_TRAP )
+		TakePassive( titan, ePassives.PAS_NORTHSTAR_WEAPON )
+	}
 
     if(
         setFile != "titan_ogre_meteor" ||
         setFile != "titan_ogre_scorch_prime"
     )
-        TakePassive( titan, ePassives.PAS_SCORCH_SELFDMG )
+	{
+        TakePassive( titan, ePassives.PAS_SCORCH_FIREWALL )
+		TakePassive( titan, ePassives.PAS_SCORCH_FLAMECORE )
+		TakePassive( titan, ePassives.PAS_SCORCH_SELFDMG )
+		TakePassive( titan, ePassives.PAS_SCORCH_SHIELD )
+		TakePassive( titan, ePassives.PAS_SCORCH_WEAPON )
+	}
 
     if(
         setFile != "titan_ogre_minigun" ||
         setFile != "titan_ogre_legion_prime"
     )
-        TakePassive( titan, ePassives.PAS_LEGION_GUNSHIELD )
+	{
+        TakePassive( titan, ePassives.PAS_LEGION_CHARGESHOT )
+		TakePassive( titan, ePassives.PAS_LEGION_GUNSHIELD )
+		TakePassive( titan, ePassives.PAS_LEGION_SMARTCORE )
+		TakePassive( titan, ePassives.PAS_LEGION_SPINUP )
+		TakePassive( titan, ePassives.PAS_LEGION_WEAPON )
+	}
 
 }
 
+// abandoned, respawn has IsTitanCoreFiring() which is better
 bool function IsCoreActive( entity titan )
 {
 	if( !titan.IsPlayer() )
 		return false
-	if( TitanCore_IsPlayerCoreActivating( titan ) )
+	//if( TitanCore_IsPlayerCoreActivating( titan ) ) // this function has been removed
+	if( IsTitanCoreFiring( titan ) )
 		return true
 	return false
 	
@@ -1230,4 +1383,3 @@ bool function IsCoreActive( entity titan )
     return false
 	*/
 }
-#endif
