@@ -14,10 +14,10 @@ const int REAPERS_PER_TEAM = 3
 const int TITANS_PER_TEAM = 5
 const int GUNSHIPS_PER_TEAM = 2
 
-const int MARVINS_PER_TEAM = 5
+const int MARVINS_PER_TEAM = 4
 
-const int SPAWNER_MAX_NPCS = 40
-const int SPAWNER_MAX_TICKS = 32
+const int SPAWNER_MAX_NPCS = 32
+const int SPAWNER_MAX_TICKS = 16
 
 ////////////////////////////
 ///// SETTINGS IN FILE /////
@@ -41,14 +41,17 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 {
 	SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
 
-	// modifier settings!
+	// rodeo modifier settings!
 	ClassicRodeo_SetEnabled( true )
 	ClassicRodeo_AllowContinouslyRipBattery( true ) // so you can rip battery all day long!
-	Rodeo_SetBatteryPickupAllowed( true ) // save for later...
+	ClassicRodeo_SetBatteryRemovalDamageAmped( true ) // rodeo will deal large damage to titans
+	ClassicRodeo_SetAdditionalDamageScale( 2.0 ) // since ripping battery is always, we should also deal additional damage on rodeo...
+	//Rodeo_SetBatteryPickupAllowed( true ) // don't let titans eat their own batteries!!!
 	Rodeo_SetWorldBatteryMaxCount( 32 )
-    SetUseCustomHighlight( true ) // custom highlight settings
-	SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
-	SetAltPilotChance( 2 )
+	
+	// no need to do this cause we hideName!
+    //SetUseCustomHighlight( true ) // custom highlight settings
+	//SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
 
 	// bull shit
 	SetFriendlyFireOn( true )
@@ -70,7 +73,8 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 
 	SetSyncedMeleeNoLimit( true ) // modified function in sh_melee.gnut, so player can do synced melee with no limit( even with no melee weapon )
 
-
+	SetTitanEmbarkAvaliableToAll( true ) // omg...
+	
 	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
 	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
 
@@ -82,10 +86,11 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 	AddCallback_NPCLeeched( OnSpectreLeeched )
 	AddSpawnCallback( "npc_spectre", BecomeSuicideSpectres )
     AddSpawnCallback( "npc_marvin", OverHealedMarvin )
-	//AddSpawnCallback( "npc_titan", EnableEmbarkToAllPlayers ) // unable to do this now
 
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
 	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+	AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
+	AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
 
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 
@@ -98,7 +103,7 @@ void function Modded_Gamemode_Extra_Spawner_Init()
 /////////////////////
 void function OnPlayerRespawned( entity player )
 {
-	
+	player.SetNameVisibleToFriendly( false )
 }
 
 void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
@@ -110,6 +115,18 @@ void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
 	player.GiveExtraWeaponMod( "pas_ordnance_pack" )
 	player.GiveExtraWeaponMod( "at_unlimited_ammo" )
 	player.GiveExtraWeaponMod( "fake_human_melee" )
+}
+
+void function OnPilotBecomesTitan( entity player, entity titan )
+{
+	// using HandlePlayerNameVisibility() now
+	//player.SetNameVisibleToFriendly( true )
+}
+
+void function OnTitanBecomesPilot( entity player, entity titan )
+{
+	// using HandlePlayerNameVisibility() now
+	//player.SetNameVisibleToFriendly( false )
 }
 
 void function OnPrematchStart()
@@ -130,8 +147,24 @@ void function OnPlaying()
 void function OnPlayerConnected( entity player )
 {
 	Remote_CallFunction_NonReplay( player, "ServerCallback_AITDM_OnPlayerConnected" )
+	thread HandlePlayerNameVisibility( player )
 }
 
+/////////////////////
+///// UTILITIES /////
+/////////////////////
+void function HandlePlayerNameVisibility( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	
+	while( true )
+	{
+		if( player.IsTitan() )
+			player.SetNameVisibleToFriendly( true )
+		else
+			player.SetNameVisibleToFriendly( false ) // the real annoying thing is your teammates!
+	}
+}
 
 ///////////////////////
 ///// SCORE EVENT /////
@@ -204,25 +237,6 @@ void function OverHealedMarvin( entity marvin )
     marvin.SetHealth( 9999 )
 }
 
-void function EnableEmbarkToAllPlayers( entity titan )
-{
-	thread TryEnableEmbarkToAllPlayers( titan )
-}
-
-void function TryEnableEmbarkToAllPlayers( entity titan )
-{
-	titan.EndSignal( "OnDestroy" )
-
-	while( true )
-	{
-		if( TitanHasNpcPilot( titan ) ) // titan has become pilot controled?
-			return
-		titan.SetUsable()
-		titan.SetUsableByGroup( "pilot" )
-		WaitFrame()
-	}
-}
-
 ///////////////////////
 ///// NPC SPAWNER /////
 ///////////////////////
@@ -248,12 +262,14 @@ void function Spawner( int team )
 		while( CalculateTotalNPCCountOfTeam( team ) > SPAWNER_MAX_NPCS )
 		{
 			CleanUpOverloadedTicks()
+			CleanUpBoredNPCPilots()
 
 			WaitFrame()
 		}
 
 		// MAKE SURE DO A CLEAN EVERY LOOP
 		CleanUpOverloadedTicks()
+		CleanUpBoredNPCPilots()
 
 		// SUICIDE SPECTRES
 		if ( CalculateTotalNPCCountOfTeam( team ) < SQUADS_PER_TEAM * 4 - 2 )
@@ -336,6 +352,16 @@ void function CleanUpOverloadedTicks()
 	{
 		if( IsValid( tickArray[0] ) )
 			tickArray[0].Destroy()
+	}
+}
+
+void function CleanUpBoredNPCPilots()
+{
+	array<entity> pilotArray = GetNPCArrayByClass( "npc_pilot_elite" )
+	if( GetNPCArray().len() > SPAWNER_MAX_NPCS ) // clean up ticks spawned by reapers
+	{
+		if( IsValid( pilotArray[0] ) )
+			pilotArray[0].Destroy()
 	}
 }
 
