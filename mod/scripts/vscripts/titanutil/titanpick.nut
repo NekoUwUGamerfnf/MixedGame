@@ -44,11 +44,11 @@ void function DropPlayerTitanWeapon( entity player, vector droppoint = < 9999,99
 void function DropPlayerTitanWeapon_Threaded( entity player, vector droppoint, vector dropangle )
 {
     array < entity > weapons = player.GetMainWeapons()
-    if( droppoint == < 9999,9999,9999 > )
+    if( droppoint == < 9999,9999,9999 > ) // hack, this means drop right under player or titan
     {
         droppoint = player.GetOrigin() + < 0,0,10 > //< -70,-20,20 >
     }
-    if( dropangle == < 9999,9999,9999 > )
+    if( dropangle == < 9999,9999,9999 > ) // hack, this means drop right under player or titan
     {
         dropangle = player.GetAngles() + < 0,0,10 >
         dropangle.x = 0
@@ -82,12 +82,18 @@ void function DropPlayerTitanWeapon_Threaded( entity player, vector droppoint, v
             tempweapon.weaponClassname = weapons[0].GetWeaponClassName()
             tempweapon.weaponModel = weaponmodel
             tempweapon.weaponMods = RemoveTacticalWeaponMods( weapons[0].GetMods() )
-            tempweapon.weaponAmmo = weapons[0].IsChargeWeapon() ? 0 : weapons[0].GetWeaponPrimaryClipCount()
-            tempweapon.weaponSkin = skin
+            tempweapon.weaponAmmo = 0
+			try // since chargeWeapons usually no need to save chargeFraction and tone's "burst loader" will be recognize as chargeWeapons, use a try{}catch{} is better
+			{
+				tempweapon.weaponAmmo = weapons[0].GetWeaponPrimaryClipCount()
+			}
+			catch(ex)
+			{}
+			tempweapon.weaponSkin = skin
             tempweapon.weaponCamo = camo
             droppedWeapons.append( tempweapon )
             
-            wait 30
+            wait 60 // life time
             droppedWeapons.fastremovebyvalue( tempweapon )
             if (IsValid(weaponmodel))
             {
@@ -117,10 +123,12 @@ void function ReplaceTitanWeapon( entity player, entity weaponmodel )
     array < entity > weapons = player.GetMainWeapons()
     if ( IsValid(player) && weapons.len() != 0 ) 
     {
-        if( weapons[0].IsChargeWeapon() )
-            weapons[0].SetWeaponChargeFraction( 0.0 )
-        else
+        try // since chargeWeapons usually no need to save chargeFraction and tone's "burst loader" will be recognize as chargeWeapons, use a try{}catch{} is better
+		{
             weapons[0].SetWeaponPrimaryClipCount( replacementWeapon.weaponAmmo )
+		}
+		catch(ex)
+		{}
         weapons[0].SetSkin( replacementWeapon.weaponSkin )
         weapons[0].SetCamo( replacementWeapon.weaponCamo )
         GiveOffhandsForWeaponReplace( player )
@@ -188,12 +196,12 @@ function GiveDroppedTitanWeapon( weaponmodel, player )
 	bool canPickUp = true
 	if( "disableTitanPick" in player.s )
 	{
-		canPickUp = expect bool( player.s.disableTitanPick )
+		canPickUp = !( expect bool( player.s.disableTitanPick ) )
 	}
 	if( !canPickUp )
 	{
 		string title = player.GetTitle()
-		SendHudMessage(player, title + " 不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
+		SendHudMessage(player, "当前机体不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1) // title + " 不可更换装备", will display a weird string for vanilla titans
 		return
 	}
 	if( IsTitanCoreFiring( player ) )
