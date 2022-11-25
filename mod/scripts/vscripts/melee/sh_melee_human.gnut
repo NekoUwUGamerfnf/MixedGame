@@ -121,7 +121,7 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 						if( isNerfedLunge )
 						{
 							if( Distance( player.GetOrigin(), lungeTarget.GetOrigin() ) > NERFED_LUNGE_RANGE )
-								thread DelayedCancelLunge( player ) // better nerf for client visual
+								thread DelayedCancelLunge( player ) // better nerf for client visual but... works pretty weird!!!
 						}
 						#endif
 					}
@@ -343,6 +343,22 @@ void function MeleeLungeClientVisualFix( entity player, entity meleeWeapon )
 	}
 }
 
+void function DelayedEnablePrediction( entity player )
+{
+	WaitFrame()
+	if( IsValid( player ) )
+		player.SetPredictionEnabled( true )
+}
+
+void function DelayedCancelLunge( entity player )
+{
+	wait 0.15 // for better client visual
+	if( IsAlive( player ) )
+	{
+		player.Lunge_SetTargetEntity( null, true )
+	}
+}
+
 bool function IsDoingMeleeKickEvent( entity player )
 {
 	if( ( !player.IsOnGround() && !player.IsWallRunning() ) || player.IsWallHanging() )
@@ -385,13 +401,15 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 		float clampRatio = 0.85
 		if ( ShouldClampTargetVelocity( targetVelocity, pushBackVelocity, clampRatio ) )
 			targetVelocity = pushBackVelocity * clampRatio
-		/*
+			
+		/* // not using this, really stupid
 		print( targetVelocity.z )
 		bool shouldAddVel = false
 		if( fabs( targetVelocity.z ) <= 150 )
 			shouldAddVel = true
 		print( fabs( targetVelocity.z ) )
 		*/
+		
 		if( target.IsOnGround() && targetVelocity.z <= 0 )
 			targetVelocity.z = -targetVelocity.z // in order to bounce players on ground
 
@@ -403,19 +421,22 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 			targetVelocity.z = magicNumber
 		//print( targetVelocity.z )
 		targetVelocity = ClampVerticalVelocity( targetVelocity, 550 ) // max velocity
-		/*
+		
+		/* // really annoying and useless
 		if( shouldAddVel ) // additional knockback
 		{
 			print( "Adding Velocity this time" )
 			targetVelocity.z = 150
 		}
 		*/
+		
 		// enemyTitan.SetVelocity( targetVelocity )
 		PushEntWithVelocity( target, targetVelocity )
 	}
 
 	player.Signal( "MeleeImpact" ) // restore groundfriction to make knockbacks work
-	//vector backVel = -0.5*pushBackVelocity + player.GetVelocity() // player receive less pushback
+	
+	//vector backVel = -0.5*pushBackVelocity + player.GetVelocity() // player receive less pushback, no need for now
 	vector backVel = -pushBackVelocity + player.GetVelocity() // player receive full pushback since we got ground frictions back
 	backVel.z = 20 // don't let player leave ground through this
 
@@ -428,13 +449,15 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 		}
 		if( IsValidMeleeState( player ) )
 		{
+			thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
 			PushEntWithVelocity( player, backVel )
 		}
 		return
 	}
 
 	// titan.SetVelocity( backVel )
-
+	
+	thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
 	PushEntWithVelocity( player, backVel )
 
 	if ( target.IsPlayer() && target.PlayerMelee_IsAttackActive() )
@@ -474,23 +497,26 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 	}
 	target.TakeDamage( damageAmount, player, player, damageTable )
 
-	player.PlayerMelee_EndAttack() // so no more freezelook
+	//player.PlayerMelee_EndAttack() // so no more freezelook
 }
 
-void function DelayedEnablePrediction( entity player )
+void function PushBackMeleeMoveLimiter( entity player )
 {
-	WaitFrame()
-	if( IsValid( player ) )
-		player.SetPredictionEnabled( true )
-}
-
-void function DelayedCancelLunge( entity player )
-{
-	wait 0.15 // for better client visual
-	if( IsAlive( player ) )
-	{
-		player.Lunge_SetTargetEntity( null, true )
-	}
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "MeleeImpact" )
+	
+	player.MovementDisable()
+	
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+				player.MovementEnable()
+		}
+	)
+	
+	wait 0.3 // magic number
 }
 
 void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
@@ -499,7 +525,7 @@ void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "MeleeImpact" )
 
-	float dashScale = 130//110
+	float dashScale = 130 // was 110
 	//if( player.IsSprinting() )
 	//	dashScale = 130
 
@@ -508,9 +534,12 @@ void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
 		return
 	
 	WaitFrame()
+
 	vector viewVector = player.GetViewVector() * dashScale
 	viewVector.z = 0
-	player.SetGroundFrictionScale( 0 )
+	vector targetVelocity = player.GetVelocity() + viewVector
+	
+	player.SetGroundFrictionScale( 0 ) 
 	OnThreadEnd(
 		function(): ( player )
 		{
@@ -518,7 +547,8 @@ void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
 				player.SetGroundFrictionScale( 1 )
 		}
 	)
-	player.SetVelocity( player.GetVelocity() + viewVector )
+	
+	player.SetVelocity( targetVelocity )
 
 	wait 0.2
 }
