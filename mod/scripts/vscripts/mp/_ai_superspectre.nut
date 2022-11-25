@@ -474,6 +474,7 @@ void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSetti
 
 			waitthread PlayAnim( reaper, "sspec_speclaunch_fire" )
 		}
+		WaitFrame() // whatever we do, a WaitFrame() is good to have!
 	}
 
 	waitthread PlayAnim( reaper, "sspec_speclaunch_to_idle" )
