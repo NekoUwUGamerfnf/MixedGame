@@ -5,8 +5,17 @@ global function ClassicRodeo_InitPlaylistVars
 #if SERVER
 global function CreateClassicRodeoWeakpoint
 
-const array<int> ELECTRIC_SMOKE_DAMAGETYPES = [ eDamageSourceId.mp_titanability_smoke, 
-									 			eDamageSourceId.mp_weapon_grenade_electric_smoke ]
+// handling hardcoded nerf!
+const array<int> NO_ADDITIONAL_DAMAGE_DAMAGESOURCES = [ eDamageSourceId.mp_weapon_defender
+											    ]
+const array<int> ELECTRIC_SMOKE_DAMAGESOURCES = [ eDamageSourceId.mp_titanability_smoke, 
+												  //eDamageSourceId.mp_titanability_electric_smoke,
+									 			  eDamageSourceId.mp_weapon_grenade_electric_smoke ]
+												
+struct
+{
+	float classicRodeoAdditionalDamage = 1.5 // default additional damage value, should make it changable through playlistVars
+} file
 #endif
 
 
@@ -118,11 +127,21 @@ void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 	// most weapons in ttf2 don't have damage_rodeo, let's use it's damage_near_value_titanarmor
 	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	bool shouldMultiplyDamage = true
 	int rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
-	bool canNormallyDamage = attackerWeapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
-	if( canNormallyDamage )
+	
+	bool shouldMultiplyDamage = true
+	if( NO_ADDITIONAL_DAMAGE_DAMAGESOURCES.contains( damageSourceID ) ) // hardcoded nerf
 		shouldMultiplyDamage = false
+	
+	// not using these check now, since we have done hitbox changes, grenadiers can cause really high damage to player themselves
+	//bool canNormallyDamage = attackerWeapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+	//if( canNormallyDamage )
+	//	shouldMultiplyDamage = false
+	
+	// can't get right condition
+	//if( attackerWeapon.GetWeaponType() == WT_ANTITITAN ) // antiTitan weapons such as defender, can deal so much damage, so don't multiply it
+	//	shouldMultiplyDamage = false
+	
 	float damageScale = attackerWeapon.GetWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
 
 	if( IsValid( inflictor ) )
@@ -149,18 +168,20 @@ void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 			shouldMultiplyDamage = false
 		}
 	}
-	else if( ELECTRIC_SMOKE_DAMAGETYPES.contains( damageSourceID ) ) // hardcoded here
+	else if( ELECTRIC_SMOKE_DAMAGESOURCES.contains( damageSourceID ) ) // hardcoded here
 	{
 		return // don't do additional damage for smokes
 		//rodeoDamage = 300 // electric smoke grenade's damage per tick
 		//shouldMultiplyDamage = false
 	}
 	if( shouldMultiplyDamage )
-		rodeoDamage = int( rodeoDamage * damageScale * 2.0 )
+		rodeoDamage = int( rodeoDamage * damageScale * file.classicRodeoAdditionalDamage )
+	else
+		rodeoDamage = int( rodeoDamage * damageScale ) // no additional damage
 
 	//print( rodeoDamage )
-	// damage titanSoul, make sure DF_BYPASS_SHIELD	is a thing for proper behaviour. DF_RODEO is decided in IsRodeoDamage() so no need to add here
-	titan.TakeDamage( rodeoDamage, attacker, attackerWeapon, { damageSourceId = eDamageSourceId.rodeo, scriptType = DamageInfo_GetCustomDamageType( damageInfo ) | DF_BYPASS_SHIELD | DF_CRITICAL } )
+	// damage titanSoul, make sure DF_BYPASS_SHIELD	is a thing for proper behaviour. adding DF_RODEO now
+	titan.TakeDamage( rodeoDamage, attacker, attackerWeapon, { damageSourceId = eDamageSourceId.rodeo, scriptType = DamageInfo_GetCustomDamageType( damageInfo ) | DF_RODEO | DF_BYPASS_SHIELD | DF_CRITICAL } )
 	
 	// hitmarker, automatically triggered by "target.TakeDamage()"
 	//attacker.NotifyDidDamage( weakpoint, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ) | DF_CRITICAL, rodeoDamage, DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )

@@ -1675,7 +1675,10 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 
 	int damageAmount = GetSegmentHealthForTitan( victim )
 	
-	bool isGrenadeDamage = !PlayerHasBattery( attacker )
+	bool isGrenadeDamage = PlayerHasBattery( attacker )
+	if( ClassicRodeo_IsEnabled() && ClassicRodeo_GetSoulBatteryCount( victimTitanSoul ) >= 1 )
+		isGrenadeDamage = false // check for classicRodeo conditions: if victimTitan has battery left, then it must be a batteryRemoval rodeo
+		
 	// classic rodeo grenade is amped
 	if ( isGrenadeDamage && !ClassicRodeo_IsEnabled() ) //i.e. you are throwing a grenade
 		damageAmount /= 2
@@ -1702,10 +1705,12 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 		hitbox = 2
 	}
 	
+	//print( !isGrenadeDamage && ClassicRodeo_IsEnabled() )
 	if( !isGrenadeDamage && ClassicRodeo_IsEnabled() ) // confirm it's batteryStyle damage
 	{
-		// take additional to remove all shields
-		victim.TakeDamage( victim.GetSheildHealth(), attacker, attacker, damageTable )
+		// take additional damage to remove all shields. victim.GetShieldHealth() won't work for titans! have to track soul's shield amount
+		victim.TakeDamage( victimTitanSoul.GetShieldHealth(), attacker, attacker, damageTable )
+		//victimTitanSoul.SetShieldHealth( 0 ) // this won't give player additional titanMeters, maybe better?
 		entity coreWeapon = victim.GetOffhandWeapon( OFFHAND_EQUIPMENT )
 		if( IsValid( coreWeapon ) )
 		{
@@ -1719,9 +1724,19 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 		}
 	}
 	if( ClassicRodeo_IsEnabled() ) // classic rodeo behavior: bypass shields, works both for batteryRemoval and grenadeThrow
-		damageTable[0] = damageScriptType | DF_BYPASS_SHIELD
-	
-	victim.TakeDamage( damageAmount, attacker, attacker, damageTable )
+	{
+		table newDamageTable =
+		{
+			scriptType = damageScriptType | DF_BYPASS_SHIELD
+			forceKill = false
+			damageSourceId = eDamageSourceId.rodeo_battery_removal
+			origin = victim.GetOrigin()
+			hitbox = 2
+		}
+		victim.TakeDamage( damageAmount, attacker, attacker, newDamageTable )
+	}
+	else
+		victim.TakeDamage( damageAmount, attacker, attacker, damageTable )
 	if ( victim.IsNPC() )
 		victim.SetEnemyLKP( attacker, attacker.GetOrigin() )
 
