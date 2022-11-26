@@ -1,10 +1,20 @@
+// 11.27: Changed all settings to "titan_soul" entity instead of player
 untyped // I really don't like this thing but .SetPlayerSettings() need it...
 
+global function TitanReplace_Enabled_Init // for enabling in loadedinits_after
 global function TitanReplace_Init
 
 global function GetTitanPassiveType
 global function RemoveUnmatchedPassive
 global function IsCoreActive // abandoned function, using IsTitanCoreFiring() now
+
+///// acrossFile utilities
+global function TitanReplace_SetTitanLoadoutReplace
+global function TitanReplace_InitEntitySettings
+global function TitanReplace_ResetEntitySettings
+global function TitanReplace_ApplySettingsAcrossEntity
+
+///// titanType utilities
 global function BecomeIon
 global function BecomeTone
 global function BecomeAtlas
@@ -20,28 +30,78 @@ global function BecomeBrute4
 global function BecomeArchon
 
 
-const array<string> moddedPlayers = ["1007270968017", "1003302185211", "2311706887", "1011338569992", "1007340426216", "1010087865132", "1007606851794", "1000374987953", "1006403284636", "1007932882179", "1011146305825", "1006393068081", "1011667472349", "1007468387616", "1003338759893", "1008061878974", "1013455793584", "1006799764479"]
-//me, dz, mite, g41, Jerry_Wang#8123, chillyue#5400, 军团#7939, .RCtd#0852, wodemaya#0028, 抑郁寡欢Z骡子#1903, H_A#3930, 一位屑中屑的屑铁驭屑铁驭#3838, COOPER#7592, LOGIC0214( logic#0886 ), R9390X#1342, Kyogre416#1123, 114514#1281, ILoveSteam#6158
+const array<string> moddedPlayers = [ "1007270968017", 	// VoyageDB
+									  "1003302185211", 	// DZ
+									  "2311706887", 	// mite
+									  "1011338569992", 	// G41
+									  "1007340426216", 	// Jerry_Wang#8123
+									  "1010087865132", 	// chillyue#5400
+									  "1007606851794", 	// 军团#7939
+									  "1000374987953", 	// RCtd#0852
+									  "1006403284636", 	// wodemaya#0028
+									  "1007932882179", 	// 抑郁寡欢Z骡子#1903
+									  "1011146305825", 	// H_A#3930
+									  "1006393068081", 	// 一位屑中屑的屑铁驭屑铁驭#3838
+									  "1011667472349", 	// COOPER#7592
+									  "1007468387616", 	// LOGIC0214( logic#0886 )
+									  "1003338759893", 	// R9390X#1342
+									  "1008061878974", 	// yogre416#1123
+									  "1013455793584", 	// 114514#1281
+									  "1006799764479"	// ILoveSteam#6158
+									  ]
+
+struct
+{
+	bool defaultReplaceEnabled = false
+} file
+
+void function TitanReplace_Enabled_Init()
+{
+	file.defaultReplaceEnabled = true
+}
 
 void function TitanReplace_Init() 
 {
-		AddSpawnCallback( "npc_titan", OnTitanSpawned )
-		AddCallback_OnPlayerKilled( OnTitanKilled )
-    	AddCallback_OnNPCKilled( OnTitanKilled )
-		AddCallback_OnPilotBecomesTitan( SetPlayerTitanTitle )
-		AddCallback_OnTitanBecomesPilot( SetOffhandSmokeStat )
-		AddCallback_GameStateEnter( eGameState.Prematch, TitanSettingsFix )
-		// register things for ingame script
-		if( GetGameState() >= eGameState.Prematch )
-		{
-			foreach( entity player in GetPlayerArray() )
-				InitPlayerStat( player )
-		}
-		AddCallback_OnClientConnected( InitPlayerStat )
+	AddSpawnCallback( "npc_titan", OnTitanSpawned )
+	AddCallback_OnPilotBecomesTitan( SetPlayerTitanTitle )
+
+	/* // all replaced by the usage of "titanSoul"
+	AddCallback_OnPlayerKilled( OnTitanKilled ) // clean up settings on players, no need since we now using titanSouls
+	AddCallback_OnNPCKilled( OnTitanKilled ) // clean up settings on players, no need since we now using titanSouls
+	AddCallback_OnTitanBecomesPilot( SetOffhandSmokeStat ) // in sv_earn_meter.gnut it's now using "titanSoul.s.disableOffhandSmoke"
+	AddCallback_GameStateEnter( eGameState.Prematch, TitanSettingsFix ) // reset every prematch, no need since we now using titanSouls
+	
+	// init for players, no need since we now using titanSouls
+	// register things for ingame script
+	if( GetGameState() >= eGameState.Prematch )
+	{
+		foreach( entity player in GetPlayerArray() )
+			InitPlayerStat( player )
+	}
+	AddCallback_OnClientConnected( TitanReplace_InitEntitySettings )
+	*/
+}
+
+void function TitanReplace_SetEnabled( bool enabled )
+{
+	file.defaultReplaceEnabled = enabled
 }
 
 void function OnTitanSpawned( entity titan )
 {
+	TitanReplace_SetTitanLoadoutReplace( titan )
+}
+
+void function TitanReplace_SetTitanLoadoutReplace( entity titan )
+{
+	// always init everything
+	entity titanSoul = titan.GetTitanSoul()
+	if( !IsValid( titanSoul ) ) // soul not spawned yet, mostly because disembarking, no worries
+		return
+	TitanReplace_InitEntitySettings( titanSoul ) // init! robbed monarch from npc pilots won't upgrade your weapons( shield regen only ), which means it's no need to setting a "titanSoul.s.disableTitanPick" for them. perfect
+	titanSoul.s.titanPassiveType = GetTitanPassiveType( titan ) // for checking player's passiveType
+
+	// following are player titans( pet titans )
 	entity player = GetPetTitanOwner( titan )
 	if( !IsValid( player ) )
 		return
@@ -49,19 +109,13 @@ void function OnTitanSpawned( entity titan )
 	bool isTitanDropping = expect bool( player.s.replacementDropInProgress )
 	if( !isTitanDropping )
 		return
-	SetTitanLoadoutReplace( titan )
-}
-
-void function SetTitanLoadoutReplace( entity titan )
-{
-	entity player = GetPetTitanOwner( titan )
-	if( !IsValid( player ) )
+	if( !file.defaultReplaceEnabled ) // init done, following things won't run if settings disabled
 		return
-	player.s.titanPassiveType = GetTitanPassiveType( titan ) // for checking player's passiveType
+
 	if( titan.GetModelName() == $"models/titans/medium/titan_medium_vanguard.mdl" ||
 		titan.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
 	{
-		player.s.disableTitanPick = true // setting players unable to replace weapons from ground
+		titanSoul.s.disableTitanPick = true // setting players unable to replace weapons from ground
 	}
 	if( titan.GetModelName() == $"models/titans/medium/titan_medium_tone_prime.mdl" )
 	{
@@ -81,7 +135,7 @@ void function SetTitanLoadoutReplace( entity titan )
 	if( titan.GetModelName() == $"models/titans/heavy/titan_heavy_scorch_prime.mdl" )
 	{
 		SendHudMessage(player, "已启用野牛泰坦装备，取消至尊泰坦以使用原版烈焰",  -1, 0.3, 200, 200, 225, 255, 0.15, 5, 1);
-		player.s.disableTitanPick = true // setting players unable to replace weapons from ground
+		titanSoul.s.disableTitanPick = true // setting players unable to replace weapons from ground
 		BecomeBison( titan, false, true )
 	}
 	//temp fix
@@ -90,17 +144,27 @@ void function SetTitanLoadoutReplace( entity titan )
 	if( titan.GetModelName() == $"models/titans/medium/titan_medium_ion_prime.mdl" )
 	{
 		SendHudMessage(player, "已启用执政官泰坦装备，取消至尊泰坦以使用原版离子",  -1, 0.3, 200, 200, 225, 255, 0.15, 5, 1);
-		player.s.disableTitanPick = true // setting players unable to replace weapons from ground
+		titanSoul.s.disableTitanPick = true // setting players unable to replace weapons from ground
 		BecomeArchon( titan, false, true )
 	}
 	if( titan.GetModelName() == $"models/titans/light/titan_light_northstar_prime.mdl" )
 	{
 		SendHudMessage(player, "已启用野兽四号泰坦装备，取消至尊泰坦以使用原版北极星",  -1, 0.3, 200, 200, 225, 255, 0.15, 5, 1);
-		player.s.disableTitanPick = true // setting players unable to replace weapons from ground
+		titanSoul.s.disableTitanPick = true // setting players unable to replace weapons from ground
 		BecomeBrute4( titan, false, true )
 	}
 }
 
+void function SetPlayerTitanTitle( entity player, entity titan )
+{
+	entity titanSoul = titan.GetTitanSoul()
+	if( !IsValid( titanSoul ) )
+		return
+	if( titanSoul.s.titanTitle != "" )
+		player.SetTitle( titanSoul.s.titanTitle )
+}
+
+/*
 void function OnTitanKilled( entity victim, entity attacker,var damageInfo )
 {
 	if( !victim.IsTitan() )
@@ -108,62 +172,69 @@ void function OnTitanKilled( entity victim, entity attacker,var damageInfo )
 	// Clean up settings!
 	if( victim.IsPlayer() )
 	{
-		victim.s.titanTitle = ""
-		victim.s.shouldFPEmbark = false
-		victim.s.disableOffhandSmoke = false
-		victim.s.classicExecution = false
-		victim.s.titanPassiveType = ""
-		victim.s.disableTitanPick = false
+		TitanReplace_ResetEntitySettings( victim )
 	}
 	else if( IsPetTitan( victim ) )
 	{
-		entity owner = GetPetTitanOwner(victim)
+		entity owner = GetPetTitanOwner( victim )
 		if( !IsValid( owner ) )
 			return
 		if( owner.IsPlayer() )
 		{
-			owner.s.titanTitle = ""
-			owner.s.shouldFPEmbark = false
-			owner.s.disableOffhandSmoke = false
-			owner.s.classicExecution = false
-			owner.s.titanPassiveType = ""
-			owner.s.disableTitanPick = false
+			TitanReplace_ResetEntitySettings( owner )
 		}
 	}
 }
+*/
 
-void function SetPlayerTitanTitle( entity player, entity titan )
-{
-	if( player.s.titanTitle != "" )
-		player.SetTitle( player.s.titanTitle )
-}
-
+/* // in sv_earn_meter.gnut it's now using "titanSoul.s.disableOffhandSmoke"
 void function SetOffhandSmokeStat( entity player, entity titan )
 {
 	titan.s.disableOffhandSmoke <- player.s.disableOffhandSmoke
 }
+*/
 
+/*
 void function TitanSettingsFix()
 {
 	foreach( entity player in GetPlayerArray() )
 	{
-		player.s.titanTitle = ""
-		player.s.shouldFPEmbark = false
-		player.s.disableOffhandSmoke = false
-		player.s.titanPassiveType = ""
-		player.s.disableTitanPick = false
+		TitanReplace_ResetEntitySettings( player )
 	}
 }
+*/
 
-void function InitPlayerStat( entity player )
+///// settings functions!
+void function TitanReplace_InitEntitySettings( entity ent ) // both using for players and titanSouls
 {
-	player.s.titanTitle <- "" 				// string
-	player.s.shouldFPEmbark <- false 		// bool
-	player.s.disableOffhandSmoke <- false 	// bool
-	player.s.classicExecution <- false 		// bool
-	player.s.titanPassiveType <- ""			// string
-	player.s.disableTitanPick <- true		// bool
+	ent.s.titanTitle <- "" 				// string
+	ent.s.shouldFPEmbark <- false 		// bool
+	ent.s.disableOffhandSmoke <- false 	// bool
+	ent.s.classicExecution <- false 	// bool
+	ent.s.titanPassiveType <- ""		// string
+	ent.s.disableTitanPick <- false		// bool
 }
+
+void function TitanReplace_ResetEntitySettings( entity ent )
+{
+	ent.s.titanTitle = ""
+	ent.s.shouldFPEmbark = false
+	ent.s.disableOffhandSmoke = false
+	ent.s.classicExecution = false
+	ent.s.titanPassiveType = ""
+	ent.s.disableTitanPick = false
+}
+
+void function TitanReplace_ApplySettingsAcrossEntity( entity baseEnt, entity targetEnt )
+{
+	targetEnt.s.titanTitle = baseEnt.s.titanTitle
+	targetEnt.s.shouldFPEmbark = baseEnt.s.shouldFPEmbark
+	targetEnt.s.disableOffhandSmoke = baseEnt.s.shouldFPEmbark
+	targetEnt.s.classicExecution = baseEnt.s.shouldFPEmbark
+	targetEnt.s.titanPassiveType = baseEnt.s.shouldFPEmbark
+	targetEnt.s.disableTitanPick = baseEnt.s.shouldFPEmbark
+}
+///////////
 
 void function BecomeIon( entity titan, bool isPickup = false, bool isSpawning = false )
 {
@@ -196,12 +267,12 @@ void function BecomeIon( entity titan, bool isPickup = false, bool isSpawning = 
             	SendHudMessage( player, "更换至 离子 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
 				player.SetTitle( "離子" )
 			}
-			player.s.titanTitle = "離子"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
+			soul.s.titanTitle = "離子"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
 			
-			string passiveType = expect string( player.s.titanPassiveType )
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -290,12 +361,12 @@ void function BecomeTone( entity titan, bool isPickup = false, bool isSpawning =
             	SendHudMessage( player, "更换至 强力 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
 				player.SetTitle( "強力" )
 			}
-			player.s.titanTitle = "強力"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "強力"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -382,12 +453,12 @@ void function BecomeAtlas( entity titan, bool isPickup = false, bool isSpawning 
             	SendHudMessage( player, "更换至 天图 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "天圖" )
 			}
-			player.s.titanTitle = "天圖"
-			player.s.shouldFPEmbark = true
-			player.s.disableOffhandSmoke = true
-			player.s.classicExecution = true
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "天圖"
+			soul.s.shouldFPEmbark = true
+			soul.s.disableOffhandSmoke = true
+			soul.s.classicExecution = true
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -446,12 +517,12 @@ void function BecomeRonin( entity titan, bool isPickup = false, bool isSpawning 
            		SendHudMessage( player, "更换至 浪人 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "浪人" )
 			}
-			player.s.titanTitle = "浪人"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
+			soul.s.titanTitle = "浪人"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
 
-			string passiveType = expect string( player.s.titanPassiveType )
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -538,12 +609,12 @@ void function BecomeNorthstar( entity titan, bool isPickup = false, bool isSpawn
             	SendHudMessage( player, "更换至 北极星 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "北極星" )
 			}
-			player.s.titanTitle = "北極星"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "北極星"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -633,12 +704,12 @@ void function BecomeStryder( entity titan, bool isPickup = false, bool isSpawnin
             	SendHudMessage( player, "更换至 游侠 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "游俠" )
 			}
-			player.s.titanTitle = "游俠"
-			player.s.shouldFPEmbark = true
-			player.s.disableOffhandSmoke = true
-			player.s.classicExecution = true
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "游俠"
+			soul.s.shouldFPEmbark = true
+			soul.s.disableOffhandSmoke = true
+			soul.s.classicExecution = true
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -698,12 +769,12 @@ void function BecomeScorch( entity titan, bool isPickup = false, bool isSpawning
             	SendHudMessage( player, "更换至 烈焰 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "烈焰" )
 			}
-			player.s.titanTitle = "烈焰"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "烈焰"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -787,12 +858,12 @@ void function BecomeLegion( entity titan, bool isPickup = false, bool isSpawning
             	SendHudMessage( player, "更换至 军团 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "軍團" )
 			}
-			player.s.titanTitle = "軍團"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "軍團"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -879,12 +950,12 @@ void function BecomeOgre( entity titan, bool isPickup = false, bool isSpawning =
             	SendHudMessage( player, "更换至 巨妖 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "巨妖" )
 			}
-			player.s.titanTitle = "巨妖"
-			player.s.shouldFPEmbark = true
-			player.s.disableOffhandSmoke = true
-			player.s.classicExecution = true
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "巨妖"
+			soul.s.shouldFPEmbark = true
+			soul.s.disableOffhandSmoke = true
+			soul.s.classicExecution = true
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -947,12 +1018,12 @@ void function BecomeBison( entity titan, bool isPickup = false, bool isSpawning 
             	SendHudMessage( player, "更换至 野牛 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "野牛" )
 			}
-			player.s.titanTitle = "野牛"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "野牛"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -1007,12 +1078,12 @@ void function BecomeMonarch( entity titan, bool isPickup = false, bool isSpawnin
             	SendHudMessage( player, "更换至 帝王 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
             	player.SetTitle( "帝王" )
 			}
-			player.s.titanTitle = "帝王"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "帝王"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 
 			//Defence
@@ -1071,12 +1142,12 @@ void function BecomeBrute4( entity titan, bool isPickup = false, bool isSpawning
 				SendHudMessage( player, "更换至 野兽四号 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
 				player.SetTitle( "野獸四號" )
 			}
-			player.s.titanTitle = "野獸四號"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "野獸四號"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 			
 			//Defence
@@ -1149,12 +1220,12 @@ void function BecomeArchon( entity titan, bool isPickup = false, bool isSpawning
 				SendHudMessage( player, "更换至 执政官 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
 				player.SetTitle( "執政官" )
 			}
-			player.s.titanTitle = "執政官"
-			player.s.shouldFPEmbark = false
-			player.s.disableOffhandSmoke = false
-			player.s.classicExecution = false
-			
-			string passiveType = expect string( player.s.titanPassiveType )
+			soul.s.titanTitle = "執政官"
+			soul.s.shouldFPEmbark = false
+			soul.s.disableOffhandSmoke = false
+			soul.s.classicExecution = false
+
+			string passiveType = expect string( soul.s.titanPassiveType )
 			RemoveUnmatchedPassive( titan )
 			
 			//Defence

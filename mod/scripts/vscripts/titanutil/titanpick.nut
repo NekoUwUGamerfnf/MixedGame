@@ -195,10 +195,14 @@ function GiveDroppedTitanWeapon( weaponmodel, player )
     expect entity(weaponmodel)
 	
 	bool canPickUp = true
-	if( "disableTitanPick" in player.s )
-	{
-		canPickUp = !( expect bool( player.s.disableTitanPick ) )
-	}
+    entity soul = player.GetTitanSoul()
+    if( IsValid( soul ) )
+    {
+        if( "disableTitanPick" in soul.s )
+        {
+            canPickUp = !( expect bool( soul.s.disableTitanPick ) )
+        }
+    }
 	if( !canPickUp )
 	{
 		string title = player.GetTitle()
