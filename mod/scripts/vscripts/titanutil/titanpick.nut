@@ -117,7 +117,8 @@ void function ReplaceTitanWeapon( entity player, entity weaponmodel )
     if( replacementWeapon.weaponModel == null )
         return
 
-    player.TakeWeaponNow( player.GetMainWeapons()[0].GetWeaponClassName() )
+    if( player.GetMainWeapons().len() > 0 )
+        player.TakeWeaponNow( player.GetMainWeapons()[0].GetWeaponClassName() )
     player.GiveWeapon( replacementWeapon.weaponClassname, replacementWeapon.weaponMods )
     player.SetActiveWeaponByName( replacementWeapon.weaponClassname )
     array < entity > weapons = player.GetMainWeapons()
