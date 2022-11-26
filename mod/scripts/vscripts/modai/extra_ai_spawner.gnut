@@ -179,7 +179,7 @@ void function Reaper_Spawnpoint( vector origin, int team, float impactTime, bool
 
 	int index = GetParticleSystemIndex( $"P_ar_titan_droppoint" )
 
-	if( hasFriendlyWarning )
+	if( hasFriendlyWarning || IsFriendlyFireOn() ) // also warn friendly players, if we enabled friendly fire...
 	{
 		entity effectFriendly = StartParticleEffectInWorld_ReturnEntity( index, origin, surfaceNormal )
 		SetTeam( effectFriendly, team )
@@ -372,6 +372,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	entity titan = ExtraSpawner_SpawnTitanForPilot( pilot, pos, rot ) // send titan a little bit later
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
+	thread ForceStartTitan( titan, pilot, 10 ) // to fit ownerLifeTimeCheck(), if pilot died instantly we stand the titan
 	wait 2
 	
 	ActivateFireteamDropPod( pod, [ pilot ] )
@@ -404,7 +405,6 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	thread NpcPilotRunsToEmbarkTitan( pilot, titan )
 	wait 2.0
 	
-	thread ForceStartTitan( titan, pilot )
 	waitthread NpcPilotRunsToEmbarkTitan( pilot, titan )
 	
 	thread NpcPilotEmbarksTitan( pilot, titan )
@@ -454,9 +454,48 @@ void function PilotSpawnProtection( entity pilot, float duration )
 	pilot.ClearInvulnerable() // if pilots're killed before titan lands their titan will stuck in the sky!
 }
 
-void function ForceStartTitan( entity titan, entity pilot )
+void function ForceStartTitan( entity titan, entity pilot, float delay )
 {
-	wait 10
+	pilot.EndSignal( "OnDeath" )
+	pilot.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function():( titan, pilot )
+		{
+			if( IsAlive( pilot ) )
+			{
+				if( IsAlive( titan ) )
+				{
+					titan.SetOwner( pilot )
+					NPCFollowsNPC( titan, pilot )
+					pilot.Signal( "ForceStartMove" )
+					if( titan.ContextAction_IsBusy() ) // embarking?
+						return
+					thread ExtraSpawner_PilotHandler( pilot ) // titan will follow the pilot
+					thread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
+					titan.ClearInvulnerable()
+					pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
+				}
+			}
+			else
+			{
+				if( IsAlive( titan ) )
+				{
+					if( titan.GetTitanSoul().soul.seatedNpcPilot.isValid )
+						return
+					thread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
+					titan.ClearInvulnerable()
+					thread ExtraSpawner_TitanHandler( titan )
+				}
+			}
+		}
+	)
+
+	titan.WaitSignal( "TitanHotDropComplete" )
+	wait delay
+
+	/* // moving into OnThreadEnd()
 	if( IsAlive( pilot ) )
 	{
 		if( IsAlive( titan ) )
@@ -487,6 +526,7 @@ void function ForceStartTitan( entity titan, entity pilot )
 			thread ExtraSpawner_TitanHandler( titan )
 		}
 	}
+	*/
 }
 
 entity function ExtraSpawner_SpawnTitanForPilot( entity pilot, vector pos, vector rot )
@@ -547,8 +587,32 @@ entity function ExtraSpawner_SpawnTitanForPilot( entity pilot, vector pos, vecto
 
 	NpcPilotSetPetTitan( pilot, titan )
 	thread NPCTitanHotdrops( titan, false )
+	thread PetTitanOwnerLifeTimeCheck( titan, pilot ) // avoid titan being stuck in the sky! this happens if pilot died while titan dropping
 
 	return titan
+}
+
+void function PetTitanOwnerLifeTimeCheck( entity titan, entity owner )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDestroy" )
+
+	table data = {}
+	data.dropSuccess <- false
+
+	OnThreadEnd(
+		function(): ( titan, data )
+		{
+			if( data.dropSuccess ) // successfully dropped to ground, maybe it can stand up after owner died
+				return
+			if( IsValid( titan ) ) 
+				titan.Destroy() // ded.
+		}
+	)
+
+	titan.WaitSignal( "TitanHotDropComplete" )
+	data.dropSuccess = true
 }
 
 /*
@@ -1006,7 +1070,7 @@ void function HighlightDropPod( entity pod )
 void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, int team, string reaperSettings = "npc_super_spectre_aitdm", string tickSettings = "npc_frag_drone" )
 {
 	// nessie fix
-	thread Reaper_Spawnpoint( pos, team, 11.2 )
+	thread Reaper_Spawnpoint( pos, team, 11.2 ) 
 
 	wait 10
 	entity reaper = CreateSuperSpectre( team, pos, rot )

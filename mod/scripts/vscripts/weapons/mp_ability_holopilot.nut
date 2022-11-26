@@ -315,11 +315,14 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 		EmitSoundOnEntityToTeam( decoy, "holopilot_loop", friendlyTeam  ) //loopingSound
 		EmitSoundOnEntityToEnemies( decoy, "holopilot_loop_enemy", friendlyTeam  ) ///loopingSound
 		decoy.decoy.loopingSounds = [ "holopilot_loop", "holopilot_loop_enemy" ]
-	}
-	if( !isInfiniteDecoy )
-	{
 		Highlight_SetFriendlyHighlight( decoy, "friendly_player_decoy" )
 		Highlight_SetOwnedHighlight( decoy, "friendly_player_decoy" )
+	}
+	else
+	{
+		decoy.SetNameVisibleToOwner( false )
+		decoy.SetNameVisibleToFriendly( false )
+		decoy.SetNameVisibleToEnemy( false )
 	}
 	decoy.e.hasDefaultEnemyHighlight = true
 	SetDefaultMPEnemyHighlight( decoy )

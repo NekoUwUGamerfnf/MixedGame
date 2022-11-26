@@ -77,6 +77,9 @@ function AiPilots_Init()
 	// modified
 	RegisterSignal( "ForceStartMove" )
 	RegisterSignal( "TryRunsToEmbark" )
+
+	// if npc titan has a pilot inside, reset it's melee damageSourceId
+	AddDamageCallbackSourceID( eDamageSourceId.auto_titan_melee, ApplyNormalMeleeIdToNPCTitan )
 }
 
 function ScriptCallback_OnNpcPilotBecomesTitan( pilot, titan )
@@ -538,10 +541,21 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 
 	while ( embarkSet == null )
 	{
-		wait 1.0
+		//wait 1.0
+		WaitFrame() // make embarking faster?
 		embarkSet = FindBestEmbark( pilot, titan )
 	}
-	
+
+	// defensive fix for sometimes players try robbing titans
+	if ( titan.ContextAction_IsActive() )
+		return
+	if( !titan.IsInterruptable() ) 
+		return
+	if ( IsValid( titan.GetParent() ) )
+		return
+	if ( !titan.GetTitanSoul() )
+		return
+
 	FirstPersonSequenceStruct sequence
 	sequence.attachment = "hijack"
 	sequence.useAnimatedRefAttachment = expect bool ( embarkSet.action.useAnimatedRefAttachment )
@@ -705,6 +719,8 @@ entity function NpcTitanBecomesPilot( entity titan )
 	Assert( titan.IsTitan() )
 
 	entity titanSoul = titan.GetTitanSoul()
+	if( !IsValid( titanSoul ) ) // defensive fix for titan.Destroy() situations
+		return
 	titanSoul.soul.seatedNpcPilot.isValid = false
 	bool isEjecting = titanSoul.IsEjecting()
 
@@ -1032,6 +1048,21 @@ void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 	// ronin sword
 	if( damageSourceID == eDamageSourceId.melee_titan_sword ) 
 		DamageInfo_SetDamage( damageInfo, TITAN_SOWRD_DAMAGE_NPC_PILOT )
+}
+
+void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( !IsValid( attacker ) )
+        return
+	if( !attacker.IsNPC() )
+		return
+    if( !attacker.IsTitan() )
+        return
+	if( !TitanHasNpcPilot( attacker ) )
+		return
+
+	DamageInfo_SetDamageSourceIdentifier( damageInfo, eDamageSourceId.melee_titan_punch )
 }
 
 void function OnEnemyChanged_NPCPilotTrySwitchWeapon( entity pilot )
