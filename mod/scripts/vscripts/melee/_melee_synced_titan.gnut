@@ -7,6 +7,8 @@ const TITANARMMODEL = $"models/weapons/arms/atlaspov.mdl"
 const TEAM_JUMPJET_DBL = $"P_team_jump_jet_DBL"
 
 // modified
+global function MeleeSyncedTitan_ExecutionNotInvulnerable
+
 global function MeleeSyncedTitan_EnableRandomExecutions // false = vanilla executions, true = random executions including ai titan executions
 global function MeleeSyncedTitan_AlwaysDoAiExecutions // overwrites random executions, always do ai executions
 
@@ -41,6 +43,8 @@ struct
 	table<string, TitanExcutionData> executionData_3p
 
 	// modified
+	bool titanExecutionNotInvulnerable = false
+
 	bool doingRandomExecutions = false 
 	bool alwaysAiExecutions = false 
 } file
@@ -63,7 +67,14 @@ function MeleeSyncedTitan_Init()
 	Init3pExecutions()
 }
 
-// modifed
+////////////////////
+///// MODIFIED /////
+////////////////////
+void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
+{
+	file.titanExecutionNotInvulnerable = notInvulnerable
+}
+
 void function MeleeSyncedTitan_EnableRandomExecutions( bool enabled )
 {
 	file.doingRandomExecutions = enabled
@@ -73,7 +84,9 @@ void function MeleeSyncedTitan_AlwaysDoAiExecutions( bool always )
 {
 	file.alwaysAiExecutions = always
 }
-// end
+///////////////
+///// END /////
+///////////////
 
 void function Init3pExecutions()
 {
@@ -250,13 +263,21 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 
 	ForceTitanSustainedDischargeEnd( target )
 
-	#if TITAN_EXECUTION_ATTACKER_IS_INVULNERABLE
+	//#if TITAN_EXECUTION_ATTACKER_IS_INVULNERABLE // use my own check!
+	if( !file.titanExecutionNotInvulnerable )
+	{
 		dataStruct.setAttackerInvulnerable = true
 		attacker.SetInvulnerable()
-	#else
-		dataStruct.setAttackerDemigod = true
-		EnableDemigod( attacker )
-	#endif
+	}
+	else //#else
+	{
+		if( attacker.IsPlayer() )
+		{
+			dataStruct.setAttackerDemigod = true
+			EnableDemigod( attacker )
+		}
+	}
+	//#endif
 
 	waitthread func( action, attacker, target )
 
@@ -282,54 +303,19 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 void functionref( SyncedMelee action, entity attacker, entity target ) function GetTitanSyncedMeleeFunc( entity attacker, entity target )
 {
 	bool useClassicExecution = false
+
+	entity soul = attacker.GetTitanSoul()
 	// could get some tf1 execution
-	if( "classicExecution" in attacker.s )
+	if( "classicExecution" in soul.s )
 	{
-		if( expect bool( attacker.s.classicExecution ) )
-			useClassicExecution = true
+		useClassicExecution = expect bool( soul.s.classicExecution )
 	}
-	// must do this, since ttf2 executions can't handle non-pilot conditions
+
+	// fixed: must do this, since ttf2 executions can't handle non-pilot conditions
 	// abandoned, could handle in TitanVsTitan_3p()
 	//if( attacker.IsNPC() && !TitanHasNpcPilot( attacker ) ) 
 	//	useClassicExecution = true 
-	if ( useClassicExecution )
-	{
-		entity soul = attacker.GetTitanSoul()
-		TitanLoadoutDef loadout = soul.soul.titanLoadout
-		string executionRef = loadout.titanExecution
-		if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_COREMETER ) )
-		{
-		    executionRef = "execution_vanguard_kit"
-			return TitanVsTitan_3p
-		}
-
-		// below must be tf1 execution, remove cinematic
-		thread ForceRemoveExecutioCinematic( attacker, target )
-		if ( target.IsNPC() )
-	    {
-		    entity bossPlayer = target.GetBossPlayer()
-		    //if ( IsValid( bossPlayer ) || !IsVDUTitan( target ) ) 
-			if ( !IsValid( bossPlayer ) && !TitanHasNpcPilot( target ) )  // adding check: TitanHasNpcPilot()
-			    return MeleeThread_AtlasVsTitanShort
-	    }
-		string attackerType = GetSoulTitanSubClass( soul )
-		switch ( attackerType )
-	    {
-		case "stryder":
-			return MeleeThread_StyderVsTitan
-
-		case "ogre":
-			return MeleeThread_OgreVsTitan
-
-		case "atlas":
-		case "buddy":
-			return MeleeThread_AtlasVsTitan
-	    }
-
-		return null
-	}
-
-	entity soul = attacker.GetTitanSoul()
+	//entity soul = attacker.GetTitanSoul() // moved up
 	#if SP
 	TitanLoadoutDef loadout = GetTitanLoadoutForCurrentMap()
 	#else
@@ -339,17 +325,26 @@ void functionref( SyncedMelee action, entity attacker, entity target ) function 
 	if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_COREMETER ) )
 		executionRef = "execution_vanguard_kit"
 
-	if ( executionRef in file.executionData_3p )
+	//if ( executionRef in file.executionData_3p )
+	if ( executionRef in file.executionData_3p && !useClassicExecution ) // classic execution check!
 		return TitanVsTitan_3p
+
+	// below must be tf1 execution, remove cinematic
+	thread ForceRemoveExecutioCinematic( attacker, target )
+	
+	string attackerType = GetSoulTitanSubClass( soul )
 
 	if ( target.IsNPC() )
 	{
 		entity bossPlayer = target.GetBossPlayer()
-		if ( IsValid( bossPlayer ) || !IsVDUTitan( target ) )
+		//if ( IsValid( bossPlayer ) || !IsVDUTitan( target ) ) 
+		// temp, can't fix ripping pilots now
+		bool tempDisableRipsPilot = attackerType == "stryder" || attackerType == "atlas" || attackerType == "buddy"
+		if ( ( !IsValid( bossPlayer ) && !TitanHasNpcPilot( target ) ) || tempDisableRipsPilot )  // adding check: TitanHasNpcPilot()
 			return MeleeThread_AtlasVsTitanShort
 	}
 
-	string attackerType = GetSoulTitanSubClass( soul )
+	//string attackerType = GetSoulTitanSubClass( soul ) // moved up
 
 	switch ( attackerType )
 	{
@@ -1826,12 +1821,13 @@ void function TitanLostArm( entity titan )
 	e.lostArm = true
 }
 
-void function MeleeKilledRagdoll( entity titan )
+void function MeleeKilledRagdoll( entity titan ) // this is actually "pilot" inside the titan 
 {
 	entity attacker = expect entity( GetOptionalAnimEventVar( titan, "melee_killed_ragdoll" ) )
 
 	if ( !IsValid( attacker ) )
 		return
+	/*
 	if( !IsAlive( titan ) )
 	{
 		if( !titan.IsPlayer() )
@@ -1840,6 +1836,7 @@ void function MeleeKilledRagdoll( entity titan )
 		if( IsAlive( titan ) )
 			titan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
 	}
+	*/
 	titan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
 	titan.SetContinueAnimatingAfterRagdoll( true )
 	titan.BecomeRagdoll( < 0, 0, 0 >, false )
@@ -1902,3 +1899,4 @@ void function Rocket_Pod( entity guy, string tag, entity victim )
 	if ( oldOffhandWeapon )
  		guy.GiveOffhandWeapon( oldOffhandWeapon.GetWeaponClassName(), 0, oldOffhandWeapon.GetMods() )
 }
+
