@@ -387,7 +387,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
 
-		int finalWait = replayLength - 2.0 // this will match PlayerWatchesRoundWinningKillReplay() does
+		float finalWait = replayLength - 2.0 // this will match PlayerWatchesRoundWinningKillReplay() does
 		if( finalWait <= 0 )
 			finalWait = 2.0 // defensive fix
 		wait finalWait
@@ -1080,16 +1080,24 @@ void function UpdateGameWonThisFrameNextFrame()
 
 void function AddTeamScore( int team, int amount )
 {
-	GameRules_SetTeamScore( team, GameRules_GetTeamScore( team ) + amount )
-	GameRules_SetTeamScore2( team, GameRules_GetTeamScore2( team ) + amount )
-	
+	// using "fixAmount" now
+	//GameRules_SetTeamScore( team, GameRules_GetTeamScore( team ) + amount )
+	//GameRules_SetTeamScore2( team, GameRules_GetTeamScore2( team ) + amount )
+
+	int score = GameRules_GetTeamScore( team )
 	int scoreLimit
 	if ( IsRoundBased() )
 		scoreLimit = GameMode_GetRoundScoreLimit( GAMETYPE )
 	else
 		scoreLimit = GameMode_GetScoreLimit( GAMETYPE )
+
+	int fixedAmount = score + amount > scoreLimit ? scoreLimit - score : amount
+
+	GameRules_SetTeamScore( team, GameRules_GetTeamScore( team ) + fixedAmount )
+	GameRules_SetTeamScore2( team, GameRules_GetTeamScore2( team ) + amount ) // round score is no need to use fixedAmount
 		
-	int score = GameRules_GetTeamScore( team )
+	//int score = GameRules_GetTeamScore( team ) // moved up to make use of it
+	score = GameRules_GetTeamScore( team ) // get new setting score
 	if ( score >= scoreLimit || GetGameState() == eGameState.SuddenDeath )
 		SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
 	else if ( ( file.switchSidesBased && !file.hasSwitchedSides ) && score >= ( scoreLimit.tofloat() / 2.0 ) )
