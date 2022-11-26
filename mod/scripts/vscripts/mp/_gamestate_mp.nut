@@ -386,7 +386,10 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
 
-		wait replayLength // this will match PlayerWatchesRoundWinningKillReplay() does
+		int finalWait = replayLength - 2.0 // this will match PlayerWatchesRoundWinningKillReplay() does
+		if( finalWait <= 0 )
+			finalWait = 2.0 // defensive fix
+		wait finalWait
 		
 		//foreach( entity player in GetPlayerArray() )
 		//{
@@ -563,8 +566,8 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		thread PlayerWatchesSwitchingSidesKillReplay( player, replayAttacker, replayVictim, doReplay, replayLength )
 
 	// all waits below should be the same time as PlayerWatchesSwitchingSidesKillReplay() does
-	wait SWITCHING_SIDES_DELAY_REPLAY
-	wait replayLength
+	float timeToWait = doReplay ? SWITCHING_SIDES_DELAY_REPLAY : SWITCHING_SIDES_DELAY
+	wait replayLength + timeToWait - 2.0
 
 	file.roundWinningKillReplayAttacker = null // reset this after replay
 	if ( killcamsWereEnabled )
@@ -586,7 +589,7 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	
 	CleanUpEntitiesForRoundEnd() // clean up players after dialogue
 
-	WaitFrame() // bit nicer?
+	wait 2.0 // bit nicer?
 
 	if ( file.usePickLoadoutScreen )
 		SetGameState( eGameState.PickLoadout )
