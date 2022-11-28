@@ -80,7 +80,8 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	if( !IsValid( attacker ) )
 		return
 
-	if ( attacker.GetTeam() == target.GetTeam() )
+	//if ( attacker.GetTeam() == target.GetTeam() )
+	if ( attacker.GetTeam() == target.GetTeam() && !IsFriendlyFireOn() ) // we added friendly fire, do a new check now!
 		DamageInfo_SetDamage( damageInfo, 0 )
 	if ( attacker == target )
 	{
@@ -98,7 +99,8 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 		return
 	}
 
-	if ( attacker.GetTeam() == target.GetTeam() )
+	//if ( attacker.GetTeam() == target.GetTeam() )
+	if ( attacker.GetTeam() == target.GetTeam() && !IsFriendlyFireOn() )
 	{
 		//DamageInfo_SetDamage( damageInfo, 0 ) //moved up
 		entity attackerSoul = attacker.GetTitanSoul()

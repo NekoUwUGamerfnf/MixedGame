@@ -3060,7 +3060,10 @@ void function EMP_DamagedPlayerOrNPC( entity ent, var damageInfo )
 void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInfo )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() )
+	//if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() )
+	if( !IsValid( attacker ) )  // we added friendly fire, do a new check now!
+		return
+	if( attacker.GetTeam() == ent.GetTeam() && !IsFriendlyFireOn() )
 		return
 
 	Elecriticy_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE )
@@ -3161,7 +3164,10 @@ void function Elecriticy_DamagedPlayerOrNPC( entity ent, var damageInfo, asset h
 
 	// Don't do arc beams to entities that are on the same team... except the owner
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() && attacker != ent )
+	//if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() && attacker != ent )
+	if ( IsValid( attacker ) ) // we added friendly fire, do a new check now!
+		return
+	if( attacker.GetTeam() == ent.GetTeam() && attacker != ent && !IsFriendlyFireOn() )
 		return
 
 	if ( ent.IsPlayer() )
