@@ -337,7 +337,7 @@ function IgniteTrap( entity damageArea, var damageInfo, bool isExplosiveBarrel =
 	if ( !IsValid( owner ) )
 		return
 
-	entity weapon = owner.GetOffhandWeapon( OFFHAND_ANTIRODEO )
+	entity weapon
 
 	foreach( entity offhandweapon in owner.GetOffhandWeapons() )
 	{
@@ -348,6 +348,9 @@ function IgniteTrap( entity damageArea, var damageInfo, bool isExplosiveBarrel =
 		if ( offhandweapon.GetWeaponClassName() == "mp_titanability_slow_trap" )
 			weapon = offhandweapon
 	}
+
+	if( !IsValid( weapon ) ) // player don't have a trap weapon!
+		return
 
 	vector originNoHeightAdjust = damageArea.GetOrigin()
 	vector origin = originNoHeightAdjust + <0,0,GAS_FX_HEIGHT>
@@ -400,7 +403,7 @@ function IgniteTrap( entity damageArea, var damageInfo, bool isExplosiveBarrel =
 		if ( i > 5 )
 			direction *= -1
 		const float FUSE_TIME = 0.0
-		if( !IsValid( weapon ) )
+		if( !IsValid( weapon ) ) // nessie defensive fix
 			return
 		entity projectile = weapon.FireWeaponGrenade( origin, <0,0,0>, <0,0,0>, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, PROJECTILE_NOT_PREDICTED, true, true )
 		if ( !IsValid( projectile ) )
