@@ -191,7 +191,7 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 
 		titan.SetActiveWeaponByName( "melee_titan_sword" )
 		
-		owner.DeployWeapon()
+		owner.DeployWeapon() // to have deploy animation
 		
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( false )
