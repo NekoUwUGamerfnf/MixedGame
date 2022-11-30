@@ -76,8 +76,10 @@ bool function OnWeaponSustainedDischargeBegin_Defender( entity weapon )
 		//weapon.e.onlyDamageEntitiesOncePerTick = true
 
 		float duration = weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
+		//float fireDelay = 1.0 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate ) // no need to do a long delay after fire
 
-		thread ChargeRifleWingUpSound( weapon, duration + 0.1 )
+		thread ChargeRifleWingUpSound( weapon, duration + 0.1 ) // play charge sound 0.1s more and it will be smoother
+		thread DisableOtherWeaponsForChargeRifle( weapon, owner, duration + 0.1 ) // well respawn didn't done sustained charges well
 		thread ChargeRifleBeam_ServerSide( weapon, duration ) // visual fix
 		//entity player = weapon.GetWeaponOwner()
 		//EmitSoundOnEntityOnlyToPlayer( weapon, player, "Weapon_ChargeRifle_Fire_1P" )
@@ -102,26 +104,27 @@ void function OnWeaponSustainedDischargeEnd_Defender( entity weapon )
 		return
 	if( weapon.HasMod( "apex_charge_rifle" ) && owner.IsPlayer() )
 	{
-		if( !IsAlive( owner ) ) // some function below will cause crash if owner dead( which means they're player.SetPredictionEnabled( false ) )
+		if( !IsAlive( owner ) ) // some function below will cause crash client if owner dead( which means they're player.SetPredictionEnabled( false ) )
 			return
 
 		#if SERVER
 		EmitSoundOnEntityOnlyToPlayer( weapon, owner, "Weapon_ChargeRifle_Fire_1P" )
 		EmitSoundOnEntityExceptToPlayer( weapon, owner, "Weapon_ChargeRifle_Fire_3P" )
 		#endif
-
-		WeaponPrimaryAttackParams attackParams
-		attackParams.dir = weapon.GetAttackDirection()
-		attackParams.pos = weapon.GetAttackPosition()
 		
 		if( IsAlive( owner ) ) // defensive fix
 		{
-			#if SERVER // defensive fix
+			// client should predict these
+			WeaponPrimaryAttackParams attackParams
+			attackParams.dir = weapon.GetAttackDirection()
+			attackParams.pos = weapon.GetAttackPosition()
+
 			weapon.RemoveMod( "apex_charge_rifle" )
 			weapon.AddMod( "apex_charge_rifle_burst" )
-			#endif
+			//owner.Weapon_StartCustomActivity( "ACT_VM_DRAW", false )
 			weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, DF_GIB | DF_EXPLOSION )
-			#if SERVER
+			
+			#if SERVER // defensive fix, don't run on client
 			weapon.RemoveMod( "apex_charge_rifle_burst" )
 			weapon.AddMod( "apex_charge_rifle" )
 			#endif
@@ -147,7 +150,7 @@ int function FireDefender( entity weapon, WeaponPrimaryAttackParams attackParams
 }
 
 #if SERVER
-void function ChargeRifleWingUpSound( entity weapon,  float duration )
+void function ChargeRifleWingUpSound( entity weapon, float duration )
 {
 	weapon.EndSignal( "OnDestroy" )
 	entity player = weapon.GetWeaponOwner()
@@ -159,6 +162,38 @@ void function ChargeRifleWingUpSound( entity weapon,  float duration )
 	wait duration
 	StopSoundOnEntity( weapon, "Weapon_ChargeRifle_WindUp_1P" )
 	StopSoundOnEntity( weapon, "Weapon_ChargeRifle_WindUp_3P" )
+}
+
+void function DisableOtherWeaponsForChargeRifle( entity allowedWeapon, entity owner, float duration )
+{
+	allowedWeapon.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	array<entity> disabledWeapons
+	foreach( entity mainWeapon in owner.GetMainWeapons() )
+	{
+		if( mainWeapon != allowedWeapon )
+		{
+			mainWeapon.AllowUse( false )
+			disabledWeapons.append( mainWeapon )
+		}
+	}
+	owner.Server_TurnOffhandWeaponsDisabledOn()
+
+	OnThreadEnd(
+		function(): ( owner, disabledWeapons )
+		{
+			foreach( entity weapon in disabledWeapons )
+			{
+				if( IsValid( weapon ) )
+					weapon.AllowUse( true )
+			}
+			if( IsValid( owner ) )
+				owner.Server_TurnOffhandWeaponsDisabledOff()
+		}
+	)
+
+	wait duration
 }
 
 void function ChargeRifleBeam_ServerSide( entity weapon, float duration )
