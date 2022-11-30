@@ -73,7 +73,7 @@ void function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams
 			nade.proj.onlyAllowSmartPistolDamage = false
 			#endif
 		}
-		else if( weapon.HasMod( "magnetic_roller" ) )
+		else if( weapon.HasMod( "magnetic_rollers" ) )
 			return
 		else if( weapon.HasMod( "flesh_magnetic" ) )
 		{
@@ -94,7 +94,7 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 		return
 	array<string> mods = projectile.ProjectileGetMods()
 
-	if( mods.contains( "magnetic_roller" ) )
+	if( mods.contains( "magnetic_rollers" ) )
 	{
 		#if SERVER
 		if( projectile.proj.projectileBounceCount == 0 )
