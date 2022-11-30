@@ -1175,10 +1175,13 @@ float function GetTimeLimit_ForGameMode()
 	return GetCurrentPlaylistVarFloat( playlistString, 10 )
 }
 
-// faction dialogue
+// faction dialogue, not supporting FFA now
 void function DialoguePlayNormal()
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // so this will play right after roundbased game starts
+	if( IsFFAGame() )
+		return
+	
 	float diagIntervel = 91 // play a faction dailogue every 90 + 1s to prevent play together with winner dialogue
 
 	while( GetGameState() == eGameState.Playing )
@@ -1190,6 +1193,8 @@ void function DialoguePlayNormal()
 
 void function DialoguePlayWinnerDetermined()
 {
+	if( IsFFAGame() )
+		return
 	int winningTeam = TEAM_UNASSIGNED
 
 	if( file.enteredSuddenDeath && !IsFFAGame() )
@@ -1206,11 +1211,6 @@ void function DialoguePlayWinnerDetermined()
 		}
 		return
 	}
-
-	if( GameRules_GetTeamScore( TEAM_MILITIA ) < GameRules_GetTeamScore( TEAM_IMC ) )
-		winningTeam = TEAM_IMC
-	if( GameRules_GetTeamScore( TEAM_MILITIA ) > GameRules_GetTeamScore( TEAM_IMC ) )
-		winningTeam = TEAM_MILITIA
 
 	if( IsRoundBased() ) // check for round based modes
 	{
@@ -1231,41 +1231,32 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 	int winningTeam
 	int losingTeam
 	bool scoreTied
+	int mltScore = GameRules_GetTeamScore( TEAM_MILITIA )
+	int imcScore = GameRules_GetTeamScore( TEAM_IMC )
 
 	if( IsRoundBased() )
 	{
-		if( GameRules_GetTeamScore2( TEAM_MILITIA ) < GameRules_GetTeamScore2( TEAM_IMC ) )
-		{
-			winningTeam = TEAM_IMC
-			losingTeam = TEAM_MILITIA
-		}
-		else if( GameRules_GetTeamScore2( TEAM_MILITIA ) > GameRules_GetTeamScore2( TEAM_IMC ) )
-		{
-			winningTeam = TEAM_MILITIA
-			losingTeam = TEAM_IMC
-		}
-		else if( GameRules_GetTeamScore2( TEAM_MILITIA ) == GameRules_GetTeamScore2( TEAM_IMC ) )
-		{
-			scoreTied = true
-		}
+		mltScore = GameRules_GetTeamScore2( TEAM_MILITIA )
+		imcScore = GameRules_GetTeamScore2( TEAM_MILITIA )
 	}
-	else
+
+	if( mltScore < imcScore )
 	{
-		if( GameRules_GetTeamScore( TEAM_MILITIA ) < GameRules_GetTeamScore( TEAM_IMC ) )
-		{
-			winningTeam = TEAM_IMC
-			losingTeam = TEAM_MILITIA
-		}
-		else if( GameRules_GetTeamScore( TEAM_MILITIA ) > GameRules_GetTeamScore( TEAM_IMC ) )
-		{
-			winningTeam = TEAM_MILITIA
-			losingTeam = TEAM_IMC
-		}
-		else if( GameRules_GetTeamScore( TEAM_MILITIA ) == GameRules_GetTeamScore( TEAM_IMC ) )
-		{
-			scoreTied = true
-		}
+		winningTeam = TEAM_IMC
+		losingTeam = TEAM_MILITIA
 	}
+	else if( mltScore > imcScore )
+	{
+		winningTeam = TEAM_MILITIA
+		losingTeam = TEAM_IMC
+	}
+	else if( mltScore == imcScore )
+	{
+		scoreTied = true
+	}
+
+	int winningTeamScore = GameRules_GetTeamScore( winningTeam )
+	int losingTeamScore = GameRules_GetTeamScore( losingTeam )
 	if( scoreTied )
 	{
 		if( tied != "" )
@@ -1274,12 +1265,12 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 			PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_MILITIA )
 		}
 	}
-	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) >= totalScore * 0.5 )
+	else if( winningTeamScore - losingTeamScore >= totalScore * 0.5 )
 	{
 		PlayFactionDialogueToTeam( "scoring_" + winningLarge, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losingLarge, losingTeam )
 	}
-	else if( GameRules_GetTeamScore( winningTeam ) - GameRules_GetTeamScore( losingTeam ) <= totalScore * 0.25 )
+	else if( winningTeamScore - losingTeamScore <= totalScore * 0.25 )
 	{
 		PlayFactionDialogueToTeam( "scoring_" + winningClose, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losingClose, losingTeam )

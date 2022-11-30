@@ -129,7 +129,13 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
 		AddPlayerScore( attacker, "Headshot", victim )
-	
+
+	// special method of killing dialogues
+	if( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
+		PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
+	if( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == damagedef_titan_step )
+		PlayFactionDialogueToPlayer( "kc_hitandrun", attacker )
+
 	// first strike
 	if ( !file.firstStrikeDone )
 	{
