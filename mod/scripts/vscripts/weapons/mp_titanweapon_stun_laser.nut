@@ -92,28 +92,23 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	entity weapon = DamageInfo_GetWeapon( damageInfo )
 	if( !IsValid( weapon ) )
 		return
+	if( weapon.GetWeaponClassName() != "mp_titanweapon_stun_laser" )
+		return
+	
+	/* // this was handle in RegisterBallLightningDamage()
 	if( weapon.HasMod( "charge_ball" ) )
 	{
 		if( target.GetTeam() != attacker.GetTeam() )
 			OnBallLightningDamage( target, damageInfo )
 		return
 	}
+	*/
 
-	//if ( attacker.GetTeam() == target.GetTeam() )
-	if ( attacker.GetTeam() == target.GetTeam() && !IsFriendlyFireOn() ) // we added friendly fire, do a new check now!
+	//if ( attacker.GetTeam() == target.GetTeam() ) // we added friendly fire, do a new check now!
+	if ( attacker.GetTeam() == target.GetTeam() && !IsFriendlyFireOn() ) 
 	{
 		//DamageInfo_SetDamage( damageInfo, 0 ) //moved up
 		entity attackerSoul = attacker.GetTitanSoul()
-		entity weapon
-		foreach( entity offhandweapon in attacker.GetOffhandWeapons() )
-		{
-			if ( !IsValid( offhandweapon ) )
-				continue
-			if( offhandweapon.GetWeaponClassName() == "mp_titanweapon_stun_laser" )
-				weapon = offhandweapon
-		}
-		if ( !IsValid( weapon ) )
-			return
 		bool hasEnergyTransfer = weapon.HasMod( "energy_transfer" ) || weapon.HasMod( "energy_field_energy_transfer" )
 		if ( target.IsTitan() && IsValid( attackerSoul ) && hasEnergyTransfer )
 		{
@@ -121,7 +116,8 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 			if ( IsValid( soul ) )
 			{
 				int shieldRestoreAmount = 750
-				if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) )
+				//if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) ) // respawn messed this up
+				if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) || weapon.HasMod( "pas_vanguard_shield" ) ) 
 					shieldRestoreAmount = int( 1.25 * shieldRestoreAmount )
 
 				float shieldAmount = min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() )
@@ -153,14 +149,15 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 			}
 		}
 	}
-	else if ( target.IsNPC() || target.IsPlayer() )
+	else if ( target.IsNPC() || target.IsPlayer() ) // we added friendly fire, do a new check now!
 	{
 		VanguardEnergySiphon_DamagedPlayerOrNPC( target, damageInfo )
 		int shieldRestoreAmount = target.GetArmorType() == ARMOR_TYPE_HEAVY ? 750 : 250
 		entity soul = attacker.GetTitanSoul()
 		if ( IsValid( soul ) )
 		{
-			if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) )
+			//if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) ) // respawn messed this up
+			if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) || weapon.HasMod( "pas_vanguard_shield" ) )
 				shieldRestoreAmount = int( 1.25 * shieldRestoreAmount )
 			soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
 		}
