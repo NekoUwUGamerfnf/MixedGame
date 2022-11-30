@@ -67,6 +67,15 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 	table<string, bool> e
 	e.shouldDeployWeapon <- false
 
+	// modified
+	//entity weaponToRestore // can't use this, maybe takenWeapon will be soon destroyed
+	table storedWeapon = {}
+	storedWeapon.shouldRestore <- false
+	storedWeapon.weaponName <- ""
+	array<string> storedMods = []
+	storedWeapon.skin <- 0
+	storedWeapon.camo <- 0
+
 	array<string> weaponArray = [ "mp_titancore_flight_core" ]
 	mods.removebyvalue( "barrage_core" )
 	mods.append( "barrage_core_launcher" )
@@ -81,8 +90,11 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 		titan.ForceStand()
 
 	OnThreadEnd(
-		function() : ( titan, e, weaponArray )
+		function() : ( titan, e, weaponArray, storedWeapon, storedMods ) // weaponToRestore )
 		{
+			//print( weaponToRestore )
+			bool willRestoreWeapon = expect bool( storedWeapon.shouldRestore ) // IsValid( weaponToRestore ) 
+			//print( willRestoreWeapon )
 			if ( IsValid( titan ) && titan.IsPlayer() )
 			{
 				if ( IsAlive( titan ) && titan.IsTitan() )
@@ -90,7 +102,10 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 					if ( HasWeapon( titan, "mp_titanweapon_flightcore_rockets" ) )
 					{
 						EnableWeapons( titan, weaponArray )
-						titan.TakeWeapon( "mp_titanweapon_flightcore_rockets" )
+						if( willRestoreWeapon ) // instantly take it
+							titan.TakeWeaponNow( "mp_titanweapon_flightcore_rockets" )
+						else // keep vanilla behavior
+							titan.TakeWeapon( "mp_titanweapon_flightcore_rockets" )
 					}
 				}
 
@@ -101,8 +116,47 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 
 				titan.Signal( "CoreEnd" )
 			}
+
+			// modified, defensive fix for some modded situations northstar has 3 main weapons
+			if( IsAlive( titan ) && titan.IsTitan() && willRestoreWeapon )
+			{
+				//titan.GiveExistingWeapon( weaponToRestore )
+				if( storedWeapon.weaponName != "" )
+				{
+					string weaponName = expect string( storedWeapon.weaponName )
+					int skinIndex = expect int( storedWeapon.skin )
+					int camoIndex = expect int( storedWeapon.camo )
+					//print( weaponName )
+					//print( storedMods )
+					titan.GiveWeapon( weaponName, storedMods )
+					titan.SetActiveWeaponByName( weaponName )
+					entity newGivenWeapon = titan.GetActiveWeapon()
+					if( IsValid( newGivenWeapon ) )
+					{
+						newGivenWeapon.SetSkin( skinIndex )
+						newGivenWeapon.SetCamo( camoIndex )
+					}
+				}
+			}
 		}
 	)
+
+	// modified
+	if( titan.GetMainWeapons().len() >= 3 ) // no room for flight core
+	{
+		//weaponToRestore = titan.TakeWeapon_NoDelete( titan.GetMainWeapons()[2].GetWeaponClassName() )
+		storedWeapon.shouldRestore = true
+		// try to store a weapon
+		array<entity> allMainWeapons = titan.GetMainWeapons()
+		entity weaponToStore = titan.GetActiveWeapon()
+		if( !allMainWeapons.contains( weaponToStore ) )
+			weaponToStore = allMainWeapons[0]
+		titan.TakeWeaponNow( weaponToStore.GetWeaponClassName() )
+		storedMods = weaponToStore.GetMods()
+		storedWeapon.weaponName = weaponToStore.GetWeaponClassName()
+		storedWeapon.skin = weaponToStore.GetSkin()
+		storedWeapon.camo = weaponToStore.GetCamo()
+	}	
 
 
 	if ( titan.IsPlayer() )
