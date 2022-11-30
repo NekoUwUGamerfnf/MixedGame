@@ -200,8 +200,8 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 	WaitFrame()
 
 	array<string> mods = projectile.ProjectileGetMods()
-	if( mods.contains( "anti_gravity_star" ) )
-		SetTeam( projectile, TEAM_UNASSIGNED ) // anti_gravity all players
+	if( mods.contains( "anti_gravity_star" ) || mods.contains( "friendlyfire_weapon" ) || IsFriendlyFireOn() )
+		SetTeam( projectile, TEAM_UNASSIGNED ) // anti_gravity all players, or pull all players
 
 	vector pullPosition
 	if ( hitEnt == svGlobal.worldspawn )
