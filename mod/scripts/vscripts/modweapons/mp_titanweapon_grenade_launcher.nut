@@ -54,6 +54,15 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	entity weaponOwner = weapon.GetWeaponOwner()
 	weaponOwner.Signal( "KillBruteShield" )
 
+	#if SERVER
+	// fix for clients that not installed
+	string fireSound = weapon.GetWeaponSettingString( eWeaponVar.fire_sound_1_player_3p )
+	if( weaponOwner.IsPlayer() )
+		EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, fireSound )
+	else
+		EmitSoundOnEntity( weapon, fireSound )
+	#endif
+
 	vector bulletVec = ApplyVectorSpread( attackParams.dir, (weaponOwner.GetAttackSpreadAngle() - 1.0) * 2 )
 
 	entity nade = weapon.FireWeaponGrenade( attackParams.pos, bulletVec, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
