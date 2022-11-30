@@ -101,7 +101,7 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 		{
 			if( hitEnt.IsNPC() || hitEnt.IsPlayer() )
 				return
-			GiveProjectileFakeMagnetic( projectile, 150 )
+			GiveProjectileFakeMagnetic( projectile, 125 )
 			projectile.proj.projectileBounceCount++
 			return
 		}

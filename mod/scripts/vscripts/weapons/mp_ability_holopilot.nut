@@ -286,16 +286,16 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 		SetupDecoy_Common( player, decoy )
 
 		#if MP
-					thread MonitorDecoyActiveForPlayer( decoy, player )
-			#endif
+			thread MonitorDecoyActiveForPlayer( decoy, player )
+		#endif
 	}
 
 	#if BATTLECHATTER_ENABLED
 		PlayBattleChatterLine( player, "bc_pHolo" )
 	#endif
 
-	if(numberOfDecoysToMake == 1){
-			return decoy
+	if(numberOfDecoysToMake == 1){ // for holoshift to work
+		return decoy
 	}
 }
 
@@ -407,82 +407,82 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 		unreachable
 	}
 
-	#if MP
-	void function Decoy_BatteryFX( entity decoy, entity decoyChildEnt )
-	{
-		decoy.EndSignal( "OnDeath" )
-		decoy.EndSignal( "CleanupFXAndSoundsForDecoy" )
-		Battery_StartFX( decoyChildEnt )
+#if MP
+void function Decoy_BatteryFX( entity decoy, entity decoyChildEnt )
+{
+	decoy.EndSignal( "OnDeath" )
+	decoy.EndSignal( "CleanupFXAndSoundsForDecoy" )
+	Battery_StartFX( decoyChildEnt )
 
-		OnThreadEnd(
-			function() : ( decoyChildEnt )
-			{
-				Battery_StopFX( decoyChildEnt )
-				if ( IsValid( decoyChildEnt ) )
-					decoyChildEnt.Destroy()
-			}
-		)
-
-		WaitForever()
-	}
-
-	void function Decoy_FlagFX( entity decoy, entity decoyChildEnt )
-	{
-		decoy.EndSignal( "OnDeath" )
-		decoy.EndSignal( "CleanupFXAndSoundsForDecoy" )
-
-		SetTeam( decoyChildEnt, decoy.GetTeam() )
-		entity flagTrailFX = StartParticleEffectOnEntity_ReturnEntity( decoyChildEnt, GetParticleSystemIndex( FLAG_FX_ENEMY ), FX_PATTACH_POINT_FOLLOW, decoyChildEnt.LookupAttachment( "fx_end" ) )
-		flagTrailFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
-
-		OnThreadEnd(
-			function() : ( flagTrailFX, decoyChildEnt )
-			{
-				if ( IsValid( flagTrailFX ) )
-					flagTrailFX.Destroy()
-
-				if ( IsValid( decoyChildEnt ) )
-					decoyChildEnt.Destroy()
-			}
-		)
-
-		WaitForever()
-	}
-
-	void function MonitorDecoyActiveForPlayer( entity decoy, entity player )
+	OnThreadEnd(
+		function() : ( decoyChildEnt )
 		{
-			if ( player in file.playerToDecoysActiveTable )
-				++file.playerToDecoysActiveTable[ player ]
-			else
-				file.playerToDecoysActiveTable[ player ] <- 1
-
-			decoy.EndSignal( "OnDestroy" ) //Note that we do this OnDestroy instead of the inbuilt OnHoloPilotDestroyed() etc functions so there is a bit of leeway after the holopilot starts to die/is fully invisible before being destroyed
-			player.EndSignal( "OnDestroy" )
-
-			OnThreadEnd(
-			function() : ( player )
-				{
-					if( IsValid( player ) )
-					{
-						Assert( player in file.playerToDecoysActiveTable )
-						--file.playerToDecoysActiveTable[ player ]
-					}
-
-				}
-			)
-
-			WaitForever()
+			Battery_StopFX( decoyChildEnt )
+			if ( IsValid( decoyChildEnt ) )
+				decoyChildEnt.Destroy()
 		}
+	)
 
-		int function GetDecoyActiveCountForPlayer( entity player )
+	WaitForever()
+}
+
+void function Decoy_FlagFX( entity decoy, entity decoyChildEnt )
+{
+	decoy.EndSignal( "OnDeath" )
+	decoy.EndSignal( "CleanupFXAndSoundsForDecoy" )
+
+	SetTeam( decoyChildEnt, decoy.GetTeam() )
+	entity flagTrailFX = StartParticleEffectOnEntity_ReturnEntity( decoyChildEnt, GetParticleSystemIndex( FLAG_FX_ENEMY ), FX_PATTACH_POINT_FOLLOW, decoyChildEnt.LookupAttachment( "fx_end" ) )
+	flagTrailFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+
+	OnThreadEnd(
+		function() : ( flagTrailFX, decoyChildEnt )
 		{
-			if ( !(player in file.playerToDecoysActiveTable ))
-				return 0
+			if ( IsValid( flagTrailFX ) )
+				flagTrailFX.Destroy()
 
-			return file.playerToDecoysActiveTable[player ]
+			if ( IsValid( decoyChildEnt ) )
+				decoyChildEnt.Destroy()
 		}
+	)
 
-	#endif // MP
+	WaitForever()
+}
+
+void function MonitorDecoyActiveForPlayer( entity decoy, entity player )
+{
+	if ( player in file.playerToDecoysActiveTable )
+		++file.playerToDecoysActiveTable[ player ]
+	else
+		file.playerToDecoysActiveTable[ player ] <- 1
+
+	decoy.EndSignal( "OnDestroy" ) //Note that we do this OnDestroy instead of the inbuilt OnHoloPilotDestroyed() etc functions so there is a bit of leeway after the holopilot starts to die/is fully invisible before being destroyed
+	player.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+	function() : ( player )
+		{
+			if( IsValid( player ) )
+			{
+				Assert( player in file.playerToDecoysActiveTable )
+				--file.playerToDecoysActiveTable[ player ]
+			}
+
+		}
+	)
+
+	WaitForever()
+}
+
+int function GetDecoyActiveCountForPlayer( entity player )
+{
+	if ( !(player in file.playerToDecoysActiveTable ))
+		return 0
+
+	return file.playerToDecoysActiveTable[player ]
+}
+
+#endif // MP
 #endif // SERVER
 
 bool function PlayerCanUseDecoy( entity weapon ) //For holopilot and HoloPilot Nova. No better place to put this for now
