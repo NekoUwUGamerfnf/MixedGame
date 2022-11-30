@@ -422,8 +422,16 @@ table function GetFirstArcCannonTarget( entity weapon, WeaponPrimaryAttackParams
 			if ( "GetTeam" in visibleEnt )
 			{
 				int visibleEntTeam = visibleEnt.GetTeam()
-				if ( visibleEntTeam == ownerTeam )
-					continue
+				// reworked
+				//if ( visibleEntTeam == ownerTeam )
+				//	continue
+				#if CLIENT
+					if ( visibleEntTeam == ownerTeam )
+						continue
+				#elseif SERVER
+					if ( visibleEntTeam == ownerTeam && !IsFriendlyFireOn() ) // do a check for friendlyFires
+						continue
+				#endif //SERVER
 				if ( IsEntANeutralMegaTurret( visibleEnt, ownerTeam ) )
 					continue
 			}
