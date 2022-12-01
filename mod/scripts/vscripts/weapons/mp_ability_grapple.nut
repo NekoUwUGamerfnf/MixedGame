@@ -56,8 +56,11 @@ void function GrappleWeaponInit()
 	#if SERVER
 	//AddClientCommandCallback( "ToolZipline_AddZipline", ClientCommand_ToolZipline_AddZipline );
 	PrecacheModel( ZIPLINE_ANCHOR_MODEL )
-	thread ToolZipline_UpdateZiplines();
+	thread ToolZipline_UpdateZiplines()
 	#endif
+
+	// modified, also for client
+	RegisterSignal( "BisonGrappled" )
 }
 
 void function OnWeaponActivate_ability_grapple( entity weapon )
@@ -124,9 +127,10 @@ var function OnWeaponPrimaryAttack_ability_grapple( entity weapon, WeaponPrimary
 		#if SERVER
 		if( owner.IsPlayer() )
 		{
-			if( owner.GetSuitGrapplePower() >= 100 )
+			if( owner.GetSuitGrapplePower() >= 100 || weapon.HasMod( "infinite_zipline" ) )
 			{
-				owner.SetSuitGrapplePower( owner.GetSuitGrapplePower() - 100 )
+				if( !weapon.HasMod( "infinite_zipline" ) )
+					owner.SetSuitGrapplePower( owner.GetSuitGrapplePower() - 100 )
 				FireZipline( weapon, attackParams, true )
 			}
 			else
@@ -143,15 +147,17 @@ var function OnWeaponPrimaryAttack_ability_grapple( entity weapon, WeaponPrimary
 		// for bison: not allowed to control players or npcs by grapple
 		if( weapon.HasMod( "bison_grapple" ) )
 		{
-			thread DelayedAutoDetach( owner )
+			thread BisonDelayedAutoDetach( owner )
 		}
 	}
 
 	return 1
 }
 
-void function DelayedAutoDetach( entity player )
+void function BisonDelayedAutoDetach( entity player )
 {
+	player.Signal( "BisonGrappled" )
+	player.EndSignal( "BisonGrappled" )
 	wait BISON_GRAPPLE_DURATION
 	if( IsAlive( player ) )
 		player.Grapple( < 0,0,0 > )

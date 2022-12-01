@@ -14,6 +14,8 @@ const float TITAN_GROUND_SLAM_RADIUS = 525
 void function MpTitanWeaponGoundSlam_Init()
 {
 	#if SERVER
+        RegisterSignal( "GroundSlamChargeBegin" )
+
 		AddDamageCallbackSourceID( eDamageSourceId.mp_ability_ground_slam, GroundSlam_DamagedPlayerOrNPC )
 	#endif
 }
@@ -30,7 +32,8 @@ void function GroundSlamThink( entity weapon )
         return
 
 #if SERVER
-    StopSoundOnEntity( weapon, "flamewave_start_1p" ) // client fix
+    thread TryFixGroundSlamClientSFX( weapon, owner )
+    //StopSoundOnEntity( weapon, "flamewave_start_1p" ) // client fix
     owner.EndSignal( "OnDeath" )
     owner.EndSignal( "OnDestroy" )
     owner.EndSignal( "TitanEjectionStarted" )
@@ -38,7 +41,7 @@ void function GroundSlamThink( entity weapon )
     owner.SetTitanDisembarkEnabled( false )
     owner.SetPredictionEnabled( false )
     HolsterAndDisableWeapons( owner )
-    StopSoundOnEntity( weapon, "flamewave_start_1p" ) // client fix
+    //StopSoundOnEntity( weapon, "flamewave_start_1p" ) // client fix
     owner.Signal( "KillBruteShield" )
     
     array<entity> fx
@@ -83,7 +86,8 @@ void function GroundSlamThink( entity weapon )
     }
     EmitSoundOnEntityOnlyToPlayer( owner, owner, "titan_flight_descent_1p" )
     EmitSoundOnEntityExceptToPlayer( owner, owner, "titan_flight_descent_3p" )
-    StopSoundOnEntity( weapon, "flamewave_start_1p" ) // client fix
+    //StopSoundOnEntity( weapon, "flamewave_start_1p" ) // client fix
+    owner.Signal( "GroundSlamChargeBegin" )
     weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
     owner.SetActiveWeaponByName( "mp_titancore_flame_wave" )
     owner.SetPredictionEnabled( true )
@@ -133,7 +137,7 @@ var function OnWeaponPrimaryAttack_titancore_ground_slam( entity weapon, WeaponP
     CreatePhysExplosion( damageOrigin + < 0,0,10 >, 512, PHYS_EXPLOSION_LARGE, 15 )
     //PlayHotdropImpactFX( weaponOwner ) // this one also trigger a titanfall damagedef????
     EmitDifferentSoundsAtPositionForPlayerAndWorld( "core_ability_land_1p", "core_ability_land_3p", damageOrigin, weaponOwner, weaponOwner.GetTeam())
-    for( int i = 0; i < 3; i ++ )
+    for( int i = 0; i < 3; i ++ ) // really large sound!
 	    EmitDifferentSoundsAtPositionForPlayerAndWorld( "Titan_1P_Warpfall_WarpToLanding_fast", "Titan_3P_Warpfall_WarpToLanding_fast", damageOrigin, weaponOwner, weaponOwner.GetTeam())
     RadiusDamage(
         damageOrigin + < 0,0,10 >,						    // center
@@ -156,6 +160,22 @@ var function OnWeaponPrimaryAttack_titancore_ground_slam( entity weapon, WeaponP
 }
 
 #if SERVER
+// keep trying stopping SFXs to avoid client receiving too much noise
+void function TryFixGroundSlamClientSFX( entity weapon, entity owner )
+{
+    weapon.EndSignal( "OnDestroy" )
+    owner.EndSignal( "OnDeath" )
+    owner.EndSignal( "OnDestroy" )
+    owner.EndSignal( "GroundSlamChargeBegin" ) // real sound begins
+
+    while( true )
+    {
+        //StopSoundOnEntity( weapon, "flamewave_start_1p" )
+        StopSoundOnEntity( owner, "flamewave_start_1p" )
+        WaitFrame()
+    }
+}
+
 void function GroundSlam_DamagedPlayerOrNPC( entity ent, var damageInfo )
 {
 	if ( !IsValid( ent ) )
