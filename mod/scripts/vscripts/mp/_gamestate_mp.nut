@@ -579,6 +579,8 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		PlayFactionDialogueToTeam( "mp_sideSwitching", TEAM_IMC )
 		PlayFactionDialogueToTeam( "mp_sideSwitching", TEAM_MILITIA )
 	}
+
+	CleanUpEntitiesForRoundEnd() // clean up players after dialogue
 	
 	//foreach( entity player in GetPlayerArray() )
 	//	SetPlayerCameraToIntermissionCam( player )
@@ -587,10 +589,8 @@ void function GameStateEnter_SwitchingSides_Threaded()
 
 	file.hasSwitchedSides = true
 	SetServerVar( "switchedSides", 1 )
-	
-	CleanUpEntitiesForRoundEnd() // clean up players after dialogue
 
-	wait 2.0 // bit nicer?
+	//wait 2.0 // bit nicer?
 
 	if ( file.usePickLoadoutScreen )
 		SetGameState( eGameState.PickLoadout )
