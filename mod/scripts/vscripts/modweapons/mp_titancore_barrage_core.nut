@@ -128,9 +128,7 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 					int camoIndex = expect int( storedWeapon.camo )
 					//print( weaponName )
 					//print( storedMods )
-					titan.GiveWeapon( weaponName, storedMods )
-					titan.SetActiveWeaponByName( weaponName )
-					entity newGivenWeapon = titan.GetActiveWeapon()
+					entity newGivenWeapon = titan.GiveWeapon( weaponName, storedMods )
 					if( IsValid( newGivenWeapon ) )
 					{
 						newGivenWeapon.SetSkin( skinIndex )
