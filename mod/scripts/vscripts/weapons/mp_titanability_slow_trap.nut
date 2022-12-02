@@ -9,6 +9,8 @@ global function OnWeaponPrimaryAttack_titanweapon_slow_trap
 global function OnWeaponNPCPrimaryAttack_titanweapon_slow_trap
 #endif
 
+global function OnWeaponOwnerChange_titanweapon_slow_trap // for molotovs
+
 //TODO: Need to reassign ownership to whomever destroys the Barrel.
 const asset DAMAGE_AREA_MODEL = $"models/fx/xo_shield.mdl"
 const asset SLOW_TRAP_MODEL = $"models/weapons/titan_incendiary_trap/w_titan_incendiary_trap.mdl"
@@ -46,11 +48,11 @@ const float GAS_STACK_CLEAR_DELAY = 3.0
 const int GAS_BASE_DAMAGE = 5
 const int GAS_ADDITIONAL_DAMAGE_PER_STACK = 4
 const float GAS_SEVERITY_SLOWMOVE = 0.1 
-const float GAS_DAMAGE_INTERVAL = 1.5
+const float GAS_DAMAGE_INTERVAL = 1.0
 
-// molotov
-const float MOLOTOV_IGNITE_DELAY = 0.2
-const float MOLOTOV_DAMAGE_TICK_PILOT = 9
+// molotov, since it has been reduced to 1 charge through StartForcedCooldownThinkForWeapon(), damage can be higher
+const float MOLOTOV_IGNITE_DELAY = 0.1
+const float MOLOTOV_DAMAGE_TICK_PILOT = 10
 const float MOLOTOV_DAMAGE_TICK = 50
 
 //array<entity> inGasPlayers = []
@@ -83,6 +85,14 @@ void function MpTitanAbilitySlowTrap_Init()
 	#endif
 }
 
+// for molotovs
+void function OnWeaponOwnerChange_titanweapon_slow_trap( entity weapon, WeaponOwnerChangedParams changeParams )
+{
+#if SERVER
+	thread DelayedStartForcedCooldownThink( weapon, ["molotov"] )
+#endif
+}
+
 #if SERVER
 var function OnWeaponNPCPrimaryAttack_titanweapon_slow_trap( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
@@ -94,7 +104,17 @@ var function OnWeaponPrimaryAttack_titanweapon_slow_trap( entity weapon, WeaponP
 {
 	entity weaponOwner = weapon.GetOwner()
 	if ( weaponOwner.IsPlayer() )
+	{
 		PlayerUsedOffhand( weaponOwner, weapon )
+	
+		// modified
+	#if SERVER
+		if( weapon.HasMod( "gas_trap" ) || weapon.HasMod( "molotov" ) ) // pilot ones?
+			thread HolsterWeaponForPilotInstants( weapon )
+		if( weapon.HasMod( "molotov" ) )
+			ForceCleanWeaponAmmo( weapon )
+	#endif
+	}
 
 	ThrowDeployable( weapon, attackParams, 1500, OnSlowTrapPlanted, <0,0,0> )
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )

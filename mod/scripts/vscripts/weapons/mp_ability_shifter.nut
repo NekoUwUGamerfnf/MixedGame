@@ -1005,7 +1005,7 @@ void function PortalTravelThink( entity trigger, entity player )
 					}
 					float travelTimeLeft = segmentsLeft * timePerSigment
 					//print( travelTimeLeft )
-					if( travelTimeLeft < 1.0 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
+					if( travelTimeLeft < 0.8 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
 					{
 						playedPreEndSound = true
 						EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_WarningToEnd_1P" )
@@ -1034,7 +1034,7 @@ void function PortalTravelThink( entity trigger, entity player )
 					}
 					float travelTimeLeft = segmentsLeft * timePerSigment
 					//print( travelTimeLeft )
-					if( travelTimeLeft < 1.0 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
+					if( travelTimeLeft < 0.8 && !playedPreEndSound ) // near end, play sound. this kind of sound have a delay
 					{
 						playedPreEndSound = true
 						EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_WarningToEnd_1P" )

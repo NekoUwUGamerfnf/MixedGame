@@ -19,14 +19,7 @@ void function OnWeaponOwnerChanged_TitanHover( entity weapon, WeaponOwnerChanged
 {
 #if SERVER
 	if( weapon.HasMod( JET_PACK_MOD ) )
-	{
-		if( IsValid( changeParams.oldOwner ) )
-		{
-			if( changeParams.oldOwner.IsPlayer() )
-				RemoveButtonPressedPlayerInputCallback( changeParams.oldOwner, IN_JUMP, SignalJetPackStart )
-		}
-	}
-	thread DelayedCheckJetPack( weapon, changeParams ) // in case we're using AddMod()
+		thread DelayedCheckJetPack( weapon, changeParams ) // in case we're using AddMod()
 #endif
 }
 
@@ -45,7 +38,6 @@ void function DelayedCheckJetPack( entity weapon, WeaponOwnerChangedParams chang
 				player = changeParams.newOwner
 			if( !IsValid( player ) )
 				return
-			AddButtonPressedPlayerInputCallback( player, IN_JUMP, SignalJetPackStart )
 			thread JetPackThink( player, weapon )
 		}
 	}
@@ -63,7 +55,7 @@ var function OnWeaponPrimaryAttack_TitanHover( entity weapon, WeaponPrimaryAttac
 		if( weapon.HasMod( JET_PACK_MOD ) ) // so player won't consume ammo
 		{
 #if SERVER
-			SendHudMessage(flyer, "喷气背包为被动技能\n按住奔跑时按下跳跃以使用", -1, -0.3, 255, 255, 100, 255, 0, 2, 0)
+			SendHudMessage(flyer, "喷气背包为被动技能\n二段跳后按下跳跃以使用", -1, -0.3, 255, 255, 100, 255, 0, 2, 0)
 #endif
 			return 0
 		}

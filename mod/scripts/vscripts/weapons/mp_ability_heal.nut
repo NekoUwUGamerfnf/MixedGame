@@ -48,6 +48,7 @@ var function OnWeaponPrimaryAttack_ability_heal( entity weapon, WeaponPrimaryAtt
 		{
 			deployable = ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnJumpPadPlanted )
 			#if SERVER
+			thread HolsterWeaponForPilotInstants( weapon )
 			SendHudMessage(ownerPlayer, "扔出跳板", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
 			#endif
 		}
@@ -55,6 +56,7 @@ var function OnWeaponPrimaryAttack_ability_heal( entity weapon, WeaponPrimaryAtt
 		{
 			deployable = ThrowDeployable( weapon, attackParams, 100, OnRepairDroneReleased )
 			#if SERVER
+			thread HolsterWeaponForPilotInstants( weapon )
 			SendHudMessage(ownerPlayer, "扔出维修无人机", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
 			#endif
 		}
@@ -334,29 +336,48 @@ void function JumpPadTrailThink( entity player )
 		}
 	)
 
-	int indexLeft = player.LookupAttachment( "vent_left_out" )
-	int indexRight = player.LookupAttachment( "vent_right_out" )
-	if( indexLeft != 0 )
-	{
-		entity fxJetBurstLeft = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_DBL" ), FX_PATTACH_POINT_FOLLOW, indexLeft )
-		jumpJetFX.append( fxJetBurstLeft )
-		entity fxJetTrailLeft = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_ON_trails" ), FX_PATTACH_POINT_FOLLOW, indexLeft )
-		jumpJetFX.append( fxJetTrailLeft )
-		entity fxJetLeft = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_ON" ), FX_PATTACH_POINT_FOLLOW, indexLeft )
-		jumpJetFX.append( fxJetLeft )
-	}
-	if( indexRight != 0 )
-	{
-		entity fxJetBurstRight = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_DBL" ), FX_PATTACH_POINT_FOLLOW, indexRight )
-		jumpJetFX.append( fxJetBurstRight )
-		entity fxJetTrailRight = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_ON_trails" ), FX_PATTACH_POINT_FOLLOW, indexRight )
-		jumpJetFX.append( fxJetTrailRight )
-		entity fxJetRight = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_enemy_jump_jet_ON" ), FX_PATTACH_POINT_FOLLOW, indexRight )
-		jumpJetFX.append( fxJetRight )
-	}
+	// enemy right vent fx, // "vent_left_out" "vent_right_out" direction is a little bit weird
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_left", false ) )
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_left", false ) )
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_ON", "vent_left", false ) )
+	// enemy left vent fx
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_right", false ) )
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_right", false ) )
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_ON", "vent_right", false ) )
+	// enemy center vent fx
+	// this can be too big!! maybe use it for flame throwers?
+	//jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_center_DBL", "vent_center", false ) )
+
+	// friendly right vent fx, "P_team_jump_jet_WR_trails" is more visible with some transparent flames
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_DBL", "vent_left", true ) )
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_left", true ) )
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_ON", "vent_left", true ) )
+	// friendly left vent fx
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_DBL", "vent_right", true ) )
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_right", true ) )
+	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_ON", "vent_right", true ) )
+	// friendly center vent fx
+	// this can be too big!! maybe use it for flame throwers?
+	//jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_center_DBL", "vent_center", true ) )
 
 	WaitForever()
 	
+}
+
+entity function CreateJumpPadJetFxForPlayer( entity player, asset particle, string attachment, bool isFriendly )
+{
+	int particleID = GetParticleSystemIndex( particle )
+	int attachID = player.LookupAttachment( attachment )
+	if( attachID <= 0 ) // no attachment valid, don't play fx for this model
+		return null
+	entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleID, FX_PATTACH_POINT_FOLLOW, attachID )
+	fx.SetOwner( player )
+	if( isFriendly ) // player can see friendly fx( blue flames and trails )
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_OWNER
+	else
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+
+	return fx
 }
 
 void function JumpPadCooldownThink( entity player )
@@ -402,6 +423,7 @@ void function JumpPadLimitThink()
 	}
 }
 
+// low recharge stim, disables health regen while activating, less speed boost, with long duration almost no cooldown
 void function OctaneStimThink( entity player, float duration )
 {
 	player.EndSignal( "OnDeath" )

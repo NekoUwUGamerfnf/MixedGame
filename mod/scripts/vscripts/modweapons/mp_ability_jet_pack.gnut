@@ -34,6 +34,11 @@ const float JET_PACK_LIFT_SPEED_HORIZAL_MAX = 200 // max velocity in air
 // use this function to add callback to movements
 // AddPlayerMovementEventCallback( entity player, int playerMovementEvent, void functionref( entity player ) callbackFunc )
 
+struct
+{
+    table< entity, bool > playerDoubleJumpUsedTable // for activating jet packs
+} file
+
 void function MpAbilityJetPack_Init()
 {
 #if SERVER
@@ -61,13 +66,39 @@ void function OnClientConnected( entity player )
     // using OnWeaponOwnerChanged() now, add this after player get the jet pack weapon
     //AddButtonPressedPlayerInputCallback( player, IN_JUMP, SignalJetPackStart )
     //AddPlayerMovementEventCallback( entity player, int playerMovementEvent, void functionref( entity player ) callbackFunc )
+
+    // init
+    file.playerDoubleJumpUsedTable[ player ] <- false
+}
+
+void function PlayerDoubleJumpUsed( entity player )
+{
+    thread PlayerDoubleJumpUsed_Threaded( player )
+}
+
+void function PlayerDoubleJumpUsed_Threaded( entity player )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    WaitFrame() // do a wait!
+    if( !player.IsOnGround() ) // still not touch ground
+        file.playerDoubleJumpUsedTable[ player ] = true // consider double jump used, not supporting multiple jumps unfortunately
+}
+
+void function PlayerDoubleJumpRestored( entity player )
+{
+    file.playerDoubleJumpUsedTable[ player ] = false // consider double jump restored, not supporting multiple jumps unfortunately
 }
 
 void function SignalJetPackStart( entity player )
 {
     // leave checks here, valkery uses passives but I don't have that
     //print( "Player tried to signal jetpack!" )
-    if( !player.IsInputCommandHeld( IN_SPEED ) ) // for better control, use a combo to activate 
+
+    // for better control
+    //if( !player.IsInputCommandHeld( IN_SPEED ) ) // for better control, use a combo to activate 
+    //    return
+    if( !file.playerDoubleJumpUsedTable[ player ] ) // double jump not used yet!
         return
     if( player.IsPhaseShifted() ||
         player.IsWallHanging() ||
@@ -94,6 +125,23 @@ void function JetPackThink( entity player, entity weapon )
     player.EndSignal( "JetPackThinkStart" )
     player.EndSignal( "JetPackThinkEnd" )
     weapon.EndSignal( "OnDestroy" )
+    
+    file.playerDoubleJumpUsedTable[ player ] = false // always reset this
+    AddPlayerMovementEventCallback( player, ePlayerMovementEvents.DOUBLE_JUMP, PlayerDoubleJumpUsed )
+    AddPlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, PlayerDoubleJumpRestored )
+    AddButtonPressedPlayerInputCallback( player, IN_JUMP, SignalJetPackStart )
+    OnThreadEnd(
+        function():( player )
+        {
+            if( IsValid( player ) )
+            {
+                RemovePlayerMovementEventCallback( player, ePlayerMovementEvents.DOUBLE_JUMP, PlayerDoubleJumpUsed )
+                RemovePlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, PlayerDoubleJumpRestored )
+                RemoveButtonPressedPlayerInputCallback( player, IN_JUMP, SignalJetPackStart )
+            }    
+        }
+    )
+
     thread JetPackAmmoThink( weapon )
     while( true )
     {

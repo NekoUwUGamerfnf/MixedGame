@@ -23,18 +23,24 @@ global function GetDecoyActiveCountForPlayer
 
 #endif //if server
 
+// for holoshift
+global function OnWeaponOwnerChange_holopilot
+
 const float PHASE_REWIND_PATH_SNAPSHOT_INTERVAL = 0.1
 struct
 {
 	table< entity, int > playerToDecoysActiveTable //Mainly used to track stat for holopilot unlock
+
+	// holoshift tables
+	table< entity > playerDecoyList //CUSTOM used to track the decoy the user will be teleported to
+	table< entity, float > playerDecoyActiveFrom //CUSTOM used to set decoy ability discharge
 
 	// defined for nessy.gnut
 	bool isNessieOutfit = false
 }
 file
 
-global table< entity > playerDecoyList //CUSTOM used to track the decoy the user will be teleported to
-global table< entity, float > playerDecoyActiveFrom //CUSTOM used to set decoy ability discharge
+
 
 /*Player decoy states: defined in player_decoy_shared.h
 	PLAYER_DECOY_STATE_NONE,
@@ -74,7 +80,29 @@ struct MirageDecoyStruct
 table< string, MirageDecoyStruct > mirageDecoyTable // use to track remote decoys
 //
 
-const array<asset> randomDecoyAssetArray = [$"models/humans/pilots/pilot_medium_stalker_m.mdl", $"models/humans/pilots/pilot_medium_stalker_f.mdl", $"models/humans/pilots/pilot_light_ged_f.mdl", $"models/humans/pilots/pilot_light_ged_m.mdl", $"models/humans/pilots/pilot_light_jester_m.mdl", $"models/humans/pilots/pilot_light_jester_f.mdl", $"models/humans/pilots/pilot_medium_reaper_m.mdl", $"models/humans/pilots/pilot_medium_reaper_f.mdl", $"models/humans/pilots/pilot_medium_geist_m.mdl", $"models/humans/pilots/pilot_medium_geist_f.mdl", $"models/humans/grunts/mlt_grunt_lmg.mdl", $"models/humans/grunts/imc_grunt_lmg.mdl", $"models/humans/heroes/imc_hero_ash.mdl", $"models/humans/heroes/mlt_hero_jack.mdl", $"models/humans/heroes/mlt_hero_sarah.mdl", $"models/humans/heroes/imc_hero_blisk.mdl", $"models/humans/pilots/sp_medium_geist_f.mdl", $"models/humans/pilots/sp_medium_reaper_m.mdl", $"models/humans/pilots/sp_medium_stalker_m.mdl"]
+// reset decoy's model will lead to a really weird behavior
+const array<asset> RANDOM_DECOY_ASSETS = 
+[
+	$"models/humans/pilots/pilot_medium_stalker_m.mdl", 
+	$"models/humans/pilots/pilot_medium_stalker_f.mdl", 
+	$"models/humans/pilots/pilot_light_ged_f.mdl", 
+	$"models/humans/pilots/pilot_light_ged_m.mdl", 
+	$"models/humans/pilots/pilot_light_jester_m.mdl", 
+	$"models/humans/pilots/pilot_light_jester_f.mdl", 
+	$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
+	$"models/humans/pilots/pilot_medium_reaper_f.mdl", 
+	$"models/humans/pilots/pilot_medium_geist_m.mdl", 
+	$"models/humans/pilots/pilot_medium_geist_f.mdl", 
+	$"models/humans/grunts/mlt_grunt_lmg.mdl", 
+	$"models/humans/grunts/imc_grunt_lmg.mdl", 
+	$"models/humans/heroes/imc_hero_ash.mdl", 
+	$"models/humans/heroes/mlt_hero_jack.mdl", 
+	$"models/humans/heroes/mlt_hero_sarah.mdl", 
+	$"models/humans/heroes/imc_hero_blisk.mdl", 
+	$"models/humans/pilots/sp_medium_geist_f.mdl", 
+	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
+	$"models/humans/pilots/sp_medium_stalker_m.mdl"
+]
 
 #if SERVER
 
@@ -82,6 +110,10 @@ void function Decoy_Init()
 {
 	#if MP
 		RegisterSignal( "CleanupFXAndSoundsForDecoy" )
+	#endif
+
+	#if SERVER
+	RegisterSignal( "HoloShiftCooldownThink" )
 	#endif
 }
 
@@ -125,16 +157,19 @@ void function OnHoloPilotDestroyed( entity decoy )
 	EmitSoundAtPosition( TEAM_ANY, decoy.GetOrigin(), "holopilot_end_3P" )
 
 	entity bossPlayer = decoy.GetBossPlayer()
-	if ( IsValid( bossPlayer ) ){
-		if(bossPlayer in playerDecoyList){
-			if(decoy == playerDecoyList[bossPlayer])
-				delete playerDecoyList[bossPlayer]
+	if ( IsValid( bossPlayer ) )
+	{
+		EmitSoundOnEntityOnlyToPlayer( bossPlayer, bossPlayer, "holopilot_end_1P" )
+
+		// holoshift clean up
+		if( bossPlayer in file.playerDecoyList )
+		{
+			if( decoy == file.playerDecoyList[bossPlayer] )
+				delete file.playerDecoyList[bossPlayer]
 
 		}
-		if(bossPlayer in playerDecoyActiveFrom){
-			delete playerDecoyActiveFrom[bossPlayer]
-		}
-		EmitSoundOnEntityOnlyToPlayer( bossPlayer, bossPlayer, "holopilot_end_1P" )
+		if(bossPlayer in file.playerDecoyActiveFrom)
+			delete file.playerDecoyActiveFrom[bossPlayer]
 	}
 	CleanupFXAndSoundsForDecoy( decoy )
 	ClearNessy( decoy )
@@ -166,6 +201,23 @@ void function CodeCallback_PlayerDecoyStateChange( entity decoy, int previousSta
 
 #endif
 
+// for holoshift
+void function OnWeaponOwnerChange_holopilot( entity weapon, WeaponOwnerChangedParams changeParams )
+{
+	#if SERVER
+	thread DelayedCheckHoloshift( weapon )
+	#endif
+}
+
+#if SERVER
+void function DelayedCheckHoloshift( entity weapon )
+{
+	weapon.EndSignal( "OnDestroy" )
+	WaitFrame()
+	if( weapon.HasMod( "holoshift" ) )
+		thread HoloShiftCooldownThink( weapon )
+}
+#endif
 
 var function OnWeaponPrimaryAttack_holopilot( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
@@ -183,19 +235,23 @@ var function OnWeaponPrimaryAttack_holopilot( entity weapon, WeaponPrimaryAttack
 		return 0
 
 #if SERVER
-	if ( weaponOwner in playerDecoyList && weapon.HasMod( "holoshift" ) ){
+	if ( weaponOwner in file.playerDecoyList && weapon.HasMod( "holoshift" ) )
+	{
 		CreateHoloPilotDecoys( weaponOwner, 1 )
-		entity decoy = playerDecoyList[ weaponOwner ]
+		entity decoy = file.playerDecoyList[ weaponOwner ]
 		weapon.SetWeaponPrimaryClipCount(0)
 		PlayerUsesHoloRewind(weaponOwner, decoy)
-		if(weaponOwner in playerDecoyActiveFrom){
-			delete playerDecoyActiveFrom[weaponOwner]
-		}
-		if(GetCurrentPlaylistName() == "lts"){
-			if(PlayerHasBattery(weaponOwner)){
+		if(weaponOwner in file.playerDecoyActiveFrom)
+			delete file.playerDecoyActiveFrom[weaponOwner]
+
+		// in lts you'll drop your battery while phasing back
+		/* // not enabled
+		if( GetCurrentPlaylistName() == "lts" ) 
+		{
+			if( PlayerHasBattery(weaponOwner) )
 				Rodeo_TakeBatteryAwayFromPilot(weaponOwner)
-			}
 		}
+		*/
 
 		// print("teleporting to"+decoy)
 		// print("Origin"+decoy.GetOrigin())
@@ -216,7 +272,7 @@ var function OnWeaponPrimaryAttack_holopilot( entity weapon, WeaponPrimaryAttack
 	{
 		entity decoy = CreateHoloPilotDecoys( weaponOwner, 1 )
 		if( weapon.HasMod( "holoshift" ) )
-			playerDecoyList[ weaponOwner ] <- decoy
+			file.playerDecoyList[ weaponOwner ] <- decoy
 	}
 #else
 	Rumble_Play( "rumble_holopilot_activate", {} )
@@ -257,7 +313,7 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 		if( isStrangeDecoy )
 		{
 			decoy.SetOrigin( player.GetOrigin() + < 0,0,15 > )
-			asset decoyModel = randomDecoyAssetArray[ RandomInt( randomDecoyAssetArray.len() ) ]
+			asset decoyModel = RANDOM_DECOY_ASSETS[ RandomInt( RANDOM_DECOY_ASSETS.len() ) ]
 			decoy.SetModel( decoyModel )
 			decoy.SetValueForModelKey( decoyModel )
 			DispatchSpawn( decoy )
@@ -269,7 +325,7 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 			CreateNessyBackpack( backpackassets, decoy )
 			//CreateNessyPistol( pistolassets, decoy )
 		}
-		playerDecoyActiveFrom[player] <- Time()
+		file.playerDecoyActiveFrom[player] <- Time()
 		if ( setOriginAndAngles )
 		{
 			vector angleToAdd = CalculateAngleSegmentForDecoy( i, HOLOPILOT_ANGLE_SEGMENT )
@@ -353,12 +409,17 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 			}
 		}
 
-		if(GetCurrentPlaylistName() == "lts"){
-					if(!(player in playerDecoyList)){
-						if(isBattery)
-							createHologram = false;
-					}
+		// in lts you won't create new decoy after phasing back
+		/* // not enabled
+		if (GetCurrentPlaylistName() == "lts" ) 
+		{
+			if( !( player in file.playerDecoyList ) )
+			{
+				if( isBattery )
+					createHologram = false;
+			}
 		}
+		*/
 
 		asset modelName = childEnt.GetModelName()
 		if ( createHologram && modelName != $"" && childEnt.GetParentAttachment() != "" )
@@ -505,9 +566,9 @@ bool function PlayerCanUseDecoy( entity weapon ) //For holopilot and HoloPilot N
 			{
 				if(offhand.GetWeaponPrimaryClipCount()<100)
 				{
-					#if SERVER
-					SendHudMessage(ownerPlayer, "需要完全充满以使用幻影转移", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-					#endif
+					//#if SERVER
+					//SendHudMessage(ownerPlayer, "需要完全充满以使用幻影转移", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+					//#endif
 					return false
 				}
 			}
@@ -516,11 +577,11 @@ bool function PlayerCanUseDecoy( entity weapon ) //For holopilot and HoloPilot N
 		{
 			if(offhand.GetWeaponClassName() == "mp_ability_holopilot" )
 			{
-				if(offhand.GetWeaponPrimaryClipCount()<200 && !(ownerPlayer in playerDecoyList))
+				if(offhand.GetWeaponPrimaryClipCount() < 200 && !( IsValid( file.playerDecoyList ) ) )
 				{
-					#if SERVER
-					SendHudMessage(ownerPlayer, "场内无自身幻影\n需要完全充满以使用幻影转移", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-					#endif
+					//#if SERVER
+					//SendHudMessage(ownerPlayer, "场内无自身幻影!\n需要完全充满以使用幻影转移", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+					//#endif
 					return false
 				}
 			}
@@ -542,6 +603,46 @@ void function SetNessieDecoyOn( bool isOn )
 #endif
 
 #if SERVER
+void function HoloShiftCooldownThink( entity weapon )
+{
+	entity player = weapon.GetWeaponOwner()
+	if( !IsValid( player ) )
+		return
+	if( !player.IsPlayer() )
+		return
+
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.Signal( "HoloShiftCooldownThink" )
+	player.EndSignal( "HoloShiftCooldownThink" )
+	weapon.EndSignal( "OnDestroy" )
+
+	bool lastFrameDecoyValid
+	while( true )
+	{	
+		int currentAmmo = weapon.GetWeaponPrimaryClipCount()
+		int maxAmmo = weapon.GetWeaponPrimaryClipCountMax()
+		int ammoPerShot = weapon.GetAmmoPerShot()
+		if ( player in file.playerDecoyList ) // we have a decoy waiting to be phase back!
+		{
+			weapon.SetWeaponPrimaryClipCountAbsolute( ammoPerShot ) // lock to only one charge
+			lastFrameDecoyValid = true
+		}
+		else if( lastFrameDecoyValid ) // last frame decoy was valid...
+		{
+			weapon.SetWeaponPrimaryClipCountAbsolute( 0 ) // reset ammo
+			lastFrameDecoyValid = false
+		}
+		else if( currentAmmo > ammoPerShot ) // decoy never valid
+		{
+			weapon.SetWeaponPrimaryClipCountAbsolute( maxAmmo ) // instant make it have 2 charges 
+			lastFrameDecoyValid = false // clean it up
+		}
+
+		WaitFrame()
+	}
+}
+
 void function PlayerUsesHoloRewind( entity player, entity decoy )
 {
 	thread PlayerUsesHoloRewindThreaded( player, decoy )
@@ -578,7 +679,8 @@ void function PlayerUsesHoloRewindThreaded( entity player, entity decoy )
 	player.HolsterWeapon()
 	player.SetPredictionEnabled( false )
 	PhaseShift( player, 0.0, 7 * PHASE_REWIND_PATH_SNAPSHOT_INTERVAL * 1.5 )
-
+	
+	// this mean mover will try to catch up with decoy, 7 times
 	for ( float i = 7; i > 0; i-- )
 	{
 		initial_origin -= (initial_origin-decoy.GetOrigin())*(1/i)

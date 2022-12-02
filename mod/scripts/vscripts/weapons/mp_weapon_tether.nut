@@ -266,8 +266,9 @@ void function ProximityTetherThink( entity projectile, entity owner, bool isExpl
 	float TETHER_MINE_LIFETIME
 	if ( GAMETYPE == "fd" )
 		TETHER_MINE_LIFETIME = 10000.0
-	else if( canTetherPilot )
-		TETHER_MINE_LIFETIME = 15.0
+	// has limited it's placement, no need to limit duration.
+	//else if( canTetherPilot )
+	//	TETHER_MINE_LIFETIME = 15.0
 	else
 		TETHER_MINE_LIFETIME = 60.0
 

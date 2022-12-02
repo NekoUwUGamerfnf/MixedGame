@@ -12,6 +12,9 @@ global function OnWeaponNpcPrimaryAttack_ability_grapple
 global function ToolZipline_DestroyZipline
 #endif
 
+// grapple is hard to handle!
+//global function OnWeaponOwnerChange_ability_grapple // for zipline
+
 struct
 {
 	int grappleExplodeImpactTable
@@ -53,15 +56,25 @@ void function GrappleWeaponInit()
 {
 	//file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "exp_rocket_archer" )
 	file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "40mm_mortar_shots" )
-	#if SERVER
+#if SERVER
 	//AddClientCommandCallback( "ToolZipline_AddZipline", ClientCommand_ToolZipline_AddZipline );
 	PrecacheModel( ZIPLINE_ANCHOR_MODEL )
 	thread ToolZipline_UpdateZiplines()
-	#endif
+#endif
 
 	// modified, also for client
 	RegisterSignal( "BisonGrappled" )
 }
+
+// for zipline
+/* // grapple is hard to handle!
+void function OnWeaponOwnerChange_ability_grapple( entity weapon, WeaponOwnerChangedParams changeParams )
+{
+#if SERVER
+	thread DelayedStartForcedCooldownThink( weapon, ["zipline_gun"] )
+#endif
+}
+*/
 
 void function OnWeaponActivate_ability_grapple( entity weapon )
 {
@@ -122,15 +135,14 @@ var function OnWeaponPrimaryAttack_ability_grapple( entity weapon, WeaponPrimary
 
 	PlayerUsedOffhand( owner, weapon )
 
-	if( weapon.HasMod( "zipline_grapple" ) )
+	if( weapon.HasMod( "zipline_gun" ) )
 	{
 		#if SERVER
 		if( owner.IsPlayer() )
 		{
-			if( owner.GetSuitGrapplePower() >= 100 || weapon.HasMod( "infinite_zipline" ) )
+			if( owner.GetSuitGrapplePower() >= 100 || weapon.HasMod( "infinite_recharge_zipline" ) )
 			{
-				if( !weapon.HasMod( "infinite_zipline" ) )
-					owner.SetSuitGrapplePower( owner.GetSuitGrapplePower() - 100 )
+				thread HolsterWeaponForPilotInstants( weapon )
 				FireZipline( weapon, attackParams, true )
 			}
 			else
@@ -292,7 +304,7 @@ void function OnProjectileCollision_weapon_zipline_gun( entity projectile, vecto
 	{
 		EmitSoundOnEntityOnlyToPlayer( owner, owner, "Wpn_LaserTripMine_Land")
 		SendHudMessage(owner, "成功部署滑索", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-		if( !mods.contains( "infinite_zipline" ) )
+		if( !mods.contains( "infinite_duration_zipline" ) )
 			thread ToolZipline_DestroyAfterTime( playerZipline, ZIPLINE_LIFETIME )
 	}
 	else

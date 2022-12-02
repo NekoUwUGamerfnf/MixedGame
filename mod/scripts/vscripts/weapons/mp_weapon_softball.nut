@@ -148,7 +148,12 @@ void function InitSoftballGrenade( entity nade, entity weapon, entity owner, ass
 	else if( weapon.HasMod( "cluster_softball" ) )
 		nade.SetModel( $"models/weapons/bullets/projectile_rocket_largest.mdl" )
 	else if( weapon.HasMod( "arcball_softball" ) )
+	{
 		nade.SetModel( $"models/dev/empty_model.mdl" )
+	#if SERVER
+		AttachBallLightning( weapon, nade ) // this will make grenade a arcball
+	#endif // SERVER
+	}
 	else if( weapon.HasMod( "smoke_softball" ) )
 		nade.SetModel( $"models/weapons/grenades/smoke_grenade_projectile.mdl" )
 	else if( weapon.HasMod( "gravity_softball" ) )
@@ -159,17 +164,17 @@ void function InitSoftballGrenade( entity nade, entity weapon, entity owner, ass
 		nade.SetModel( $"models/error.mdl" )
 	else if( weapon.HasMod( "grenade_launcher" ) )
 	{
-#if SERVER
+	#if SERVER
 		thread DetonateGrenadeAfterTime( nade, explosionDelay, impactFXName )
-#endif
+	#endif
 	}
 	else if( weapon.HasMod( "stickybomb_launcher" ) )
 	{
-#if SERVER
+	#if SERVER
 		nade.proj.onlyAllowSmartPistolDamage = false
 		thread DelayedAddStickyForPlayer( owner, nade )
 		thread PlayerStickyManagement( owner )
-#endif
+	#endif
 	}
 	else
 	{
