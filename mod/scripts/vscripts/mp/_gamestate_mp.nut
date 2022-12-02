@@ -511,8 +511,8 @@ void function PlayerWatchesRoundWinningKillReplay( entity player, entity replayA
 	
 	// should do these in GameStateEnter_WinnerDetermined_Threaded()
 	//WaitFrame() // bit nicer
-	player.ClearReplayDelay()
-	player.ClearViewEntity()
+	//player.ClearReplayDelay() // these should done in OnPlayerRespawned
+	//player.ClearViewEntity()
 
 	//WaitFrame()
 	//ScreenFadeFromBlack( player, 2.0, 10.0 )
@@ -568,11 +568,10 @@ void function GameStateEnter_SwitchingSides_Threaded()
 
 	// all waits below should be the same time as PlayerWatchesSwitchingSidesKillReplay() does
 	float timeToWait = doReplay ? SWITCHING_SIDES_DELAY_REPLAY : SWITCHING_SIDES_DELAY
-	wait replayLength + timeToWait - 2.0
+
+	wait replayLength + timeToWait
 
 	file.roundWinningKillReplayAttacker = null // reset this after replay
-	if ( killcamsWereEnabled )
-		SetKillcamsEnabled( true )
 
 	if( file.playFactionDialogue )
 	{
@@ -585,12 +584,15 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	//foreach( entity player in GetPlayerArray() )
 	//	SetPlayerCameraToIntermissionCam( player )
 	
-	wait GAME_POSTROUND_CLEANUP_WAIT // wait for better visual
+	wait GAME_POSTROUND_CLEANUP_WAIT // wait for better visual, may be no need for now?
 
 	file.hasSwitchedSides = true
 	SetServerVar( "switchedSides", 1 )
 
-	//wait 2.0 // bit nicer?
+	//wait 2.0 // bit nicer? 
+
+	if ( killcamsWereEnabled ) // reset here
+		SetKillcamsEnabled( true )
 
 	if ( file.usePickLoadoutScreen )
 		SetGameState( eGameState.PickLoadout )
@@ -606,7 +608,8 @@ void function PlayerWatchesSwitchingSidesKillReplay( entity player, entity repla
 	ScreenFadeToBlackForever( player, SWITCHING_SIDES_DELAY_REPLAY ) // automatically cleared 
 	wait SWITCHING_SIDES_DELAY_REPLAY
 	
-	if ( doReplay )
+	//if ( doReplay )
+	if( doReplay && IsValid( replayAttacker ) ) // should do this
 	{
 		player.SetPredictionEnabled( false ) // prediction fucks with replays
 	
@@ -623,30 +626,34 @@ void function PlayerWatchesSwitchingSidesKillReplay( entity player, entity repla
 		//player.SetKillReplayDelay( Time() - replayLength, THIRD_PERSON_KILL_REPLAY_ALWAYS )
 		player.SetKillReplayDelay( replayDelay, THIRD_PERSON_KILL_REPLAY_ALWAYS )
 		player.SetKillReplayInflictorEHandle( replayAttacker.GetEncodedEHandle() )
-		if( IsValid( replayVictim ) )
+		if( IsValid( replayVictim ) ) // maybe no victim for capturing flags
 			player.SetKillReplayVictim( replayVictim )
 		player.SetViewIndex( replayAttacker.GetIndexForEntity() )
 		player.SetIsReplayRoundWinning( true )
 		
 		//if ( replayLength >= SWITCHING_SIDES_DELAY - 2.0 ) // only do fade if close to full length replay
 		//{
-			// this doesn't work because fades don't work on players that are in a replay, unsure how official servers do this
-			//wait replayLength - 2.0
-			wait totalTime - 2.0
-			ScreenFadeToBlackForever( player, 2.0 )
+		// this doesn't work because fades don't work on players that are in a replay, unsure how official servers do this
+		//wait replayLength - 2.0
+		float finalWait = replayLength - 2.0
+		if( finalWait <= 0 )
+			finalWait = 0.0
+		wait finalWait
+		ScreenFadeToBlackForever( player, 2.0 )
 
-			wait 2.0
+		wait 2.0
 		//}
 		//else
 		//	wait replayLength
+
+		wait GAME_POSTROUND_CLEANUP_WAIT // bit nicer to match GameStateEnter_SwitchingSides_Threaded() does
 	}
 	else
 		wait SWITCHING_SIDES_DELAY // extra delay if no replay
 	
 	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
-	wait GAME_POSTROUND_CLEANUP_WAIT // bit nicer to match GameStateEnter_SwitchingSides_Threaded() does
-	player.ClearReplayDelay()
-	player.ClearViewEntity()
+	//player.ClearReplayDelay() // these should done in OnPlayerRespawned
+	//player.ClearViewEntity()
 }
 
 // eGameState.SuddenDeath
@@ -816,6 +823,7 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 	// note: pilotstitans is just win if enemy team runs out of either pilots or titans
 	if ( IsPilotEliminationBased() || GetGameState() == eGameState.SuddenDeath )
 	{
+		//if ( GetPlayerArrayOfTeam_Alive( victim.GetTeam() ).len() == 0 )
 		if ( GetPlayerArrayOfTeam_Alive( victim.GetTeam() ).len() == 0 )
 		{
 			// for ffa we need to manually get the last team alive 
