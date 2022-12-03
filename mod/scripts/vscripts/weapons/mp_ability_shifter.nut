@@ -543,6 +543,8 @@ void function PortalStart( entity player, entity weapon )
 				lastTickPos = player.GetOrigin()
 			}
 			wait PORTAL_TICKRATE // wait before it can trigger "continue"
+			if( !IsValid( player ) ) // player has been fucked up
+				return
 			if( isInfiniteDistance )
 			{
 				SendHudMessage( player,"传送门距离剩余：无限制", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
