@@ -503,6 +503,8 @@ void function PortalStart( entity player, entity weapon )
 	
 	while( true )
 	{
+		if( !IsValid( player ) ) // player has been fucked up
+			return
 		if( IsAlive( player ) )
 		{
 			//float distance = fabs( Distance2D( startPos, player.GetOrigin() ) )
