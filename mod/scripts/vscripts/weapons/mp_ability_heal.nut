@@ -336,11 +336,11 @@ void function JumpPadTrailThink( entity player )
 		}
 	)
 
-	// enemy right vent fx, // "vent_left_out" "vent_right_out" direction is a little bit weird
+	// enemy left vent fx, // "vent_left_out" "vent_right_out" direction is a little bit weird
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_left", false ) )
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_left", false ) )
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_ON", "vent_left", false ) )
-	// enemy left vent fx
+	// enemy right vent fx
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_right", false ) )
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_right", false ) )
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_ON", "vent_right", false ) )
@@ -348,11 +348,11 @@ void function JumpPadTrailThink( entity player )
 	// this can be too big!! maybe use it for flame throwers?
 	//jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_enemy_jump_jet_center_DBL", "vent_center", false ) )
 
-	// friendly right vent fx, "P_team_jump_jet_WR_trails" is more visible with some transparent flames
+	// friendly left vent fx, "P_team_jump_jet_WR_trails" is more visible with some transparent flames
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_DBL", "vent_left", true ) )
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_left", true ) )
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_ON", "vent_left", true ) )
-	// friendly left vent fx
+	// friendly right vent fx
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_DBL", "vent_right", true ) )
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_right", true ) )
 	jumpJetFX.append( CreateJumpPadJetFxForPlayer( player, $"P_team_jump_jet_ON", "vent_right", true ) )
