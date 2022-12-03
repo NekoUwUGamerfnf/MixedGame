@@ -372,6 +372,7 @@ entity function CreateJumpPadJetFxForPlayer( entity player, asset particle, stri
 		return null
 	entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleID, FX_PATTACH_POINT_FOLLOW, attachID )
 	fx.SetOwner( player )
+	SetTeam( fx, player.GetTeam() )
 	if( isFriendly ) // player can see friendly fx( blue flames and trails )
 		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_OWNER
 	else
