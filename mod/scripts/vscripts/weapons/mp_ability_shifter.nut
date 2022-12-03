@@ -513,10 +513,14 @@ void function PortalStart( entity player, entity weapon )
 				break
 			if( !IsValid( weapon ) )
 				break
+			entity activeWeapon = player.GetActiveWeapon()
 			if( startTime + PORTAL_DEPLOY_TIME < Time() ) // defensive fix
 			{
-				if( player.GetActiveWeapon().HasMod( "wraith_portal" ) )
-					break
+				if( IsValid( activeWeapon ) ) // defensive fix for sometimes disableWeapon
+				{
+					if( activeWeapon.HasMod( "wraith_portal" ) )
+						break
+				}
 			}
 			/*
 			SendHudMessage( player,"传送门距离剩余：" + string( ( 1 - distance / PORTAL_MAX_DISTANCE ) * 100 ) + "%", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
