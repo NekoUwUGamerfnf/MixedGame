@@ -305,9 +305,13 @@ void function CapturePointForTeam(HardpointStruct hardpoint, int Team)
 
 	foreach(entity player in allCappers)
 	{
-		if(player.IsPlayer()){
-			AddPlayerScore( player,"ControlPointCapture", player )
-			player.AddToPlayerGameStat(PGS_ASSAULT_SCORE,POINTVALUE_HARDPOINT_CAPTURE)
+		if( IsValid( player ) )
+		{
+			if( player.IsPlayer() )
+			{
+				AddPlayerScore( player,"ControlPointCapture", player )
+				player.AddToPlayerGameStat(PGS_ASSAULT_SCORE,POINTVALUE_HARDPOINT_CAPTURE)
+			}
 		}
 	}
 }
