@@ -15,6 +15,8 @@ global function IncrementSonarPerTeam
 global function DecrementSonarPerTeam
 global function OnSonarTriggerLeaveInternal
 global function AddSonarStartCallback
+
+global function SonarGrenadeThink // should make this globalled, it's funny
 #endif
 
 global function OnWeaponTossReleaseAnimEvent_weapon_grenade_sonar
