@@ -113,8 +113,11 @@ void function OnProjectileCollision_weapon_grenade_gravity( entity projectile, v
 		#if SERVER
 		if( !IsAlive( owner ) )
 		{
-			if( IsValid( projectile ) )
+			if( IsValid( projectile ) ) // don't let a useless shuriken stay on ground
+			{
+				projectile.Destroy()
 				return
+			}
 		}
 		OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
 		#endif
