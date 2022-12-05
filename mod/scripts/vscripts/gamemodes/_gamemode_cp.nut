@@ -305,7 +305,7 @@ void function CapturePointForTeam(HardpointStruct hardpoint, int Team)
 
 	foreach(entity player in allCappers)
 	{
-		if( IsValid( player ) )
+		if ( IsValid( player ) )
 		{
 			if( player.IsPlayer() )
 			{
@@ -576,10 +576,13 @@ void function HardpointThink( HardpointStruct hardpoint )
 
 						foreach(entity player in allCappers)
 						{
-							if(player.IsPlayer())
+							if ( IsValid( player ) )
 							{
-								AddPlayerScore(player,"ControlPointAmped", player)
-								player.AddToPlayerGameStat(PGS_DEFENSE_SCORE,POINTVALUE_HARDPOINT_AMPED)
+								if(player.IsPlayer())
+								{
+									AddPlayerScore(player,"ControlPointAmped", player)
+									player.AddToPlayerGameStat(PGS_DEFENSE_SCORE,POINTVALUE_HARDPOINT_AMPED)
+								}
 							}
 						}
 					}
