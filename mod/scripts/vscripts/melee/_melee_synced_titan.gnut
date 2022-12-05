@@ -330,7 +330,8 @@ void functionref( SyncedMelee action, entity attacker, entity target ) function 
 		return TitanVsTitan_3p
 
 	// below must be tf1 execution, remove cinematic
-	thread ForceRemoveExecutioCinematic( attacker, target )
+	thread ForceRemoveExecutioCinematic( attacker )
+	thread ForceRemoveExecutioCinematic( target )
 	
 	string attackerType = GetSoulTitanSubClass( soul )
 
@@ -362,18 +363,16 @@ void functionref( SyncedMelee action, entity attacker, entity target ) function 
 	return null
 }
 
-void function ForceRemoveExecutioCinematic( entity attacker, entity target )
+void function ForceRemoveExecutioCinematic( entity ent )
 {
 	wait 0.1
-	if( IsValid( attacker ) )
+	if( IsValid( ent ) )
 	{
-		if( attacker.IsPlayer() )
-			RemoveCinematicFlag( attacker, CE_FLAG_EXECUTION )
-	}
-	if( IsValid( target ) )
-	{
-		if( target.IsPlayer() )
-			RemoveCinematicFlag( target, CE_FLAG_EXECUTION )
+		if( ent.IsPlayer() )
+		{
+			RemoveCinematicFlag( ent, CE_FLAG_EXECUTION )
+			RemoveCinematicFlag( ent, CE_FLAG_TITAN_3P_CAM )
+		}
 	}
 }
 
@@ -1225,8 +1224,11 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	{
 		if( attacker.IsPlayer() )
 		{
-			attackerSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
+			//attackerSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
 			thread AiTitanExecutionCameraThink( attacker )
+			// i think this is better for such executions
+			//thread FakeFirstPersonSequence( attacker )
+			thread ForceRemoveExecutioCinematic( attacker )
 		}
 		attackerSequence.thirdPersonAnim = selectedExcutionAttacker
 		if( selectedExcutionAttacker == "mt_ai_synced_finisher_B_armrip_A" || selectedExcutionAttacker == "mt_ai_synced_knockback_B_slam_A" )
@@ -1244,8 +1246,11 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	{
 		if( target.IsPlayer() )
 		{
-			targetSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
+			//targetSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
 			thread AiTitanExecutionCameraThink( target )
+			// i think this is better for such executions
+			//thread FakeFirstPersonSequence( target )
+			thread ForceRemoveExecutioCinematic( target )
 		}
 		targetSequence.thirdPersonAnim = selectedExcutionVictim
 	}
@@ -1609,6 +1614,8 @@ void function AiTitanExecutionCameraThink( entity player )
 	viewControl.SetOrigin( offset )
 	viewControl.SetAngles( angles )
 	DispatchSpawn( viewControl )
+
+	/* // no need to traceLine since we have removed bloom!
 	TraceResults traceResult = TraceLine( player.GetOrigin(), viewControl.GetOrigin(), [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
 	if( traceResult.hitEnt != null )
 	{
@@ -1617,6 +1624,7 @@ void function AiTitanExecutionCameraThink( entity player )
 		offset = AnglesToForward( < 0, viewAngle.y + 90, 0 > ) * distanceYaw + < 0, 0, distancePitch >
 		viewControl.SetOrigin( offset )
 	}
+	*/
 
 	player.SetViewEntity( viewControl, true )
 	entity fpProxy = player.GetFirstPersonProxy()
@@ -1628,7 +1636,11 @@ void function AiTitanExecutionCameraThink( entity player )
 		{
 			if( IsValid( player ) )
 			{
+				entity fpProxy = player.GetFirstPersonProxy()
+				if( IsValid( fpProxy ) )
+	            	fpProxy.ShowFirstPersonProxy()
 				player.ClearViewEntity()
+				RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
 			}
 			if( IsValid( viewControl ) )
 				viewControl.Destroy()
@@ -1636,12 +1648,15 @@ void function AiTitanExecutionCameraThink( entity player )
 	)
 
 	player.EndSignal( "OnDestroy" )
-	player.WaitSignal( "SyncedMeleeComplete" )
+	player.EndSignal( "OnAnimationInterrupted" )
+	player.EndSignal( "ScriptAnimStop" )
+	player.EndSignal( "OnDeath" )
+	player.WaitSignal( "OnAnimationDone" )
 }
 
 void function StartFakePhaseShift( entity player, float duration )
 {
-    player.kv.visibilityFlags = ENTITY_VISIBLE_TO_NOBODY
+    player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
 	entity fx = PlayPhaseShiftDisappearFX( player )
 	EmitSoundOnEntity( player, SHIFTER_START_SOUND_3P_TITAN )
 	thread PhaseShiftDisappearEffectCleanup( player, fx, duration )
@@ -1651,22 +1666,22 @@ void function StartFakePhaseShift( entity player, float duration )
 	if( IsValid( player ) )
 	{
 		EmitSoundOnEntity( player, SHIFTER_END_SOUND_3P_TITAN )
-		player.kv.visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+		player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 	}
 	if( IsAlive( player ) )
-		PlayPhaseShiftAppearFX( player )
+		PlayFakePhaseShiftAppearFX( player )
 }
 
-entity function PlayPhaseShiftAppearFX( entity ent )
+entity function PlayFakePhaseShiftAppearFX( entity ent )
 {
 	asset effect = $"P_phase_shift_main_XO"
 	if ( !IsHumanSized( ent ) )
 		effect = $"P_phase_shift_main"
 
 	if ( ent.IsTitan() )
-		EmitSoundOnEntityExceptToPlayer( ent, ent, SHIFTER_END_SOUND_3P_TITAN )
+		EmitSoundOnEntity( ent, SHIFTER_END_SOUND_3P_TITAN )
 	else
-		EmitSoundOnEntityExceptToPlayer( ent, ent, SHIFTER_END_SOUND_3P )
+		EmitSoundOnEntity( ent, SHIFTER_END_SOUND_3P )
 
 	return PlayFXOnEntity( effect, ent )
 }
