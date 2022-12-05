@@ -5,6 +5,7 @@ global function DebugParticle
 global function SpawnHoloPulseAtPosition
 global function SpawnWeaponEntity_CountLifeTime
 global function PlayAnimGestureFromScript
+global function CreateViewEntityForPlayer
 
 array<string> nessieDebugger = ["1007270968017"]
 table< string, int > playerAttackCountTable
@@ -20,6 +21,13 @@ const asset FX_BLOODSPRAY_DECAL_LRG                = $"P_deathfx_human_decal_LRG
 
 void function NessieDebug_Init()
 {
+	// new test things
+	MeleeSyncedHuman_EnableRandomExecutions( true )
+	MeleeSyncedHuman_AlwaysDoAiExecutions( true )
+	MeleeSyncedTitan_EnableRandomExecutions( true )
+	MeleeSyncedTitan_AlwaysDoAiExecutions( true )
+	NPCUseNormalSyncedMelee( true )
+
     PrecacheParticleSystem( $"env_thaw_interior_tank_pollen" )
 	PrecacheParticleSystem( $"P_ar_holopulse_CP" )
 	PrecacheParticleSystem( $"overhead_icon_ai_friendly" )
@@ -268,4 +276,45 @@ void function TEMP_PlayAnimGestureFromScript( entity ent )
 	print( "Try to Anim_PlayGesture()" )
 	ent.SetPredictionEnabled( false )
 	ent.Anim_PlayGesture( "ACT_MP_MELEE_KNIFE_FIRST", 2.0, 0.0, -1.0 )
+}
+
+void function CreateViewEntityForPlayer( entity player )
+{
+	entity viewControl = CreateEntity( "point_viewcontrol" )
+	viewControl.kv.spawnflags = 56 // infinite hold time, snap to goal angles, make player non-soli
+	
+	vector eyeAngle = player.EyeAngles()
+	vector evePos = player.EyePosition()
+	vector offset = AnglesToForward( < 0, eyeAngle.y, 0 > ) * -150 + < 0,0,50 >
+	vector angles = < 0, eyeAngle.y, 0 >
+	viewControl.SetParent( player, "ORIGIN" )
+	//viewControl.SetOrigin( evePos + offset )
+	viewControl.SetOrigin( < -150, 0, 100 > )
+	//viewControl.SetAngles( angles )
+	DispatchSpawn( viewControl )
+	
+	player.SetViewEntity( viewControl, true )
+	entity fpProxy = player.GetFirstPersonProxy()
+	if ( IsValid( fpProxy )  )
+		fpProxy.HideFirstPersonProxy()
+
+	OnThreadEnd(
+		function() : ( player, viewControl )
+		{
+			if( IsValid( player ) )
+			{
+				entity fpProxy = player.GetFirstPersonProxy()
+				if( IsValid( fpProxy ) )
+	            	fpProxy.ShowFirstPersonProxy()
+				player.ClearViewEntity()
+				RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+			}
+			if( IsValid( viewControl ) )
+				viewControl.Destroy()
+		}
+	)
+
+	//wait 1
+	//player.Die() // die here
+	player.WaitSignal( "OnRespawned" )
 }
