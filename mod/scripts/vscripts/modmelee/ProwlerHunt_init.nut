@@ -15,6 +15,9 @@ global function BossIntro
 global function SloneIntro
 global function ViperIntro//
 global function ViperReturn//
+
+//melee event
+global function SpectreRip
 #endif
 
 
@@ -43,12 +46,36 @@ global function ViperReturn//
 
 void function ProwlerHunt_Init()
 {
+	//used signals
 	RegisterSignal("AshEnteredPhaseShift")
 	RegisterSignal("aiskit_forcedeathonskitend")
 	RegisterSignal("aiskit_doomed")
 	RegisterSignal("aiskit_dontbreakout")
 	RegisterSignal("DoCore")
+
+
+	//ai melee event
+	AddDamageCallbackSourceID( eDamageSourceId.spectre_melee, SpectreRip )
+    AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, ProwlerRip )
+
+
+
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -415,7 +442,130 @@ void function PhaseShiftDisappearEffectCleanup( entity ent, entity fx, float dur
 
 	wait max( duration - bufferTime, 0.0 )
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void function SpectreRip( entity victim, var damageInfo )
+{
+	DamageInfo_SetDamage( damageInfo, 0 )
+	entity spectre = DamageInfo_GetAttacker( damageInfo )
+	thread SpectreRip_threaded( spectre, victim )
+}
+void function ProwlerRip( entity victim, var damageInfo )
+{
+	DamageInfo_SetDamage( damageInfo, 0 )
+	entity prowler = DamageInfo_GetAttacker( damageInfo )
+	thread ProwlerRip_threaded( prowler, victim )
+}
+
+
+
+
+
+
+
+
+void function ProwlerRip_threaded( entity prowler, entity player )
+{
+	prowler.SetAngles(prowler.GetAngles() + <0,180,0>)
+	thread PlayAnim( prowler , "pr_grunt_attack_F" )
+	waitthread PlayAnim( player , "pt_prowler_attack_F" , prowler )
+	if ( IsAlive(player) )
+	{
+	    player.Die( prowler, prowler, { damageSourceId = eDamageSourceId.human_execution, scriptType = DF_RAGDOLL })
+	}
+}
+
+void function SpectreRip_threaded( entity spectre, entity player )
+{
+	spectre.SetAngles(spectre.GetAngles() + <0,180,0>)
+	thread PlayAnim( spectre , "sp_stand_melee_headrip_A" )
+	waitthread PlayAnim( player , "pt_stand_melee_headrip_V" , spectre )
+	if ( IsAlive(player) )
+	{
+	    player.Die( spectre, spectre, { damageSourceId = eDamageSourceId.human_execution, scriptType = DF_RAGDOLL })
+	}
+}
 #endif
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
