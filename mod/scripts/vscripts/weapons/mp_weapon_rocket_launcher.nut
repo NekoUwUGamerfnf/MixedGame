@@ -452,7 +452,7 @@ void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entit
 			break
 		WaitFrame()
 	}
-	print( "guiding interrupted!" )
+	//print( "guiding interrupted!" )
 }
 
 void function HACK_ForceReloadLauncher( entity weapon, entity weaponOwner )
@@ -492,7 +492,7 @@ void function HACK_ForceReloadLauncher( entity weapon, entity weaponOwner )
 		if ( zoomFrac >= 0.5 )
 			break
 	}
-	print( "adsing after reload!" )
+	//print( "adsing after reload!" )
 	
 	/*
 	while( true )
