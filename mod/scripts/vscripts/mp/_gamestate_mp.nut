@@ -29,6 +29,9 @@ global function ShouldRunEvac
 global function GiveTitanToPlayer
 global function GetTimeLimit_ForGameMode
 
+// i want my game to have these!
+global function SetWaitingForPlayersMaxDuration // so you don't have to wait so freaking long
+
 struct {
 	// used for togglable parts of gamestate
 	bool usePickLoadoutScreen
@@ -64,6 +67,8 @@ struct {
 	// modified
 	bool enteredSuddenDeath = false
 	bool playFactionDialogue = true
+
+	float waitingForPlayersMaxDuration = 30.0
 } file
 
 void function PIN_GameStart()
@@ -147,9 +152,9 @@ void function GameStateEnter_WaitingForPlayers()
 void function WaitForPlayers()
 {
 	// note: atm if someone disconnects as this happens the game will just wait forever
-	float endTime = Time() + 30.0
+	float endTime = Time() + file.waitingForPlayersMaxDuration
 	if( ClassicMP_IsRunningDropshipIntro() )
-		endTime = Time() + 20.0
+		endTime = Time() + ( file.waitingForPlayersMaxDuration * 0.5 )
 	
 	while ( ( GetPendingClientsCount() != 0 && endTime > Time() ) || GetPlayerArray().len() == 0 )
 		WaitFrame()
@@ -1318,4 +1323,9 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 		PlayFactionDialogueToTeam( "scoring_" + winning, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losing, losingTeam )
 	}
+}
+
+void function SetWaitingForPlayersMaxDuration( float duration )
+{
+	file.waitingForPlayersMaxDuration = duration
 }
