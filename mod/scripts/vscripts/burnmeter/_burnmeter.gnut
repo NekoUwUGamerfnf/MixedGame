@@ -47,56 +47,6 @@ struct
 	bool allBattery = false
 } file
 
-const array<string> MODDED_EXTENDED_MODS = 
-[ 
-	// nessie
-	"nessie_balance",
-	// kraber
-	"ricochet_only_sniper", 
-	"floating_bolt_sniper", 
-	"ricochet_infinite_sniper", 
-	"explosive_sniper", 
-	"phase_sniper", 
-	"heal_sniper", 
-	"stim_sniper", 
-	// arc launcher
-	"smoke_launcher",
-	// all launchers 
-	"rocket_jumper", 
-	// charge rifle
-	"apex_charge_rifle", 
-	"apex_charge_rifle_burst",
-	// flatline
-	"flak_rifle", 
-	// p2016
-	"gibber_pistol", 
-	// mgl
-	"tripwire_launcher", 
-	"flesh_magnetic",
-	"magnetic_rollers",
-	// eva8
-	"twin_slug", 
-	// smart pistol
-	"smart_pistol_unlimited_ammo", 
-	// all weapons
-	"tediore_reload" 
-]
-
-const array<string> MODDED_SOFTBALL_MODS = [
-	"thermite_softball", 
-	"sonar_softball", 
-	"northstar_softball", 
-	"cluster_softball", 
-	"arcball_softball", 
-	"smoke_softball", 
-	"gravity_softball", 
-	"triplethreat_softball", 
-	"emp_softball", 
-	"error_softball", 
-	"grenade_launcher", 
-	"stickybomb_launcher"
-]
-
 void function BurnMeter_Init()
 {
 	// turret precaches
@@ -406,21 +356,11 @@ void function PlayerUsesAmpedWeaponsBurncardThreaded( entity player )
 			{
 				if( IsValid( weapon ) )
 				{
-					if( IsModdedSoftball( weapon ) )
-						weapon.RemoveMod( "burn_mod_modded_softball" )
-					else if( weapon.HasMod("apex_rampage") )
-						weapon.RemoveMod( "burn_mod_apex_rampage" )
-					else if( weapon.HasMod("apex_nessie") )
-						weapon.RemoveMod( "burn_mod_apex_nessie" )
-					else if( IsModdedWeapon( weapon ) )
+					if( TryRemoveModdedBurnMods( weapon ) ) // if successfully removed a mod or the modded weapon don't have a mod, we skip it!
 						continue
-					else if( weapon.HasMod( "smart_pistol_unlimited_ammo" ) )
-						continue
-					else
-					{
-						foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
-							weapon.RemoveMod( mod )
-					}
+
+					foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
+						weapon.RemoveMod( mod )
 					
 					weapon.SetScriptFlags0( weapon.GetScriptFlags0() & ~WEAPONFLAG_AMPED )
 				}
@@ -436,60 +376,24 @@ void function PlayerUsesAmpedWeaponsBurncardThreaded( entity player )
 		if( weapon.GetWeaponPrimaryClipCountMax() > 0 )
 			weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() ) // kind of a fix to get ammo to full, cba to give new weapon
 
+		if( TryApplyModdedBurnMods( weapon ) ) // if successfully apply a mod or the modded weapon don't have a mod, we skip it!
+			continue
 
 		weapon.RemoveMod( "silencer" ) // both this and the burnmod will override firing fx, if a second one overrides this we crash
-		if( IsModdedSoftball( weapon ) )
+
+		foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
 		{
+			// catch incompatibilities just in case
 			try
 			{
-				weapon.AddMod( "burn_mod_modded_softball" )
+				weapon.AddMod( mod )
 			}
 			catch( ex )
 			{
 				weapons.removebyvalue( weapon )
 			}
 		}
-		else if( weapon.HasMod("apex_rampage") )
-		{
-			try
-			{
-				weapon.AddMod( "burn_mod_rampage" )
-			}
-			catch( ex )
-			{
-				weapons.removebyvalue( weapon )
-			}
-		}
-		else if( weapon.HasMod("apex_nessie") )
-		{
-			try
-			{
-				weapon.AddMod( "burn_mod_nessie" )
-			}
-			catch( ex )
-			{
-				weapons.removebyvalue( weapon )
-			}
-		}
-		else if( IsModdedWeapon( weapon ) )
-			continue
-		else if( weapon.HasMod( "smart_pistol_unlimited_ammo" ) )
-			continue
-		else
-		{
-			foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
-			{
-				// catch incompatibilities just in case
-				try
-				{
-					weapon.AddMod( mod )
-				}
-				catch( ex )
-				{
-					weapons.removebyvalue( weapon )
-				}
-			}
-		}
+
 		// needed to display amped weapon time left
 		weapon.SetScriptFlags0( weapon.GetScriptFlags0() | WEAPONFLAG_AMPED )
 		weapon.SetScriptTime0( Time() + AMPED_WEAPONS_LENGTH )
@@ -498,37 +402,46 @@ void function PlayerUsesAmpedWeaponsBurncardThreaded( entity player )
 	wait AMPED_WEAPONS_LENGTH
 }
 
+bool function TryApplyModdedBurnMods( entity weapon )
+{
+	if( IsModdedWeapon( weapon ) ) // is it my modded weapon?
+	{
+		if( IsModdedBurnModWeapon( weapon ) ) // do it have modified burnmod?
+		{
+			foreach( string burnMod in GetModdedWeaponBurnMods( weapon ) )
+				weapon.AddMod( burnMod )
+		}
+
+		return true // meet a modded weapon, always return true to let other functions skip it
+	}
+	return false // not a modded weapon
+}
+
+bool function TryRemoveModdedBurnMods( entity weapon )
+{
+	if( IsModdedWeapon( weapon ) ) // is it my modded weapon?
+	{
+		if( IsModdedBurnModWeapon( weapon ) ) // do it have modified burnmod?
+		{
+			foreach( string burnMod in GetModdedWeaponBurnMods( weapon ) )
+				weapon.RemoveMod( burnMod )
+		}
+
+		return true // meet a modded weapon, always return true to let other functions skip it
+	}
+	return false // not a modded weapon
+}
+
 void function RemoveAmpedWeaponsForTitanPilot( entity player, entity titan )
 {
 	foreach ( entity weapon in player.GetMainWeapons() )
+	{
+		if( TryApplyModdedBurnMods( weapon ) ) // if successfully apply a mod or the modded weapon don't have a mod, we skip it!
+			continue
+
 		foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
 			weapon.RemoveMod( mod )
-}
-
-bool function IsModdedSoftball( entity weapon )
-{
-	if( IsValid(weapon) )
-	{
-		foreach( string hopup in MODDED_SOFTBALL_MODS )
-		{
-			if( weapon.HasMod(hopup) )
-				return true
-		}
 	}
-	return false
-}
-
-bool function IsModdedWeapon( entity weapon )
-{
-	if( IsValid(weapon) )
-	{
-		foreach( string hopup in MODDED_EXTENDED_MODS )
-		{
-			if( weapon.HasMod(hopup) )
-				return true
-		}
-	}
-	return false
 }
 
 void function PlayerUsesSmartPistolBurncard( entity player )
@@ -773,6 +686,9 @@ void function PlayerUsesPermanentAmpedWeaponsBurncard( entity player )
 	//weapons.extend( player.GetOffhandWeapons() ) // idk? unsure of vanilla behaviour here
 	foreach ( entity weapon in weapons )
 	{
+		if( TryApplyModdedBurnMods( weapon ) ) // if successfully apply a mod or the modded weapon don't have a mod, we skip it!
+			continue
+
 		weapon.RemoveMod( "silencer" ) // both this and the burnmod will override firing fx, if a second one overrides this we crash
 		foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
 		{
