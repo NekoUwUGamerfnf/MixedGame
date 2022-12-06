@@ -13,7 +13,7 @@ global function OnWeaponNpcPrimaryAttack_peacekraber
 
 
 const PEACEKRABER_MAX_BOLTS = 11 // this is the code limit for bolts per frame... do not increase.
-const float PEACEKRABER_BOLT_LIFETIME = 1.0
+const float PEACEKRABER_BOLT_LIFETIME = 0.8
 bool isWeaponActive = false;
 entity clientWeapon = null;
 

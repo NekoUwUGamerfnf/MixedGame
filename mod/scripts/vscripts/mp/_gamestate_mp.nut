@@ -167,7 +167,7 @@ void function WaitForPlayers()
 			//EmitSoundOnEntityOnlyToPlayer( player, player, "classicmp_warpjump" )
 		// this is better! late join players can also hear it
 		EmitSoundAtPosition( TEAM_UNASSIGNED, < 0,0,0 >, "classicmp_warpjump" )
-		wait 7.3
+		wait 7.3 // sound duration
 	}
 	
 	wait 1.0 // bit nicer
