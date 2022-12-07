@@ -453,6 +453,7 @@ void function PortalStart( entity player, entity weapon )
 	//if( !IsAlive( player ) ) // if player died before actually starting placing portal, just return
 	//	return
 	// should set up down here
+	thread PortalStartPointIndicator( player, weapon )
 	
 	string playerUID = player.GetUID()
 	playerPlacingPortal[ playerUID ] = true
@@ -1069,6 +1070,24 @@ void function PortalTravelThink( entity trigger, entity player )
 		wait totalTime * phaseTimeMulti
 	}
 	
+}
+
+void function PortalStartPointIndicator( entity player, entity weapon )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	weapon.EndSignal( "OnDestroy" )
+
+	entity indicator = CreatePropDynamic( PHASE_REWIND_MODEL, player.GetOrigin() + < 0,0,50 > )
+	OnThreadEnd(
+		function():( indicator )
+		{
+			if( IsValid( indicator ) )
+				indicator.Destroy()
+		}
+	)
+
+	player.WaitSignal( "PlacedPortal" )
 }
 
 void function TravelEndForceCrouch( entity player )
