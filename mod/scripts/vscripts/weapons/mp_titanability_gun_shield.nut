@@ -12,10 +12,14 @@ const FX_TITAN_GUN_SHIELD_WALL = $"P_titan_gun_shield_3P"
 const FX_TITAN_GUN_SHIELD_WALL_PILOT = $"P_anti_titan_shield_3P"
 const FX_TITAN_GUN_SHIELD_BREAK = $"P_xo_armor_break_CP"
 global const float TITAN_GUN_SHIELD_RADIUS = 105
-const int PILOT_GUN_SHIELD_RADIUS = 50
 global const int TITAN_GUN_SHIELD_HEALTH = 2500
-const int PILOT_GUN_SHIELD_HEALTH = 200
 global const int PAS_LEGION_SHEILD_HEALTH = 5000
+
+// pilot gunshields
+const int PILOT_GUN_SHIELD_RADIUS = 35
+const int PILOT_GUN_SHIELD_HEIGHT = 60
+const int PILOT_GUN_SHIELD_FOV = 75
+const int PILOT_GUN_SHIELD_HEALTH = 200
 
 #if CLIENT
 struct
@@ -214,11 +218,16 @@ void function Sv_CreateGunShield( entity titan, entity weapon, entity shieldWeap
 void function CreateHumanSizedGunShield( entity player, float duration = 6.0 )
 {
 	vector angles = VectorToAngles( player.EyeAngles() )
-	entity vortexSphere = CreateShieldWithSettings( player.GetOrigin(), angles, PILOT_GUN_SHIELD_RADIUS, PILOT_GUN_SHIELD_RADIUS * 2, PLAYER_SHIELD_WALL_FOV, duration, PILOT_GUN_SHIELD_HEALTH, FX_TITAN_GUN_SHIELD_WALL_PILOT )
+	entity vortexSphere = CreateShieldWithSettings( player.GetOrigin(), angles, PILOT_GUN_SHIELD_RADIUS, PILOT_GUN_SHIELD_HEIGHT, PILOT_GUN_SHIELD_FOV, duration, PILOT_GUN_SHIELD_HEALTH, FX_TITAN_GUN_SHIELD_WALL_PILOT )
 	thread DrainHealthOverTime( vortexSphere, vortexSphere.e.shieldWallFX, duration )
+
+	vortexSphere.SetOwner( player )
+	vortexSphere.SetBlocksRadiusDamage( true )
+	SetTeam( vortexSphere, player.GetTeam() )
 	vortexSphere.SetParent( player, "ORIGIN" )
-	vortexSphere.SetAngles( < 20,0,95 > )
-	vortexSphere.SetOrigin( < 20,0,48 > )
+	vortexSphere.e.shieldWallFX.SetAngles( < 20,0,94 > )
+	vortexSphere.e.shieldWallFX.SetOrigin( < 31,0,32 > )
+
 	thread ShieldADSThink( player, vortexSphere, duration )
 	/*
 	vortexSphere.SetParent( player, "PROPGUN" )
