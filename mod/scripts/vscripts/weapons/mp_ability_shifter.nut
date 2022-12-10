@@ -230,7 +230,7 @@ var function OnWeaponPrimaryAttack_shifter( entity weapon, WeaponPrimaryAttackPa
 		{
 			if( playerPlacingPortal[ playerUID ] )
 			{
-				player.Signal( "PlacedPortal" )
+				//player.Signal( "PlacedPortal" )
 				return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
 			}
 			else
@@ -574,6 +574,8 @@ void function PortalStart( entity player, entity weapon )
 
 void function PortalEnd( entity player, entity weapon, vector startPos, vector startAng, array<vector> progressPoses, array<vector> progressAngs, array<bool> wasCrouchedArray, float travelTime, float portalLeft, bool isInfiniteDistance, bool isInfiniteDuration )
 {
+	player.Signal( "PlacedPortal" )
+
 	if( IsValid( weapon ) )
 	{
 		weapon.RemoveMod( "no_regen" )
