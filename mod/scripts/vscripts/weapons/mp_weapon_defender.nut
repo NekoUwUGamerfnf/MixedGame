@@ -119,8 +119,10 @@ void function OnWeaponSustainedDischargeEnd_Defender( entity weapon )
 			attackParams.dir = weapon.GetAttackDirection()
 			attackParams.pos = weapon.GetAttackPosition()
 
+			#if SERVER // defensive fix, don't run on client, also loses visual lol
 			weapon.RemoveMod( "apex_charge_rifle" )
 			weapon.AddMod( "apex_charge_rifle_burst" )
+			#endif
 			//owner.Weapon_StartCustomActivity( "ACT_VM_DRAW", false )
 			weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, DF_GIB | DF_EXPLOSION )
 			
