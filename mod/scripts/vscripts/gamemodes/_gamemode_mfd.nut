@@ -242,8 +242,8 @@ void function MarkPlayers( entity imcMark, entity militiaMark )
 	}
 	else
 	{
-		//AddPlayerScore( livingMark, "MarkedSurvival" )
-		AddPlayerScore( livingMark, "MarkedOutlastedEnemyMarked", livingMark )
+		AddPlayerScore( livingMark, "MarkedSurvival" )
+		//AddPlayerScore( livingMark, "MarkedOutlastedEnemyMarked", livingMark ) // this is a bit too long
 		PlayFactionDialogueToPlayer( "mfd_youOutlastedEnemy", livingMark )
 	}
 	// enemies
