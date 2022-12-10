@@ -1,5 +1,7 @@
 global function GamemodeSpeedball_Init
 
+const NOINTRO_INTRO_SPEEDBALL_LENGTH = 6.0 // vanilla behaves like this
+
 struct {
 	entity flagBase
 	entity flag
@@ -32,7 +34,7 @@ void function GamemodeSpeedball_Init()
 	SetTimeoutWinnerDecisionReason( "#GAMEMODE_SPEEDBALL_WIN_TIME_FLAG_LAST", "#GAMEMODE_SPEEDBALL_LOSS_TIME_FLAG_LAST" )
 	AddCallback_OnRoundEndCleanup( ResetFlag )
 
-	ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() )
+	ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, NOINTRO_INTRO_SPEEDBALL_LENGTH )
 	ClassicMP_ForceDisableEpilogue( true )
 }
 
