@@ -57,7 +57,7 @@ void function GamemodeCP_Init()
 	ScoreEvent_SetEarnMeterValues("ControlPointAmpedHold",0.05,0.05)
 
 	ScoreEvent_SetEarnMeterValues("HardpointAssault",0.10,0.15)
-	ScoreEvent_SetEarnMeterValues("HardpointDefense",0.5,0.10)
+	ScoreEvent_SetEarnMeterValues("HardpointDefense",0.05,0.10)
 	ScoreEvent_SetEarnMeterValues("HardpointPerimeterDefense",0.1,0.12)
 	ScoreEvent_SetEarnMeterValues("HardpointSiege",0.1,0.15)
 	ScoreEvent_SetEarnMeterValues("HardpointSnipe",0.1,0.15)
