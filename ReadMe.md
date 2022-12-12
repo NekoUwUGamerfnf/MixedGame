@@ -123,4 +123,6 @@ Fake_Scope_Sniper_Rifles_Init(): 狙击枪的原厂镜会替换为随机模型�
 
 Modded_Gamemode_Extra_Spawner_Enable_Init(): 启用友伤，会刷各种各样的npc敌人出来，替换消耗战
 
+Modded_Gamemode_BodyGroup_Init(): 只有击中特定的部位(如头部, 左臂, 右腿等)才可造成伤害
+
 NessieDebug_Init(): 测试的一堆笨比东西

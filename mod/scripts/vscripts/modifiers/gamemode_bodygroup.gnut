@@ -1,0 +1,78 @@
+untyped // for GiveExtraWeaponMod() to work
+global function Modded_Gamemode_BodyGroup_Init
+
+const array<string> BODYGROUP_MODE_BANNED_OFFHANDS =
+[
+    "mp_weapon_frag_grenade", // shitty thing
+    "mp_ability_cloak" // shitty thing!!!
+]
+
+void function Modded_Gamemode_BodyGroup_Init()
+{
+    // main mechanic
+    AddDamageCallback( "player", CheckPlayerHitGroup ) // AddPostDamageCallback() can't handle this
+    IgnoreEquipmentsFilter( "All" ) // never uses equipments filter
+
+    // little adjustments
+    AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+    AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsLoadout )
+
+    // funny things?
+    SetPlayerDeathsHidden( true ) // let's not count player's deaths!
+    SetSyncedMeleeNoLimit( true )
+    EnableFriendlyExecution( true ) // player can only execute friendly players, not enemies!
+    AddDeathCallback( "player", AddScoreForFriendlyExecution ) // forced scoreEvent lol
+    SetShouldFUCKOFFCLOAK( true ) // fuck off
+}
+
+void function CheckPlayerHitGroup( entity player, var damageInfo )
+{
+    int hitGroup = DamageInfo_GetHitGroup( damageInfo )
+    if( hitGroup != HITGROUP_HEAD ) // not a headshot!
+        DamageInfo_SetDamage( damageInfo, 0 )
+}
+
+void function OnPlayerRespawned( entity player )
+{
+    SyncedMelee_Disable( player ) // can't execute enemies!
+}
+
+// little balance change
+void function OnPlayerGetsLoadout( entity player, PilotLoadoutDef p )
+{
+    // let players knockback enemies!
+    player.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "pushback_melee" )
+
+    entity tactical = player.GetOffhandWeapon( OFFHAND_SPECIAL )
+    string tacticalName = tactical.GetWeaponClassName()
+    if( BODYGROUP_MODE_BANNED_OFFHANDS.contains( tacticalName ) )
+    {
+        player.TakeWeaponNow( tacticalName )
+        player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL )
+    }
+
+    entity ordnance = player.GetOffhandWeapon( OFFHAND_ORDNANCE )
+    string ordnanceName = ordnance.GetWeaponClassName()
+    if( BODYGROUP_MODE_BANNED_OFFHANDS.contains( ordnanceName ) )
+    {
+        player.TakeWeaponNow( ordnanceName )
+        player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE )
+    }
+}
+
+void function AddScoreForFriendlyExecution( entity victim, var damageInfo )
+{
+    int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( damageSourceID == eDamageSourceId.human_execution )
+    {
+        if( IsValid( attacker ) )
+        {
+            if( attacker.IsPlayer() )
+            {
+                attacker.AddToPlayerGameStat( PGS_KILLS, 1 )
+                attacker.AddToPlayerGameStat( PGS_PILOT_KILLS, 1 )
+            }
+        }
+    }
+}
