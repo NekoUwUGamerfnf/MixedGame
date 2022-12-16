@@ -261,7 +261,7 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	}
 	else
 	{
-		AddPlayerScore( attacker, scoreEvent ) // no callsign event and event
+		AddPlayerScore( attacker, scoreEvent ) // no callsign event
 	}
 
 	/* // using a new check
@@ -303,8 +303,9 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 		if( attackerInfo.attacker != attacker && !exists )
 		{
 			alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
+			Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time )
 			AddPlayerScore( attackerInfo.attacker, "TitanAssist", victim )
-			Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time ) 
+			attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
 		}
 	}
 }

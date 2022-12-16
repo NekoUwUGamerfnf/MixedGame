@@ -27,13 +27,21 @@ global function GetDecoyActiveCountForPlayer
 global function OnWeaponOwnerChange_holopilot
 
 const float PHASE_REWIND_PATH_SNAPSHOT_INTERVAL = 0.1
+
+// for infinite_decoy
+const int WORLD_MAX_DECOY_COUNT = 24 // you can only spawn this much of decoy!
 struct
 {
 	table< entity, int > playerToDecoysActiveTable //Mainly used to track stat for holopilot unlock
 
 	// holoshift tables
 	table< entity > playerDecoyList //CUSTOM used to track the decoy the user will be teleported to
-	table< entity, float > playerDecoyActiveFrom //CUSTOM used to set decoy ability discharge
+
+	// strange things
+	bool isInfiniteDecoy = false
+	bool isStrangeDecoy = false
+	// infinite decoy array
+	array<entity> infiniteDecoyOnWorld = []
 
 	// defined for nessy.gnut
 	bool isNessieOutfit = false
@@ -55,10 +63,6 @@ file
 	PLAYER_DECOY_STATE_DYING,
 	PLAYER_DECOY_STATE_COUNT
 */
-
-// strange things
-bool isInfiniteDecoy = false
-bool isStrangeDecoy = false
 
 // mirage_decoy
 const float MIRAGE_DECOY_LIFETIME = 60.0
@@ -168,8 +172,9 @@ void function OnHoloPilotDestroyed( entity decoy )
 				delete file.playerDecoyList[bossPlayer]
 
 		}
-		if(bossPlayer in file.playerDecoyActiveFrom)
-			delete file.playerDecoyActiveFrom[bossPlayer]
+
+		// infinite decoy clean up
+		file.infiniteDecoyOnWorld.removebyvalue( decoy )
 	}
 	CleanupFXAndSoundsForDecoy( decoy )
 	ClearNessy( decoy )
@@ -227,9 +232,9 @@ var function OnWeaponPrimaryAttack_holopilot( entity weapon, WeaponPrimaryAttack
 	if( weapon.HasMod( "dead_ringer" ) )
 		return OnAbilityStart_FakeDeath( weapon, attackParams )
 	if( weapon.HasMod( "infinite_decoy" ) )
-		isInfiniteDecoy = true
+		file.isInfiniteDecoy = true
 	if( weapon.HasMod( "strange_decoy" ) )
-		isStrangeDecoy = true
+		file.isStrangeDecoy = true
 
 	if ( !PlayerCanUseDecoy( weapon ) )
 		return 0
@@ -241,8 +246,6 @@ var function OnWeaponPrimaryAttack_holopilot( entity weapon, WeaponPrimaryAttack
 		entity decoy = file.playerDecoyList[ weaponOwner ]
 		weapon.SetWeaponPrimaryClipCount(0)
 		PlayerUsesHoloRewind(weaponOwner, decoy)
-		if(weaponOwner in file.playerDecoyActiveFrom)
-			delete file.playerDecoyActiveFrom[weaponOwner]
 
 		// in lts you'll drop your battery while phasing back
 		/* // not enabled
@@ -306,11 +309,11 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 		decoy.SetHealth( 50 )
 		decoy.EnableAttackableByAI( 50, 0, AI_AP_FLAG_NONE )
 		SetObjectCanBeMeleed( decoy, true )
-		if( isInfiniteDecoy )
+		if( file.isInfiniteDecoy )
 			decoy.SetTimeout( 9999 )
 		else
 			decoy.SetTimeout( DECOY_DURATION )
-		if( isStrangeDecoy )
+		if( file.isStrangeDecoy )
 		{
 			decoy.SetOrigin( player.GetOrigin() + < 0,0,15 > )
 			asset decoyModel = RANDOM_DECOY_ASSETS[ RandomInt( RANDOM_DECOY_ASSETS.len() ) ]
@@ -325,7 +328,6 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 			CreateNessyBackpack( backpackassets, decoy )
 			//CreateNessyPistol( pistolassets, decoy )
 		}
-		file.playerDecoyActiveFrom[player] <- Time()
 		if ( setOriginAndAngles )
 		{
 			vector angleToAdd = CalculateAngleSegmentForDecoy( i, HOLOPILOT_ANGLE_SEGMENT )
@@ -366,7 +368,7 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 	decoy.SetFadeDistance( DECOY_FADE_DISTANCE )
 
 	int friendlyTeam = decoy.GetTeam()
-	if( !isInfiniteDecoy )
+	if( !file.isInfiniteDecoy )
 	{
 		EmitSoundOnEntityToTeam( decoy, "holopilot_loop", friendlyTeam  ) //loopingSound
 		EmitSoundOnEntityToEnemies( decoy, "holopilot_loop_enemy", friendlyTeam  ) ///loopingSound
@@ -374,8 +376,15 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 		Highlight_SetFriendlyHighlight( decoy, "friendly_player_decoy" )
 		Highlight_SetOwnedHighlight( decoy, "friendly_player_decoy" )
 	}
-	else
+	else // infinite decoy
 	{
+		file.infiniteDecoyOnWorld.append( decoy )
+		if( file.infiniteDecoyOnWorld.len() >= WORLD_MAX_DECOY_COUNT )
+		{
+			file.infiniteDecoyOnWorld.removebyvalue( null ) // remove all invalid decoy
+			if( IsValid( file.infiniteDecoyOnWorld[0] ) )
+				file.infiniteDecoyOnWorld[0].Destroy() // maybe this?
+		}
 		decoy.SetNameVisibleToOwner( false )
 		decoy.SetNameVisibleToFriendly( false )
 		decoy.SetNameVisibleToEnemy( false )
@@ -439,19 +448,20 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 	}
 	#endif // MP
 	
-	if( !isInfiniteDecoy )
+	if( !file.isInfiniteDecoy )
 	{
 		entity holoPilotTrailFX = StartParticleEffectOnEntity_ReturnEntity( decoy, HOLO_PILOT_TRAIL_FX, FX_PATTACH_POINT_FOLLOW, attachID )
 		SetTeam( holoPilotTrailFX, friendlyTeam )
 		holoPilotTrailFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
 		decoy.decoy.fxHandles.append( holoPilotTrailFX )
 	}
-	if( isInfiniteDecoy )
-		decoy.SetFriendlyFire( true )
+	if( file.isInfiniteDecoy )
+		decoy.SetFriendlyFire( true ) // so you can adjust decoy count yourself
 	else
 		decoy.SetFriendlyFire( false )
-	isInfiniteDecoy = false
-	isStrangeDecoy = false
+	// clean it up
+	file.isInfiniteDecoy = false
+	file.isStrangeDecoy = false
 	decoy.SetKillOnCollision( false )
 }
 
@@ -602,6 +612,7 @@ void function SetNessieDecoyOn( bool isOn )
 }
 #endif
 
+// holoshift stuff!
 #if SERVER
 void function HoloShiftCooldownThink( entity weapon )
 {
@@ -657,19 +668,42 @@ void function PlayerUsesHoloRewindThreaded( entity player, entity decoy )
 	entity mover = CreateScriptMover( player.GetOrigin(), player.GetAngles() )
 	player.SetParent( mover, "REF" )
 
-	OnThreadEnd( function() : ( player, mover, decoy )
-	{
-		player.SetOrigin(decoy.GetOrigin())
-		player.SetAngles(decoy.GetAngles())
-		player.SetVelocity(decoy.GetVelocity())
-		CancelPhaseShift( player )
-		player.DeployWeapon()
-		player.SetPredictionEnabled( true )
-		player.ClearParent()
-		ViewConeFree( player )
-		mover.Destroy()
-		CleanupExistingDecoy(decoy)
-	})
+	table decoyData = {}
+	decoyData.forceCrouch <- TraceLine
+							 ( decoy.GetOrigin(), 
+							   decoy.GetOrigin() + < 0,0,80 >, // 40 is crouched pilot height! add additional 40 for better check
+							   [ decoy ], 
+							   TRACE_MASK_SHOT, 
+							   TRACE_COLLISION_GROUP_NONE 
+							 ).hitEnt != null // decoy will stuck
+
+	//print( "should forceCrouch player: " + string( decoyData.forceCrouch ) )
+
+	OnThreadEnd( 
+		function() : ( player, mover, decoy, decoyData )
+		{
+			if ( IsValid( player ) )
+			{
+				player.SetOrigin(decoy.GetOrigin())
+				player.SetAngles(decoy.GetAngles())
+				player.SetVelocity(decoy.GetVelocity())
+				CancelPhaseShift( player )
+				player.DeployWeapon()
+				player.SetPredictionEnabled( true )
+				player.ClearParent()
+				ViewConeFree( player )
+				Nessie_PutPlayerInSafeSpot( player, 1 ) // defensive fix, good to have
+				if( decoyData.forceCrouch )
+					thread HoloRewindForceCrouch( player ) // this will handle "UnforceCrouch()"
+			}
+
+			if ( IsValid( mover ) )
+				mover.Destroy()
+
+			if ( IsValid( decoy ) )
+				CleanupExistingDecoy(decoy)
+		}
+	)
 
 	vector initial_origin = player.GetOrigin()
 	vector initial_angle = player.GetAngles()
@@ -678,6 +712,8 @@ void function PlayerUsesHoloRewindThreaded( entity player, entity decoy )
 	ViewConeZero( player )
 	player.HolsterWeapon()
 	player.SetPredictionEnabled( false )
+	if( decoyData.forceCrouch )
+		player.ForceCrouch() // avoid stucking!
 	PhaseShift( player, 0.0, 7 * PHASE_REWIND_PATH_SNAPSHOT_INTERVAL * 1.5 )
 	
 	// this mean mover will try to catch up with decoy, 7 times
@@ -694,9 +730,18 @@ void function PlayerUsesHoloRewindThreaded( entity player, entity decoy )
 	mover.NonPhysicsRotateTo( decoy.GetAngles(), PHASE_REWIND_PATH_SNAPSHOT_INTERVAL, 0, 0 )
 	player.SetVelocity( decoy.GetVelocity() )
 }
+
+void function HoloRewindForceCrouch( entity player )
+{
+	// make player crouch
+	player.ForceCrouch()
+	wait 0.2
+	if( IsValid( player ) )
+		player.UnforceCrouch()
+}
 #endif
 
-// mirage decoy stuff
+// mirage decoy stuff, WIP
 /*
 #if SERVER
 void function MirageDecoyThink( entity owner )

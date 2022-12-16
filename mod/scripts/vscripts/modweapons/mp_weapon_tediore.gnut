@@ -14,9 +14,22 @@ const bool USING_CUSTOM_DAMAGE = true
 // false = use reload time, true = use settings grenade fuse time
 const bool USING_CUSTOM_FUSE_TIME = true
 
+// use a fake explosion to deal damage!
+struct TedioreExplosionStruct
+{
+    float innerRadius
+    float outerRadius
+    int actualDamage
+    int actualTitanDamage
+    float clipLeftPercentage
+    int damageType
+    float impulseForce
+    string impactFXName
+}
+
 struct
 {
-    table <string, bool> playerHasThrowed = {} // prevent throw twice through wallbump
+    table <entity, bool> playerHasThrowed = {} // prevent throw twice through wallbump
     table <entity, float> gunDamageScale = {} // testing...works pretty well till now, but respawn already had a projectile.proj.damageScale
 } file
 
@@ -121,7 +134,7 @@ void function MpWeaponMod_Tediore_Init()
 #if SERVER
 void function InitPlayerStat( entity player )
 {
-    file.playerHasThrowed[player.GetUID()] <- false
+    file.playerHasThrowed[player] <- false
     //playerStimEffectTable[player] <- [] // not using
     //playerActivatedStimFieldCount[player] <- 0
 }
@@ -151,8 +164,7 @@ void function OnWeaponReload_Tediore( entity weapon, int milestoneIndex )
     entity owner = weapon.GetWeaponOwner()
     if( !owner.IsPlayer() )
         return
-    string uid = owner.GetUID()
-    if( file.playerHasThrowed[uid] )
+    if( file.playerHasThrowed[owner] )
         return
     owner.HolsterWeapon() // first make player unable to attack, then addMod(), deploy is done in DelayedDeployAndEnableWeapon()
     weapon.AllowUse( false ) // re-enable is done in DelayedDeployAndEnableWeapon()
@@ -302,7 +314,7 @@ void function OnWeaponReload_Tediore( entity weapon, int milestoneIndex )
         thrownGun = weapon.FireWeaponGrenade( pos, dir, angularVelocity, 0.0, damageType, damageType, false, true, true )
     if( thrownGun )
     {
-        file.playerHasThrowed[uid] = true
+        file.playerHasThrowed[owner] = true
         // prevent being destroyed by other weapons, setting thrownGun.proj.onlyAllowSmartPistolDamage = true
         Grenade_Init( thrownGun, weapon )
         thrownGun.SetModel( gunModel )
@@ -521,13 +533,12 @@ void function DelayedDeployAndEnableWeapon( entity player, entity weapon, float 
 	player.EndSignal( "OnDestroy" )
 	weapon.EndSignal( "OnDestroy" )
 	float startTime = Time()
-	string uid = player.GetUID()
 	OnThreadEnd(
-		function():( player, weapon, uid )
+		function():( player, weapon )
 		{
-			file.playerHasThrowed[uid] = false
 			if( IsValid( player ) )
 			{
+                file.playerHasThrowed[player] = false
 				player.DeployWeapon()
 				if( IsValid( weapon ) )
                 {
@@ -1034,6 +1045,7 @@ void function TedioreChainReaction( entity owner, entity thrownGun, actualPilotD
     )
 
     wait startDelay
+    WaitEndFrame() // good to have this
     foreach( entity grenade in grenadeProps )
     {
         if( IsValid( grenade ) )
@@ -1068,7 +1080,6 @@ void function TedioreMissileBurst( entity weapon, entity player, int damageType,
     weapon.EndSignal( "OnDestroy" )
     player.EndSignal( "OnDeath" )
 
-    string uid = player.GetUID()
     asset gunModel = weapon.GetWeaponInfoFileKeyFieldAsset( "playermodel" )
 
     float shotsInterval = 1 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
@@ -1087,6 +1098,7 @@ void function TedioreMissileBurst( entity weapon, entity player, int damageType,
         }
     )
 
+    WaitEndFrame() // good to have this
     for( int i = 0; i < burstCount; i++ )
     {
         vector pos = player.EyePosition()
@@ -1100,7 +1112,7 @@ void function TedioreMissileBurst( entity weapon, entity player, int damageType,
         {
             if( thrownGun )
             {
-                file.playerHasThrowed[uid] = true
+                file.playerHasThrowed[player] = true
                 thrownGun.SetModel( gunModel )
                 thread DelayedStartParticleSystem( thrownGun, fxAsset )
                 thread DelayedEmitSound( player, weapon, thrownGun )
