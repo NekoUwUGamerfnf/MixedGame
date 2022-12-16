@@ -113,9 +113,18 @@ void function FixShuffle( float delay = 0 )
 	}
 	if( IsValid( poorGuy ) )
 	{ // only notice once
-		Chat_ServerPrivateMessage( poorGuy, "由于队伍人数不平衡，你已被重新分队", false )
+		//Chat_ServerPrivateMessage( poorGuy, "由于队伍人数不平衡，你已被重新分队", false ) // chathook has been fucked up
+		thread WaitForPlayerRespawnThenNotify( poorGuy )
 		NotifyClientsOfTeamChange( poorGuy, oldTeam, poorGuy.GetTeam() ) 
 	}
+}
+
+void function WaitForPlayerRespawnThenNotify( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	player.WaitSignal( "OnRespawned" )
+	NSSendInfoMessageToPlayer( player, "由於隊伍人數不平衡，你已被重新分隊" )
 }
 
 void function CheckTeamBalance( entity victim, entity attacker, var damageInfo )
@@ -146,6 +155,7 @@ void function CheckTeamBalance( entity victim, entity attacker, var damageInfo )
 	// We passed all checks, balance the teams
 	int oldTeam = victim.GetTeam()
 	SetTeam( victim, GetOtherTeam( victim.GetTeam() ) )
-	Chat_ServerPrivateMessage( victim, "由于队伍人数不平衡，你已被重新分队", false )
+	//Chat_ServerPrivateMessage( victim, "由于队伍人数不平衡，你已被重新分队", false ) // chathook has been fucked up
+	thread WaitForPlayerRespawnThenNotify( victim )
 	NotifyClientsOfTeamChange( victim, oldTeam, victim.GetTeam() )
 }
