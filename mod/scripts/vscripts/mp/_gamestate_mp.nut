@@ -1204,6 +1204,9 @@ void function AddTeamScore( int team, int amount )
 	//GameRules_SetTeamScore( team, GameRules_GetTeamScore( team ) + amount )
 	//GameRules_SetTeamScore2( team, GameRules_GetTeamScore2( team ) + amount )
 
+	if( !GamePlayingOrSuddenDeath() ) // don't add score in other states!
+		return
+
 	int score = GameRules_GetTeamScore( team )
 	int scoreLimit
 	if ( IsRoundBased() )
