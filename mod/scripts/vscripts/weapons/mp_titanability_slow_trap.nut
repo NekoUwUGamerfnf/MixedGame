@@ -37,7 +37,7 @@ const float GAS_TRAP_DAMAGE_TICK = 0.5
 const float GAS_TRAP_DETECTION_RADIUS = 140.0
 const float GAS_TRAP_RADIUS = 256
 const float GAS_TRAP_HEIGHT = 60
-const int GAS_TRAP_HEALTH = 300
+const int GAS_TRAP_HEALTH = 150 // was 300, needs nerf!
 //const float GAS_TRAP_SLOW_DURATION_PER_TICK = 1.5 // should be damagetick * 3
 //const float GAS_TRAP_SLOW_DURATION_LEAVING = 1
 // gas settings
