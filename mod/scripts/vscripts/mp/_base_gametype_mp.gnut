@@ -13,6 +13,7 @@ global function TryGameModeAnnouncement
 global function SetKillcamsEnabled
 global function KillcamsEnabled
 global function SetPlayerDeathsHidden
+global function IsPlayerDeathsHidden // new added
 global function TrackTitanDamageInPlayerGameStat
 
 // I want my game to have this
@@ -48,6 +49,14 @@ void function BaseGametype_Init_MPSP()
 
 	RegisterSignal( "PlayerRespawnStarted" )
 	RegisterSignal( "KillCamOver" )
+}
+
+void function TakeOffhandWeaponsNow( entity player )
+{
+	foreach( entity offhand in player.GetOffhandWeapons() )
+	{
+		player.TakeWeaponNow( offhand.GetWeaponClassName() )
+	}
 }
 
 void function SetIntermissionCamera( entity camera )
@@ -281,6 +290,10 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.s.respawnCount++
 	player.s.respawnTime = Time()
 	ClearRecentDamageHistory( player )
+	if( IsHackedDeathEnabled() )
+	{
+		PlayerRecoverFromHackedDeath( player )
+	}
 	//player.ClearReplayDelay() // these has been done in CPlayer::RespawnPlayer()
 	//player.ClearViewEntity()
 	
@@ -346,7 +359,8 @@ void function GracePeriodThink_Threaded( entity player )
 void function CodeCallback_OnPlayerKilled( entity player, var damageInfo )
 {
 	PlayerOrNPCKilled( player, damageInfo )
-	HandleDeathPackage( player, damageInfo )
+	if( !IsHackedDeathEnabled() )
+		HandleDeathPackage( player, damageInfo )
 	thread PostDeathThread_MP( player, damageInfo )
 }
 
@@ -366,13 +380,27 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	player.p.deathAngles = player.GetAngles()
 
 	player.s.inPostDeath = true
-	player.s.inGracePeriod = true // make sure player always in GracePeriod after respawn
+
+	if( IsHackedDeathEnabled() ) // prevent players reset their class after hacked death
+		player.s.inGracePeriod = false
+	else
+		player.s.inGracePeriod = true // make sure player always in GracePeriod after respawn
 	player.s.respawnSelectionDone = false
 
 	player.cloakedForever = false
 	player.stimmedForever = false
-	player.SetNoTarget( false )
-	player.SetNoTargetSmartAmmo( false )
+
+	if( IsHackedDeathEnabled() )
+	{
+		player.SetNoTarget( true )
+		player.SetNoTargetSmartAmmo( true )
+		player.s.hackedDeath = true
+	}
+	else
+	{
+		player.SetNoTarget( false )
+		player.SetNoTargetSmartAmmo( false )
+	}
 	player.ClearExtraWeaponMods()
 	
 	// disable prediction to prevent it messing with ragdoll in some places, as well as killreplay and such
@@ -442,13 +470,20 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	if ( ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue ) && !file.playerDeathsHidden )
 		player.AddToPlayerGameStat( PGS_DEATHS, 1 )
 	
+	// fuck you respawn why leaving a annying death sound
+	//if ( !file.playerDeathsHidden || ( IsHackedDeathEnabled() && !player.IsWatchingKillReplay() ) ) // since we did a loop to stop death sound, it's good to make a killer outline for hackedDeathed players, remember to avoid doing this when players're watching replay!
 	if ( !file.playerDeathsHidden )
 		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", attacker.GetEncodedEHandle(), GetHealthFrac( attacker ), methodOfDeath )
+	// do a special sound for ttf1 necksnap if player's death is hidden, no need for now
+	if( IsHackedDeathEnabled() && ShouldClassicExecutions() && methodOfDeath == eDamageSourceId.human_execution )
+		EmitSoundOnEntityOnlyToPlayer( player, player, "player_death_begin" )
 
 	float deathcamLength = GetDeathCamLength( player )
 	wait deathcamLength
 	
-	/*
+	if( IsHackedDeathEnabled() )
+		player.UnfreezeControlsOnServer() // unfreeze controls here, make players able to press respawn
+	/* // this visual is weird
 	if ( file.intermissionCamera != null )
 	{
 		if( shouldDoReplay ) // if not doing replay, player's camera should be at their death location.
@@ -511,9 +546,20 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 			thread ForcedRespawnThink( player, waitBeforeRespawn )// if not doing replay, set player's camera to intermissionCam
 
 		}
+		if( IsHackedDeathEnabled() && !file.forcedRespawn ) // to enable respawn button
+		{
+			if( IsAlive( player, true ) )
+				player.Die( player, player, { damageSourceId = damagedef_despawn } )
+		}
 
 		player.WaitSignal( "RespawnMe" ) // set in base_gametype: ClientCommand_RespawnPlayer
-		
+
+		if( respawnDelay > 0 && IsHackedDeathEnabled() && file.forcedRespawn ) // defensive fix for hacked death
+		{
+			if( IsAlive( player, true ) )
+				player.Die( player, player, { damageSourceId = damagedef_despawn } )
+			player.Signal( "RespawnMe" )
+		}
 		ClearRespawnAvailable( player ) // need so the respawn icon doesn't show for like a frame on next death
 
 		if ( ( expect bool( player.GetPersistentVar( "spawnAsTitan" ) ) && IsTitanAvailable( player ) ) || ( Riff_SpawnAsTitan() > 0 && Riff_ShouldSpawnAsTitan( player ) ) )	// spawn as titan
@@ -580,7 +626,15 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn )
 	if( player.IsWatchingKillReplay() )
 		player.WaitSignal( "KillCamOver" )
 	if( waitBeforeRespawn > 0 )
-		wait waitBeforeRespawn
+	{
+		if( IsHackedDeathEnabled() )
+		{
+			if( IsAlive( player, true ) )
+				player.Die( player, player, { damageSourceId = damagedef_despawn } )
+		}
+		else
+			wait waitBeforeRespawn
+	}
 	result.repsawnIsForced = true
 }
 
@@ -732,6 +786,11 @@ bool function KillcamsEnabled()
 void function SetPlayerDeathsHidden( bool hidden )
 {
 	file.playerDeathsHidden = hidden
+}
+
+bool function IsPlayerDeathsHidden() // new added
+{
+	return file.playerDeathsHidden
 }
 
 void function SetPlayerRespawnForced( bool forced )

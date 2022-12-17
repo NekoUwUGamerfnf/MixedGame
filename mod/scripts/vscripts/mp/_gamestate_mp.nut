@@ -375,7 +375,8 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	entity replayVictim = file.roundWinningKillReplayVictim
 	bool doReplay = Replay_IsEnabled() && IsRoundWinningKillReplayEnabled() && IsValid( replayAttacker ) && !ClassicMP_ShouldRunEpilogue()
 				 && Time() - file.roundWinningKillReplayTime <= ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY && winningTeam != TEAM_UNASSIGNED
- 	
+				 && !IsHackedDeathEnabled() // don't replay for hacked death
+
 	float replayLength = 2.0 // extra delay if no replay
 	if ( doReplay )
 	{
@@ -620,6 +621,7 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	entity replayVictim = file.roundWinningKillReplayVictim
 	bool doReplay = Replay_IsEnabled() && IsRoundWinningKillReplayEnabled() && IsValid( replayAttacker ) && !IsRoundBased() // for roundbased modes, we've already done the replay
 				 && Time() - file.roundWinningKillReplayTime <= SWITCHING_SIDES_DELAY
+				 && !IsHackedDeathEnabled() // don't replay for hacked death
 	
 	float replayLength = 2.0 // extra delay if no replay
 	if ( doReplay )

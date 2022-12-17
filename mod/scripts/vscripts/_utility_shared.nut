@@ -561,12 +561,35 @@ bool function IsValid_ThisFrame( entity ent )
 	return expect bool( ent.IsValidInternal() )
 }
 
-bool function IsAlive( entity ent )
+bool function IsAlive( entity ent, bool ignoreHackedDeath = false )
 {
 	if ( ent == null )
 		return false
 	if ( !ent.IsValidInternal() )
 		return false
+
+#if SERVER // extra check for hackedDeaths!
+	if( ent.IsPlayer() && IsHackedDeathEnabled() )
+	{
+		if( !ignoreHackedDeath ) // for real killing players... they should ignore this check
+		{
+			if( "respawnCount" in ent.s ) // for sometimes npcs searching for players( maybe only ticks? )
+			{
+				if( expect int( ent.s.respawnCount ) > 0 ) // at least respawned once, or game will crash( try to respawn multiple times at connection )
+				{
+					if( GetGameState() > eGameState.Prematch ) // avoid intro forceDie crash
+					{
+						bool isHackedDeath = false // default is alive
+						if( "hackedDeath" in ent.s )
+							isHackedDeath = expect bool( ent.s.hackedDeath )
+						//print( "isHackedDeath state: " + string( isHackedDeath ) )
+						return !isHackedDeath
+					}
+				}
+			}
+		}
+	}
+#endif
 
 	return ent.IsEntAlive()
 }

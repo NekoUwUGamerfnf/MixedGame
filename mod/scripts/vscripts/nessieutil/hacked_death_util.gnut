@@ -1,0 +1,386 @@
+untyped
+global function Hacked_Death_Utility_Init
+
+global function PlayerStartHackedDeath
+global function PlayerRecoverFromHackedDeath
+
+global function SetHackedDeathEnabled
+global function IsHackedDeathEnabled
+global function IsPlayerHackedDeath
+
+struct
+{
+    bool hackedDeathEnabled = false
+} file
+
+void function Hacked_Death_Utility_Init()
+{
+	SetHackedDeathEnabled( true ) // always enable now
+
+    // funny HACKs!
+	RegisterSignal( "StartHackedDeath" )
+	RegisterSignal( "RecoverFromHackedDeath" )
+	
+	AddPostDamageCallback( "player", HackedDeath_PlayerPostDamage ) // this can get player's real taken damage
+	AddDeathCallback( "player", HackedDeath_PlayerRealDeath )
+	AddCallback_OnClientConnected( InitHackedDeathForPlayer )
+}
+
+void function InitHackedDeathForPlayer( entity player )
+{	
+	player.s.hackedDeath <- false
+	thread DisablePlayerWoundedSoundLifeLong( player )
+}
+
+void function DisablePlayerWoundedSoundLifeLong( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	
+	while( true )
+	{
+		if( file.hackedDeathEnabled )
+			StopPlayerWoundedSound( player )
+		WaitFrame()
+	}
+}
+
+void function StopPlayerWoundedSound( entity player )
+{
+	// player sound fadeout is done in client base I guess, not handling like stim sounds
+	//StopSoundOnEntity( player, "pilot_critical_breath_start_1p" ) // should save this for announcing player's low health
+	StopSoundOnEntity( player, "pilot_critical_breath_loop_1p" )
+	StopSoundOnEntity( player, "pilot_critical_drone_loop_1p" )
+	StopSoundOnEntity( player, "pilot_wounded_loop_1p" )
+	StopSoundOnEntity( player, "player_death_begin" ) // this will make dying sounds better
+}
+
+void function HackedDeath_PlayerPostDamage( entity player, var damageInfo )
+{
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || player.IsTitan() )	
+		return // these could be nice
+	if( !file.hackedDeathEnabled || !RespawnsEnabled() ) // don't do hacked death for elimination modes
+		return
+	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
+	{
+		PlayerStartHackedDeath( player, damageInfo )
+	}
+}
+
+void function PlayerStartHackedDeath( entity player, var damageInfo )
+{
+	player.s.hackedDeath = true // for IsAlive() checks
+	player.Signal( "StartHackedDeath" ) // signal this
+	player.Signal( "OnDeath" ) // this will trigger most things that EndSignal( "OnDeath" )
+	player.kv.VisibilityFlags = 0
+	HideName( player )
+	//HolsterAndDisableWeapons( player ) // player is able to pick up weapons, don't let them able to use it
+	thread ForceHolsterForHackedDeath( player ) // defensive fix for sometimes player DeployWeapon() from other scripts...
+	DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+	DamageInfo_SetDamage( damageInfo, max( player.GetHealth() - 1, 0 ) )
+	player.SetInvulnerable()
+	player.SetHealth( player.GetMaxHealth() ) // so player's visual will be clean
+	player.Signal( "StopHealthRegenThink" )
+	//StopPlayerWoundedSound( player ) // doing a loop to stop this now
+	EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
+	//player.SetPlayerSettings( "spectator" ) // well this can't show a death icon on scoreboard, also changes player model so messed up corpses
+	TakeAllOffhandInstantNow( player ) // can this cancel grapple things?
+	player.FreezeControlsOnServer() // freeze them, avoid picking up weapons
+	player.Anim_Stop()
+	player.NotSolid()
+	player.StopPhysics()
+	StopPlayerJumpJetSound( player ) // disable jumpjet sound
+	CodeCallback_OnEntityKilled( player, damageInfo )
+	CodeCallback_OnPlayerKilled( player, damageInfo )
+	CreateHackedDeathFakeCorpse( player, damageInfo )
+	// save offhands so player can have cooked grenades out, usage has been freezed
+	//TakeOffhandWeaponsNow( player ) // just leave weapon bars full, it looks better! should put lower for "stealing" mutator to work
+	// fuck you respawn why leaving a annying death sound
+	if( IsPlayerDeathsHidden() )
+		AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD ) // better show attacker's callsign?
+}
+
+void function StopPlayerJumpJetSound( entity player )
+{
+	StopSoundOnEntity( player, "jumpjet_freefall_body_1p" ) 
+	StopSoundOnEntity( player, "jumpjet_jet_start_1p" ) 
+	StopSoundOnEntity( player, "jumpjet_jet_body_1p" ) 
+	StopSoundOnEntity( player, "jumpjet_jump_body_1p" ) 
+	StopSoundOnEntity( player, "jumpjet_freefall_body_3p" ) 
+	StopSoundOnEntity( player, "jumpjet_jet_start_3p" ) 
+	StopSoundOnEntity( player, "jumpjet_jet_body_3p" ) 
+	StopSoundOnEntity( player, "jumpjet_jump_body_3p" ) 
+}
+
+void function ForceHolsterForHackedDeath( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	HolsterAndDisableWeapons( player )
+	while( player.s.hackedDeath ) // keep try to holster weapon if player is being hackedDeath
+	{
+		player.HolsterWeapon()
+		player.Server_TurnOffhandWeaponsDisabledOn()
+		WaitFrame()
+	}
+
+	// player recovered?
+	DeployAndEnableWeapons( player )
+	player.DeployWeapon()
+	player.Server_TurnOffhandWeaponsDisabledOff()
+}
+
+// should take all offhand_instant weapons, maybe it can cancel grapple things?
+void function TakeAllOffhandInstantNow( entity player )
+{
+	foreach( entity offhand in player.GetOffhandWeapons() )
+	{
+		if( offhand.GetWeaponInfoFileKeyField( "fire_mode" ) == "offhand_instant" )
+			player.TakeWeaponNow( offhand.GetWeaponClassName() )
+	}
+}
+
+void function TakeOffhandWeaponsNow( entity player )
+{
+	foreach( entity offhand in player.GetOffhandWeapons() )
+	{
+		player.TakeWeaponNow( offhand.GetWeaponClassName() )
+	}
+}
+
+void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
+{
+	entity fakeBody
+	if( player.IsMechanical() )
+		fakeBody = CreateNPC( "npc_spectre", player.GetTeam(), player.GetOrigin(), player.GetAngles() )
+	else // "npc_pilot_elite" cannot be gib
+	{
+		fakeBody = CreateNPC( "npc_soldier", player.GetTeam(), player.GetOrigin(), player.GetAngles() )
+		fakeBody.s.hackedDeathBody <- true // this will make the grunt play flesh pilot's headshotFX in TryHeadshotDeathFX()
+	}
+	fakeBody.SetModel( player.GetModelName() )
+	fakeBody.SetValueForModelKey( player.GetModelName() )
+	DispatchSpawn( fakeBody )
+	
+	fakeBody.SetModel( player.GetModelName() )
+	//fakeBody.SetSkin( player.GetSkin() ) // this will never work on non-player entities
+	//fakeBody.SetCamo( player.GetCamo() )
+	fakeBody.Anim_Stop()
+	fakeBody.NotSolid()
+	fakeBody.SetHealth( 1 ) // so spectres will die from frag grenades
+
+	TakeAllWeapons( fakeBody )
+	//GiveFakeBodyCopyOfPlayerWeapon( fakeBody, player ) // abandoned, npcs won't drop some kind of weapon
+	if( IsValid( player.GetActiveWeapon() ) && IsWeaponDropsEnabled() ) 
+		DropCopyOfPlayerWeapon( player, damageInfo ) // this can be too complex, but it's the best way to solve it
+	
+	// need to check this, or dropping a invalid weapon will crash the game
+	// game's weapon taken will leave a empty weapon bar, maybe no need to fix it
+	//if( IsValid( player.GetActiveWeapon() ) && IsWeaponDropsEnabled() ) 
+	//	player.DropWeapon( player.GetActiveWeapon() ) // this can handle it, but weapon will be throw too far
+	// not using DamageInfo_GetAttacker( damageInfo ) cause extra_spanwer has given killing npcPilots a scoreEvent
+	
+	//fakeBody.TakeDamage( // take damage really can't handle it, use die()
+						    //9999, // so spectres will die from frag grenades
+	fakeBody.Die(
+				  null, 
+				  null, 
+				  { // damage table
+				    weapon = DamageInfo_GetWeapon( damageInfo ), 
+				    origin = DamageInfo_GetDamagePosition( damageInfo ), 
+				    force = DamageInfo_GetDamageForce( damageInfo ), 
+				    scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+				    damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo ) 
+				  } 
+				)
+	fakeBody.SetOrigin( player.GetOrigin() ) // sometimes it moves to weird position, maybe because navmeshes?
+	fakeBody.SetAngles( player.GetAngles() )
+}
+
+entity function DropCopyOfPlayerWeapon( entity player, var damageInfo )
+{
+	if( !IsWeaponDropsEnabled() ) // don't even try to drop it, though new drop-prevention function can handle it
+		return
+	array<entity> mainWeapons = player.GetMainWeapons()
+	if( mainWeapons.len() < 1 ) // don't have a main weapon
+		return
+	entity weapon = player.GetActiveWeapon()
+	// actually dying will auto switch to mainweapons, maybe no need to do these?
+	if( !mainWeapons.contains( weapon ) ) // is offhandWeapon?
+		weapon = mainWeapons[0] // use slot1 mainWeapon, vanilla will drop the last weapon you used
+
+	string weaponName = weapon.GetWeaponClassName()
+	array<string> mods = weapon.GetMods()
+	int skinIndex = weapon.GetSkin()
+	int camoIndex = weapon.GetCamo()
+	bool isUnlimitedAmmo = weapon.GetWeaponSettingBool( eWeaponVar.ammo_no_remove_from_stockpile )
+	bool isInfiniteClip =  weapon.GetWeaponSettingInt( eWeaponVar.ammo_clip_size ) < 0 // clip size < 0 ( mostly -1 ) will cause weapon to have infinite clip
+	int clipLeft = 0
+	int ammoLeft = 0
+	try // need to try-catch this!
+	{
+		clipLeft = weapon.GetWeaponPrimaryClipCount()
+		ammoLeft = weapon.GetWeaponPrimaryAmmoCount()
+	}
+	catch(ex){}
+
+	// since we've created a new weapon that may have burnmod( amped weapon ), should check these for proper behavior
+	bool hasBurnMod = false
+	string prefix = "burn_mod"
+	foreach( string mod in mods )
+	{
+		if( mod.find( prefix ) == 0 ) // found burn mod!
+			hasBurnMod = true
+	}
+	float ampDurationLeft = weapon.GetScriptTime0() - Time() // amped weapon timer!
+
+	vector velocity = player.GetVelocity()
+	vector origin = player.GetOrigin()
+	vector angles = player.GetAngles()
+	int attachID = player.LookupAttachment( "PROPGUN" )
+	if( attachID > 0 )
+	{
+		origin = player.GetAttachmentOrigin( attachID )
+		angles = player.GetAttachmentAngles( attachID )
+	}
+
+	entity weaponToDrop = CreateWeaponEntityByNameWithPhysics( weaponName, origin, angles )
+	weaponToDrop.SetMods( mods )
+	weaponToDrop.SetSkin( skinIndex )
+	weaponToDrop.SetCamo( camoIndex )
+	if( isUnlimitedAmmo && !isInfiniteClip )
+	{
+		try{ weaponToDrop.SetWeaponPrimaryClipCount( clipLeft ) }
+		catch(ex){}
+	}
+	else
+	{
+		try
+		{ 
+			weaponToDrop.SetWeaponPrimaryClipCount( clipLeft )
+			weaponToDrop.SetWeaponPrimaryAmmoCount( ammoLeft )
+		} // maybe only charge rifle don't have this
+		catch(ex){}
+	}
+	if( hasBurnMod && ampDurationLeft >= 0 ) // still have amped weapons timer left...
+		thread AmpedWeaponsDurationThink( weaponToDrop, ampDurationLeft ) // manually remove overtimed burnmod
+
+	// vanilla more like this?
+	velocity.z = 0
+	velocity *= 0.8
+
+	// these will not leave player's full body or trigger knockback animations
+    if( DamageInfo_GetCustomDamageType( damageInfo ) & 
+		( DF_GIB | DF_DISSOLVE | DF_RAGDOLL | DF_KNOCK_BACK | DF_MELEE | DF_TITAN_STEP ) 
+	  ) 
+		velocity = DamageInfo_GetDamageForce( damageInfo )
+
+	weaponToDrop.SetVelocity( velocity )
+
+	return weapon
+}
+
+void function AmpedWeaponsDurationThink( entity weapon, float timerLeft )
+{
+	weapon.EndSignal( "OnDestroy" )
+
+	// needed to display amped weapon time left
+	weapon.SetScriptFlags0( weapon.GetScriptFlags0() | WEAPONFLAG_AMPED )
+	weapon.SetScriptTime0( Time() + timerLeft )
+
+	wait timerLeft
+
+	string prefix = "burn_mod"
+	foreach( string mod in weapon.GetMods() )
+	{
+		if( mod.find( prefix ) == 0 ) // found burn mod!
+			weapon.RemoveMod( mod )
+	}
+	weapon.SetScriptFlags0( weapon.GetScriptFlags0() & ~WEAPONFLAG_AMPED )
+}
+
+void function GiveFakeBodyCopyOfPlayerWeapon( entity fakeBody, entity player )
+{
+	entity baseWeapon = player.GetActiveWeapon()
+	if( !IsValid( baseWeapon ) )
+		return
+	string classnName = baseWeapon.GetWeaponClassName()
+	array<string> mods = baseWeapon.GetMods()
+	fakeBody.GiveWeapon( classnName, mods )
+	fakeBody.SetActiveWeaponByName( classnName )
+	entity weapon = fakeBody.GetActiveWeapon()
+	if( !IsValid( weapon ) )
+		return
+	int skinIndex = baseWeapon.GetSkin()
+	int camoIndex = baseWeapon.GetCamo()
+	int ammoLeft // do pilots have some unexpectable weapons? idk let's use try catch
+	bool ableToApplyAmmo = true
+	try
+	{
+		ammoLeft = baseWeapon.GetWeaponPrimaryClipCount()
+	}
+	catch( err1 )
+	{
+		ammoLeft = baseWeapon.GetWeaponPrimaryAmmoCount()
+	}
+	weapon.SetSkin( skinIndex )
+	weapon.SetCamo( camoIndex )
+	if( ableToApplyAmmo )
+	{
+		try
+		{
+			weapon.SetWeaponPrimaryClipCount( ammoLeft )
+		}
+		catch( err2 )
+		{
+			weapon.SetWeaponPrimaryAmmoCount( ammoLeft )
+		}
+	}
+}
+
+void function PlayerRecoverFromHackedDeath( entity player )
+{
+	player.s.hackedDeath = false
+	player.Signal( "RecoverFromHackedDeath" ) // signal this
+	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	player.ClearInvulnerable()
+	player.Solid()
+	player.SetNoTarget( false )
+	player.SetNoTargetSmartAmmo( false )
+	ShowName( player )
+	DeployAndEnableWeapons( player )
+	//StopPlayerWoundedSound( player ) // doing a loop now
+	// fuck you respawn why leaving a annying death sound
+	RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD ) // PlayerStartHackedDeath() has removed this
+}
+
+void function HackedDeath_PlayerRealDeath( entity player, var damageInfo )
+{
+	if( !file.hackedDeathEnabled )
+		return
+
+	if( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == damagedef_despawn ) // killed by purpose
+		return
+
+	player.s.hackedDeath = true // ensure this
+}
+
+void function SetHackedDeathEnabled( bool enabled )
+{
+	file.hackedDeathEnabled = enabled
+	//SetWeaponDropsEnabled( enabled ) // bind together
+	Wargames_SetPlayerDissolveDisabled( enabled ) // bind together
+}
+
+bool function IsHackedDeathEnabled()
+{
+	return file.hackedDeathEnabled
+}
+
+bool function IsPlayerHackedDeath( entity player )
+{
+	if( !player.IsPlayer() )
+		return false
+	if( !( "hackedDeath" in player.s ) )
+		return false
+	return expect bool( player.s.hackedDeath )
+}
