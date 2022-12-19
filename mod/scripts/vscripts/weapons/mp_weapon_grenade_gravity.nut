@@ -39,7 +39,7 @@ const float FX_END_CAP_TIME_ANTI = 1.5
 //const float LIFT_HEIGHT_PER_SEGMENT = 50
 const float LIFT_HEIGHT = 1200
 const float LIFT_RADIUS = 120
-const float LIFT_RISE_SPEED = 300
+const float LIFT_RISE_SPEED = 325
 const float LIFT_HORIZON_MOVE_SPEED = 225
 const float LIFT_PULL_SPEED_HORIZON = 400
 //const float LIFT_PULL_SPEED_MULTIPLIER = 2
@@ -269,6 +269,10 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 			DeleteNoSpawnArea( noSpawnArea )
 		}
 	)
+	
+	// early version behavior!
+	if ( mods.contains( "gravity_mine" ) && !hitEnt.IsPlayer() && !hitEnt.IsNPC() )
+		GravityGrenadeTriggerThink( projectile ) 
 
 	if( mods.contains( "anti_gravity_star" ) )
 		wait POP_DELAY_ANTI
