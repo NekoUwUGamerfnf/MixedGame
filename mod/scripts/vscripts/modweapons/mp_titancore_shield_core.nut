@@ -64,9 +64,14 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 	if( !owner.IsTitan() )
 		return
 
-	EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_1P" )
-	EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_ActiveLoop_1P" )
-	EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_3P" )
+	if ( owner.IsPlayer() )
+	{
+		EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_1P" )
+		EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_ActiveLoop_1P" )
+		EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_3P" )
+	}
+	else // npc
+		EmitSoundOnEntity( owner, "Titan_Legion_Smart_Core_Activated_3P" )
 
 	entity soul = owner.GetTitanSoul()
 	int storedShield = soul.GetShieldHealth()
@@ -85,10 +90,11 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			if ( IsValid( owner ) )
 			{
 				StopSoundOnEntity( owner, "Titan_Legion_Smart_Core_ActiveLoop_1P" )
-				EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Deactivated_1P" )
+				
 				RemoveEntityCallback_OnDamaged( owner, TrackShieldCoreBeingDamaged )
 				if ( owner.IsPlayer() )
 				{
+					EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Deactivated_1P" )
 					ScreenFade( owner, 0, 0, 0, 0, 0.1, 0.1, FFADE_OUT | FFADE_PURGE )
 				}
 			}
