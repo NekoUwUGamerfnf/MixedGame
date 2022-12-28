@@ -23,8 +23,8 @@ const string LSTAR_BURNOUT_SOUND_3P = "LSTAR_LensBurnout_3P"
 
 table< string, int > playerLaggingBoltTable
 int totalLaggingBolts
-const int LAGGING_BOLT_MAX_PER_PLAYER = 96
-const int LAGGING_BOLT_WORLD_MAX = 512
+const int LAGGING_BOLT_MAX_PER_PLAYER = 48
+const int LAGGING_BOLT_WORLD_MAX = 256
 
 void function MpWeaponLSTAR_Init()
 {
@@ -162,7 +162,7 @@ void function DelayedLagBoltThink( entity bolt, entity owner, float boltSpeed = 
 		}
 	)
 
-	wait 0.11
+	wait 0.15 // can server respon this?
 	bolt.SetVelocity( bolt.GetVelocity() * 0.0001 )
 	PlayerLaggingBoltLimit( owner )
 	owner.WaitSignal( "ReleaseAllBolts" )
