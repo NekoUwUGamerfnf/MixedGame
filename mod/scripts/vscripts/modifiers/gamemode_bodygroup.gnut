@@ -1,5 +1,10 @@
-untyped // for GiveExtraWeaponMod() to work
+// WIP: announce players about current game's bodygroup requirement
+// better not enable together with nessy?
+
+untyped // for GiveExtraWeaponMod() and SetPlayerSettingsWithMods() to work
 global function Modded_Gamemode_BodyGroup_Init
+
+const bool MERRY_CHRISTMAS = true
 
 const array<string> BODYGROUP_MODE_BANNED_OFFHANDS =
 [
@@ -8,6 +13,32 @@ const array<string> BODYGROUP_MODE_BANNED_OFFHANDS =
     "mp_ability_cloak" // shitty thing!!!
 ]
 
+const asset HEADSHOT_HITBOX_MODEL = $"models/weapons/bullets/triple_threat_projectile.mdl" // maybe mgl_grenade.mdl?
+
+/* // abandoned
+const array<int> BODYGROUP_ALLOWED_HITGROUP =
+[
+    HITGROUP_HEAD,
+    HITGROUP_CHEST,
+    HITGROUP_STOMACH,
+    HITGROUP_LEFTARM,
+    HITGROUP_RIGHTARM,
+    HITGROUP_LEFTLEG,
+    HITGROUP_RIGHTLEG
+]
+*/
+
+const array<string> BODYGROUP_MELEE_WEAPONS =
+[
+    "melee_pilot_kunai",
+    "melee_pilot_sword"
+]
+
+struct
+{
+    int curBodygroup = HITGROUP_HEAD//BODYGROUP_ALLOWED_HITGROUP[ RandomInt( BODYGROUP_ALLOWED_HITGROUP.len() ) ] // pick a random bodygroup
+} file
+
 void function Modded_Gamemode_BodyGroup_Init()
 {
     // main mechanic
@@ -15,6 +46,8 @@ void function Modded_Gamemode_BodyGroup_Init()
     IgnoreEquipmentsFilter( "All" ) // never uses equipments filter
 
     // little adjustments
+    AddCallback_GameStateEnter( eGameState.Playing, OnGameStart )
+    AddCallback_PlayerClassChanged( OnPlayerChangeClass ) // this won't support titan fight!
     AddCallback_OnPlayerRespawned( OnPlayerRespawned )
     AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsLoadout )
 
@@ -22,14 +55,24 @@ void function Modded_Gamemode_BodyGroup_Init()
 	ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() ) // skip intro and make things faster!
     SetWaitingForPlayersMaxDuration( 10.0 ) // so you don't have to wait so freaking long
     ClassicMP_ForceDisableEpilogue( true ) // annoying evac
+    Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
 
     SetPlayerDeathsHidden( true ) // let's not count player's deaths!
 
     SetSyncedMeleeNoLimit( true )
-    EnableFriendlyExecution( true ) // player can only execute friendly players, not enemies!
+    //EnableFriendlyExecution( true ) // player can only execute friendly players, not enemies!
     AddDeathCallback( "player", AddScoreForFriendlyExecution ) // forced scoreEvent lol
     
-    SetShouldFUCKOFFCLOAK( true ) // fuck off
+    // no need to fuckoff since we manually reset model!
+    //SetShouldFUCKOFFCLOAK( true ) // fuck off
+
+    SetShouldPlayFactionDialogue( false ) // don't announce player!
+}
+
+void function OnGameStart()
+{
+    foreach( entity player in GetPlayerArray() )
+        thread DisableBoostBar( player ) // starting will re-enable player's boost, lets set it to disable again
 }
 
 void function CheckPlayerHitGroup( entity player, var damageInfo )
@@ -38,21 +81,43 @@ void function CheckPlayerHitGroup( entity player, var damageInfo )
         return // force kill still take effect
 
     int hitGroup = DamageInfo_GetHitGroup( damageInfo )
-    if( hitGroup != HITGROUP_HEAD ) // not a headshot!
+
+    if ( hitGroup != file.curBodygroup ) // not a selected shot!
         DamageInfo_SetDamage( damageInfo, 0 )
+}
+
+void function OnPlayerChangeClass( entity player )
+{
+    array<string> settingMods = player.GetPlayerSettingsMods()
+    // first person model, pulseblades will not show flashing arms and it's thirdperson model has hidable bodygroups!
+    player.SetPlayerSettingsWithMods( "pilot_medium_male", settingMods )
 }
 
 void function OnPlayerRespawned( entity player )
 {
     SyncedMelee_Disable( player ) // can't execute enemies!
+    thread DisableBoostBar( player ) // no boosts allowed!
+
+    // funny things!
+    thread RainbowPlayerSkin( player )
+}
+
+void function DisableBoostBar( entity player )
+{
+    WaitFrame()
+    if( IsValid( player ) )
+        PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
 }
 
 // little balance change
 void function OnPlayerGetsLoadout( entity player, PilotLoadoutDef p )
 {
-    // let players knockback enemies!
-    player.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "pushback_melee" )
+    PlayerLoadoutLimiter( player )
+    MakeHeadShotHitboxForPlayer( player )
+}
 
+void function PlayerLoadoutLimiter( entity player )
+{
     entity tactical = player.GetOffhandWeapon( OFFHAND_SPECIAL )
     string tacticalName = tactical.GetWeaponClassName()
     if( BODYGROUP_MODE_BANNED_OFFHANDS.contains( tacticalName ) )
@@ -68,6 +133,69 @@ void function OnPlayerGetsLoadout( entity player, PilotLoadoutDef p )
         player.TakeWeaponNow( ordnanceName )
         player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE )
     }
+
+    // let players knockback enemies!
+    entity meleeWeapon = player.GetOffhandWeapon( OFFHAND_MELEE )
+    if ( IsValid( meleeWeapon ) )
+        player.TakeWeaponNow( meleeWeapon.GetWeaponClassName() )
+
+    string newMeleeName = BODYGROUP_MELEE_WEAPONS[ RandomInt( BODYGROUP_MELEE_WEAPONS.len() ) ]
+    player.GiveOffhandWeapon( newMeleeName, OFFHAND_MELEE, ["pushback_melee"] )
+}
+
+void function MakeHeadShotHitboxForPlayer( entity player )
+{
+    // funny things!
+    PlayerPulseBladeModel_HideBodyAndLegs( player ) // weird!
+    //player.kv.modelscale = 0.5
+    //BindPulseBladeHeadToPlayer( player )
+    player.NotSolid() // make player unable to be hit
+
+    entity hitbox = CreatePropDynamic( HEADSHOT_HITBOX_MODEL )// 
+	hitbox.SetParent( player, "HEADSHOT" )
+    hitbox.SetTakeDamageType( DAMAGE_YES )
+    hitbox.SetOwner( player )
+	SetTeam( hitbox, player.GetTeam() )
+	SetObjectCanBeMeleed( hitbox, false )
+	hitbox.kv.solid = 6
+	//hitbox.Hide()
+
+    AddEntityCallback_OnDamaged( hitbox, ReflectDamageToOwner )
+    thread TrackPlayerDeathForHitbox( player, hitbox )
+}
+
+void function ReflectDamageToOwner( entity hitbox, var damageInfo )
+{
+    entity owner = hitbox.GetOwner()
+
+    // do damage to owner
+    owner.TakeDamage( DamageInfo_GetDamage( damageInfo ), 
+                       DamageInfo_GetAttacker( damageInfo ), 
+                       DamageInfo_GetInflictor( damageInfo ), 
+                       { // damage table
+                        weapon = DamageInfo_GetWeapon( damageInfo ), // do this work? for supporting tactical_cdr_on_kill
+                        origin = DamageInfo_GetDamagePosition( damageInfo ), 
+                        force = DamageInfo_GetDamageForce( damageInfo ), 
+                        scriptType = DamageInfo_GetCustomDamageType( damageInfo ) | DF_HEADSHOT, // for headshot events 
+                        damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo ) // proper damageSource for now
+                       })
+
+    DamageInfo_SetDamage( damageInfo, 0 ) // don't kill the hitbox
+}
+
+void function TrackPlayerDeathForHitbox( entity player, entity hitbox )
+{
+    player.EndSignal( "OnDestroy" )
+
+    OnThreadEnd(
+        function():( player, hitbox )
+        {
+            if ( IsValid( hitbox ) )
+                hitbox.Destroy()
+        }
+    )
+
+    player.WaitSignal( "OnDeath" )
 }
 
 void function AddScoreForFriendlyExecution( entity victim, var damageInfo )
