@@ -1,15 +1,21 @@
 global function Nessie_Funny_Functions_Init
 
-global function TEMP_RGB_Hightlight
-global function TEMP_IMSB_Title
+global function RGB_Hightlight
+global function TitleFlash
 
 global function RainbowPlayerSkin
 global function RainbowWeaponSkin
 
 global function RGY_BatterySkin
+global function HoloFlash_Loop
 global function HoloFlash
 
 global function TTF1_WeaponUsage
+global function PlayerPulseBladeModel_HideBodyAndLegs
+global function CreatePulseBladeHead
+global function CreateWoundedHead
+global function BindPulseBladeHeadToPlayer
+global function BindeWoundedHeadToPlayer
 
 void function Nessie_Funny_Functions_Init()
 {
@@ -23,6 +29,8 @@ void function Nessie_Funny_Functions_Init()
 	RegisterSignal( "EndRainbowWeapon" )
 	RegisterSignal( "StartRGYBattery" )
 	RegisterSignal( "EndRGYBattery" )
+	RegisterSignal( "StartHoloFlash" )
+	RegisterSignal( "EndHoloFlash" )
 
 	AddClientCommandCallback( "rgbself", SelfRGBHighlight )
 	AddClientCommandCallback( "sbself", SelfIMSBTitle )
@@ -30,10 +38,10 @@ void function Nessie_Funny_Functions_Init()
 
 bool function SelfRGBHighlight( entity player, array<string> args )
 {
-	if ( !batterySpawners.contains( player.GetUID() ) )
-		return false
+	//if ( !batterySpawners.contains( player.GetUID() ) )
+	//	return false
 
-	thread TEMP_RGB_Hightlight( player )
+	thread RGB_Hightlight( player, true )
 	return true
 }
 
@@ -42,11 +50,11 @@ bool function SelfIMSBTitle( entity player, array<string> args )
 	if ( !batterySpawners.contains( player.GetUID() ) )
 		return false
 
-	thread TEMP_IMSB_Title( player )
+	thread TitleFlash( player )
 	return true
 }
 
-void function TEMP_RGB_Hightlight( entity ent, bool showToAll = false )
+void function RGB_Hightlight( entity ent, bool showToAll = false, bool alwaysShow = false )
 {
 	OnThreadEnd(
 		function(): ( ent )
@@ -64,11 +72,16 @@ void function TEMP_RGB_Hightlight( entity ent, bool showToAll = false )
 	ent.EndSignal( "OnDeath" )
 	ent.EndSignal( "StartRGBHighlight" )
 	ent.EndSignal( "EndRGBHighlight" )
-	Highlight_SetFriendlyHighlight( ent, "sp_enemy_pilot" )
+	
+	string highlightToUse = "sp_enemy_pilot" // normal one
+	if ( alwaysShow )
+		highlightToUse = "sp_friendly_hero" // this one will show across walls
+
+	Highlight_SetFriendlyHighlight( ent, highlightToUse )
 	if( showToAll )
 	{
-		Highlight_SetEnemyHighlight( ent, "sp_enemy_pilot" )
-		Highlight_SetNeutralHighlight( ent, "sp_enemy_pilot" )
+		Highlight_SetEnemyHighlight( ent, highlightToUse )
+		Highlight_SetNeutralHighlight( ent, highlightToUse )
 	}
 	array<vector> colorArray = [ < 255,0,0 >, < 0,255,0 >, < 0,0,255 > ]
 	int index = 0
@@ -86,14 +99,16 @@ void function TEMP_RGB_Hightlight( entity ent, bool showToAll = false )
 	}
 }
 
-void function TEMP_IMSB_Title( entity ent )
+void function TitleFlash( entity ent, array<string> titleArray = [ "我是傻逼", "傻逼是我" ] )
 {
+	if ( titleArray.len() <= 0 ) // no title given
+		return
 	ent.Signal( "StartSBTitle" )
 	ent.EndSignal( "OnDestroy" )
 	ent.EndSignal( "OnDeath" )
 	ent.EndSignal( "StartSBTitle" )
 	ent.EndSignal( "EndSBTitle" )
-	array<string> titleArray = [ "我是傻逼", "傻逼是我" ]
+
 	int index = 0
 	while( true )
 	{
@@ -198,14 +213,33 @@ void function RGY_BatterySkin( entity battery )
 	}
 }
 
+void function HoloFlash_Loop( entity player, float interval = 1.0 )
+{
+	player.Signal( "StartHoloFlash" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "StartHoloFlash" )
+	player.EndSignal( "EndHoloFlash" )
+
+	while( true )
+	{
+		wait interval
+
+		HoloFlash( player )
+	}
+}
+
 void function HoloFlash( entity player )
 {
 	int attachIndex = player.LookupAttachment( "CHESTFOCUS" )
-	StartParticleEffectOnEntity( player, GetParticleSystemIndex( GHOST_TRAIL_EFFECT ), FX_PATTACH_POINT_FOLLOW, attachIndex )
-	StartParticleEffectOnEntity( player, GetParticleSystemIndex( GHOST_FLASH_EFFECT ), FX_PATTACH_POINT, attachIndex )
+	//StartParticleEffectOnEntity( player, GetParticleSystemIndex( GHOST_TRAIL_EFFECT ), FX_PATTACH_POINT_FOLLOW, attachIndex )
+	entity flashFX = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( GHOST_FLASH_EFFECT ), FX_PATTACH_POINT, attachIndex )
+	flashFX.SetOwner( player )
+	SetTeam( flashFX, player.GetTeam() )
+	flashFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY // not owner only
 }
 
-// not work. onHanded animation is done in .mdl not just code
+// not work. oneHanded animation is done in .mdl not just code
 void function TTF1_WeaponUsage( entity player )
 {
 	player.EndSignal( "OnDestroy" )
@@ -219,4 +253,97 @@ void function TTF1_WeaponUsage( entity player )
 		if( player.IsWallRunning() )
 			player.SetOneHandedWeaponUsageOff()
 	}
+}
+
+void function PlayerPulseBladeModel_HideBodyAndLegs( entity player )
+{
+	player.SetModel( $"models/humans/pilots/pilot_medium_reaper_m.mdl" )
+	int bodyGroupIndex = player.FindBodyGroup( "body" )
+	player.SetBodygroup( bodyGroupIndex, 1 )
+	bodyGroupIndex = player.FindBodyGroup( "legs" )
+	player.SetBodygroup( bodyGroupIndex, 0 )
+}
+
+// create a pulseblade pilot's head
+entity function CreatePulseBladeHead( vector origin = < 0,0,0 >, vector angles = < 0,0,0 > )
+{
+	entity prop = CreatePropDynamic( $"models/humans/pilots/pilot_medium_reaper_m.mdl" )
+	int bodyGroupIndex = prop.FindBodyGroup( "body" )
+	prop.SetBodygroup( bodyGroupIndex, 1 )
+	bodyGroupIndex = prop.FindBodyGroup( "legs" )
+	prop.SetBodygroup( bodyGroupIndex, 0 )
+
+	prop.SetOrigin( origin )
+	prop.SetAngles( angles )
+
+	return prop
+}
+
+// create a headshot head! this is not a model that can freely scale
+entity function CreateWoundedHead( vector origin = < 0,0,0 >, vector angles = < 0,0,0 > )
+{
+	entity prop = CreatePropDynamic( $"models/humans/pilots/pilot_medium_reaper_m.mdl" )
+	int bodyGroupIndex = prop.FindBodyGroup( "body" )
+	prop.SetBodygroup( bodyGroupIndex, 1 )
+	bodyGroupIndex = prop.FindBodyGroup( "legs" )
+	prop.SetBodygroup( bodyGroupIndex, 0 )
+	bodyGroupIndex = prop.FindBodyGroup( "head" )
+	prop.SetBodygroup( bodyGroupIndex, 1 )
+
+	prop.SetOrigin( origin )
+	prop.SetAngles( angles )
+
+	return prop
+}
+
+void function BindPulseBladeHeadToPlayer( entity player )
+{
+	entity head = CreatePulseBladeHead()
+
+	// bind it to entity
+	head.SetParent( player, "ORIGIN" )
+	head.kv.modelscale = 5
+	head.SetOrigin( < 0,0,-300 > ) // the head can be really high
+	head.SetOwner( player )
+	SetTeam( head, player.GetTeam() )
+	head.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY // hide head for player
+	thread TrackPlayerDeathForHeadProp( player, head )
+	SetForceDrawWhileParented( head, true )
+	
+	//head.SetSkin( 2 )
+	//head.SetCamo( 14 )
+}
+
+void function BindeWoundedHeadToPlayer( entity player )
+{
+	entity head = CreateWoundedHead()
+
+	// bind it to entity
+	head.SetParent( player, "ORIGIN" )
+	head.kv.modelscale = 5
+	head.SetOrigin( < 0,0,-300 > ) // the head can be really high
+	head.SetOwner( player )
+	SetTeam( head, player.GetTeam() )
+	head.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY // hide head for player
+	thread TrackPlayerDeathForHeadProp( player, head )
+	SetForceDrawWhileParented( head, true )
+}
+
+void function TrackPlayerDeathForHeadProp( entity player, entity head )
+{
+	player.EndSignal( "OnDestroy" )
+
+	WaitFrame() // since altpilot resets player's visibility everytime they respawn or changeloadout
+	player.kv.VisibilityFlags = 0 // hide player
+
+	OnThreadEnd(
+		function():( head )
+		{
+			if ( IsValid( head ) )
+				head.Destroy()
+		}
+	)
+
+	player.WaitSignal( "OnDeath" )
+	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // restore player visibility!
 }
