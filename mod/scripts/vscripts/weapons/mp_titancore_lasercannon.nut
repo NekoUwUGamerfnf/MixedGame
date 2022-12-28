@@ -1,5 +1,7 @@
 global function LaserCannon_Init
 
+global function OnWeaponPrimaryAttack_LaserCannon // modified function
+
 global function OnAbilityStart_LaserCannon
 global function OnAbilityEnd_LaserCannon
 global function OnAbilityCharge_LaserCannon
@@ -84,8 +86,18 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 }
 #endif
 
+// modified function
+var function OnWeaponPrimaryAttack_LaserCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	if ( weapon.HasMod( "tesla_core" ) )
+		return OnAbilityStart_Tesla_Core( weapon, attackParams )
+}
+
 bool function OnAbilityCharge_LaserCannon( entity weapon )
 {
+	if ( weapon.HasMod( "tesla_core" ) )
+		return OnCoreCharge_Tesla_Core( weapon )
+
 	OnAbilityCharge_TitanCore( weapon )
 
 #if CLIENT
@@ -147,6 +159,9 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 
 void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 {
+	if ( weapon.HasMod( "tesla_core" ) )
+		return OnCoreChargeEnd_Tesla_Core( weapon )
+
 	#if SERVER
 	OnAbilityChargeEnd_TitanCore( weapon )
 	#endif
@@ -179,6 +194,9 @@ void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 
 bool function OnAbilityStart_LaserCannon( entity weapon )
 {
+	if ( weapon.HasMod( "tesla_core" ) ) // tesla core don't have a sustained laser
+		return true
+
 	OnAbilityStart_TitanCore( weapon )
 
 #if SERVER
@@ -232,6 +250,9 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 
 void function OnAbilityEnd_LaserCannon( entity weapon )
 {
+	if ( weapon.HasMod( "tesla_core" ) ) // tesla core don't have a sustained laser
+		return
+
 	weapon.Signal( "OnSustainedDischargeEnd" )
 	weapon.StopWeaponEffect( FX_LASERCANNON_MUZZLEFLASH, FX_LASERCANNON_MUZZLEFLASH )
 

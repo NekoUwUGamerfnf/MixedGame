@@ -1,0 +1,253 @@
+untyped // for ent.Fire() things
+global function Tesla_Core_Init
+
+global function OnCoreCharge_Tesla_Core
+global function OnCoreChargeEnd_Tesla_Core
+
+global function OnAbilityStart_Tesla_Core
+
+// consts
+const int DAMAGE_AGAINST_TITANS 			= 350
+const int DAMAGE_AGAINST_PILOTS 			= 40
+
+const float EMP_DAMAGE_TICK_RATE = 0.5
+
+const asset FX_EMP_FIELD						= $"P_xo_emp_field"
+const asset FX_EMP_FIELD_1P					= $"P_body_emp_1P"
+
+void function Tesla_Core_Init()
+{
+    RegisterSignal( "TeslaCoreEnd" ) // to end doomedstate tracks
+}
+
+bool function OnCoreCharge_Tesla_Core( entity weapon )
+{
+	if ( !OnAbilityCharge_TitanCore( weapon ) )
+		return false
+
+	return true
+}
+
+void function OnCoreChargeEnd_Tesla_Core( entity weapon )
+{
+#if SERVER
+	OnAbilityChargeEnd_TitanCore( weapon )
+#endif
+}
+
+var function OnAbilityStart_Tesla_Core( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	entity owner = weapon.GetWeaponOwner()
+	if ( !owner.IsTitan() )
+		return 0
+	entity soul = owner.GetTitanSoul()
+	#if SERVER
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
+	thread TeslaCoreThink( weapon, duration )
+
+	OnAbilityStart_TitanCore( weapon )
+	#endif
+
+	return 1
+}
+
+void function TeslaCoreThink( entity weapon, float coreDuration )
+{
+	#if SERVER
+	weapon.EndSignal( "OnDestroy" )
+	entity owner = weapon.GetWeaponOwner()
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "DisembarkingTitan" )
+	owner.EndSignal( "TitanEjectionStarted" )
+	owner.EndSignal( "TeslaCoreEnd" )
+
+	if( !owner.IsTitan() )
+		return
+
+    if ( owner.IsPlayer() )
+    {
+        EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Ronin_Sword_Core_Activated_Upgraded_1P" )
+        EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Ronin_Sword_Core_Activated_Upgraded_3P" )
+    }
+    else // npc
+    {
+        EmitSoundOnEntity( owner, "Titan_Ronin_Sword_Core_Activated_Upgraded_3P" )
+    }
+
+
+	entity soul = owner.GetTitanSoul()
+	int statusEffect = StatusEffect_AddEndless( soul, eStatusEffect.damageAmpFXOnly, 1.0 ) // add a visual effect
+
+	thread TeslaCoreEMPFireldThink( owner )
+    //thread EMPTitanThinkConstant( owner ) // start empField
+	// using a modified empField function now!
+    //thread TrackEMPTitanDoomedState( owner ) // vanilla empField will end after titan doomed, let's do a check here
+
+	OnThreadEnd(
+	function() : ( weapon, soul, owner, statusEffect )
+		{
+			if ( IsValid( owner ) )
+			{
+				StopSoundOnEntity( owner, "Titan_Ronin_Sword_Core_Activated_Upgraded_1P" )
+                StopSoundOnEntity( owner, "Titan_Ronin_Sword_Core_Activated_Upgraded_3P" )
+
+                if ( owner.IsPlayer() )
+                {
+				    EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Ronin_Sword_Core_Deactivated_1P" )
+                    EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Ronin_Sword_Core_Deactivated_3P" )
+                }
+                else // npc
+                {
+                    EmitSoundOnEntity( owner, "Titan_Ronin_Sword_Core_Deactivated_3P" )
+                }
+                
+                if ( owner.IsPlayer() )
+				{
+                    owner.Signal( "TeslaCoreEnd" )
+					owner.Signal( "StopEMPField" ) // the signal to stop empField
+					StatusEffect_Stop( owner, statusEffect )
+				}
+			}
+
+			if ( IsValid( weapon ) )
+			{
+				if ( IsValid( owner ) )
+					CoreDeactivate( owner, weapon )
+				OnAbilityEnd_TitanCore( weapon )
+			}
+
+			if ( IsValid( soul ) )
+			{
+				CleanupCoreEffect( soul )
+				StatusEffect_Stop( soul, statusEffect )
+			}
+		}
+	)
+
+	wait coreDuration
+	#endif
+}
+
+#if SERVER
+// using a modified empField function now!
+/*
+void function TrackEMPTitanDoomedState( entity titan )
+{
+    titan.EndSignal( "TeslaCoreEnd" ) // if core ends this won't run
+
+    titan.WaitSignal( "Doomed" ) // wait for titan being doomed
+    thread EMPTitanThinkConstant( titan ) // re-start empField
+}
+*/
+
+// main mechanic goes here, from _ai_emp_titans.gnut
+void function TeslaCoreEMPFireldThink( entity titan )
+{
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "StopEMPField" )
+	titan.EndSignal( "TeslaCoreEnd" )
+
+	//We don't want pilots accidently rodeoing an electrified titan.
+	DisableTitanRodeo( titan )
+
+	//Used to identify this titan as an arc titan
+	//SetTargetName( titan, "empTitan" )
+
+	if ( HasSoul( titan ) )
+	{
+		entity soul = titan.GetTitanSoul()
+		soul.EndSignal( "StopEMPField" )
+	}
+
+	string attachment = "hijack"
+
+	int attachID = titan.LookupAttachment( attachment )
+
+	EmitSoundOnEntity( titan, "EMP_Titan_Electrical_Field" )
+
+	array<entity> particles = []
+
+	//emp field fx
+	vector origin = titan.GetAttachmentOrigin( attachID )
+	if ( titan.IsPlayer() )
+	{
+		entity particleSystem = CreateEntity( "info_particle_system" )
+		particleSystem.kv.start_active = 1
+		particleSystem.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
+		particleSystem.SetValueForEffectNameKey( FX_EMP_FIELD_1P )
+
+		particleSystem.SetOrigin( origin )
+		particleSystem.SetOwner( titan )
+		DispatchSpawn( particleSystem )
+		particleSystem.SetParent( titan, attachment )
+		particles.append( particleSystem )
+	}
+
+	entity particleSystem = CreateEntity( "info_particle_system" )
+	particleSystem.kv.start_active = 1
+	if ( titan.IsPlayer() )
+		particleSystem.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY)	// everyone but owner
+	else
+		particleSystem.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	particleSystem.SetValueForEffectNameKey( FX_EMP_FIELD )
+	particleSystem.SetOwner( titan )
+	particleSystem.SetOrigin( origin )
+	DispatchSpawn( particleSystem )
+	particleSystem.SetParent( titan, attachment )
+	particles.append( particleSystem )
+
+	if (!titan.IsPlayer())
+	{
+		titan.SetDangerousAreaRadius( ARC_TITAN_EMP_FIELD_RADIUS )
+	}
+
+	OnThreadEnd(
+		function () : ( titan, particles )
+		{
+			if ( IsValid( titan ) )
+			{
+				StopSoundOnEntity( titan, "EMP_Titan_Electrical_Field" )
+				EnableTitanRodeo( titan ) //Make the arc titan rodeoable now that it is no longer electrified.
+			}
+
+			foreach ( particleSystem in particles )
+			{
+				if ( IsValid_ThisFrame( particleSystem ) )
+				{
+					particleSystem.ClearParent()
+					particleSystem.Fire( "StopPlayEndCap" )
+					particleSystem.Kill_Deprecated_UseDestroyInstead( 1.0 )
+				}
+			}
+		}
+	)
+
+	wait 0.5 // first wait here, for fx being setup
+	int damage = DAMAGE_AGAINST_PILOTS
+	int damageHeavyArmor = DAMAGE_AGAINST_TITANS
+	float interval = EMP_DAMAGE_TICK_RATE
+
+	while ( true )
+	{
+		origin = titan.GetAttachmentOrigin( attachID )
+
+		RadiusDamage(
+			origin,									// center
+			titan,									// attacker
+			titan,									// inflictor
+			damage,									// damage
+			damageHeavyArmor,						// damageHeavyArmor
+			ARC_TITAN_EMP_FIELD_INNER_RADIUS,		// innerRadius
+			ARC_TITAN_EMP_FIELD_RADIUS,				// outerRadius
+			SF_ENVEXPLOSION_NO_DAMAGEOWNER,			// flags
+			0,										// distanceFromAttacker
+			DAMAGE_AGAINST_PILOTS,					// explosionForce
+			DF_ELECTRICAL | DF_STOPS_TITAN_REGEN,	// scriptDamageFlags
+			eDamageSourceId.titanEmpField )			// scriptDamageSourceIdentifier
+
+		wait interval
+	}
+}
+#endif // SERVER
