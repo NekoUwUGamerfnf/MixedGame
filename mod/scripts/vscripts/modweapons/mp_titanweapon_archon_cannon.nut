@@ -1,19 +1,19 @@
 untyped
 
-global function MpTitanweaponArcCannon_Init
+global function MpTitanweaponArchonCannon_Init
 
-global function OnWeaponActivate_titanweapon_arc_cannon
-global function OnWeaponDeactivate_titanweapon_arc_cannon
-global function OnWeaponReload_titanweapon_arc_cannon
-global function OnWeaponOwnerChanged_titanweapon_arc_cannon
-global function OnWeaponChargeBegin_titanweapon_arc_cannon
-global function OnWeaponChargeEnd_titanweapon_arc_cannon
-global function OnWeaponPrimaryAttack_titanweapon_arc_cannon
+global function OnWeaponActivate_titanweapon_archon_cannon
+global function OnWeaponDeactivate_titanweapon_archon_cannon
+global function OnWeaponReload_titanweapon_archon_cannon
+global function OnWeaponOwnerChanged_titanweapon_archon_cannon
+global function OnWeaponChargeBegin_titanweapon_archon_cannon
+global function OnWeaponChargeEnd_titanweapon_archon_cannon
+global function OnWeaponPrimaryAttack_titanweapon_archon_cannon
 
 global function UpdateWeaponChargeTracker
 
 #if SERVER
-global function OnWeaponNpcPrimaryAttack_titanweapon_arc_cannon
+global function OnWeaponNpcPrimaryAttack_titanweapon_archon_cannon
 #endif // #if SERVER
 
 const FX_EMP_BODY_HUMAN			= $"P_emp_body_human"
@@ -31,12 +31,12 @@ struct{
 }weaponData
 #endif
 
-void function MpTitanweaponArcCannon_Init()
+void function MpTitanweaponArchonCannon_Init()
 {
-	ArcCannon_PrecacheFX()
+	ArchonCannon_PrecacheFX()
 
 	#if SERVER
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_sniper, ArcCannonOnDamage )
+		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_sniper, ArchonCannonOnDamage )
 	#endif
 }
 
@@ -70,15 +70,15 @@ void function UpdateWeaponChargeTracker(entity weapon)
 }
 
 
-void function OnWeaponActivate_titanweapon_arc_cannon( entity weapon )
+void function OnWeaponActivate_titanweapon_archon_cannon( entity weapon )
 {
 	entity weaponOwner = weapon.GetWeaponOwner()
-	thread DelayedArcCannonStart( weapon, weaponOwner )
+	thread DelayedArchonCannonStart( weapon, weaponOwner )
 	if( !("weaponOwner" in weapon.s) )
 		weapon.s.weaponOwner <- weaponOwner
 }
 
-function DelayedArcCannonStart( entity weapon, entity weaponOwner )
+function DelayedArchonCannonStart( entity weapon, entity weaponOwner )
 {
 	weapon.EndSignal( "WeaponDeactivateEvent" )
 
@@ -90,56 +90,56 @@ function DelayedArcCannonStart( entity weapon, entity weaponOwner )
 		{
 			entity modelEnt = weaponOwner.GetViewModelEntity()
 	 		if( IsValid( modelEnt ) && EntHasModelSet( modelEnt ) )
-				ArcCannon_Start( weapon )
+				ArchonCannon_Start( weapon )
 		}
 		else
 		{
-			ArcCannon_Start( weapon )
+			ArchonCannon_Start( weapon )
 		}
 	}
 }
 
-void function OnWeaponDeactivate_titanweapon_arc_cannon( entity weapon )
+void function OnWeaponDeactivate_titanweapon_archon_cannon( entity weapon )
 {
 	if( !weapon.HasMod( "arc_cannon" ) )
 		return
-	ArcCannon_ChargeEnd( weapon, weapon.GetOwner() )
-	ArcCannon_Stop( weapon )
+	ArchonCannon_ChargeEnd( weapon, weapon.GetOwner() )
+	ArchonCannon_Stop( weapon )
 }
 
-void function OnWeaponReload_titanweapon_arc_cannon( entity weapon, int milestoneIndex )
+void function OnWeaponReload_titanweapon_archon_cannon( entity weapon, int milestoneIndex )
 {
 	if( !weapon.HasMod( "arc_cannon" ) )
 		return
 	local reloadTime = weapon.GetWeaponInfoFileKeyField( "reload_time" )
-	thread ArcCannon_HideIdleEffect( weapon, reloadTime ) //constant seems to help it sync up better
+	thread ArchonCannon_HideIdleEffect( weapon, reloadTime ) //constant seems to help it sync up better
 }
 
-void function OnWeaponOwnerChanged_titanweapon_arc_cannon( entity weapon, WeaponOwnerChangedParams changeParams )
+void function OnWeaponOwnerChanged_titanweapon_archon_cannon( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 	#if CLIENT
 		entity viewPlayer = GetLocalViewPlayer()
 		if ( changeParams.oldOwner != null && changeParams.oldOwner == viewPlayer )
 		{
-			ArcCannon_ChargeEnd( weapon, changeParams.oldOwner )
-			ArcCannon_Stop( weapon)
+			ArchonCannon_ChargeEnd( weapon, changeParams.oldOwner )
+			ArchonCannon_Stop( weapon)
 		}
 
 		if ( changeParams.newOwner != null && changeParams.newOwner == viewPlayer )
-			thread ArcCannon_HideIdleEffect( weapon, 0.25 )
+			thread ArchonCannon_HideIdleEffect( weapon, 0.25 )
 	#else
 		if ( changeParams.oldOwner != null )
 		{
-			ArcCannon_ChargeEnd( weapon, changeParams.oldOwner )
-			ArcCannon_Stop( weapon )
+			ArchonCannon_ChargeEnd( weapon, changeParams.oldOwner )
+			ArchonCannon_Stop( weapon )
 		}
 
 		if ( changeParams.newOwner != null )
-			thread ArcCannon_HideIdleEffect( weapon, 0.25 )
+			thread ArchonCannon_HideIdleEffect( weapon, 0.25 )
 	#endif
 }
 
-bool function OnWeaponChargeBegin_titanweapon_arc_cannon( entity weapon )
+bool function OnWeaponChargeBegin_titanweapon_archon_cannon( entity weapon )
 {
 	if( weapon.HasMod( "arc_cannon" ) )
 	{
@@ -152,50 +152,50 @@ bool function OnWeaponChargeBegin_titanweapon_arc_cannon( entity weapon )
 		weaponData.isCharging = true
 		#endif
 		//thread UpdateWeaponChargeTracker( weapon )
-		ArcCannon_ChargeBegin( weapon )
+		ArchonCannon_ChargeBegin( weapon )
 	}
 
 	return true
 }
 
-void function OnWeaponChargeEnd_titanweapon_arc_cannon( entity weapon )
+void function OnWeaponChargeEnd_titanweapon_archon_cannon( entity weapon )
 {
 	if( weapon.HasMod( "arc_cannon" ) )
 	{
 		#if SERVER
 		weaponData.isCharging = false
 		#endif
-		ArcCannon_ChargeEnd( weapon, weapon )
+		ArchonCannon_ChargeEnd( weapon, weapon )
 	}
 }
 
-var function OnWeaponPrimaryAttack_titanweapon_arc_cannon( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponPrimaryAttack_titanweapon_archon_cannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if ( weapon.HasMod( "capacitor" ) && weapon.GetWeaponChargeFraction() < GetArcCannonChargeFraction( weapon ) )
+	if ( weapon.HasMod( "capacitor" ) && weapon.GetWeaponChargeFraction() < GetArchonCannonChargeFraction( weapon ) )
 		return 0
 
 	if ( !attackParams.firstTimePredicted )
 		return
 
 	local fireRate = weapon.GetWeaponInfoFileKeyField( "fire_rate" )
-	thread ArcCannon_HideIdleEffect( weapon, (1 / fireRate) )
+	thread ArchonCannon_HideIdleEffect( weapon, (1 / fireRate) )
 	int damageFlags = weapon.GetWeaponDamageFlags()
 
-	return FireArcCannon( weapon, attackParams )
+	return FireArchonCannon( weapon, attackParams )
 }
 
 #if SERVER
-var function OnWeaponNpcPrimaryAttack_titanweapon_arc_cannon( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponNpcPrimaryAttack_titanweapon_archon_cannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	local fireRate = weapon.GetWeaponInfoFileKeyField( "fire_rate" )
-	thread ArcCannon_HideIdleEffect( weapon, fireRate )
+	thread ArchonCannon_HideIdleEffect( weapon, fireRate )
 
-	return FireArcCannon( weapon, attackParams )
+	return FireArchonCannon( weapon, attackParams )
 }
 #endif // #if SERVER
 
 
-void function ArcCannonOnDamage( entity ent, var damageInfo )
+void function ArchonCannonOnDamage( entity ent, var damageInfo )
 {
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	if ( !IsValid( inflictor ) )

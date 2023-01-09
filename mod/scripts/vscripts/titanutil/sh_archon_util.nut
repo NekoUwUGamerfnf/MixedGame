@@ -8,7 +8,8 @@ global function DamageShieldsInRadiusOnEntity
 
 void function Archon_Init()
 {
-	MpTitanweaponArcCannon_Init()
+	ArchonCannon_Init()
+	MpTitanweaponArchonCannon_Init()
 	MpTitanweaponShockShield_Init()
 	MpTitanweaponChargeBall_Init()
 	MpTitanAbilityArcPylon_Init()

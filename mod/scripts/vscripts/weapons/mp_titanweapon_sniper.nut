@@ -26,7 +26,7 @@ struct {
 void function OnWeaponActivate_titanweapon_sniper( entity weapon )
 {
 	if( weapon.HasMod( "arc_cannon" ) )
-		OnWeaponActivate_titanweapon_arc_cannon( weapon )
+		OnWeaponActivate_titanweapon_archon_cannon( weapon )
 	else
 		file.chargeDownSoundDuration = expect float( weapon.GetWeaponInfoFileKeyField( "charge_cooldown_time" ) )
 }
@@ -34,7 +34,7 @@ void function OnWeaponActivate_titanweapon_sniper( entity weapon )
 var function OnWeaponPrimaryAttack_titanweapon_sniper( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	if( weapon.HasMod( "arc_cannon" ) )
-		return OnWeaponPrimaryAttack_titanweapon_arc_cannon( weapon, attackParams )
+		return OnWeaponPrimaryAttack_titanweapon_archon_cannon( weapon, attackParams )
 	else
 		return FireSniper( weapon, attackParams, true )
 }
@@ -94,7 +94,7 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 var function OnWeaponNpcPrimaryAttack_titanweapon_sniper( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	if( weapon.HasMod( "arc_cannon" ) )
-		return OnWeaponNpcPrimaryAttack_titanweapon_arc_cannon( weapon, attackParams )
+		return OnWeaponNpcPrimaryAttack_titanweapon_archon_cannon( weapon, attackParams )
 	return FireSniper( weapon, attackParams, false )
 }
 #endif // #if SERVER
@@ -266,7 +266,7 @@ void function OnWeaponStartZoomOut_titanweapon_sniper( entity weapon )
 void function OnWeaponOwnerChanged_titanweapon_sniper( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 	if( weapon.HasMod( "arc_cannon" ) )
-		return OnWeaponOwnerChanged_titanweapon_arc_cannon( weapon, changeParams )
+		return OnWeaponOwnerChanged_titanweapon_archon_cannon( weapon, changeParams )
 	else
 	{
 		#if SERVER

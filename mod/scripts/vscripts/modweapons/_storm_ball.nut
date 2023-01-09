@@ -131,7 +131,7 @@ void function FireStormBall( entity weapon, vector pos, vector dir, bool shouldP
 {
 	entity owner = weapon.GetWeaponOwner()
 
-	float speed = 850.0
+	float speed = 1000.0
 
 	if ( owner.IsPlayer() )
 	{
