@@ -3,9 +3,9 @@ global function MakeSuicideSpectre
 global function SpectreSuicideOnDamaged
 global function GetNPCAttackerEnt
 
+// modified!!!
 global function SetSuicideSpectreNotExploding // for making pet ticks
-
-global const string FAKE_SPECTRE_SCRIPTNAME 	= "fakeSuicideSpectre" // for confirming it's a faken suicide spectre( not tick )
+global function IsSuicideSpectre // get from file.suicideSpectres
 
 const FX_SPECTRE_EXPLOSION				= $"P_drone_frag_exp"
 
@@ -26,9 +26,11 @@ struct
 
 	table< string, array<string> > spectreAnims
 	float nextOverloadTime
-	
-	array<entity> noExplosionSpectres // for making pet ticks
 
+	// modified!
+	array<entity> suicideSpectres
+	array<entity> noExplosionSpectres
+	table<entity, entity> suicideSpectreChasingTable // for better behavior
 } file
 
 const SFX_TICK_OVERLOAD 				= "corporate_spectre_overload_beep"
@@ -57,6 +59,13 @@ void function SuicideSpectres_Init()
 
 	AddDamageCallback( "npc_frag_drone", SpectreSuicideOnDamaged_Callback )
 	AddDeathCallback( "npc_frag_drone", FragDroneDeath )
+	
+	// modified!!
+	RegisterSignal( "SuicideSpectreEnemyChanged" )
+	// did a confirmation for normal spectres
+	AddDamageCallback( "npc_spectre", SpectreSuicideOnDamaged_Callback )
+	AddDeathCallback( "npc_spectre", FragDroneDeath )
+	AddDamageCallbackSourceID( eDamageSourceId.suicideSpectreAoE, SuicideSpectre_DamagedPlayerOrNPC )
 }
 
 /************************************************************************************************\
@@ -72,15 +81,24 @@ void function SuicideSpectres_Init()
 \************************************************************************************************/
 void function MakeSuicideSpectre( entity spectre )
 {
+	file.suicideSpectres.append( spectre ) // to confirm it's a suicide spectre
+
 	spectre.SetAimAssistAllowed( true )
 	spectre.SetAllowMelee( false )
-	DisableLeeching( spectre )
+	DisableLeeching( spectre ) // suicide spectres cannot be hacked
 
 	spectre.SetNPCMoveSpeedScale( 1.0 )
 
 	spectre.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	spectre.DisableNPCMoveFlag( NPCMF_FOLLOW_SAFE_PATHS | NPCMF_INDOOR_ACTIVITY_OVERRIDE )
-
+	
+	if( IsSpectre( spectre ) ) // spectres specific
+	{
+		// prefer chasing players
+		TakeAllWeapons( spectre )
+		file.suicideSpectreChasingTable[spectre] <- null // for better behavior
+	}
+	
 	spectre.kv.allowShoot = 0
 
 	// Frag drones do suicide spectre behavior but we don't want them doing the enemy changed sounds so filter them out
@@ -97,6 +115,20 @@ void function MakeSuicideSpectre( entity spectre )
 	AddAnimEvent( spectre, "frag_drone_armed", FragDroneArmed )
 }
 
+void function SetSuicideSpectreNotExploding( entity spectre )
+{
+	if( !( file.suicideSpectres.contains( spectre ) ) )
+		return
+		
+	if( !( file.noExplosionSpectres.contains( spectre ) ) )
+		file.noExplosionSpectres.append( spectre )
+}
+
+bool function IsSuicideSpectre( entity spectre )
+{
+	return file.suicideSpectres.contains( spectre )
+}
+
 void function FragDroneArmed( entity npc )
 {
 	npc.ai.fragDroneArmed = true
@@ -104,16 +136,20 @@ void function FragDroneArmed( entity npc )
 
 void function FragDroneDeath( entity spectre, var damageInfo )
 {
-	// modified!!! for check fake suicide spectres
-	if ( spectre.GetScriptName() == FAKE_SPECTRE_SCRIPTNAME )
-		return // don't do anything
-
 	FragDroneDeath_Think( spectre, damageInfo )
 }
 
 // for reloadscripts
 void function FragDroneDeath_Think( entity spectre, var damageInfo )
 {
+	// modified!!!
+	if( !( file.suicideSpectres.contains( spectre ) ) )
+		return
+	// modified!!!
+	bool shouldDoExplosion = true
+	if( file.noExplosionSpectres.contains( spectre ) )
+		shouldDoExplosion = false
+	
 	vector pos = spectre.GetOrigin()
 	int tagID = spectre.LookupAttachment( "CHESTFOCUS" )
 	vector fxOrg = spectre.GetAttachmentOrigin( tagID )
@@ -131,24 +167,50 @@ void function FragDroneDeath_Think( entity spectre, var damageInfo )
 
 	int damageDef = GetDamageDefForFragDrone( spectre )
 	
-	// modified!!! for making pet ticks
-	bool shouldDoExplosion = true
-	if( file.noExplosionSpectres.contains( spectre ) )
-		shouldDoExplosion = false
-	
-	if ( shouldDoExplosion )
+	// try to make ttf1 suicide spectres
+	/* no need to use these
+	if( IsSpectre( spectre ) )
 	{
-		RadiusDamage_DamageDefSimple( damageDef, pos, attackerEnt, spectre, 0 )
+		int tagID = spectre.LookupAttachment( "CHESTFOCUS" )
+		vector origin = spectre.GetAttachmentOrigin( tagID )
+		entity damageAttacker = GetNPCAttackerEnt( spectre, attacker )
+		Explosion_DamageDefSimple( damagedef_stalker_powersupply_explosion_large, origin, damageAttacker, spectre, origin )
+		spectre.Gib( <0, 0, 100> )
+	}
+	*/
+	
+	if( shouldDoExplosion )
+	{	
+		// adjust for spectres, for friendlyfire to work, hardcoding
+		// damages from damagedef_frag_drone_throwable_NPC
+		if( IsSpectre( spectre ) )
+		{
+			RadiusDamage(
+				pos,									// center
+				attackerEnt,							// attacker
+				spectre,								// inflictor
+				200,									// damage
+				300,									// damageHeavyArmor
+				200,									// innerRadius
+				300,									// outerRadius
+				SF_ENVEXPLOSION_MASK_BRUSHONLY,			// flags
+				0,										// distanceFromAttacker
+				2000,									// explosionForce
+				DF_EXPLOSION | DF_GIB,					// scriptDamageFlags
+				eDamageSourceId.suicideSpectreAoE )		// scriptDamageSourceIdentifier
+		}
+		else
+			RadiusDamage_DamageDefSimple( damageDef, pos, attackerEnt, spectre, 0 )
 		EmitSoundAtPosition( spectre.GetTeam(), pos, expSFX )
 		CreateShake( pos, 10, 105, 1.25, 768 )
 		StartParticleEffectInWorld( expFX, fxOrg, Vector( 0, 0, 0 ) )
 	}
-	else // fake explosion that does no damage
+	else // fake explosion
 	{
 		StartParticleEffectInWorld( GetParticleSystemIndex( $"impact_air_40mm" ), fxOrg, Vector( 0, 0, 0 ) )
 		EmitSoundAtPosition( spectre.GetTeam(), pos, "Explo_40mm_Impact_3P" )
 	}
-
+	
 	spectre.Gib( <0, 0, 100> ) //Used to do .Destroy() on the frag drones immediately, but this meant you can't display the obiturary correctly. Instead, since it's dead already just hide it
 }
 
@@ -190,11 +252,51 @@ int function GetDamageDefForFragDrone( entity drone )
 	return damagedef_frag_drone_throwable_NPC
 }
 
+void function SuicideSpectre_DamagedPlayerOrNPC( entity victim, var damageInfo )
+{
+	// only allow suicide spectres damaging themselves as teammates, to trigger chain reactions
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if( IsValid( attacker ) )
+	{
+		if( attacker.GetTeam() == victim.GetTeam() && !IsSuicideSpectre( victim ) )
+			DamageInfo_SetDamage( damageInfo, 0 )
+	}
+		
+	/* stupid checks, only prevent damaging friendly players
+	bool damageProtected = false
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if( IsValid( attacker ) )
+	{
+		if( IsSpectre( attacker ) )
+		{
+			if( attacker.GetTeam() == victim.GetTeam() )
+				damageProtected = true
+		}
+		else
+		{
+			entity inflictor = DamageInfo_GetInflictor( damageInfo )
+			if( IsValid( inflictor ) )
+			{
+				if( IsSpectre( inflictor ) )
+				{
+					if( inflictor.GetTeam() == victim.GetTeam() )
+						damageProtected = true
+				}
+			}
+		}
+	}
+	if( damageProtected )
+		DamageInfo_SetDamage( damageInfo, 0 )
+	*/
+}
+
 void function SuicideSpectreEnemyChanged( entity spectre )
 {
 	// Spectre "Speaks"
 	if ( ( RandomFloat( 1.0 ) ) < 0.02 )
 		EmitSoundOnEntity( spectre, "diag_imc_spectre_gs_spotenemypilot_01_1" )
+	if( IsSpectre( spectre ) ) // modified check for suicide spectres
+		spectre.Signal( "SuicideSpectreEnemyChanged" )
 }
 
 /************************************************************************************************\
@@ -214,10 +316,6 @@ void function SpectreWaitToExplode( entity spectre )
 	spectre.EndSignal( "OnDeath" )
 
 	waitthread SuicideSpectre_WaittillNearEnemyOrExploding( spectre )
-	
-	// modified!!! for check fake suicide spectres
-	if ( spectre.GetScriptName() == FAKE_SPECTRE_SCRIPTNAME )
-		return // don't do anything
 
 	if ( spectre.ai.suicideSpectreExplodingAttacker == null )
 	{
@@ -253,7 +351,7 @@ void function SpectreWaitToExplode( entity spectre )
 	{
 		attacker = spectre
 	}
-
+	
 	spectre.Die( attacker, attacker, { force = force, scriptType = DF_DOOMED_HEALTH_LOSS, damageSourceId = eDamageSourceId.suicideSpectreAoE } )
 }
 
@@ -284,9 +382,14 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 	spectre.EndSignal( "SuicideSpectreForceExplode" )
 
 	bool pursuitSoundPlaying = false
-
-	float minScale = expect float( spectre.Dev_GetAISettingByKeyField( "minSpeedScale" ) )
-	float maxScale = expect float( spectre.Dev_GetAISettingByKeyField( "maxSpeedScale" ) )
+	
+	float minScale = 0.8 // base stat
+	float maxScale = 1.5 // base stat
+	if( IsFragDrone( spectre ) )
+	{
+		minScale = expect float( spectre.Dev_GetAISettingByKeyField( "minSpeedScale" ) )
+		maxScale = expect float( spectre.Dev_GetAISettingByKeyField( "maxSpeedScale" ) )
+	}	
 
 	while ( true )
 	{
@@ -333,6 +436,29 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 			}
 			float speed = GraphCapped( dist, 200, 850, maxScale, minScale )
 			spectre.SetNPCMoveSpeedScale( speed )
+			
+			/* // stupid checks!!! not using right now
+			if( IsSpectre( spectre ) )
+			{	
+				entity target = file.suicideSpectreChasingTable[spectre]
+				//print( string( spectre ) + "'s enemy is " + string( enemy ) )
+				//print( string( spectre ) + "'s chasing target is " + string( target ) )
+				if( target != enemy )
+				{
+					//print( string( spectre ) + "'s target changed to " + string( enemy ) )
+					file.suicideSpectreChasingTable[spectre] = enemy
+					int followBehavior = GetDefaultNPCFollowBehavior( spectre )
+					spectre.InitFollowBehavior( enemy, followBehavior )
+					spectre.DisableBehavior( "Assault" )
+					spectre.EnableBehavior( "Follow" )
+					thread TrackSpectreEnemy( spectre, enemy )
+					
+					// no need to track dist, since spectre will never clear enemy automatically
+					//int chaseDist = expect int( spectre.Dev_GetAISettingByKeyField( "aiEnemy_usePriorityDist" ) )
+					//thread TrackEnemyDistance( spectre, enemy, chaseDist )
+				}
+			}
+			*/
 		}
 
 		// offset the overload time
@@ -349,6 +475,61 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 	}
 }
 
+void function TrackSpectreEnemy( entity spectre, entity enemy )
+{
+	enemy.EndSignal( "OnDeath" )
+	enemy.EndSignal( "OnDestroy" )
+	spectre.EndSignal( "OnDeath" )
+	spectre.EndSignal( "SuicideSpectreEnemyChanged" )
+	
+	OnThreadEnd(
+		function():( spectre )
+		{
+			if( IsValid( spectre ) )
+			{
+				file.suicideSpectreChasingTable[spectre] = null
+				spectre.ClearEnemy()
+				//print( string( spectre ) + "'s target is cleared" )
+				spectre.DisableBehavior( "Follow" )
+				spectre.EnableBehavior( "Assault" )
+			}
+		}
+	)
+
+	WaitForever()
+}
+
+// prevent spectres chase down players even after they respawn! works pretty bad!
+void function TrackEnemyDistance( entity spectre, entity enemy, int chaseDist )
+{
+	enemy.EndSignal( "OnDeath" )
+	enemy.EndSignal( "OnDestroy" )
+	spectre.EndSignal( "OnDeath" )
+	spectre.EndSignal( "SuicideSpectreExploding" )
+	spectre.EndSignal( "SuicideSpectreForceExplode" )
+	
+	OnThreadEnd(
+		function():( spectre )
+		{
+			if( IsValid( spectre ) )
+			{
+				file.suicideSpectreChasingTable[spectre] = null
+				spectre.ClearEnemy()
+				//print( string( spectre ) + "'s target is cleared" )
+				spectre.DisableBehavior( "Follow" )
+				spectre.EnableBehavior( "Assault" )
+			}
+		}
+	)
+	
+	while( true )
+	{
+		if( Distance( enemy.GetOrigin(), spectre.GetOrigin() ) > chaseDist )
+			break
+		wait 0.2
+	}
+}
+
 entity function SuicideSpectre_NearEnemy( entity spectre )
 {
 	// See if any player is close eneough to trigger self-destruct
@@ -362,7 +543,12 @@ entity function SuicideSpectre_NearEnemy( entity spectre )
 		enemies.append( currentEnemy )
 
 	vector origin = spectre.GetOrigin()
-	float dist = expect float( spectre.Dev_GetAISettingByKeyField( "suicideExplosionDistance" ) )
+
+	float dist = 200 // base stat
+	if( IsFragDrone( spectre ) )
+		dist = expect float( spectre.Dev_GetAISettingByKeyField( "suicideExplosionDistance" ) )
+	else if( IsSpectre( spectre ) ) // fuck respawn, have to do this or spectres will stop ahead of players
+		dist = float( expect int( spectre.Dev_GetAISettingByKeyField( "chaseStopDist" ) ) )
 	foreach ( enemy in enemies )
 	{
 		if ( !IsAlive( enemy ) )
@@ -444,6 +630,21 @@ void function SpectreOverloads( entity spectre )
 		}
 	}
 	#endif
+	
+	// try to make ttf1 suicide spectres
+	entity nukeFXInfoTarget
+	entity fx
+	if( IsSpectre( spectre ) )
+	{
+		//print( "Try to apply fx to suicide spectre" )
+		nukeFXInfoTarget = CreateEntity( "info_target" )
+		nukeFXInfoTarget.kv.spawnflags = SF_INFOTARGET_ALWAYS_TRANSMIT_TO_CLIENT
+		DispatchSpawn( nukeFXInfoTarget )
+
+		nukeFXInfoTarget.SetParent( spectre, "CHESTFOCUS" )
+	
+		fx = PlayFXOnEntity( $"P_spectre_suicide_warn", nukeFXInfoTarget )
+	}
 
 	for ( ;; )
 	{
@@ -471,16 +672,30 @@ void function SpectreOverloads( entity spectre )
 
 	// Cleanup on thread end
 	OnThreadEnd(
-		function() : ( spectre, overloadSF )
+		//function() : ( spectre, overloadSF )
+		// try to make ttf1 suicide spectres
+		function() : ( spectre, overloadSF, nukeFXInfoTarget, fx )
 		{
 			if ( IsValid( spectre ) )
 			{
 				StopSoundOnEntity( spectre, overloadSF )
 			}
+			
+			// try to make ttf1 suicide spectres
+			if( IsValid( nukeFXInfoTarget ) )
+			{
+				nukeFXInfoTarget.Destroy()
+			}
+			if( IsValid( fx ) )
+			{
+				EffectStop( fx )
+			}
 		}
 	)
 
 	bool jumpAtTitans = spectre.Dev_GetAISettingByKeyField( "JumpAtTitans" ) == null || spectre.Dev_GetAISettingByKeyField( "JumpAtTitans" ) == 1
+	if( IsSpectre( spectre ) )
+		jumpAtTitans = true
 
 	entity enemy = spectre.GetEnemy()
 	if ( enemy && enemy.IsTitan() && jumpAtTitans && !spectre.IsInterruptable() )
@@ -496,11 +711,15 @@ void function SpectreOverloads( entity spectre )
 		{
 			anim = expect string( overrideAnim )
 		}
+		else if( IsSpectre( spectre ) ) // suicide spectres specific
+		{
+			anim = "sp_suicide_spectre_explode"
+		}
 
 		waitthread PlayAnim( spectre, anim )
 
-		if ( !isFragDrone )
-			wait 0.25
+		//if ( !isFragDrone ) // god no need to do this
+		//	wait 0.25
 	}
 }
 
@@ -542,16 +761,14 @@ int function GetExplosionTeamBasedOnGamemode( entity spectre )
 \************************************************************************************************/
 void function SpectreSuicideOnDamaged_Callback( entity spectre, var damageInfo )
 {
-	// modified!!! for check fake suicide spectres
-	if ( spectre.GetScriptName() == FAKE_SPECTRE_SCRIPTNAME )
-		return // don't do anything
-
 	SpectreSuicideOnDamaged( spectre, damageInfo )
 }
 
 
 void function SpectreSuicideOnDamaged( entity spectre, var damageInfo )
 {
+	if( !( file.suicideSpectres.contains( spectre ) ) )
+		return
 	//Assert( IsSuicideSpectre( spectre ) )
 
 	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
@@ -604,14 +821,4 @@ void function SpectreSuicideOnDamaged( entity spectre, var damageInfo )
 
 		DamageInfo_SetDamage( damageInfo, damage )
 	}
-}
-
-
-
-///// Modified Functions /////
-
-void function SetSuicideSpectreNotExploding( entity spectre )
-{
-	if( !( file.noExplosionSpectres.contains( spectre ) ) )
-		file.noExplosionSpectres.append( spectre )
 }
