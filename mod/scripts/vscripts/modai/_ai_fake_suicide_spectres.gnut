@@ -2,39 +2,55 @@ global function FakeSuicideSpectres_Init
 global function CreateFakeSuicideSpectre
 global function MakeFakeSuicideSpectre
 
+global function LaunchSuicideSpectreDroppod
+global function DefaultSuicideSpectreHandler
+
 global function FakeSuicideSpectreOnDamaged
 
 // modified!!!
 global function IsFakeSuicideSpectre // get from file.suicideSpectres
 
 // consts for spectres specific, not using aisettings!
-const float SPECTRE_MIN_SPEED_SCALE = 1.2
-const float SPECTRE_MAX_SPEED_SCALE = 1.7
-const float SPECTRE_SUICIDE_EXPLOSION_DISTANCE = 32
-const int SPECTRE_LOOKDISTANCE_COMBAT = 2000 // enemy search radius?
+const float SPECTRE_MIN_SPEED_SCALE = 1.3 // start with higher speed
+const float SPECTRE_MAX_SPEED_SCALE = 1.7 // sprinting even faster
+const float SPECTRE_SUICIDE_CHASE_TIME = 3.0
+const float SPECTRE_SUICIDE_EXPLOSION_DISTANCE = 200 // same as fd's tick
+const int SPECTRE_LOOKDISTANCE_COMBAT = 500 // enemy search radius?
 const bool SPECTRE_JUMP_AT_TITANS = true
-const float SPECTRE_OVERLOAD_TIME = 1.2 // explosion delay, instead of using animation's duration
+const float SPECTRE_OVERLOAD_TIME = 2.0 // explosion delay, instead of using animation's duration
 const array< string > SPECTRE_OVERLOAD_ANIMS =
 [
 	"sp_suicide_spectre_explode" // try to walk then explode
 	"sp_suicide_spectre_explode_stand" // stand still then explode
 ]
 
+// damages
+const int SPECTRE_EXPLOSION_RADIUS = 300
+const int SPECTRE_EXPLOSION_INNER_RADIUS = 200
+const int SPECTRE_EXPLOSION_DAMAGE = 200
+const int SPECTRE_EXPLOSION_DAMAGE_TITAN = 600
+
 //const string FAKE_SPECTRE_SCRIPTNAME 	= "fakeSuicideSpectre" // moved into _ai_suicide_spectres.gnut
 const FX_SPECTRE_EXPLOSION				= $"P_drone_frag_exp"
 
-struct
+struct SpectreChainExplosionStruct
 {
+	vector lastExplosionPos
 	int chainExplosionIndex
 	float lastChainExplosionTime
+}
+
+struct
+{
+	array< SpectreChainExplosionStruct > chainExplosionController
 
 	table< string, array<string> > spectreAnims
 	float nextOverloadTime
-
+ 
 	// modified!
 	array<entity> suicideSpectres
 	
-	table<entity, entity> suicideSpectreChasingTable // for better behavior
+	table<entity, entity> suicideSpectreChasingTable // for better behavior, abandoned for now
 } file
 
 const SFX_TICK_OVERLOAD 				= "corporate_spectre_overload_beep"
@@ -44,6 +60,7 @@ const SFX_FRAGDRONE_OVERLOAD 			= "weapon_sentryfragdrone_preexplo"
 const SFX_FRAGDRONE_EXPLODE 			= "weapon_sentryfragdrone_explo"
 const SFX_FRAGDRONE_SUPERPURSUIT		= "weapon_sentryfragdrone_superpursuit"
 
+const float CHAIN_EXPLOSION_INTERVAL 	= 0.14 //0.14
 const CHAIN_EXPLOSION_MAXINDEX			= 10
 
 void function FakeSuicideSpectres_Init()
@@ -64,6 +81,9 @@ void function FakeSuicideSpectres_Init()
 	
 	// modified!!
 	RegisterSignal( "SuicideSpectreEnemyChanged" )
+	RegisterSignal( "DisableSuicideSpectreIdle" )
+	RegisterSignal( "SuicideSpectreAssault" ) // for default spectre handler
+	RegisterSignal( "SuicideSpectreOverload" ) // triggers overload
 	
 	// did a confirmation for normal spectres
 	AddDamageCallback( "npc_frag_drone", FakeSuicideSpectreOnDamaged_Callback )
@@ -93,38 +113,26 @@ entity function CreateFakeSuicideSpectre( int team, vector pos, vector angles )
 	spectre.SetModel( $"models/robots/spectre/imc_spectre.mdl" )
 	spectre.SetTitle( "#NPC_SPECTRE" ) // correct title
 	FakeSuicideSpectreSetUp( spectre ) // become fake spectre
-	spectre.AssaultSetFightRadius( SPECTRE_LOOKDISTANCE_COMBAT ) // make the spettres target players very aggressively
 	
 	return spectre
-}
-
-void function MakeFakeSuicideSpectre( entity spectre ) // a real spectre
-{
-	// this function is only for a npc that previously be a spectre
-	if ( !IsSpectre( spectre ) )
-		return
-	
-	int team = spectre.GetTeam()
-	vector origin = spectre.GetOrigin()
-	vector angles = spectre.GetAngles()
-	
-	CreateFakeSuicideSpectre( team, origin, angles ) // spawn a fake suicide spectre
-	spectre.Destroy() // destroy originall spectre
 }
 
 void function FakeSuicideSpectreSetUp( entity spectre )
 {
 	file.suicideSpectres.append( spectre ) // to confirm it's a suicide spectre
 	spectre.SetScriptName( FAKE_SPECTRE_SCRIPTNAME ) // for later checking in _ai_suicide_spectres.gnut
+	spectre.AssaultSetFightRadius( SPECTRE_LOOKDISTANCE_COMBAT ) // make the spettres target players very aggressively
 
 	spectre.SetAimAssistAllowed( true )
 	spectre.SetAllowMelee( false )
 	DisableLeeching( spectre ) // suicide spectres cannot be hacked
 
-	spectre.SetNPCMoveSpeedScale( 1.0 )
+	spectre.SetNPCMoveSpeedScale( SPECTRE_MIN_SPEED_SCALE ) // start with higher speed
 
+	// Setup AI, disable useless flags
 	spectre.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	spectre.DisableNPCMoveFlag( NPCMF_FOLLOW_SAFE_PATHS | NPCMF_INDOOR_ACTIVITY_OVERRIDE )
+	spectre.DisableNPCFlag( NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE ) // still allow patrol and investigate
 	
 	// prefer chasing players
 	TakeAllWeapons( spectre )
@@ -136,12 +144,13 @@ void function FakeSuicideSpectreSetUp( entity spectre )
 	spectre.SetEnemyChangeCallback( SuicideSpectreEnemyChanged )
 
 	spectre.SetLookDistOverride( SPECTRE_MAX_SIGHT_DIST )
-	//spectre.SetHearingSensitivity( 10 ) //1 is default
+	//spectre.SetHearingSensitivity( 10 ) // 1 is default, make them can hear any sound
 	spectre.EnableNPCFlag( NPC_MUTE_TEAMMATE )
 
 	spectre.ai.suicideSpectreExplosionDelay = -1
 
 	thread SuicideSpectreIdle( spectre ) // try idle animations if no enemies found
+	thread SuicideSpectreMoveAnim( spectre )
 	thread SpectreWaitToExplode( spectre )
 	spectre.ai.fragDroneArmed = true // always armed
 }
@@ -170,7 +179,7 @@ void function FakeSuicideSpectreDeath_Think( entity spectre, var damageInfo )
 	vector pos = spectre.GetOrigin()
 	int tagID = spectre.LookupAttachment( "CHESTFOCUS" )
 	vector fxOrg = spectre.GetAttachmentOrigin( tagID )
-	string expSFX = SFX_FRAGDRONE_EXPLODE // spectres always be this one
+	string expSFX = SFX_TICK_EXPLODE // spectres always be this one
 	int expFX = GetParticleSystemIndex( FX_SPECTRE_EXPLOSION )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
@@ -193,10 +202,10 @@ void function FakeSuicideSpectreDeath_Think( entity spectre, var damageInfo )
 		pos,									// center
 		attackerEnt,							// attacker
 		spectre,								// inflictor
-		200,									// damage
-		300,									// damageHeavyArmor
-		200,									// innerRadius
-		300,									// outerRadius
+		SPECTRE_EXPLOSION_DAMAGE,				// damage
+		SPECTRE_EXPLOSION_DAMAGE_TITAN,			// damageHeavyArmor
+		SPECTRE_EXPLOSION_INNER_RADIUS,			// innerRadius
+		SPECTRE_EXPLOSION_RADIUS,				// outerRadius
 		SF_ENVEXPLOSION_MASK_BRUSHONLY,			// flags
 		0,										// distanceFromAttacker
 		2000,									// explosionForce
@@ -220,7 +229,7 @@ void function FakeSuicideSpectre_DamagedPlayerOrNPC( entity victim, var damageIn
 
 	// only allow suicide spectres damaging themselves as teammates, to trigger chain reactions
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if( IsValid( attacker ) )
+	if ( IsValid( attacker ) )
 	{
 		if( attacker.GetTeam() == victim.GetTeam() && !IsFakeSuicideSpectre( victim ) )
 			DamageInfo_SetDamage( damageInfo, 0 )
@@ -256,6 +265,15 @@ void function FakeSuicideSpectre_DamagedPlayerOrNPC( entity victim, var damageIn
 
 void function SuicideSpectreEnemyChanged( entity spectre )
 {
+	entity enemy = spectre.GetEnemy()
+	if ( IsAlive( enemy ) )
+	{
+		if ( file.suicideSpectres.contains( enemy ) ) // this is a enemy suicide spectre, don't target it
+		{	
+			spectre.SetEnemy( enemy ) // clear
+			return
+		}
+	}
 	// Spectre "Speaks"
 	if ( ( RandomFloat( 1.0 ) ) < 0.02 )
 		EmitSoundOnEntity( spectre, "diag_imc_spectre_gs_spotenemypilot_01_1" )
@@ -278,11 +296,13 @@ void function SuicideSpectreIdle( entity spectre )
 {
 	spectre.EndSignal( "OnDeath" )
 	spectre.EndSignal( "OnDestroy" )
+	spectre.EndSignal( "DisableSuicideSpectreIdle" ) // manually stopped idle
 	
 	while( true )
 	{
 		entity currentEnemy = spectre.GetEnemy()
-		if ( !IsValid( currentEnemy ) ) // no enemy
+		entity droppod = spectre.GetParent() // is it doing a hotdrop?
+		if ( !IsValid( currentEnemy ) && !IsValid( droppod ) ) // no enemy, not hotdropping
 		{
 			waitthread SpectreIdleAnimation( spectre ) // animations will be stopped once spectre found enemy
 		}
@@ -295,13 +315,46 @@ void function SpectreIdleAnimation( entity spectre )
 {
 	spectre.EndSignal( "OnDeath" )
 	spectre.EndSignal( "OnDestroy" )
-	spectre.EndSignal( "SuicideSpectreEnemyChanged ) // wait for spectre find enemy
+	// modified signals
+	spectre.EndSignal( "SuicideSpectreEnemyChanged" ) // wait for spectre find enemy
+	spectre.EndSignal( "SuicideSpectreAssault" ) // wait for spectre try to assault, only effects DefaultSpectreHandler()
+	spectre.EndSignal( "SuicideSpectreOverload" ) // stop idle animation and do overload animations
+	spectre.EndSignal( "DisableSuicideSpectreIdle" ) // manually stopped idle
+	// vanilla signals
+	spectre.EndSignal( "SuicideSpectreExploding" )
+	spectre.EndSignal( "SuicideSpectreForceExplode" )
+
+	OnThreadEnd(
+		function(): ( spectre )
+		{
+			// considering this means spectre found enemy, starting a assault or try overloading
+			if ( IsValid( spectre ) )
+			{
+				spectre.Anim_Stop()
+			}
+		}
+	)
 	
 	array<string> idleAnims = file.spectreAnims[ "spectreSearch" ]
 	while( true )
 	{
 		string animation = idleAnims[ RandomInt( idleAnims.len() ) ]
 		waitthread PlayAnim( spectre, animation )
+	}
+}
+
+void function SuicideSpectreMoveAnim( entity spectre )
+{
+	spectre.EndSignal( "OnDeath" )
+	spectre.EndSignal( "OnDestroy" )
+	spectre.EndSignal( "SuicideSpectreExploding" )
+	spectre.EndSignal( "SuicideSpectreForceExplode" )
+
+	while( true )
+	{
+		spectre.ClearMoveAnim() // always try clear move animation
+		spectre.SetMoveAnim( "sp_spectre_sprint_F" )
+		WaitFrame()
 	}
 }
 
@@ -359,15 +412,60 @@ void function SetSuicideSpectreExploding( entity spectre, entity attacker, float
 	spectre.Signal( "SuicideSpectreExploding" )
 }
 
+// works not really good and I can't understand it, but it's an option?
 float function GetSpectreExplosionTime( entity spectre )
 {
-	if ( Time() - file.lastChainExplosionTime > 1.0 )
-		file.chainExplosionIndex = 0
+	vector spectrePos = spectre.GetOrigin()
+	SpectreChainExplosionStruct chainStruct = FindNearestChainExplosionStruct( spectrePos )
+	// reached max chain
+	if ( Time() - chainStruct.lastChainExplosionTime > 1.0 )
+		chainStruct.chainExplosionIndex = 0 // restart this chain
 
-	float waitTime = file.chainExplosionIndex * 0.14 // RandomFloatRange( CHAIN_EXPLOSION_INTERVALMIN, CHAIN_EXPLOSION_INTERVALMAX )
-	file.lastChainExplosionTime = Time()
-	file.chainExplosionIndex++
+	chainStruct.lastExplosionPos = spectrePos // update chain pos
+	float waitTime = chainStruct.chainExplosionIndex * CHAIN_EXPLOSION_INTERVAL
+	chainStruct.lastChainExplosionTime = Time()
+	chainStruct.chainExplosionIndex++
+	thread ChainControllerCleaner( chainStruct ) // clean up the struct
 	return waitTime
+}
+
+SpectreChainExplosionStruct function FindNearestChainExplosionStruct( vector origin )
+{
+	foreach( SpectreChainExplosionStruct tempStruct in file.chainExplosionController )
+	{
+		//print( tempStruct.lastExplosionPos )
+		if ( Distance( tempStruct.lastExplosionPos, origin ) + 1 <= SPECTRE_EXPLOSION_RADIUS ) // consider this means the given origin inside explosion
+		{
+			return tempStruct // will this able to return a struct that can be edited?
+		}
+	}
+
+	// if we're at this point it means there's no close enough explosions
+	// create a new one
+	SpectreChainExplosionStruct newStruct
+	newStruct.lastExplosionPos = origin
+	newStruct.lastChainExplosionTime = Time()
+	newStruct.chainExplosionIndex = 0 // first chain
+	file.chainExplosionController.append( newStruct ) // add to array
+
+	return newStruct
+}
+
+void function ChainControllerCleaner( SpectreChainExplosionStruct chainStruct )
+{
+	// for debugging: can this struct be passed by another variable?
+	int arrayIndex = file.chainExplosionController.find( chainStruct )
+	//print( arrayIndex )
+
+	wait CHAIN_EXPLOSION_INTERVAL + 0.1 // max chain interval, if we reached it we try to clean up
+	arrayIndex = file.chainExplosionController.find( chainStruct )
+	//print( arrayIndex )
+	
+	if ( Time() - chainStruct.lastChainExplosionTime > CHAIN_EXPLOSION_INTERVAL ) // hasn't chained for a long time! need to clean up
+	{
+		if ( arrayIndex >= 0 )
+			file.chainExplosionController.remove( arrayIndex ) // clear it
+	}
 }
 
 void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
@@ -387,9 +485,6 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 	while ( true )
 	{
 		wait 0.1
-
-		if ( !spectre.ai.fragDroneArmed )
-			continue
 
 		if ( spectre.ai.suicideSpectreExplodingAttacker != null )
 			return
@@ -581,43 +676,44 @@ entity function SuicideSpectre_NearEnemy( entity spectre )
 
 void function SpectreOverloads( entity spectre )
 {
+	spectre.Signal( "SuicideSpectreOverload" ) // for ending idle
 	spectre.EndSignal( "SuicideSpectreExploding" )
 	file.nextOverloadTime = Time() + 0.05
 
 	#if MP
-	var chaseTime = spectre.Dev_GetAISettingByKeyField( "SuicideChaseTime" )
-	if ( chaseTime != null )
+	float chaseTime = SPECTRE_SUICIDE_CHASE_TIME
+	//var chaseTime = spectre.Dev_GetAISettingByKeyField( "SuicideChaseTime" )
+
+	float maxScale = SPECTRE_MAX_SPEED_SCALE
+	//float maxScale = expect float( spectre.Dev_GetAISettingByKeyField( "maxSpeedScale" ) )
+	spectre.SetNPCMoveSpeedScale( maxScale )
+
+	//expect float( chaseTime )
+	float endChaseTime = Time() + chaseTime
+
+	for ( ;; )
 	{
-		float maxScale = SPECTRE_MAX_SPEED_SCALE
-		//float maxScale = expect float( spectre.Dev_GetAISettingByKeyField( "maxSpeedScale" ) )
-		spectre.SetNPCMoveSpeedScale( maxScale )
+		if ( Time() >= endChaseTime )
+			break
 
-		expect float( chaseTime )
-		float endChaseTime = Time() + chaseTime
+		if ( !IsAlive( spectre.GetEnemy() ) )
+			break
 
-		for ( ;; )
+		entity nearEnemy = SuicideSpectre_NearEnemy( spectre )
+		if ( IsAlive( nearEnemy ) )
 		{
-			if ( Time() >= endChaseTime )
-				break
-
-			if ( !IsAlive( spectre.GetEnemy() ) )
-				break
-
-			entity nearEnemy = SuicideSpectre_NearEnemy( spectre )
-			if ( IsAlive( nearEnemy ) )
+			if ( nearEnemy.IsTitan() && spectre.IsInterruptable() )
 			{
-				if ( nearEnemy.IsTitan() && spectre.IsInterruptable() )
-				{
-					JumpAtTitan( spectre, nearEnemy )
-					spectre.ai.suicideSpectreExplosionDelay = 0.0
-					return
-				}
-				break
+				JumpAtTitan( spectre, nearEnemy )
+				spectre.ai.suicideSpectreExplosionDelay = 0.0
+				return
 			}
-
-			WaitFrame()
+			break
 		}
+
+		WaitFrame()
 	}
+
 	#endif
 	
 	// try to make ttf1 suicide spectres
@@ -646,12 +742,15 @@ void function SpectreOverloads( entity spectre )
 		WaitFrame()
 	}
 
-	string overloadSF
+	string overloadSF = SFX_TICK_OVERLOAD
+
+	/* // checks only for ticks!
 	bool isFragDrone = 	spectre.mySpawnOptions_aiSettings == "npc_frag_drone_throwable"
 	if ( isFragDrone )
 		overloadSF = SFX_FRAGDRONE_OVERLOAD
 	else
 		overloadSF = SFX_TICK_OVERLOAD
+	*/
 	// Overload Sound
 	EmitSoundOnEntity( spectre, overloadSF )
 
@@ -823,4 +922,112 @@ void function FakeSuicideSpectreOnDamaged( entity spectre, var damageInfo )
 
 		DamageInfo_SetDamage( damageInfo, damage )
 	}
+}
+
+
+
+/////////////////////////////////////////
+///// OTHER WAYS TO SPAWN A SPECTRE /////
+/////////////////////////////////////////
+
+entity function MakeFakeSuicideSpectre( entity spectre ) // a real spectre
+{
+	// this function is only for a npc that previously be a spectre
+	if ( !IsSpectre( spectre ) )
+		return
+	
+	int team = spectre.GetTeam()
+	vector origin = spectre.GetOrigin()
+	vector angles = spectre.GetAngles()
+	
+	entity newSpectre = CreateFakeSuicideSpectre( team, origin, angles ) // spawn a fake suicide spectre
+	spectre.Destroy() // destroy originall spectre
+
+	return newSpectre
+}
+
+// this will spawn a droppod with suicide spectres
+void function LaunchSuicideSpectreDroppod( vector pos, vector rot, int team, void functionref( array<entity> guys ) squadHandler = null )
+{
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
+	
+	entity pod = CreateDropPod( pos, <0,0,0> )
+	
+	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // fast dissolving droppod
+	
+	for ( int i = 0; i < 4 ;i++ )
+	{
+		entity npc = CreateFakeSuicideSpectre( team, pos, <0,0,0> )
+		SetSquad( npc, squadName )
+		
+		npc.SetParent( pod, "ATTACH", true )
+		
+		guys.append( npc )
+	}
+	
+	// The order here is different so we can show on minimap while were still falling
+	if ( squadHandler != null )
+		thread squadHandler( guys )
+		
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+	
+	ActivateFireteamDropPod( pod, guys )
+}
+
+void function DefaultSuicideSpectreHandler( array<entity> spectres )
+{
+	foreach( entity spectre in spectres )
+	{
+		SuicideSpectreHandler( spectre )
+	}
+}
+
+void function SuicideSpectreHandler( entity spectre )
+{	
+	if ( !IsValid( spectre ) ) // don't know why sometimes it failed to be valid
+		return
+	
+	spectre.Signal( "DisableSuicideSpectreIdle" ) // stop default idle
+	// First AssaultPoint
+	array< entity > points = GetNPCArrayOfEnemies( spectre.GetTeam() )
+	vector point
+	
+	if ( points.len() > 0 )
+	{
+		point = points[ RandomInt( points.len() ) ].GetOrigin()
+		spectre.AssaultPoint( point )
+		spectre.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+	}
+	
+	array<entity> players = GetPlayerArrayOfEnemies( spectre.GetTeam() )
+	// show on everyone's radar
+	spectre.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	spectre.Minimap_AlwaysShow( TEAM_IMC, null )
+	
+	//thread AITdm_CleanupBoredNPCThread( guy )
+	
+	// Every 10 - 15 secs change AssaultPoint
+	while ( true )
+	{	
+		spectre.Signal( "SuicideSpectreAssault" ) // this will end idle animations
+		wait RandomFloatRange( 10.0,15.0 ) // do wait first
+		
+		// Check if alive
+		if ( !IsAlive( spectre ) )
+			return
+		
+		// Get point and send guy to it
+		points = GetNPCArrayOfEnemies( spectre.GetTeam() )
+		if ( points.len() == 0 )
+			continue
+			
+		point = points[ RandomInt( points.len() ) ].GetOrigin()
+		
+		spectre.AssaultPoint( point )
+
+		WaitSignal( spectre, "OnFinishedAssault" )
+		thread SpectreIdleAnimation( spectre ) // idle animation
+	}
+
 }
