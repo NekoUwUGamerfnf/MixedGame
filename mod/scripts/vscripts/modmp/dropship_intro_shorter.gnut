@@ -1,6 +1,5 @@
 untyped
-global function ClassicMP_DefaultDropshipIntro_Setup
-global function ClassicMP_IsRunningDropshipIntro
+global function ClassicMP_ShorterDropshipIntro_Setup
 
 const array<string> DROPSHIP_IDLE_ANIMS = [ "Classic_MP_flyin_exit_playerA_idle",
 											"Classic_MP_flyin_exit_playerB_idle",
@@ -25,7 +24,7 @@ const array<string> DROPSHIP_JUMP_ANIMS_POV = [ "Classic_MP_flyin_exit_povA_jump
 const int MAX_DROPSHIP_PLAYERS = 4
 
 
-global const float DROPSHIP_INTRO_LENGTH = 15.0 // TODO tweak this
+global const float DROPSHIP_INTRO_LENGTH_SHORTER = 5.0 // 10s shorter than normal intro
 
 struct IntroDropship
 {
@@ -41,21 +40,13 @@ struct {
 	array<IntroDropship> imcDropships
 	
 	float introStartTime
-
-	bool isDropShipIntro = false
 } file
 
 
-void function ClassicMP_DefaultDropshipIntro_Setup()
+void function ClassicMP_ShorterDropshipIntro_Setup()
 {
-	file.isDropShipIntro = true // we're running dropship intro now
 	AddCallback_OnClientConnected( DropshipIntro_OnClientConnected )	
 	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
-}
-
-bool function ClassicMP_IsRunningDropshipIntro()
-{
-	return file.isDropShipIntro
 }
 
 void function DropshipIntro_OnClientConnected( entity player )
@@ -68,7 +59,7 @@ void function OnPrematchStart()
 {
 	ClassicMP_OnIntroStarted()
 
-	print( "starting dropship intro!" )
+	print( "starting faster dropship intro!" )
 	file.introStartTime = Time()
 	
 	// make 2 empty dropship structs per team
@@ -122,6 +113,7 @@ void function OnPrematchStart()
 			dropship.SetModel( $"models/vehicle/crow_dropship/crow_dropship_hero.mdl" )
 		
 		thread PlayAnim( dropship, "dropship_classic_mp_flyin" )
+		dropship.Anim_SetInitialTime( DROPSHIP_INTRO_LENGTH - DROPSHIP_INTRO_LENGTH_SHORTER ) // start with door opened
 	}
 	
 	foreach ( entity player in GetPlayerArray() )
@@ -137,7 +129,7 @@ void function OnPrematchStart()
 
 void function EndIntroWhenFinished()
 {
-	wait 15.0
+	wait DROPSHIP_INTRO_LENGTH_SHORTER
 	ClassicMP_OnIntroFinished()
 }
 
@@ -148,8 +140,9 @@ void function SpawnPlayerIntoDropship( entity player )
 	if ( IsAlive( player ) )
 		player.Die() // kill them so we don't have any issues respawning them later
 	
+	table result = {}
 	player.s.dropshipIntroIsJumping <- false
-	OnThreadEnd( function() : ( player )
+	OnThreadEnd( function() : ( player, result )
 	{	
 		if ( IsValid( player ) )
 		{
@@ -209,7 +202,10 @@ void function SpawnPlayerIntoDropship( entity player )
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
 	ScreenFadeFromBlack( player, 3.0, 1.0 )
 	// faction leaders are done clientside, spawn them here
-	Remote_CallFunction_NonReplay( player, "ServerCallback_SpawnFactionCommanderInDropship", playerDropship.dropship.GetEncodedEHandle(), file.introStartTime )
+    // default intro is 15s, I want to make it a 5s, so make factionleader's animations etc be 10s faster
+	float timeDiff = DROPSHIP_INTRO_LENGTH - DROPSHIP_INTRO_LENGTH_SHORTER // get differ
+	// actually don't spawn a commander could be better
+	//Remote_CallFunction_NonReplay( player, "ServerCallback_SpawnFactionCommanderInDropship", playerDropship.dropship.GetEncodedEHandle(), file.introStartTime )
 
 	// do firstperson sequence	
 	FirstPersonSequenceStruct idleSequence
@@ -221,7 +217,9 @@ void function SpawnPlayerIntoDropship( entity player )
 	idleSequence.hideProxy = true
 	idleSequence.setInitialTime = Time() - file.introStartTime
 	thread FirstPersonSequence( idleSequence, player, playerDropship.dropship )
-	WaittillAnimDone( player )
+	//WaittillAnimDone( player )
+	float duration = player.GetSequenceDuration( idleSequence.thirdPersonAnim )
+	wait duration - timeDiff // for running out from dropship
 	
 	// todo: possibly rework this to actually get the time the idle anim takes and start the starttime of the jump sequence for very late joiners using that
 			
@@ -246,7 +244,10 @@ void function PlayerJumpsFromDropship( entity player )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 
-	OnThreadEnd( function() : ( player )
+    table savedKeyValues = {}
+    savedKeyValues.gravity <- int( player.kv.gravity )
+
+	OnThreadEnd( function() : ( player, savedKeyValues )
 	{
 		if ( IsValid( player ) )
 		{
@@ -255,13 +256,21 @@ void function PlayerJumpsFromDropship( entity player )
 			player.EnableWeaponViewModel()
 			DeployAndEnableWeapons(player)
 			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
+
+            if ( IsAlive( player ) ) // not resetting through death
+            {
+                player.kv.gravity = savedKeyValues.gravity // restore gravity
+                EnablePlayerDoubleJump( player ) // restore doublejumps
+            }
 		}
 	})
 		
 	// wait for intro timer to be fully done
-	wait ( file.introStartTime + DROPSHIP_INTRO_LENGTH ) - Time()
+	wait ( file.introStartTime + DROPSHIP_INTRO_LENGTH_SHORTER ) - Time()
 	player.MovementDisable() // disable all movement but let them look around still
-	
+    DisablePlayerDoubleJump( player ) // this will make players never trigger jetpack dryfire sounds!
+    player.kv.gravity = 2.2 // make players fall much faster
+
 	// wait for player to hit the ground
 	wait 0.1 // assume players will never actually hit ground before this
 	while ( !player.IsOnGround() && !player.IsWallRunning() && !player.IsWallHanging() ) // todo this needs tweaking
@@ -274,4 +283,41 @@ void function PlayerJumpsFromDropship( entity player )
 		TryGameModeAnnouncement( player )
 	else
 		TryGameModeAnnouncement( player, false )
+}
+
+// following functions triggers OnPlayerClassChange()
+void function DisablePlayerDoubleJump( entity player )
+{
+    string setFile = player.GetPlayerSettings()
+    array<string> setFileMods =  player.GetPlayerSettingsMods()
+    setFileMods.append( "disable_doublejump" ) // this will make players never trigger jetpack dryfire sounds!
+    asset modelName = player.GetModelName() // they maybe reset model
+    int skinIndex = player.GetSkin()
+    int camoIndex = player.GetCamo()
+
+    player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), setFileMods )
+    // restore model, skin, etc.
+    player.SetModel( modelName )
+    player.SetSkin( skinIndex )
+    player.SetCamo( camoIndex )
+}
+
+void function EnablePlayerDoubleJump( entity player )
+{
+    string setFile = player.GetPlayerSettings()
+    array<string> setFileMods =  player.GetPlayerSettingsMods()
+    if ( setFileMods.contains( "disable_doublejump" ) )
+        setFileMods.removebyvalue( "disable_doublejump" )
+    else // don't even have a disabled doublejump, just return
+        return
+
+    asset modelName = player.GetModelName() // they maybe reset model
+    int skinIndex = player.GetSkin()
+    int camoIndex = player.GetCamo()
+
+    player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), setFileMods )
+    // restore model, skin, etc.
+    player.SetModel( modelName )
+    player.SetSkin( skinIndex )
+    player.SetCamo( camoIndex )
 }
