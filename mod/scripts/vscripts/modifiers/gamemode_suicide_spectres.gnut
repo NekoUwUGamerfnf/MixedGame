@@ -1,0 +1,117 @@
+// this mode is for coliseum only now, since other maps has a shitty navmesh
+global function Modded_Gamemode_Suicide_Spectres_Init
+
+const int SPECTRE_SQUADS = 4
+
+const array<string> ANTITITAN_WEAPONS = // replace these weapons with rocket jumper softball
+[
+    "mp_weapon_defender",
+    "mp_weapon_arc_launcher",
+    "mp_weapon_mgl",
+    "mp_weapon_rocket_launcher"
+]
+
+void function Modded_Gamemode_Suicide_Spectres_Init()
+{
+    // turns all spectres into suicide ones
+    //AddSpawnCallback( "npc_spectre", BecomeFakeSuicideSpectre ) 
+    AddCallback_GameStateEnter( eGameState.Playing, OnGamePlaying )
+    //AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+    AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerGetsLoadout )
+
+    // custom intro
+    SetPlayerDeathsHidden( true ) // no sounds for deaths
+    SetWaitingForPlayersMaxDuration( 10.0 ) // so you don't have to wait so freaking long
+    //if ( !IsFFAGame() ) // don't spawn in dropship if ffa
+    //    ClassicMP_SetLevelIntro( ClassicMP_ShorterDropshipIntro_Setup, DROPSHIP_INTRO_LENGTH_SHORTER )
+}
+
+void function OnGamePlaying()
+{
+    StartSpawner()
+}
+
+void function OnPlayerGetsLoadout( entity player, PilotLoadoutDef p )
+{
+    RelaceAntiTitanWithSoftball( player )
+}
+
+void function RelaceAntiTitanWithSoftball( entity player )
+{
+    array<entity> mainWeapons = player.GetMainWeapons()
+    foreach( entity weapon in mainWeapons )
+    {
+        string weaponName = weapon.GetWeaponClassName()
+        if ( ANTITITAN_WEAPONS.contains( weaponName ) )
+        {
+            player.TakeWeaponNow( weaponName )
+        }
+    }
+
+    if ( player.GetMainWeapons().len() < 3 ) // has inventory!
+        player.GiveWeapon( "mp_weapon_softball", ["grenadier_low_damage", "rocket_jumper"] )
+}
+
+void function StartSpawner()
+{
+    thread SpectreSpawner_Threaded( TEAM_BOTH ) // only spawn neatural ones
+    //thread SpectreSpawner_Threaded( TEAM_IMC )
+    //thread SpectreSpawner_Threaded( TEAM_MILITIA )
+}
+
+void function SpectreSpawner_Threaded( int team )
+{
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // entering winnerDetermined ends this
+
+	int index = team == TEAM_MILITIA ? 0 : 1
+	
+	while( true )
+	{
+		array<entity> spectres = GetNPCArrayEx( "npc_frag_drone", team, -1, <0,0,0>, -1 )
+		int count = spectres.len()
+		
+		// NORMAL SPAWNS
+		if ( count < SPECTRE_SQUADS * 4 - 2 )
+		{
+			//array<entity> points = SpawnPoints_GetDropPod()
+            //if ( points.len() == 0 ) // no points!
+            //    return // never runs following loops
+			//entity node = points[ GetSpawnPointIndex( points, team ) ]
+			//waitthread LaunchSuicideSpectreDroppod( node.GetOrigin(), node.GetAngles(), team, null )
+            thread LaunchSuicideSpectreDroppod( < 0,0,0 >, < 0,RandomIntRange( 0, 360 ),0 >, team, null )
+        }
+		
+		WaitFrame()
+	}
+}
+
+// Decides where to spawn ai
+// Each team has their "zone" where they and their ai spawns
+// These zones should swap based on which team is dominating where
+int function GetSpawnPointIndex( array< entity > points, int team )
+{
+    if ( team != TEAM_IMC && team != TEAM_MILITIA ) // not valid teams( such as TEAM_BOTH )
+    {
+        // use a random team's spawn
+        if ( CoinFlip() )
+            team = TEAM_IMC
+        else
+            team = TEAM_MILITIA
+    }
+
+	entity zone = DecideSpawnZone_Generic( points, team )
+	
+	if ( IsValid( zone ) )
+	{
+		// 20 Tries to get a random point close to the zone
+		for ( int i = 0; i < 20; i++ )
+		{
+			int index = RandomInt( points.len() )
+		
+			if ( Distance2D( points[ index ].GetOrigin(), zone.GetOrigin() ) < 6000 )
+				return index
+		}
+	}
+	
+	return RandomInt( points.len() )
+}
