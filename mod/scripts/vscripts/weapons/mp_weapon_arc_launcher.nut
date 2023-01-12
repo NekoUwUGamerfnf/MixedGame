@@ -4,7 +4,7 @@ global function OnWeaponPrimaryAttack_weapon_arc_launcher
 global function OnProjectileCollision_weapon_grenade_bangalore
 global function OnProjectileIgnite_weapon_grenade_bangalore
 const ARC_LAUNCHER_ZAP_DAMAGE = 350
-const int ARC_LAUNCHER_ZAP_DAMAGE_PILOT = 15
+const int ARC_LAUNCHER_ZAP_DAMAGE_PILOT_AMPED = 15
 
 const int SMOKE_GRENADE_COUNT = 3
 const float SMOKE_LAUNCHER_DELAY = 0.7
@@ -63,7 +63,7 @@ var function OnWeaponPrimaryAttack_weapon_arc_launcher( entity weapon, WeaponPri
 			entity ballLightning = expect entity( arcBall.s.ballLightning )
 			if( weapon.HasMod( "antipilot_arc_launcher" ) )
 			{
-				ballLightning.e.ballLightningData.damageToPilots = ARC_LAUNCHER_ZAP_DAMAGE_PILOT
+				ballLightning.e.ballLightningData.damageToPilots = ARC_LAUNCHER_ZAP_DAMAGE_PILOT_AMPED
 				ballLightning.e.ballLightningData.damage = ARC_LAUNCHER_ZAP_DAMAGE * 0.2
 			}
 #endif

@@ -65,11 +65,17 @@ void function OnProjectileCollision_weapon_grenade_sonar( entity projectile, vec
 			EmitSoundAtPositionExceptToPlayer( TEAM_UNASSIGNED, pos, owner, "Pilot_PulseBlade_Activated_3P" )
 			EmitSoundAtPositionOnlyToPlayer( TEAM_UNASSIGNED, pos, owner, "Pilot_PulseBlade_Activated_1P" )
 		}
+		else
+			EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Pilot_PulseBlade_Activated_3P" )
 		PlayFX( $"P_impact_exp_laserlite_AMP", pos + normal, VectorToAngles( normal ) )
 		projectile.Destroy()
 	}
 	else
 		projectile.GrenadeIgnite()
+	#endif
+
+	#if CLIENT
+		projectile.GrenadeIgnite() // make client predict it
 	#endif
 }
 

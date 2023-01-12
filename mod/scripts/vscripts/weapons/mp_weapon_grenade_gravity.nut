@@ -142,6 +142,8 @@ void function OnProjectileCollision_weapon_grenade_gravity( entity projectile, v
 				EmitSoundAtPositionExceptToPlayer( TEAM_UNASSIGNED, pos, owner, "Pilot_PulseBlade_Activated_3P" )
 				EmitSoundAtPositionOnlyToPlayer( TEAM_UNASSIGNED, pos, owner, "Pilot_PulseBlade_Activated_1P" )
 			}
+			else
+				EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Pilot_PulseBlade_Activated_3P" )
 			PlayFX( $"P_impact_exp_laserlite_AMP", pos + normal, VectorToAngles( normal ) )
 			projectile.Destroy()
 		}
