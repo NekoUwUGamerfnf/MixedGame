@@ -1322,7 +1322,7 @@ void function DialoguePlayWinnerDetermined()
 		return
 	int winningTeam = TEAM_UNASSIGNED
 
-	if( file.enteredSuddenDeath && !IsFFAGame() )
+	if( file.enteredSuddenDeath && !IsFFAGame() || !RespawnsEnabled() ) // respawn not enabled, or game in sudden death
 	{
 		if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() > GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() )
 			winningTeam = TEAM_MILITIA
