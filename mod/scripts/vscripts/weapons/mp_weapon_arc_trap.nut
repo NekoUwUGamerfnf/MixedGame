@@ -102,6 +102,12 @@ var function OnWeaponTossReleaseAnimEvent_weapon_arc_trap( entity weapon, Weapon
 			thread TrapDestroyOwnerDeath( deployable, deployable.GetOwner() )
 			#endif
 		}
+		else if ( weapon.HasMod( "gm_shock_grunt" ) ) // grunt mode shock grunts
+		{
+			#if SERVER
+			thread TrapDestroyOwnerDeath( deployable, deployable.GetOwner() )
+			#endif
+		}
 
 		#if SERVER
 		deployable.e.fd_roundDeployed = weapon.e.fd_roundDeployed

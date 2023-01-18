@@ -165,15 +165,19 @@ void function DeployJumpPad( entity projectile, vector origin, vector angles )
 		JumpPadLimitThink()
 	}
 
-	thread JumpPadThink( tower )
+	thread JumpPadThink( projectile, tower )
 
+	// grunt mode specifics!
+	if ( mods.contains( "gm_jumper" ) )
+		thread DestroyJumpPadOnOwnerDeath( projectile, projectile.GetOwner() )
 	if( !mods.contains( "infinite_jump_pad" ) )
 		thread CleanupJumpPad( tower, projectile, JUMP_PAD_LIFETIME )
 	#endif
 }
 
-void function JumpPadThink( entity tower )
+void function JumpPadThink( entity projectile, entity tower )
 {
+	projectile.EndSignal( "OnDestroy" )
 	tower.EndSignal( "OnDestroy" )
 	entity trigger = CreateEntity( "trigger_cylinder" )
 	trigger.SetRadius( 64 )
@@ -188,8 +192,10 @@ void function JumpPadThink( entity tower )
 	trigger.SearchForNewTouchingEntity() //JFS: trigger.GetTouchingEntities() will not return entities already in the trigger unless this is called. See bug 202843
 
 	OnThreadEnd(
-		function(): ( tower, trigger )
+		function(): ( projectile, tower, trigger )
 		{
+			if ( IsValid( projectile ) )
+				projectile.GrenadeExplode( projectile.GetForwardVector() )
 			if( IsValid( tower ) )
 				tower.Destroy()
 			if( IsValid( trigger ) )
@@ -384,6 +390,23 @@ entity function CreateJumpPadJetFxForPlayer( entity player, asset particle, stri
 void function JumpPadCooldownThink( entity player )
 {
 	SetPlayerInJumpPadCooldown( player, 1.0 ) // hardcoded now
+}
+
+void function DestroyJumpPadOnOwnerDeath( entity projectile, entity owner )
+{
+	projectile.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDeath" )
+
+	OnThreadEnd(
+		function(): ( projectile )
+		{
+			if ( IsValid( projectile ) )
+				projectile.GrenadeExplode( projectile.GetForwardVector() )
+		}
+	)
+
+	WaitForever()
 }
 
 void function CleanupJumpPad( entity tower, entity projectile, float delay )
