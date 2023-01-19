@@ -297,14 +297,35 @@ void function TicksToDronesThreaded( entity tick )
 
 	drone.SetOwner( tickowner )
 	drone.SetBossPlayer( tickowner )
-	drone.SetMaxHealth( 100 )
-	drone.SetHealth( 100 )
+	drone.SetMaxHealth( 170 )
+	drone.SetHealth( 170 )
+	entity weapon = drone.GetActiveWeapon()
+	string classname = weapon.GetWeaponClassName()
+	//print( "Drone's Active Weapon is " + classname )
+	drone.TakeWeaponNow( classname )
+	drone.GiveWeapon( classname, ["npc_elite_weapon"] ) // weapon has been nerfed
+	drone.SetActiveWeaponByName( classname )
 	NPCFollowsPlayer( drone, tickowner )
+	thread DisableDroneSound( drone ) // disable their annoying sound!
 
 	/*
 	int followBehavior = GetDefaultNPCFollowBehavior( drone )
     drone.InitFollowBehavior( tickowner, followBehavior )
     drone.EnableBehavior( "Follow" )
     */
+}
+
+void function DisableDroneSound( entity drone )
+{
+	drone.EndSignal( "OnDestroy" )
+	
+	while( true )
+	{
+		StopSoundOnEntity( drone, "Drone_Mvmt_Hover_Hero" )
+		StopSoundOnEntity( drone, "Drone_Mvmt_Hover" )
+		StopSoundOnEntity( drone, "Drone_Mvmt_Turn" )
+		
+		WaitFrame()
+	}
 }
 #endif
