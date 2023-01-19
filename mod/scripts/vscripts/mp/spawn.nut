@@ -23,6 +23,21 @@ global function RateSpawnpoints_SpawnZones
 global function DecideSpawnZone_Generic
 global function DecideSpawnZone_CTF
 
+// modified: prevent spawning in friendly's deadly area
+const float DEADLY_AREA_DURATION = 10.0
+const int DEADLY_AREA_RADIUS = 1000 // try to spawn away from player's max damage range
+// ffa specifics
+const float DEADLY_AREA_DURATION_FFA = 5.0
+const int DEADLY_AREA_RADIUS_FFA = 800
+
+// modified: try to make spawnpoints near teammates and bit far from enemy
+const float FRIENDLY_SPAWN_RADIUS = 1000
+const float ENEMY_NOSPAWN_RADIUS = 1500 // most weapon's outer range, cause it less dangrous for player
+
+// modified: in ffa, try to spawn in fight areas, don't make players run across maps to have a fight
+const float FFA_NOSPAWN_RADIUS = 1000 // still don't too close to an enemy
+const float FFA_SPAWN_RADIUS = 2000 
+
 struct NoSpawnArea
 {
 	string id
@@ -54,7 +69,82 @@ void function Spawn_Init()
 	// callbacks for spawnzone spawns
 	AddCallback_GameStateEnter( eGameState.Prematch, ResetSpawnzones )
 	AddSpawnCallbackEditorClass( "trigger_multiple", "trigger_mp_spawn_zone", AddSpawnZoneTrigger )
+
+	// modified: prevent spawning in friendly's deadly area
+	AddCallback_OnPlayerKilled( AddNoSpawnAreaForBeingKilled )
 }
+
+// modified: prevent spawning in friendly's deadly area
+void function AddNoSpawnAreaForBeingKilled( entity victim, entity attacker, var damageInfo )
+{
+	// killed by a player or npc
+	if ( attacker.IsPlayer() || attacker.IsNPC() )
+	{
+		if ( IsFFAGame() )
+		{
+			// don't let any players spawn nearby, area is smaller than 2-team mode
+			CreateNoSpawnArea( victim.GetTeam(), victim.GetTeam(), victim.GetOrigin(), DEADLY_AREA_DURATION_FFA, DEADLY_AREA_RADIUS_FFA )
+		}
+		else
+		{
+			// don't let friendly players spawn nearby
+			CreateNoSpawnArea( victim.GetTeam(), TEAM_INVALID, victim.GetOrigin(), DEADLY_AREA_DURATION, DEADLY_AREA_RADIUS )
+		}
+	}
+}
+
+// modified: try to make spawnpoints near teammates and bit far from enemy
+bool function HasEnemyNearSpawnPoint( int team, entity spawnpoint )
+{
+	foreach ( entity player in GetPlayerArrayOfEnemies( team ) )
+	{
+		if ( Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) <= ENEMY_NOSPAWN_RADIUS )
+			return true
+	}
+
+	// no enemy in area!
+	return false
+} 
+
+bool function HasFriendlyNearSpawnPoint( int team, entity spawnpoint )
+{
+	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
+	{
+		if ( Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) <= FRIENDLY_SPAWN_RADIUS )
+			return true
+	}
+
+	// no friendly in area!
+	return false
+}
+
+// modified: in ffa, try to spawn in fight areas, don't make players run across maps to have a fight
+bool function FFA_IsGoodSpawnPoint( int team, entity spawnpoint )
+{
+	foreach ( entity player in GetPlayerArrayOfEnemies( team ) )
+	{
+		if ( Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) < FFA_SPAWN_RADIUS
+			 && Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) >= FFA_NOSPAWN_RADIUS )
+			return true
+	}
+	
+	// no enemy nearby!
+	return false
+}
+
+// modified: prevent player spawn in places enemies can see!
+bool function EnemyCanSeeSpawnPoint( int team, entity spawnpoint )
+{
+	foreach ( entity player in GetPlayerArrayOfEnemies( team ) )
+	{
+		if ( PlayerCanSeePos( player, spawnpoint.GetOrigin(), true, 135 ) )
+			return true
+	}
+
+	// no enemy can see!
+	return false
+}
+//
 
 void function InitSpawnpoint( entity spawnpoint ) 
 {
@@ -302,6 +392,8 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 	// todo: in the future it might be good to have this prefer nodes with enemies up to a limit of some sort
 	// especially in ffa modes i could deffo see this falling apart a bit rn
 	// perhaps dead players could be used to calculate some sort of activity rating? so high-activity points with an even balance of friendly/unfriendly players are preferred
+	
+	/* // using modified checks now
 	array<float> preferSpawnNodeRatings
 	foreach ( vector preferSpawnNode in spawnStateGeneric.preferSpawnNodes )
 	{
@@ -326,6 +418,7 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 				currentChange *= -3 // always try to stay away from places we've already spawned
 			else if ( !IsAlive( nodePlayer ) ) // dead players mean activity which is good, but they're also dead so they don't matter as much as living ones
 				currentChange *= 0.6
+
 			if ( nodePlayer.GetTeam() != player.GetTeam() ) // if someone isn't on our team and alive they're probably bad
 			{
 				if ( IsFFAGame() ) // in ffa everyone is on different teams, so this isn't such a big deal
@@ -368,6 +461,113 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 				
 			if ( spawnpoint.s.lastUsedTime < 10.0 )
 				currentRating *= 0.7
+		}
+	
+		float rating = spawnpoint.CalculateRating( checkClass, team, currentRating, currentRating + petTitanModifier )
+		//print( "spawnpoint at " + spawnpoint.GetOrigin() + " has rating: " +  )
+		
+		if ( rating != 0.0 || currentRating != 0.0 )
+			print( "rating = " + rating + ", internal rating = " + currentRating )
+	}
+	*/
+
+	// modified checks...
+	array<float> preferSpawnNodeRatings
+	foreach ( vector preferSpawnNode in spawnStateGeneric.preferSpawnNodes )
+	{
+		float currentRating
+
+		// modified checks...
+		foreach ( entity nodePlayer in GetPlayerArray() )
+		{
+			float currentChange = 0.0
+			
+			bool sameTeam = nodePlayer.GetTeam() == player.GetTeam()
+			float maxFriendlyDist = FRIENDLY_SPAWN_RADIUS
+			float maxEnemyDist = ENEMY_NOSPAWN_RADIUS
+			bool isFFA = IsFFAGame()
+			if ( isFFA )
+				maxEnemyDist = FFA_SPAWN_RADIUS
+
+			// the closer a player is to a node the more they matter
+			float dist = Distance2D( preferSpawnNode, nodePlayer.GetOrigin() )
+			if ( dist > maxFriendlyDist && sameTeam )
+				continue
+			else if ( dist > maxEnemyDist && !sameTeam )
+				continue
+			
+			float currentDist = sameTeam ? maxFriendlyDist : maxEnemyDist
+			currentChange = ( currentDist - dist ) / 5
+			if ( player == nodePlayer )
+				currentChange *= -3 // always try to stay away from places we've already spawned
+			else if ( !IsAlive( nodePlayer ) ) // dead players mean activity which is good, but they're also dead so they don't matter as much as living ones
+				currentChange *= 0.6
+
+			if( !sameTeam )  // if someone isn't on our team and alive they're probably bad
+			{
+				if ( IsFFAGame() ) // in ffa everyone is on different teams, want to make players spawn near a battle area
+				{
+					if ( dist >= FFA_NOSPAWN_RADIUS && dist < FFA_SPAWN_RADIUS )
+						currentChange *= 0.2 // safe and battle zone, add more chance
+					else
+						currentChange *= -0.2 // try not to spawn too far or too close
+				}
+				else
+					currentChange *= -0.6
+			}
+			else // friendly team
+				currentChange *= 0.8 // try to spawn near a friendly player
+				
+			currentRating += currentChange
+		}
+		
+		preferSpawnNodeRatings.append( currentRating )
+	}
+
+	foreach ( entity spawnpoint in spawnpoints )
+	{
+		float currentRating
+		float petTitanModifier
+		// scale how much a given spawnpoint matters to us based on how far it is from each node
+		bool spawnHasRecievedInitialBonus = false
+		for ( int i = 0; i < spawnStateGeneric.preferSpawnNodes.len(); i++ )
+		{
+			// bonus if autotitan is nearish
+			if ( IsAlive( player.GetPetTitan() ) && Distance( player.GetPetTitan().GetOrigin(), spawnStateGeneric.preferSpawnNodes[ i ] ) < 1200.0 )
+				petTitanModifier += 10.0
+			
+			float dist = Distance2D( spawnpoint.GetOrigin(), spawnStateGeneric.preferSpawnNodes[ i ] )
+			if ( dist > 750.0 )
+				continue
+						
+			if ( dist < 600.0 && !spawnHasRecievedInitialBonus )
+			{
+				currentRating += 10.0
+				spawnHasRecievedInitialBonus = true // should only get a bonus for simply being by a node once to avoid over-rating
+			}
+		
+			currentRating += ( preferSpawnNodeRatings[ i ] * ( ( 750.0 - dist ) / 75 ) ) +  max( RandomFloat( 1.25 ), 0.9 )
+			if ( dist < 250.0 ) // shouldn't get TOO close to an active node
+				currentRating *= 0.7 
+				
+			if ( spawnpoint.s.lastUsedTime < 10.0 )
+				currentRating *= 0.7
+
+			if ( EnemyCanSeeSpawnPoint( team, spawnpoint ) )
+				currentRating *= 0 // never spawn in this area!!
+
+			if ( IsFFAGame() )
+			{
+				if ( FFA_IsGoodSpawnPoint( team, spawnpoint ) )
+					currentRating *= 2.0
+			}
+			else
+			{
+				if ( HasEnemyNearSpawnPoint( team, spawnpoint ) )
+					currentRating *= 0.7
+				else if ( HasFriendlyNearSpawnPoint( team, spawnpoint ) )
+					currentRating *= 2.0
+			}
 		}
 	
 		float rating = spawnpoint.CalculateRating( checkClass, team, currentRating, currentRating + petTitanModifier )
