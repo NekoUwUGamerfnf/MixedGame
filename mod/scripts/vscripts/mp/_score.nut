@@ -256,8 +256,7 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	if( victim.GetBossPlayer() || victim.IsPlayer() ) // to confirm this is a pet titan or player titan
 	{
 		AddPlayerScore( attacker, scoreEvent, attacker ) // this will show the "Titan Kill" callsign event
-		if( GetShouldPlayFactionDialogue() )
-			KilledPlayerTitanDialogue( attacker, victim )
+		KilledPlayerTitanDialogue( attacker, victim )
 	}
 	else
 	{

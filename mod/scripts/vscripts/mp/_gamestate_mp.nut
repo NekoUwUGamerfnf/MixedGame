@@ -12,7 +12,6 @@ global function SetSuddenDeathBased
 global function SetTimerBased
 global function SetShouldUseRoundWinningKillReplay
 
-global function SetShouldPlayFactionDialogue
 global function SetRoundWinningKillReplayKillClasses
 global function SetRoundWinningKillReplayAttacker
 global function SetWinner
@@ -21,7 +20,6 @@ global function SetTimeoutWinnerDecisionReason
 global function AddTeamScore
 global function GetWinningTeamWithFFASupport
 global function IsSwitchSidesBased_NorthStar // HACK!
-global function GetShouldPlayFactionDialogue
 
 global function GameState_GetTimeLimitOverride
 global function IsRoundBasedGameOver
@@ -66,9 +64,8 @@ struct {
 
 	// modified
 	bool enteredSuddenDeath = false
-	bool playFactionDialogue = true
 
-	float waitingForPlayersMaxDuration = 30.0
+	float waitingForPlayersMaxDuration = 20.0
 } file
 
 void function PIN_GameStart()
@@ -175,7 +172,7 @@ void function WaitForPlayers()
 		entity soundEnt = CreatePropDynamic( $"models/dev/empty_model.mdl" )
 		//DispatchSpawn( soundEnt ) // CreatePropDynamic() already spawned it!
 		EmitSoundOnEntity( soundEnt, "classicmp_warpjump" )
-		wait 7.3 // sound duration
+		wait 7.1 // sound duration
 	}
 	
 	wait 1.0 // bit nicer
@@ -267,8 +264,7 @@ void function GameStateEnter_Playing_Threaded()
 {
 	WaitFrame() // ensure timelimits are all properly set
 
-	if( file.playFactionDialogue )
-		thread DialoguePlayNormal() // runs dialogue play function
+	thread DialoguePlayNormal() // runs dialogue play function
 
 	while ( GetGameState() == eGameState.Playing )
 	{
@@ -364,8 +360,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	
 	WaitFrame() // wait a frame so other scripts can setup killreplay stuff
 
-	if( file.playFactionDialogue )
-		DialoguePlayWinnerDetermined() // play a faction dialogue when winner is determined
+	DialoguePlayWinnerDetermined() // play a faction dialogue when winner is determined
 	
 	// set gameEndTime to current time, so hud doesn't display time left in the match
 	SetServerVar( "gameEndTime", Time() )
@@ -611,11 +606,8 @@ void function GameStateEnter_SwitchingSides_Threaded()
 
 	svGlobal.levelEnt.Signal( "RoundEnd" ) // might be good to get a new signal for this? not 100% necessary tho i think
 	
-	if( file.playFactionDialogue )
-	{
-		PlayFactionDialogueToTeam( "mp_halftime", TEAM_IMC )
-		PlayFactionDialogueToTeam( "mp_halftime", TEAM_MILITIA )
-	}
+	PlayFactionDialogueToTeam( "mp_halftime", TEAM_IMC )
+	PlayFactionDialogueToTeam( "mp_halftime", TEAM_MILITIA )
 
 	entity replayAttacker = file.roundWinningKillReplayAttacker
 	entity replayVictim = file.roundWinningKillReplayVictim
@@ -661,11 +653,8 @@ void function GameStateEnter_SwitchingSides_Threaded()
 
 	file.roundWinningKillReplayAttacker = null // reset this after replay
 
-	if( file.playFactionDialogue )
-	{
-		PlayFactionDialogueToTeam( "mp_sideSwitching", TEAM_IMC )
-		PlayFactionDialogueToTeam( "mp_sideSwitching", TEAM_MILITIA )
-	}
+	PlayFactionDialogueToTeam( "mp_sideSwitching", TEAM_IMC )
+	PlayFactionDialogueToTeam( "mp_sideSwitching", TEAM_MILITIA )
 
 	CleanUpEntitiesForRoundEnd() // clean up players after dialogue
 	
@@ -1126,19 +1115,9 @@ void function SetShouldUseRoundWinningKillReplay( bool shouldUse )
 	SetServerVar( "roundWinningKillReplayEnabled", shouldUse )
 }
 
-void function SetShouldPlayFactionDialogue( bool shouldPlay )
-{
-	file.playFactionDialogue = shouldPlay
-}
-
 bool function IsSwitchSidesBased_NorthStar()
 {
 	return file.switchSidesBased
-}
-
-bool function GetShouldPlayFactionDialogue()
-{
-	return file.playFactionDialogue
 }
 
 void function SetRoundWinningKillReplayKillClasses( bool pilot, bool titan )
