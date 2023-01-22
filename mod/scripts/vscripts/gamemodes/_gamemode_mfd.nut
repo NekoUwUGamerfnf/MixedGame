@@ -21,8 +21,6 @@ void function Modded_Gamemode_Zombie_Mfd_Init()
 void function GamemodeMfd_Init()
 {
 	GamemodeMfdShared_Init()
-		
-	SetShouldPlayDefaultMusic( false )
 
 	RegisterSignal( "MarkKilled" )
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()

@@ -67,6 +67,9 @@ void function GamemodeAITdm_Init()
 		}
 		
 		ScoreEvent_SetupEarnMeterValuesForMixedModes()
+
+		// nscn specifics
+		SetShouldPlayDefaultMusic( true )
 	}
 }
 
