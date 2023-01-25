@@ -2,42 +2,110 @@ untyped
 
 global function BecomesGruntMode_Init
 
-table< string, bool > playerChatterTable
-array<string> GRUNT_CHATTERS = [ "diag_sp_intro_WD104_24_01_mcor_grunt1" ]
+global function RegisterGruntModePlayerClass
+global function IsGruntModeSpecialistClass // for score events in _gamemode_aitdm.nut
+
+const array<string> GRUNT_CHATTERS = 
+[ 
+	"diag_sp_intro_WD104_24_01_mcor_grunt1",
+	"diag_sp_intro_WD103_02_01_mcor_grunt2",
+	"diag_sp_intro_WD104_26_01_mcor_grunt3",
+	"diag_sp_intro_WD104_25_01_mcor_grunt2",
+	"diag_sp_intro_WD104_29_01_mcor_grunt6"
+]
 //"diag_sp_intro_WD103_02_01_mcor_grunt2" Backup! Backup!
 //"diag_sp_intro_WD104_26_01_mcor_grunt3" We can't stay here, move, move!
 //"diag_sp_ReaperTown_BM103_01a_01_mcor_grunt2" Look, a pilot! now they're doing our favor
 //"diag_sp_intro_WD104_24_01_mcor_grunt1" They're trying to corner us!
+//"diag_sp_intro_WD104_25_01_mcor_grunt2" We can't let them turn us down, we need to move!
+//"diag_sp_intro_WD104_29_01_mcor_grunt6" Do we have any pilots in the area?
+
+// npc damage settings!!!
+const float NPC_PILOT_DAMAGE_MULTIPILER = 2.0
+const float NPC_PROWLER_DAMAGE_MULTIPILER = 0.4
+
+struct PlayerClassStruct
+{
+	string className
+	void functionref( entity player ) classLoadoutFunction
+	bool isSpecialist // killing a specialist class will give more scores
+}
+
+struct
+{
+	table< string, bool > playerChatterTable // this is for making cooldowns between chatters, checking uids
+	table< entity, string > playerClassTable // this is for saving player's class
+	array<PlayerClassStruct> gruntModeClasses // this is for saving all valid classes
+} file
 
 void function BecomesGruntMode_Init()
 {
 	PrecacheModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
 
+	SetLoadoutGracePeriodEnabled( false ) // no loadout switch allowed!
+
+	PlayerEarnMeter_SetEnabled( false ) // disable earnmeter
+	MeleeSyncedNPC_EnableAll_Init() // npc executions for fun
+	SetPlayerClassicExecutionsEnabled( true ) // best execution for grunt players, real grunts still use cool executions
+
+	// tempfix specifics!
+	SetShouldPlayFactionDialogue( false ) // don't announce player!
+	SetBattleChatterEnabled_Northstar( false ) // grunt mode are having some special chatters, disable default one
+	SetWeaponDropsEnabled( false ) // another fixed thing only with tempfix
+
 	AddCallback_OnClientConnected( OnClientConnected )
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
 	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
-	AddCallback_OnPlayerKilled( StartKillerOutline )
-	AddCallback_OnPlayerKilled( OnGruntKilled )
+	AddCallback_OnPlayerKilled( OnPlayerKilled )
+	AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
 
-	AddSpawnCallback( "npc_soldier", PilotConfig )
+	// ai configs
+	AddSpawnCallback( "npc_soldier", GruntConfig )
+	AddSpawnCallback( "npc_pilot_elite", PilotConfig )
 	AddSpawnCallback( "npc_marvin", MarvinConfig )
 	AddSpawnCallback( "npc_prowler", ProwlerConfig )
 	AddSpawnCallback( "npc_spectre", SpectreConfig )
 	AddSpawnCallback( "npc_stalker", StalkerConfig )
 	AddSpawnCallback( "npc_super_spectre", ReaperConfig )
 	AddSpawnCallback( "npc_titan", TitanConfig )
-	//AddSpawnCallback( "npc_drone", DroneConfig )
+	AddSpawnCallback( "npc_drone", DroneConfig )
 	AddSpawnCallback( "npc_gunship", GunshipConfig )
 	AddSpawnCallback( "npc_dropship", DropshipConfig )
+
+	// buff pilots
+	AddDamageByCallback( "npc_pilot_elite", BuffPilotDamage )
+	// nerf prowler
+	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, NerfProwlerMelee )
 }
 
-//-----------------------------------------------
+
+
+////////////////////////////////
+///// NPC CONFIG FUNCTIONS /////
+////////////////////////////////
+
+void function GruntConfig( entity soldier )
+{
+	if( IsValid( soldier ) )
+	{
+		soldier.SetMaxHealth( 80 )
+		soldier.SetHealth( 80 )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		soldier.SetNameVisibleToEnemy( false )
+	}
+}
 
 void function PilotConfig( entity soldier )
 {
 	if( IsValid( soldier ) )
 	{
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 	}
 }
 
@@ -47,7 +115,10 @@ void function MarvinConfig( entity soldier )
 	{
 		soldier.SetMaxHealth( 300 )
 		soldier.SetHealth( 300 )
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 		soldier.SetNameVisibleToEnemy( false )
 	}
 }
@@ -56,7 +127,10 @@ void function ProwlerConfig( entity soldier )
 {
 	if( IsValid( soldier ) )
 	{
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 		soldier.SetNameVisibleToEnemy( false )
 	}
 }
@@ -67,7 +141,10 @@ void function SpectreConfig( entity soldier )
 	{
 		soldier.SetMaxHealth( 170 )
 		soldier.SetHealth( 170 )
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 		soldier.SetNameVisibleToEnemy( false )
 	}
 }
@@ -78,7 +155,10 @@ void function StalkerConfig( entity soldier )
 	{
 		soldier.SetMaxHealth( 250 )
 		soldier.SetHealth( 250 )
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 		soldier.SetNameVisibleToEnemy( false )
 	}
 }
@@ -87,7 +167,10 @@ void function ReaperConfig( entity soldier )
 {
 	if( IsValid( soldier ) )
 	{
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 	}
 }
 
@@ -95,7 +178,10 @@ void function TitanConfig( entity soldier )
 {
 	if( IsValid( soldier ) )
 	{
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 	}
 }
 
@@ -103,9 +189,13 @@ void function DroneConfig( entity soldier )
 {
 	if( IsValid( soldier ) )
 	{
-		soldier.SetMaxHealth( 170 )
-		soldier.SetHealth( 170 )
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		// these settings should be done in drone spawning functions
+		//soldier.SetMaxHealth( 170 )
+		//soldier.SetHealth( 170 )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 		soldier.SetNameVisibleToEnemy( false )
 	}
 }
@@ -114,7 +204,10 @@ void function GunshipConfig( entity soldier )
 {
 	if( IsValid( soldier ) )
 	{
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 	}
 }
 
@@ -122,16 +215,127 @@ void function DropshipConfig( entity soldier )
 {
 	if( IsValid( soldier ) )
 	{
-		Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
+		// friendly highlight
+		Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
+		soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+		//Highlight_SetFriendlyHighlight( soldier, "fw_friendly" )
 	}
 }
 
+////////////////////////////////////
+///// NPC CONFIG FUNCTIONS END /////
+////////////////////////////////////
+
+
+
+////////////////////////////////
+///// NPC DAMAGE FUNCTIONS /////
+////////////////////////////////
+
+void function BuffPilotDamage( entity victim, var damageInfo )
+{
+	// make npc pilots powerful?
+	DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * NPC_PILOT_DAMAGE_MULTIPILER )
+}
+
+void function NerfProwlerMelee( entity victim, var damageInfo )
+{
+	bool nerfDamage = false
+	// prowler's craw damage is 80, pounce damage is 100
+	if ( victim.IsPlayer() ) // nerf it's damage agains players
+		nerfDamage = true
+
+	if ( victim.IsNPC() )
+	{
+		// a npc owned by player, do reduce damage
+		if ( IsValid( victim.GetBossPlayer() ) )
+			nerfDamage = true
+		if ( IsValid( victim.GetOwner() ) )
+			nerfDamage = true
+	}
+
+	if ( nerfDamage )
+		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * NPC_PROWLER_DAMAGE_MULTIPILER )
+}
+
+////////////////////////////////////
+///// NPC DAMAGE FUNCTIONS END /////
+////////////////////////////////////
+
+
+
+//////////////////////////////
+///// CALLBACK FUNCTIONS /////
+//////////////////////////////
+
 void function OnClientConnected( entity player )
 {
-	playerChatterTable[player.GetUID()] <- false
-	AddPlayerHeldButtonEventCallback( player, IN_USE, CallbackFuncCornerUs, 0.3 )
+	file.playerChatterTable[player.GetUID()] <- false
+	file.playerClassTable[ player ] <- "" // empty class
+	AddPlayerHeldButtonEventCallback( player, IN_USE, CallbackFuncCornerUs, 0.5 ) // was 0.3
+	AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, CallbackFuncCornerUs, 0.5 ) // controller support
 	AddButtonPressedPlayerInputCallback( player, IN_USE, CallbackFuncSpotEnemy )
+	AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, CallbackFuncSpotEnemy ) // controller support
 }
+
+void function OnPlayerChangeLoadout( entity player , PilotLoadoutDef p )
+{	
+	BecomeGruntModePlayer( player )
+	// older version of the function, pretty hard to modify
+	//BecomesGrunt_Loadout( player )
+}
+
+void function OnPlayerRespawned( entity player )
+{	
+	//BecomesGrunt_Model( player )
+	//if( GetZiplineDropshipSpawns().len() != 0 )
+	//	RespawnInDropShip( player ) // bugged
+	//else
+	SpawnFromDroppod( player )
+	//thread DisableBoostBar( player ) // don't know why this causes problem
+}
+
+void function OnPlayerRespawned_Threaded( entity player )
+{
+	WaitFrame()
+	if( IsValid(player) )
+		PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )	// completely disable titan meter
+}
+
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+	StartKillerOutline( victim, attacker )
+	PlayEnemyKilledChatter( victim, attacker )
+	PlayFriendlyKilledChatter( victim, attacker )
+	//file.playerClassTable[ victim ] = "" // reset class, will break IsGruntModeSpecialistClass()
+}
+
+void function OnGamePrematch()
+{
+	// only tempfix has checked their validity before clean up
+	/* // no need to clean up since spawnpoint has been fixed, or player will be able to shoot outside map
+	foreach( entity trigger in GetEntArrayByClass_Expensive( "trigger_out_of_bounds" ) )
+    {
+		#if MP
+			trigger.DisconnectOutput( "OnStartTouch", EntityEnterOutOfBoundsTrig )
+			trigger.DisconnectOutput( "OnEndTouch", EntityLeaveOutOfBoundsTrig )
+		#else
+			trigger.DisconnectOutput( "OnStartTouch", EntityOutOfBounds )
+			trigger.DisconnectOutput( "OnEndTouch", EntityBackInBounds )
+		#endif
+    }
+	*/
+}
+
+//////////////////////////////////
+///// CALLBACK FUNCTIONS END /////
+//////////////////////////////////
+
+
+
+///////////////////////////////////
+///// GRUNT CHATTER FUNCTIONS /////
+///////////////////////////////////
 
 void function CallbackFuncCornerUs( entity player )
 {
@@ -141,7 +345,7 @@ void function CallbackFuncCornerUs( entity player )
 void function CornerUsChatterThink( entity player )
 {
 	string uid = player.GetUID()
-	if( playerChatterTable[uid] )
+	if( file.playerChatterTable[uid] )
 		return
 	if( !IsAlive( player ) )
 		return
@@ -160,11 +364,11 @@ void function CallbackFuncSpotEnemy( entity player )
 void function SpotEnemyChatterThink( entity player )
 {
 	string uid = player.GetUID()
-	if( playerChatterTable[uid] )
+	if( file.playerChatterTable[uid] )
 		return
 	if( !IsAlive( player ) )
 		return
-	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * 1500, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * 65535, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
 	if( !IsValid( traceResult.hitEnt ) )
 	{
 		//print( "Didn't trace anything" )
@@ -177,7 +381,7 @@ void function SpotEnemyChatterThink( entity player )
 	}
 	if( traceResult.hitEnt.GetTeam() == player.GetTeam() )
 		return
-	array<string> chatterClasses = [ "npc_spectre", "npc_stalker", "npc_prowler", "npc_soldier", "npc_titan" ]
+	array<string> chatterClasses = [ "npc_spectre", "npc_stalker", "npc_prowler", "npc_pilot_elite", "npc_titan" ]
 	string className = traceResult.hitEnt.GetClassName()
 	//print( "hitEnt's classname: " + className )
 	if( !chatterClasses.contains( className ) )
@@ -196,7 +400,7 @@ void function SpotEnemyChatterThink( entity player )
 			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagingProwler_0" + string( RandomIntRange( 1, 2 ) ) )
 			thread DelayedRestoreBattleChatter( uid, 3 )
 			break
-		case "npc_soldier":
+		case "npc_pilot_elite":
 			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagepilotenemy_0" + string( RandomIntRange( 1, 7 ) ) )
 			thread DelayedRestoreBattleChatter( uid, 3 )
 			break
@@ -216,38 +420,15 @@ void function SpotEnemyChatterThink( entity player )
 
 void function DelayedRestoreBattleChatter( string uid, float delay )
 {
-	playerChatterTable[uid] = true
+	file.playerChatterTable[uid] = true
 	wait delay
-	playerChatterTable[uid] = false
+	file.playerChatterTable[uid] = false
 }
 
-void function OnPlayerRespawned( entity player )
-{	
-	BecomesGrunt_Model( player )
-	//if( GetZiplineDropshipSpawns().len() != 0 )
-	//	RespawnInDropShip( player )
-	//else
-		SpawnFromDroppod( player )
-	thread OnPlayerRespawned_Threaded( player )
-}
-
-void function OnPlayerRespawned_Threaded( entity player )
-{
-	WaitFrame()
-	if( IsValid(player) )
-		PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )	//彻底关闭强化(泰坦)条
-}
-
-void function StartKillerOutline( entity victim, entity attacker, var damageInfo )
+void function StartKillerOutline( entity victim, entity attacker )
 {
 	if( attacker.IsNPC() || attacker.IsPlayer() )
 		Highlight_SetDeathRecapHighlight( attacker, "killer_outline" )
-}
-
-void function OnGruntKilled( entity victim, entity attacker, var damageInfo )
-{
-	PlayEnemyKilledChatter( victim, attacker )
-	PlayFriendlyKilledChatter( victim, attacker )
 }
 
 void function PlayEnemyKilledChatter( entity victim, entity attacker )
@@ -259,7 +440,7 @@ void function PlayEnemyKilledChatter( entity victim, entity attacker )
 void function DelayedEnemyKilledChatter( entity player )
 {
 	string uid = player.GetUID()
-	if( playerChatterTable[uid] )
+	if( file.playerChatterTable[uid] )
 		return
 	wait RandomFloatRange( 0.3, 0.5 )
 	if( IsAlive( player ) )
@@ -286,7 +467,7 @@ void function PlayFriendlyKilledChatter( entity victim, entity attacker )
 void function DelayedFriendlyKilledChatter( entity player )
 {
 	string uid = player.GetUID()
-	if( playerChatterTable[uid] )
+	if( file.playerChatterTable[uid] )
 		return
 	wait RandomFloatRange( 0.3, 0.5 )
 	if( IsAlive( player ) )
@@ -305,54 +486,67 @@ void function DelayedFriendlyKilledChatter( entity player )
 	}
 }
 
-void function OnPlayerChangeLoadout( entity player , PilotLoadoutDef p)
-{	
-	BecomesGrunt_Loadout( player )
+///////////////////////////////////////
+///// GRUNT CHATTER FUNCTIONS END /////
+///////////////////////////////////////
+
+
+
+///////////////////////////////////
+///// GRUNT RESPAWN FUNCTIONS /////
+///////////////////////////////////
+
+void function BecomeGruntModePlayer( entity player )
+{
+	// pick a random class
+	PlayerClassStruct selectedClass = file.gruntModeClasses[ RandomInt( file.gruntModeClasses.len() ) ]
+	//PlayerClassStruct selectedClass = file.gruntModeClasses[ 12 ] // the beast kings
+
+	file.playerClassTable[ player ] = selectedClass.className
+	selectedClass.classLoadoutFunction( player )	// run loadout function
 }
 
+/* // older version of the function, pretty hard to modify
 void function BecomesGrunt_Loadout( entity player )
 {
-	if( IsValid( player ) )
+	string primary = player.GetMainWeapons()[0].GetWeaponClassName()
+	string secondary = player.GetMainWeapons()[1].GetWeaponClassName()
+	string grenade = player.GetOffhandWeapon(OFFHAND_ORDNANCE).GetWeaponClassName()
+
+	//player.SetPlayerSettings( "civilian_solo" )
+	player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), ["disable_doublejump", "only_wallclimb", "less_powerful_gilde"])
+	//AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+	//player.ForceStand()
+
+	TakeAllWeapons( player )
+	player.GiveWeapon( primary )
+	player.GiveWeapon( secondary )
+	player.GiveOffhandWeapon( grenade, OFFHAND_ORDNANCE, ["grunt_mode"] )
+	player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["grunt_mode"] )
+
+	player.Signal( "ForceStopShield" )
+	if( player.GetTeam() == TEAM_MILITIA )
 	{
-		string primary = player.GetMainWeapons()[0].GetWeaponClassName()
-		string secondary = player.GetMainWeapons()[1].GetWeaponClassName()
-		string grenade = player.GetOffhandWeapon(OFFHAND_ORDNANCE).GetWeaponClassName()
-
-		//player.SetPlayerSettings( "civilian_solo" )
-		player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), ["disable_doublejump", "only_wallclimb", "less_powerful_gilde"])
-		//AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
-		//player.ForceStand()
-
-		TakeAllWeapons( player )
-		player.GiveWeapon( primary )
-		player.GiveWeapon( secondary )
-		player.GiveOffhandWeapon( grenade, OFFHAND_ORDNANCE, ["grunt_mode"] )
-		player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["grunt_mode"] )
-
-		player.Signal( "ForceStopShield" )
-		if( player.GetTeam() == TEAM_MILITIA )
-		{
-			player.SetModel($"models/humans/grunts/mlt_grunt_lmg.mdl")
-			player.SetMaxHealth( 100 )
-		}
-		if( player.GetTeam() == TEAM_IMC )
-		{
-			player.SetModel($"models/humans/grunts/imc_grunt_lmg.mdl")
-			player.SetMaxHealth( 100 )
-		}
-
-		SendHudMessage(player, "Respawn as Grunt: No Special Effect",  -1, -0.2, 255, 255, 255, 255, 0.15, 6, 1)
-
-		Highlight_SetFriendlyHighlight( player, "fw_friendly" )
-		//player.kv.gravity = 1.4
-		//HideName( player )
-		player.SetNameVisibleToEnemy( false )
+		player.SetModel($"models/humans/grunts/mlt_grunt_lmg.mdl")
+		player.SetMaxHealth( 100 )
 	}
+	if( player.GetTeam() == TEAM_IMC )
+	{
+		player.SetModel($"models/humans/grunts/imc_grunt_lmg.mdl")
+		player.SetMaxHealth( 100 )
+	}
+
+	Highlight_SetFriendlyHighlight( player, "fw_friendly" )
+	//player.kv.gravity = 1.4
+	//HideName( player )
+	player.SetNameVisibleToEnemy( false )
+
+	SendHudMessage(player, "Respawn as Grunt: No Special Effect",  -1, -0.2, 255, 255, 255, 255, 0.15, 6, 1)
 }
 
 void function BecomesGrunt_Model( entity player )
 {
-	if( IsValid(player) )
+	if( IsValid( player ) )
 	{
 		if( player.GetTeam() == TEAM_MILITIA )
 		{
@@ -435,3 +629,43 @@ void function BecomesGrunt_Model( entity player )
 		}
 	}
 }
+*/
+
+///////////////////////////////////////
+///// GRUNT RESPAWN FUNCTIONS END /////
+///////////////////////////////////////
+
+
+
+///////////////////////////////////
+///// CLASS UTILITY FUNCTIONS /////
+///////////////////////////////////
+
+void function RegisterGruntModePlayerClass( string className, void functionref( entity ) classLoadoutFunction, bool isSpecialist )
+{
+	PlayerClassStruct curClass
+	curClass.className = className
+	curClass.classLoadoutFunction = classLoadoutFunction
+	curClass.isSpecialist = isSpecialist
+	file.gruntModeClasses.append( curClass ) // add this class to array
+}
+
+bool function IsGruntModeSpecialistClass( entity player )
+{
+	if ( !( player in file.playerClassTable ) )
+		return false
+	string className = file.playerClassTable[ player ]
+	// find player's class
+	foreach( PlayerClassStruct curClass in file.gruntModeClasses )
+	{
+		if ( curClass.className == className )
+			return curClass.isSpecialist // return this class's specialist setting
+	}
+
+	// no className found, return false
+	return false
+}
+
+///////////////////////////////////////
+///// CLASS UTILITY FUNCTIONS END /////
+///////////////////////////////////////
