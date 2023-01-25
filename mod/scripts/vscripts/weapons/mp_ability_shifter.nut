@@ -38,8 +38,8 @@ const asset PHASE_REWIND_MODEL = $"models/fx/core_energy.mdl"
 // most of these are hardcoded, cannot easily change, fuck I cannot code it well
 const float PORTAL_TICKRATE = 0.1
 const float PORTAL_DURATION = 30 // should be a multipiler of PORTAL_FX_TICKRATE, could be PORTAL_DURATION + PORTAL_FX_TICKRATE * 2 in actrual
-const float PORTAL_MAX_DISTANCE = 3500 // should set higher since lastPos wasn't very accurate
-const float PORTAL_CANCEL_PERCENTAGE = 0.95
+const float PORTAL_MAX_DISTANCE = 2500 // was 3500, may should set higher since lastPos wasn't very accurate
+const float PORTAL_CANCEL_PERCENTAGE = 0.95 // lower than this will be consider as cancelling a portal placement
 //const float PORTAL_MIN_DISTANCE = 150 // using PORTAL_CANCEL_PERCENTAGE
 const float PORTAL_TRAVEL_LENGTH_MAX = 2.0 // // should match PORTAL_MAX_DISTANCE, but don't know how to calculate now
 const float PORTAL_TRAVEL_LENGTH_MIN = 0.4 // min phase duation, basically shouldn't have a limit
@@ -80,7 +80,7 @@ array<string> inPortalCooldownPlayers = []
 const string PHASEEXIT_IMPACT_TABLE_PROJECTILE	= "default"
 const string PHASEEXIT_IMPACT_TABLE_TRACE		= "superSpectre_groundSlam_impact"
 
-int ammoreduce
+//int ammoreduce // no need to use this
 
 // spellcard
 const float SPELL_CARD_DURATION_DEFAULT = 1
@@ -120,20 +120,32 @@ void function MpAbilityShifterWeapon_OnWeaponTossPrep( entity weapon, WeaponToss
 		return
 	if( weapon.HasMod( "wraith_phase" ) )
 	{
+		// a modified phaseShift: won't tell client to use warp-in effect
 		int phaseResult = PhaseShift( weaponOwner, SHIFTER_WARMUP_TIME_WRAITH, weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration ), true )
 		if( phaseResult )
 		{
 			StatusEffect_AddTimed( weaponOwner, eStatusEffect.move_slow, WRAITH_SEVERITY_SLOWMOVE, SHIFTER_SLOWMOVE_TIME_WRAITH, 0 )
 			#if SERVER
 			thread WraithPhaseTrailThink( weaponOwner, SHIFTER_WARMUP_TIME_WRAITH )
+			int ammoreduce = weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+			thread DisableShifterWeapon( weaponOwner, SHIFTER_WARMUP_TIME_WRAITH ) // for better client visual
+			thread WraithPhaseAmmoReduction( weaponOwner, weapon, ammoreduce, SHIFTER_WARMUP_TIME_WRAITH ) // ammo calculate
 			// all handle in server-side
 			EmitSoundOnEntityOnlyToPlayer( weaponOwner, weaponOwner, "Pilot_PhaseShift_PreActivate_1P" )
 			Remote_CallFunction_NonReplay( weaponOwner, "ServerCallback_PlayScreenFXWarpJump" )
+			
+			// for syncing cooldown
+			PlayerUsedOffhand( weaponOwner, weapon )
+			#if BATTLECHATTER_ENABLED
+				TryPlayWeaponBattleChatterLine( weaponOwner, weapon )
 			#endif
-			ammoreduce = weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+			#endif
+			// no need to use this
+			//ammoreduce = weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
 		}
-		else
-			ammoreduce = 0
+		// no need to use this
+		//else
+		//	ammoreduce = 0
 	}
 	// don't need a slow down actually
 	if( weapon.HasMod( "wraith_portal" ) )
@@ -322,7 +334,8 @@ var function OnWeaponPrimaryAttack_shifter( entity weapon, WeaponPrimaryAttackPa
 	{
 		if( weapon.HasMod( "wraith_phase" ) )
 		{
-			return ammoreduce
+			// no need to use this
+			//return ammoreduce
 		}
 		else
 		{
@@ -418,6 +431,39 @@ void function WraithPhaseTrailThink( entity player, float delay )
 		return
 	entity phaseTrail = CreatePhaseShiftTrail( player )
 	thread DestroyTrailAfterExitPhase( player, phaseTrail )
+}
+
+void function DisableShifterWeapon( entity player, float duration )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "StartPhaseShift" ) // if player entered other source of phaseShift we consider they're not using wraith phase
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+				player.DeployWeapon()
+		}
+	)
+
+	float endTime = Time() + duration
+	while ( Time() <= endTime )
+	{
+		player.HolsterWeapon()
+		WaitFrame()
+	}
+}
+
+void function WraithPhaseAmmoReduction( entity owner, entity weapon, int ammoreduce, float delay )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "StartPhaseShift" ) // if player entered other source of phaseShift we consider they're not using wraith phase
+	weapon.EndSignal( "OnDeath" )
+	wait delay - 0.1 // wait a bit less than warmup
+	// if reaches here it means shifter has been used properly
+	weapon.SetWeaponPrimaryClipCountAbsolute( 0 ) //max( 0, shifterWeapon.GetWeaponPrimaryClipCount() - ammoreduce ) )
 }
 #endif
 
