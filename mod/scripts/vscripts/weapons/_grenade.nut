@@ -101,6 +101,7 @@ function Grenade_FileInit()
 
 void function Grenade_OnWeaponTossPrep( entity weapon, WeaponTossPrepParams prepParams )
 {
+	// modified and hardcoded!
 	if( weapon.HasMod( "fuckoff_ordnance" ) )
 		weapon.w.startChargeTime = 0
 	else
