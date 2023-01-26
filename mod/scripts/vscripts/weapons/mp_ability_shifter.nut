@@ -1027,7 +1027,7 @@ void function PortalTravelThink( entity trigger, entity player )
 					//player.SetAngles( < 0,viewAngles.y,0 > ) // so player won't face the ground or sky
 					//player.SetAngles( goalAngles )
 				}
-				Nessie_PutPlayerInSafeSpot( player, 1 )
+				FindNearestSafeSpotAndPutEntity( player, 1 )
 			}
 			if( IsValid( portalTrail ) )
 				EffectStop( portalTrail )
@@ -1474,7 +1474,7 @@ void function PortalTravelThink( entity trigger, entity player )
 				player.TouchGround() // able to double jump after leaving
 				//whatever we get from segmented teleport, just set player to the right origin
 				player.SetOrigin( goalOrigin )
-				Nessie_PutPlayerInSafeSpot( entity player, 1 )
+				FindNearestSafeSpotAndPutEntity( entity player, 1 )
 			}
 			if( IsValid( mover ) )
 				mover.Destroy()
@@ -1593,7 +1593,7 @@ void function moveback (entity player , vector origpos) {
 	player.SetVelocity(<0,0,0>)
 	player.UnforceStand()
 	player.ClearParent()
-	Nessie_PutPlayerInSafeSpot( player, 1 )
+	FindNearestSafeSpotAndPutEntity( player, 1 )
 	mover.Destroy()
 
 }

@@ -692,7 +692,7 @@ void function PlayerUsesHoloRewindThreaded( entity player, entity decoy )
 				player.SetPredictionEnabled( true )
 				player.ClearParent()
 				ViewConeFree( player )
-				Nessie_PutPlayerInSafeSpot( player, 1 ) // defensive fix, good to have
+				FindNearestSafeSpotAndPutEntity( player, 1 ) // defensive fix, good to have
 				if( decoyData.forceCrouch )
 					thread HoloRewindForceCrouch( player ) // this will handle "UnforceCrouch()"
 			}
