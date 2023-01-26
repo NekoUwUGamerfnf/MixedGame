@@ -43,6 +43,13 @@ void function OnProjectileCollision_weapon_grenade_sonar( entity projectile, vec
 	projectile.proj.onlyAllowSmartPistolDamage = false
 
 	#endif
+
+	array<string> mods = projectile.ProjectileGetMods()
+	if( mods.contains( "kunai" ) )
+	{
+		return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	}
+
 	if ( IsHumanSized( hitEnt ) )//Don't stick on Pilots/Grunts/Spectres. Causes pulse blade to fall into ground
 		return
 
@@ -54,29 +61,7 @@ void function OnProjectileCollision_weapon_grenade_sonar( entity projectile, vec
 	if ( projectile.GrenadeHasIgnited() )
 		return
 
-	#if SERVER
-	array<string> mods = projectile.ProjectileGetMods()
-
-	if( mods.contains( "kunai" ) )
-	{
-		entity owner = projectile.GetOwner()
-		if( IsValid( owner ) )
-		{
-			EmitSoundAtPositionExceptToPlayer( TEAM_UNASSIGNED, pos, owner, "Pilot_PulseBlade_Activated_3P" )
-			EmitSoundAtPositionOnlyToPlayer( TEAM_UNASSIGNED, pos, owner, "Pilot_PulseBlade_Activated_1P" )
-		}
-		else
-			EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Pilot_PulseBlade_Activated_3P" )
-		PlayFX( $"P_impact_exp_laserlite_AMP", pos + normal, VectorToAngles( normal ) )
-		projectile.Destroy()
-	}
-	else
-		projectile.GrenadeIgnite()
-	#endif
-
-	#if CLIENT
-		projectile.GrenadeIgnite() // make client predict it
-	#endif
+	projectile.GrenadeIgnite()
 }
 
 
