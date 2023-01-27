@@ -7,10 +7,12 @@ const float RAVENANT_WALLCLIMB_ANGLE_LIMIT = 30.0
 void function Pilot_WallClimb_Init()
 {
     // I can't handle "PilotStartWallClimb" now
-    //RegisterSignal( "PilotStartWallClimb" )
-    //RegisterSignal( "PilotStopWallClimb" )
+    RegisterSignal( "PilotStartWallClimb" )
+    RegisterSignal( "PilotStopWallClimb" )
 
-    AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	RegisterSignal( "PilotWallClimbThink" )
+	// ttf2 don't have other ways to modify classmods than change class, so this is enough
+    AddCallback_PlayerClassChanged( OnPlayerClassChanged )
 }
 
 
@@ -18,7 +20,7 @@ void function Pilot_WallClimb_Init()
 ///// CALLBACK FUNCTIONS /////
 //////////////////////////////
 
-void function OnPlayerRespawned( entity player )
+void function OnPlayerClassChanged( entity player )
 {
     thread PilotWallClimbThink( player )
 }
@@ -35,82 +37,61 @@ void function OnPlayerRespawned( entity player )
 
 void function PilotWallClimbThink( entity player )
 {
-	player.EndSignal( "OnDestroy" )
+	// only run for living players( dead players will also change class to "spectator", prevent it )
+	if ( !IsAlive( player ) )
+		return
 
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.Signal( "PilotWallClimbThink" )
+	player.EndSignal( "PilotWallClimbThink" )
+
+	// check wallclimb mod, ttf2 don't have other ways to modify classmods than change class so this is enough
+	bool hasWallClimb = false
+	float angleLimit
+	array<string> classMods = player.GetPlayerSettingsMods()
+	// grunt mode climber
+	if ( classMods.contains( "only_wallclimb" ) ) 
+	{
+		hasWallClimb = true
+		angleLimit = GRUNT_WALLCLIMB_ANGLE_LIMIT
+	}
+	// ravenant climber
+	if ( classMods.contains( "wallclimber" ) )
+	{
+		hasWallClimb = true
+		angleLimit = RAVENANT_WALLCLIMB_ANGLE_LIMIT
+	}
+
+	if ( !hasWallClimb )
+		return
+
+	bool isClimbingWall
+	vector wallAngles
 	while( true )
 	{
+		if ( isClimbingWall && !player.IsWallRunning() ) // considering player has left the wall?
+		{
+			player.Signal( "PilotStopWallClimb" )
+			isClimbingWall = false
+		}
+
 		WaitFrame() // always wait first
-
-		if ( !IsAlive( player ) )
-			continue // wait for player alive
-
-		// check wallclimb mod, for later if we add wallrun class?
-		bool hasWallClimb = false
-        float angleLimit
-		array<string> classMods = player.GetPlayerSettingsMods()
-        // grunt mode climber
-		if ( classMods.contains( "only_wallclimb" ) ) 
-        {
-			hasWallClimb = true
-            angleLimit = GRUNT_WALLCLIMB_ANGLE_LIMIT
-        }
-        // ravenant climber
-        if ( classMods.contains( "wallclimber" ) )
-        {
-			hasWallClimb = true
-            angleLimit = RAVENANT_WALLCLIMB_ANGLE_LIMIT
-        }
-
-		if ( !hasWallClimb )
-			continue
 
 		// main mechanic: kick player off wall if they're not facing it, only wall climbing!
 		if ( player.IsWallRunning() )
 		{
-			/* // don't check for this, "CHESTFOCUS" is far from player's camera and hard to control
-			vector startPos = player.EyePosition()
-			int attachID = player.LookupAttachment( "CHESTFOCUS" )
-			if ( attachID > 0 )
-				startPos = player.GetAttachmentOrigin( attachID )
-			*/
-
-			/* // this kind of trace is not enough
-			TraceResults traceResult = TraceLine( 
-													player.EyePosition(), 
-													player.EyePosition() + player.GetViewVector() * 25, // consider this means player facing a wall
-													player,
-													(TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), 
-													TRACE_COLLISION_GROUP_NONE 
-												)
-
-			if ( !IsValid( traceResult.hitEnt ) ) // not facing a wall?
-				waitthread KickPlayerOffWall( player ) // kick them off
-			*/
-
-			vector startPos = player.EyePosition()
-			int attachID = player.LookupAttachment( "CHESTFOCUS" )
-			if ( attachID > 0 )
-				startPos = player.GetAttachmentOrigin( attachID )
+			if ( !isClimbingWall ) // new wall climbing
+				wallAngles = TracePlayerWallAngles( player )
 
 			// comparing yaw is enough
-			vector viewVec = player.GetViewVector()
-			viewVec = AnglesToForward( < 0, VectorToAngles( viewVec ).y, 0 > ) * 50
-			vector endPos = startPos + viewVec // get player's viewing wall
+			float wallAnglesYaw = wallAngles.y
 
-			TraceResults traceResult = TraceLine( 
-													startPos, 
-													endPos,
-													player,
-													(TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), 
-													TRACE_COLLISION_GROUP_NONE 
-												)
+			// get player's viewing angle, comparing yaw is enough
+			float eyeAnglesYaw = VectorToAngles( player.GetViewVector() ).y
 
-			if ( !IsValid( traceResult.hitEnt ) ) // can't trace anything
-			{
-				waitthread KickPlayerOffWall( player ) // knock player off
-				continue
-			}
-
+			float angDiffer = fabs( fabs( wallAnglesYaw - eyeAnglesYaw ) - 180 ) // formatting the differ
+	
 			// try to move on the wall( can't handle controller for now )
 			if ( player.IsInputCommandHeld( IN_MOVELEFT ) || player.IsInputCommandHeld( IN_MOVERIGHT ) )
 			{
@@ -118,29 +99,45 @@ void function PilotWallClimbThink( entity player )
 				continue
 			}
 
-			// get the wall's normal
-			vector normal = traceResult.surfaceNormal
-			// get the wall's angle
-			vector wallAngles = VectorToAngles( normal )
-			// comparing yaw is enough
-			float wallAnglesYaw = wallAngles.y
-
-			// get player's viewing angle, comparing yaw is enough
-			//float eyeAnglesYaw = player.EyeAngles().y // reverse the angle
-			float eyeAnglesYaw = VectorToAngles( viewVec ).y
-
-			float angDiffer = fabs( fabs( wallAnglesYaw - eyeAnglesYaw ) - 180 )
-
-			//print( "Wall Angle: " + string( wallAnglesYaw ) )
-			//print( "Player Angle: " + string( eyeAnglesYaw ) )
-			//print( "Angle difference: " + string( angDiffer ) )
-	
 			if ( angDiffer > angleLimit ) // the angle diffrence is bigger than limit?
 				waitthread KickPlayerOffWall( player )
+
+			if ( !isClimbingWall )
+			{
+				player.Signal( "PilotStartWallClimb" )
+				isClimbingWall = true // mark as start climbing
+			}
 		}
 	}
 }
 
+vector function TracePlayerWallAngles( entity player )
+{
+	vector startPos = player.EyePosition()
+	int attachID = player.LookupAttachment( "CHESTFOCUS" )
+	if ( attachID > 0 )
+		startPos = player.GetAttachmentOrigin( attachID )
+
+	// comparing yaw is enough
+	vector viewVec = player.GetViewVector()
+	viewVec = AnglesToForward( < 0, VectorToAngles( viewVec ).y, 0 > ) * 50
+	vector endPos = startPos + viewVec // get player's viewing wall
+
+	TraceResults traceResult = TraceLine( 
+											startPos, 
+											endPos,
+											player,
+											(TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), 
+											TRACE_COLLISION_GROUP_NONE 
+										)
+
+	// get the wall's normal
+	vector normal = traceResult.surfaceNormal
+	// get the wall's angle
+	vector wallAngles = VectorToAngles( normal )
+
+	return wallAngles
+}
 
 void function KickPlayerOffWall( entity player )
 {
