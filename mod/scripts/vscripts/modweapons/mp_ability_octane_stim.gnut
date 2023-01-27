@@ -1,8 +1,67 @@
 global function MpAbilityOctaneStim_Init
 
+global function OnWeaponPrimaryAttack_ability_octane_stim
+
+const float STIM_EFFECT_SEVERITY_OCTANE = 0.25
+const int OCTANE_STIM_DAMAGE = 20
+
 void function MpAbilityOctaneStim_Init()
 {
+	// init for modded stim
+    AddStimModifier( "octane_stim" )
+    AddModdedStimPrimaryAttackCallback( "octane_stim", OnWeaponPrimaryAttack_ability_octane_stim )
+	AddModdedStimProjectileCollisionCallback( "repair_drone", null ) // must have a callback!
+
     #if SERVER
     RegisterSignal( "OctaneStimStart" )
     #endif
 }
+
+var function OnWeaponPrimaryAttack_ability_octane_stim( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    entity ownerPlayer = weapon.GetWeaponOwner()
+    float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
+    
+    StimPlayer( ownerPlayer, duration, STIM_EFFECT_SEVERITY_OCTANE )
+    #if SERVER
+    thread OctaneStimThink( ownerPlayer, duration )
+    #endif
+    return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+}
+
+#if SERVER
+// low recharge stim, disables health regen while activating, less speed boost, with long duration almost no cooldown
+void function OctaneStimThink( entity player, float duration )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.Signal( "OctaneStimStart" )
+	player.EndSignal( "OctaneStimStart" )
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+			{
+				player.SetOneHandedWeaponUsageOff()
+			}
+		}
+	)
+	float startTime = Time()
+	player.TakeDamage( player.GetHealth() - OCTANE_STIM_DAMAGE < 1 ? 1 : OCTANE_STIM_DAMAGE, player, player, { damageSourceId = eDamageSourceId.bleedout } )
+	while( true )
+	{
+		wait 0.1
+		if( IsValid( player ) )
+		{
+			player.p.lastDamageTime = Time()
+			player.SetOneHandedWeaponUsageOn()
+		}
+		if( Time() >= startTime + duration )
+		{
+			if( IsValid( player ) )
+				player.p.lastDamageTime = Time() - 5
+			return
+		}
+	}
+}
+#endif

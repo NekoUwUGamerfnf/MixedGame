@@ -1,83 +1,111 @@
-global function MpAbilityJumpPad_Init
+global function OnWeaponPrimaryAttack_ability_heal
+global function OnProjectileCollision_ability_heal
 
-global function OnWeaponPrimaryAttack_ability_jump_pad
-global function OnProjectileCollision_ability_jump_pad
+global const STIM_EFFECT_SEVERITY_OCTANE = 0.25
+const OCTANE_STIM_DAMAGE = 20
 
-#if SERVER
-//global function SetPlayerInJumpPadCooldown // was shared, now all be in this file
-//global function IsPlayerInJumpPadCooldown
-#endif
+const JUMP_PAD_LIFETIME = 15
+const REPAIR_DRONE_LIFETIME = 20
 
 // not letting too much jump pads causes crash
-const float JUMP_PAD_LIFETIME = 15
 const int MAX_JUMP_PAD_CONT = 64
 struct JumpPadStruct
 {
 	entity tower
 	entity projectile
 }
+array<JumpPadStruct> placedJumpPads
+// not letting too much jump pads play sounds
 
-struct
+var function OnWeaponPrimaryAttack_ability_heal( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-    array<JumpPadStruct> placedJumpPads
-    table< entity, bool > playerInJumpPadCooldown
-} file
+	entity ownerPlayer = weapon.GetWeaponOwner()
+	Assert( IsValid( ownerPlayer) && ownerPlayer.IsPlayer() )
+	if ( IsValid( ownerPlayer ) && ownerPlayer.IsPlayer() )
+	{
+		if ( ownerPlayer.GetCinematicEventFlags() & CE_FLAG_CLASSIC_MP_SPAWNING )
+			return false
 
-void function MpAbilityJumpPad_Init()
-{
-	// init for modded stim
-    AddStimModifier( "jump_pad" )
-    AddModdedStimPrimaryAttackCallback( "jump_pad", OnWeaponPrimaryAttack_ability_jump_pad )
-    AddModdedStimProjectileCollisionCallback( "jump_pad", OnProjectileCollision_ability_jump_pad )
+		if ( ownerPlayer.GetCinematicEventFlags() & CE_FLAG_INTRO )
+			return false
+	}
+
+	if( weapon.HasMod( "wrecking_ball" ) )
+	{
+		#if SERVER
+		SendHudMessage(ownerPlayer, "投出破坏球", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+		#endif
+		return OnWeaponPrimaryAttack_weapon_wrecking_ball( weapon, attackParams )
+	}
+
+	bool isDeployableThrow = weapon.HasMod("jump_pad") || weapon.HasMod("repair_drone")
+
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
+	if( isDeployableThrow )
+	{
+		entity deployable
+		if( weapon.HasMod( "jump_pad" ) )
+		{
+			deployable = ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnJumpPadPlanted )
+			#if SERVER
+			thread HolsterWeaponForPilotInstants( weapon )
+			SendHudMessage(ownerPlayer, "扔出跳板", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+			#endif
+		}
+		else if( weapon.HasMod( "repair_drone" ) )
+		{
+			deployable = ThrowDeployable( weapon, attackParams, 100, OnRepairDroneReleased )
+			#if SERVER
+			thread HolsterWeaponForPilotInstants( weapon )
+			SendHudMessage(ownerPlayer, "扔出维修无人机", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+			#endif
+		}
+		
+		if ( deployable )
+		{
+			entity player = weapon.GetWeaponOwner()
+
+			#if SERVER
+			string projectileSound = GetGrenadeProjectileSound( weapon )
+			if ( projectileSound != "" )
+				EmitSoundOnEntity( deployable, projectileSound )
+
+			weapon.w.lastProjectileFired = deployable
+			#endif
+		}
+	}
+	else if( weapon.HasMod("octane_stim") )
+	{
+		StimPlayer( ownerPlayer, duration, STIM_EFFECT_SEVERITY_OCTANE )
+		#if SERVER
+		thread OctaneStimThink( ownerPlayer, duration )
+		#endif
+	}
+	else if( weapon.HasMod( "bc_super_stim" ) && weapon.HasMod( "dev_mod_low_recharge" ) )
+		StimPlayer( ownerPlayer, duration, 0.15 )
+	else
+		StimPlayer( ownerPlayer, duration )
+
+	PlayerUsedOffhand( ownerPlayer, weapon )
 
 #if SERVER
-    // shared signals
-    RegisterSignal( "JumpPadFlyStart" )
-    RegisterSignal( "JumpPadPlayerTouchGround" )
+#if BATTLECHATTER_ENABLED
+	TryPlayWeaponBattleChatterLine( ownerPlayer, weapon )
+#endif //
+#else //
+	Rumble_Play( "rumble_stim_activate", {} )
+#endif //
 
-    // velocity fix
-    RegisterSignal( "JumpPadForcedVelocityStart" )
-
-    // trail
-    RegisterSignal( "JumpPadTrailStart" )
-
-    // triple jump
-    RegisterSignal( "JumpPadGainTripleJump" )
-    RegisterSignal( "JumpPadTripleJumpThinkStart" )
-
-    AddCallback_OnClientConnected( JumpPadInitilaize )
-#endif
+	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
 }
 
-var function OnWeaponPrimaryAttack_ability_jump_pad( entity weapon, WeaponPrimaryAttackParams attackParams )
+void function OnProjectileCollision_ability_heal( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-    entity ownerPlayer = weapon.GetWeaponOwner()
-
-    entity deployable = ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnJumpPadPlanted )
-    #if SERVER
-    thread HolsterWeaponForPilotInstants( weapon )
-    //SendHudMessage( ownerPlayer, "扔出跳板", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
-    PlayerUsedOffhand( ownerPlayer, weapon )
-    #endif
-    if ( deployable )
-    {
-        entity player = weapon.GetWeaponOwner()
-
-        #if SERVER
-        string projectileSound = GetGrenadeProjectileSound( weapon )
-        if ( projectileSound != "" )
-            EmitSoundOnEntity( deployable, projectileSound )
-
-        weapon.w.lastProjectileFired = deployable
-        #endif
-    }
-
-    return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
-}
-
-void function OnProjectileCollision_ability_jump_pad( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
-{
-    return OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	array<string> mods = projectile.ProjectileGetMods()
+	if( mods.contains( "wrecking_ball" ) )
+		return OnProjectileCollision_weapon_wrecking_ball( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	else
+		return OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }
 
 void function OnJumpPadPlanted( entity projectile )
@@ -107,27 +135,16 @@ void function OnJumpPadPlanted( entity projectile )
 	#endif
 }
 
+void function OnRepairDroneReleased( entity projectile )
+{
+	#if SERVER
+	entity drone = SpawnRepairDrone( projectile.GetTeam(), projectile.GetOrigin(), < 0,0,0 >, projectile.GetOwner() )
+	thread AfterTimeDestroyDrone( drone, projectile.GetOwner(), REPAIR_DRONE_LIFETIME )
+	projectile.GrenadeExplode( < 0,0,20 > )
+	#endif
+}
+
 #if SERVER
-void function JumpPadInitilaize( entity player )
-{
-    // defined in mp_ability_heal.nut
-    file.playerInJumpPadCooldown[player] <- false
-}
-
-void function SetPlayerInJumpPadCooldown( entity player, float cooldown )
-{
-    file.playerInJumpPadCooldown[player] = true
-    wait cooldown
-    if( IsValid( player ) )
-        file.playerInJumpPadCooldown[player] = false
-}
-
-bool function IsPlayerInJumpPadCooldown( entity player )
-{
-    return file.playerInJumpPadCooldown[player]
-}
-
-// utilities
 void function DeployJumpPad( entity projectile, vector origin, vector angles )
 {
 	#if SERVER
@@ -144,7 +161,7 @@ void function DeployJumpPad( entity projectile, vector origin, vector angles )
 		JumpPadStruct placedJumpPad
 		placedJumpPad.tower = tower
 		placedJumpPad.projectile = projectile
-		file.placedJumpPads.append( placedJumpPad )
+		placedJumpPads.append( placedJumpPad )
 		JumpPadLimitThink()
 	}
 
@@ -206,8 +223,6 @@ void function GiveJumpPadEffect( entity trigger, entity player )
 		return
 	if( !player.IsPlayer() )
 		return
-	if( player.IsPhaseShifted() )
-		return
 	if( player.GetParent() != null )
 		return
 	if( player.IsTitan() )
@@ -224,7 +239,7 @@ void function GiveJumpPadEffect( entity trigger, entity player )
 		targetVelocity = < player.GetVelocity().x * 1.5, player.GetVelocity().y * 1.5, 550 >
 	else // higher
 		targetVelocity = < player.GetVelocity().x * 1.3, player.GetVelocity().y * 1.3, 750 >
-	thread JumpPadForcedVelocity( player, targetVelocity ) // maybe not a good idea: prevent jump higher through manually jump input, also prevents tap strafe
+	thread JumpPadForcedVelocity( player, targetVelocity ) // prevent jump higher through manually jump input
 
 	player.TouchGround() // regen doublejump
 
@@ -269,7 +284,7 @@ void function JumpPadForcedVelocity( entity player, vector targetVelocity )
 	player.Signal( "JumpPadForcedVelocityStart" )
 	player.EndSignal( "JumpPadForcedVelocityStart" )
 
-	float forcedTime = 0.5 // same as player's lurch time
+	float forcedTime = 0.2
 	float startTime = Time()
 	while( Time() < startTime + forcedTime )
 	{
@@ -403,16 +418,67 @@ void function CleanupJumpPad( entity tower, entity projectile, float delay )
 		projectile.GrenadeExplode(< 0,0,10 >)
 }
 
+void function AfterTimeDestroyDrone( entity drone, entity owner, float delay )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function() : ( drone )
+		{
+			if( IsValid( drone ) )
+				drone.SetHealth( 0 )
+		}
+	)
+	
+	wait delay
+}
+
 void function JumpPadLimitThink()
 {
-	if( file.placedJumpPads.len() >= MAX_JUMP_PAD_CONT )
+	if( placedJumpPads.len() >= MAX_JUMP_PAD_CONT )
 	{
-		JumpPadStruct curJumpPad = file.placedJumpPads[0]
+		JumpPadStruct curJumpPad = placedJumpPads[0]
 		if( IsValid( curJumpPad.tower ) )
 			curJumpPad.tower.Destroy()
 		if( IsValid( curJumpPad.projectile ) )
 			curJumpPad.projectile.GrenadeExplode(< 0,0,10 >)
-		file.placedJumpPads.remove(0)
+		placedJumpPads.remove(0)
+	}
+}
+
+// low recharge stim, disables health regen while activating, less speed boost, with long duration almost no cooldown
+void function OctaneStimThink( entity player, float duration )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.Signal( "OctaneStimStart" )
+	player.EndSignal( "OctaneStimStart" )
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+			{
+				player.SetOneHandedWeaponUsageOff()
+			}
+		}
+	)
+	float startTime = Time()
+	player.TakeDamage( player.GetHealth() - OCTANE_STIM_DAMAGE < 1 ? 1 : OCTANE_STIM_DAMAGE, player, player, { damageSourceId = eDamageSourceId.bleedout } )
+	while( true )
+	{
+		wait 0.1
+		if( IsValid( player ) )
+		{
+			player.p.lastDamageTime = Time()
+			player.SetOneHandedWeaponUsageOn()
+		}
+		if( Time() >= startTime + duration )
+		{
+			if( IsValid( player ) )
+				player.p.lastDamageTime = Time() - 5
+			return
+		}
 	}
 }
 #endif

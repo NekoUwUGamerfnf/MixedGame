@@ -1,0 +1,73 @@
+global function MpAbilityRepairDrone_Init
+
+global function OnWeaponPrimaryAttack_ability_repair_drone
+global function OnProjectileCollision_ability_repair_drone
+
+const float REPAIR_DRONE_LIFETIME = 20
+
+void function MpAbilityRepairDrone_Init()
+{
+    // init for modded stim
+    AddStimModifier( "repair_drone" )
+    AddModdedStimPrimaryAttackCallback( "repair_drone", OnWeaponPrimaryAttack_ability_repair_drone )
+    AddModdedStimProjectileCollisionCallback( "repair_drone", OnProjectileCollision_ability_repair_drone )
+}
+
+var function OnWeaponPrimaryAttack_ability_repair_drone( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    entity ownerPlayer = weapon.GetWeaponOwner()
+
+    entity deployable = ThrowDeployable( weapon, attackParams, 100, OnRepairDroneReleased )
+    #if SERVER
+    thread HolsterWeaponForPilotInstants( weapon )
+    SendHudMessage( ownerPlayer, "扔出维修无人机", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
+    PlayerUsedOffhand( ownerPlayer, weapon )
+    #endif
+
+    if ( deployable )
+    {
+        entity player = weapon.GetWeaponOwner()
+
+        #if SERVER
+        string projectileSound = GetGrenadeProjectileSound( weapon )
+        if ( projectileSound != "" )
+            EmitSoundOnEntity( deployable, projectileSound )
+
+        weapon.w.lastProjectileFired = deployable
+        #endif
+    }
+
+    return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+}
+
+void function OnProjectileCollision_ability_repair_drone( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+    return OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
+}
+
+void function OnRepairDroneReleased( entity projectile )
+{
+	#if SERVER
+	entity drone = SpawnRepairDrone( projectile.GetTeam(), projectile.GetOrigin(), < 0,0,0 >, projectile.GetOwner() )
+	thread AfterTimeDestroyDrone( drone, projectile.GetOwner(), REPAIR_DRONE_LIFETIME )
+	projectile.GrenadeExplode( < 0,0,20 > )
+	#endif
+}
+
+#if SERVER
+void function AfterTimeDestroyDrone( entity drone, entity owner, float delay )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function() : ( drone )
+		{
+			if( IsValid( drone ) )
+				drone.SetHealth( 0 )
+		}
+	)
+	
+	wait delay
+}
+#endif
