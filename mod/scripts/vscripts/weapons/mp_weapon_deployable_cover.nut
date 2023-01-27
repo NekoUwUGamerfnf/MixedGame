@@ -291,7 +291,9 @@ void function DeployAmpedWall( entity grenade, vector origin, vector angles )
 		foreach ( weapon in offhandWeapons )
 		{
 			//if ( weapon.GetWeaponClassName() == grenade.GetWeaponClassName() ) // function doesn't exist for grenade entities
-			if ( weapon.GetWeaponClassName() == "mp_weapon_deployable_cover" )
+			//if ( weapon.GetWeaponClassName() == "mp_weapon_deployable_cover" )
+			// modified for skill nerfed cover
+			if ( weapon.GetWeaponClassName() == "mp_weapon_deployable_cover" || weapon.HasMod( "hard_cover_always" ) )
 			{
 				StatusEffect_AddTimed( weapon, eStatusEffect.simple_timer, 1.0, DEPLOYABLE_SHIELD_DURATION, DEPLOYABLE_SHIELD_DURATION )
 				break
@@ -312,8 +314,13 @@ void function DeployAmpedWall( entity grenade, vector origin, vector angles )
 			//	grenade.GrenadeExplode( Vector( 0, 0, 0 ) )
 			if ( IsValid( grenade ) )
 			{
-				PlayImpactFXTable( grenade.GetOrigin(), grenade, "exp_deployable_cover" )
-				grenade.Destroy()
+				if ( grenade.ProjectileGetMods().contains( "tediore_deployable_cover" ) )
+				{
+					PlayImpactFXTable( grenade.GetOrigin(), grenade, "exp_deployable_cover" )
+					grenade.Destroy()
+				}
+				else
+					grenade.GrenadeExplode( Vector( 0, 0, 0 ) )
 			}
 
 			if ( IsValid( ampedWall ) )
