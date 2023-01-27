@@ -40,6 +40,7 @@ const float JET_PACK_LIFT_SPEED_HORIZAL_MAX = 200 // max velocity in air
 
 struct
 {
+    table< entity, bool > playerJumpUsedTable // for "disable_doublejump" conditions
     table< entity, bool > playerDoubleJumpUsedTable // for activating jet packs
 } file
 
@@ -73,7 +74,29 @@ void function OnClientConnected( entity player )
     //AddPlayerMovementEventCallback( entity player, int playerMovementEvent, void functionref( entity player ) callbackFunc )
 
     // init
+    file.playerJumpUsedTable[ player ] <- false
     file.playerDoubleJumpUsedTable[ player ] <- false
+}
+
+bool function PlayerCanDoubleJump( entity player )
+{
+    return !player.GetPlayerSettingsMods().contains( "disable_doublejump" )
+}
+
+void function PlayerJumpUsed( entity player )
+{
+    if ( PlayerCanDoubleJump( player ) )
+        return
+    thread PlayerJumpUsed_Threaded( player )
+}
+
+void function PlayerJumpUsed_Threaded( entity player )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    WaitFrame() // do a wait!
+    if( !player.IsOnGround() ) // still not touch ground
+        file.playerJumpUsedTable[ player ] = true // consider double jump used, not supporting multiple jumps unfortunately
 }
 
 void function PlayerDoubleJumpUsed( entity player )
@@ -90,8 +113,9 @@ void function PlayerDoubleJumpUsed_Threaded( entity player )
         file.playerDoubleJumpUsedTable[ player ] = true // consider double jump used, not supporting multiple jumps unfortunately
 }
 
-void function PlayerDoubleJumpRestored( entity player )
+void function PlayerJumpRestored( entity player )
 {
+    file.playerJumpUsedTable[ player ] = false
     file.playerDoubleJumpUsedTable[ player ] = false // consider double jump restored, not supporting multiple jumps unfortunately
 }
 
@@ -103,12 +127,19 @@ void function SignalJetPackStart( entity player )
     // for better control
     //if( !player.IsInputCommandHeld( IN_SPEED ) ) // for better control, use a combo to activate 
     //    return
-    if( !file.playerDoubleJumpUsedTable[ player ] ) // double jump not used yet!
-        return
-    if( player.IsPhaseShifted() ||
-        player.IsWallHanging() ||
-        player.IsZiplining() ||
-        player.GetParent() != null )
+    bool shouldStartJetPack = true
+    if( !file.playerDoubleJumpUsedTable[ player ] && PlayerCanDoubleJump( player ) ) // double jump not used yet!
+        shouldStartJetPack = false
+    if( !file.playerJumpUsedTable[ player ] && !PlayerCanDoubleJump( player ) ) // no doublejump, but player haven't used their jump!
+        shouldStartJetPack = false
+    // normal checks
+    if ( player.IsPhaseShifted() ||
+         player.IsWallHanging() ||
+         player.IsZiplining() ||
+         player.GetParent() != null )
+        shouldStartJetPack = false
+
+    if ( !shouldStartJetPack )
         return
 
     player.Signal( "ActivateJetPack" )
@@ -132,16 +163,18 @@ void function JetPackThink( entity player, entity weapon )
     weapon.EndSignal( "OnDestroy" )
     
     file.playerDoubleJumpUsedTable[ player ] = false // always reset this
+    AddPlayerMovementEventCallback( player, ePlayerMovementEvents.JUMP, PlayerJumpUsed )
     AddPlayerMovementEventCallback( player, ePlayerMovementEvents.DOUBLE_JUMP, PlayerDoubleJumpUsed )
-    AddPlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, PlayerDoubleJumpRestored )
+    AddPlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, PlayerJumpRestored )
     AddButtonPressedPlayerInputCallback( player, IN_JUMP, SignalJetPackStart )
     OnThreadEnd(
         function():( player )
         {
             if( IsValid( player ) )
             {
+                RemovePlayerMovementEventCallback( player, ePlayerMovementEvents.JUMP, PlayerJumpUsed )
                 RemovePlayerMovementEventCallback( player, ePlayerMovementEvents.DOUBLE_JUMP, PlayerDoubleJumpUsed )
-                RemovePlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, PlayerDoubleJumpRestored )
+                RemovePlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, PlayerJumpRestored )
                 RemoveButtonPressedPlayerInputCallback( player, IN_JUMP, SignalJetPackStart )
             }    
         }
@@ -210,16 +243,16 @@ void function JetPackActivateThink( entity player, entity weapon )
         fx.append( fxSmokeCenter )
     }
 
-    if( player.LookupAttachment( "vent_left_back" ) > 0 )
+    if( player.LookupAttachment( "vent_left_out" ) > 0 ) // was vent_left_back, this is better
     {
         // $"P_team_jet_hover_HLD" is good enough for both team players and owner themself
-        entity fxJetLeft = PlayFXOnEntity( $"P_team_jet_hover_HLD", player, "vent_left_back" )
+        entity fxJetLeft = PlayFXOnEntity( $"P_team_jet_hover_HLD", player, "vent_left_out" )
         fx.append( fxJetLeft )
     }
 
-    if( player.LookupAttachment( "vent_right_back" ) > 0 )
+    if( player.LookupAttachment( "vent_right_out" ) > 0 ) // was vent_right_back, this is better
     {
-        entity fxJetRight = PlayFXOnEntity( $"P_team_jet_hover_HLD", player, "vent_right_back" )
+        entity fxJetRight = PlayFXOnEntity( $"P_team_jet_hover_HLD", player, "vent_right_out" )
         fx.append( fxJetRight )
     }
         
