@@ -1,0 +1,82 @@
+global function MpAbilitySpellCard_Init
+
+global function OnWeaponPrimaryAttack_ability_spell_card
+
+// spellcard
+const float SPELL_CARD_DURATION_DEFAULT = 1
+const float SPELL_CARD_RADIUS = 600
+
+void function MpAbilitySpellCard_Init()
+{
+	// init for modded shifter
+    AddShifterModifier( "spellcard" )
+    AddModdedShifterTossPrepCallback( "spellcard", null ) // at least have one
+	AddModdedShifterPrimaryAttackCallback( "spellcard", OnWeaponPrimaryAttack_ability_spell_card )
+}
+
+var function OnWeaponPrimaryAttack_ability_spell_card( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    entity weaponOwner = weapon.GetWeaponOwner()
+    float fireDuration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
+    if( fireDuration == 0 )
+    {
+        #if SERVER
+        thread SpellCardThink( weaponOwner, SPELL_CARD_DURATION_DEFAULT )
+        #endif
+
+        return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+    }
+
+    int phaseResult = PhaseShift( weaponOwner, 0.0, fireDuration ) // no need to warm up
+    if ( phaseResult )
+    {
+        PlayerUsedOffhand( weaponOwner, weapon )
+
+        #if BATTLECHATTER_ENABLED && SERVER
+            TryPlayWeaponBattleChatterLine( weaponOwner, weapon )
+        #endif
+
+        #if SERVER
+        thread SpellCardThink( weaponOwner, fireDuration*10 )
+        #endif
+
+        return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+    }
+}
+
+#if SERVER
+// spellcard
+void function SpellCardThink( entity player, float duration )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	entity fxHandle = PlayFXOnEntity( $"P_ar_holopulse_CP", player )
+	vector controlPoint = <duration, 10, 0.0> // hardcoded radius!!
+	EffectSetControlPointVector( fxHandle, 1, controlPoint )
+	OnThreadEnd(
+		function(): ( fxHandle )
+		{
+			if( IsValid( fxHandle ) )
+			{
+				fxHandle.Destroy()
+			}
+		}
+	)
+	EmitSoundOnEntityExceptToPlayer( player, player, "Titan_Tone_SonarLock_Impact_Pulse_3P" )
+	EmitSoundOnEntityOnlyToPlayer( player, player, "Titan_Tone_SonarLock_Impact_Pulse_1P" )
+	float startTime = Time()
+	while( Time() - startTime < duration )
+	{
+		foreach( entity projectile in GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, player.GetOrigin(), SPELL_CARD_RADIUS ) )
+		{
+			if( projectile.GetTeam() != player.GetTeam() )
+			{
+				PlayFX( $"P_plasma_exp_SM", projectile.GetOrigin() )
+				EmitSoundAtPosition( TEAM_UNASSIGNED, projectile.GetOrigin(), "Explo_40mm_Impact_3P" )
+				projectile.Destroy()
+			}
+		}
+		WaitFrame()
+	}
+}
+#endif

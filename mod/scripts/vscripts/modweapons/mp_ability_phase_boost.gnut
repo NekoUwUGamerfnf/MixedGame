@@ -1,0 +1,249 @@
+global function MpAbilityPhaseBoost_Init
+
+global function OnWeaponPrimaryAttack_ability_phase_boost
+
+#if SERVER
+struct
+{
+    table<string, vector> playerorigpostable
+    table<string, bool> playerrewindusedtable
+    table<string , bool> playerongoingcounttable
+    table<string, bool> startposonground
+    table<string, bool> startpostouchedroof
+} file
+
+//make a dict with the player name as key and location vector as content
+//global bool rewindused = false
+
+const vector ROOFCHECK_HEIGHT = < 0,0,100 > // added pilot's height( 60 ), so actually it's 40 height check
+const float FIX_AMOUNT = 20
+
+const PHASE_BOOST_COOLDOWN = 15
+const asset PHASE_REWIND_MODEL = $"models/fx/core_energy.mdl"
+#endif
+
+void function MpAbilityPhaseBoost_Init()
+{
+	// init for modded shifter
+    AddShifterModifier( "phase_boost" )
+    AddModdedShifterTossPrepCallback( "phase_boost", null ) // at least have one
+	AddModdedShifterPrimaryAttackCallback( "phase_boost", OnWeaponPrimaryAttack_ability_phase_boost )
+
+    #if SERVER
+    PrecacheModel( PHASE_REWIND_MODEL )
+    #endif
+}
+
+var function OnWeaponPrimaryAttack_ability_phase_boost( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    #if SERVER
+    entity indicatorent
+    int ammoMax = weapon.GetWeaponPrimaryClipCountMax()
+	entity player = weapon.GetWeaponOwner()
+    string playerName = player.GetPlayerName()
+
+    if (weapon.GetWeaponPrimaryClipCount() == ammoMax ) { //first charge
+        thread move (player , weapon)
+        addplayerorigpos(player,player.GetOrigin())
+        indicatorent = createindicator(getplayerorigpos(player))
+    }
+    else if(weapon.GetWeaponPrimaryClipCount() == ammoMax / 2 && playerName in file.playerorigpostable ) { //second charge
+        thread moveback(player,getplayerorigpos(player))
+        weapon.SetWeaponPrimaryClipCount(0)
+        player.TouchGround()//allways allows a double jump after phasing back
+    }
+    else if( !(playerName in file.playerorigpostable) )
+    {
+        SendHudMessage( player, "未能正常启动，已回复充能", -1,0.65,255,255,100,1,0,4,0 )
+        weapon.SetWeaponPrimaryClipCount( ammoMax )
+    }
+        
+
+    thread cooldownmngmnt (weapon,indicatorent)
+    #endif
+    return 0
+}
+
+#if SERVER
+void function addplayerorigpos(entity player,vector origpos) {
+	string playername = player.GetPlayerName()
+	file.playerorigpostable[playername] <- origpos;
+	file.playerongoingcounttable[playername] <- false
+	file.startposonground[playername] <- false // DB: Initializing
+	file.startpostouchedroof[playername] <- false
+	if( player.IsOnGround() )
+		file.startposonground[playername] <- true
+	if( TraceLine( player.GetOrigin(), player.GetOrigin() + ROOFCHECK_HEIGHT, [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE ).hitEnt != null && !player.IsOnGround() ) // DB: If there's something blocked the line, we consider it as touched the roof
+		file.startpostouchedroof[playername] <- true
+}
+
+vector function getplayerorigpos(entity player){
+	return file.playerorigpostable[player.GetPlayerName()]
+}
+
+void function move (entity player, entity weapon) {
+
+	float velmultiplier = 0.8
+
+	if (weapon.HasMod( "boost_strength_lv1" )) 
+		velmultiplier = 1
+	if(weapon.HasMod( "boost_strength_lv2" ))
+		velmultiplier = 1.5
+	if(weapon.HasMod( "boost_strength_lv3" ))
+		velmultiplier = 2
+
+	PhaseShift(player, 0, 0.3 )
+	vector viewvector = player.GetViewVector() * 1000 * velmultiplier
+	player.SetVelocity(viewvector)
+	weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() / 2 )
+
+}
+
+void function moveback (entity player , vector origpos) {
+	string playername = player.GetPlayerName()
+	EmitSoundAtPosition( TEAM_UNASSIGNED, player.GetOrigin(), SHIFTER_START_SOUND_3P )
+    PlayFX( $"P_phase_shift_main", player.GetOrigin() )
+	file.playerrewindusedtable[playername] <- true
+	entity mover = CreateOwnedScriptMover (player)
+	player.ForceStand()
+	player.SetParent(mover)
+	PhaseShift(player, 0, 0.55 )
+	if( file.startposonground[playername] )
+		mover.NonPhysicsMoveTo (<origpos.x,origpos.y,origpos.z + FIX_AMOUNT>, 0.5,0,0) //bit of added z height to prevent getting stuck ( in ground )
+	else if( file.startpostouchedroof[playername] )
+		mover.NonPhysicsMoveTo (<origpos.x,origpos.y,origpos.z - FIX_AMOUNT>, 0.5,0,0) //DB: Bit of minused z height to prevent getting stuck in roof
+	else
+		mover.NonPhysicsMoveTo (origpos, 0.5,0,0) //DB: Normal rewind
+	wait 0.55;
+	player.SetVelocity(<0,0,0>)
+	player.UnforceStand()
+	player.ClearParent()
+	FindNearestSafeSpotAndPutEntity( player, 1 )
+	mover.Destroy()
+
+}
+
+void function cooldownmngmnt (entity weapon,entity indicatorent) {
+
+	//if (ongoingcount == false) { //function gets called twice in ability "cycle" , prevents two timers from going at the same time
+	//	ongoingcount = true
+
+	if (file.playerongoingcounttable[weapon.GetWeaponOwner().GetPlayerName()] == false) 
+	{
+
+		string playername = weapon.GetWeaponOwner().GetPlayerName()
+		weapon.EndSignal( "OnDestroy" ) //DB: If the weapon has been destroyed( owner died or got another phase shift ), it will run 'OnThreadEnd()' function
+		// DB: `EndSignal()` function: if entity triggered this signal, thread will be cut off then runs `OnThreadEnd()` function
+		OnThreadEnd(
+			function(): ( playername )
+			{
+				file.playerrewindusedtable[playername] <- false
+				file.playerongoingcounttable[playername] <- false
+				file.startposonground[playername] <- false
+				file.startpostouchedroof[playername] <- false
+			}
+
+		)
+
+			//possible rewind window//
+			if (weapon.HasMod( "phase_boost" ) && weapon.HasMod( "amped_tacticals" )) // no amped tacticals = dash only
+			{
+				file.playerongoingcounttable[playername] <- true
+				int x = 0
+				int deco_x = 5
+				while (x < 5) 
+				{
+					try
+					{
+						if (file.playerrewindusedtable[playername] == true) 
+						{
+							break
+						}
+					}
+					catch(ex)
+					{
+						//print(ex)
+					}
+					try 
+					{
+						SendHudMessage(weapon.GetWeaponOwner(),string(deco_x) + "秒内可进行相位回溯",-1,0.65,255,255,100,1,0,1,0)
+					}
+					catch(ex0) 
+					{
+						//print("Phase Error:"+ex0)
+					}
+					x++
+					deco_x = deco_x -1
+					wait 1;
+				}
+			}
+
+			//needs to be 0ed in case the player didnt phase back
+			deleteindicator(indicatorent)
+			try 
+			{
+				weapon.SetWeaponPrimaryClipCount(0)
+			} //I cant be bothered to fix this , doesnt matter anyway the player is dead if this errors out
+			catch (ex1) 
+			{
+				//print("Phase Error:"+ex1)
+			}
+
+			//cooldown//
+			int cooldownint = PHASE_BOOST_COOLDOWN
+			wait cooldownint
+
+
+			try 
+			{
+				weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() )
+				file.playerrewindusedtable[playername] <- false
+				SendHudMessage(weapon.GetWeaponOwner(),"冲刺冷却完毕",-1,0.65,255,255,100,1,0,1,0) //player //text //x //y //r //g //b  /a  //fade-in s //lenght s //fade-out s
+			} 
+			catch(ex2) 
+			{
+				//print("Phase Error:"+ex2)
+			}
+
+		//	ongoingcount = false
+		//}
+	}
+
+}
+
+entity function createindicator (vector location) {
+
+	entity ind = CreateEntity( "prop_dynamic" )
+	ind.SetValueForModelKey( PHASE_REWIND_MODEL )
+	ind.SetOrigin( <location.x,location.y,location.z+50>)
+	DispatchSpawn( ind )
+
+	thread indicatortimeout(ind)
+
+	return ind
+
+}
+
+void function indicatortimeout(entity indicator) {
+	wait 10
+	try
+	{
+		indicator.Destroy()
+	}
+	catch(ex)
+	{
+		//print("Phase Error:"+ex)
+	}
+}
+
+void function deleteindicator (entity indicator) {
+
+	if (IsValid(indicator)) 
+	{
+		indicator.Destroy()
+	} 
+	//else
+		//print("Phase Error:"+"wasnt valid")
+
+}
+#endif
