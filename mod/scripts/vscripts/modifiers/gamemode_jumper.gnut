@@ -1,22 +1,43 @@
 global function Modded_Gamemode_Jumper_Init
 
 const int PLAYER_AIR_JUMP_MAX_COUNT = 10
+const int PLAYER_AIR_ACCELERATION = 1500
+const float JUMP_PAD_SPEED_BOOST_SEVERITY = 1.0
+const int JUMP_PAD_VERTICAL_SPEED = 650
+const bool JUMP_PAD_SPEED_LOCK = false
+
+const float JUMP_PAD_COOLDOWN = 0.3
 
 struct
 {
     table< entity, int > playerAirJumpCountTable
+	table< entity, float > playerLastJumpPadUsedTime
 } file
 
 void function Modded_Gamemode_Jumper_Init()
 {
-    AddCallback_OnClientConnected( OnClientConnected ) 
+    AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_PlayerClassChanged( OnPlayerChangeClass )
     AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
 }
 
 void function OnClientConnected( entity player )
 {
     file.playerAirJumpCountTable[ player ] <- 0
+	file.playerLastJumpPadUsedTime[ player ] <- 0.0
     AddPlayerMovementEventCallback( player, ePlayerMovementEvents.DOUBLE_JUMP, OnPlayerDoubleJump )
+}
+
+void function OnPlayerChangeClass( entity player )
+{
+	thread DelayedApplyAirAcceleration( player )
+}
+
+void function DelayedApplyAirAcceleration( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	WaitFrame()
+	player.kv.airAcceleration = PLAYER_AIR_ACCELERATION
 }
 
 void function OnGamePrematch()
@@ -51,9 +72,7 @@ void function GiveAllEntitiesJumpPadEffect()
             if ( !IsAlive( ent ) )
                 continue
             bool shouldLift = false
-            int fixAmount = 40
-            if ( ent.IsNPC() )
-                fixAmount = 50
+            int fixAmount = 60
             if ( ent.IsProjectile() )
                 fixAmount = 120
             // best way to handle for now
@@ -72,19 +91,29 @@ void function GiveAllEntitiesJumpPadEffect()
                 if ( ent.IsOnGround() )
                     shouldLift = true
             }
-            catch ( ex ){}
+            catch ( ex1 ){}
+			try // some entities may not spawning with a highlight
+			{
+				Highlight_SetEnemyHighlight( ent, "battery_thief" ) // give entity a highlight
+			}
+			catch ( ex2 ){}
 
             if ( ent.IsPlayer() )
             {
                 if ( ent.IsWallRunning() || ent.IsWallHanging() || ent.IsTraversing() )
-                    shouldLift = false // save these
+				{                    
+					shouldLift = false // save these players
+				}
             }
 
             if ( shouldLift )
             {
                 //print( ent )
                 if ( ent.IsPlayer() )
+				{
                     file.playerAirJumpCountTable[ ent ] = 0 // restore air jumps
+					ent.TouchGround() // restore double jump
+				}
                 //if ( ent.IsNPC() )
                     //ent.SetOrigin( ent.GetOrigin() + < 0,0,30 > ) // npcs needs to be off ground to jump
                 GiveJumpPadEffect( ent )
@@ -101,6 +130,12 @@ void function GiveJumpPadEffect( entity ent )
     // only parented entity can't jump
 	if( ent.GetParent() != null )
 		return
+	// player jumppad cooldown
+	if ( ent.IsPlayer() )
+	{
+		if ( file.playerLastJumpPadUsedTime[ ent ] + JUMP_PAD_COOLDOWN > Time() )
+			return
+	}
 
     if ( ent.IsPlayer() )
     {
@@ -111,12 +146,16 @@ void function GiveJumpPadEffect( entity ent )
 
 	vector targetVelocity
     // jump higher
-	targetVelocity = < ent.GetVelocity().x * 1.1, ent.GetVelocity().y * 1.1, 650 >
+	targetVelocity = < ent.GetVelocity().x * JUMP_PAD_SPEED_BOOST_SEVERITY, ent.GetVelocity().y * JUMP_PAD_SPEED_BOOST_SEVERITY, JUMP_PAD_VERTICAL_SPEED >
 
     if ( ent.IsPlayer() ) 
     {
-        thread JumpPadForcedVelocity( ent, targetVelocity ) // maybe not a good idea: prevent jump higher through manually jump input, also prevents tap strafe
-        thread JumpPadFlying( ent )
+		file.playerLastJumpPadUsedTime[ ent ] = Time()
+		if ( JUMP_PAD_SPEED_LOCK )
+        	thread JumpPadForcedVelocity( ent, targetVelocity ) // maybe not a good idea: prevent jump higher through manually jump input, also prevents tap strafe
+        else
+			ent.SetVelocity( targetVelocity )
+		thread JumpPadFlying( ent )
         thread JumpPadTrailThink( ent )
     }
     else
