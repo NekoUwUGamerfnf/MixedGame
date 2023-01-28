@@ -3,10 +3,36 @@ untyped
 global function MeleeThread_PilotVsEnemy
 global function MeleeSyncedServer_Init
 
+// modified
+global function MeleeSyncedHuman_EnableRandomExecutions // false = vanilla executions, true = random executions including ai titan executions
+global function MeleeSyncedHuman_AlwaysDoAiExecutions // overwrites random executions, always do ai executions
+
+struct
+{
+	bool doingRandomExecutions = false 
+	bool alwaysAiExecutions = false 
+} file
+
 void function MeleeSyncedServer_Init()
 {
 	RegisterSignal( "NpcDealsExecutionDamage" )
 }
+
+////////////////////
+///// MODIFIED /////
+////////////////////
+void function MeleeSyncedHuman_EnableRandomExecutions( bool enabled )
+{
+	file.doingRandomExecutions = enabled
+}
+
+void function MeleeSyncedHuman_AlwaysDoAiExecutions( bool always )
+{
+	file.alwaysAiExecutions = always
+}
+///////////////
+///// END /////
+///////////////
 
 bool function MeleeThread_PilotVsEnemy( SyncedMelee action, entity attacker, entity target )
 {
@@ -161,10 +187,20 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 		}
 	)
 
-	thread MeleeThread_PilotVsEnemy_Attacker( action, attacker, target, isAttackerRef )
+	bool canRandomExecute = RandomInt( 2 ) == 1 ? true : false
+	if( file.alwaysAiExecutions )
+		canRandomExecute = true
+	
+	bool thisTimeShouldAiExecution = false
+	if( canRandomExecute && file.doingRandomExecutions )
+		thisTimeShouldAiExecution = true
+
+    int executionIndex = RandomInt(10) // do need to match all executions exists
+	thread MeleeThread_PilotVsEnemy_Attacker( action, attacker, target, isAttackerRef, executionIndex, thisTimeShouldAiExecution )
 
 	// target's sequence is longer
-	waitthread MeleeThread_PilotVsEnemy_Target( action, attacker, target, isAttackerRef )
+
+	waitthread MeleeThread_PilotVsEnemy_Target( action, attacker, target, isAttackerRef, executionIndex, thisTimeShouldAiExecution )
 
 	attacker.Signal( "SyncedMeleeComplete" )
 	return true
@@ -270,7 +306,7 @@ void function HandleCloakExecutionWithCloakedAttacker( entity player, PilotVsEne
 }
 
 
-void function MeleeThread_PilotVsEnemy_Attacker( SyncedMelee action, entity attacker, entity target, bool isAttackerRef )
+void function MeleeThread_PilotVsEnemy_Attacker( SyncedMelee action, entity attacker, entity target, bool isAttackerRef, int index = -1, bool shouldAiExecution = false )
 {
 	attacker.EndSignal( "OnAnimationDone" )
 	attacker.EndSignal( "OnAnimationInterrupted" )
@@ -281,6 +317,24 @@ void function MeleeThread_PilotVsEnemy_Attacker( SyncedMelee action, entity atta
 	Assert( IsValid( target ) )
 	target.EndSignal( "OnDestroy" )
 
+	string ExecutionAttacker
+	if( index != -1 )
+	{
+		array<string> GruntExecutionAttacker = 
+		[
+			"pt_synced_melee_F_punch_A", 
+			"pt_synced_melee_F_throw_A", 
+			"pt_synced_melee_knife_kick_A" ,
+			"pt_synced_melee_knife_struggle_A", 
+			"pt_synced_melee_R_disarm_A", 
+			"pt_synced_melee_L_tackle_A", 
+			"pt_synced_melee_back_backstab_A", 
+			"pt_synced_melee_back_cheststab_A", 
+			"pt_synced_melee_back_neckstab_A", 
+			"pt_synced_melee_back_throw_A"
+		]
+		ExecutionAttacker = GruntExecutionAttacker[ index ]
+	}
 	foreach ( AnimEventData animEventData in action.attacker3pAnimEvents )
 	{
 		AddAnimEvent( attacker, animEventData.eventName, animEventData.callback, animEventData.optionalVar )
@@ -332,6 +386,19 @@ void function MeleeThread_PilotVsEnemy_Attacker( SyncedMelee action, entity atta
 	attackerSequence.firstPersonAnim = action.attackerAnimation1p
 	attackerSequence.thirdPersonCameraAttachments = [action.thirdPersonCameraAttachment]
 	attackerSequence.thirdPersonCameraVisibilityChecks = true
+
+	if ( index != -1 && shouldAiExecution && !IsSpectre( target ) )
+	{
+		attackerSequence.thirdPersonAnim = ExecutionAttacker
+	    if( attacker.IsPlayer() )
+	    {	
+		    //attackerSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
+		    thread GruntExecutionCameraThink( attacker )
+			// i think this is better for such executions
+			//thread FakeFirstPersonSequence( attacker )
+			thread ForceRemoveCinematic( attacker )
+	    }
+	}
 
 	if ( isAttackerRef )
 	{
@@ -395,7 +462,7 @@ void function MeleeThread_PilotVsEnemy_Attacker( SyncedMelee action, entity atta
 }
 
 
-void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attacker, entity target, bool isAttackerRef )
+void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attacker, entity target, bool isAttackerRef, int index = -1, bool shouldAiExecution = false )
 {
 	attacker.EndSignal( "OnAnimationDone" )
 	attacker.EndSignal( "OnAnimationInterrupted" )
@@ -412,10 +479,29 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 	}
 	AddAnimEvent( target, "synced_melee_enable_planting", EnablePlantingOnEntity )
 
+	string ExecutionVictim
+	if( index != -1 )
+	{
+		array<string> GruntExecutionVictim = 
+		[
+			"pt_synced_melee_F_punch_D", 
+			"pt_synced_melee_F_throw_D", 
+			"pt_synced_melee_knife_kick_D", 
+			"pt_synced_melee_knife_struggle_D", 
+			"pt_synced_melee_R_disarm_D", 
+			"pt_synced_melee_L_tackle_D", 
+			"pt_synced_melee_back_backstab_D", 
+			"pt_synced_melee_back_cheststab_D", 
+			"pt_synced_melee_back_neckstab_D", 
+			"pt_synced_melee_back_throw_D"
+		]
+		ExecutionVictim = GruntExecutionVictim[ index ]
+	}
+
 	PilotVsEnemyStruct dataStruct
 
 	OnThreadEnd(
-		function() : ( attacker, target, action, dataStruct )
+		function() : ( attacker, target, action, dataStruct, shouldAiExecution )
 		{
 			if ( IsValid( target ) )
 			{
@@ -488,6 +574,20 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 						target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.human_execution } )
 				}
 
+				if( shouldAiExecution && IsValid( target ) )
+				{
+					//target.BecomeRagdoll( Vector(0,0,0), false )
+					if( IsAlive( target ) )
+						target.Die( attacker, attacker, { scriptType = DF_KILLSHOT | DF_RAGDOLL, damageSourceId = eDamageSourceId.human_execution } )
+					
+					if( target.IsPlayer() )
+					{
+						entity viewmodel = target.GetFirstPersonProxy()
+						viewmodel.ShowFirstPersonProxy()
+						target.ClearViewEntity()
+					}
+				}
+
 				if ( IsValid( target.e.syncedMeleeAttacker ) )
 				{
 					if ( IsValid( target.e.lastSyncedMeleeAttacker ) )
@@ -513,6 +613,19 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 	targetSequence.thirdPersonAnim = action.targetAnimation3p
 	targetSequence.thirdPersonCameraAttachments = [action.thirdPersonCameraAttachment]
 	targetSequence.thirdPersonCameraVisibilityChecks = true
+
+	if ( index != -1 && shouldAiExecution && !IsSpectre( target ) )
+	{
+	    targetSequence.thirdPersonAnim = ExecutionVictim
+		if( target.IsPlayer() )
+		{
+			//targetSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
+			thread GruntExecutionCameraThink( target )
+			// i think this is better for such executions
+			//thread FakeFirstPersonSequence( target )
+			thread ForceRemoveCinematic( target )
+		}
+	}
 
 	if ( isAttackerRef )
 	{
@@ -756,4 +869,63 @@ void function ApplyGruntExecutionDamage( entity ref, entity attacker, entity tar
 
 		target.TakeDamage( damage, attacker, attacker, { damageSourceId=eDamageSourceId.human_execution, scriptType = DF_RAGDOLL } )
 	}
+}
+
+
+void function GruntExecutionCameraThink( entity player )
+{
+	if( !player.IsPlayer() )
+		return
+	entity viewControl = CreateEntity( "point_viewcontrol" )
+	viewControl.kv.spawnflags = 56 // infinite hold time, snap to goal angles, make player non-soli
+	
+	vector viewVector = player.GetViewVector()
+	vector viewAngle = VectorToAngles( viewVector )
+	vector eyeAngle = player.EyeAngles()
+	float distanceYaw = 70
+	float distancePitch = 70
+	vector offset = AnglesToForward( < 0, viewAngle.y + 90, 0 > ) * distanceYaw + < 0, 0, distancePitch >
+	vector angles = < 30, eyeAngle.y - 90, 0 >
+	viewControl.SetParent( player, "ORIGIN" )
+	viewControl.SetOrigin( offset )
+	viewControl.SetAngles( angles )
+	DispatchSpawn( viewControl )
+
+	/* // no need to traceLine since we have removed bloom!
+	TraceResults traceResult = TraceLine( player.GetOrigin(), viewControl.GetOrigin(), [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+	if( traceResult.hitEnt != null )
+	{
+		distanceYaw = Distance2D( player.GetOrigin(), traceResult.endPos ) * 0.5
+		distancePitch = Distance( player.GetOrigin(), traceResult.endPos ) * 0.5
+		offset = AnglesToForward( < 0, viewAngle.y + 90, 0 > ) * distanceYaw + < 0, 0, distancePitch >
+		viewControl.SetOrigin( offset )
+	}
+	*/
+
+	player.SetViewEntity( viewControl, true )
+	entity fpProxy = player.GetFirstPersonProxy()
+	if ( IsValid( fpProxy )  )
+		fpProxy.HideFirstPersonProxy()
+
+	OnThreadEnd(
+		function() : ( player, viewControl )
+		{
+			if( IsValid( player ) )
+			{
+				entity fpProxy = player.GetFirstPersonProxy()
+				if( IsValid( fpProxy ) )
+	            	fpProxy.ShowFirstPersonProxy()
+				player.ClearViewEntity()
+				RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+			}
+			if( IsValid( viewControl ) )
+				viewControl.Destroy()
+		}
+	)
+
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnAnimationInterrupted" )
+	player.EndSignal( "ScriptAnimStop" )
+	player.EndSignal( "OnDeath" )
+	player.WaitSignal( "OnAnimationDone" )
 }

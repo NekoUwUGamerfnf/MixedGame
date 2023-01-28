@@ -9,6 +9,9 @@ const TEAM_JUMPJET_DBL = $"P_team_jump_jet_DBL"
 // modified
 global function MeleeSyncedTitan_ExecutionNotInvulnerable
 
+global function MeleeSyncedTitan_EnableRandomExecutions // false = vanilla executions, true = random executions including ai titan executions
+global function MeleeSyncedTitan_AlwaysDoAiExecutions // overwrites random executions, always do ai executions
+
 // note: executionRefs
 // Ion Random: execution_random_0
 // Ion 1: execution_ion
@@ -41,6 +44,9 @@ struct
 
 	// modified
 	bool titanExecutionNotInvulnerable = false
+
+	bool doingRandomExecutions = false 
+	bool alwaysAiExecutions = false 
 } file
 
 int RAGDOLL_IMPACT_TABLE_IDX = -1
@@ -67,6 +73,16 @@ function MeleeSyncedTitan_Init()
 void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
 {
 	file.titanExecutionNotInvulnerable = notInvulnerable
+}
+
+void function MeleeSyncedTitan_EnableRandomExecutions( bool enabled )
+{
+	file.doingRandomExecutions = enabled
+}
+
+void function MeleeSyncedTitan_AlwaysDoAiExecutions( bool always )
+{
+	file.alwaysAiExecutions = always
 }
 ///////////////
 ///// END /////
@@ -1137,6 +1153,10 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		return
 
 	entity attackerSoul = attacker.GetTitanSoul()
+	// we don't do random if there's random execution kit
+	bool canRandomExecute = RandomInt( 2 ) == 1 ? true : false
+	if( file.alwaysAiExecutions )
+		canRandomExecute = true
 	#if SP
 	TitanLoadoutDef loadout = GetTitanLoadoutForCurrentMap()
 	string executionRef = loadout.titanExecution
@@ -1160,6 +1180,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	bool shouldApplyBatteryAfterRodeo = false
 	if ( SoulHasPassive( attackerSoul, ePassives.PAS_VANGUARD_COREMETER ) )
 	{
+		canRandomExecute = false
 		executionRef = "execution_vanguard_kit"
 		data = file.executionData_3p[ executionRef ]
 		shouldApplyBatteryAfterRodeo = true
@@ -1168,6 +1189,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	{ // extra check for npc monarch executions -- spawn with no passive, uses random execution!
 		if( CoinFlip() ) 
 		{
+			canRandomExecute = false
 			executionRef = "execution_vanguard_kit"
 			data = file.executionData_3p[ executionRef ]
 			shouldApplyBatteryAfterRodeo = true
@@ -1191,6 +1213,27 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 	FirstPersonSequenceStruct targetSequence = clone attackerSequence
 	attackerSequence.thirdPersonAnim = data.attackerAnimation3p
+
+	int executionIndex = RandomInt(6)
+	array<string> aiTitanExecutionAttacker = [ "mt_ai_sync_melee_kick_knockback_A", "mt_ai_synced_melee_kick_finisher_A", "at_synced_melee_F_bash_A", "at_synced_melee_F_punch_A", "mt_ai_synced_finisher_B_armrip_A", "mt_ai_synced_knockback_B_slam_A" ]
+	array<string> aiTitanExecutionVictim = [ "mt_ai_sync_melee_kick_knockback_V", "mt_ai_synced_melee_kick_finisher_V", "at_synced_melee_F_bash_V", "at_synced_melee_F_punch_V", "mt_ai_synced_finisher_B_armrip_V", "mt_ai_synced_knockback_B_slam_V" ]
+	string selectedExcutionAttacker = aiTitanExecutionAttacker[ executionIndex ]
+	string selectedExcutionVictim = aiTitanExecutionVictim[ executionIndex ]
+
+	if( canRandomExecute && file.doingRandomExecutions )
+	{
+		if( attacker.IsPlayer() )
+		{
+			//attackerSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
+			thread AiTitanExecutionCameraThink( attacker )
+			// i think this is better for such executions
+			//thread FakeFirstPersonSequence( attacker )
+			thread ForceRemoveExecutioCinematic( attacker )
+		}
+		attackerSequence.thirdPersonAnim = selectedExcutionAttacker
+		if( selectedExcutionAttacker == "mt_ai_synced_finisher_B_armrip_A" || selectedExcutionAttacker == "mt_ai_synced_knockback_B_slam_A" )
+			thread StartFakePhaseShift( attacker, 0.4 )
+	}
 	
 	attackerSequence.firstPersonAnim = ""
 
@@ -1198,6 +1241,19 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		targetSequence.firstPersonAnim = ""
 
 	targetSequence.thirdPersonAnim = data.targetAnimation3p[ victimType ]
+
+	if( canRandomExecute && file.doingRandomExecutions )
+	{
+		if( target.IsPlayer() )
+		{
+			//targetSequence.thirdPersonCameraAttachments = [""] // HACK!!!!! left a check in _anim.gnut, [""] means not doing any CameraSetting( use modified camera function )
+			thread AiTitanExecutionCameraThink( target )
+			// i think this is better for such executions
+			//thread FakeFirstPersonSequence( target )
+			thread ForceRemoveExecutioCinematic( target )
+		}
+		targetSequence.thirdPersonAnim = selectedExcutionVictim
+	}
 	
 	targetSequence.thirdPersonCameraEntity = target
 
@@ -1534,6 +1590,124 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		waitthread FirstPersonSequence( attackerSequence, attacker, target )
 	}
 }
+
+void function AiTitanExecutionCameraThink( entity player )
+{
+	if( !player.IsPlayer() )
+		return
+	entity viewControl = CreateEntity( "point_viewcontrol" )
+	viewControl.kv.spawnflags = 56 // infinite hold time, snap to goal angles, make player non-soli
+	vector viewVector = player.GetViewVector()
+	vector viewAngle = VectorToAngles( viewVector )
+	vector eyeAngle = player.EyeAngles()
+	float distanceYaw = 250
+	float distancePitch = 250
+	vector offset = AnglesToForward( < 0, viewAngle.y + 90, 0 > ) * distanceYaw + < 0, 0, distancePitch >
+	//AnglesToForward( < 0, viewAngle.y - 90, 0 > ) * 250 + < 0, 0, 200 >
+	//vector origin = player.GetOrigin() + offset
+	vector angles = < 30, eyeAngle.y - 90, 0 >
+	//vector angles = < viewAngle.x, viewAngle.y - 90, 0 >
+	// < viewAngle.x, viewAngle.y + 90, 0 >
+	//if( angles.y >= 360 )
+	//	angles.y = -( 720 - angles.y )
+	viewControl.SetParent( player, "ORIGIN" )
+	viewControl.SetOrigin( offset )
+	viewControl.SetAngles( angles )
+	DispatchSpawn( viewControl )
+
+	/* // no need to traceLine since we have removed bloom!
+	TraceResults traceResult = TraceLine( player.GetOrigin(), viewControl.GetOrigin(), [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+	if( traceResult.hitEnt != null )
+	{
+		distanceYaw = Distance2D( player.GetOrigin(), traceResult.endPos ) * 0.5
+		distancePitch = Distance( player.GetOrigin(), traceResult.endPos ) * 0.5
+		offset = AnglesToForward( < 0, viewAngle.y + 90, 0 > ) * distanceYaw + < 0, 0, distancePitch >
+		viewControl.SetOrigin( offset )
+	}
+	*/
+
+	player.SetViewEntity( viewControl, true )
+	entity fpProxy = player.GetFirstPersonProxy()
+	if ( IsValid( fpProxy )  )
+		fpProxy.HideFirstPersonProxy()
+
+	OnThreadEnd(
+		function() : ( player, viewControl )
+		{
+			if( IsValid( player ) )
+			{
+				entity fpProxy = player.GetFirstPersonProxy()
+				if( IsValid( fpProxy ) )
+	            	fpProxy.ShowFirstPersonProxy()
+				player.ClearViewEntity()
+				RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+			}
+			if( IsValid( viewControl ) )
+				viewControl.Destroy()
+		}
+	)
+
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnAnimationInterrupted" )
+	player.EndSignal( "ScriptAnimStop" )
+	player.EndSignal( "OnDeath" )
+	player.WaitSignal( "OnAnimationDone" )
+}
+
+void function StartFakePhaseShift( entity player, float duration )
+{
+    player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
+	entity fx = PlayPhaseShiftDisappearFX( player )
+	EmitSoundOnEntity( player, SHIFTER_START_SOUND_3P_TITAN )
+	thread PhaseShiftDisappearEffectCleanup( player, fx, duration )
+
+	wait duration
+
+	if( IsValid( player ) )
+	{
+		EmitSoundOnEntity( player, SHIFTER_END_SOUND_3P_TITAN )
+		player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	}
+	if( IsAlive( player ) )
+		PlayFakePhaseShiftAppearFX( player )
+}
+
+entity function PlayFakePhaseShiftAppearFX( entity ent )
+{
+	asset effect = $"P_phase_shift_main_XO"
+	if ( !IsHumanSized( ent ) )
+		effect = $"P_phase_shift_main"
+
+	if ( ent.IsTitan() )
+		EmitSoundOnEntity( ent, SHIFTER_END_SOUND_3P_TITAN )
+	else
+		EmitSoundOnEntity( ent, SHIFTER_END_SOUND_3P )
+
+	return PlayFXOnEntity( effect, ent )
+}
+
+void function PhaseShiftDisappearEffectCleanup( entity ent, entity fx, float duration )
+{
+	fx.EndSignal( "OnDestroy" )
+	ent.EndSignal( "ForceStopPhaseShift" )
+
+	OnThreadEnd(
+	function() : ( fx )
+		{
+			if ( IsValid( fx ) )
+			{
+				EffectStop( fx )
+			}
+		}
+	)
+
+	float bufferTime = 1.4
+	if ( ent.IsTitan() )
+		bufferTime = 0.0
+
+	wait max( duration - bufferTime, 0.0 )
+}
+// end of the modify
 
 void function Execution_ShowBattery( entity titan )
 {
