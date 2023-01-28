@@ -71,8 +71,7 @@ function AiPilots_Init()
 	level.onNpcTitanBecomesPilotCallbacks	<- []
 
 	// modified
-	RegisterSignal( "ForceStartMove" )
-	RegisterSignal( "TryRunsToEmbark" )
+	RegisterSignal( "StopRunsToEmbark" )
 }
 
 function ScriptCallback_OnNpcPilotBecomesTitan( pilot, titan )
@@ -453,13 +452,10 @@ void function NpcPilotRunsToEmbarkTitan( entity pilot, entity titan )
 	titan.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
-	pilot.Signal( "TryRunsToEmbark" )
-	pilot.EndSignal( "TryRunsToEmbark" ) // avoid stacking up loops
-	pilot.EndSignal( "ForceStartMove" )
+	pilot.EndSignal( "StopRunsToEmbark" ) // for manually cancel embarks
 
 	pilot.SetNoTarget( true )
 	pilot.Anim_Stop()
-	pilot.EnableNPCFlag( NPC_IGNORE_ALL )
 	pilot.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE )
 	pilot.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	pilot.DisableArrivalOnce( true )
@@ -473,7 +469,6 @@ void function NpcPilotRunsToEmbarkTitan( entity pilot, entity titan )
 				return
 
 			pilot.SetNoTarget( false )
-			pilot.DisableNPCFlag( NPC_IGNORE_ALL )
 			pilot.EnableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE )
 			pilot.DisableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 			pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, canMoveAndShoot )
@@ -679,10 +674,6 @@ void function NpcPilotBecomesTitan( entity pilot, entity titan )
 	titanSoul.soul.seatedNpcPilot.health				= pilot.GetMaxHealth()
 
 	titan.SetTitle( titanSoul.soul.seatedNpcPilot.title )
-	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
-	// kinda annoying to have a info target all around them.
-	//titan.SetAISettings( titan.GetAISettingsName() + "_bounty" ) // so they will show up a health bar, letting players know they're npc pilot controled
-	Highlight_ClearEnemyHighlight( titan ) // this resets highlights for some reason
 
 	thread DelayedDestroyBubble( titan )
 
@@ -694,6 +685,7 @@ void function NpcPilotBecomesTitan( entity pilot, entity titan )
 	pilot.Destroy()
 }
 
+// this is a fix
 void function DelayedDestroyBubble( entity titan )
 {
 	wait 1
@@ -717,7 +709,6 @@ entity function NpcTitanBecomesPilot( entity titan )
 	if( !IsValid( titanSoul ) ) // defensive fix for titan.Destroy() situations
 		return
 	titanSoul.soul.seatedNpcPilot.isValid = false
-	bool isEjecting = titanSoul.IsEjecting()
 
 	array<NPCPilotWeaponStruct> weapons 	= titanSoul.soul.seatedNpcPilot.weapons
 	string squadName 		= titanSoul.soul.seatedNpcPilot.squadName
@@ -753,7 +744,7 @@ entity function NpcTitanBecomesPilot( entity titan )
 		}
 	}
 	pilot.SetModel( model ) // this is a hack, trying to avoid having a model spawn option because its easy to abuse
-	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_FLEE ) // this one is hardcoded, can change it through callbacks
 	
 	Highlight_SetEnemyHighlight( pilot, "enemy_player" )
 
@@ -776,45 +767,10 @@ entity function NpcTitanBecomesPilot( entity titan )
 
 	if( !IsMultiplayer() )
 		thread __TitanStanceThink( pilot, titan )
-	if( isEjecting )
-		thread NPCPilotEjectingAnimation( pilot )
-	else
-	{
-		titan.SetBehaviorSelector( "behavior_mp_auto_titan" ) // not ejecting, reset to normal behavior
-		// kinda annoying to have a info target all around them.
-		//string aiSetFile = titan.GetAISettingsName()
-		//titan.SetAISettings( aiSetFile.slice( 0, aiSetFile.len() - 7 ) ) // not ejecting, back to normal health bar
-		Highlight_ClearEnemyHighlight( titan ) // this resets highlights for some reason
-	}
 
 	ScriptCallback_OnNpcTitanBecomesPilot( pilot, titan )
 
 	return pilot
-}
-
-void function NPCPilotEjectingAnimation( entity pilot )
-{
-	pilot.EndSignal( "OnDestroy" )
-	
-	//pilot.Anim_Play( "ACT_FALL" )
-	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
-	while( true )
-	{
-		if( pilot.IsOnGround() )
-			break
-
-		// version2: only play anim while dropping
-		//if( pilot.GetVelocity().z <= -100 ) // fast dropping!
-		//	break
-		//if( pilot.IsOnGround() )
-		//	return // touched ground!
-
-		WaitFrame()
-	}
-	// version2: only play anim while dropping
-	//pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
-	
-	pilot.Anim_Stop()
 }
 
 bool function TitanHasNpcPilot( entity titan )

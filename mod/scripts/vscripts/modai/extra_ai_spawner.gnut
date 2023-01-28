@@ -93,10 +93,11 @@ void function ExtraAISpawner_Init()
 {
 	InitCarePackageDefaultSettings()
 	ProwlerPrecache()
+	RegisterSignal( "PlayerUsedCarePackage" ) // for some grunt mode classes regen their ability?
 	PrecacheModel( CAREPACKAGE_MODEL )
 	PrecacheModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
 	// this should be in _ai_pilots.gnut
-	//RegisterSignal( "ForceStartMove" )
+	//RegisterSignal( "ForceStartMove" ) // the signal as been deleted
 	
 	if( GetMapName() != "mp_lobby" ) // prevent unable to enter lobby
 	{
@@ -493,9 +494,14 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	ReplaceWeapon( pilot, file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ], [] ) //["npc_elite_weapon"]
 	// unused, pilots don't switch weapons
 	//pilot.GiveWeapon( file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ] ) // maybe don't do this?
-	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	
+	// want pilots move faster to their titans
+	//pilot.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
+	//pilot.DisableNPCMoveFlag( NPCMF_FOLLOW_SAFE_PATHS | NPCMF_INDOOR_ACTIVITY_OVERRIDE )
+
+	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_FLEE ) // hardcoded!
 	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
-	pilot.SetNPCMoveSpeedScale( 1.5 ) // want pilots move faster
+	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
 	//pilot.SetEnemyChangeCallback( OnEnemyChanged_NPCPilotTrySwitchWeapon ) // in _ai_pilots.gnut, not a good idea since pilot models don't have "ACT_SWITCH_WEAPON"
 
 	pilot.SetParent( pod, "ATTACH", true )
@@ -536,7 +542,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	titan.WaitSignal( "TitanHotDropComplete" )
 	
 	thread NpcPilotRunsToEmbarkTitan( pilot, titan )
-	pilot.SetNPCMoveSpeedScale( 3.0 ) // want this pilot run to titan's start point faster
+	pilot.SetNPCMoveSpeedScale( 1.8 ) // want this pilot run to titan's start point faster
 	wait 2.0
 	
 	waitthread NpcPilotRunsToEmbarkTitan( pilot, titan )
@@ -613,13 +619,17 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 				{
 					titan.SetOwner( pilot )
 					NPCFollowsNPC( titan, pilot )
-					pilot.Signal( "ForceStartMove" )
+					// shared signals in _ai_pilots.gnut
+					pilot.Signal( "StopRunsToEmbark" )
 					if( titan.ContextAction_IsBusy() ) // embarking?
 						return
 					thread ExtraSpawner_PilotHandler( pilot ) // titan will follow the pilot
 					thread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
 					titan.ClearInvulnerable()
-					pilot.SetNPCMoveSpeedScale( 1.5 ) // reset move speed
+					pilot.SetNPCMoveSpeedScale( 1.25 ) // reset move speed
+					// want pilots move faster to their titans
+					//pilot.EnableNPCMoveFlag( NPCMF_FOLLOW_SAFE_PATHS | NPCMF_INDOOR_ACTIVITY_OVERRIDE ) 
+					//pilot.DisableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 					pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
 				}
 			}
@@ -647,7 +657,7 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 		{
 			titan.SetOwner( pilot )
 			NPCFollowsNPC( titan, pilot )
-			pilot.Signal( "ForceStartMove" )
+			pilot.Signal( "ForceStartMove" ) // the signal as been deleted
 			if( titan.ContextAction_IsBusy() ) // embarking?
 				return
 			thread ExtraSpawner_PilotHandler( pilot )
@@ -873,7 +883,14 @@ void function ExtraSpawner_SpawnPilotWithTitan( vector pos, vector rot, int team
 
 function OnNpcPilotBecomesTitan( pilot, titan )
 {
+	expect entity( pilot )
 	expect entity( titan )
+
+	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	Highlight_SetEnemyHighlight( titan, "enemy_titan" )
+	// kinda annoying to have a info target all around them.
+	//titan.SetAISettings( titan.GetAISettingsName() + "_bounty" ) // so they will show up a health bar, letting players know they're npc pilot controled
+	//Highlight_ClearEnemyHighlight( titan ) // this resets highlights for some reason
 	thread DelayedTitanHandler( titan )
 }
 
@@ -889,11 +906,30 @@ void function DelayedTitanHandler( entity titan )
 function OnNpcTitanBecomesPilot( pilot, titan )
 {
 	expect entity( pilot )
+	expect entity( titan )
 	pilot.SetInvulnerable()
-	pilot.SetNPCMoveSpeedScale( 1.5 ) // want pilots move faster
+	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
 	AddEntityCallback_OnDamaged( pilot, NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
 	//pilot.SetEnemyChangeCallback( OnEnemyChanged_NPCPilotTrySwitchWeapon ) // not a good idea since pilot models don't have "ACT_SWITCH_WEAPON"
 	thread DelayedPilotHandler( pilot )
+
+	if ( IsValid( titan ) ) // disembarking, unfortunatelly this is not featured
+	{
+		entity titanSoul = titan.GetTitanSoul()
+		if( !IsValid( titanSoul ) ) // defensive fix for titan.Destroy() situations
+			return
+		bool isEjecting = titanSoul.IsEjecting()
+		if( isEjecting )
+			thread NPCPilotEjectingAnimation( pilot )
+		else
+			titan.SetBehaviorSelector( "behavior_mp_auto_titan" ) // not ejecting, reset to normal behavior
+		Highlight_SetEnemyHighlight( titan, "enemy_titan" )
+
+		// kinda annoying to have a info target all around them.
+		//string aiSetFile = titan.GetAISettingsName()
+		//titan.SetAISettings( aiSetFile.slice( 0, aiSetFile.len() - 7 ) ) // not ejecting, back to normal health bar
+		//Highlight_ClearEnemyHighlight( titan ) // this resets highlights for some reason
+	}
 	/*
 	if( pilot.GetTeam()  == TEAM_MILITIA )
 	{
@@ -914,6 +950,31 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		thread CaptainThink( pilot )
 	}
 	*/
+}
+
+void function NPCPilotEjectingAnimation( entity pilot )
+{
+	pilot.EndSignal( "OnDestroy" )
+	
+	//pilot.Anim_Play( "ACT_FALL" )
+	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
+	while( true )
+	{
+		if( pilot.IsOnGround() )
+			break
+
+		// version2: only play anim while dropping
+		//if( pilot.GetVelocity().z <= -100 ) // fast dropping!
+		//	break
+		//if( pilot.IsOnGround() )
+		//	return // touched ground!
+
+		WaitFrame()
+	}
+	// version2: only play anim while dropping
+	//pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
+	
+	pilot.Anim_Stop()
 }
 
 // modified things
@@ -1187,7 +1248,7 @@ function GiveAirDropWeapon( pod , player )
     //SendHudMessage(player, "Got Weapon from Care Package",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
     SendHudMessage( player, "已從補給艙補充彈藥",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
 	file.usedplayer.append( player )
-
+	player.Signal( "PlayerUsedCarePackage" )
 }
 
 // not using right now, just saving them
