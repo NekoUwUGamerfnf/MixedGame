@@ -104,6 +104,9 @@ void function ExtraAISpawner_Init()
 		AddCallback_OnNpcTitanBecomesPilot( OnNpcTitanBecomesPilot )
 	}
 
+	// if npc titan has a pilot inside, reset it's melee damageSourceId
+	AddDamageCallbackSourceID( eDamageSourceId.auto_titan_melee, ApplyNormalMeleeIdToNPCTitan )
+
 	// for debug
 	AddClientCommandCallback( "spawnpilot", ClientCommand_SpawnPilotCanEmbark )
 	//AddClientCommandCallback( "spawnassassin",  )
@@ -485,13 +488,14 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	pilot.SetModel( modelAsset )//
 	pilot.SetMaxHealth( 1000 )
 	pilot.SetHealth( 1000 )
-	pilot.SetTitle( "#NPC_PILOT" )
+	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
 
 	ReplaceWeapon( pilot, file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ], [] ) //["npc_elite_weapon"]
 	// unused, pilots don't switch weapons
 	//pilot.GiveWeapon( file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ] ) // maybe don't do this?
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
+	pilot.SetNPCMoveSpeedScale( 1.5 ) // want pilots move faster
 	//pilot.SetEnemyChangeCallback( OnEnemyChanged_NPCPilotTrySwitchWeapon ) // in _ai_pilots.gnut, not a good idea since pilot models don't have "ACT_SWITCH_WEAPON"
 
 	pilot.SetParent( pod, "ATTACH", true )
@@ -532,6 +536,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	titan.WaitSignal( "TitanHotDropComplete" )
 	
 	thread NpcPilotRunsToEmbarkTitan( pilot, titan )
+	pilot.SetNPCMoveSpeedScale( 3.0 ) // want this pilot run to titan's start point faster
 	wait 2.0
 	
 	waitthread NpcPilotRunsToEmbarkTitan( pilot, titan )
@@ -614,6 +619,7 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 					thread ExtraSpawner_PilotHandler( pilot ) // titan will follow the pilot
 					thread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
 					titan.ClearInvulnerable()
+					pilot.SetNPCMoveSpeedScale( 1.5 ) // reset move speed
 					pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
 				}
 			}
@@ -884,6 +890,9 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 {
 	expect entity( pilot )
 	pilot.SetInvulnerable()
+	pilot.SetNPCMoveSpeedScale( 1.5 ) // want pilots move faster
+	AddEntityCallback_OnDamaged( pilot, NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
+	//pilot.SetEnemyChangeCallback( OnEnemyChanged_NPCPilotTrySwitchWeapon ) // not a good idea since pilot models don't have "ACT_SWITCH_WEAPON"
 	thread DelayedPilotHandler( pilot )
 	/*
 	if( pilot.GetTeam()  == TEAM_MILITIA )
@@ -905,6 +914,107 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		thread CaptainThink( pilot )
 	}
 	*/
+}
+
+// modified things
+//////////////////////////////////////////////////////////
+// re-adjust damages for npc pilots!
+const int PLAYER_TITAN_MELEE_DAMAGE_NPC_PILOT = 100
+// why eDamageSourceId. can't be in arrays?
+const array<int> PLAYER_TITAN_DAMAGESOURCEIDS = [ /* eDamageSourceId.melee_titan_punch, // basically save for redirecting damage 
+												  eDamageSourceId.melee_titan_punch_ion, 
+												  eDamageSourceId.melee_titan_punch_tone, 
+												  eDamageSourceId.melee_titan_punch_northstar, 
+												  eDamageSourceId.melee_titan_punch_scorch, 
+												  eDamageSourceId.melee_titan_punch_legion, 
+												  eDamageSourceId.melee_titan_punch_vanguard */ ]
+const int NPC_TITAN_MELEE_DAMAGE_NPC_PILOT = 300
+const int TITAN_SOWRD_DAMAGE_NPC_PILOT = 250
+const int TITAN_STEPPING_ON_DAMAGE_NPC_PILOT = 250
+void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
+{
+	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+
+	// titan step
+	if( damageSourceID == damagedef_titan_step ) 
+		DamageInfo_SetDamage( damageInfo, TITAN_STEPPING_ON_DAMAGE_NPC_PILOT )
+
+	// player's titan melee, can't use a array
+	if( damageSourceID == eDamageSourceId.melee_titan_punch ||
+		damageSourceID == eDamageSourceId.melee_titan_punch_ion ||
+		damageSourceID == eDamageSourceId.melee_titan_punch_tone ||
+		damageSourceID == eDamageSourceId.melee_titan_punch_northstar ||
+		damageSourceID == eDamageSourceId.melee_titan_punch_scorch ||
+		damageSourceID == eDamageSourceId.melee_titan_punch_legion ||
+		damageSourceID == eDamageSourceId.melee_titan_punch_vanguard )
+		DamageInfo_SetDamage( damageInfo, PLAYER_TITAN_MELEE_DAMAGE_NPC_PILOT )
+
+	// npc's titan melee
+	if( damageSourceID == eDamageSourceId.auto_titan_melee ) 
+		DamageInfo_SetDamage( damageInfo, NPC_TITAN_MELEE_DAMAGE_NPC_PILOT )
+
+	// ronin sword
+	if( damageSourceID == eDamageSourceId.melee_titan_sword ) 
+		DamageInfo_SetDamage( damageInfo, TITAN_SOWRD_DAMAGE_NPC_PILOT )
+}
+
+void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( !IsValid( attacker ) )
+        return
+	if( !attacker.IsNPC() )
+		return
+    if( !attacker.IsTitan() )
+        return
+	if( !TitanHasNpcPilot( attacker ) )
+		return
+
+	DamageInfo_SetDamageSourceIdentifier( damageInfo, eDamageSourceId.melee_titan_punch )
+}
+
+void function OnEnemyChanged_NPCPilotTrySwitchWeapon( entity pilot )
+{
+	entity enemy = pilot.GetEnemy()
+	if ( !IsAlive( enemy ) )
+		return
+
+	array<entity> weapons = pilot.GetMainWeapons()
+
+	// do we have a weapon to switch to?
+	if ( weapons.len() < 2 )
+		return
+
+	entity activeWeapon = pilot.GetActiveWeapon()
+	bool isHeavyArmorTarget = enemy.GetArmorType() == ARMOR_TYPE_HEAVY
+
+	if( isHeavyArmorTarget )
+	{
+		// first try to find an appropriate weapon
+		foreach ( entity weapon in weapons )
+		{
+			bool isAntiTitan = weapon.GetWeaponType() == WT_ANTITITAN
+			if( isAntiTitan )
+			{
+				// found a weapon to use
+				pilot.SetActiveWeaponByName( weapon.GetWeaponClassName() )
+				break
+			}
+		}
+	}
+	else // light unit, switch off anti-titans
+	{
+		foreach ( entity weapon in weapons )
+		{
+			bool isPrimary = weapon.GetWeaponType() != WT_ANTITITAN && weapon.GetWeaponType() != WT_SIDEARM
+			if( isPrimary )
+			{
+				// found a weapon to use
+				pilot.SetActiveWeaponByName( weapon.GetWeaponClassName() )
+				break
+			}
+		}
+	}
 }
 
 void function DelayedPilotHandler( entity pilot )
