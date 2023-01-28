@@ -3,14 +3,10 @@
 global function BleedoutDamage_PreInit
 global function BleedoutDamage_Init
 global function SetShouldPlayerStartBleedoutFunc
-global function Bleedout_SetDownedGracePeriodEnabled
 
 struct {
 	array<entity> bleedingPlayers // this is in _bleedout already, but it doesn't expose a way to track it, so we have to track it ourselves
 	bool functionref( entity, var ) shouldPlayerStartBleedoutFunc = null
-
-	// modified settings
-	bool bleedoutGracePeriodEnabled = true
 } file
 
 void function BleedoutDamage_PreInit()
@@ -77,7 +73,8 @@ void function BleedoutDamage_Init()
 
 		// nessie mix for better behavior
 		//Bleedout_SetCallback_OnPlayerStartBleedout( OnPlayerBleedoutBegin ) // kinda sucks we have to use this callback since game scripts could be using it		
-		Bleedout_AddCallback_OnPlayerStartBleedout( OnPlayerBleedoutBegin )
+		// abandoned, using a better check now
+		//Bleedout_AddCallback_OnPlayerStartBleedout( OnPlayerBleedoutBegin )
 
 		// dont init if scripts already inited it manually
 		if ( !Bleedout_IsBleedoutLogicActive() )
@@ -91,12 +88,6 @@ void function BleedoutDamage_Init()
 void function SetShouldPlayerStartBleedoutFunc( bool functionref( entity, var ) func )
 {
 	file.shouldPlayerStartBleedoutFunc = func
-}
-
-// modified settings
-void function Bleedout_SetDownedGracePeriodEnabled( bool enable )
-{
-	file.bleedoutGracePeriodEnabled = enable
 }
 
 void function InitSharedBleedoutWithPlaylistVars()
@@ -141,8 +132,8 @@ void function HandleDamageForBleedout( entity player, var damageInfo )
 			if( IsValid( attacker ) && IsValid( realAttacker ) ) // real attacker exists
 			{
 				if( realAttacker.IsPlayer() && attacker.IsPlayer() && realAttacker != player && realAttacker != attacker )
-				{ // player is killed by other players, redirect score to knockdowner, can't handle executions!
-					DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 )
+				{ // player is killed by other players, redirect score to knockdowner
+					DamageInfo_SetDamage( damageInfo, 1 )
 					player.TakeDamage( player.GetMaxHealth() + 1, 
 									   realAttacker, 
 									   realAttacker, 
@@ -155,46 +146,84 @@ void function HandleDamageForBleedout( entity player, var damageInfo )
 									   })
 				}
 			}
+
+			/* // try to support tacical_cdr_on_kill, but crashes for now, cannot pass damageInfo
+			var realDamageInfo = Bleedout_GetLastDamageInfo( player )
+			if( !realDamageInfo )
+				return
+			DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+			// Delete any shield health remaining
+			player.SetShieldHealth( 0 )
+			// reworked, supporting tacical_cdr_on_kill, but crashes for now, damageInfo is a object and cannot be saved
+			// player is killed by other players, redirect score to knockdowner, but save assist score for killer
+			entity attacker = DamageInfo_GetAttacker( damageInfo )
+			entity realAttacker = DamageInfo_GetAttacker( realDamageInfo )
+			if( realAttacker.IsPlayer() && realAttacker != player && realAttacker != attacker )
+			{ 
+				DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 )
+				player.TakeDamage( player.GetMaxHealth() + 1, 
+									realAttacker,  		// attacker
+									DamageInfo_GetInflictor( damageInfo ), 		// inflictor
+									{ 					// damage table
+									weapon = DamageInfo_GetWeapon( realDamageInfo ), 
+									origin = DamageInfo_GetDamagePosition( realDamageInfo ), 
+									force = DamageInfo_GetDamageForce( realDamageInfo ), 
+									scriptType = DamageInfo_GetCustomDamageType( realDamageInfo ), 
+									damageSourceId = DamageInfo_GetDamageSourceIdentifier( realDamageInfo )
+									} )
+			}
+			*/
 		}
 		return // then codes below should handle "!Bleedout_IsPlayerBleeding( player )" conditions
 	}
 	
 	if ( file.shouldPlayerStartBleedoutFunc != null )
-	{
 		if ( !file.shouldPlayerStartBleedoutFunc( player, damageInfo ) )
 			return
-	}
-	else // not having a modified callback
-	{
-		// default one, check if damage would kill the player
-		if ( player.GetHealth() - DamageInfo_GetDamage( damageInfo ) > 0 )
-			return
-	}
 	
-	// checks done, bleedout start functioning
-	// for "Team Bleedout" Check
-	bool canBleedout = Bleedout_StartPlayerBleedout( player, DamageInfo_GetAttacker( damageInfo ), damageInfo )
-	//print( "canBleedout: " + string( canBleedout ) )
-	// Delete any shield health remaining, but not for DF_BYPASS_SHIELDS
-	if( !( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BYPASS_SHIELD ) || !canBleedout )
-		player.SetShieldHealth( 0 )
-	if( !canBleedout ) // not resetting damage for last team player bleeding! let them being killed
-		return
-
-	// prevent player from dying, but if we set it to 0, player won't receive any knockback from damage source
-	DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 ) // was reduce damage to 1, now damages player to 1 health
+	// check if damage would kill player, should leave a check for shield health!
+	//if ( player.GetHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
+	// doing a better check including shield health
+	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
+	{	
+		// for "Team Bleedout" Check
+		bool canBleedout = Bleedout_StartPlayerBleedout( player, DamageInfo_GetAttacker( damageInfo ), damageInfo )
+		//print( "canBleedout: " + string( canBleedout ) )
+		// Delete any shield health remaining, but not for DF_BYPASS_SHIELDS
+		if( !( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BYPASS_SHIELD ) || !canBleedout )
+			player.SetShieldHealth( 0 )
+		if( !canBleedout ) // not resetting damage for last team player bleedout!
+			return
+		// moving from OnPlayerBleedoutBegin()
+		entity attacker = DamageInfo_GetAttacker( damageInfo )
+		if( IsValid( attacker ) ) // knockdown popup
+		{
+			if( attacker.IsPlayer() && attacker != player )
+			{
+				NSSendPopUpMessageToPlayer( attacker, "擊倒 " + player.GetPlayerName() )
+				NSSendPopUpMessageToPlayer( player, "被 " + attacker.GetPlayerName() + " 擊倒" )
+				EmitSoundOnEntityOnlyToPlayer( attacker, attacker, "flesh_bulletimpact_killshot_1p_vs_3p" )
+			}
+		}
+		// nessie mixing, adding killshot sound stuffs, fx handling in Bleedout_StartPlayerBleedout()
+		EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
+		//DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT ) // using a fx instead of DF_KILLSHOT
+		DamageInfo_SetDamage( damageInfo, 1 ) // prevent player from dying, but if we set it to 0, player won't receive any knockback from damage source
+	}
 }
 
 void function OnPlayerBleedoutBegin( entity player, entity victim, var damageInfo )
 {
-	// abandoned, using a better check now, we have Bleedout_IsPlayerBleeding() function
-	//file.bleedingPlayers.append( player )
+	file.bleedingPlayers.append( player )
 
-	if ( file.bleedoutGracePeriodEnabled ) // the sound is annoying, should leave a setting
-		thread PlayerBleedoutGracePeriod( player )
+	// nessie mixing
+	//EmitSoundOnEntityOnlyToPlayer( player, player, "Player_Death_Begin" )
+	EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
+	
+	//thread PlayerBleedoutGracePeriod( player )
 
 	// would prefer to use Bleedout_SetCallback_OnPlayerGiveFirstAid for this, but it doesn't expose the player that's receiving first aid for some reason
-	//thread TrackPlayerBleedout( player )
+	thread TrackPlayerBleedout( player )
 }
 
 void function PlayerBleedoutGracePeriod( entity player )
@@ -202,22 +231,16 @@ void function PlayerBleedoutGracePeriod( entity player )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 	
-	EmitSoundOnEntityOnlyToPlayer( player, player, "Player_Death_Begin" )
-	EnableDemigod( player ) // should use this instead of SetInvulnerable(), or player won't receive knockbacks
 	OnThreadEnd( function() : ( player )
 	{
-		if ( IsValid( player ) )
-		{
-			if( IsDemigod( player ) )
-				DisableDemigod( player )
-			StopSoundOnEntity( player, "Player_Death_Begin" )
-		}
+		player.ClearInvulnerable()
+		StopSoundOnEntity( player, "Player_Death_Begin" )
 	})
 	
-	wait 0.25 // maybe too short? nevermind, players can make their own grace period functions
+	player.SetInvulnerable()
+	wait 0.25
 }
 
-// not doing this stupid code
 void function TrackPlayerBleedout( entity player )
 {
 	player.EndSignal( "OnDeath" )
