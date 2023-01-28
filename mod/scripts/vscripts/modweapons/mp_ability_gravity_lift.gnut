@@ -37,6 +37,8 @@ struct
 	//array<entity> gravityLiftedPlayers = []
 	//array<entity> reachedHighestPlayers = []
 	*/
+
+	table<entity, int> playerInGravLiftCount = {} // for handling multiple gravlifts!
 } file
 
 
@@ -46,6 +48,8 @@ void function MpAbilityGravityLift_Init()
 	#if SERVER
 	RegisterSignal( "EnterGravityLift" )
 	RegisterSignal( "LeaveGravityLift" )
+
+	AddCallback_OnClientConnected( OnClientConnected )
 	#endif
 }
 
@@ -56,17 +60,25 @@ var function OnWeaponTossReleaseAnimEvent_ability_gravity_lift( entity weapon, W
 	// fix sound!
 	string fpSound = string ( GetGrenadeThrowSound_1p( weapon ) )
 	string tpSound = string ( GetGrenadeThrowSound_3p( weapon ) )
-	weapon.EmitWeaponSound_1p3p(fpSound, tpSound )
-	#if SERVER
-	thread WaitForGravLiftDeployMent( weapon, projectile )
-	// manage weapon cooldown
-	thread GravLiftWeaponCooldown( weapon, projectile )
-	#endif
+	weapon.EmitWeaponSound_1p3p( fpSound, tpSound )
+	if ( projectile )
+	{
+		#if SERVER
+		thread WaitForGravLiftDeployMent( weapon, projectile )
+		// manage weapon cooldown
+		thread GravLiftWeaponCooldown( weapon, projectile )
+		#endif
+	}
 
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
 
 #if SERVER
+void function OnClientConnected( entity player )
+{
+	file.playerInGravLiftCount[ player ] <- 0
+}
+
 void function WaitForGravLiftDeployMent( entity weapon, entity projectile )
 {
 	weapon.EndSignal( "OnDestroy" )
@@ -223,16 +235,33 @@ void function OnGravityLiftTriggerEnter( entity trigger, entity ent )
 	if ( !ent.IsNPC() && !ent.IsPlayer() && !( className == "prop_physics" ) && !( className == "grenade" ) )
 		return
 
-	ent.Signal( "EnterGravityLift" )
+	bool shouldEndLift = true
+	if ( ent.IsPlayer() )
+	{
+		if ( file.playerInGravLiftCount[ ent ] > 0 ) // not first lift
+			shouldEndLift = false
+	}
+	if ( shouldEndLift )
+		ent.Signal( "EnterGravityLift" ) // this will end other gravlifts
+	file.playerInGravLiftCount[ ent ] += 1
 	thread EntityInGravityLift( ent, trigger )
 }
 
-void function OnGravityLiftTriggerLeave( entity trigger, entity player )
+void function OnGravityLiftTriggerLeave( entity trigger, entity ent )
 {
-	if( player.IsTitan() )
-		return
+	//if( ent.IsTitan() )
+	//	return
 
-	player.Signal( "LeaveGravityLift" )
+	bool shouldEndLift = true
+	if ( ent.IsPlayer() )
+	{
+		if ( file.playerInGravLiftCount[ ent ] > 1 ) // still have other lifts left
+			shouldEndLift = false
+	}
+	
+	if ( shouldEndLift )
+		ent.Signal( "LeaveGravityLift" ) // this will end other gravlifts
+	file.playerInGravLiftCount[ ent ] -= 1
 }
 
 void function EntityInGravityLift( entity ent, entity trigger )
@@ -267,6 +296,12 @@ void function EntityInGravityLift( entity ent, entity trigger )
 			}
 			if ( IsAlive( ent ) ) // only living ent will be push away
 			{
+				if ( ent.IsPlayer() )
+				{
+					if ( file.playerInGravLiftCount[ ent ] > 1 ) // still having other gravlifts!
+						return // don't bounce
+				}
+
 				// consider this means the entity is force bounced away, or trigger caused them being force bounced
 				if ( results.bouncedFromLift || !IsValid( trigger ) ) 
 				{
@@ -293,12 +328,19 @@ void function EntityInGravityLift( entity ent, entity trigger )
 		EmitSoundOnEntity( ent, "titan_flight_hover_3p" )
 	}
 
+	bool firstLoop = true
 	while( true ) // start lifting entity
 	{
+		if ( !firstLoop )
+			firstLoop = false
+		else
+			WaitFrame()
+
 		bool shouldLiftEnt = true
 		// check if we need to lift the ent
 		if ( ent.IsPlayer() )
 		{
+			//print( file.playerInGravLiftCount[ ent ] )
 			// don't lift wallrunning/wallhanging/wallclimbing/ziplining players
 			if ( ent.IsWallRunning() || ent.IsWallHanging() || ent.IsTraversing() || ent.IsZiplining() )
 				shouldLiftEnt = false
@@ -322,6 +364,11 @@ void function EntityInGravityLift( entity ent, entity trigger )
 			ent.SetVelocity( airSpeed )
 			if ( Time() > reachHighestTime + LIFT_TOP_TIME_LIMIT ) // more than limit!
 			{
+				if ( ent.IsPlayer() )
+				{
+					if ( file.playerInGravLiftCount[ ent ] > 1 ) // still having other gravlifts! )
+						continue
+				}
 				results.bouncedFromLift = true // consider as force bounced away!
 				break // end the loop
 			}
@@ -340,8 +387,6 @@ void function EntityInGravityLift( entity ent, entity trigger )
 			ent.ConsumeDoubleJump() // don't let players doublejump
 			FindNearestSafeSpotAndPutEntity( ent, 1 ) // always try to protect players from stucking
 		}
-
-		WaitFrame()
 	}
 }
 
