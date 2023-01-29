@@ -1,5 +1,5 @@
 untyped // for player.GiveExtraWeaponMod()
-// WIP: Health limited incap shield( done ), Downed Fake Player
+// WIP: Health limited incap shield( done by using a constant shield ), Downed Fake Player
 /*
 WARNING BY NESSIE( fixed by Bleedout_PlayerMovementLimiter() ): 
 Bleedout_DiableWallrunAndDoubleJump() and Bleedout_EnableWallrunAndDoubleJump()
@@ -59,10 +59,12 @@ const int BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD = 80
 const int BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_REGEN_AMOUNT = 300
 
 const int BLEEDOUT_MODE_HEALTH = 125
+const int BLEEDOUT_MODE_DOWNED_HEALTH = 100
 const int BLEEDOUT_MODE_SHIELD_HEALTH = 100
 
 const float BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE = 0.1
 const float BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE = 0.3
+// only earn values if you're assisting
 const float BLEEDOUT_MODE_PILOT_ASSIST_EARNED_VALUE = 0.3
 const float BLEEDOUT_MODE_PILOT_ASSIST_OWNED_VALUE = 0.0
 
@@ -76,7 +78,7 @@ struct
 	float bleedoutHealthRegenDelay = 4.0
 	float protectionDuration = BLEEDOUT_PROTECTION_DURATION
 	//table<entity, string> playerSavedTitle
-	table<entity, int> incapShieldHealthTable
+	//table<entity, int> incapShieldHealthTable // abandoned
 	int incapShieldMaxHealth = BLEEDOUT_INCAP_SHIELD_MAX_HEALTH
 	//table<entity, IncapShieldStruct> playerIncapShieldTable // no need to use 1p things
 	table<entity, entity> playerIncapShieldTable
@@ -99,6 +101,7 @@ void function Modded_Gamemode_Bleedout_Init()
 	Bleedout_SetDownedGracePeriodEnabled( false ) // disable annoying sound
 
     //SetSyncedMeleeNoLimit( true ) // so you can execute anywhere
+	Melee_AlwaysDoRandomSyncedMelee( true ) // funny modifier
     //Rodeo_SetBatteryThrowEnabled( true ) // messed up
 	
     SetBurnCardAllBattery( true ) // from _burnmeter.gnut
@@ -133,12 +136,15 @@ void function Modded_Gamemode_Bleedout_Init()
     AddCallback_OnPlayerKilled( OnPlayerKilled )
     AddCallback_OnTouchHealthKit( "item_titan_battery", OnTouchBatteryPack )
 
+	AddDamageCallbackSourceID( eDamageSourceId.human_execution, OnExecutionDamaged )
+
     // more score added, why it can only be done midgame?
     AddCallback_GameStateEnter( eGameState.Playing, SetBleedoutModeScoreEvent )
     //ScoreEvent_SetEarnMeterValues( "EliminatePilot", BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE, BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE )
 
     RegisterSignal( "GiveMeleeAfterGracePeriod" )
-    /* // do these in riff
+
+    /* // do these in riff, pretty annoying
     Riff_ForcePlayerBleedout( ePlayerBleedout.Enabled )
     BleedoutShared_Init( 
         GAMEMODE_BLEEDOUT_TIME, 
@@ -163,11 +169,6 @@ void function SetBleedoutState()
 }
 
 // modified function
-void function Bleedout_EnableExecutingBleedingPlayer( bool enable )
-{
-	file.executingBleedingEnabled = enable
-}
-
 void function OnClientConnected( entity player )
 {
     file.useFakeApexLoadout[ player.GetUID() ] <- false
@@ -179,7 +180,7 @@ void function OnClientConnected( entity player )
     // following are base mode status
     //file.lastDamageInfo[ player ] <- null // no idea now
 	//file.playerSavedTitle[ player ] <- ""
-	file.incapShieldHealthTable[ player ] <- file.incapShieldMaxHealth
+	//file.incapShieldHealthTable[ player ] <- file.incapShieldMaxHealth
 	file.playerIncapShieldTable[ player ] <- null
 	file.bleedoutFakePlayers[ player ] <- null
 
@@ -322,12 +323,26 @@ void function GivePlayerSpecialMelee( entity player )
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
     ClearNessy( victim )
-    int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+    // abandoned, only using emergency batteries
+    /*
+    entity battery = Rodeo_CreateBatteryPack()
+    if( IsValid( battery ) )
+    {
+        battery.SetOrigin( victim.EyePosition() )
+        battery.SetVelocity( < 0,0,1 > )
+    }
+    */
+}
+
+// since execution will leave player 1 health and redirect score to the knockdowner, adding exection shield should be done over here
+void function OnExecutionDamaged( entity victim, var damageInfo )
+{
+	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
     entity attacker = DamageInfo_GetAttacker( damageInfo )
     // reward for executions
     if( !IsValid( attacker ) )
         return
-    if( damageSourceID == eDamageSourceId.human_execution && attacker.IsPlayer() )
+    if( attacker.IsPlayer() )
     {
         if( attacker.GetShieldHealth() == attacker.GetShieldHealthMax() ) // shield full!
             return
@@ -343,16 +358,9 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
         attacker.SetShieldHealth( min( attacker.GetShieldHealthMax(), attacker.GetShieldHealth() + shieldToRestore ) )
         SendHudMessage( attacker, "处决一名敌人, 已回复" + string(shieldToRestore) + "点护盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
         MessageToPlayer( attacker, eEventNotifications.VANGUARD_ShieldGain, attacker )
+
+		//AddPlayerScore( attacker, "Execution", victim ) // do a manual score event here
     }
-    // abandoned, only using emergency batteries
-    /*
-    entity battery = Rodeo_CreateBatteryPack()
-    if( IsValid( battery ) )
-    {
-        battery.SetOrigin( victim.EyePosition() )
-        battery.SetVelocity( < 0,0,1 > )
-    }
-    */
 }
 
 bool function OnTouchBatteryPack( entity player, entity batteryPack )
@@ -383,8 +391,8 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
 {
     print( "Running OnPlayerDowned()" )
 	//player.Signal( "StopHealthRegenThink" )
-    player.SetMaxHealth( BLEEDOUT_MODE_HEALTH * 5 )
-    player.SetHealth( BLEEDOUT_MODE_HEALTH )
+    player.SetMaxHealth( BLEEDOUT_MODE_DOWNED_HEALTH * 5 )
+    player.SetHealth( BLEEDOUT_MODE_DOWNED_HEALTH )
 
     Bleedout_PlayerDownedSound( player, attacker )
 	Bleedout_PlayerDownedEffect( player, damageInfo )
@@ -393,7 +401,7 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
     EmitSoundOnEntityToTeam( player, "UI_Spawn_FriendlyPilot", player.GetTeam() )
 
     thread Bleedout_DeathProtection( player )
-
+	thread Bleedout_PlayerHolsterWeapon( player ) // better fix
 	/*
 	string playerTitle = player.GetTitle()
 	if( playerTitle != "#DEATH_BLEEDOUT" && playerTitle !=  )
@@ -407,7 +415,8 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
 	
 	thread Bleedout_ScreenFadeThink( player )
 	thread Bleedout_EnemySpottingHighlight( player )
-	thread Bleedout_IncapShieldThink( player )
+	if( Bleedout_GetForceWeaponHolster() ) // if player is able to use a weapon, we don't enable incap shields
+		thread Bleedout_IncapShieldThink( player )
     if( file.executingBleedingEnabled )
 		thread Bleedout_BecomeExecutionTarget( player )
 }
@@ -562,6 +571,30 @@ bool function GamemodeBleedout_PlayerDownedCheck( entity victim, var damageInfo 
 	return false
 }
 
+void function Bleedout_PlayerHolsterWeapon( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "BleedOut_StopBleeding" )
+	player.EndSignal( "BleedOut_OnRevive" )
+
+	OnThreadEnd(
+		function():( player )
+		{
+			if( IsValid( player ) )
+				player.Server_TurnOffhandWeaponsDisabledOff()
+		}
+	)
+
+	//wait file.protectionDuration * 0.5 // wait for player switching to mp_weapon_gunship_missile
+	while( true )
+	{
+		player.HolsterWeapon()
+		player.Server_TurnOffhandWeaponsDisabledOn()
+		WaitFrame() // wait in the first loop
+	}
+}
+
 void function Bleedout_PlayerDownedSound( entity victim, entity attacker )
 {
 	if( attacker.IsPlayer() )
@@ -603,6 +636,7 @@ void function Bleedout_PlayerDownedEffect( entity player, var damageInfo )
 		return
 	if( player.IsMechanical() )
 	{
+		// don't show mechanic downed effect to owner themselves, it's annoying!
 		int particleIndex = GetParticleSystemIndex( $"xo_damage_exp_2" )
 		int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
 		entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
@@ -610,16 +644,18 @@ void function Bleedout_PlayerDownedEffect( entity player, var damageInfo )
 		fx.SetOwner( player )
 		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY
 		thread FastStopParticle( fx, 2.5 )
-		entity ownerFx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
-		fx.SetOwner( player )
-		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
-		thread FastStopParticle( fx, 1.0 )
+		//entity ownerFx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+		//fx.SetOwner( player )
+		//fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
+		//thread FastStopParticle( fx, 1.0 )
 	}
 	else
 	{
 		int particleIndex = GetParticleSystemIndex( $"death_pinkmist_LG_nochunk" )
 		int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
-		StartParticleEffectOnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+		entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+		fx.SetOwner( player )
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY
 	}
 }
 
@@ -663,7 +699,7 @@ void function Bleedout_PlayerDownedObit( entity ent, entity attacker, var damage
 	//Remote_CallFunction_NonReplay( attacker, "ServerCallback_OnEntityKilled", attackerEHandle, victimEHandle, scriptDamageType, damageSourceId )
 	foreach ( entity player in GetPlayerArray() )
 	{
-		if( player != ent ) // not player themselves only
+		if( player != ent ) // not player themselves only, or the client will consider them as died then hide their hud
 			Remote_CallFunction_NonReplay( player, "ServerCallback_OnEntityKilled", attackerEHandle, victimEHandle, scriptDamageType, damageSourceId )
 	}
 
@@ -672,7 +708,7 @@ void function Bleedout_PlayerDownedObit( entity ent, entity attacker, var damage
 	{
 		if( attacker.IsPlayer() && ent.IsPlayer() )
 		{
-			NSSendPopUpMessageToPlayer( attacker, "擊倒 " + ent.GetPlayerName() )
+			//NSSendPopUpMessageToPlayer( attacker, "擊倒 " + ent.GetPlayerName() )
 			NSSendPopUpMessageToPlayer( ent, "被 " + attacker.GetPlayerName() + " 擊倒" )
 		}
 	}
@@ -775,7 +811,7 @@ void function Bleedout_EnemySpottingHighlight( entity player )
 	while( true )
 	{
 		Highlight_SetEnemyHighlight( player, "sp_enemy_pilot" )
-		player.Highlight_SetParam( 2, 0, < 2,0,0 > )
+		player.Highlight_SetParam( 2, 0, < 2,0,0 > ) // light right
 		WaitFrame()
 	}
 }
@@ -789,15 +825,15 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 
 	wait file.protectionDuration // do need this to prevent execution invulnerable players
 
-	entity hitBox = CreateHitboxEntityForPlayer( player )
-	hitBox.EndSignal( "OnDestroy" )
+	entity hitbox = CreateHitboxEntityForPlayer( player )
+	hitbox.EndSignal( "OnDestroy" )
 
 	OnThreadEnd(
-		function(): ( hitBox )
+		function(): ( hitbox )
 		{
-			//print( "hitBox Think End" )
-			if( IsValid( hitBox ) )
-				hitBox.Destroy()
+			//print( "hitbox Think End" )
+			if( IsValid( hitbox ) )
+				hitbox.Destroy()
 		}
 	)
 
@@ -806,26 +842,26 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 		// temp unsetUsable() when player getting firstaid by friendlies
 		if( Bleedout_IsPlayerGettingFirstAid( player ) && !Bleedout_IsPlayerSelfHealing( player ) )
 		{
-			hitBox.UnsetUsable()
-			//print( "hitBox being UnsetUsable()" )
+			hitbox.UnsetUsable()
+			//print( "hitbox being UnsetUsable()" )
 		}
 		else if( !player.ContextAction_IsActive() ) // assuming this is player being executing, wait for it
 		{	
-			hitBox.SetUsableByGroup( "enemies pilot" )
-			//print( "hitBox being SetUsable()" )
+			hitbox.SetUsableByGroup( "enemies pilot" )
+			//print( "hitbox being SetUsable()" )
 		}
 
 		// defensive fixs( actually messed things up
 		/*
 		if( !player.ContextAction_IsActive() ) 
 		{
-			hitBox.SetUsableByGroup( "enemies pilot" )
-			//print( "hitBox being SetUsable()" )
+			hitbox.SetUsableByGroup( "enemies pilot" )
+			//print( "hitbox being SetUsable()" )
 		}
 		else
 		{
-			hitBox.UnsetUsable()
-			//print( "hitBox being UnsetUsable()" )
+			hitbox.UnsetUsable()
+			//print( "hitbox being UnsetUsable()" )
 		}
 		*/
 		WaitFrame()
@@ -834,38 +870,38 @@ void function Bleedout_BecomeExecutionTarget( entity player )
 
 entity function CreateHitboxEntityForPlayer( entity player )
 {
-	entity hitBox = CreatePropScript( BLEEDOUT_EXECUTION_HITBOX_MODEL )
-	hitBox.SetParent( player, "CHESTFOCUS" )
-	//hitBox.SetOrigin( < 30, 0, 0 > )
-	//hitBox.SetLocalAngles( < 90, -90, 0 > )
-	hitBox.SetTakeDamageType( DAMAGE_NO )
-	SetTeam( hitBox, player.GetTeam() )
-	SetObjectCanBeMeleed( hitBox, false )
-	//hitBox.kv.modelscale = 0.1
-	hitBox.kv.solid = SOLID_VPHYSICS
-	hitBox.Hide()
+	entity hitbox = CreatePropScript( BLEEDOUT_EXECUTION_HITBOX_MODEL )
+	hitbox.SetParent( player, "CHESTFOCUS" )
+	//hitbox.SetOrigin( < 30, 0, 0 > )
+	//hitbox.SetLocalAngles( < 90, -90, 0 > )
+	hitbox.SetTakeDamageType( DAMAGE_NO )
+	SetTeam( hitbox, player.GetTeam() )
+	SetObjectCanBeMeleed( hitbox, false )
+	//hitbox.kv.modelscale = 0.1
+	hitbox.kv.solid = SOLID_VPHYSICS
+	hitbox.Hide()
 	
-	hitBox.SetOwner( player )
+	hitbox.SetOwner( player )
 	
-    hitBox.SetUsableByGroup( "enemies pilot" )
-    hitBox.SetUsePrompts( "在目標身後按住 %use% 進行處決", "在目標身後按下 %use% 進行處決" )
+    hitbox.SetUsableByGroup( "enemies pilot" )
+    hitbox.SetUsePrompts( "在目標身後按住 %use% 進行處決", "在目標身後按下 %use% 進行處決" )
 
-    AddCallback_OnUseEntity( hitBox, ExecuteHitboxOwner )
-	return hitBox
+    AddCallback_OnUseEntity( hitbox, ExecuteHitboxOwner )
+	return hitbox
 }
 
-var function ExecuteHitboxOwner( var hitBox, var player )
+var function ExecuteHitboxOwner( var hitbox, var player )
 {
 	expect entity( player )
-	expect entity( hitBox )
-	thread ExecuteHitboxOwner_Threaded( hitBox, player )
+	expect entity( hitbox )
+	thread ExecuteHitboxOwner_Threaded( hitbox, player )
 }
 
-void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
+void function ExecuteHitboxOwner_Threaded( entity hitbox, entity player )
 {
-	entity owner = hitBox.GetOwner()
+	entity owner = hitbox.GetOwner()
 	
-	hitBox.UnsetUsable()
+	hitbox.UnsetUsable()
 	// avoid this kind of crash... redo a SetUsable
 	if( player.ContextAction_IsActive() ) // doing a execution?
 		return
@@ -878,9 +914,9 @@ void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 	if( owner.GetTeam() == player.GetTeam() ) // well this can't fix wrong notifications caused by swiching team
 	{
 		WaitFrame()
-		if( IsValid( hitBox ) )
+		if( IsValid( hitbox ) )
 		{
-			hitBox.SetUsableByGroup( "enemies pilot" )
+			hitbox.SetUsableByGroup( "enemies pilot" )
 		}
 		return
 	}
@@ -893,19 +929,33 @@ void function ExecuteHitboxOwner_Threaded( entity hitBox, entity player )
 	if( action == null )
 		return
 	expect SyncedMelee( action )
+
+	// start execution
+	// add signals that cancels executions
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "BleedOut_OnStartDying" )
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDeath" )
+
+	OnThreadEnd(
+		function(): ( owner, hitbox )
+		{
+			if( IsValid( hitbox ) )
+			{
+				if( !IsAlive( owner ) ) // owner died
+					hitbox.Destroy()
+				else
+				{
+					hitbox.SetUsableByGroup( "enemies pilot" )
+				}
+			}
+		}
+	)
+
 	thread Bleedout_PlayerSyncedMeleeEffect( player ) // screen effect
 	thread Bleedout_PlayerSyncedMeleeEffect( owner )
 	waitthread MeleeThread_PilotVsEnemy( action, player, owner )
-	
-	if( IsValid( hitBox ) )
-	{
-		if( !IsAlive( owner ) ) // owner died
-			hitBox.Destroy()
-		else
-		{
-			hitBox.SetUsableByGroup( "enemies pilot" )
-		}
-	}
 }
 
 void function Bleedout_PlayerSyncedMeleeEffect( entity player )
@@ -962,8 +1012,13 @@ void function Bleedout_IncapShieldThink( entity player )
 			}
 		}
 	)
+
+	//entity vortexSphere = CreateIncapShieldForBleedingPlayer( player )
+	//HideIncapShieldVortexSphere( vortexSphere ) // later we enable it
+	//vortexSphere.EndSignal( "OnDestroy" )
 	
-	wait BLEEDOUT_PROTECTION_DURATION *0.5
+	wait file.protectionDuration *0.5
+
 	entity vortexSphere = CreateIncapShieldForBleedingPlayer( player )
 	vortexSphere.EndSignal( "OnDestroy" )
 
@@ -988,7 +1043,8 @@ void function Bleedout_IncapShieldThink( entity player )
 			{
 				EmitSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
 				HACK_ShowIncapShieldVortexSphere( vortexSphere, player ) // hacking function
-				CreateIncapShieldWallFX( vortexSphere )
+				//ShowIncapShieldVortexSphere( vortexSphere )
+				//CreateIncapShieldWallFX( vortexSphere ) // no need for now!
 				vortexShown = true
 			}
 			if( IsValid( vortexSphere.e.shieldWallFX ) )
@@ -999,8 +1055,9 @@ void function Bleedout_IncapShieldThink( entity player )
 		{
 			//print( "Stopping Incap Shield" )
 			StopSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
-			StopIncapShieldWallFX( vortexSphere )
-			HACK_TempHideIncapShieldVortexSphere( vortexSphere ) // hacking function
+			//StopIncapShieldWallFX( vortexSphere ) // no need for now!
+			HACK_TempHideIncapShieldVortexSphere( vortexSphere ) // stupid function
+			//HideIncapShieldVortexSphere( vortexSphere )
 			vortexShown = false
 			if( hasStatusEffect )
 			{
@@ -1078,21 +1135,6 @@ void function Bleedout_IncapShieldThink( entity player )
 	*/
 }
 
-void function UpdateShieldPosition( entity mover, entity owner )
-{
-	mover.NonPhysicsMoveTo( owner.GetOrigin(), 0.1, 0.0, 0.0 )
-	vector angles = owner.EyeAngles()
-	float yaw = angles.y
-	yaw %= 360
-	mover.NonPhysicsRotateTo( <0,yaw,180>, 1.35, 0, 0 )
-
-//	float yaw = GetYawForEnemyOrLKP( owner )
-//	float boost = sin( Time() * 1.5 ) * 65
-//	yaw += boost
-//	yaw %= 360
-//	mover.NonPhysicsRotateTo( <0,yaw,0>, 0.95, 0, 0 )
-}
-
 bool function IsInValidIncapShieldState( entity player )
 {
 	if( Bleedout_IsPlayerGettingFirstAid( player ) ||
@@ -1103,7 +1145,7 @@ bool function IsInValidIncapShieldState( entity player )
 	return true
 }
 
-// should set a different one since it has been redirected
+// should set a different one since it's fx has been reset angle!
 const int INCAP_SHIELD_RADIUS = 35
 const int INCAP_SHIELD_HEIGHT = 60
 const int INCAP_SHIELD_FOV = 75
@@ -1114,7 +1156,7 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 {
 	vector angles = VectorToAngles( player.EyeAngles() )
 	int maxHealth = file.incapShieldMaxHealth
-	int health = file.incapShieldHealthTable[ player ]
+	int health = file.incapShieldMaxHealth//file.incapShieldHealthTable[ player ]
 
 	// doing hardcode here, guess no need to change( and I cant easily change it
 	// vortexSphere
@@ -1127,8 +1169,12 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 	vortexSphere.SetBlocksRadiusDamage( true )
 	SetTeam( vortexSphere, player.GetTeam() )
 	vortexSphere.SetParent( player, "ORIGIN" )
+	vortexSphere.e.shieldWallFX.DisableHibernation() // prevent fx from fading out
 	vortexSphere.e.shieldWallFX.SetAngles( < 20,0,94 > )
 	vortexSphere.e.shieldWallFX.SetOrigin( < 31,0,32 > )
+
+	//thread IncapShieldHealthDisplayer( player, vortexSphere ) // maybe no need to have this too dumb?
+	//thread IncapShieldMoverThink( player, vortexSphere ) // let player move the incap shield
 	
 	vortexSphere.SetDamageNotifications( false ) // no hitmarkers?
 	if( file.invulnerableIncapShield )
@@ -1140,7 +1186,7 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 	{	
 		// this thing don't work for a vortexSphere?
 		//AddEntityCallback_OnDamaged( vortexSphere, IncapShieldTableUpdate )
-		thread TrackPlayerIncapShieldHealth( vortexSphere, player )
+		//thread TrackPlayerIncapShieldHealth( vortexSphere, player )
 	}
 
 	return vortexSphere
@@ -1168,15 +1214,152 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 	*/
 }
 
-void function HACK_ShowIncapShieldVortexSphere( entity vortexSphere, entity player )
+// maybe no need to have this?
+void function IncapShieldHealthDisplayer( entity player, entity vortexSphere )
 {
-	vortexSphere.SetParent( player, "ORIGIN" )
+	table playerInfo = {}
+	playerInfo.activeWeaponName <- ""
+
+	entity activeWeapon = player.GetActiveWeapon()
+	if ( IsValid( activeWeapon ) )
+		playerInfo.activeWeaponName = activeWeapon.GetWeaponClassName()
+
+	entity ammoWeapon = player.GiveWeapon( "mp_weapon_gunship_missile", ["incap_shield_modifier"] )
+	player.DeployWeapon() // deploy once to make activeWeapon change
+	player.SetActiveWeaponByName( "mp_weapon_gunship_missile" )
+	//player.HolsterWeapon()
+	player.EndSignal( "OnDestroy" )
+	vortexSphere.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function(): ( player, ammoWeapon, playerInfo )
+		{
+			if ( IsValid( ammoWeapon ) )
+				ammoWeapon.Destroy()
+			if ( IsValid( player ) )
+			{
+				string formerWeapon = string( playerInfo.activeWeaponName )
+				if ( PlayerHasWeapon( player, formerWeapon ) )
+					player.SetActiveWeaponByName( formerWeapon )
+				else
+				{
+					array<entity> mainWeapons = player.GetMainWeapons()
+					if ( mainWeapons.len() > 0 )
+						player.SetActiveWeaponBySlot( 0 )
+				}
+			}
+		}
+	)
+
+	if ( file.invulnerableIncapShield )
+	{
+		ammoWeapon.SetWeaponPrimaryAmmoCount( 1 )
+		WaitForever()
+	}
+	while ( true )
+	{
+		ammoWeapon.SetWeaponPrimaryAmmoCount( vortexSphere.GetHealth() )
+		WaitFrame()
+	}
 }
 
+void function HACK_ShowIncapShieldVortexSphere( entity vortexSphere, entity player )
+{
+	// this is not very nice!
+	vortexSphere.SetParent( player, "ORIGIN" )
+	// re-enable shieldWallFx
+	EntFireByHandle( vortexSphere.e.shieldWallFX, "Start", "", 0, null, null )
+}
+
+// this is basically not letting any player shoot the vortex, really dumb
 void function HACK_TempHideIncapShieldVortexSphere( entity vortexSphere )
 {
+	// stop shieldWallFx for a while
+	EntFireByHandle( vortexSphere.e.shieldWallFX, "Stop", "", 0, null, null )
 	vortexSphere.ClearParent()
 	vortexSphere.SetOrigin( < -9999, -9999, -9999 > ) // so player can never hit it
+}
+
+
+// WARNS: this is unfinished! can't handle it's angles, don't know why
+void function IncapShieldMoverThink( entity owner, entity vortexSphere )
+{
+	// signals goes here
+	owner.EndSignal( "OnDestroy" )
+	vortexSphere.EndSignal( "OnDestroy" )
+
+	entity mover = CreateScriptMover()
+	mover.SetOrigin( owner.GetOrigin() )
+	//vector moverAngles = owner.GetAngles()
+	//mover.SetAngles( AnglesCompose( moverAngles, <0,0,180> ) )
+	//vector ownerAngles = owner.EyeAngles()
+	//mover.SetAngles( < 0, ownerAngles.y, 0 > )
+
+	//mover.SetParent( owner )
+	vortexSphere.SetParent( mover )
+	// offset for each things
+	vortexSphere.e.shieldWallFX.SetAngles( < 20, 0, 94 > )
+	vortexSphere.e.shieldWallFX.SetOrigin( < 31, 0, 32 > )
+
+	OnThreadEnd(
+		function(): ( mover )
+		{
+			if ( IsValid( mover ) )
+			{
+				mover.Destroy()
+			}
+		}
+	)
+
+	while ( true )
+	{
+		UpdateShieldPosition( mover, owner )
+	}
+}
+
+const float INCAP_SHIELD_PITCH_LIMIT = 30 // for better visual and limit player's protection
+void function UpdateShieldPosition( entity mover, entity owner )
+{
+	vector angles = owner.EyeAngles()
+	//print( owner.EyeAngles() )
+	//print( VectorToAngles( owner.GetViewVector() ) )
+	int dist = 10 // needs this to protect moving forward players
+	vector offset = AnglesToForward( < 0, angles.y, 0 > ) * dist
+	mover.NonPhysicsMoveTo( owner.GetOrigin() + offset, 0.1, 0.0, 0.0 )
+
+	//float yaw = angles.y
+	//yaw %= 360
+	//mover.NonPhysicsRotateTo( <0,yaw,180>, 1.35, 0, 0 )
+	vector angleOffset = < angles.x, angles.y, 0 >
+	angleOffset = ClampPitch( angleOffset )
+	mover.NonPhysicsRotateTo( angleOffset, 0.15, 0, 0 )
+
+	WaitFrame()
+}
+
+vector function ClampPitch( vector angles )
+{
+	if ( angles.x >= 30 )
+		angles.x = 30
+	if ( angles.x <= -30 )
+		angles.x = -30
+	return angles
+}
+
+// not solid can't handle vortexSphere for some reason
+/*
+void function ShowIncapShieldVortexSphere( entity vortexSphere )
+{
+	// re-enable shieldWallFx
+	EntFireByHandle( vortexSphere.e.shieldWallFX, "Start", "", 0, null, null )
+	vortexSphere.Solid() // start protecting the owner
+}
+
+void function HideIncapShieldVortexSphere( entity vortexSphere )
+{
+	// stop shieldWallFx for a while
+	EntFireByHandle( vortexSphere.e.shieldWallFX, "Stop", "", 0, null, null )
+	vortexSphere.NotSolid() // so it won't block any bullets
 }
 
 void function StopIncapShieldWallFX( entity vortexSphere )
@@ -1211,11 +1394,6 @@ entity function CreateIncapShieldWallFX( entity vortexSphere )
 	return shieldWallFX
 }
 
-void function Bleedout_SetIncapShieldInvulnerable( bool invulnerable )
-{
-	file.invulnerableIncapShield = invulnerable
-}
-
 void function Stop1PFXOnDestroy( entity vortexSphere, entity shieldWallFX1P )
 {
 	vortexSphere.EndSignal( "OnDestroy" )
@@ -1231,6 +1409,7 @@ void function Stop1PFXOnDestroy( entity vortexSphere, entity shieldWallFX1P )
 
 	WaitForever()
 }
+*/
 
 const vector BLEEDOUT_INCAP_SHIELD_COLOR_FULL		 = <115, 247, 255>	// blue
 const vector BLEEDOUT_INCAP_SHIELD_COLOR_MED		 = <200, 128, 80>	// orange
@@ -1277,6 +1456,7 @@ vector function GetTriLerpColor( float fraction, vector color1, vector color2, v
 }
 
 // why vortex_sphere don't have a damaged callback?
+/*
 void function IncapShieldTableUpdate( entity vortexSphere, var damageInfo )
 {
 	//print( "try to update incap shield health!" )
@@ -1340,6 +1520,7 @@ void function TrackPlayerIncapShieldHealth( entity vortexSphere, entity player )
 		WaitFrame()
 	}
 }
+*/
 
 void function Bleedout_ScreenFadeThink( entity player )
 {
@@ -1385,16 +1566,6 @@ void function Bleedout_FakePlayerThink( entity player ) // don't know how to do 
 	fakePlayer.SetParent( mover, "REF" )
 	file.bleedoutFakePlayers[ player ] = fakePlayer
 	fakePlayer.Anim_Play( "pt_wounded_drag_zinger_A_idle" )
-}
-
-void function Bleedout_SetProtectionDuration( float duration )
-{
-	file.protectionDuration = duration
-}
-
-void function Bleedout_SetIncapShieldHealth( int health )
-{
-	file.incapShieldMaxHealth = health
 }
 
 void function Bleedout_HealthRegenThink( entity player )
@@ -1446,6 +1617,27 @@ void function Bleedout_HealthRegenThink( entity player )
 			ClearLastAttacker( player )
 		}
 	}
+}
+
+// settings goes here
+void function Bleedout_EnableExecutingBleedingPlayer( bool enable )
+{
+	file.executingBleedingEnabled = enable
+}
+
+void function Bleedout_SetProtectionDuration( float duration )
+{
+	file.protectionDuration = duration
+}
+
+void function Bleedout_SetIncapShieldInvulnerable( bool invulnerable )
+{
+	file.invulnerableIncapShield = invulnerable
+}
+
+void function Bleedout_SetIncapShieldHealth( int health )
+{
+	file.incapShieldMaxHealth = health
 }
 
 void function Bleedout_SetHealthRegenRate( float rate )

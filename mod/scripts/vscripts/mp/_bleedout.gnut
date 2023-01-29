@@ -124,7 +124,8 @@ bool function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 		callbackFunc( player, attacker, damageInfo )
 	}
 
-	thread BloodTrail( player )
+	if ( !player.IsMechanical() ) // robotic pilots don't play
+		thread BloodTrail( player )
 	thread PlayerDying( player )
 	thread EnablePlayerRes( player )
 
@@ -175,8 +176,7 @@ void function PlayerDying( entity player )
 
 	if ( forceHolster )
 	{
-		//HolsterAndDisableWeapons( player )
-		thread Bleedout_PlayerHolsterWeapon( player ) // better fix
+		HolsterAndDisableWeapons( player )
 	}
 
 	OnThreadEnd(
@@ -473,9 +473,19 @@ void function BloodTrail( entity player )
 	while ( true )
 	{
 		float interval = RandomFloatRange( 0.25, 0.5 )
-		PlayFXOnEntity( FX_BLOODTRAIL, player )
+		entity trail = PlayFXOnEntity( FX_BLOODTRAIL, player )
+		thread DelayedClearBloodTrail( trail )
 		wait interval
 	}
+}
+
+void function DelayedClearBloodTrail( entity trail )
+{
+	trail.EndSignal( "OnDestroy" )
+
+	float interval = RandomFloatRange( 2.0, 2.5 )
+	wait interval
+	EffectStop( trail )
 }
 
 void function PlayerDiesFromBleedout( entity player, entity attacker )
@@ -490,8 +500,6 @@ void function PlayerDiesFromBleedout( entity player, entity attacker )
 		player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.bleedout } )
 		//player.BecomeRagdoll( Vector(0,0,0), false )
 	}
-
-
 }
 
 //This function checks to see if all players on a team are dead or bleeding out.
@@ -695,30 +703,6 @@ void function Bleedout_PlayerMovementLimiter( entity player )
 		player.ForceCrouch()
 		player.SetGroundFrictionScale( 9999 ) // really high to prevent sliding
 		player.ConsumeDoubleJump()
-		WaitFrame()
-	}
-}
-
-void function Bleedout_PlayerHolsterWeapon( entity player )
-{
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "BleedOut_StopBleeding" )
-	player.EndSignal( "BleedOut_OnRevive" )
-
-	OnThreadEnd(
-		function():( player )
-		{
-			if( IsValid( player ) )
-				player.Server_TurnOffhandWeaponsDisabledOff()
-		}
-	)
-
-	HolsterAndDisableWeapons( player )
-	while( true )
-	{
-		player.HolsterWeapon()
-		player.Server_TurnOffhandWeaponsDisabledOn()
 		WaitFrame()
 	}
 }
