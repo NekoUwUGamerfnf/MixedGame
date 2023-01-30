@@ -46,7 +46,7 @@ flipside_enabled_init(): From PeePee, flipside with better behavior( may not sup
 
 TauntRandom_Init(): Press melee to do a taunt( unfinished )
 
-EverythingNessy_Init(): Enable funny nessy outfits and throwable nessies
+Nessy_EnableAllFunny_Init(): Enable funny nessy outfits and throwable nessies
 
 AltPilot_Enable_Init(): Enable model change for pilots, now supporting spectres with a hacking code
 
@@ -103,7 +103,7 @@ flipside_enabled_init(): 改的PeePeePoPoMan的mod。使用双充相位移动至
 
 TauntRandom_Init(): 需要白名单，按近战使用表情动作
 
-EverythingNessy_Init(): 装饰mod，脚本里可以启用更多东西，默认启用头饰和背饰，白名单内的玩家可以在无泰坦模式丢电池
+EverythinNessy_EnableAllFunny_InitgNessy_Init(): 装饰mod，脚本里可以启用更多东西，默认启用头饰和背饰，白名单内的玩家可以在无泰坦模式丢电池
 
 AltPilot_Init(): 装饰mod，修改玩家模型，并且再也不会出现隐身和a盾铁驭的模型
 
