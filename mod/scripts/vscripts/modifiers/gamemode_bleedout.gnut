@@ -401,7 +401,7 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
     EmitSoundOnEntityToTeam( player, "UI_Spawn_FriendlyPilot", player.GetTeam() )
 
     thread Bleedout_DeathProtection( player )
-	thread Bleedout_PlayerHolsterWeapon( player ) // better fix
+	thread Bleedout_PlayerMovementLimiter( player ) // using this now, also prevents player from slide hopping
 	/*
 	string playerTitle = player.GetTitle()
 	if( playerTitle != "#DEATH_BLEEDOUT" && playerTitle !=  )
@@ -417,6 +417,8 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
 	thread Bleedout_EnemySpottingHighlight( player )
 	if( Bleedout_GetForceWeaponHolster() ) // if player is able to use a weapon, we don't enable incap shields
 		thread Bleedout_IncapShieldThink( player )
+	else
+		thread Bleedout_PlayerHolsterWeapon( player ) // better fix
     if( file.executingBleedingEnabled )
 		thread Bleedout_BecomeExecutionTarget( player )
 }
@@ -716,12 +718,103 @@ void function Bleedout_PlayerDownedObit( entity ent, entity attacker, var damage
 
 void function Bleedout_DeathProtection( entity player )
 {
-	player.SetInvulnerable()
-	wait file.protectionDuration
-	if( IsValid( player ) )
-		player.ClearInvulnerable()
+	// really should use a better check!
+	//player.SetInvulnerable()
+	//wait file.protectionDuration
+	//if( IsValid( player ) )
+	//	player.ClearInvulnerable()
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "BleedOut_StopBleeding" )
+	player.EndSignal( "BleedOut_OnRevive" )
+
+	// since assert() won't work, we need to check if the callback has been removed
+	table results = {}
+	results.postDamageCallbackRemoved <- false
+
+	// this one is only for handling killshots!
+	AddEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamaged )
+	float endTime = Time() + file.protectionDuration
+	WaitFrame()
+	// since in postdamage the hitmarker has been displayed, we don't need it anymore
+	RemoveEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamaged )
+	results.postDamageCallbackRemoved = true // mark as removed
+
+	AddEntityCallback_OnDamaged( player, OnRecentDownedPlayerDamaged )
+
+	OnThreadEnd(
+		function(): ( player, results )
+		{
+			if ( IsValid( player ) )
+			{
+				// clean up
+				if ( !results.postDamageCallbackRemoved ) // hasn't be removed( killed by forceKill things? )
+					RemoveEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamaged )
+				else
+					RemoveEntityCallback_OnDamaged( player, OnRecentDownedPlayerDamaged )
+			}
+		}
+	)
+
+	
+	while ( Time() < endTime )
+	{
+		player.SetHealth( BLEEDOUT_MODE_DOWNED_HEALTH ) // keep setting the player to downed max health
+		WaitFrame()
+	}
 }
 
+void function OnRecentDownedPlayerDamaged( entity player, var damageInfo )
+{
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) )
+		return
+	DamageInfo_SetDamage( damageInfo, 0 ) // protect the player
+}
+
+void function OnRecentDownedPlayerPostDamaged( entity player, var damageInfo )
+{
+	if( DamageInfo_GetCustomDamageType( damageInfo ) & DF_KILLSHOT ) // the killshot
+	{
+		DamageInfo_SetDamage( damageInfo, 1 ) // protect the player, leave knockbacks
+	}
+	else // not a kill shot
+	{
+		DamageInfo_SetDamage( damageInfo, 0 ) // protect the player
+	}
+}
+
+void function Bleedout_PlayerMovementLimiter( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "BleedOut_StopBleeding" )
+	player.EndSignal( "BleedOut_OnRevive" )
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+			{
+				player.UnforceCrouch()
+				player.SetGroundFrictionScale( 1 )
+			}
+		}
+	)
+
+
+	// delay it so player can still slide off when in protection? better use after able to knockback players on killshot
+	float slideDiableTime = Time() + file.protectionDuration
+	while( true )
+	{
+		if ( Time() >= slideDiableTime )
+			player.SetGroundFrictionScale( 100 ) // really high to prevent sliding
+		player.ForceCrouch() // keep force crouch
+		player.ConsumeDoubleJump() // keep using their double jumps
+		WaitFrame()
+	}
+}
+
+/* // not using following things
 void function Bleedout_PlayerSlidePrevention( entity player )
 {
 	player.EndSignal( "OnDeath" )
@@ -781,6 +874,7 @@ void function Bleedout_EnableWallrunAndDoubleJump( entity player )
 	player.SetCamo( camo )
 	player.SetModel( modelName )
 }
+*/
 
 void function Bleedout_PlayerForceStand( entity player )
 {
