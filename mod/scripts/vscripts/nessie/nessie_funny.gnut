@@ -394,21 +394,29 @@ entity function CreateHumanGib( vector origin, vector angles, float scale = 1.0,
 	prop_physics.SetModel( $"models/gibs/human_gibs.mdl" )
 }
 
-void function BecomeApexLegend( entity player, bool isBlisk )
+void function BecomeApexLegend( entity player, string model = "ash" ) // ash, blisk, jack, sarah
 {
 	TakeAllWeapons( player )
 
 	player.GiveOffhandWeapon( "mp_ability_shifter", OFFHAND_SPECIAL, ["wraith_phase"] )
-	player.GiveOffhandWeapon( "mp_ability_heal", OFFHAND_ORDNANCE, ["jump_pad", "infinite_jump_pad"] )
-	player.GiveOffhandWeapon( "mp_titanability_hover", OFFHAND_SPECIAL, ["jet_pack"] )
-	player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["pushback_melee", "allow_as_primary"] )
-	player.SetActiveWeaponByName( "melee_pilot_emptyhanded" )
+	player.GiveOffhandWeapon( "mp_ability_heal", OFFHAND_ORDNANCE, ["octane_stim"] )
+	player.GiveOffhandWeapon( "mp_weapon_hard_cover", OFFHAND_ANTIRODEO, ["gibraltar_shield"] )
+	player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["pushback_melee"] )
+	player.GiveWeapon( "mp_weapon_gunship_missile", ["pilot_emptyhanded"] )
+	player.SetActiveWeaponByName( "mp_weapon_gunship_missile" )
 	player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), ["disable_doublejump","only_wallclimb", "pas_wallhang"] )
 
-	if ( !isBlisk )
-		player.SetModel( $"models/Humans/heroes/imc_hero_ash.mdl" )
-	else
-		player.SetModel( $"models/Humans/heroes/imc_hero_blisk.mdl" )
+	asset modelToUse
+	if ( model == "ash" )
+		modelToUse = $"models/Humans/heroes/imc_hero_ash.mdl"
+	else if ( model == "blisk" )
+		modelToUse = $"models/Humans/heroes/imc_hero_blisk.mdl"
+	else if ( model == "jack" )
+		modelToUse = $"models/humans/heroes/mlt_hero_jack.mdl"
+	else if ( model == "sarah" )
+		modelToUse = $"models/Humans/heroes/mlt_hero_sarah.mdl"
+
+	player.SetModel( modelToUse )
 
 	thread DisableBoostBar( player )
 }
@@ -418,4 +426,86 @@ void function DisableBoostBar( entity player )
 	WaitFrame()
 	if( IsValid( player ) )
 		PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
+}
+
+entity function SpawnRanbowDomeShield( entity player )
+{
+	entity bubbleShield = CreateEntity( "prop_dynamic" )
+	bubbleShield.SetValueForModelKey( $"models/fx/xo_shield.mdl" )
+	bubbleShield.kv.solid = SOLID_VPHYSICS
+    bubbleShield.kv.rendercolor = "81 130 151"
+    bubbleShield.kv.contents = (int(bubbleShield.kv.contents) | CONTENTS_NOGRAPPLE)
+	bubbleShield.SetOrigin( origin )
+	bubbleShield.SetAngles( angles )
+	bubbleShield.Hide()
+
+     // Blocks bullets, projectiles but not players and not AI
+	bubbleShield.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	bubbleShield.SetBlocksRadiusDamage( true )
+	DispatchSpawn( bubbleShield )
+    SetTeam( bubbleShield, projectile.GetTeam() )
+    array<entity> bubbleShieldFXs
+    int team = projectile.GetTeam()
+	vector coloredFXOrigin = bubbleShield.GetOrigin()
+	table bubbleShieldDotS = expect table( bubbleShield.s )
+	if ( team == TEAM_UNASSIGNED )
+	{
+		entity neutralColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
+		SetTeam( neutralColoredFX, team )
+
+		bubbleShieldDotS.neutralColoredFX <- neutralColoredFX
+		bubbleShieldFXs.append( neutralColoredFX )
+	}
+	else
+	{
+		//Create friendly and enemy colored particle systems
+		entity friendlyColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
+		SetTeam( friendlyColoredFX, team )
+		friendlyColoredFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+		EffectSetControlPointVector(  friendlyColoredFX, 1, FRIENDLY_COLOR_FX )
+
+		entity enemyColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
+		SetTeam( enemyColoredFX, team )
+		enemyColoredFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+		EffectSetControlPointVector(  enemyColoredFX, 1, ENEMY_COLOR_FX )
+
+		bubbleShieldDotS.friendlyColoredFX <- friendlyColoredFX
+		bubbleShieldDotS.enemyColoredFX <- enemyColoredFX
+		bubbleShieldFXs.append( friendlyColoredFX )
+		bubbleShieldFXs.append( enemyColoredFX )
+	}
+    EmitSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
+    thread CleanupBubbleShield( projectile, bubbleShield, bubbleShieldFXs, DEPLOYABLE_SHIELD_DURATION )
+}
+
+void function CleanupBubbleShield( entity projectile, entity bubbleShield, array<entity> bubbleShieldFXs, float fadeTime )
+{
+	bubbleShield.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function () : ( projectile, bubbleShield, bubbleShieldFXs )
+		{
+			if ( IsValid_ThisFrame( bubbleShield ) )
+			{
+				StopSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
+				EmitSoundOnEntity( bubbleShield, "BubbleShield_End" )
+				DestroyBubbleShield( bubbleShield )
+			}
+
+			if( IsValid(projectile) )
+			{
+				projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+			}
+
+			foreach ( fx in bubbleShieldFXs )
+			{
+				if ( IsValid_ThisFrame( fx ) )
+				{
+					EffectStop( fx )
+				}
+			}
+		}
+	)
+
+	wait fadeTime
 }
