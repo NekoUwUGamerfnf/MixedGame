@@ -176,9 +176,9 @@ void function OnDeployableCoverPlanted( entity projectile )
 		bool isAmpedWall = !( projectileMods.contains( "burn_card_weapon_mod" ) || projectileMods.contains( "hard_cover_always" ) ) //Unusual, but deliberate: the boost version of the weapon does not have amped functionality
 		entity player = projectile.GetOwner()
 		
-		if( projectileMods.contains( "gibraltar_shield" ) )
+		if( projectileMods.contains( "deployable_dome_shield" ) )
 		{
-			SendHudMessage(player, "部署圆顶护罩", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+			//SendHudMessage(player, "部署圆顶护罩", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
 			DeployDomeShield( projectile, origin, surfaceAngles )
 		}
 		else if ( isAmpedWall )
@@ -336,7 +336,9 @@ void function DeployAmpedWall( entity grenade, vector origin, vector angles )
 
 void function DeployDomeShield( entity projectile, vector origin, vector angles )
 {
-	#if SERVER
+	entity bubbleShield = CreateRanbowDomeShield( origin, angles, DEPLOYABLE_SHIELD_DURATION )
+	thread BubbleShieldLifeTime( projectile, bubbleShield )
+	/*
 	entity bubbleShield = CreateEntity( "prop_dynamic" )
 	bubbleShield.SetValueForModelKey( $"models/fx/xo_shield.mdl" )
 	bubbleShield.kv.solid = SOLID_VPHYSICS
@@ -383,9 +385,18 @@ void function DeployDomeShield( entity projectile, vector origin, vector angles 
 	}
     EmitSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
     thread CleanupBubbleShield( projectile, bubbleShield, bubbleShieldFXs, DEPLOYABLE_SHIELD_DURATION )
-	#endif
+	*/
 }
 
+void function BubbleShieldLifeTime( entity projectile, entity bubbleShield )
+{
+	projectile.EndSignal( "OnDestroy" )
+
+	bubbleShield.WaitSignal( "OnDestroy" )
+	projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+}
+
+/*
 void function CleanupBubbleShield( entity projectile, entity bubbleShield, array<entity> bubbleShieldFXs, float fadeTime )
 {
 	bubbleShield.EndSignal( "OnDestroy" )
@@ -417,6 +428,7 @@ void function CleanupBubbleShield( entity projectile, entity bubbleShield, array
 
 	wait fadeTime
 }
+*/
 
 void function MonitorAmpedWallsActiveForPlayer( entity ampedWall, entity player )
 {

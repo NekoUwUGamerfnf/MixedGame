@@ -18,6 +18,7 @@ global function BindPulseBladeHeadToPlayer
 global function BindeWoundedHeadToPlayer
 global function CreateHumanGib
 global function BecomeApexLegend
+global function CreateRanbowDomeShield
 
 void function Nessie_Funny_Functions_Init()
 {
@@ -34,9 +35,16 @@ void function Nessie_Funny_Functions_Init()
 	RegisterSignal( "StartHoloFlash" )
 	RegisterSignal( "EndHoloFlash" )
 
+	AddClientCommandCallback( "nessyoutfit", CC_SpawnNessyOutfit )
 	AddClientCommandCallback( "rgbself", SelfRGBHighlight )
 	AddClientCommandCallback( "sbself", SelfIMSBTitle )
 	AddClientCommandCallback( "spawngib", SpawnHumanGib )
+}
+
+bool function CC_SpawnNessyOutfit( entity player, array<string> args )
+{
+	thread SpawnNessyOutfit( player )
+	return true
 }
 
 bool function SelfRGBHighlight( entity player, array<string> args )
@@ -400,7 +408,7 @@ void function BecomeApexLegend( entity player, string model = "ash" ) // ash, bl
 
 	player.GiveOffhandWeapon( "mp_ability_shifter", OFFHAND_SPECIAL, ["wraith_phase"] )
 	player.GiveOffhandWeapon( "mp_ability_heal", OFFHAND_ORDNANCE, ["octane_stim"] )
-	player.GiveOffhandWeapon( "mp_weapon_hard_cover", OFFHAND_ANTIRODEO, ["gibraltar_shield"] )
+	player.GiveOffhandWeapon( "mp_weapon_hard_cover", OFFHAND_ANTIRODEO, ["deployable_dome_shield"] )
 	player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["pushback_melee"] )
 	player.GiveWeapon( "mp_weapon_gunship_missile", ["pilot_emptyhanded"] )
 	player.SetActiveWeaponByName( "mp_weapon_gunship_missile" )
@@ -428,7 +436,7 @@ void function DisableBoostBar( entity player )
 		PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
 }
 
-entity function SpawnRanbowDomeShield( entity player )
+entity function CreateRanbowDomeShield( vector origin, vector angles, float duration = -1 )
 {
 	entity bubbleShield = CreateEntity( "prop_dynamic" )
 	bubbleShield.SetValueForModelKey( $"models/fx/xo_shield.mdl" )
@@ -443,58 +451,130 @@ entity function SpawnRanbowDomeShield( entity player )
 	bubbleShield.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 	bubbleShield.SetBlocksRadiusDamage( true )
 	DispatchSpawn( bubbleShield )
-    SetTeam( bubbleShield, projectile.GetTeam() )
     array<entity> bubbleShieldFXs
-    int team = projectile.GetTeam()
 	vector coloredFXOrigin = bubbleShield.GetOrigin()
 	table bubbleShieldDotS = expect table( bubbleShield.s )
-	if ( team == TEAM_UNASSIGNED )
-	{
-		entity neutralColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
-		SetTeam( neutralColoredFX, team )
 
-		bubbleShieldDotS.neutralColoredFX <- neutralColoredFX
-		bubbleShieldFXs.append( neutralColoredFX )
-	}
-	else
-	{
-		//Create friendly and enemy colored particle systems
-		entity friendlyColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
-		SetTeam( friendlyColoredFX, team )
-		friendlyColoredFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
-		EffectSetControlPointVector(  friendlyColoredFX, 1, FRIENDLY_COLOR_FX )
+	//Create friendly and enemy colored particle systems
+	entity ranbowColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
+	thread RanbowColorThink( ranbowColoredFX )
+	bubbleShieldFXs.append( ranbowColoredFX )
 
-		entity enemyColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
-		SetTeam( enemyColoredFX, team )
-		enemyColoredFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
-		EffectSetControlPointVector(  enemyColoredFX, 1, ENEMY_COLOR_FX )
-
-		bubbleShieldDotS.friendlyColoredFX <- friendlyColoredFX
-		bubbleShieldDotS.enemyColoredFX <- enemyColoredFX
-		bubbleShieldFXs.append( friendlyColoredFX )
-		bubbleShieldFXs.append( enemyColoredFX )
-	}
     EmitSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
-    thread CleanupBubbleShield( projectile, bubbleShield, bubbleShieldFXs, DEPLOYABLE_SHIELD_DURATION )
+    thread CleanupBubbleShield( bubbleShield, bubbleShieldFXs, duration )
+
+	return bubbleShield
 }
 
-void function CleanupBubbleShield( entity projectile, entity bubbleShield, array<entity> bubbleShieldFXs, float fadeTime )
+void function RanbowColorThink( entity fx )
+{
+	fx.EndSignal( "OnDestroy" )
+
+	vector rgb = < 255, 0, 0 > // start with red
+	float segment = 25.5
+	while ( true )
+	{
+		WaitFrame()
+
+		// to < 255, 255, 0 >
+		if ( rgb.x == 255 && rgb.y < 255 && rgb.z == 0 )
+			rgb.y = min( 255, rgb.y + segment )
+		// to < 0, 255, 0 >
+		else if ( rgb.x > 0 && rgb.y == 255 && rgb.z == 0 )
+			rgb.x = max( 0, rgb.x - segment )
+		// to < 0, 255, 255 >
+		else if ( rgb.x == 0 && rgb.y == 255 && rgb.z < 255 )
+			rgb.z = min( 255, rgb.z + segment )
+		// to < 0, 0, 255 >
+		else if ( rgb.x == 0 && rgb.y > 0 && rgb.z == 255 )
+			rgb.y = max( 0, rgb.y - segment )
+		// to < 255, 0, 255 >
+		else if ( rgb.x < 255 && rgb.y == 0 && rgb.z == 255 )
+			rgb.x = min( 255, rgb.x + segment )
+		// to < 255, 0, 0 >, a whole loop done
+		else if ( rgb.x == 255 && rgb.y == 0 && rgb.z > 0 )
+			rgb.z = max( 0, rgb.z - segment )
+
+		//print( rgb )
+		EffectSetControlPointVector( fx, 1, rgb )
+	}
+}
+
+/* // can't handle < 0,0,0 > or < 255,255,255 >
+void function RanbowColorThink( entity fx )
+{
+	fx.EndSignal( "OnDestroy" )
+
+	vector rgb = < 0,0,255 > // start with blue
+	int curCol = 1 // 1 = red, 2 = green, 3 = blue
+	int loopCount = 0 // every 3 loop needs to reset one color, otherwise it becomes < 0,0,0 > or < 255,255,255 >
+	float seg = 50.0
+	bool reversed = false
+	while ( true )
+	{
+		WaitFrame()
+		if ( !reversed )
+		{
+			if ( curCol == 1 )
+				rgb.x = min( 255, rgb.x + seg )
+			else if ( curCol == 2 )
+				rgb.y = min( 255, rgb.y + seg )
+			else if ( curCol == 3 )
+				rgb.z = min( 255, rgb.z + seg )
+		}
+		else
+		{
+			if ( curCol == 1 )
+				rgb.x = max( 0, rgb.x - seg )
+			else if ( curCol == 2 )
+				rgb.y = max( 0, rgb.y - seg )
+			else if ( curCol == 3 )
+				rgb.z = max( 0, rgb.z - seg )
+		}
+
+		if ( !reversed )
+		{
+			if ( rgb.x >= 255 && curCol == 1 )
+				curCol = 2
+			else if ( rgb.y >= 255 && curCol == 2 )
+				curCol = 3
+			else if ( rgb.z >= 255 && curCol == 3 )
+			{
+				curCol = 1
+				reversed = true
+			}
+		}
+		else
+		{
+			if ( rgb.x <= 0 && curCol == 1 )
+				curCol = 2
+			else if ( rgb.y <= 0 && curCol == 2 )
+				curCol = 3
+			else if ( rgb.z <= 0 && curCol == 3 )
+			{
+				curCol = 1
+				reversed = false
+			}
+		}
+
+		print( rgb )
+		EffectSetControlPointVector( fx, 1, rgb )
+	}
+}
+*/
+
+void function CleanupBubbleShield( entity bubbleShield, array<entity> bubbleShieldFXs, float fadeTime )
 {
 	bubbleShield.EndSignal( "OnDestroy" )
 
 	OnThreadEnd(
-		function () : ( projectile, bubbleShield, bubbleShieldFXs )
+		function () : ( bubbleShield, bubbleShieldFXs )
 		{
 			if ( IsValid_ThisFrame( bubbleShield ) )
 			{
 				StopSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
 				EmitSoundOnEntity( bubbleShield, "BubbleShield_End" )
 				DestroyBubbleShield( bubbleShield )
-			}
-
-			if( IsValid(projectile) )
-			{
-				projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
 			}
 
 			foreach ( fx in bubbleShieldFXs )
@@ -507,5 +587,8 @@ void function CleanupBubbleShield( entity projectile, entity bubbleShield, array
 		}
 	)
 
-	wait fadeTime
+	if ( fadeTime == -1 ) // default
+		WaitForever()
+	else if ( fadeTime > 0 )
+		wait fadeTime
 }
