@@ -5,6 +5,8 @@ global function MpWeaponDeployableCover_Init
 global function OnWeaponTossReleaseAnimEvent_weapon_deployable_cover
 global function OnWeaponAttemptOffhandSwitch_weapon_deployable_cover
 global function OnWeaponTossPrep_weapon_deployable_cover
+// modified
+global function AddDeployableCoverModifier
 
 #if SERVER
 global function DeployCover
@@ -30,15 +32,35 @@ struct
 {
 	table< entity, int > playerToAmpedWallsActiveTable //Mainly used to track stat for amped wall execution unlock
 	int index
-}file;
 
-const float SHIELD_DRONE_LIFETIME = 20
+	// modified: mod interface
+	array<string> deployableCoverModifers = []
+} file
 
 function MpWeaponDeployableCover_Init()
 {
 	PrecacheParticleSystem( DEPLOYABLE_SHIELD_FX )
 	file.index = PrecacheParticleSystem( DEPLOYABLE_SHIELD_FX_AMPED )
 	PrecacheModel( $"models/fx/pilot_shield_wall_amped.mdl" )
+}
+
+// modified!!! mod interface
+void function AddDeployableCoverModifier( string modName )
+{
+	if ( !( file.deployableCoverModifers.contains( modName ) ) )
+		file.deployableCoverModifers.append( modName )
+}
+
+bool function HasDeployableCoverModifier( array<string> mods )
+{
+	bool isModdedDeployCover = false
+	foreach ( string mod in file.deployableCoverModifers )
+	{
+		if ( mods.find( mod ) > 0 ) // has at least one modifier
+			isModdedDeployCover = true
+	}
+
+	return isModdedDeployCover
 }
 
 bool function OnWeaponAttemptOffhandSwitch_weapon_deployable_cover( entity weapon )
@@ -57,6 +79,12 @@ bool function OnWeaponAttemptOffhandSwitch_weapon_deployable_cover( entity weapo
 
 var function OnWeaponTossReleaseAnimEvent_weapon_deployable_cover( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapons!
+	array<string> mods = weapon.GetMods()
+	if ( HasDeployableCoverModifier( mods ) )
+		return OnWeaponTossReleaseAnimEvent_weapon_modded_deployable_cover( weapon, attackParams )
+
+	// vanilla behavior
 	int ammoReq = weapon.GetAmmoPerShot()
 	weapon.EmitWeaponSound_1p3p( GetGrenadeThrowSound_1p( weapon ), GetGrenadeThrowSound_3p( weapon ) )
 
@@ -65,49 +93,25 @@ var function OnWeaponTossReleaseAnimEvent_weapon_deployable_cover( entity weapon
 		weapon.w.lastProjectileFired.Destroy()
 	#endif
 
-	if( weapon.HasMod( "personal_shield" ) )
+	entity deployable =  ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnDeployableCoverPlanted )
+	if ( deployable )
 	{
-		#if SERVER
 		entity player = weapon.GetWeaponOwner()
 		PlayerUsedOffhand( player, weapon )
-		SendHudMessage(player, "部署移动护盾", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-		thread ActivatePersonalShield_Recreate(weapon.GetWeaponOwner())
+
+		#if SERVER
+		string projectileSound = GetGrenadeProjectileSound( weapon )
+		if ( projectileSound != "" )
+			EmitSoundOnEntity( deployable, projectileSound )
+
+		weapon.w.lastProjectileFired = deployable
+		#endif
+
+		#if BATTLECHATTER_ENABLED && SERVER
+			TryPlayWeaponBattleChatterLine( player, weapon )
 		#endif
 	}
-
-	else
-	{
-		entity deployable
-		if( weapon.HasMod( "shield_drone" ) )
-		{
-			deployable = ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnShieldDroneReleased )
-			#if SERVER
-			entity owner = weapon.GetWeaponOwner()
-			if( owner.IsPlayer() )
-				SendHudMessage(owner, "扔出护盾无人机", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-			#endif
-		}
-		else
-			deployable =  ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnDeployableCoverPlanted )
-		if ( deployable )
-		{
-			entity player = weapon.GetWeaponOwner()
-			PlayerUsedOffhand( player, weapon )
-
-			#if SERVER
-			string projectileSound = GetGrenadeProjectileSound( weapon )
-			if ( projectileSound != "" )
-				EmitSoundOnEntity( deployable, projectileSound )
-
-			weapon.w.lastProjectileFired = deployable
-			#endif
-
-			#if BATTLECHATTER_ENABLED && SERVER
-				TryPlayWeaponBattleChatterLine( player, weapon )
-			#endif
-		}
-	}
-
+	
 	#if SERVER && MP
 		if ( weapon.HasMod( "burn_card_weapon_mod" ) )
 		{
@@ -121,33 +125,6 @@ void function OnWeaponTossPrep_weapon_deployable_cover( entity weapon, WeaponTos
 {
 	weapon.EmitWeaponSound_1p3p( GetGrenadeDeploySound_1p( weapon ), GetGrenadeDeploySound_3p( weapon ) )
 }
-
-void function OnShieldDroneReleased( entity projectile )
-{
-	#if SERVER
-	entity drone = SpawnShieldDrone( projectile.GetTeam(), projectile.GetOrigin(), < 0,0,0 >, projectile.GetOwner() )
-	thread AfterTimeDestroyDrone( drone, projectile.GetOwner(), SHIELD_DRONE_LIFETIME )
-	projectile.GrenadeExplode( < 0,0,20 > )
-	#endif
-}
-
-#if SERVER
-void function AfterTimeDestroyDrone( entity drone, entity owner, float delay )
-{
-	owner.EndSignal( "OnDeath" )
-	owner.EndSignal( "OnDestroy" )
-
-	OnThreadEnd(
-		function() : ( drone )
-		{
-			if( IsValid( drone ) )
-				drone.SetHealth( 0 )
-		}
-	)
-	
-	wait delay
-}
-#endif
 
 void function OnDeployableCoverPlanted( entity projectile )
 {
@@ -176,12 +153,7 @@ void function OnDeployableCoverPlanted( entity projectile )
 		bool isAmpedWall = !( projectileMods.contains( "burn_card_weapon_mod" ) || projectileMods.contains( "hard_cover_always" ) ) //Unusual, but deliberate: the boost version of the weapon does not have amped functionality
 		entity player = projectile.GetOwner()
 		
-		if( projectileMods.contains( "deployable_dome_shield" ) )
-		{
-			//SendHudMessage(player, "部署圆顶护罩", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-			DeployDomeShield( projectile, origin, surfaceAngles )
-		}
-		else if ( isAmpedWall )
+		if ( isAmpedWall )
 			DeployAmpedWall( projectile, origin, surfaceAngles )
 		else
 			DeployCover( projectile, origin, surfaceAngles )
@@ -189,6 +161,7 @@ void function OnDeployableCoverPlanted( entity projectile )
 }
 
 #if SERVER
+// modified to add: "bleedout_balance"
 void function DeployCover( entity projectile, vector origin, vector angles, float duration = DEPLOYABLE_SHIELD_DURATION, int health = DEPLOYABLE_SHIELD_HEALTH )
 {
 	Assert( IsValid( projectile ) )
@@ -226,18 +199,7 @@ void function DeployCover( entity projectile, vector origin, vector angles, floa
 			
 			// modified
 			if ( IsValid( projectile ) && projectile.IsProjectile() )
-			{
-				// fix for kraber throwing
-				if( mods.contains( "tediore_deployable_cover" ) )
-				{
-					PlayImpactFXTable( projectile.GetOrigin(), projectile, "exp_deployable_cover" )
-					projectile.Destroy()
-				}
-				else
-				{
-					projectile.GrenadeExplode( Vector(0,0,0) )
-				}
-			}
+				projectile.GrenadeExplode( Vector(0,0,0) )
 
 			if ( IsValid( vortexSphere ) )
 				vortexSphere.Destroy()
@@ -333,102 +295,6 @@ void function DeployAmpedWall( entity grenade, vector origin, vector angles )
 
 	wait DEPLOYABLE_SHIELD_DURATION
 }
-
-void function DeployDomeShield( entity projectile, vector origin, vector angles )
-{
-	entity bubbleShield = CreateRanbowDomeShield( origin, angles, DEPLOYABLE_SHIELD_DURATION )
-	thread BubbleShieldLifeTime( projectile, bubbleShield )
-	/*
-	entity bubbleShield = CreateEntity( "prop_dynamic" )
-	bubbleShield.SetValueForModelKey( $"models/fx/xo_shield.mdl" )
-	bubbleShield.kv.solid = SOLID_VPHYSICS
-    bubbleShield.kv.rendercolor = "81 130 151"
-    bubbleShield.kv.contents = (int(bubbleShield.kv.contents) | CONTENTS_NOGRAPPLE)
-	bubbleShield.SetOrigin( origin )
-	bubbleShield.SetAngles( angles )
-	bubbleShield.Hide()
-
-     // Blocks bullets, projectiles but not players and not AI
-	bubbleShield.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
-	bubbleShield.SetBlocksRadiusDamage( true )
-	DispatchSpawn( bubbleShield )
-    SetTeam( bubbleShield, projectile.GetTeam() )
-    array<entity> bubbleShieldFXs
-    int team = projectile.GetTeam()
-	vector coloredFXOrigin = bubbleShield.GetOrigin()
-	table bubbleShieldDotS = expect table( bubbleShield.s )
-	if ( team == TEAM_UNASSIGNED )
-	{
-		entity neutralColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
-		SetTeam( neutralColoredFX, team )
-
-		bubbleShieldDotS.neutralColoredFX <- neutralColoredFX
-		bubbleShieldFXs.append( neutralColoredFX )
-	}
-	else
-	{
-		//Create friendly and enemy colored particle systems
-		entity friendlyColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
-		SetTeam( friendlyColoredFX, team )
-		friendlyColoredFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
-		EffectSetControlPointVector(  friendlyColoredFX, 1, FRIENDLY_COLOR_FX )
-
-		entity enemyColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
-		SetTeam( enemyColoredFX, team )
-		enemyColoredFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
-		EffectSetControlPointVector(  enemyColoredFX, 1, ENEMY_COLOR_FX )
-
-		bubbleShieldDotS.friendlyColoredFX <- friendlyColoredFX
-		bubbleShieldDotS.enemyColoredFX <- enemyColoredFX
-		bubbleShieldFXs.append( friendlyColoredFX )
-		bubbleShieldFXs.append( enemyColoredFX )
-	}
-    EmitSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
-    thread CleanupBubbleShield( projectile, bubbleShield, bubbleShieldFXs, DEPLOYABLE_SHIELD_DURATION )
-	*/
-}
-
-void function BubbleShieldLifeTime( entity projectile, entity bubbleShield )
-{
-	projectile.EndSignal( "OnDestroy" )
-
-	bubbleShield.WaitSignal( "OnDestroy" )
-	projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-}
-
-/*
-void function CleanupBubbleShield( entity projectile, entity bubbleShield, array<entity> bubbleShieldFXs, float fadeTime )
-{
-	bubbleShield.EndSignal( "OnDestroy" )
-
-	OnThreadEnd(
-		function () : ( projectile, bubbleShield, bubbleShieldFXs )
-		{
-			if ( IsValid_ThisFrame( bubbleShield ) )
-			{
-				StopSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
-				EmitSoundOnEntity( bubbleShield, "BubbleShield_End" )
-				DestroyBubbleShield( bubbleShield )
-			}
-
-			if( IsValid(projectile) )
-			{
-				projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-			}
-
-			foreach ( fx in bubbleShieldFXs )
-			{
-				if ( IsValid_ThisFrame( fx ) )
-				{
-					EffectStop( fx )
-				}
-			}
-		}
-	)
-
-	wait fadeTime
-}
-*/
 
 void function MonitorAmpedWallsActiveForPlayer( entity ampedWall, entity player )
 {

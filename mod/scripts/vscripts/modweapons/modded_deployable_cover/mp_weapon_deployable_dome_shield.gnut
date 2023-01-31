@@ -1,0 +1,184 @@
+global function MpWeaponDeployableDomeShield
+
+global function OnWeaponTossReleaseAnimEvent_weapon_deployable_dome_shield
+global function OnProjectileCollision_weapon_deployable_dome_shield
+
+const bool DEPLOYABLE_ONE_PER_PLAYER = false // don't want to destroy last dome
+const float DEPLOYABLE_SHIELD_DURATION = 15.0
+const float DEPLOYABLE_SHIELD_ANGLE_LIMIT = 0.55
+
+void function MpWeaponDeployableDomeShield()
+{
+	// init for modded deployable_cover
+    AddDeployableCoverModifier( "deployable_dome_shield" )
+    AddModdedDeployableCoverTossReleaseAnimEventCallback( "deployable_dome_shield", OnWeaponTossReleaseAnimEvent_weapon_deployable_dome_shield )
+	AddModdedDeployableCoverProjectileCollisionCallback( "deployable_dome_shield", OnProjectileCollision_weapon_deployable_dome_shield )
+}
+
+var function OnWeaponTossReleaseAnimEvent_weapon_deployable_dome_shield( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	int ammoReq = weapon.GetAmmoPerShot()
+	weapon.EmitWeaponSound_1p3p( string( GetGrenadeThrowSound_1p( weapon ) ), string( GetGrenadeThrowSound_3p( weapon ) ) )
+
+	#if SERVER
+	if ( DEPLOYABLE_ONE_PER_PLAYER && IsValid( weapon.w.lastProjectileFired ) )
+		weapon.w.lastProjectileFired.Destroy()
+	#endif
+
+	entity deployable =  ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnDeployableDomeShieldDeployed )
+	if ( deployable )
+	{
+		entity player = weapon.GetWeaponOwner()
+		PlayerUsedOffhand( player, weapon )
+
+		#if SERVER
+		if( player.IsPlayer() )
+        	SendHudMessage( player, "部署圆顶护罩", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
+
+		string projectileSound = GetGrenadeProjectileSound( weapon )
+		if ( projectileSound != "" )
+			EmitSoundOnEntity( deployable, projectileSound )
+
+		weapon.w.lastProjectileFired = deployable
+		#endif
+
+		#if BATTLECHATTER_ENABLED && SERVER
+			TryPlayWeaponBattleChatterLine( player, weapon )
+		#endif
+	}
+
+	return ammoReq
+}
+
+void function OnProjectileCollision_weapon_deployable_dome_shield( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+    return OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
+}
+
+void function OnDeployableDomeShieldDeployed( entity projectile )
+{
+	#if SERVER
+		Assert( IsValid( projectile ) )
+		vector origin = projectile.GetOrigin()
+
+		vector endOrigin = origin - Vector( 0.0, 0.0, 32.0 )
+		vector surfaceAngles = projectile.proj.savedAngles
+		vector oldUpDir = AnglesToUp( surfaceAngles )
+
+		TraceResults traceResult = TraceLine( origin, endOrigin, [], TRACE_MASK_SOLID, TRACE_COLLISION_GROUP_NONE )
+		if ( traceResult.fraction < 1.0 )
+		{
+			vector forward = AnglesToForward( projectile.proj.savedAngles )
+			surfaceAngles = AnglesOnSurface( traceResult.surfaceNormal, forward )
+
+			vector newUpDir = AnglesToUp( surfaceAngles )
+			if ( DotProduct( newUpDir, oldUpDir ) < DEPLOYABLE_SHIELD_ANGLE_LIMIT )
+				surfaceAngles = projectile.proj.savedAngles
+		}
+
+		projectile.SetAngles( surfaceAngles )
+		
+		DeployDomeShield( projectile, origin, surfaceAngles )
+	#endif
+}
+
+#if SERVER
+void function DeployDomeShield( entity projectile, vector origin, vector angles )
+{
+	// shared function from nessie_funny.gnut
+	entity bubbleShield = CreateRanbowDomeShield( origin, angles, DEPLOYABLE_SHIELD_DURATION )
+	thread BubbleShieldLifeTime( projectile, bubbleShield )
+}
+
+void function BubbleShieldLifeTime( entity projectile, entity bubbleShield )
+{
+	projectile.EndSignal( "OnDestroy" )
+
+	bubbleShield.WaitSignal( "OnDestroy" )
+	projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+}
+
+/* // normal bubbles
+void function DeployDomeShield( entity projectile, vector origin, vector angles )
+{
+	entity bubbleShield = CreateEntity( "prop_dynamic" )
+	bubbleShield.SetValueForModelKey( $"models/fx/xo_shield.mdl" )
+	bubbleShield.kv.solid = SOLID_VPHYSICS
+    bubbleShield.kv.rendercolor = "81 130 151"
+    bubbleShield.kv.contents = (int(bubbleShield.kv.contents) | CONTENTS_NOGRAPPLE)
+	bubbleShield.SetOrigin( origin )
+	bubbleShield.SetAngles( angles )
+	bubbleShield.Hide()
+
+     // Blocks bullets, projectiles but not players and not AI
+	bubbleShield.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	bubbleShield.SetBlocksRadiusDamage( true )
+	DispatchSpawn( bubbleShield )
+    SetTeam( bubbleShield, projectile.GetTeam() )
+    array<entity> bubbleShieldFXs
+    int team = projectile.GetTeam()
+	vector coloredFXOrigin = bubbleShield.GetOrigin()
+	table bubbleShieldDotS = expect table( bubbleShield.s )
+	if ( team == TEAM_UNASSIGNED )
+	{
+		entity neutralColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
+		SetTeam( neutralColoredFX, team )
+
+		bubbleShieldDotS.neutralColoredFX <- neutralColoredFX
+		bubbleShieldFXs.append( neutralColoredFX )
+	}
+	else
+	{
+		//Create friendly and enemy colored particle systems
+		entity friendlyColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
+		SetTeam( friendlyColoredFX, team )
+		friendlyColoredFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+		EffectSetControlPointVector(  friendlyColoredFX, 1, FRIENDLY_COLOR_FX )
+
+		entity enemyColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
+		SetTeam( enemyColoredFX, team )
+		enemyColoredFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+		EffectSetControlPointVector(  enemyColoredFX, 1, ENEMY_COLOR_FX )
+
+		bubbleShieldDotS.friendlyColoredFX <- friendlyColoredFX
+		bubbleShieldDotS.enemyColoredFX <- enemyColoredFX
+		bubbleShieldFXs.append( friendlyColoredFX )
+		bubbleShieldFXs.append( enemyColoredFX )
+	}
+    EmitSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
+    thread CleanupBubbleShield( projectile, bubbleShield, bubbleShieldFXs, DEPLOYABLE_SHIELD_DURATION )
+}
+
+void function CleanupBubbleShield( entity projectile, entity bubbleShield, array<entity> bubbleShieldFXs, float fadeTime )
+{
+	bubbleShield.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function () : ( projectile, bubbleShield, bubbleShieldFXs )
+		{
+			if ( IsValid_ThisFrame( bubbleShield ) )
+			{
+				StopSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
+				EmitSoundOnEntity( bubbleShield, "BubbleShield_End" )
+				DestroyBubbleShield( bubbleShield )
+			}
+
+			if( IsValid(projectile) )
+			{
+				projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+			}
+
+			foreach ( fx in bubbleShieldFXs )
+			{
+				if ( IsValid_ThisFrame( fx ) )
+				{
+					EffectStop( fx )
+				}
+			}
+		}
+	)
+
+	wait fadeTime
+}
+*/
+#endif

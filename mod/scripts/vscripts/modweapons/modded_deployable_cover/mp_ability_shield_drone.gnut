@@ -1,0 +1,75 @@
+global function MpAbilityShieldDrone_Init
+
+global function OnWeaponTossReleaseAnimEvent_ability_shield_drone
+global function OnProjectileCollision_ability_shield_drone
+
+const float SHIELD_DRONE_LIFETIME = 20
+
+void function MpAbilityShieldDrone_Init()
+{
+    // init for modded deployable_cover
+    AddDeployableCoverModifier( "shield_drone" )
+    AddModdedDeployableCoverTossReleaseAnimEventCallback( "shield_drone", OnWeaponTossReleaseAnimEvent_ability_shield_drone )
+	AddModdedDeployableCoverProjectileCollisionCallback( "shield_drone", OnProjectileCollision_ability_shield_drone )
+}
+
+var function OnWeaponTossReleaseAnimEvent_ability_shield_drone( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	int ammoReq = weapon.GetAmmoPerShot()
+    weapon.EmitWeaponSound_1p3p( string( GetGrenadeThrowSound_1p( weapon ) ), string( GetGrenadeThrowSound_3p( weapon ) ) )
+
+    entity deployable = ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnShieldDroneReleased )
+    #if SERVER
+    entity owner = weapon.GetWeaponOwner()
+    if( owner.IsPlayer() )
+        SendHudMessage(owner, "扔出护盾无人机", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+    #endif
+
+    if ( deployable )
+	{
+		entity player = weapon.GetWeaponOwner()
+		PlayerUsedOffhand( player, weapon )
+
+		#if SERVER
+		string projectileSound = GetGrenadeProjectileSound( weapon )
+		if ( projectileSound != "" )
+			EmitSoundOnEntity( deployable, projectileSound )
+
+		weapon.w.lastProjectileFired = deployable
+		#endif
+	}
+
+	return ammoReq
+}
+
+void function OnProjectileCollision_ability_shield_drone( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+    return OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
+}
+
+void function OnShieldDroneReleased( entity projectile )
+{
+	#if SERVER
+	entity drone = SpawnShieldDrone( projectile.GetTeam(), projectile.GetOrigin(), < 0,0,0 >, projectile.GetOwner() )
+	thread AfterTimeDestroyDrone( drone, projectile.GetOwner(), SHIELD_DRONE_LIFETIME )
+	projectile.GrenadeExplode( < 0,0,20 > )
+	#endif
+}
+
+#if SERVER
+void function AfterTimeDestroyDrone( entity drone, entity owner, float delay )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function() : ( drone )
+		{
+			if( IsValid( drone ) )
+				drone.SetHealth( 0 )
+		}
+	)
+	
+	wait delay
+}
+#endif
