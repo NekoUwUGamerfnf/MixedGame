@@ -849,7 +849,7 @@ void function GasTrapToxicThink( entity tower )
 			SF_ENVEXPLOSION_NO_NPC_SOUND_EVENT,					// explosion flags
 			0, 													// distanceFromAttacker
 			0, 													// explosionForce
-			DF_EXPLOSION,										// damage flags
+			DF_BYPASS_SHIELD,									// damage flags
 			eDamageSourceId.toxic_sludge						// damage source id
 		)
 
