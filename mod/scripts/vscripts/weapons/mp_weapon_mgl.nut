@@ -78,7 +78,7 @@ void function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams
 		else if( weapon.HasMod( "flesh_magnetic" ) )
 		{
 			#if SERVER
-			GiveProjectileFakeMagnetic( nade )
+			GiveProjectileFakeMagnetic( nade, 85 )
 			#endif
 		}
 		else
