@@ -4,7 +4,7 @@ global function OnWeaponPrimaryAttack_weapon_arc_launcher
 global function OnProjectileCollision_weapon_grenade_bangalore
 global function OnProjectileIgnite_weapon_grenade_bangalore
 const ARC_LAUNCHER_ZAP_DAMAGE = 350
-const int ARC_LAUNCHER_ZAP_DAMAGE_PILOT_AMPED = 18
+const int ARC_LAUNCHER_ZAP_DAMAGE_PILOT_AMPED = 20
 
 const int SMOKE_GRENADE_COUNT = 3
 const float SMOKE_LAUNCHER_DELAY = 0.7
