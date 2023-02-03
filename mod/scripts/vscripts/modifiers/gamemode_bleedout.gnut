@@ -123,6 +123,7 @@ void function Modded_Gamemode_Bleedout_Init()
     SetShieldBatteryRegenAmount( BLEEDOUT_MODE_SHIELD_BATTERY_REGEN_AMOUNT, BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_REGEN_AMOUNT )
 
     // don't make the intro annoying
+	SetShouldPlayFactionDialogue( false )
     SetWaitingForPlayersMaxDuration( 10.0 )
     ClassicMP_SetLevelIntro( ClassicMP_ShorterDropshipIntro_Setup, DROPSHIP_INTRO_LENGTH_SHORTER )
 
@@ -582,7 +583,6 @@ void function GiveReplacementOrdnance( entity player )
 const string BLEEDOUT_MODE_SHIELD_MESSAGE_ID = "11"
 const string BLEEDOUT_MODE_HEALTH_MESSAGE_ID = "12"
 const string BLEEDOUT_MODE_BATTERY_HINT_ID = "15"
-const string BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID = "16"
 
 void function PlayerStatusDisplayer( entity player )
 {
@@ -598,7 +598,6 @@ void function PlayerStatusDisplayer( entity player )
 				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_SHIELD_MESSAGE_ID )
 				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_HEALTH_MESSAGE_ID )
 				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_BATTERY_HINT_ID )
-				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
 			}
 		}
 	)
@@ -607,7 +606,6 @@ void function PlayerStatusDisplayer( entity player )
 	NSCreateStatusMessageOnPlayer( player, "血量", string( player.GetHealth() ), BLEEDOUT_MODE_HEALTH_MESSAGE_ID ) // init health message
 	bool hasBatteryHint = false
 	bool hasIncapShieldHint = false
-	bool incapShieldDown = false
 	while ( true )
 	{
 		WaitFrame()
@@ -633,31 +631,6 @@ void function PlayerStatusDisplayer( entity player )
 			{
 				hasBatteryHint = false
 				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_BATTERY_HINT_ID )
-			}
-		}
-
-		if ( Bleedout_IsPlayerBleeding( player ) )
-		{
-			if ( !hasIncapShieldHint )
-			{
-				hasIncapShieldHint = true
-				NSCreateStatusMessageOnPlayer( player, "", "", BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID ) // init incap shield message
-			}
-			entity incapShield = file.playerIncapShieldTable[player]
-			if ( !IsValid( incapShield ) )
-			{
-				//NSEditStatusMessageOnPlayer( player, "", "擊倒護盾不可用", BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
-				continue
-			}
-			else
-				NSEditStatusMessageOnPlayer( player, "", "擊倒護盾 " + string( incapShield.GetHealth() ), BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
-		}
-		else
-		{
-			if ( hasIncapShieldHint )
-			{
-				hasIncapShieldHint = false
-				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
 			}
 		}
 	}
@@ -1397,7 +1370,7 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 	vortexSphere.e.shieldWallFX.SetAngles( < 20,0,94 > )
 	vortexSphere.e.shieldWallFX.SetOrigin( < 31,0,32 > )
 
-	//thread IncapShieldHealthDisplayer( player, vortexSphere ) // maybe no need to have this too dumb?
+	thread IncapShieldHealthDisplayer( player, vortexSphere ) // maybe no need to have this too dumb?
 	//thread IncapShieldMoverThink( player, vortexSphere ) // let player move the incap shield
 	
 	vortexSphere.SetDamageNotifications( false ) // no hitmarkers?
@@ -1439,9 +1412,38 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 	*/
 }
 
+const string BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID = "16"
+
 // maybe no need to have this?
 void function IncapShieldHealthDisplayer( entity player, entity vortexSphere )
 {
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "BleedOut_StopBleeding" )
+	player.EndSignal( "BleedOut_OnRevive" )
+
+	NSCreateStatusMessageOnPlayer( player, "", "", BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID ) // init incap shield message
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
+			}
+		}
+	)
+
+	while ( true )
+	{
+		if ( !IsValid( vortexSphere ) )
+			NSEditStatusMessageOnPlayer( player, "", "擊倒護盾不可用", BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
+		else
+			NSEditStatusMessageOnPlayer( player, "", "擊倒護盾 " + string( vortexSphere.GetHealth() ), BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
+
+		WaitFrame()
+	}
+	/*
 	table playerInfo = {}
 	playerInfo.activeWeaponName <- ""
 
@@ -1486,6 +1488,7 @@ void function IncapShieldHealthDisplayer( entity player, entity vortexSphere )
 		ammoWeapon.SetWeaponPrimaryAmmoCount( vortexSphere.GetHealth() )
 		WaitFrame()
 	}
+	*/
 }
 
 void function HACK_ShowIncapShieldVortexSphere( entity vortexSphere, entity player )
