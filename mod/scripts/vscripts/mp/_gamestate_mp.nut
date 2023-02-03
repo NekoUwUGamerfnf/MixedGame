@@ -203,7 +203,7 @@ void function GameStateEnter_PickLoadout()
 void function GameStateEnter_PickLoadout_Threaded()
 {	
 	float pickloadoutLength = 20.0 // may need tweaking
-	if ( ClassicMP_IsRunningDropshipIntro() )
+	if ( ClassicMP_IsRunningDropshipIntro() && !file.usePickLoadoutScreen )
 		pickloadoutLength = 7.3 // warp jump sound duration
 	SetServerVar( "minPickLoadOutTime", Time() + pickloadoutLength )
 	
@@ -365,7 +365,8 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	
 	WaitFrame() // wait a frame so other scripts can setup killreplay stuff
 
-	DialoguePlayWinnerDetermined() // play a faction dialogue when winner is determined
+	if( isMatchEnd ) // no winner dialogue till game really ends
+		DialoguePlayWinnerDetermined() // play a faction dialogue when winner is determined
 	
 	// set gameEndTime to current time, so hud doesn't display time left in the match
 	SetServerVar( "gameEndTime", Time() )
@@ -1319,14 +1320,6 @@ void function DialoguePlayWinnerDetermined()
 			PlayFactionDialogueToTeam( "scoring_lost", GetOtherTeam( winningTeam ) )
 		}
 		return
-	}
-
-	if( IsRoundBased() ) // check for round based modes
-	{
-		if( winningTeam == TEAM_UNASSIGNED )
-			return
-		if( GameRules_GetTeamScore( winningTeam ) != GameMode_GetRoundScoreLimit( GAMETYPE ) ) // no winner dialogue till game really ends
-			return
 	}
 
 	PlayScoreEventFactionDialogue( "wonMercy", "lostMercy", "won", "lost", "wonClose", "lostClose", "tied" )
