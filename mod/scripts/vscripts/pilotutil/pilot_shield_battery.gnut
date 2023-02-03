@@ -10,7 +10,7 @@ global function SetShieldBatteryRegenAmount
 global function SetShieldBatteryInputOverwritesBoost
 
 global function IsShieldBatteryEnabled
-global function GetPlayerLastShieldBatteryUsedTime // default return 0
+global function GetPlayerLastShieldBatteryUsedTime // default return 0, for notifications to use
 
 const float SHIELD_BATTERY_USE_TIME = 3
 const int SHIELD_BATTERY_REGEN_AMOUNT = 50
@@ -20,6 +20,10 @@ const float AMPED_SHIELD_BATTERY_USE_TIME = 5
 
 struct
 {
+    table<entity, bool> playerUsingShieldBattery
+    table<entity, float> playerLastShieldBatteryUsedTime
+    table<entity, bool> playerSearchingSheildBattery
+
     // battery stats
     float batteryUseTime = SHIELD_BATTERY_USE_TIME
     float ampedBatteryUseTime = AMPED_SHIELD_BATTERY_USE_TIME
@@ -48,10 +52,9 @@ void function Pilot_Shield_Battery_Init()
 
 void function OnClientConnected( entity player )
 {
-    player.s.shieldBatteryEndFunction <- false  // bool
-    player.s.usingShieldBattery <- false        // bool
-    player.s.lastShieldBatteryUsedTime <- 0.0   // float
-	player.s.searchingSheildBattery <- false	// float
+    file.playerUsingShieldBattery[player] <- false        // bool
+    file.playerLastShieldBatteryUsedTime[player] <- 0.0   // float
+	file.playerSearchingSheildBattery[player] <- false	// float
     if( file.shieldBatteryOverwritesBoost )
     {
         AddButtonPressedPlayerInputCallback( player, IN_OFFHAND4, TryUseShieldBattery )
@@ -74,7 +77,7 @@ void function TryUseShieldBattery_Threaded( entity player )
         return
     if( !file.canUseShiledBattery )
         return
-    if( expect bool( player.s.usingShieldBattery ) )
+    if( file.playerUsingShieldBattery[player] )
         return
     if( !file.shieldBatteryOverwritesBoost )
     {
@@ -98,7 +101,7 @@ void function TryUseShieldBattery_Threaded( entity player )
         {
             if( batteryWeapon.HasMod( "burnmeter_emergency_battery" ) )
             {
-				if( expect bool( player.s.searchingSheildBattery ) )
+				if( file.playerSearchingSheildBattery[player] )
 					return
                 SendHudMessage( player, "未持有电池, 尝试使用强化卡...", -1, -0.3, 255, 255, 100, 255, 0, 1, 0 )
                 waitthread WaitForPlayerGetBatteryFromBoost( player )
@@ -134,8 +137,9 @@ void function TryUseShieldBattery_Threaded( entity player )
     }
 
     battery.EndSignal( "OnDestroy" )
-    player.s.shieldBatteryEndFunction = true // if player cancels usage it will run more functions
-    player.s.usingShieldBattery = true
+    table results = {}
+    results.canceledUsage <- true // if player cancels usage it will run more functions
+    file.playerUsingShieldBattery[player] = true
 
     array<string> savedMods = player.GetPlayerSettingsMods()
     array<string> settingMods = player.GetPlayerSettingsMods()
@@ -146,12 +150,12 @@ void function TryUseShieldBattery_Threaded( entity player )
     int statusEffectHandle = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.4 )
 
     OnThreadEnd(
-        function(): ( player, battery, savedMods, statusEffectHandle )
+        function(): ( player, battery, savedMods, statusEffectHandle, results )
         {
             //print( "Reached here! 1" )
             if( !IsValid( player ) )
                 return
-            player.s.usingShieldBattery = false
+            file.playerUsingShieldBattery[player] = false
             player.DeployWeapon()
             player.Server_TurnOffhandWeaponsDisabledOff()
             StopSoundOnEntity( player, "Weapon_EnergySyphon_Charge_1P" )
@@ -161,7 +165,7 @@ void function TryUseShieldBattery_Threaded( entity player )
             if( statusEffectHandle != -1 )
                 StatusEffect_Stop( player, statusEffectHandle )
             
-            if( !( expect bool( player.s.shieldBatteryEndFunction ) ) )
+            if( !results.canceledUsage )
                 return
             if( IsAlive( player ) )
             {
@@ -182,6 +186,7 @@ void function TryUseShieldBattery_Threaded( entity player )
             {
                 if( IsValid( battery ) )
                 {
+                    // hardcoded from rodeo_titan.gnut
                     if( "hideIcon" in battery.s )
                     {
                         if( expect bool( battery.s.hideIcon ) )
@@ -223,8 +228,8 @@ void function TryUseShieldBattery_Threaded( entity player )
     }
 
     // done using
-    player.s.shieldBatteryEndFunction = false
-    player.s.lastShieldBatteryUsedTime = Time()
+    results.canceledUsage = false
+    file.playerLastShieldBatteryUsedTime[player] = Time()
     player.Signal( "DoneUseShieldBattery" )
 
     int currentShieldHealth = player.GetShieldHealth()
@@ -268,12 +273,12 @@ void function WaitForPlayerGetBatteryFromBoost( entity player )
     player.EndSignal( "OnDeath" )
     player.EndSignal( "OnDestroy" )
 	
-	player.s.searchingSheildBattery = true
+	file.playerSearchingSheildBattery[player] = true
 	OnThreadEnd(
 		function():( player )
 		{
 			if( IsValid( player ) )
-				player.s.searchingSheildBattery = false
+				file.playerSearchingSheildBattery[player] = false
 		}
 	)
 
@@ -389,9 +394,9 @@ bool function IsShieldBatteryEnabled()
 
 float function GetPlayerLastShieldBatteryUsedTime( entity player )
 {
-    if( "lastShieldBatteryUsedTime" in player.s )
+    if( player in file.playerLastShieldBatteryUsedTime )
     {
-        return expect float( player.s.lastShieldBatteryUsedTime )
+        return file.playerLastShieldBatteryUsedTime[player]
     }
     return 0 // default
 }

@@ -28,6 +28,26 @@ struct IncapShieldStruct
 	entity shieldWallFX1P
 }
 
+const bool BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT = false
+const bool BLEEDOUT_MODE_ENABLE_PASSIVES = false
+
+const float BLEEDOUT_MODE_SHIELD_BATTERY_USETIME = 2.1 // remember try to avoid sound issue
+const float BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_USETIME = 7.0
+const int BLEEDOUT_MODE_SHIELD_BATTERY_REGEN_AMOUNT = 100
+const int BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD = 80
+const int BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD = 80
+const int BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_REGEN_AMOUNT = 300
+
+const int BLEEDOUT_MODE_HEALTH = 125
+const int BLEEDOUT_MODE_DOWNED_HEALTH = 100
+const int BLEEDOUT_MODE_SHIELD_HEALTH = 100
+
+const float BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE = 0.1
+const float BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE = 0.3
+// only earn values if you're assisting
+const float BLEEDOUT_MODE_PILOT_ASSIST_EARNED_VALUE = 0.3
+const float BLEEDOUT_MODE_PILOT_ASSIST_OWNED_VALUE = 0.0
+
 // things below should be in riff
 /*
 riff_player_bleedout 1
@@ -49,24 +69,6 @@ const bool GAMEMODE_FORCE_WEAPON_HOLSTER = true
 const bool GAMEMODE_DEATH_ON_TEAM_BLEEDOUT = false
 */
 // fake apex loadouts
-const bool BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT = false
-
-const float BLEEDOUT_MODE_SHIELD_BATTERY_USETIME = 2.1 // remember try to avoid sound issue
-const float BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_USETIME = 7.0
-const int BLEEDOUT_MODE_SHIELD_BATTERY_REGEN_AMOUNT = 100
-const int BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD = 80
-const int BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD = 80
-const int BLEEDOUT_MODE_AMPED_SHIELD_BATTERY_REGEN_AMOUNT = 300
-
-const int BLEEDOUT_MODE_HEALTH = 125
-const int BLEEDOUT_MODE_DOWNED_HEALTH = 100
-const int BLEEDOUT_MODE_SHIELD_HEALTH = 100
-
-const float BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE = 0.1
-const float BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE = 0.3
-// only earn values if you're assisting
-const float BLEEDOUT_MODE_PILOT_ASSIST_EARNED_VALUE = 0.3
-const float BLEEDOUT_MODE_PILOT_ASSIST_OWNED_VALUE = 0.0
 
 struct
 {
@@ -209,12 +211,14 @@ void function OnPlayerClassChanged( entity player )
 
 void function OnPlayerRespawned( entity player )
 {
+	thread PlayerStatusDisplayer( player )
+
     if( !BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT )
         return
     if( !file.useFakeApexLoadout[player.GetUID()] )
-        SendHudMessage( player, "当前装备: 原版\n按 近战 切换至伪apex技能", -1, -0.3, 0, 255, 255, 255, 0, 10, 0 )
+        SendHudMessage( player, "當前裝備: 原版技能組\n按下 近戰 切換至僞apex技能組", -1, -0.3, 0, 255, 255, 255, 0, 10, 0 )
     else if( file.useFakeApexLoadout[player.GetUID()] )
-        SendHudMessage( player, "当前装备: 伪apex技能\n按 近战 切换至原版", -1, -0.3, 0, 255, 255, 255, 0, 10, 0 )
+        SendHudMessage( player, "当前装备: 僞apex技能組\n按下 近戰 切換至原版技能組", -1, -0.3, 0, 255, 255, 255, 0, 10, 0 )
 }
 
 void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
@@ -228,6 +232,7 @@ void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
     //if( IsValid( meleeWeapon ) )
     //    meleeWeapon.AddMod( "pushback_melee" )
 
+	// offhand limit
     for ( int i = 0; i <= OFFHAND_MELEE; i++ ) // for better sloting
     {
         entity nowWeapon = player.GetOffhandWeapon( i )
@@ -246,6 +251,36 @@ void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
             }
         }
     }
+
+	// anti-titan replace
+	foreach ( entity weapon in player.GetMainWeapons() )
+	{
+		string className = weapon.GetWeaponClassName()
+		if ( className == "mp_weapon_rocket_launcher" )
+		{
+			weapon.AddMod( "no_lock_required" )
+			//weapon.AddMod( "at_low_stockpile" )
+			if ( weapon.HasMod( "extended_ammo" ) )
+			{
+				// maybe because extended_ammo has been modified by my self to "ammo_default_total" * 1.29, this will only have 5 rockets!
+				weapon.SetWeaponPrimaryAmmoCount( 6 )
+			}
+			else
+				weapon.SetWeaponPrimaryAmmoCount( 4 ) // limited to 5 shots
+		}
+		if ( className == "mp_weapon_arc_launcher" )
+		{
+			weapon.AddMod( "antipilot_arc_launcher" )
+		}
+		if ( className == "mp_weapon_mgl" )
+		{
+			weapon.AddMod( "flesh_magnetic" )
+		}
+		if ( className == "mp_weapon_defender" )
+		{
+			weapon.RemoveMod( "quick_charge" ) // quick charge has built in bleedout_balance
+		}
+	}
 
     SyncedMelee_Disable( player )
     player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
@@ -266,23 +301,6 @@ void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
         thread GiveMeleeAfterGracePeriod( player )
     else
         thread DelayedCheckMelee( player )
-
-    // charge rifle chargehack specific!
-    thread DelayedRestoreQuickChargeRifle( player )
-}
-
-// don't work for now! don't know why
-void function DelayedRestoreQuickChargeRifle( entity player )
-{
-    player.EndSignal( "OnDestroy" )
-    player.EndSignal( "OnDeath" )
-
-    WaitFrame() // wait for weapons ready
-    foreach ( entity weapon in player.GetMainWeapons() )
-    {
-        if ( weapon.HasMod( "quick_charge" ) )
-            weapon.RemoveMod( "bleedout_balance" ) // remove it's damage reduction
-    }
 }
 
 void function GiveMeleeAfterGracePeriod( entity player )
@@ -342,7 +360,7 @@ void function OnExecutionDamaged( entity victim, var damageInfo )
     // reward for executions
     if( !IsValid( attacker ) )
         return
-    if( attacker.IsPlayer() )
+    if( attacker.IsPlayer() && victim.IsPlayer() && victim != attacker )
     {
         if( attacker.GetShieldHealth() == attacker.GetShieldHealthMax() ) // shield full!
             return
@@ -356,7 +374,7 @@ void function OnExecutionDamaged( entity victim, var damageInfo )
         if( shieldToRestore <= BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD ) // consider shield is full, not showing a extra fx
             shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
         attacker.SetShieldHealth( min( attacker.GetShieldHealthMax(), attacker.GetShieldHealth() + shieldToRestore ) )
-        SendHudMessage( attacker, "处决一名敌人, 已回复" + string(shieldToRestore) + "点护盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+        SendHudMessage( attacker, "處決一名敵人, 已回復" + string(shieldToRestore) + "點護盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
         MessageToPlayer( attacker, eEventNotifications.VANGUARD_ShieldGain, attacker )
 
 		//AddPlayerScore( attacker, "Execution", victim ) // do a manual score event here
@@ -375,7 +393,7 @@ bool function OnTouchBatteryPack( entity player, entity batteryPack )
         //print( GetPlayerLastShieldBatteryUsedTime( player ) >= Time() - 1.0 )    
         return false
     }
-    SendHudMessage( player, "按 强化 按键\n使用护盾电池", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+    SendHudMessage( player, "按下 強化 按鍵\n使用護盾電池", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
 
     //Basically always return false since we don't want the battery pack to go away when being touched. ApplyBatteryToTitan() etc will deal with lifetime of battery
 	return false
@@ -453,7 +471,7 @@ void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHea
     if( shieldToRestore <= BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD ) // consider shield is full, not showing a extra fx
         shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
     playerHealer.SetShieldHealth( min( playerHealer.GetShieldHealthMax(), playerHealer.GetShieldHealth() + shieldToRestore ) )
-    SendHudMessage( playerHealer, "复活一名队友, 已回复" + string(shieldToRestore) + "点护盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+    SendHudMessage( playerHealer, "復活一名隊友, 已回復" + string(shieldToRestore) + "點護盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
     MessageToPlayer( playerHealer, eEventNotifications.VANGUARD_ShieldGain, playerHealer )
 }
 
@@ -561,9 +579,111 @@ void function GiveReplacementOrdnance( entity player )
     }
 }
 
+const string BLEEDOUT_MODE_SHIELD_MESSAGE_ID = "11"
+const string BLEEDOUT_MODE_HEALTH_MESSAGE_ID = "12"
+const string BLEEDOUT_MODE_BATTERY_HINT_ID = "15"
+const string BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID = "16"
+
+void function PlayerStatusDisplayer( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			// clean up
+			if ( IsValid( player ) )
+			{
+				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_SHIELD_MESSAGE_ID )
+				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_HEALTH_MESSAGE_ID )
+				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_BATTERY_HINT_ID )
+				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
+			}
+		}
+	)
+
+	NSCreateStatusMessageOnPlayer( player, "護盾", string( player.GetShieldHealth() ), BLEEDOUT_MODE_SHIELD_MESSAGE_ID ) // init shield message
+	NSCreateStatusMessageOnPlayer( player, "血量", string( player.GetHealth() ), BLEEDOUT_MODE_HEALTH_MESSAGE_ID ) // init health message
+	bool hasBatteryHint = false
+	bool hasIncapShieldHint = false
+	bool incapShieldDown = false
+	while ( true )
+	{
+		WaitFrame()
+		string knockdownString = "" // for noticing players health that they've been downed
+		if ( Bleedout_IsPlayerBleeding( player ) )
+			knockdownString = " (倒地)"
+		NSEditStatusMessageOnPlayer( player, "護盾", string( player.GetShieldHealth() ), BLEEDOUT_MODE_SHIELD_MESSAGE_ID ) // update shield message
+		NSEditStatusMessageOnPlayer( player, "血量", string( player.GetHealth() ) + knockdownString, BLEEDOUT_MODE_HEALTH_MESSAGE_ID ) // update health message
+
+		if ( ShouldAddPlayerBatteryHint( player ) && player.GetShieldHealth() != player.GetShieldHealthMax() && !Bleedout_IsPlayerBleeding( player ) )
+		{
+			if ( hasBatteryHint )
+				continue
+			else
+			{
+				hasBatteryHint = true
+				NSCreateStatusMessageOnPlayer( player, "", "護盾電池可用，按下 強化 回復護盾", BLEEDOUT_MODE_BATTERY_HINT_ID )
+			}
+		}
+		else
+		{
+			if ( hasBatteryHint )
+			{
+				hasBatteryHint = false
+				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_BATTERY_HINT_ID )
+			}
+		}
+
+		if ( Bleedout_IsPlayerBleeding( player ) )
+		{
+			if ( !hasIncapShieldHint )
+			{
+				hasIncapShieldHint = true
+				NSCreateStatusMessageOnPlayer( player, "", "", BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID ) // init incap shield message
+			}
+			entity incapShield = file.playerIncapShieldTable[player]
+			if ( !IsValid( incapShield ) )
+			{
+				//NSEditStatusMessageOnPlayer( player, "", "擊倒護盾不可用", BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
+				continue
+			}
+			else
+				NSEditStatusMessageOnPlayer( player, "", "擊倒護盾 " + string( incapShield.GetHealth() ), BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
+		}
+		else
+		{
+			if ( hasIncapShieldHint )
+			{
+				hasIncapShieldHint = false
+				NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID )
+			}
+		}
+	}
+}
+
+bool function ShouldAddPlayerBatteryHint( entity player )
+{
+	entity batteryWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY ) // get current
+	entity battery = GetBatteryOnBack( player )
+	if ( IsValid( battery ) )
+		return true
+	
+	if ( IsValid( batteryWeapon ) )
+	{
+		if( batteryWeapon.HasMod( "burnmeter_emergency_battery" ) )
+        {
+			return true
+		}
+	}
+
+	return false
+}
+
 void function GetShieldLeft( entity player )
 {
-    SendHudMessage( player, "剩余护盾值: " + string( player.GetShieldHealth() ) + " / " + string( player.GetShieldHealthMax() ), -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+    SendHudMessage( player, "剩餘護盾值: " + string( player.GetShieldHealth() ) + " / " + string( player.GetShieldHealthMax() ), -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
 }
 
 
@@ -591,8 +711,8 @@ void function Bleedout_PlayerHolsterWeapon( entity player )
 	OnThreadEnd(
 		function():( player )
 		{
-			if( IsValid( player ) )
-				player.Server_TurnOffhandWeaponsDisabledOff()
+			//if( IsValid( player ) )
+			//	player.Server_TurnOffhandWeaponsDisabledOff()
 		}
 	)
 
@@ -600,7 +720,7 @@ void function Bleedout_PlayerHolsterWeapon( entity player )
 	while( true )
 	{
 		player.HolsterWeapon()
-		player.Server_TurnOffhandWeaponsDisabledOn()
+		//player.Server_TurnOffhandWeaponsDisabledOn()
 		WaitFrame() // wait in the first loop
 	}
 }

@@ -25,7 +25,6 @@ const int MAX_DROPSHIP_PLAYERS = 4
 
 
 global const float DROPSHIP_INTRO_LENGTH_SHORTER = 5.0 // 10s shorter than normal intro
-const float SPAWN_ON_GROUND_TIME = 1.0 // taken from sequence
 
 struct IntroDropship
 {
@@ -121,12 +120,7 @@ void function OnPrematchStart()
 	foreach ( entity player in GetPlayerArray() )
 	{
 		if ( !IsPrivateMatchSpectator( player ) )
-		{
-			if ( file.introStartTime + SPAWN_ON_GROUND_TIME < Time() ) // very late joiner, just spawn them onto ground like valinilla
-				thread SpawnPlayerOnGround( player )
-			else
-				thread SpawnPlayerIntoDropship( player )
-		}
+			thread SpawnPlayerIntoDropship( player )
 		else
 			RespawnPrivateMatchSpectator( player )
 	}
@@ -138,28 +132,6 @@ void function EndIntroWhenFinished()
 {
 	wait DROPSHIP_INTRO_LENGTH_SHORTER
 	ClassicMP_OnIntroFinished()
-}
-
-void function SpawnPlayerOnGround( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-
-	if ( IsAlive( player ) )
-		player.Die()
-
-	RespawnAsPilot( player )
-	player.FreezeControlsOnServer()
-	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
-	ScreenFadeFromBlack( player, 3.0, 1.0 )
-
-	svGlobal.levelEnt.WaitSignal( "GameStateChanged" ) // wait for game start
-	player.UnfreezeControlsOnServer() // restore player movements
-	RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
-	// do gamemode announcement
-	if( GetRoundsPlayed() < 1 && !HasSwitchedSides() )
-		TryGameModeAnnouncement( player )
-	else
-		TryGameModeAnnouncement( player, false )
 }
 
 void function SpawnPlayerIntoDropship( entity player )
@@ -182,7 +154,6 @@ void function SpawnPlayerIntoDropship( entity player )
 			{
 				player.MovementEnable()
 				player.EnableWeaponViewModel()
-				player.Server_TurnOffhandWeaponsDisabledOff()
 				RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
 			}
 		}
@@ -225,8 +196,8 @@ void function SpawnPlayerIntoDropship( entity player )
 	
 	// respawn player and holster their weapons so they aren't out
 	player.RespawnPlayer( null )
+	HolsterAndDisableWeapons(player)
 	player.DisableWeaponViewModel()
-	player.Server_TurnOffhandWeaponsDisabledOn()
 	
 	// hide hud and fade screen out from black
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
@@ -274,44 +245,94 @@ void function PlayerJumpsFromDropship( entity player )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 
-	int moveLockEffect = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 1.0 ) // 1.0 will lock player's movement
-    
-	table savedKeyValues = {}
+    table savedKeyValues = {}
     savedKeyValues.gravity <- int( player.kv.gravity )
 
-	OnThreadEnd( function() : ( player, moveLockEffect, savedKeyValues )
+	OnThreadEnd( function() : ( player, savedKeyValues )
 	{
 		if ( IsValid( player ) )
 		{
-			// defensive fix, restore movements
-			StatusEffect_Stop( player, moveLockEffect )
 			// show weapon viewmodel and hud and let them move again
 			player.MovementEnable()
 			player.EnableWeaponViewModel()
-			player.Server_TurnOffhandWeaponsDisabledOff()
+			DeployAndEnableWeapons(player)
 			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
 
             if ( IsAlive( player ) ) // not resetting through death
             {
                 player.kv.gravity = savedKeyValues.gravity // restore gravity
+                EnablePlayerDoubleJump( player ) // restore doublejumps
             }
 		}
 	})
 		
 	// wait for intro timer to be fully done
 	wait ( file.introStartTime + DROPSHIP_INTRO_LENGTH_SHORTER ) - Time()
+	player.MovementDisable() // disable all movement but let them look around still
+    DisablePlayerDoubleJump( player ) // this will make players never trigger jetpack dryfire sounds!
     player.kv.gravity = 2.2 // make players fall much faster
 
 	// wait for player to hit the ground
 	wait 0.1 // assume players will never actually hit ground before this
-	player.ConsumeDoubleJump() // disable double jump
-
 	while ( !player.IsOnGround() && !player.IsWallRunning() && !player.IsWallHanging() ) // todo this needs tweaking
+	{	
 		WaitFrame()
+		player.ConsumeDoubleJump() // movementdisable doesn't prevent double jumps
+	}
 
 	// !!! tempfix specific
 	if( GetRoundsPlayed() < 1 && !HasSwitchedSides() )
 		TryGameModeAnnouncement( player )
 	else
 		TryGameModeAnnouncement( player, false )
+}
+
+// following functions triggers OnPlayerClassChange()
+void function DisablePlayerDoubleJump( entity player )
+{
+    string setFile = player.GetPlayerSettings()
+    array<string> setFileMods =  player.GetPlayerSettingsMods()
+	player.s.doubleJumpIsDisabled <- false
+	if ( setFileMods.contains( "disable_doublejump" ) ) // double jump has already been disabled through modified modes?
+	{
+		player.s.doubleJumpIsDisabled = true
+		return // just return
+	}
+
+    setFileMods.append( "disable_doublejump" ) // this will make players never trigger jetpack dryfire sounds!
+    asset modelName = player.GetModelName() // they maybe reset model
+    int skinIndex = player.GetSkin()
+    int camoIndex = player.GetCamo()
+
+    player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), setFileMods )
+    // restore model, skin, etc.
+    player.SetModel( modelName )
+    player.SetSkin( skinIndex )
+    player.SetCamo( camoIndex )
+}
+
+void function EnablePlayerDoubleJump( entity player )
+{
+	if ( "doubleJumpIsDisabled" in player.s )
+	{
+		if ( player.s.doubleJumpIsDisabled ) // double jump has already been disabled through modified modes?
+			return // just return, don't re-enable
+	}
+
+    string setFile = player.GetPlayerSettings()
+    array<string> setFileMods =  player.GetPlayerSettingsMods()
+    if ( setFileMods.contains( "disable_doublejump" ) )
+        setFileMods.removebyvalue( "disable_doublejump" )
+    else // don't even have a disabled doublejump, just return
+        return
+
+    asset modelName = player.GetModelName() // they maybe reset model
+    int skinIndex = player.GetSkin()
+    int camoIndex = player.GetCamo()
+
+    player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), setFileMods )
+    // restore model, skin, etc.
+    player.SetModel( modelName )
+    player.SetSkin( skinIndex )
+    player.SetCamo( camoIndex )
 }
