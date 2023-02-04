@@ -370,107 +370,7 @@ struct {
 
 void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints, int team, entity player )
 {	
-	/* // now testing: use ffa points in 2-team modes
-	if ( !IsFFAGame() )
-	{
-		// use frontline spawns in 2-team modes
-		RateSpawnpoints_Frontline( checkClass, spawnpoints, team, player )
-		return
-	}
-	else
-	{
-		// todo: ffa spawns :terror:
-	}
-	*/
-
-	// old algo: keeping until we have a better ffa spawn algo
-
-	// i'm not a fan of this func, but i really don't have a better way to do this rn, and it's surprisingly good with los checks implemented now
-	
-	// calculate ratings for preferred nodes
-	// this tries to prefer nodes with more teammates, then activity on them
-	// todo: in the future it might be good to have this prefer nodes with enemies up to a limit of some sort
-	// especially in ffa modes i could deffo see this falling apart a bit rn
-	// perhaps dead players could be used to calculate some sort of activity rating? so high-activity points with an even balance of friendly/unfriendly players are preferred
-	
-	/* // using modified checks now
-	array<float> preferSpawnNodeRatings
-	foreach ( vector preferSpawnNode in spawnStateGeneric.preferSpawnNodes )
-	{
-		float currentRating
-		
-		// this seems weird, not using rn
-		//Frontline currentFrontline = GetCurrentFrontline( team )
-		//if ( !IsFFAGame() || currentFrontline.friendlyCenter != < 0, 0, 0 > )
-		//	currentRating += max( 0.0, ( 1000.0 - Distance2D( currentFrontline.origin, preferSpawnNode ) ) / 200 )
-		
-		foreach ( entity nodePlayer in GetPlayerArray() )
-		{
-			float currentChange = 0.0
-			
-			// the closer a player is to a node the more they matter
-			float dist = Distance2D( preferSpawnNode, nodePlayer.GetOrigin() )
-			if ( dist > 600.0 )
-				continue
-			
-			currentChange = ( 600.0 - dist ) / 5
-			if ( player == nodePlayer )
-				currentChange *= -3 // always try to stay away from places we've already spawned
-			else if ( !IsAlive( nodePlayer ) ) // dead players mean activity which is good, but they're also dead so they don't matter as much as living ones
-				currentChange *= 0.6
-
-			if ( nodePlayer.GetTeam() != player.GetTeam() ) // if someone isn't on our team and alive they're probably bad
-			{
-				if ( IsFFAGame() ) // in ffa everyone is on different teams, so this isn't such a big deal
-					currentChange *= -0.2
-				else
-					currentChange *= -0.6
-			}
-				
-			currentRating += currentChange
-		}
-		
-		preferSpawnNodeRatings.append( currentRating )
-	}
-	
-	foreach ( entity spawnpoint in spawnpoints )
-	{
-		float currentRating
-		float petTitanModifier
-		// scale how much a given spawnpoint matters to us based on how far it is from each node
-		bool spawnHasRecievedInitialBonus = false
-		for ( int i = 0; i < spawnStateGeneric.preferSpawnNodes.len(); i++ )
-		{
-			// bonus if autotitan is nearish
-			if ( IsAlive( player.GetPetTitan() ) && Distance( player.GetPetTitan().GetOrigin(), spawnStateGeneric.preferSpawnNodes[ i ] ) < 1200.0 )
-				petTitanModifier += 10.0
-			
-			float dist = Distance2D( spawnpoint.GetOrigin(), spawnStateGeneric.preferSpawnNodes[ i ] )
-			if ( dist > 750.0 )
-				continue
-						
-			if ( dist < 600.0 && !spawnHasRecievedInitialBonus )
-			{
-				currentRating += 10.0
-				spawnHasRecievedInitialBonus = true // should only get a bonus for simply being by a node once to avoid over-rating
-			}
-		
-			currentRating += ( preferSpawnNodeRatings[ i ] * ( ( 750.0 - dist ) / 75 ) ) +  max( RandomFloat( 1.25 ), 0.9 )
-			if ( dist < 250.0 ) // shouldn't get TOO close to an active node
-				currentRating *= 0.7 
-				
-			if ( spawnpoint.s.lastUsedTime < 10.0 )
-				currentRating *= 0.7
-		}
-	
-		float rating = spawnpoint.CalculateRating( checkClass, team, currentRating, currentRating + petTitanModifier )
-		//print( "spawnpoint at " + spawnpoint.GetOrigin() + " has rating: " +  )
-		
-		if ( rating != 0.0 || currentRating != 0.0 )
-			print( "rating = " + rating + ", internal rating = " + currentRating )
-	}
-	*/
-
+	// now testing: use ffa points in 2-team modes
 	// modified checks...
 	array<float> preferSpawnNodeRatings
 	foreach ( vector preferSpawnNode in spawnStateGeneric.preferSpawnNodes )
@@ -564,14 +464,14 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 			else
 			{
 				if ( HasEnemyNearSpawnPoint( team, spawnpoint ) )
-					currentRating *= 0.7
+					currentRating *= 0.0 // try not to spawn too close to enemy
 				else if ( HasFriendlyNearSpawnPoint( team, spawnpoint ) )
-					currentRating *= 2.0
+					currentRating *= 2.0 // and mostly spawn near a friendly
 			}
 		}
 	
 		float rating = spawnpoint.CalculateRating( checkClass, team, currentRating, currentRating + petTitanModifier )
-		//print( "spawnpoint at " + spawnpoint.GetOrigin() + " has rating: " +  )
+		print( "spawnpoint at " + spawnpoint.GetOrigin() + " has rating: " + rating )
 		
 		if ( rating != 0.0 || currentRating != 0.0 )
 			print( "rating = " + rating + ", internal rating = " + currentRating )
@@ -691,8 +591,16 @@ void function RateSpawnpoints_SpawnZones( int checkClass, array<entity> spawnpoi
 			rating = 100.0
 		else // max 35 rating if not in zone, rate by closest
 			rating = 35.0 * ( 1 - ( distance / 5000.0 ) )
+
+		// modified over here
+		if ( HasEnemyNearSpawnPoint( team, spawn ) )
+			rating *= 0.0 // try not to spawn too close to enemy
+		else if ( HasFriendlyNearSpawnPoint( team, spawn ) )
+			rating *= 2.0 // and mostly spawn near a friendly
 			
-		spawn.CalculateRating( checkClass, player.GetTeam(), rating, rating )
+		float calcedRating = spawn.CalculateRating( checkClass, player.GetTeam(), rating, rating )
+
+		print( "spawnpoint at " + spawn.GetOrigin() + " has rating: " + calcedRating )
 	}
 }
 
