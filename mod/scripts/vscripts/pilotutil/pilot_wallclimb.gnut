@@ -2,7 +2,12 @@ global function Pilot_WallClimb_Init
 
 const float GRUNT_WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not facing a wall
 const float RAVENANT_WALLCLIMB_ANGLE_LIMIT = 30.0
+const float WALLCLIMB_GRACE_PERIOD_TIME = 0.5 // if you press left or right within this time you won't be kick off wall
 
+struct
+{
+	table<entity, float> playerWallRunBeinTime
+} file
 
 void function Pilot_WallClimb_Init()
 {
@@ -12,6 +17,7 @@ void function Pilot_WallClimb_Init()
 
 	RegisterSignal( "PilotWallClimbThink" )
 	// ttf2 don't have other ways to modify classmods than change class, so this is enough
+	AddCallback_OnClientConnected( OnClientConnected )
     AddCallback_PlayerClassChanged( OnPlayerClassChanged )
 }
 
@@ -20,9 +26,20 @@ void function Pilot_WallClimb_Init()
 ///// CALLBACK FUNCTIONS /////
 //////////////////////////////
 
+void function OnClientConnected( entity player )
+{
+	file.playerWallRunBeinTime[player] <- 0.0
+	AddPlayerMovementEventCallback( player, ePlayerMovementEvents.BEGIN_WALLRUN, UpdatePlayerWallRunBeginTime )
+}
+
 void function OnPlayerClassChanged( entity player )
 {
     thread PilotWallClimbThink( player )
+}
+
+void function UpdatePlayerWallRunBeginTime( entity player )
+{
+	file.playerWallRunBeinTime[player] = Time()
 }
 
 //////////////////////////////////
@@ -93,10 +110,13 @@ void function PilotWallClimbThink( entity player )
 			float angDiffer = fabs( fabs( wallAnglesYaw - eyeAnglesYaw ) - 180 ) // formatting the differ
 	
 			// try to move on the wall( can't handle controller for now )
-			if ( player.IsInputCommandHeld( IN_MOVELEFT ) || player.IsInputCommandHeld( IN_MOVERIGHT ) )
+			if ( file.playerWallRunBeinTime[player] + WALLCLIMB_GRACE_PERIOD_TIME < Time() ) // has climbed long enough
 			{
-				thread KickPlayerOffWall( player ) // knock player off
-				continue
+				if ( player.IsInputCommandHeld( IN_MOVELEFT ) || player.IsInputCommandHeld( IN_MOVERIGHT ) )
+				{
+					thread KickPlayerOffWall( player ) // knock player off
+					continue
+				}
 			}
 
 			if ( angDiffer > angleLimit ) // the angle diffrence is bigger than limit?
