@@ -45,11 +45,11 @@ bool function HasShifterModifier( array<string> mods )
 	bool isModdedShifter = false
 	foreach ( string mod in file.shifterModifiers )
 	{
-		if ( mods.find( mod ) > 0 ) // has at least one modifier
-			isModdedShifter = true
+		if ( mods.contains( mod ) ) // has at least one modifier
+			return true
 	}
 
-	return isModdedShifter
+	return false
 }
 
 void function MpAbilityShifterWeapon_OnWeaponTossPrep( entity weapon, WeaponTossPrepParams prepParams )

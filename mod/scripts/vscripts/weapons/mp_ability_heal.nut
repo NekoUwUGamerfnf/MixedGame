@@ -21,11 +21,11 @@ bool function HasStimModifier( array<string> mods )
 	bool isModdedStim = false
 	foreach ( string mod in file.stimModifiers )
 	{
-		if ( mods.find( mod ) > 0 ) // has at least one modifier
-			isModdedStim = true
+		if ( mods.contains( mod ) ) // has at least one modifier
+			return true
 	}
 
-	return isModdedStim
+	return false
 }
 
 var function OnWeaponPrimaryAttack_ability_heal( entity weapon, WeaponPrimaryAttackParams attackParams )

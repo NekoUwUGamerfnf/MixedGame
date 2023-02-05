@@ -56,11 +56,11 @@ bool function HasDeployableCoverModifier( array<string> mods )
 	bool isModdedDeployCover = false
 	foreach ( string mod in file.deployableCoverModifers )
 	{
-		if ( mods.find( mod ) > 0 ) // has at least one modifier
-			isModdedDeployCover = true
+		if ( mods.contains( mod ) ) // has at least one modifier
+			return true
 	}
 
-	return isModdedDeployCover
+	return false
 }
 
 bool function OnWeaponAttemptOffhandSwitch_weapon_deployable_cover( entity weapon )
