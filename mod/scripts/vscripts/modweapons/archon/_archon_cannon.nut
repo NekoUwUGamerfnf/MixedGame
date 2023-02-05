@@ -107,6 +107,8 @@ global const ArchonCannonTargetClassnames = {
 	[ "rpg_missile" ] 			= true,
 	[ "script_mover" ] 			= true,
 	[ "turret" ] 				= true,
+
+	[ "npc_pilot_elite" ]		= true, // modified
 }
 
 struct {
@@ -188,16 +190,14 @@ function ArchonCannon_ChargeBegin( entity weapon )
 	//}
 	#if SERVER
 		entity weaponOwner = weapon.GetWeaponOwner()
-		// client sound fix
-		if( weaponOwner.IsPlayer() )
+		// client sound fix, hardcoded
+		string chargeSound = weapon.GetWeaponSettingString( eWeaponVar.charge_sound_3p )
+		if( !weapon.HasMod( "capacitor" ) )
 		{
-			if( !weapon.HasMod( "capacitor" ) )
-			{
-				if( weapon.HasMod( "arc_cannon_charge_sound" ) )
-					EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "Weapon_EnergySyphon_Charge_3P" )
-				if( weapon.HasMod( "archon_arc_cannon_charge_sound" ) )
-					EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "MegaTurret_Laser_ChargeUp_3P" )
-			}
+			if( weaponOwner.IsPlayer() )
+				EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, chargeSound )
+			else // npc sound
+				EmitSoundOnEntity( weapon, chargeSound )
 		}
 		if ( weapon.HasMod( "overcharge" ) )
 		{
@@ -223,10 +223,15 @@ function ArchonCannon_ChargeBegin( entity weapon )
 function ArchonCannon_ChargeEnd( entity weapon, entity player = null )
 {
 	file.isCharging = false
-	weapon.StopWeaponSound("MegaTurret_Laser_ChargeUp_3P")
+	//weapon.StopWeaponSound("MegaTurret_Laser_ChargeUp_3P") // not using
 	#if SERVER
 		if ( IsValid( weapon ) )
 			weapon.Signal( ARCHON_CANNON_SIGNAL_CHARGEEND )
+
+		// client sound fix, hardcoded
+		string chargeSound = weapon.GetWeaponSettingString( eWeaponVar.charge_sound_3p )
+		if( !weapon.HasMod( "capacitor" ) )
+			StopSoundOnEntity( weapon, chargeSound )
 	#endif
 
 	#if CLIENT
