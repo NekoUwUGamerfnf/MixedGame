@@ -1,4 +1,4 @@
-//untyped
+untyped // for AddCallback_OnUseEntity()
 
 /* Required PlaylistVars
     roundscorelimit 9999+
@@ -16,6 +16,9 @@
 */
 
 global function Modded_Gamemode_Survival_Init
+
+const int SURVIVAL_PLAYER_TEAM                  = TEAM_MILITIA // TEAM_MILITIA
+const string SURVIVAL_BURNMETER_REWARD          = "burnmeter_at_turret_weapon" // whatever you do, never give another "mp_ability_burncardweapon"
 
 struct dropshipAnimData
 {
@@ -52,19 +55,34 @@ void function Modded_Gamemode_Survival_Init()
     PrecacheModel( $"models/Robots/mobile_hardpoint/mobile_hardpoint.mdl" )
     RegisterSignal( "OnContinousUseStopped" )
     
-    // Mode Settings
+    // Vanilla Mode Settings
+    //SetRoundBased( true )
     SetRespawnsEnabled( false )
-    SetRoundBased( true ) // to show the ui above
-    Riff_ForceSetEliminationMode( eEliminationMode.Pilots ) // to show the ui above
-    SetShouldPlayFactionDialogue( false ) // player faction dialogue, this mode needs manually controlling the dialogues
-    SetBattleChatterEnableToSelf( true ) // play chatter to player themselves
+    //SetShouldUseRoundWinningKillReplay( true )
+    //SetRoundBased( true ) //
+    Riff_ForceSetEliminationMode( eEliminationMode.Pilots ) //
+    Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
+    Riff_ForceTitanAvailability( eTitanAvailability.Always )
 
+    // modded settings
+    // intro
 	ClassicMP_SetCustomIntro( ClassicMP_ShorterDropshipIntro_Setup, DROPSHIP_INTRO_LENGTH_SHORTER )
     //ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() )
     SetWaitingForPlayersMaxDuration( 30.0 ) // wait a bit longer
 
+    // gameplay
+    SetShouldPlayFactionDialogue( false ) // disable default faction dialogue, this mode needs manually controlling the dialogues
+    SetBattleChatterEnableToSelf( true ) // play chatter to player themselves
+    Burnmeter_SetForcedReward( SURVIVAL_BURNMETER_REWARD ) // better one: give players 3 turrets at start
+    SetLateJoinRespawnEnabled( false ) // this mode use a standalone respawn method
+
+    // custom highlight settings
+    SetUseCustomHighlight( true ) 
+	SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
+
     // Callbacks
     AddCallback_OnClientConnected( OnClientConnected )
+    AddCallback_OnPlayerGetsNewPilotLoadout( OnPilotGetLoadout )
     AddCallback_OnPlayerKilled( OnPlayerKilled )
     AddCallback_GameStateEnter( eGameState.Playing, OnGamePlaying )
 }
@@ -81,6 +99,11 @@ void function OnClientConnected( entity player )
     //TrackBannerCarrierLifeTime( player )
 }
 
+void function OnPilotGetLoadout( entity player, PilotLoadoutDef p )
+{
+    GivePlayerSurvivalLoadout( player )
+}
+
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
     DropPlayerBanner( victim, damageInfo )
@@ -88,11 +111,6 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 
 void function OnGamePlaying()
 {
-    entity flag = CreateEntity( "item_flag" )
-    flag.SetValueForModelKey( CTF_FLAG_MODEL )
-	flag.MarkAsNonMovingAttachment()
-	DispatchSpawn( flag )
-    
     SpawnRespawnBeacons()
     //StartNPCSpawner()
 }
@@ -103,12 +121,32 @@ void function OnGamePlaying()
 
 
 
+/////////////////////////////
+///// LOADOUT FUNCTIONS /////
+/////////////////////////////
+
+const string SURVIVAL_BANNER_WEAPON             = "mp_ability_burncardweapon"
+
+void function GivePlayerSurvivalLoadout( entity player )
+{
+    // player can't pull it out manually, this only for better animations
+    player.GiveOffhandWeapon( SURVIVAL_BANNER_WEAPON, OFFHAND_EQUIPMENT, ["banner_collector"] )
+}
+
+/////////////////////////////////
+///// LOADOUT FUNCTIONS END /////
+/////////////////////////////////
+
+
+
 ///////////////////////////////////////
 ///// PLAYER INITIALIZE FUNCTIONS /////
 ///////////////////////////////////////
 
 void function InitSurvivalPlayer( entity player )
 {
+    SetTeam( player, SURVIVAL_PLAYER_TEAM ) // always set player to the right team
+
     SurvivalPlayerStruct emptyStruct
     file.playerSurvivalTable[ player.GetUID() ] <- emptyStruct
 }
@@ -144,7 +182,7 @@ void function TrackBannerCarrierLifeTime_Threaded( entity player )
 }
 */
 
-void function DropPlayerBanner( entity player, var damageInfo = null ) // maybe needed if player drops from edge, redirect their banners
+void function DropPlayerBanner( entity player, var damageInfo = null ) // maybe need damageinfo if player drops from edge, redirect their banners
 {
     thread DropPlayerBanner_Threaded( player, damageInfo )
 }
@@ -152,22 +190,6 @@ void function DropPlayerBanner( entity player, var damageInfo = null ) // maybe 
 void function DropPlayerBanner_Threaded( entity player, var damageInfo )
 {
     entity banner = CreatePlayerBanner( player )
-    banner.EndSignal( "OnDestroy" )
-
-    string playerName = player.GetPlayerName()
-    banner.SetUsable()
-    banner.SetUsePrompts( "", "按下 %use% 撿起 " + playerName + " 的旗幟" )
-
-    table result = banner.WaitSignal( "OnPlayerUse" )
-    //entity collector = expect entity ( result.player )
-    //file.playerSurvivalTable[ collector.GetUID() ].carryingBanners.append( player )
-    file.teamCarringBanners.append( player )
-    //thread CollectedBannerLifeTime( collector, player )
-
-    // disable banner usage
-    banner.NotSolid()
-    banner.UnsetUsable()
-    banner.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
 }
 
 /*
@@ -201,10 +223,60 @@ entity function CreatePlayerBanner( entity player )
     vector origin = player.GetOrigin() // + < 0,0,31 > // offset for the prop
     vector angles = < 0, player.GetAngles().y + 90, 0 > // don't want to rotate so much, yaw is enough
     int spawnFlags = 6 // SOLID_VPHYSICS
+
     entity banner = CreatePropDynamic( PLAYER_BANNER_MODEL, origin, angles, spawnFlags )
+    banner.SetUsable()
+    banner.SetUsableByGroup( "friendlies pilot" )
+    banner.SetUsePrompts( "", "按下 %use% 撿起 " + player.GetPlayerName() + " 的旗幟" )
+    AddCallback_OnUseEntity( banner, OnUsePlayerBanner )
+
+    banner.SetOwner( player )
+    SetTeam( banner, player.GetTeam() )
+    Highlight_SetFriendlyHighlight( banner, "fw_friendly" ) // highlight it!
     thread BannerLifeTime( banner, player )
 
     return banner
+}
+
+function OnUsePlayerBanner( banner, collector )
+{
+    expect entity ( banner )
+    expect entity ( collector )
+
+    if ( IsPlayerCollectingBanner( collector ) )
+        return
+
+    entity player = banner.GetOwner()
+    PlayerCollectBanner( collector, player, banner )
+
+    //file.playerSurvivalTable[ collector.GetUID() ].carryingBanners.append( player )
+    //thread CollectedBannerLifeTime( collector, player )
+}
+
+bool function IsPlayerCollectingBanner( entity player )
+{
+    entity weapon = player.GetActiveWeapon()
+    if ( IsValid( weapon ) )
+    {
+        if ( weapon.GetWeaponClassName() == SURVIVAL_BANNER_WEAPON ) // the player still collecting another banner
+            return true
+    }
+
+    return false
+}
+
+void function PlayerCollectBanner( entity collector, entity bannerOwner, entity banner )
+{
+    file.teamCarringBanners.append( bannerOwner ) // make banner's owner able to be respawned
+    
+    collector.SetActiveWeaponByName( SURVIVAL_BANNER_WEAPON ) // pull out burncard to play animations?
+    NSSendInfoMessageToPlayer( collector, "回收了 " + bannerOwner.GetPlayerName() + " 的旗幟" )
+
+    // disable banner usage
+    Highlight_ClearFriendlyHighlight( banner )
+    banner.NotSolid()
+    banner.UnsetUsable()
+    banner.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
 }
 
 void function BannerLifeTime( entity banner, entity owner )
@@ -257,13 +329,18 @@ void function SpawnRespawnBeacons()
 {
     foreach ( entity spawnpoint in GetEntArrayByClass_Expensive( "info_hardpoint" ) )
     {
+        // use hardpoints from amped hardpoint
         if ( !spawnpoint.HasKey( "gamemode_cp" ) )
 			continue
         if ( spawnpoint.kv.gamemode_cp == "0" )
             continue
 
         entity beacon = CreatePropDynamic( spawnpoint.GetModelName(), spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 6 )
-		thread PlayAnim( beacon, "mh_inactive_idle" )
+		SetTeam( beacon, SURVIVAL_PLAYER_TEAM )
+        Highlight_SetFriendlyHighlight( beacon, "battery_thief" ) // how to highlight this?
+        beacon.SetUsableByGroup( "friendlies pilot" )
+        thread PlayAnim( beacon, "mh_inactive_idle" )
+
         thread RespawnBeaconThink( beacon )
         file.respawnBeacons.append( beacon )
     }
@@ -291,6 +368,9 @@ const float RESPAWN_BEACON_USE_DIST2            = 64 * 64
 
 void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
 {
+    if ( IsPlayerCollectingBanner( player ) ) // player is still collecting banners
+        return
+
     array<entity> playersToRespawn = GetTeamActiveBanners() //GetPlayerActiveBanners( player )
     if ( playersToRespawn.len() == 0 ) // no banners to recover
     {
@@ -317,9 +397,9 @@ void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
     )
 
     Remote_CallFunction_NonReplay( player, "ServerCallback_BLEEDOUT_StartFirstAidProgressBar", endTime, playerEHandle, playerEHandle, 1 ) // how does attemptID work?
-    waitthread TrackContinuousUse( player, beacon, RESPAWN_BEACON_USE_TIME )
+    waitthread TrackBeaconContinuousUse( player, beacon, RESPAWN_BEACON_USE_TIME )
 
-    // successfully reached this part
+    // successfully reached this point
     playersToRespawn = GetTeamActiveBanners() //GetPlayerActiveBanners( player ) // update array
     vector origin = beacon.GetOrigin() + < 0, 0, 500 > // same as apex does
     vector angles = beacon.GetAngles()
@@ -327,7 +407,7 @@ void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
     ClearTeamBanners()
 }
 
-void function TrackContinuousUse( entity player, entity useTarget, float useTime )
+void function TrackBeaconContinuousUse( entity player, entity useTarget, float useTime )
 {
     player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
@@ -337,23 +417,38 @@ void function TrackContinuousUse( entity player, entity useTarget, float useTime
 	table result = {}
 	result.success <- false
 
-	float maxDist2 = DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) + RESPAWN_BEACON_USE_DIST2
+    int moveLockEffect = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 1.0 ) // 1.0 will lock player's movement
+    EmitSoundOnEntityOnlyToPlayer( player, player, "Hardpoint_Amped_ProgressBar" )
 
 	OnThreadEnd
 	(
-		function() : ( player, useTarget, result )
+		function() : ( player, useTarget, result, moveLockEffect )
 		{
-			if ( !result.success )
-			{
-				if( IsValid( player ) )
-					player.Signal( "OnContinousUseStopped" )
-			}
+            if ( IsValid( player ) )
+            {
+                if ( !result.success ) // interrupted
+                    player.Signal( "OnContinousUseStopped" )
+
+                // defensive fix, restore movements
+			    StatusEffect_Stop( player, moveLockEffect )
+
+                // restore weapon usage
+                player.EnableWeaponViewModel()
+                player.Server_TurnOffhandWeaponsDisabledOff()
+
+                StopSoundOnEntity( player, "Hardpoint_Amped_ProgressBar" )
+            }
 		}
 	)
 
+    float maxDist2 = DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) + RESPAWN_BEACON_USE_DIST2
     float startTime = Time()
 	while ( Time() < startTime + useTime && player.UseButtonPressed() && !player.IsPhaseShifted() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
 	{
+        // disable weapon usage
+        player.DisableWeaponViewModel()
+        player.Server_TurnOffhandWeaponsDisabledOn()
+
 		if( player.ContextAction_IsActive() ) // being interupted by executions!
 			return
 		WaitFrame()
@@ -408,9 +503,10 @@ const string RESPAWN_DROPSHIP_TARGETNAME        = "respawn_dropship"
 
 void function RespawnPlayersInDropshipAtPoint( array<entity> players, vector origin, vector angles )
 {
-	entity dropship = CreateEntity( "npc_dropship" )
+	entity dropship = CreateDropship( SURVIVAL_PLAYER_TEAM, origin, angles )
 	//SetSpawnOption_AISettings( dropship, "npc_dropship_hero" )
 	SetTargetName( dropship, RESPAWN_DROPSHIP_TARGETNAME )
+    HideName( dropship ) // no need to show health bar since it's invulnerable
 	DispatchSpawn( dropship )
     dropship.SetModel( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" ) // force using imc dropship model
 	dropship.SetInvulnerable()
@@ -423,7 +519,7 @@ void function RespawnPlayersInDropshipAtPoint( array<entity> players, vector ori
 	Attachment attachResult = dropship.Anim_GetAttachmentAtTime( "dropship_classic_mp_flyin", "ORIGIN", 0.0 )
 
 	int i=0
-	foreach ( player in players )
+	foreach ( entity player in players )
 	{
 		if ( IsValid( player ) )
 		{
@@ -434,7 +530,7 @@ void function RespawnPlayersInDropshipAtPoint( array<entity> players, vector ori
 
 	EndSignal( dropship, "OnDestroy" )
 
-	thread PlayAnim( dropship, "dropship_classic_mp_flyin_idle", origin, angles )
+	thread PlayAnim( dropship, "dropship_colony_mcor_intro_idle", origin, angles ) // "dropship_classic_mp_flyin_idle" don't exist in ttf2
 	dropship.MakeInvisible()
 	waitthread __WarpInEffectShared( attachResult.position, attachResult.angle, "dropship_warpin", 0.0 )
 	dropship.MakeVisible()
@@ -466,7 +562,7 @@ void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int
 	// player.Signal( "StopPostDeathLogic" )
 	AddCinematicFlag( player, CE_FLAG_INTRO )
 	AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
-	AddCinematicFlag( player, CE_FLAG_EMBARK ) // DoF
+	//AddCinematicFlag( player, CE_FLAG_EMBARK ) // DoF, annoying
 
 	entity dummyEnt = CreatePropDynamic( $"models/humans/pilots/pilot_medium_reaper_m.mdl" ) // TODO: use generic model.  Can't use player settings here since they could be a spectator
 	float idleTime = dummyEnt.GetSequenceDuration( animData.idleAnim )
@@ -475,8 +571,16 @@ void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int
 
 	dummyEnt.Destroy()
 
-	player.StartObserverMode( OBS_MODE_CHASE )
-	player.SetObserverTarget( ship )
+	//player.StartObserverMode( OBS_MODE_CHASE )
+	//player.SetObserverTarget( ship )
+    // ttf doesn't support spectating a dropship
+    entity camera = CreateEntity( "point_viewcontrol" )
+	camera.SetParent( ship, "Origin" )
+    camera.SetAngles( < 45, -90, 0 > ) // facing the dropship
+    camera.SetOrigin( < 0, 1000, 1000 > ) // offset
+    camera.kv.spawnflags = 56
+	DispatchSpawn( camera )
+	player.SetViewEntity( camera, true )
 
 	ScreenFadeFromBlack( player, 1.0, 1.0 )
 
@@ -485,7 +589,7 @@ void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int
 	e[ "didHolsterAndDisableWeapons" ] <- false
 
 	OnThreadEnd(
-		function () : ( player, e )
+		function () : ( player, e, camera )
 		{
 			if ( IsValid( player ) )
 			{
@@ -493,7 +597,10 @@ void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int
 				RemoveCinematicFlag( player, CE_FLAG_INTRO )
 
 				if ( e[ "clearDof" ] )
+                {
 					RemoveCinematicFlag( player, CE_FLAG_EMBARK )
+                    player.ClearViewEntity()
+                }
 
 				if ( e[ "didHolsterAndDisableWeapons" ] )
 					DeployAndEnableWeapons( player )
@@ -502,6 +609,9 @@ void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int
 				ClearPlayerAnimViewEntity( player )
 				player.ClearInvulnerable()
 			}
+
+            if ( IsValid( camera ) )
+                camera.Destroy()
 		}
 	)
 
@@ -509,9 +619,13 @@ void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int
 	wait idleTime
 
 	player.StopObserverMode()
+    //player.ClearViewEntity()
 	ClearPlayerEliminated( player )
 	if ( !IsAlive( player ) )
-		DecideRespawnPlayer( player )
+    {
+        RespawnAsPilot( player )
+		//DecideRespawnPlayer( player ) // this is a stub in northstar
+    }
 	player.SetOrigin( ship.GetOrigin() )
 
 	thread FadePlayerView( player, 0.1, e )
@@ -534,9 +648,9 @@ void function FadePlayerView( entity player, float duration, table<string,bool> 
 	ScreenFadeFromBlack( player, 1.0, 1.0 )
 }
 
-const float FALL_AIR_CONTROL_ACCELERATION       = 2000
-const float FALL_AIR_CONTROL_SPEED              = 5000
-const float FALL_AIR_CONTROL_DURATION           = 1.5
+const float FALL_AIR_CONTROL_ACCELERATION       = 800
+const float FALL_AIR_CONTROL_SPEED              = 1000
+const float FALL_AIR_CONTROL_DURATION           = 0.5
 
 void function FallTempAirControl( entity player )
 {
