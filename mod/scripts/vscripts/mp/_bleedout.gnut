@@ -8,8 +8,6 @@ global function Bleedout_ShouldAIMissBleedingPlayer
 const asset FX_BLOODTRAIL = $"skit_blood_decal_LG"
 const float BLEEDOUT_MAX_USE_DIST2_MOD = 64 * 64
 
-const bool BLEEDOUT_DEBUG = false
-
 global function Bleedout_IsPlayerSelfHealing
 global function Bleedout_IsPlayerGettingFirstAid
 
@@ -447,11 +445,8 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 			}
 		}
 	)
-#if BLEEDOUT_DEBUG
-	waitthread DEBUG_AutoUsePress( playerHealer, playerToRes, firstAidTime )
-#else
+
 	waitthread TrackContinuousUse( playerHealer, playerToRes, firstAidTime, true )
-#endif
 
 	file.isBleeding[ playerToRes ] = false
 	file.lastAttacker[ playerToRes ] = svGlobal.worldspawn
@@ -626,63 +621,6 @@ void function TrackContinuousUse( entity player, entity useTarget, float useTime
 	}
 
 	if ( ( !doRequireUseButtonHeld || player.UseButtonPressed() ) && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2  )
-		result.success = true
-}
-
-void function DEBUG_AutoUsePress( entity player, entity useTarget, float useTime )
-{
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-	useTarget.EndSignal( "OnDeath" )
-	useTarget.EndSignal( "OnDestroy" )
-
-	table result = {}
-	result.success <- false
-	result.unsetUsable <- false
-
-	float maxDist2 = DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) + BLEEDOUT_MAX_USE_DIST2_MOD
-
-	OnThreadEnd
-	(
-		function() : ( player, useTarget, result )
-		{
-			if ( !result.success )
-			{
-				if( IsValid( player ) )
-					player.Signal( "OnContinousUseStopped" )
-			}
-			if( result.unsetUsable )
-			{
-				if( IsAlive( useTarget ) )
-				{
-					useTarget.SetUsableByGroup( "friendlies pilot" )
-					useTarget.SetUsePrompts( "#BLEEDOUT_USE_TEAMMATE_RES", "#BLEEDOUT_USE_TEAMMATE_RES_PC" )
-				}
-			}
-		}
-	)
-
-	bool isSelfUse = player == useTarget
-	float startTime = Time()
-	if( isSelfUse && !file.selfResInterruptable )
-	{
-		// prevent almostDoned selfRes being interrupt
-		player.UnsetUsable()
-		result.unsetUsable = true
-	}
-	
-	while ( Time() < startTime + useTime && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
-	{
-		if( Time() >= startTime + 0.5 && player.IsInputCommandHeld( IN_USE ) ) // manually stop
-			return
-		if( player.ContextAction_IsActive() ) // being interupted by executions!
-			return
-		if( !isSelfUse && Bleedout_IsPlayerBleeding( player ) ) // being downed during reviving teammates!
-			return
-		WaitFrame()
-	}
-
-	if ( DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
 		result.success = true
 }
 

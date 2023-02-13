@@ -2,10 +2,6 @@ untyped
 global function GamemodeAITdm_Init
 
 
-// modified gamemodes!
-global function Modded_Gamemode_GruntMode_Enable_Init
-global function Modded_Gamemode_Extra_Spawner_Enable_Init
-
 const SQUADS_PER_TEAM = 3
 
 const REAPERS_PER_TEAM = 2
@@ -20,26 +16,33 @@ struct
 	array< int > levels = [ LEVEL_SPECTRES, LEVEL_SPECTRES ]
 	array< array< string > > podEntities = [ [ "npc_soldier" ], [ "npc_soldier" ] ]
 	array< bool > reapers = [ false, false ]
-	
+} file
+
+// modded gamemodes
+global function Modded_Gamemode_GruntMode_Enable_Init
+global function Modded_Gamemode_Extra_Spawner_Enable_Init
+
+struct
+{
 	bool gruntmode = false
 	bool extraSpawner = false
-} file
+} modGamemodes
 
 void function Modded_Gamemode_GruntMode_Enable_Init()
 {
-	file.gruntmode = true
+	modGamemodes.gruntmode = true
 }
 
 void function Modded_Gamemode_Extra_Spawner_Enable_Init()
 {
-	file.extraSpawner = true
+	modGamemodes.extraSpawner = true
 }
 
 void function GamemodeAITdm_Init()
 {
-	if( file.gruntmode )
+	if( modGamemodes.gruntmode )
 		Modded_Gamemode_GruntMode_Init()
-	else if( file.extraSpawner )
+	else if( modGamemodes.extraSpawner )
 		Modded_Gamemode_Extra_Spawner_Init()
 	else
 	{
