@@ -50,6 +50,10 @@ const SMOOTH_TIME = 0.2
 const INSTA_KILL_TIME_THRESHOLD = 0.35
 const BUG_REPRO_MOVEMELEE = 19114
 
+// bolo sword primary think
+const float BOLO_SWORD_DEPLOY_TIME = 1.25
+array<string> pullingoutPlayers = []
+
 global struct SyncedMelee
 {
 	string ref
@@ -506,9 +510,65 @@ void function CodeCallback_OnMeleePressed_InternalThread( entity player )
 		float movestunEffect = StatusEffect_Get( player, eStatusEffect.move_slow )
 		bool movestunBlocked = (movestunEffect > STUN_EFFECT_CUTOFF)
 
-		HumanUnsyncedMelee( player, movestunBlocked )
+		// don't let player forced melee after pulling out bolosword
+		// not work, whatever
+		//#if SERVER
+		//thread MeleePulloutThink( player )
+		//if( !pullingoutPlayers.contains( player.GetUID() ) )
+			HumanUnsyncedMelee( player, movestunBlocked )
+		//#endif
 	}
 }
+
+#if SERVER // no need for now
+void function MeleePulloutThink( entity player )
+{
+	string uid = player.GetUID()
+	wait 0.1
+	if( !IsValid( player ) )
+		return
+
+	entity weapon = player.GetActiveWeapon()
+	if( !IsValid( weapon ) )
+		return
+	if( weapon.GetWeaponClassName() != "melee_pilot_sword" )
+	{
+		//print( "[NESSIE] Melee weapon wasn't bolosword" )
+		return
+	}
+	if( !weapon.HasMod( "allow_as_primary" ) )
+	{
+		//print( "[NESSIE] Melee weapon not primary" )
+		return
+	}
+
+	//print( "[NESSIE] Thinking melee pullout..." )
+
+	weapon.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	
+	pullingoutPlayers.append( uid )
+	float startTime = Time()
+	while( Time() - startTime < BOLO_SWORD_DEPLOY_TIME + 0.2 )
+	{
+		wait 0.05
+		if( IsValid( player.GetActiveWeapon() ) )
+		{
+			if( player.GetActiveWeapon().GetWeaponClassName() != "melee_pilot_sword" )
+				break
+		}
+	}
+
+	OnThreadEnd(
+		function() : ( uid )
+		{
+			pullingoutPlayers.fastremovebyvalue( uid )
+			//print( "[NESSIE] Melee pullout think end." )
+		}
+	)
+}
+#endif
 
 //void function CodeCallback_OnMeleeHeld( entity player )
 //{
@@ -1115,6 +1175,20 @@ void function CodeCallback_OnMeleeAttackAnimEvent( entity player )
 	print( "CLIENT: " + player + " is calling CodeCallback_OnMeleeAttackAnimEvent()\n" )
 #endif
 */
+	// some melee weapon have too much animevent like berserker melee and sword, when they set as primary they sometimes don't tigger codecallback, we need fix this
+	// ingnore this! it's the best way to solve enemy titan melees that have been ended
+	// no way! the best way is to reduce "fire_rate" for them
+	/*
+	entity meleeWeapon = player.GetMeleeWeapon()
+	if( IsValid( meleeWeapon ) )
+	{
+		if( meleeWeapon.HasMod( "allow_as_primary" ) )
+		{
+			if ( !player.PlayerMelee_IsAttackActive() )
+				CodeCallback_OnMeleePressed( player )
+		}
+	}
+	*/
 	if ( player.PlayerMelee_IsAttackActive() )
 	{
 #if SERVER
