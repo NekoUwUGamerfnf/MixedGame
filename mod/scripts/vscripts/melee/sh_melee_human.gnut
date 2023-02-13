@@ -113,7 +113,13 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 					#if SERVER
 					if ( doJetPackFX )
 					{
-						thread HumanMeleeJetFX( player ) // if we're lunging to a target do an extra jetpack fx
+						if ( isDashMelee ) // dashMelee will also play a fx if player in valid state
+						{
+							if ( !IsValidMeleeState( player ) )
+								thread HumanMeleeJetFX( player )
+						}
+						else
+							thread HumanMeleeJetFX( player ) // if we're lunging to a target do an extra jetpack fx
 					}
 					#endif
 				}
@@ -330,20 +336,24 @@ void function HumanMeleeJetFX( entity player )
 	array<entity> fx
 
 	OnThreadEnd(
-		function () : ( fx )
+		function () : ( player, fx )
 		{
-			foreach ( effect in fx )
+			if ( IsValid( player ) )
+			{
+				StopSoundOnEntity( player, "jumpjet_jump_body_3p" )
+				EmitSoundOnEntity( player, "jumpjet_jump_end_3p" )
+			}
+			foreach ( entity effect in fx )
 			{
 				if ( !IsValid( effect ) )
 					continue
 
-				effect.ClearParent()
-				effect.Destroy()
+				EffectStop( effect )
 			}
 		}
 	)
 
-	EmitSoundOnEntity( player, "jumpjet_jet_start_3p" )
+	EmitSoundOnEntity( player, "jumpjet_jump_body_3p" )
 
 	// enemy left vent fx
 	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_left", false ) )
@@ -375,10 +385,10 @@ entity function CreateJetFxForPlayer( entity player, asset particle, string atta
 	entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleID, FX_PATTACH_POINT_FOLLOW, attachID )
 	fx.SetOwner( player )
 	SetTeam( fx, player.GetTeam() )
-	//if( isFriendly ) // removed: player can see friendly fx( blue flames and trails )
-	//	fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY // | ENTITY_VISIBLE_TO_OWNER // this might get annoying!
-	//else
-	//	fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+	if( isFriendly ) // removed: player can see friendly fx( blue flames and trails )
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY // | ENTITY_VISIBLE_TO_OWNER // this might get annoying!
+	else
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
 
 	return fx
 }
@@ -509,6 +519,8 @@ void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
 	WaitFrame()
 	if( !IsValidMeleeState( player ) )
 		return
+	
+	thread HumanMeleeJetFX( player ) // if we're lunging to a target do an extra jetpack fx
 	
 	WaitFrame()
 

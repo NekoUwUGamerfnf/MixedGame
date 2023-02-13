@@ -9,6 +9,7 @@ global function ExtraSpawner_SpawnTitanRandom
 global function ExtraSpawner_SpawnGunShip
 
 global function ExtraSpawner_SpawnPilotCanEmbark
+global function ExtraSpawner_SpawnBTWithCooper
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetPilotWeapons
 // unused, unstable
@@ -55,9 +56,10 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	$"models/humans/pilots/pilot_medium_geist_f.mdl", 
 	$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
 	$"models/humans/pilots/pilot_medium_reaper_f.mdl",  
-	//$"models/humans/grunts/mlt_grunt_lmg.mdl", 
-	//$"models/humans/grunts/imc_grunt_lmg.mdl", 
-	//$"models/humans/grunts/imc_grunt_shield_captain.mdl", 
+	/* // now leaving only mp pilot models, for others maybe spawn with their unique titans( like jack in bt, ash in ronin )
+	$"models/humans/grunts/mlt_grunt_lmg.mdl", 
+	$"models/humans/grunts/imc_grunt_lmg.mdl", 
+	$"models/humans/grunts/imc_grunt_shield_captain.mdl", 
 	$"models/Humans/heroes/imc_hero_ash.mdl", 
 	$"models/Humans/heroes/imc_hero_blisk.mdl", 
 	$"models/humans/heroes/mlt_hero_jack.mdl", 
@@ -65,6 +67,7 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	$"models/humans/pilots/sp_medium_geist_f.mdl", 
 	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
 	$"models/humans/pilots/sp_medium_stalker_m.mdl" 
+	*/
 ]
 
 struct
@@ -107,9 +110,9 @@ void function ExtraAISpawner_Init()
 
 	// for debug
 	AddClientCommandCallback( "spawnpilot", ClientCommand_SpawnPilotCanEmbark )
-	//AddClientCommandCallback( "spawnassassin",  )
-	AddClientCommandCallback( "spawnreaper", ClientCommand_SpawnReaperCanLaunchTicks )
-	AddClientCommandCallback( "spawngunship", ClientCommand_SpawnGunShip )
+	//AddClientCommandCallback( "spawnassassin",  ) // WIP
+	//AddClientCommandCallback( "spawnreaper", ClientCommand_SpawnReaperCanLaunchTicks )
+	//AddClientCommandCallback( "spawngunship", ClientCommand_SpawnGunShip )
 
 	// npc pilot score event, better be added by gamemodes
 	//AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
@@ -265,7 +268,8 @@ bool function ClientCommand_SpawnPilotCanEmbark( entity player, array<string> ar
 		if( args[0] == "sameteam" ) // spawn as teammate
 			team = player.GetTeam()
 	}
-	thread ExtraSpawner_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, team )
+	//thread ExtraSpawner_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, team )
+	thread ExtraSpawner_SpawnBTWithCooper( dropPoint.origin, dropPoint.angles, team )
     return true
 }
 
@@ -343,7 +347,7 @@ void function ReplaceWeapon( entity guy, string weapon, array<string> mods )
 
 entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team, bool standUp = true, void functionref( entity titan ) titanHandler = null )
 {
-	int randomindex = RandomInt( 10 ) // should always keep up with max titans, best way is to use a array
+	int randomindex = RandomInt( 9 ) // should always keep up with max titans, best way is to use a array
 	string setfile = ""
 	string aiset = ""
 	string executionRef = "" // funny with MeleeSyncedNPC
@@ -398,11 +402,6 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
 			executionRef = "execution_northstar_prime"
 			moddedTitanName = "brute4" // hardcoded for now
 			break
-		case 9:
-			setfile = "titan_buddy"
-			aiset = "npc_titan_buddy"
-			executionRef = "execution_bt" // handled in modified _melee_synced_titan.gnut, this will pick a random bt execution!
-			moddedTitanName = "bt7274" // hardcoded for now
 	} 
 	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
 	{
@@ -473,12 +472,6 @@ void function BecomeModdedNPCTitan( entity titan, string moddedTitanName )
 			//Melee
 			titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
 			break
-		case "bt7274":
-			// bt require a "squad" to spawn
-			string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "ZiplineTable" ) )
-			SetSquad( titan, squadName )
-			Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // so bt won't be able to remove battery
-			break
 	}
 }
 
@@ -502,6 +495,61 @@ void function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void 
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
+}
+
+entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team )
+{
+	string setfile = "titan_buddy"
+	string aiset = "npc_titan_buddy"
+	string executionRef = "execution_bt" // funny with MeleeSyncedNPC
+
+	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
+	{
+	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
+	}
+	thread Reaper_Spawnpoint( pos, team, 5.0 )
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiset )
+    titan.ai.titanSpawnLoadout.setFile = setfile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	DispatchSpawn( titan )
+
+	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
+	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["arc_rounds"] ) // use the arc-rounds monarch xo16
+
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef // "execution_bt" now handle in melee_synced_titan to use random execution
+	// bt require a "squad" to spawn
+	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "ZiplineTable" ) )
+	SetSquad( titan, squadName )
+	Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // so bt won't be able to remove battery
+
+	thread NPCTitanHotdrops( titan, true )
+
+	// jack cooper settings!
+	titanSoul.soul.seatedNpcPilot.isValid				= true
+
+	titanSoul.soul.seatedNpcPilot.team 					= team
+
+	NPCPilotWeaponStruct weaponStruct
+	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+
+	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/humans/heroes/mlt_hero_jack.mdl"
+	titanSoul.soul.seatedNpcPilot.title 				= "傑克庫伯"
+
+	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
+
+	titanSoul.soul.seatedNpcPilot.health				= 1500
+
+	titan.SetTitle( "BT-7274" )
+	thread ExtraSpawner_TitanHandler( titan )
+
+	return titan
 }
 
 void function ExtraSpawner_SpawnNPC( vector pos, vector rot, int team, string content )
