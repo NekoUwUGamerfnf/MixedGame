@@ -310,6 +310,9 @@ void function GameStateEnter_Playing_Threaded()
 			else
 				winningTeam = GetWinningTeamWithFFASupport()
 
+			if ( winningTeam < TEAM_UNASSIGNED ) // no valid winner
+				winningTeam = TEAM_UNASSIGNED
+
 			if ( file.switchSidesBased && !file.hasSwitchedSides && !IsRoundBased() ) // in roundbased modes, we handle this in setwinner
 				SetGameState( eGameState.SwitchingSides )
 			else if ( file.suddenDeathBased && winningTeam == TEAM_UNASSIGNED ) // suddendeath if we draw and suddendeath is enabled and haven't switched sides
@@ -357,25 +360,24 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME )
 	}
 
+	// scoreEvents
+	bool isMatchEnd = false
 	// SetTeamScore() should be done after announced winner
 	if ( IsRoundBased() )
 	{
-		if ( winningTeam != TEAM_UNASSIGNED )
+		if ( winningTeam > TEAM_UNASSIGNED )
 		{
 			GameRules_SetTeamScore( winningTeam, GameRules_GetTeamScore( winningTeam ) + 1 )
 			GameRules_SetTeamScore2( winningTeam, GameRules_GetTeamScore2( winningTeam ) + 1 )
+
+			int highestScore = GameRules_GetTeamScore( winningTeam )
+			int roundScoreLimit = GameMode_GetRoundScoreLimit( GAMETYPE )
+				
+			if ( highestScore >= roundScoreLimit )
+				isMatchEnd = true
 		}
 	}
-	// scoreEvents
-	bool isMatchEnd = true
-	if ( IsRoundBased() )
-	{
-		int highestScore = GameRules_GetTeamScore( GetWinningTeam() )
-		int roundScoreLimit = GameMode_GetRoundScoreLimit( GAMETYPE )
-			
-		if ( highestScore < roundScoreLimit )
-			isMatchEnd = false
-	}
+	
 	if ( isMatchEnd )
 		AddScoreForMatchWinning( "MatchVictory", "MatchComplete", winningTeam ) // use this winningTeam to get current winner!
 	else
@@ -503,7 +505,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		int roundsPlayed = expect int ( GetServerVar( "roundsPlayed" ) )
 		SetServerVar( "roundsPlayed", roundsPlayed + 1 )
 		
-		int winningTeam = GetWinningTeam()//GetWinningTeamWithFFASupport() // seriously no need to use this, check should be done on winnerDetermined
+		int winningTeam = GetWinningTeam() //GetWinningTeamWithFFASupport() // seriously no need to use this, check should be done on winnerDetermined
 		
 		int highestScore = GameRules_GetTeamScore( winningTeam )
 		int roundScoreLimit = GameMode_GetRoundScoreLimit( GAMETYPE )
@@ -1180,7 +1182,7 @@ void function SetWinner( int team, string winningReason = "", string losingReaso
 	{
 		if ( IsRoundBased() )
 		{	
-			if ( team != TEAM_UNASSIGNED )
+			if ( team > TEAM_UNASSIGNED )
 			{
 				// round limit reached!
 				if( GameRules_GetTeamScore( team ) == GameMode_GetRoundScoreLimit( GAMETYPE ) )
@@ -1333,7 +1335,7 @@ void function DialoguePlayWinnerDetermined()
 		else if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() < GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() )
 			winningTeam = TEAM_IMC
 
-		if( winningTeam != TEAM_UNASSIGNED )
+		if( winningTeam > TEAM_UNASSIGNED )
 		{
 			PlayFactionDialogueToTeam( "scoring_won" , winningTeam )
 			PlayFactionDialogueToTeam( "scoring_lost", GetOtherTeam( winningTeam ) )
