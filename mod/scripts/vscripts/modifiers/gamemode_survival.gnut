@@ -55,36 +55,43 @@ void function Modded_Gamemode_Survival_Init()
     PrecacheModel( $"models/Robots/mobile_hardpoint/mobile_hardpoint.mdl" )
     RegisterSignal( "OnContinousUseStopped" )
     
-    // Vanilla Mode Settings
+    // Vanilla Mode Settings, how to show score boards?
     //SetRoundBased( true )
     SetRespawnsEnabled( false )
     //SetShouldUseRoundWinningKillReplay( true )
-    //SetRoundBased( true ) //
     Riff_ForceSetEliminationMode( eEliminationMode.Pilots ) //
-    Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
+    //Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
     Riff_ForceTitanAvailability( eTitanAvailability.Always )
+    AiGameModes_SetGruntWeapons( [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
+	AiGameModes_SetSpectreWeapons( [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
 
     // modded settings
     // intro
 	ClassicMP_SetCustomIntro( ClassicMP_ShorterDropshipIntro_Setup, DROPSHIP_INTRO_LENGTH_SHORTER )
     //ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() )
     SetWaitingForPlayersMaxDuration( 30.0 ) // wait a bit longer
+    ClassicMP_ForceDisableEpilogue( true )
 
     // gameplay
     SetShouldPlayFactionDialogue( false ) // disable default faction dialogue, this mode needs manually controlling the dialogues
     SetBattleChatterEnableToSelf( true ) // play chatter to player themselves
     Burnmeter_SetForcedReward( SURVIVAL_BURNMETER_REWARD ) // better one: give players 3 turrets at start
-    SetLateJoinRespawnEnabled( false ) // this mode use a standalone respawn method
+    //SetLateJoinRespawnEnabled( false ) // this mode use a standalone respawn method
 
     // custom highlight settings
     SetUseCustomHighlight( true ) 
 	SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
 
     // Callbacks
+    AddCallback_PlayerClassChanged( OnPlayerClassChanged )
     AddCallback_OnClientConnected( OnClientConnected )
     AddCallback_OnPlayerGetsNewPilotLoadout( OnPilotGetLoadout )
     AddCallback_OnPlayerKilled( OnPlayerKilled )
+    AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
     AddCallback_GameStateEnter( eGameState.Playing, OnGamePlaying )
+
+    // TEMP PLAYLIST
+    AddCallback_GameStateEnter( eGameState.Postmatch, ForceChangeMapAfterGame )
 }
 
 
@@ -92,6 +99,11 @@ void function Modded_Gamemode_Survival_Init()
 //////////////////////////////
 ///// CALLBACK FUNCTIONS /////
 //////////////////////////////
+
+void function OnPlayerClassChanged( entity player )
+{
+    UpdateSurvivalPlayerClass( player )
+}
 
 void function OnClientConnected( entity player )
 {
@@ -109,10 +121,14 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
     DropPlayerBanner( victim, damageInfo )
 }
 
-void function OnGamePlaying()
+void function OnGamePrematch()
 {
     SpawnRespawnBeacons()
-    //StartNPCSpawner()
+}
+
+void function OnGamePlaying()
+{
+    StartNPCSpawner()
 }
 
 //////////////////////////////////
@@ -124,6 +140,17 @@ void function OnGamePlaying()
 /////////////////////////////
 ///// LOADOUT FUNCTIONS /////
 /////////////////////////////
+
+const int SURVIVAL_PLAYER_HEALTH = 150
+
+void function UpdateSurvivalPlayerClass( entity player )
+{
+    if ( IsAlive( player ) )
+    {
+        player.SetMaxHealth( SURVIVAL_PLAYER_HEALTH )
+        player.SetHealth( SURVIVAL_PLAYER_HEALTH )
+    }
+}
 
 const string SURVIVAL_BANNER_WEAPON             = "mp_ability_burncardweapon"
 
@@ -222,9 +249,9 @@ entity function CreatePlayerBanner( entity player )
 {
     vector origin = player.GetOrigin() // + < 0,0,31 > // offset for the prop
     vector angles = < 0, player.GetAngles().y + 90, 0 > // don't want to rotate so much, yaw is enough
-    int spawnFlags = 6 // SOLID_VPHYSICS
+    int solidType = 6 // SOLID_VPHYSICS
 
-    entity banner = CreatePropDynamic( PLAYER_BANNER_MODEL, origin, angles, spawnFlags )
+    entity banner = CreatePropDynamic( PLAYER_BANNER_MODEL, origin, angles, solidType )
     banner.SetUsable()
     banner.SetUsableByGroup( "friendlies pilot" )
     banner.SetUsePrompts( "", "按下 %use% 撿起 " + player.GetPlayerName() + " 的旗幟" )
@@ -335,15 +362,45 @@ void function SpawnRespawnBeacons()
         if ( spawnpoint.kv.gamemode_cp == "0" )
             continue
 
-        entity beacon = CreatePropDynamic( spawnpoint.GetModelName(), spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 6 )
-		SetTeam( beacon, SURVIVAL_PLAYER_TEAM )
-        Highlight_SetFriendlyHighlight( beacon, "battery_thief" ) // how to highlight this?
+        asset modelName = spawnpoint.GetModelName()
+        vector origin = spawnpoint.GetOrigin()
+        vector angles = spawnpoint.GetAngles()
+        int solidType = 6 // SOLID_VPHYSICS
+        entity beacon = CreateEntity( "prop_script" ) //CreatePropDynamic( spawnpoint.GetModelName(), spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 6 )
+		beacon.SetValueForModelKey( modelName )
+        beacon.SetOrigin( origin )
+        beacon.SetAngles( angles )
+        beacon.kv.solid = solidType
+        beacon.DisableHibernation() // prevent it from fading
+        Highlight_SetOwnedHighlight( beacon, "friendly_ai" ) // init the highlight
+        
+        DispatchSpawn( beacon )
+
+        beacon.SetModel( modelName )
+        thread ResetBeaconTeamToEnableHighlight( beacon ) // pretty hacky
+        //Highlight_SetFriendlyHighlight( beacon, "battery_thief" ) // how to highlight this?
+        Highlight_SetNeutralHighlight( beacon, "enemy_boss_bounty" )
+
         beacon.SetUsableByGroup( "friendlies pilot" )
         thread PlayAnim( beacon, "mh_inactive_idle" )
 
-        thread RespawnBeaconThink( beacon )
+        // minimap icons
+        beacon.Minimap_SetCustomState( eMinimapObject_prop_script.FW_BUILDSITE_SHIELDED )
+        beacon.Minimap_AlwaysShow( SURVIVAL_PLAYER_TEAM, null )
+        beacon.Minimap_SetAlignUpright( true )
+
+        thread RespawnBeaconThink( beacon ) // main mechanic function
         file.respawnBeacons.append( beacon )
     }
+}
+
+// this is really hacky, but it will work if you want the entity spawn with it's highlight
+void function ResetBeaconTeamToEnableHighlight( entity beacon )
+{
+    beacon.EndSignal( "OnDestroy" )
+    SetTeam( beacon, SURVIVAL_PLAYER_TEAM )
+    wait 2
+    SetTeam( beacon, TEAM_UNASSIGNED )
 }
 
 void function RespawnBeaconThink( entity beacon )
@@ -353,9 +410,6 @@ void function RespawnBeaconThink( entity beacon )
     beacon.SetUsePrompts( "", "按住 %use% 提交旗幟卡" ) // this only needs "hold" prompts, but ttf don't have such a usage
     while ( true )
     {
-        if ( GetGameState() != eGameState.Playing )
-            WaitFrame()
-
         beacon.SetUsable()
         table result = beacon.WaitSignal( "OnPlayerUse" )
         entity user = expect entity ( result.player )
@@ -368,6 +422,12 @@ const float RESPAWN_BEACON_USE_DIST2            = 64 * 64
 
 void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
 {
+    if ( GetGameState() != eGameState.Playing )
+    {
+        SendHudMessage( player, "不在可用時期", -1, -0.3, 255, 255, 0, 255, 0.2, 1.5, 0.5 )
+        return
+    }
+
     if ( IsPlayerCollectingBanner( player ) ) // player is still collecting banners
         return
 
@@ -381,6 +441,7 @@ void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
     beacon.UnsetUsable()
     player.EndSignal( "OnDeath" )
     player.EndSignal( "OnDestroy" )
+    beacon.EndSignal( "OnDestroy" )
     player.EndSignal( "OnContinousUseStopped" )
     int playerEHandle = player.GetEncodedEHandle()
     float endTime = Time() + RESPAWN_BEACON_USE_TIME
@@ -400,9 +461,12 @@ void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
     waitthread TrackBeaconContinuousUse( player, beacon, RESPAWN_BEACON_USE_TIME )
 
     // successfully reached this point
+    RespawnBeaconActivate( beacon, player.GetTeam() )
     playersToRespawn = GetTeamActiveBanners() //GetPlayerActiveBanners( player ) // update array
-    vector origin = beacon.GetOrigin() + < 0, 0, 500 > // same as apex does
+    vector origin = beacon.GetOrigin()
+    origin.z += float ( RandomIntRange( 500, 800 ) ) // add randomness
     vector angles = beacon.GetAngles()
+    angles.y = float ( RandomInt( 360 ) ) // add randomness
     thread RespawnPlayersInDropshipAtPoint( playersToRespawn, origin, angles )
     ClearTeamBanners()
 }
@@ -433,7 +497,7 @@ void function TrackBeaconContinuousUse( entity player, entity useTarget, float u
 			    StatusEffect_Stop( player, moveLockEffect )
 
                 // restore weapon usage
-                player.EnableWeaponViewModel()
+                player.DeployWeapon()
                 player.Server_TurnOffhandWeaponsDisabledOff()
 
                 StopSoundOnEntity( player, "Hardpoint_Amped_ProgressBar" )
@@ -446,16 +510,80 @@ void function TrackBeaconContinuousUse( entity player, entity useTarget, float u
 	while ( Time() < startTime + useTime && player.UseButtonPressed() && !player.IsPhaseShifted() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
 	{
         // disable weapon usage
-        player.DisableWeaponViewModel()
+        player.HolsterWeapon()
         player.Server_TurnOffhandWeaponsDisabledOn()
 
 		if( player.ContextAction_IsActive() ) // being interupted by executions!
 			return
+        //if ( GetTeamActiveBanners().len() == 0 ) // no valid banners
+            //return
 		WaitFrame()
 	}
 
 	if ( player.UseButtonPressed() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2  )
 		result.success = true
+}
+
+void function RespawnBeaconActivate( entity beacon, int team )
+{
+    thread RespawnBeaconActivate_Threaded( beacon, team )
+}
+
+const asset RESPAWN_BEACON_ACTIVATE_FX = $"P_wpn_arcTrap_start"
+const asset RESPAWN_BEACON_RING_FX = $"P_arcTrap_light"
+const asset RESPAWN_BEACON_INDICATOR_FX = $"P_ar_titan_droppoint"
+const float RESPAWN_BEACON_ACTIVATE_TIME = 2.0 // good for animations to play
+
+void function RespawnBeaconActivate_Threaded( entity beacon, int team )
+{
+    beacon.EndSignal( "OnDestroy" )
+    vector origin = beacon.GetOrigin()
+    vector angles = beacon.GetAngles()
+    vector surfaceNormal = < 0, 0, 1 >
+    SetTeam( beacon, team ) // set team for a while
+
+    entity fxModel = CreatePropDynamic( $"models/weapons/sentry_shield/sentry_shield_proj.mdl", origin, angles )
+	fxModel.Hide()
+
+    array<entity> activeFXs
+    int attachID = fxModel.LookupAttachment( "fx_center" )
+    int startFxId = GetParticleSystemIndex( RESPAWN_BEACON_ACTIVATE_FX )
+    activeFXs.append( StartParticleEffectOnEntity_ReturnEntity( fxModel, startFxId, FX_PATTACH_POINT_FOLLOW, attachID ) )
+
+	int ringFxId = GetParticleSystemIndex( RESPAWN_BEACON_RING_FX )
+    activeFXs.append( StartParticleEffectOnEntity_ReturnEntity( fxModel, ringFxId, FX_PATTACH_POINT_FOLLOW, attachID ) )
+
+    int indicFxId = GetParticleSystemIndex( RESPAWN_BEACON_INDICATOR_FX )
+    entity indicatorFX = StartParticleEffectInWorld_ReturnEntity( indicFxId, origin, surfaceNormal )
+    EffectSetControlPointVector( indicatorFX, 1, < 128,188,255 > ) // blue
+	indicatorFX.DisableHibernation()
+    activeFXs.append( indicatorFX )
+
+    EmitSoundOnEntity( beacon, "hardpoint_console_captured" )
+    thread PlayAnim( beacon, "mh_inactive_2_active" ) // amped animation
+
+    OnThreadEnd
+    (
+        function(): ( fxModel, activeFXs, beacon )
+        {
+            foreach ( entity fx in activeFXs )
+            {
+                if ( IsValid( fx ) )
+                    EffectStop( fx )
+            }
+
+            if ( IsValid( fxModel ) )
+                fxModel.Destroy()
+
+            if ( IsValid( beacon ) )
+            {
+                SetTeam( beacon, TEAM_UNASSIGNED )
+                thread PlayAnim( beacon, "mh_active_2_inactive" )
+            }
+        }
+    )
+
+    wait RESPAWN_BEACON_ACTIVATE_TIME
 }
 
 void function InitRespawnBeaconDropship()
@@ -693,8 +821,300 @@ void function FallTempAirControl_Threaded( entity player )
 ///// NPC SPAWNER FUNCTIONS /////
 /////////////////////////////////
 
+void function StartNPCSpawner()
+{
+    thread Spawner( GetOtherTeam( SURVIVAL_PLAYER_TEAM ) )
+    thread SpawnerExtend( GetOtherTeam( SURVIVAL_PLAYER_TEAM ) )
+}
 
+const int SQUADS_MAX_COUNT = 5
+const int REAPERS_MAX_COUNT = 3
+const int TITANS_MAX_COUNT = 3
+
+// Populates the match
+void function Spawner( int team )
+{
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+
+	int index = team == TEAM_MILITIA ? 0 : 1
+
+	while( true )
+	{
+		if( GetGameState() == eGameState.Playing )
+		{
+			//Escalate( team )
+
+			// TODO: this should possibly not count scripted npc spawns, probably only the ones spawned by this script
+			array<entity> npcs = GetNPCArrayOfTeam( team )
+			int count = npcs.len()
+			int reaperCount = GetNPCArrayEx( "npc_super_spectre", team, -1, <0,0,0>, -1 ).len()
+
+			// REAPERS
+            array< entity > points = SpawnPoints_GetDropPod()
+            if ( reaperCount < REAPERS_MAX_COUNT )
+            {
+                entity node = points[ GetSpawnPointIndex( points, team ) ]
+                waitthread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
+            }
+
+			// NORMAL SPAWNS
+			if ( count < SQUADS_MAX_COUNT * 4 - 2 )
+			{
+                array<string> podEntities = ["npc_soldier", "npc_stalker", "npc_spectre"]
+				string ent = podEntities[ RandomInt( podEntities.len() ) ]
+
+				array< entity > points = GetZiplineDropshipSpawns()
+
+				// Prefer dropship when spawning grunts
+				if ( ent == "npc_soldier" && points.len() / 4 > 0 ) // must have more than 4 points
+				{
+					if ( RandomInt( points.len() / 4 ) )
+					{
+						entity node = points[ GetSpawnPointIndex( points, team ) ]
+						waitthread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
+						continue
+					}
+				}
+
+				points = SpawnPoints_GetDropPod()
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent, SquadHandler )
+			}
+		}
+		else
+			break
+		WaitFrame()
+	}
+}
+
+// tells infantry where to go
+// In vanilla there seem to be preset paths ai follow to get to the other teams vone and capture it
+// AI can also flee deeper into their zone suggesting someone spent way too much time on this
+void function SquadHandler( array<entity> guys )
+{
+	// Not all maps have assaultpoints / have weird assault points ( looking at you ac )
+	// So we use enemies with a large radius
+	array< entity > points = GetNPCArrayOfEnemies( guys[0].GetTeam() )
+	
+	if ( points.len()  == 0 )
+		return
+	
+	vector point
+	point = points[ RandomInt( points.len() ) ].GetOrigin()
+	
+	array<entity> players = GetPlayerArrayOfEnemies( guys[0].GetTeam() )
+	
+	// Setup AI
+	foreach ( guy in guys )
+	{
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultPoint( point )
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+		
+		// show on enemy radar
+		foreach ( player in players )
+			guy.Minimap_AlwaysShow( 0, player )
+		
+		
+		thread CleanupBoredNPCThread( guy )
+	}
+	
+	// Every 5 - 15 secs change AssaultPoint
+	while ( true )
+	{	
+		foreach ( guy in guys )
+		{
+			// Check if alive
+			if ( !IsAlive( guy ) )
+			{
+				guys.removebyvalue( guy )
+				continue
+			}
+			// Stop func if our squad has been killed off
+			if ( guys.len() == 0 )
+				return
+			
+			// Get point and send guy to it
+			points = GetNPCArrayOfEnemies( guy.GetTeam() )
+			if ( points.len() == 0 )
+				continue
+				
+			point = points[ RandomInt( points.len() ) ].GetOrigin()
+			
+			guy.AssaultPoint( point )
+		}
+		wait RandomFloatRange(5.0,15.0)
+	}
+}
+
+void function ReaperHandler( entity reaper )
+{
+	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+	foreach ( player in players )
+		reaper.Minimap_AlwaysShow( 0, player )
+
+	thread CleanupBoredNPCThread( reaper )
+}
+
+void function CleanupBoredNPCThread( entity guy )
+{
+	// track all ai that we spawn, ensure that they're never "bored" (i.e. stuck by themselves doing fuckall with nobody to see them) for too long
+	// if they are, kill them so we can free up slots for more ai to spawn
+	// we shouldn't ever kill ai if players would notice them die
+
+	// NOTE: this partially covers up for the fact that we script ai alot less than vanilla probably does
+	// vanilla probably messes more with making ai assaultpoint to fights when inactive and stuff like that, we don't do this so much
+
+	guy.EndSignal( "OnDestroy" )
+	wait 15.0 // cover spawning time from dropship/pod + before we start cleaning up
+
+	int cleanupFailures = 0 // when this hits 2, cleanup the npc
+	while ( cleanupFailures < 2 )
+	{
+		wait 10.0
+
+		if ( guy.GetParent() != null )
+			continue // never cleanup while spawning
+
+		array<entity> otherGuys = GetPlayerArray()
+		otherGuys.extend( GetNPCArrayOfTeam( GetOtherTeam( guy.GetTeam() ) ) )
+
+		bool failedChecks = false
+
+		foreach ( entity otherGuy in otherGuys )
+		{
+			// skip dead people
+			if ( !IsAlive( otherGuy ) )
+				continue
+
+			failedChecks = false
+
+			// don't kill if too close to anything
+			if ( Distance( otherGuy.GetOrigin(), guy.GetOrigin() ) < 2000.0 )
+				break
+
+			// don't kill if ai or players can see them
+			if ( otherGuy.IsPlayer() )
+			{
+				if ( PlayerCanSee( otherGuy, guy, true, 135 ) )
+					break
+			}
+			else
+			{
+				if ( otherGuy.CanSee( guy ) )
+					break
+			}
+
+			// don't kill if they can see any ai
+			if ( guy.CanSee( otherGuy ) )
+				break
+
+			failedChecks = true
+		}
+
+		if ( failedChecks )
+			cleanupFailures++
+		else
+			cleanupFailures--
+	}
+
+	print( "cleaning up bored npc: " + guy + " from team " + guy.GetTeam() )
+	guy.Destroy()
+}
+
+void function SpawnerExtend( int team )
+{
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+
+	int index = team == TEAM_MILITIA ? 0 : 1
+
+	while( true )
+	{
+		if( GetGameState() == eGameState.Playing )
+		{
+			//Escalate( team )
+
+	        int pilotCount = GetNPCArrayEx( "npc_pilot_elite", team, -1, <0,0,0>, -1 ).len() + GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
+
+			// PILOTS
+            array< entity > points = SpawnPoints_GetDropPod()
+            if ( pilotCount < TITANS_MAX_COUNT )
+            {
+                entity node = points[ GetSpawnPointIndex( points, team ) ]
+                //entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team, TitanHandler )
+                if ( RandomInt( 10 ) == 0 ) // BT has 10% chance to spawn
+                    waitthread ExtraSpawner_SpawnBTWithCooper( node.GetOrigin(), node.GetAngles(), team )
+                else
+                    waitthread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
+            }
+		}
+		else
+			break
+		WaitFrame()
+	}
+}
+
+int function GetSpawnPointIndex( array< entity > points, int team )
+{
+	entity zone = DecideSpawnZone_Generic( points, team )
+
+	if ( IsValid( zone ) )
+	{
+		// 20 Tries to get a random point close to the zone
+		for ( int i = 0; i < 20; i++ )
+		{
+			int index = RandomInt( points.len() )
+
+			if ( Distance2D( points[ index ].GetOrigin(), zone.GetOrigin() ) < 6000 )
+				return index
+		}
+	}
+
+	return RandomInt( points.len() )
+}
 
 /////////////////////////////////////
 ///// NPC SPAWNER FUNCTIONS END /////
 /////////////////////////////////////
+
+
+
+//////////////////////////
+///// TEMP FUNCTIONS /////
+//////////////////////////
+
+const array<string> FORCED_SURVIVAL_PLAYLIST =
+[
+    "mp_glitch",
+    "mp_colony02",
+    "mp_drydock",
+    "mp_black_water_canal",
+    "mp_thaw",
+    "mp_homestead",
+    "mp_forwardbase_kodai",
+    "mp_angel_city"
+] // excluded mp_relic02, mp_grave, mp_eden, mp_wargames, mp_rise, mp_complex3 and mp_crashsite3, for they have very high parts or canyons?
+
+void function ForceChangeMapAfterGame()
+{
+    string nextMap = GetNextSurvivalMap()
+
+    ServerCommand( "map " + nextMap )
+}
+
+string function GetNextSurvivalMap()
+{
+	string curMapName = GetMapName()
+
+    int mapIndex = FORCED_SURVIVAL_PLAYLIST.find( GetMapName() )
+    mapIndex += 1 // next map index
+	if( mapIndex == FORCED_SURVIVAL_PLAYLIST.len() ) // reached last map?
+		mapIndex = 0
+	string map = FORCED_SURVIVAL_PLAYLIST[mapIndex]
+
+    return map
+}
+
+//////////////////////////////
+///// TEMP FUNCTIONS END /////
+//////////////////////////////
