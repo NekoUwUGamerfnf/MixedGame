@@ -8,33 +8,51 @@ struct {
 	entity flagCarrier
 } file
 
+// modded gamemodes
+global function Modded_Gamemode_Survival_Enable_Init
+
+struct
+{
+	bool survival = false
+} modGamemodes
+
+void function Modded_Gamemode_Survival_Enable_Init()
+{
+	modGamemodes.survival = true
+}
+
 void function GamemodeSpeedball_Init()
 {
-	PrecacheModel( CTF_FLAG_MODEL )
-	PrecacheModel( CTF_FLAG_BASE_MODEL )
+	if ( modGamemodes.survival )
+		Modded_Gamemode_Survival_Init()
+	else
+	{
+		PrecacheModel( CTF_FLAG_MODEL )
+		PrecacheModel( CTF_FLAG_BASE_MODEL )
 
-	// gamemode settings
-	SetRoundBased( true )
-	SetRespawnsEnabled( false )
-	SetShouldUseRoundWinningKillReplay( true )
-	EarnMeterMP_SetPassiveGainProgessEnable( false )
-	Riff_ForceTitanAvailability( eTitanAvailability.Never )
-	Riff_ForceSetEliminationMode( eEliminationMode.Pilots )
-	ScoreEvent_SetupEarnMeterValuesForMixedModes()
-	
-	AddSpawnCallbackEditorClass( "script_ref", "info_speedball_flag", CreateFlag )
-	
-	AddCallback_GameStateEnter( eGameState.Prematch, CreateFlagIfNoFlagSpawnpoint )
-	AddCallback_GameStateEnter( eGameState.Playing, ResetFlag )
-	AddCallback_GameStateEnter( eGameState.WinnerDetermined,GamemodeSpeedball_OnWinnerDetermined)
-	AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
-	AddCallback_OnPlayerKilled( OnPlayerKilled )
-	SetTimeoutWinnerDecisionFunc( TimeoutCheckFlagHolder )
-	SetTimeoutWinnerDecisionReason( "#GAMEMODE_SPEEDBALL_WIN_TIME_FLAG_LAST", "#GAMEMODE_SPEEDBALL_LOSS_TIME_FLAG_LAST" )
-	AddCallback_OnRoundEndCleanup( ResetFlag )
+		// gamemode settings
+		SetRoundBased( true )
+		SetRespawnsEnabled( false )
+		SetShouldUseRoundWinningKillReplay( true )
+		EarnMeterMP_SetPassiveGainProgessEnable( false )
+		Riff_ForceTitanAvailability( eTitanAvailability.Never )
+		Riff_ForceSetEliminationMode( eEliminationMode.Pilots )
+		ScoreEvent_SetupEarnMeterValuesForMixedModes()
+		
+		AddSpawnCallbackEditorClass( "script_ref", "info_speedball_flag", CreateFlag )
+		
+		AddCallback_GameStateEnter( eGameState.Prematch, CreateFlagIfNoFlagSpawnpoint )
+		AddCallback_GameStateEnter( eGameState.Playing, ResetFlag )
+		AddCallback_GameStateEnter( eGameState.WinnerDetermined,GamemodeSpeedball_OnWinnerDetermined)
+		AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
+		AddCallback_OnPlayerKilled( OnPlayerKilled )
+		SetTimeoutWinnerDecisionFunc( TimeoutCheckFlagHolder )
+		SetTimeoutWinnerDecisionReason( "#GAMEMODE_SPEEDBALL_WIN_TIME_FLAG_LAST", "#GAMEMODE_SPEEDBALL_LOSS_TIME_FLAG_LAST" )
+		AddCallback_OnRoundEndCleanup( ResetFlag )
 
-	ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, NOINTRO_INTRO_SPEEDBALL_LENGTH )
-	ClassicMP_ForceDisableEpilogue( true )
+		ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, NOINTRO_INTRO_SPEEDBALL_LENGTH )
+		ClassicMP_ForceDisableEpilogue( true )
+	}
 }
 
 void function CreateFlag( entity flagSpawn )
