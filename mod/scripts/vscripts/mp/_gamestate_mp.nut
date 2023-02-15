@@ -361,10 +361,11 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	}
 
 	// scoreEvents
-	bool isMatchEnd = false
+	bool isMatchEnd = true
 	// SetTeamScore() should be done after announced winner
 	if ( IsRoundBased() )
 	{
+		isMatchEnd = false // default will be false!
 		if ( winningTeam > TEAM_UNASSIGNED )
 		{
 			GameRules_SetTeamScore( winningTeam, GameRules_GetTeamScore( winningTeam ) + 1 )
