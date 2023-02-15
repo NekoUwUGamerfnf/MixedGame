@@ -3,6 +3,7 @@ untyped // for AddCallback_OnUseEntity()
 global function Respawn_Beacon_Init
 
 global function SpawnRespawnBeacons // this is required to spawn beacons
+global function SetRespawnBeaconUseTime
 global function AddCallback_OnPlayerRespawnBannerCollected
 global function AddCallback_OnPlayerActivateRespawnBeacon
 
@@ -24,12 +25,15 @@ struct BeaconPlayerStruct
     //array<entity> carryingBanners // array<entity> for saving banner owner
 }
 
+const float DEFAULT_RESPAWN_BEACON_USE_TIME         = 5.0
+
 struct
 {
     // Callback Array
     array< void functionref( entity, entity ) > playerBannerCollectedCallbacks
-    array< void functionref( entity ) > playerBeaconActivateCallbacks
+    array< void functionref( entity, array<entity> ) > playerBeaconActivateCallbacks
 
+    float respawnBeaconUseTime = DEFAULT_RESPAWN_BEACON_USE_TIME
 
     array<entity> respawnBeacons
     array<entity> respawnDropships
@@ -58,7 +62,7 @@ void function AddCallback_OnPlayerRespawnBannerCollected( void functionref( enti
     file.playerBannerCollectedCallbacks.append( callbackFunc )
 }
 
-void function AddCallback_OnPlayerActivateRespawnBeacon( void functionref( entity ) callbackFunc )
+void function AddCallback_OnPlayerActivateRespawnBeacon( void functionref( entity, array<entity> ) callbackFunc )
 {
     file.playerBeaconActivateCallbacks.append( callbackFunc )
 }
@@ -180,7 +184,11 @@ void function RespawnBeaconThink( entity beacon )
     }
 }
 
-const float RESPAWN_BEACON_USE_TIME             = 5.0
+void function SetRespawnBeaconUseTime( float useTime )
+{
+    file.respawnBeaconUseTime = useTime
+}
+
 const float RESPAWN_BEACON_USE_DIST2            = 64 * 64 
 
 void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
@@ -208,7 +216,7 @@ void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
     beacon.EndSignal( "OnDestroy" )
     player.EndSignal( "OnContinousUseStopped" )
     int playerEHandle = player.GetEncodedEHandle()
-    float endTime = Time() + RESPAWN_BEACON_USE_TIME
+    float endTime = Time() + file.respawnBeaconUseTime
 
     OnThreadEnd
     (
@@ -222,17 +230,17 @@ void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
     )
 
     Remote_CallFunction_NonReplay( player, "ServerCallback_BLEEDOUT_StartFirstAidProgressBar", endTime, playerEHandle, playerEHandle, 1 ) // how does attemptID work?
-    waitthread TrackBeaconContinuousUse( player, beacon, RESPAWN_BEACON_USE_TIME )
+    waitthread TrackBeaconContinuousUse( player, beacon, file.respawnBeaconUseTime )
 
-    // run callbacks
-    foreach ( void functionref( entity ) callbackFunc in file.playerBeaconActivateCallbacks )
-    {
-        callbackFunc( player )
-    }
-    
     // successfully reached this point
     RespawnBeaconActivate( beacon, team )
     playersToRespawn = GetTeamActiveBanners( team ) //GetPlayerActiveBanners( player ) // update array
+    // run callbacks
+    foreach ( void functionref( entity, array<entity> ) callbackFunc in file.playerBeaconActivateCallbacks )
+    {
+        callbackFunc( player, playersToRespawn )
+    }
+    
     vector origin = beacon.GetOrigin()
     origin.z += float ( RandomIntRange( 500, 800 ) ) // add randomness
     vector angles = beacon.GetAngles()
@@ -283,6 +291,8 @@ void function TrackBeaconContinuousUse( entity player, entity useTarget, float u
         player.HolsterWeapon()
         player.Server_TurnOffhandWeaponsDisabledOn()
 
+        SendHudMessage( player, "正在使用重生信標 [ " + CreateProgressBarString( Time(), startTime, useTime ) + " ]", -1, -0.3, 255, 255, 100, 255, 0, 0.2, 0 )
+
 		if( player.ContextAction_IsActive() ) // being interupted by executions!
 			return
         //if ( GetTeamActiveBanners().len() == 0 ) // no valid banners
@@ -292,6 +302,25 @@ void function TrackBeaconContinuousUse( entity player, entity useTarget, float u
 
 	if ( player.UseButtonPressed() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2  )
 		result.success = true
+}
+
+string function CreateProgressBarString( float nowGlobalTime, float startGlobalTime, float totalTime )
+{
+    int barLength = 20
+    float progress = ( nowGlobalTime - startGlobalTime ) / totalTime
+    //print( "Total progress is: " + string( progress ) )
+    int numToReplace = int( barLength * progress )
+    //print( "numToReplace is: " + string( numToReplace ) )
+    string progessBar
+    for( int i = 0; i < barLength; i++ )
+    {
+        if( i <= numToReplace )
+            progessBar += "/"
+        else
+            progessBar += "-"
+    }
+    string tempBar = progessBar
+    return tempBar
 }
 
 void function RespawnBeaconActivate( entity beacon, int team )

@@ -1,8 +1,7 @@
 untyped // for GiveExtraWeaponMod()
 
 /* Required PlaylistVars
-    roundscorelimit 9999+
-    roundtimelimit 9999+
+    scorelimit 9999+
     earn_meter_pilot_multiplier 0.0
 */
 
@@ -17,9 +16,14 @@ untyped // for GiveExtraWeaponMod()
 
 global function Modded_Gamemode_Survival_Init
 
+
+const int SURVIVAL_TOTAL_ENEMY_AMOUNT			= 660
+
 const int SURVIVAL_PLAYER_TEAM                  = TEAM_MILITIA // TEAM_MILITIA
+const int SURVIVAL_NPC_TEAM						= TEAM_IMC
+
 const string SURVIVAL_BURNMETER_REWARD          = "burnmeter_at_turret_weapon" // whatever you do, never give another "mp_ability_burncardweapon"
-const int SURVIVAL_BOOST_COUNT 					= 3
+const int SURVIVAL_BOOST_COUNT 					= 2
 
 struct SurvivalPlayerStruct
 {
@@ -79,9 +83,15 @@ void function Modded_Gamemode_Survival_Init()
     AddCallback_PlayerClassChanged( OnPlayerClassChanged )
     AddCallback_OnClientConnected( OnClientConnected )
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	AddCallback_OnPlayerKilled( OnPlayerKilled )
     AddCallback_OnPlayerGetsNewPilotLoadout( OnPilotGetLoadout )
     AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
     AddCallback_GameStateEnter( eGameState.Playing, OnGamePlaying )
+	AddCallback_GameStateEnter( eGameState.Epilogue, OnGameEpilogue )
+
+	// modded callbacks
+	AddCallback_OnPlayerRespawnBannerCollected( OnBannerCollected )
+	AddCallback_OnPlayerActivateRespawnBeacon( OnBeaconActivated )
 
     // TEMP SCOREBOARD
 	AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
@@ -110,6 +120,11 @@ void function OnPlayerRespawned( entity player )
 	SurvivalPlayerMarkAsRespawned( player )
 }
 
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+	SendChatMessageForPlayerKilled( victim, damageInfo )
+}
+
 void function OnPilotGetLoadout( entity player, PilotLoadoutDef p )
 {
     GivePlayerSurvivalLoadout( player )
@@ -125,12 +140,29 @@ void function OnGamePlaying()
 {
 	SpawnBeaconTempModels()
     StartNPCSpawner()
+	InitSurvivalEnemyScore()
 	StartingGivePlayersSurvivalBoost()
 	SurvivalTimerThink()
 	InitSurvivalRespawnShipPoints()
 
 	// TEMP, this is required for showing the scoreboard!
 	SpawnFakeFlagCarrier()
+}
+
+void function OnGameEpilogue()
+{
+
+}
+
+void function OnBannerCollected( entity collector, entity bannerOwner )
+{
+	SendChatMessageForBannerCollection( collector, bannerOwner )
+}
+
+void function OnBeaconActivated( entity activator, array<entity> playersToRespawn )
+{
+	AddScoreForBeaconActivation( activator, playersToRespawn )
+	SendChatMessageForBeaconActivation( activator )
 }
 
 //////////////////////////////////
@@ -298,8 +330,8 @@ void function TryRespawnNewConnectingPlayer( entity player )
 	player.EndSignal( "OnDestroy" )
 
 	// wave started...
-	//if ( file.waveStarted && !file.respawnedPlayerUIDs.contains( player.GetUID() ) ) 
-	if ( file.waveStarted ) 
+	//if ( file.waveStarted ) // for debugging
+	if ( file.waveStarted && !file.respawnedPlayerUIDs.contains( player.GetUID() ) ) 
 	{
 		WaitFrame()
 		RespawnAsPilot( player )
@@ -325,7 +357,7 @@ void function TryGiveTitanToPlayer( entity player )
 ///// GAMESTATE FUNCTIONS /////
 ///////////////////////////////
 
-const float SURVIVAL_WAVE_START_DELAY 			= 60 // for players ready up?
+const float SURVIVAL_WAVE_START_DELAY 			= 40 // for players ready up?
 const float SURVIVAL_WAVE_TIME_LIMIT			= 720 // 12 min, if player can't finish the wave they will lose
 
 void function SurvivalTimerThink()
@@ -354,9 +386,14 @@ void function SurvivalTimerThink_Threaded()
 	PlayerEarnMeter_SetEnabled( true )
 	foreach ( entity player in GetPlayerArray() )
 	{
+		if ( !IsAlive( player ) ) // defensive fix
+			RespawnAsPilot( player )
+			
 		TryGiveTitanToPlayer( player )
 		// mark existing players as respawned
 		file.respawnedPlayerUIDs.append( player.GetUID() )
+		// do announcement
+		SurvivalWaveStartAnnouncement( player )
 	}
 }
 
@@ -407,6 +444,34 @@ bool function IsPlayerUnableToReceiveAnnouncement( entity player )
 	return false
 }
 
+void function SendChatMessageForPlayerKilled( entity player, var damageInfo )
+{
+	if ( file.waveStarted )
+		Chat_ServerBroadcast( "\x1b[38;5;160m" + "玩家 " + player.GetPlayerName() + " 已死亡，回收其旗幟卡以進行重生" + "\x1b[0m" )
+}
+
+void function SendChatMessageForBannerCollection( entity collector, entity bannerOwner )
+{
+	Chat_ServerBroadcast( "\x1b[38;5;76m" + collector.GetPlayerName() + " 回收了 " + bannerOwner.GetPlayerName() + " 的旗幟卡" + "\x1b[0m" )
+}
+
+void function SendChatMessageForBeaconActivation( entity activator )
+{
+	Chat_ServerBroadcast( "\x1b[38;5;33m" + activator.GetPlayerName() + " 激活了重生信標" + "\x1b[0m" )
+}
+
+void function SurvivalWaveStartAnnouncement( entity player )
+{
+	NSSendAnnouncementMessageToPlayer( 
+		player, 
+		"回合開始！", 
+		"在時間結束前擊殺所有敵方NPC。通過重生信標復活友方。", 
+		< 255, 255, 255 >, 
+		1, 
+		1 														// 1 means ANNOUNCEMENT_STYLE_QUICK
+	)
+}
+
 //////////////////////////////////////
 ///// ANNOUNCEMENT FUNCTIONS END /////
 //////////////////////////////////////
@@ -455,6 +520,15 @@ void function SetUpSurvivalTurret( entity npc )
 	Highlight_SetOwnedHighlight( npc, "sp_friendly_hero" )
 	AddEntityCallback_OnDamaged( npc, OnPlayerTurretDamaged )
 	TurretWaitForBeingPickedUp( npc )
+	thread TrackTurretBossPlayerLifeTime( npc, bossPlayer )
+}
+
+void function TrackTurretBossPlayerLifeTime( entity turret, entity bossPlayer )
+{
+	turret.EndSignal( "OnDestroy" )
+
+	bossPlayer.WaitSignal( "OnDestroy" )
+	turret.Destroy()
 }
 
 void function TurretWaitForBeingPickedUp( entity turret )
@@ -548,6 +622,8 @@ function PlayerRepairTurret( turret, player )
 
 	turret.s.waitingForRepair = false
 	EnablePlayerTurret( turret )
+	AddPlayerScore( player, "FDRepairTurret" ) // score event
+
 	turret.SetHealth( turret.GetMaxHealth() )
 	turret.UnsetUsable()
 	turret.Highlight_SetParam( 3, 0, HIGHLIGHT_COLOR_FRIENDLY ) // healthy turret highlight
@@ -598,11 +674,211 @@ void function RemoveCallback_OnUseEntity( entity ent, callbackFunc )
 ///// SCORE FUNCTIONS /////
 ///////////////////////////
 
+void function AddScoreForBeaconActivation( entity player, array<entity> savedPlayers )
+{
+	int score = savedPlayers.len()
+	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, score )
+}
 
 
-///////////////////////////
-///// SCORE FUNCTIONS /////
-///////////////////////////
+void function InitSurvivalEnemyScore()
+{
+	// pilot/titan related
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.0, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.0, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.0, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.0, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 ) // unsure
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35 ) // this actually just doesn't have overdrive in vanilla even
+	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35 )
+
+	// ai
+	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.02, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.0, 0.1 )
+
+
+
+	AddTeamScore( SURVIVAL_NPC_TEAM, SURVIVAL_TOTAL_ENEMY_AMOUNT ) // starting amount!
+
+	AddDeathCallback( "npc_soldier", SurvivalEnemyNPCKilled )
+	AddDeathCallback( "npc_spectre", SurvivalEnemyNPCKilled )
+	AddDeathCallback( "npc_stalker", SurvivalEnemyNPCKilled )
+	AddDeathCallback( "npc_super_spectre", SurvivalEnemyNPCKilled )
+	AddDeathCallback( "npc_titan", SurvivalEnemyNPCKilled )
+	AddDeathCallback( "npc_pilot_elite", SurvivalEnemyNPCKilled )
+}
+
+const int GRUNT_SCORE_AMOUNT 			= 1
+const int SPECTRE_SCORE_AMOUNT 			= 1
+const int STALKER_SCORE_AMOUNT 			= 1
+const int REAPER_SCORE_AMOUNT 			= 3
+const int TITAN_SCORE_AMOUNT			= 10
+const int PILOT_SCORE_AMOUNT			= 5
+
+void function SurvivalEnemyNPCKilled( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if( !IsValid( attacker ) )
+		return
+	if( !attacker.IsPlayer() && !attacker.IsNPC() )
+		return
+	if( attacker.GetTeam() != SURVIVAL_PLAYER_TEAM )
+		return
+
+	if ( attacker == victim ) // suicide!
+		return
+
+	entity player
+	if ( attacker.IsPlayer() )
+		player = attacker
+	// if it's a npc with bossplayer/owner...
+	else if ( attacker.IsNPC() )
+	{
+		// reassign attacker
+		if ( IsValid( attacker.GetBossPlayer() ) )
+			player = attacker.GetBossPlayer()
+		if ( IsValid( attacker.GetOwner() ) )
+			player = attacker.GetOwner()
+	}
+
+	if ( !IsValid( player ) )
+		return
+
+	string className = victim.GetClassName()
+	int scoreToRemove = 0
+	string scoreEvent = "" // for npcs can't handle by OnNPCKilled(), do a extra score event
+
+	if ( className == "npc_pilot_elite" )
+	{
+		scoreToRemove = PILOT_SCORE_AMOUNT
+		scoreEvent = "EliminatePilot"
+	}
+
+	if ( className == "npc_soldier" )
+		scoreToRemove = GRUNT_SCORE_AMOUNT
+
+	if ( className == "npc_spectre" )
+		scoreToRemove = SPECTRE_SCORE_AMOUNT
+
+	if ( className == "npc_stalker" )
+		scoreToRemove = STALKER_SCORE_AMOUNT
+
+	if ( className == "npc_super_spectre" )
+		scoreToRemove = REAPER_SCORE_AMOUNT
+
+	// Player ejecting triggers this without the extra check
+	if ( victim.IsTitan() && victim.GetBossPlayer() != player )
+	{
+		if ( TitanHasNpcPilot( victim ) ) // pilot was killed without ejecting
+		{
+			scoreToRemove = TITAN_SCORE_AMOUNT + PILOT_SCORE_AMOUNT
+			scoreEvent = "EliminatePilot"
+		}
+		else // ejected or auto titan
+			scoreToRemove = TITAN_SCORE_AMOUNT
+	}
+
+	if ( scoreEvent != "" )
+		AddPlayerScore( player, scoreEvent, victim )
+
+	if ( scoreToRemove > 0 )
+	{
+		player.AddToPlayerGameStat( PGS_KILLS, scoreToRemove )
+		
+		int scoreLeft = GameRules_GetTeamScore( SURVIVAL_NPC_TEAM )
+		bool winningKill = ( scoreLeft - scoreToRemove <= 0 )
+
+		if ( winningKill )
+		{
+			SurvivalTeamWinsTheGame()
+			return
+		}
+
+		AddTeamScore( SURVIVAL_NPC_TEAM, -scoreToRemove ) // discard the npc team's score
+	}
+}
+
+void function SurvivalTeamWinsTheGame()
+{
+	Riff_ForceSetEliminationMode( eEliminationMode.Default ) // disable elimination
+	SetRespawnsEnabled( true ) 
+
+	ClassicMP_ForceDisableEpilogue( false ) // re-enable epilogue for players to have fun
+	ClassicMP_SetEpilogue( SurvivalEvacEpilogue ) // custom epilogue!
+
+	GameRules_SetTeamScore( SURVIVAL_NPC_TEAM, 0 )
+	AddTeamScore( SURVIVAL_PLAYER_TEAM, 1 ) // at least make player have the winning hint?
+
+	SetWinner( SURVIVAL_PLAYER_TEAM )
+}
+
+///////////////////////////////
+///// SCORE FUNCTIONS END /////
+///////////////////////////////
+
+
+
+//////////////////////////
+///// EVAC FUNCTIONS /////
+//////////////////////////
+
+const float EVAC_INITIAL_WAIT = 5.0
+const float EVAC_ARRIVAL_TIME = 40.0
+const float EVAC_WAIT_TIME = 18.0
+
+// celebrating the winning!
+void function SurvivalEvacEpilogue()
+{
+	thread Evac( SURVIVAL_PLAYER_TEAM, EVAC_INITIAL_WAIT, EVAC_ARRIVAL_TIME, EVAC_WAIT_TIME, EvacEpiloguePlayerCanBoard, EvacEpilogueShouldLeaveEarly, EvacEpilogueCompleted )
+}
+
+bool function EvacEpiloguePlayerCanBoard( entity dropship, entity player )
+{
+	// can't board a dropship on a different team
+	if ( dropship.GetTeam() != player.GetTeam() )
+		return false
+	
+	// check if there are any free slots on the dropship, if there are then they can board
+	foreach ( entity player in dropship.s.evacSlots )
+		if ( !IsValid( player ) )
+			return true
+	
+	// no empty slots
+	return false
+}
+
+bool function EvacEpilogueShouldLeaveEarly( entity dropship )
+{
+	int numEvacing
+	foreach ( entity player in dropship.s.evacSlots )
+		if ( IsValid( player ) )
+			numEvacing++
+
+	return GetPlayerArrayOfTeam( dropship.GetTeam() ).len() == numEvacing || numEvacing == dropship.s.evacSlots.len()
+}
+
+void function EvacEpilogueCompleted( entity dropship )
+{
+	wait 5.0
+	
+	foreach ( entity player in GetPlayerArray() )
+		ScreenFadeToBlackForever( player, 2.0 )
+	
+	wait 2.0
+	if( GetGameState() != eGameState.Postmatch )
+		SetGameState( eGameState.Postmatch )
+}
+
+//////////////////////////////
+///// EVAC FUNCTIONS END /////
+//////////////////////////////
 
 
 
@@ -612,13 +888,13 @@ void function RemoveCallback_OnUseEntity( entity ent, callbackFunc )
 
 void function StartNPCSpawner()
 {
-    thread Spawner( GetOtherTeam( SURVIVAL_PLAYER_TEAM ) )
-    thread SpawnerExtend( GetOtherTeam( SURVIVAL_PLAYER_TEAM ) )
+    thread Spawner( SURVIVAL_NPC_TEAM )
+    thread SpawnerExtend( SURVIVAL_NPC_TEAM )
 }
 
 const int SQUADS_MAX_COUNT = 5
-const int REAPERS_MAX_COUNT = 3
-const int TITANS_MAX_COUNT = 3
+const int REAPERS_MAX_COUNT = 4
+const int TITANS_MAX_COUNT = 4
 
 // Populates the match
 void function Spawner( int team )
