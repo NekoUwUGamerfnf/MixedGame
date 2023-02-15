@@ -1,4 +1,4 @@
-untyped // for AddCallback_OnUseEntity()
+untyped // for GiveExtraWeaponMod()
 
 /* Required PlaylistVars
     roundscorelimit 9999+
@@ -19,64 +19,57 @@ global function Modded_Gamemode_Survival_Init
 
 const int SURVIVAL_PLAYER_TEAM                  = TEAM_MILITIA // TEAM_MILITIA
 const string SURVIVAL_BURNMETER_REWARD          = "burnmeter_at_turret_weapon" // whatever you do, never give another "mp_ability_burncardweapon"
-
-struct dropshipAnimData
-{
-	string idleAnim
-	string idlePOVAnim
-	string jumpAnim
-	string jumpPOVAnim
-	string attachment = "origin"
-	bool hideProxy = true
-	void functionref( entity ) viewConeFunc
-	float yawAngle
-	string firstPersonJumpOutSound // Unfortunately first person anims play for everybody, not just the person who the anim is played upon, so script needs to play the sound as opposed to a qc entry
-}
+const int SURVIVAL_BOOST_COUNT 					= 3
 
 struct SurvivalPlayerStruct
 {
-    //array<entity> carryingBanners // array<entity> for saving banner owner
     float titanEarnMeter // this mode's earnMeter is controlled manually
 }
 
 struct
 {
-    array<entity> respawnBeacons
-
+	array<entity> beaconTempModels
     table< string, SurvivalPlayerStruct > playerSurvivalTable // it's better to use player's uid instead of the entity
-    array<entity> teamCarringBanners
-    array<dropshipAnimData> dropshipAnimDataList
+
+	bool waveStarted = false
+	array<string> respawnedPlayerUIDs // saved for respawning players
 } file
 
 void function Modded_Gamemode_Survival_Init()
 {
-    // Respawn Beacon Init
-    InitRespawnBeaconDropship()
-    PrecacheModel( $"models/Robots/mobile_hardpoint/mobile_hardpoint.mdl" )
-    RegisterSignal( "OnContinousUseStopped" )
-    
-    // Vanilla Mode Settings, how to show score boards?
-    //SetRoundBased( true )
-    SetRespawnsEnabled( false )
-    //SetShouldUseRoundWinningKillReplay( true )
-    Riff_ForceSetEliminationMode( eEliminationMode.Pilots ) //
-    //Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
-    Riff_ForceTitanAvailability( eTitanAvailability.Always )
-    AiGameModes_SetGruntWeapons( [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
+	// Initialize
+	RegisterSignal( "SurvivalWaveStart" )
+
+    // Vanilla Mode Settings
+    Riff_ForceBoostAvailability( eBoostAvailability.Disabled ) // player will only have certain amount of boosts
+    //Riff_ForceTitanAvailability( eTitanAvailability.Never ) // titan meter is controlled by server
+
+	AiGameModes_SetGruntWeapons( [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
 	AiGameModes_SetSpectreWeapons( [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
 
+	ScoreEvent_SetupEarnMeterValuesForMixedModes()
+
     // modded settings
+	// rodeo
+	ClassicRodeo_SetEnabled( true )
+
     // intro
 	ClassicMP_SetCustomIntro( ClassicMP_ShorterDropshipIntro_Setup, DROPSHIP_INTRO_LENGTH_SHORTER )
-    //ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() )
+    SetGamemodeAnnouncementEnabled( false ) // so we can do custom announcement!
+	//ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() )
     SetWaitingForPlayersMaxDuration( 30.0 ) // wait a bit longer
     ClassicMP_ForceDisableEpilogue( true )
 
     // gameplay
+	SetLateJoinRespawnEnabled( false ) // manually do the respawning
     SetShouldPlayFactionDialogue( false ) // disable default faction dialogue, this mode needs manually controlling the dialogues
     SetBattleChatterEnableToSelf( true ) // play chatter to player themselves
     Burnmeter_SetForcedReward( SURVIVAL_BURNMETER_REWARD ) // better one: give players 3 turrets at start
     //SetLateJoinRespawnEnabled( false ) // this mode use a standalone respawn method
+
+	// this also needs to disable the cloak and a-wall weapons in loadout functions
+	SetShouldFUCKOFFCLOAK( true )
+	SetShouldFUCKOFFAWALL( true )
 
     // custom highlight settings
     SetUseCustomHighlight( true ) 
@@ -85,12 +78,14 @@ void function Modded_Gamemode_Survival_Init()
     // Callbacks
     AddCallback_PlayerClassChanged( OnPlayerClassChanged )
     AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
     AddCallback_OnPlayerGetsNewPilotLoadout( OnPilotGetLoadout )
-    AddCallback_OnPlayerKilled( OnPlayerKilled )
     AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
     AddCallback_GameStateEnter( eGameState.Playing, OnGamePlaying )
 
-    // TEMP PLAYLIST
+    // TEMP SCOREBOARD
+	AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
+	// TEMP PLAYLIST
     AddCallback_GameStateEnter( eGameState.Postmatch, ForceChangeMapAfterGame )
 }
 
@@ -108,11 +103,11 @@ void function OnPlayerClassChanged( entity player )
 void function OnClientConnected( entity player )
 {
     InitSurvivalPlayer( player )
-    //TrackBannerCarrierLifeTime( player )
+}
 
-    // TEMP NORIFICATION
-    Chat_ServerPrivateMessage( player, "本服务器玩法未完工，目前在测试重生信标", false )
-    Chat_ServerPrivateMessage( player, "无复活，尽可能在NPC的攻击下存活。死亡的玩家会掉落旗帜卡，拾取后对重生信标使用以进行重生", false )
+void function OnPlayerRespawned( entity player )
+{
+	SurvivalPlayerMarkAsRespawned( player )
 }
 
 void function OnPilotGetLoadout( entity player, PilotLoadoutDef p )
@@ -120,19 +115,22 @@ void function OnPilotGetLoadout( entity player, PilotLoadoutDef p )
     GivePlayerSurvivalLoadout( player )
 }
 
-void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
-{
-    DropPlayerBanner( victim, damageInfo )
-}
-
 void function OnGamePrematch()
 {
-    SpawnRespawnBeacons()
+	SurvivalNPCSettings()
+	SurvivalTurretSettings()
 }
 
 void function OnGamePlaying()
 {
+	SpawnBeaconTempModels()
     StartNPCSpawner()
+	StartingGivePlayersSurvivalBoost()
+	SurvivalTimerThink()
+	InitSurvivalRespawnShipPoints()
+
+	// TEMP, this is required for showing the scoreboard!
+	SpawnFakeFlagCarrier()
 }
 
 //////////////////////////////////
@@ -145,7 +143,7 @@ void function OnGamePlaying()
 ///// LOADOUT FUNCTIONS /////
 /////////////////////////////
 
-const int SURVIVAL_PLAYER_HEALTH = 150
+const int SURVIVAL_PLAYER_HEALTH = 100
 
 void function UpdateSurvivalPlayerClass( entity player )
 {
@@ -156,13 +154,56 @@ void function UpdateSurvivalPlayerClass( entity player )
     }
 }
 
-const string SURVIVAL_BANNER_WEAPON             = "mp_ability_burncardweapon"
+const array<string> SURVIVAL_DISABLED_TACTICALS =
+[
+	"mp_ability_cloak",
+	"mp_weapon_deployable_cover"
+]
+
+const string SURVIVAL_REPLACEMENT_TACTICAL = "mp_ability_grapple"
 
 void function GivePlayerSurvivalLoadout( entity player )
 {
-    // player can't pull it out manually, this only for better animations
-    player.GiveOffhandWeapon( SURVIVAL_BANNER_WEAPON, OFFHAND_EQUIPMENT, ["banner_collector"] )
-    player.GiveExtraWeaponMod( "at_unlimited_ammo" )
+	entity tactical = player.GetOffhandWeapon( OFFHAND_SPECIAL )
+	if ( IsValid( tactical ) )
+	{
+		string weaponName = tactical.GetWeaponClassName()
+		if ( SURVIVAL_DISABLED_TACTICALS.contains( weaponName ) )
+		{
+			player.TakeWeaponNow( weaponName )
+			player.GiveOffhandWeapon( SURVIVAL_REPLACEMENT_TACTICAL, OFFHAND_SPECIAL )
+		}
+	}
+
+
+	//player.GiveExtraWeaponMod( "titandamage_weapon" )
+    //player.GiveExtraWeaponMod( "at_unlimited_ammo" )
+}
+
+// prematch will clean up the boosts, should be in playing state
+void function StartingGivePlayersSurvivalBoost()
+{
+	foreach ( entity player in GetPlayerArray() )
+	{
+		GivePlayerSurvivalBoost( player )
+	}
+}
+
+void function GivePlayerSurvivalBoost( entity player )
+{
+	thread GivePlayerSurvivalBoost_Threaded( player )
+}
+
+void function GivePlayerSurvivalBoost_Threaded( entity player )
+{
+	//has to be delayed because PlayerConnect callbacks get called in wrong order
+	WaitFrame()
+	for ( int i = 0; i < SURVIVAL_BOOST_COUNT; i++ ) // give a certain amount of burncard
+		PlayerInventory_PushInventoryItemByBurnRef( player, SURVIVAL_BURNMETER_REWARD )
+
+	// turret settings
+	DeployableTurret_SetAISettingsForPlayer_AP( player, "npc_turret_sentry_burn_card_ap_fd" )
+	DeployableTurret_SetAISettingsForPlayer_AT( player, "npc_turret_sentry_burn_card_at_fd" )
 }
 
 /////////////////////////////////
@@ -181,6 +222,16 @@ void function InitSurvivalPlayer( entity player )
 
     SurvivalPlayerStruct emptyStruct
     file.playerSurvivalTable[ player.GetUID() ] <- emptyStruct
+
+	// starting loadouts
+	if ( GetGameState() >= eGameState.Playing ) // this is required for not crashing the server
+		GivePlayerSurvivalBoost( player )
+
+	// respawning
+	thread TryRespawnNewConnectingPlayer( player )
+
+	// notifications
+	SurvivalGamemodeAnnouncement( player )
 }
 
 ///////////////////////////////////////////
@@ -189,177 +240,14 @@ void function InitSurvivalPlayer( entity player )
 
 
 
-///////////////////////////////////
-///// PLAYER BANNER FUNCTIONS /////
-///////////////////////////////////
+/////////////////////////////
+///// RESPAWN FUNCTIONS /////
+/////////////////////////////
 
-/*
-void function TrackBannerCarrierLifeTime( entity player )
+// prevent players from stuck inside a beacon, 
+void function SpawnBeaconTempModels()
 {
-    thread TrackBannerCarrierLifeTime_Threaded( player )
-}
-
-void function TrackBannerCarrierLifeTime_Threaded( entity player )
-{
-    string uid = player.GetUID()
-    
-    player.WaitSignal( "OnDestroy" ) // track the lifetime
-
-    array<entity> playerBanners = GetPlayerActiveBanners( null, uid )
-    // drop all the banners again
-    foreach ( entity player in playerBanners )
-    {
-        DropPlayerBanner( player )
-    }
-}
-*/
-
-void function DropPlayerBanner( entity player, var damageInfo = null ) // maybe need damageinfo if player drops from edge, redirect their banners
-{
-    thread DropPlayerBanner_Threaded( player, damageInfo )
-}
-
-void function DropPlayerBanner_Threaded( entity player, var damageInfo )
-{
-    entity banner = CreatePlayerBanner( player )
-}
-
-/*
-void function CollectedBannerLifeTime( entity collector, entity player )
-{
-    player.EndSignal( "OnDestroy" )
-
-    table result = {}
-    result.bannerDropped <- false
-
-    OnThreadEnd(
-        function(): ( collector, player, result )
-        {
-            if ( !IsValid( player ) ) // banner owner disconnected
-            {
-                if ( !result.bannerDropped && IsValid( collector ) ) // collector still alive
-                    file.playerSurvivalTable[ collector.GetUID() ].carryingBanners.removebyvalue( null ) // remove the null banner
-            }
-        }
-    )
-
-    collector.WaitSignal( "OnDeath", "OnDestroy" ) // drop all the collected banners on death
-    result.bannerDropped = true // mark as banner dropped
-}
-*/
-
-const asset PLAYER_BANNER_MODEL             = $"models/weapons/ammoboxes/backpack_single.mdl"  
-
-entity function CreatePlayerBanner( entity player )
-{
-    vector origin = player.GetOrigin() // + < 0,0,31 > // offset for the prop
-    vector angles = < 0, player.GetAngles().y + 90, 0 > // don't want to rotate so much, yaw is enough
-    int solidType = 6 // SOLID_VPHYSICS
-
-    entity banner = CreatePropDynamic( PLAYER_BANNER_MODEL, origin, angles, solidType )
-    banner.SetUsable()
-    banner.SetUsableByGroup( "friendlies pilot" )
-    banner.SetUsePrompts( "", "按下 %use% 撿起 " + player.GetPlayerName() + " 的旗幟" )
-    AddCallback_OnUseEntity( banner, OnUsePlayerBanner )
-
-    banner.SetOwner( player )
-    SetTeam( banner, player.GetTeam() )
-    Highlight_SetFriendlyHighlight( banner, "fw_friendly" ) // highlight it!
-    thread BannerLifeTime( banner, player )
-
-    return banner
-}
-
-function OnUsePlayerBanner( banner, collector )
-{
-    expect entity ( banner )
-    expect entity ( collector )
-
-    if ( IsPlayerCollectingBanner( collector ) )
-        return
-
-    entity player = banner.GetOwner()
-    PlayerCollectBanner( collector, player, banner )
-
-    //file.playerSurvivalTable[ collector.GetUID() ].carryingBanners.append( player )
-    //thread CollectedBannerLifeTime( collector, player )
-}
-
-bool function IsPlayerCollectingBanner( entity player )
-{
-    entity weapon = player.GetActiveWeapon()
-    if ( IsValid( weapon ) )
-    {
-        if ( weapon.GetWeaponClassName() == SURVIVAL_BANNER_WEAPON ) // the player still collecting another banner
-            return true
-    }
-
-    return false
-}
-
-void function PlayerCollectBanner( entity collector, entity bannerOwner, entity banner )
-{
-    file.teamCarringBanners.append( bannerOwner ) // make banner's owner able to be respawned
-    
-    collector.SetActiveWeaponByName( SURVIVAL_BANNER_WEAPON ) // pull out burncard to play animations?
-    NSSendInfoMessageToPlayer( collector, "回收了 " + bannerOwner.GetPlayerName() + " 的旗幟" )
-
-    // disable banner usage
-    Highlight_ClearFriendlyHighlight( banner )
-    banner.NotSolid()
-    banner.UnsetUsable()
-    banner.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-}
-
-void function BannerLifeTime( entity banner, entity owner )
-{
-    banner.EndSignal( "OnDestroy" )
-
-    owner.WaitSignal( "OnDestroy" ) // if owner disconnected while banner is active, we clear the banner
-    banner.Destroy()
-}
-
-array<entity> function GetTeamActiveBanners()
-{
-    file.teamCarringBanners.removebyvalue( null ) // clear all null banners
-    
-    return file.teamCarringBanners
-}
-
-void function ClearTeamBanners()
-{
-    file.teamCarringBanners.clear()
-}
-
-/*
-array<entity> function GetPlayerActiveBanners( entity player, string uid = "" )
-{
-    if ( uid == "" && IsValid( player ) )
-        uid = player.GetUID()
-    file.playerSurvivalTable[ uid ].carryingBanners.removebyvalue( null ) // clear all null banners
-    
-    return file.playerSurvivalTable[ uid ].carryingBanners
-}
-
-void function ClearPlayerBanners( entity player )
-{
-    file.playerSurvivalTable[ player.GetUID() ].carryingBanners.clear()
-}
-*/
-
-///////////////////////////////////////
-///// PLAYER BANNER FUNCTIONS END /////
-///////////////////////////////////////
-
-
-
-////////////////////////////////////
-///// RESPAWN BEACON FUNCTIONS /////
-////////////////////////////////////
-
-void function SpawnRespawnBeacons()
-{
-    foreach ( entity spawnpoint in GetEntArrayByClass_Expensive( "info_hardpoint" ) )
+	foreach ( entity spawnpoint in GetEntArrayByClass_Expensive( "info_hardpoint" ) )
     {
         // use hardpoints from amped hardpoint
         if ( !spawnpoint.HasKey( "gamemode_cp" ) )
@@ -367,464 +255,360 @@ void function SpawnRespawnBeacons()
         if ( spawnpoint.kv.gamemode_cp == "0" )
             continue
 
-        asset modelName = spawnpoint.GetModelName()
-        vector origin = spawnpoint.GetOrigin()
-        vector angles = spawnpoint.GetAngles()
-        int solidType = 6 // SOLID_VPHYSICS
-        entity beacon = CreateEntity( "prop_script" ) //CreatePropDynamic( spawnpoint.GetModelName(), spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 6 )
-		beacon.SetValueForModelKey( modelName )
-        beacon.SetOrigin( origin )
-        beacon.SetAngles( angles )
-        beacon.kv.solid = solidType
-        beacon.DisableHibernation() // prevent it from fading
-        Highlight_SetOwnedHighlight( beacon, "friendly_ai" ) // init the highlight
-        
-        DispatchSpawn( beacon )
-
-        beacon.SetModel( modelName )
-        thread ResetBeaconTeamToEnableHighlight( beacon ) // pretty hacky
-        //Highlight_SetFriendlyHighlight( beacon, "battery_thief" ) // how to highlight this?
-        Highlight_SetNeutralHighlight( beacon, "enemy_boss_bounty" )
-
-        beacon.SetUsableByGroup( "friendlies pilot" )
-        thread PlayAnim( beacon, "mh_inactive_idle" )
-
-        // minimap icons
-        beacon.Minimap_SetCustomState( eMinimapObject_prop_script.FW_BUILDSITE_SHIELDED )
-        beacon.Minimap_AlwaysShow( SURVIVAL_PLAYER_TEAM, null )
-        beacon.Minimap_SetAlignUpright( true )
-
-        thread RespawnBeaconThink( beacon ) // main mechanic function
-        file.respawnBeacons.append( beacon )
-    }
+		entity prop = CreatePropDynamic( spawnpoint.GetModelName(), spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 6 )
+		file.beaconTempModels.append( prop )
+	}
 }
 
-// this is really hacky, but it will work if you want the entity spawn with it's highlight
-void function ResetBeaconTeamToEnableHighlight( entity beacon )
+void function DestroyBeaconTempModels()
 {
-    beacon.EndSignal( "OnDestroy" )
-    SetTeam( beacon, SURVIVAL_PLAYER_TEAM )
-    wait 2
-    SetTeam( beacon, TEAM_UNASSIGNED )
+	foreach ( entity prop in file.beaconTempModels )
+	{
+		if ( IsValid( prop ) )
+			prop.Destroy()
+	}
+	file.beaconTempModels.clear()
 }
 
-void function RespawnBeaconThink( entity beacon )
+void function InitSurvivalRespawnShipPoints()
 {
-    beacon.EndSignal( "OnDestroy" )
-
-    beacon.SetUsePrompts( "", "按住 %use% 提交旗幟卡" ) // this only needs "hold" prompts, but ttf don't have such a usage
-    while ( true )
+	array<entity> spawnPoints
+	foreach ( entity spawnpoint in GetEntArrayByClass_Expensive( "info_hardpoint" ) )
     {
-        beacon.SetUsable()
-        table result = beacon.WaitSignal( "OnPlayerUse" )
-        entity user = expect entity ( result.player )
-        waitthread PlayerAttemptUseRespawnBeacon( user, beacon )
+        // use hardpoints from amped hardpoint
+        if ( !spawnpoint.HasKey( "gamemode_cp" ) )
+			continue
+        if ( spawnpoint.kv.gamemode_cp == "0" )
+            continue
+
+		spawnPoints.append( spawnpoint )
     }
+
+	SetDropshipRespawnPointsOverride( spawnPoints )
 }
 
-const float RESPAWN_BEACON_USE_TIME             = 5.0
-const float RESPAWN_BEACON_USE_DIST2            = 64 * 64 
-
-void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
+void function SurvivalPlayerMarkAsRespawned( entity player )
 {
-    if ( GetGameState() != eGameState.Playing )
-    {
-        SendHudMessage( player, "不在可用時期", -1, -0.3, 255, 255, 0, 255, 0.2, 1.5, 0.5 )
-        return
-    }
-
-    if ( IsPlayerCollectingBanner( player ) ) // player is still collecting banners
-        return
-
-    array<entity> playersToRespawn = GetTeamActiveBanners() //GetPlayerActiveBanners( player )
-    if ( playersToRespawn.len() == 0 ) // no banners to recover
-    {
-        SendHudMessage( player, "沒有可用旗幟", -1, -0.3, 255, 255, 0, 255, 0.2, 1.5, 0.5 )
-        return
-    }
-
-    beacon.UnsetUsable()
-    player.EndSignal( "OnDeath" )
-    player.EndSignal( "OnDestroy" )
-    beacon.EndSignal( "OnDestroy" )
-    player.EndSignal( "OnContinousUseStopped" )
-    int playerEHandle = player.GetEncodedEHandle()
-    float endTime = Time() + RESPAWN_BEACON_USE_TIME
-
-    OnThreadEnd
-    (
-        function(): ( player )
-        {
-            if ( IsValid( player ) )
-            {
-                Remote_CallFunction_NonReplay( player, "ServerCallback_BLEEDOUT_StopFirstAidProgressBar", 1 )
-            }
-        }
-    )
-
-    Remote_CallFunction_NonReplay( player, "ServerCallback_BLEEDOUT_StartFirstAidProgressBar", endTime, playerEHandle, playerEHandle, 1 ) // how does attemptID work?
-    waitthread TrackBeaconContinuousUse( player, beacon, RESPAWN_BEACON_USE_TIME )
-
-    // successfully reached this point
-    RespawnBeaconActivate( beacon, player.GetTeam() )
-    playersToRespawn = GetTeamActiveBanners() //GetPlayerActiveBanners( player ) // update array
-    vector origin = beacon.GetOrigin()
-    origin.z += float ( RandomIntRange( 500, 800 ) ) // add randomness
-    vector angles = beacon.GetAngles()
-    angles.y = float ( RandomInt( 360 ) ) // add randomness
-    thread RespawnPlayersInDropshipAtPoint( playersToRespawn, origin, angles )
-    ClearTeamBanners()
+	if ( file.waveStarted )
+		file.respawnedPlayerUIDs.append( player.GetUID() )
 }
 
-void function TrackBeaconContinuousUse( entity player, entity useTarget, float useTime )
+void function TryRespawnNewConnectingPlayer( entity player )
 {
-    player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
-	useTarget.EndSignal( "OnDeath" )
-	useTarget.EndSignal( "OnDestroy" )
 
-	table result = {}
-	result.success <- false
-
-    int moveLockEffect = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 1.0 ) // 1.0 will lock player's movement
-    EmitSoundOnEntityOnlyToPlayer( player, player, "Hardpoint_Amped_ProgressBar" )
-
-	OnThreadEnd
-	(
-		function() : ( player, useTarget, result, moveLockEffect )
-		{
-            if ( IsValid( player ) )
-            {
-                if ( !result.success ) // interrupted
-                    player.Signal( "OnContinousUseStopped" )
-
-                // defensive fix, restore movements
-			    StatusEffect_Stop( player, moveLockEffect )
-
-                // restore weapon usage
-                player.DeployWeapon()
-                player.Server_TurnOffhandWeaponsDisabledOff()
-
-                StopSoundOnEntity( player, "Hardpoint_Amped_ProgressBar" )
-            }
-		}
-	)
-
-    float maxDist2 = DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) + RESPAWN_BEACON_USE_DIST2
-    float startTime = Time()
-	while ( Time() < startTime + useTime && player.UseButtonPressed() && !player.IsPhaseShifted() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2 )
+	// wave started...
+	//if ( file.waveStarted && !file.respawnedPlayerUIDs.contains( player.GetUID() ) ) 
+	if ( file.waveStarted ) 
 	{
-        // disable weapon usage
-        player.HolsterWeapon()
-        player.Server_TurnOffhandWeaponsDisabledOn()
-
-		if( player.ContextAction_IsActive() ) // being interupted by executions!
-			return
-        //if ( GetTeamActiveBanners().len() == 0 ) // no valid banners
-            //return
 		WaitFrame()
+		RespawnAsPilot( player )
+		// respawn into dropship to prevent unhappy situations from now
+		RespawnInDropShip( player )
+		TryGiveTitanToPlayer( player ) // enable titan usage
 	}
-
-	if ( player.UseButtonPressed() && DistanceSqr( player.GetOrigin(), useTarget.GetOrigin() ) <= maxDist2  )
-		result.success = true
 }
 
-void function RespawnBeaconActivate( entity beacon, int team )
+void function TryGiveTitanToPlayer( entity player )
 {
-    thread RespawnBeaconActivate_Threaded( beacon, team )
+	if ( !player.IsTitan() && !IsValid( player.GetPetTitan() ) )
+		PlayerEarnMeter_AddOwnedFrac( player, 1.0 )
 }
 
-const asset RESPAWN_BEACON_ACTIVATE_FX = $"P_wpn_arcTrap_start"
-const asset RESPAWN_BEACON_RING_FX = $"P_arcTrap_light"
-const asset RESPAWN_BEACON_INDICATOR_FX = $"P_ar_titan_droppoint"
-const float RESPAWN_BEACON_ACTIVATE_TIME = 2.0 // good for animations to play
+/////////////////////////////////
+///// RESPAWN FUNCTIONS END /////
+/////////////////////////////////
 
-void function RespawnBeaconActivate_Threaded( entity beacon, int team )
+
+
+///////////////////////////////
+///// GAMESTATE FUNCTIONS /////
+///////////////////////////////
+
+const float SURVIVAL_WAVE_START_DELAY 			= 60 // for players ready up?
+const float SURVIVAL_WAVE_TIME_LIMIT			= 720 // 12 min, if player can't finish the wave they will lose
+
+void function SurvivalTimerThink()
 {
-    beacon.EndSignal( "OnDestroy" )
-    vector origin = beacon.GetOrigin()
-    vector angles = beacon.GetAngles()
-    vector surfaceNormal = < 0, 0, 1 >
-    SetTeam( beacon, team ) // set team for a while
-
-    entity fxModel = CreatePropDynamic( $"models/weapons/sentry_shield/sentry_shield_proj.mdl", origin, angles )
-	fxModel.Hide()
-
-    array<entity> activeFXs
-    int attachID = fxModel.LookupAttachment( "fx_center" )
-    int startFxId = GetParticleSystemIndex( RESPAWN_BEACON_ACTIVATE_FX )
-    activeFXs.append( StartParticleEffectOnEntity_ReturnEntity( fxModel, startFxId, FX_PATTACH_POINT_FOLLOW, attachID ) )
-
-	int ringFxId = GetParticleSystemIndex( RESPAWN_BEACON_RING_FX )
-    activeFXs.append( StartParticleEffectOnEntity_ReturnEntity( fxModel, ringFxId, FX_PATTACH_POINT_FOLLOW, attachID ) )
-
-    int indicFxId = GetParticleSystemIndex( RESPAWN_BEACON_INDICATOR_FX )
-    entity indicatorFX = StartParticleEffectInWorld_ReturnEntity( indicFxId, origin, surfaceNormal )
-    EffectSetControlPointVector( indicatorFX, 1, < 128,188,255 > ) // blue
-	indicatorFX.DisableHibernation()
-    activeFXs.append( indicatorFX )
-
-    EmitSoundOnEntity( beacon, "hardpoint_console_captured" )
-    thread PlayAnim( beacon, "mh_inactive_2_active" ) // amped animation
-
-    OnThreadEnd
-    (
-        function(): ( fxModel, activeFXs, beacon )
-        {
-            foreach ( entity fx in activeFXs )
-            {
-                if ( IsValid( fx ) )
-                    EffectStop( fx )
-            }
-
-            if ( IsValid( fxModel ) )
-                fxModel.Destroy()
-
-            if ( IsValid( beacon ) )
-            {
-                SetTeam( beacon, TEAM_UNASSIGNED )
-                thread PlayAnim( beacon, "mh_active_2_inactive" )
-            }
-        }
-    )
-
-    wait RESPAWN_BEACON_ACTIVATE_TIME
+	thread SurvivalTimerThink_Threaded()
 }
 
-void function InitRespawnBeaconDropship()
+void function SurvivalTimerThink_Threaded()
 {
-    dropshipAnimData dataForPlayerA
-    dataForPlayerA.idleAnim           = "Classic_MP_flyin_exit_playerA_idle"
-    dataForPlayerA.idlePOVAnim        = "Classic_MP_flyin_exit_povA_idle"
-    dataForPlayerA.jumpAnim           = "Classic_MP_flyin_exit_playerA_jump"
-    dataForPlayerA.jumpPOVAnim        = "Classic_MP_flyin_exit_povA_jump"
-    dataForPlayerA.viewConeFunc       = ViewConeWide
-    dataForPlayerA.yawAngle           = -18.0
-    dataForPlayerA.firstPersonJumpOutSound = "commander_sequence_soldier_a_jump"
+	PlayerEarnMeter_SetEnabled( false ) // disable earnmeter
+	SetServerVar( "gameStartTime", Time() )
+	SetServerVar( "gameEndTime", Time() + SURVIVAL_WAVE_START_DELAY + 0.2 ) // don't end the game!
 
-    dropshipAnimData dataForPlayerB
-    dataForPlayerB.idleAnim           = "Classic_MP_flyin_exit_playerB_idle"
-    dataForPlayerB.idlePOVAnim        = "Classic_MP_flyin_exit_povB_idle"
-    dataForPlayerB.jumpAnim           = "Classic_MP_flyin_exit_playerB_jump"
-    dataForPlayerB.jumpPOVAnim        = "Classic_MP_flyin_exit_povB_jump"
-    dataForPlayerB.viewConeFunc       = ViewConeWide
-    dataForPlayerB.yawAngle           = 8.0
-    dataForPlayerB.firstPersonJumpOutSound = "commander_sequence_soldier_b_jump"
+	wait SURVIVAL_WAVE_START_DELAY
 
-    dropshipAnimData dataForPlayerC
-    dataForPlayerC.idleAnim           = "Classic_MP_flyin_exit_playerC_idle"
-    dataForPlayerC.idlePOVAnim        = "Classic_MP_flyin_exit_povC_idle"
-    dataForPlayerC.jumpAnim           = "Classic_MP_flyin_exit_playerC_jump"
-    dataForPlayerC.jumpPOVAnim        = "Classic_MP_flyin_exit_povC_jump"
-    dataForPlayerC.viewConeFunc       = ViewConeWide
-    dataForPlayerC.yawAngle           = 8.0
-    dataForPlayerC.firstPersonJumpOutSound = "commander_sequence_soldier_c_jump"
+	SetServerVar( "gameEndTime", Time() + SURVIVAL_WAVE_TIME_LIMIT ) // update timer
+	file.waveStarted = true // mark as wave started
+	svGlobal.levelEnt.Signal( "SurvivalWaveStart" )
 
-    dropshipAnimData dataForPlayerD
-    dataForPlayerD.idleAnim           = "Classic_MP_flyin_exit_playerD_idle"
-    dataForPlayerD.idlePOVAnim        = "Classic_MP_flyin_exit_povD_idle"
-    dataForPlayerD.jumpAnim           = "Classic_MP_flyin_exit_playerD_jump"
-    dataForPlayerD.jumpPOVAnim        = "Classic_MP_flyin_exit_povD_jump"
-    dataForPlayerD.viewConeFunc       = ViewConeWide
-    dataForPlayerD.yawAngle           = -16.0
-    dataForPlayerD.firstPersonJumpOutSound = "commander_sequence_soldier_d_jump"
-
-    file.dropshipAnimDataList = [ dataForPlayerA, dataForPlayerB, dataForPlayerC, dataForPlayerD ]
-}
-
-const string RESPAWN_DROPSHIP_TARGETNAME        = "respawn_dropship"
-
-void function RespawnPlayersInDropshipAtPoint( array<entity> players, vector origin, vector angles )
-{
-	entity dropship = CreateDropship( SURVIVAL_PLAYER_TEAM, origin, angles )
-	//SetSpawnOption_AISettings( dropship, "npc_dropship_hero" )
-	SetTargetName( dropship, RESPAWN_DROPSHIP_TARGETNAME )
-    HideName( dropship ) // no need to show health bar since it's invulnerable
-	DispatchSpawn( dropship )
-    dropship.SetModel( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" ) // force using imc dropship model
-	dropship.SetInvulnerable()
-	dropship.DisableHibernation()
-	EmitSoundOnEntity( dropship, "goblin_imc_evac_hover" )
-	//thread JetwashFX( dropship ) // stub function, no need to use
-
-	dropship.SetOrigin( origin )
-	dropship.SetAngles( angles )
-	Attachment attachResult = dropship.Anim_GetAttachmentAtTime( "dropship_classic_mp_flyin", "ORIGIN", 0.0 )
-
-	int i=0
-	foreach ( entity player in players )
+	SpawnRespawnBeacons() // in _respawn_beacon.gnut
+	DestroyBeaconTempModels() // destroy the fake models
+	SetRespawnsEnabled( false ) // disable the respawn
+	Riff_ForceSetEliminationMode( eEliminationMode.Pilots ) // start elimination
+	
+	// start with titan
+	PlayerEarnMeter_SetEnabled( true )
+	foreach ( entity player in GetPlayerArray() )
 	{
-		if ( IsValid( player ) )
-		{
-			thread RespawnBeacon_PutPlayerInDropship( player, dropship, i, attachResult.position )
-		}
-		i++
+		TryGiveTitanToPlayer( player )
+		// mark existing players as respawned
+		file.respawnedPlayerUIDs.append( player.GetUID() )
 	}
-
-	EndSignal( dropship, "OnDestroy" )
-
-	thread PlayAnim( dropship, "dropship_colony_mcor_intro_idle", origin, angles ) // "dropship_classic_mp_flyin_idle" don't exist in ttf2
-	dropship.MakeInvisible()
-	waitthread __WarpInEffectShared( attachResult.position, attachResult.angle, "dropship_warpin", 0.0 )
-	dropship.MakeVisible()
-	waitthread PlayAnim( dropship, "dropship_classic_mp_flyin", origin, angles )
-	dropship.Destroy()
 }
 
-void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int pos, vector teleportOrigin )
+///////////////////////////////////
+///// GAMESTATE FUNCTIONS END /////
+///////////////////////////////////
+
+
+
+//////////////////////////////////
+///// ANNOUNCEMENT FUNCTIONS /////
+//////////////////////////////////
+
+void function SurvivalGamemodeAnnouncement( entity player )
 {
-	ship.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnDeath" )
+	thread DelayedSendGamemodeMessage( player )
 
-	dropshipAnimData animData = file.dropshipAnimDataList[ pos ]
+	// TEMP NORIFICATION
+    Chat_ServerPrivateMessage( player, "本服务器得分系统与语音未完工，目前在测试数据", false )
+    Chat_ServerPrivateMessage( player, "无复活，尽可能在NPC的攻击下存活。死亡的玩家会掉落旗帜卡，拾取后对重生信标使用以进行重生", false )
+}
 
-	FirstPersonSequenceStruct idleAnimSequence
-	idleAnimSequence.firstPersonAnim = animData.idlePOVAnim
-	idleAnimSequence.thirdPersonAnim = animData.idleAnim
-	idleAnimSequence.viewConeFunction = ViewConeFree
-	idleAnimSequence.attachment = animData.attachment
-	idleAnimSequence.hideProxy = animData.hideProxy
+void function DelayedSendGamemodeMessage( entity player )
+{
+	player.EndSignal( "OnDestroy" )
 
-	FirstPersonSequenceStruct jumpAnimSequence
-	jumpAnimSequence.firstPersonAnim = animData.jumpPOVAnim
-	jumpAnimSequence.thirdPersonAnim = animData.jumpAnim
-	jumpAnimSequence.viewConeFunction = ViewConeTight
-	jumpAnimSequence.attachment = animData.attachment
-	jumpAnimSequence.hideProxy = animData.hideProxy
+	wait 1 // better wait
+	while ( IsPlayerUnableToReceiveAnnouncement( player ) )
+		WaitFrame()
 
-	// player.Signal( "StopPostDeathLogic" )
-	AddCinematicFlag( player, CE_FLAG_INTRO )
-	AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
-	//AddCinematicFlag( player, CE_FLAG_EMBARK ) // DoF, annoying
-
-	entity dummyEnt = CreatePropDynamic( $"models/humans/pilots/pilot_medium_reaper_m.mdl" ) // TODO: use generic model.  Can't use player settings here since they could be a spectator
-	float idleTime = dummyEnt.GetSequenceDuration( animData.idleAnim )
-	float jumpTime = dummyEnt.GetSequenceDuration( animData.jumpAnim )
-	float totalTime = idleTime + jumpTime
-
-	dummyEnt.Destroy()
-
-	//player.StartObserverMode( OBS_MODE_CHASE )
-	//player.SetObserverTarget( ship )
-    // ttf doesn't support spectating a dropship
-    entity camera = CreateEntity( "point_viewcontrol" )
-	camera.SetParent( ship, "Origin" )
-    camera.SetAngles( < 45, -90, 0 > ) // facing the dropship
-    camera.SetOrigin( < 0, 1000, 1000 > ) // offset
-    camera.kv.spawnflags = 56
-	DispatchSpawn( camera )
-	player.SetViewEntity( camera, true )
-
-	ScreenFadeFromBlack( player, 1.0, 1.0 )
-
-	table<string,bool> e
-	e[ "clearDof" ] <- true
-	e[ "didHolsterAndDisableWeapons" ] <- false
-
-	OnThreadEnd(
-		function () : ( player, e, camera )
-		{
-			if ( IsValid( player ) )
-			{
-				RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
-				RemoveCinematicFlag( player, CE_FLAG_INTRO )
-
-				if ( e[ "clearDof" ] )
-                {
-					RemoveCinematicFlag( player, CE_FLAG_EMBARK )
-                    player.ClearViewEntity()
-                }
-
-				if ( e[ "didHolsterAndDisableWeapons" ] )
-					DeployAndEnableWeapons( player )
-
-				player.ClearParent()
-				ClearPlayerAnimViewEntity( player )
-				player.ClearInvulnerable()
-			}
-
-            if ( IsValid( camera ) )
-                camera.Destroy()
-		}
+	NSSendAnnouncementMessageToPlayer( 
+		player, 
+		"生存模式", 
+		"在時間結束前擊殺所有敵方NPC。通過重生信標復活友方。", 
+		< 255, 255, 255 >, 
+		1, 
+		1 														// 1 means ANNOUNCEMENT_STYLE_QUICK
 	)
+}
 
-	//waitthread FirstPersonSequence( idleAnimSequence, player, ship )
-	wait idleTime
-
-	player.StopObserverMode()
-    //player.ClearViewEntity()
-	ClearPlayerEliminated( player )
+bool function IsPlayerUnableToReceiveAnnouncement( entity player )
+{
 	if ( !IsAlive( player ) )
-    {
-        RespawnAsPilot( player )
-		//DecideRespawnPlayer( player ) // this is a stub in northstar
-    }
-	player.SetOrigin( ship.GetOrigin() )
+		return true
+	if ( player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
+		return true
 
-	thread FadePlayerView( player, 0.1, e )
-	HolsterAndDisableWeapons( player )
-	e[ "didHolsterAndDisableWeapons" ] <- true
-	player.SetInvulnerable()
-	EmitSoundOnEntityOnlyToPlayer( player, player, animData.firstPersonJumpOutSound )
-	waitthread FirstPersonSequence( jumpAnimSequence, player, ship )
-	FallTempAirControl( player )
-
-	//PlayBattleChatterLineToSpeakerAndTeam( player, "bc_returnFromRespawn" )
+	return false
 }
 
-void function FadePlayerView( entity player, float duration, table<string,bool> e )
+//////////////////////////////////////
+///// ANNOUNCEMENT FUNCTIONS END /////
+//////////////////////////////////////
+
+
+
+//////////////////////////////////
+///// NPC SETTINGS FUNCTIONS /////
+//////////////////////////////////
+
+void function SurvivalNPCSettings()
 {
-	player.EndSignal( "OnDeath" )
-	wait duration
-	RemoveCinematicFlag( player, CE_FLAG_EMBARK )
-	e[ "clearDof" ] = false
-	ScreenFadeFromBlack( player, 1.0, 1.0 )
+	AddSpawnCallback( "npc_soldier", SetUpSurvivalMinion )
+	AddSpawnCallback( "npc_spectre", SetUpSurvivalMinion )
 }
 
-const float FALL_AIR_CONTROL_ACCELERATION       = 800
-const float FALL_AIR_CONTROL_SPEED              = 1000
-const float FALL_AIR_CONTROL_DURATION           = 0.5
-
-void function FallTempAirControl( entity player )
+void function SetUpSurvivalMinion( entity npc )
 {
-    thread FallTempAirControl_Threaded( player )
+	npc.GiveWeapon( "mp_weapon_rocket_launcher" ) // give minions at weapon
 }
 
-void function FallTempAirControl_Threaded( entity player )
+//////////////////////////////////////
+///// NPC SETTINGS FUNCTIONS END /////
+//////////////////////////////////////
+
+
+
+////////////////////////////
+///// TURRET FUNCTIONS /////
+////////////////////////////
+
+void function SurvivalTurretSettings()
 {
-    player.EndSignal( "OnDeath" )
-    player.EndSignal( "OnDestroy" )
-
-    table saved = {}
-    saved.airAccel <- float( player.kv.airAcceleration )
-    saved.airSpeed <- float( player.kv.airSpeed )
-
-    OnThreadEnd(
-        function(): ( player, saved )
-        {
-            if ( IsValid( player ) )
-            {
-                player.kv.airAcceleration = saved.airAccel
-                player.kv.airSpeed = saved.airSpeed
-            }
-        }
-    )
-    
-    player.kv.airAcceleration = FALL_AIR_CONTROL_ACCELERATION
-    player.kv.airSpeed = FALL_AIR_CONTROL_SPEED
-    
-    wait FALL_AIR_CONTROL_DURATION
+	AddSpawnCallback( "npc_turret_sentry", SetUpSurvivalTurret )
 }
 
-////////////////////////////////////////
-///// RESPAWN BEACON FUNCTIONS END /////
-////////////////////////////////////////
+void function SetUpSurvivalTurret( entity npc )
+{
+	entity bossPlayer = npc.GetBossPlayer()
+	if ( !IsValid( bossPlayer ) || bossPlayer.IsNPC() ) // for we may add turret grunts?
+		return
+	
+	// init some settings
+	npc.s.waitingForRepair <- false // for not multiplying the repair function!
+
+	Highlight_SetOwnedHighlight( npc, "sp_friendly_hero" )
+	AddEntityCallback_OnDamaged( npc, OnPlayerTurretDamaged )
+	TurretWaitForBeingPickedUp( npc )
+}
+
+void function TurretWaitForBeingPickedUp( entity turret )
+{
+	turret.SetUsableByGroup( "owner pilot" )
+	turret.SetUsePrompts( "#REFUND_HOLD_USE", "#REFUND_PRESS_USE" )
+
+	AddCallback_OnUseEntity( turret, PlayerPickUpTurret )
+}
+
+function PlayerPickUpTurret( turret, player )
+{
+	expect entity ( turret )
+	expect entity ( player )
+
+	turret.UnsetUsable()
+	DisablePlayerTurret( turret )
+	turret.NotSolid()
+	turret.SetOwner( null ) // disable ownership
+	Highlight_ClearOwnedHighlight( turret )
+	turret.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+
+	string rewardRefund = GetTurretBurnmeterName( turret )
+	PlayerInventory_PushInventoryItemByBurnRef( player, rewardRefund )
+}
+
+const array<string> BURNCARD_TURRET_AP_SETFILES = 
+[
+	"npc_turret_sentry_burn_card_ap",
+	"npc_turret_sentry_burn_card_ap_fd",
+	"npc_turret_sentry"
+]
+
+const array<string> BURNCARD_TURRET_AT_SETFILES = 
+[
+	"npc_turret_sentry_burn_card_at",
+	"npc_turret_sentry_burn_card_at_fd",
+	"npc_turret_sentry_plasma"
+]
+
+string function GetTurretBurnmeterName( entity turret )
+{
+	string aiSettings = turret.GetAISettingsName()
+
+	if ( BURNCARD_TURRET_AP_SETFILES.contains( aiSettings ) )
+		return "burnmeter_ap_turret_weapon"
+	if ( BURNCARD_TURRET_AT_SETFILES.contains( aiSettings ) )
+		return "burnmeter_at_turret_weapon"
+	
+	return SURVIVAL_BURNMETER_REWARD // default
+}
+
+// post damage can't handle most things even the "damage" will not be setting to 0
+void function OnPlayerTurretDamaged( entity turret, var damageInfo )
+{
+	float damage = DamageInfo_GetDamage( damageInfo )
+	//print( damage ) // the damage won't be setting to 0 even if the turret is disabled, so we really should use the turret.s.waitingForRepair
+	if ( turret.GetHealth() <= damage ) // killshot
+	{
+		DamageInfo_SetDamage( damageInfo, turret.GetHealth() - 1 )
+		turret.DisableTurret() // disable the turret and protects it
+		//turret.SetHealth( 1 ) // not killing it!
+
+		TurretWaitForBeingRepaired( turret )
+	}
+}
+
+void function TurretWaitForBeingRepaired( entity turret )
+{
+	RemoveCallback_OnUseEntity( turret, PlayerPickUpTurret ) // disable the pickupable
+	//RemoveCallback_OnUseEntity( turret, PlayerRepairTurret ) // defensive fix
+	if ( turret.s.waitingForRepair ) // defensive fix!!
+		return
+	turret.s.waitingForRepair = true
+
+	DisablePlayerTurret( turret )
+	turret.Highlight_SetParam( 3, 0, HIGHLIGHT_COLOR_ENEMY ) // notify the player this turret is down
+	turret.UnsetUsable() // clear the "pickupable"
+	turret.SetUsableByGroup( "owner pilot" )
+	turret.SetUsePrompts( "#TURRET_WAKEUP_HOLD_USE", "#TURRET_WAKEUP_PRESS_USE" )
+
+	AddCallback_OnUseEntity( turret, PlayerRepairTurret )
+}
+
+function PlayerRepairTurret( turret, player )
+{
+	expect entity ( turret )
+	expect entity ( player )
+
+	RemoveCallback_OnUseEntity( turret, PlayerRepairTurret )
+
+	turret.s.waitingForRepair = false
+	EnablePlayerTurret( turret )
+	turret.SetHealth( turret.GetMaxHealth() )
+	turret.UnsetUsable()
+	turret.Highlight_SetParam( 3, 0, HIGHLIGHT_COLOR_FRIENDLY ) // healthy turret highlight
+
+	thread DelayedEnablePickUpTurret( turret )
+}
+
+const float TURRET_PICKUP_GRACE_PERIOD = 0.5 // prevent players double tapping to pick up the turret accidently
+void function DelayedEnablePickUpTurret( entity turret )
+{
+	turret.EndSignal( "OnDestroy" )
+
+	wait TURRET_PICKUP_GRACE_PERIOD
+	TurretWaitForBeingPickedUp( turret )
+}
+
+void function DisablePlayerTurret( entity turret )
+{
+	turret.DisableTurret()
+	HideName( turret )
+	StopSoundOnEntity( turret, "Boost_Card_SentryTurret_Scanning_Loop_3P" ) // stop scanning sound
+	turret.Signal( "StopTurretLaser" ) // stop turret laser, modified in _ai_turret_sentry
+}
+
+void function EnablePlayerTurret( entity turret )
+{
+	turret.EnableTurret()
+	ShowName( turret )
+	EmitSoundOnEntity( turret, "Boost_Card_SentryTurret_Scanning_Loop_3P" ) // start scanning sound
+	thread SentryTurretAimLaser( turret )
+}
+
+void function RemoveCallback_OnUseEntity( entity ent, callbackFunc )
+{
+	local funcPos = ent.s.onUseEntityCallbacks.find( callbackFunc )
+	if ( funcPos < 0 ) // can't find the func
+		return
+	ent.s.onUseEntityCallbacks.remove( expect int( funcPos ) )
+}
+
+////////////////////////////////
+///// TURRET FUNCTIONS END /////
+////////////////////////////////
 
 
 
-/////////////////////////////////
-///// NPC SPAWNER FUNCTIONS /////
-/////////////////////////////////
+///////////////////////////
+///// SCORE FUNCTIONS /////
+///////////////////////////
+
+
+
+///////////////////////////
+///// SCORE FUNCTIONS /////
+///////////////////////////
+
+
+
+///////////////////////////////
+///// SCORE FUNCTIONS END /////
+///////////////////////////////
 
 void function StartNPCSpawner()
 {
@@ -840,6 +624,7 @@ const int TITANS_MAX_COUNT = 3
 void function Spawner( int team )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+	svGlobal.levelEnt.WaitSignal( "SurvivalWaveStart" ) // wait for real start
 
 	int index = team == TEAM_MILITIA ? 0 : 1
 
@@ -865,7 +650,7 @@ void function Spawner( int team )
 			// NORMAL SPAWNS
 			if ( count < SQUADS_MAX_COUNT * 4 - 2 )
 			{
-                array<string> podEntities = ["npc_soldier", "npc_stalker", "npc_spectre"]
+                array<string> podEntities = ["npc_soldier", "npc_stalker", "npc_spectre"] // hardcoded
 				string ent = podEntities[ RandomInt( podEntities.len() ) ]
 
 				array< entity > points = GetZiplineDropshipSpawns()
@@ -1030,6 +815,7 @@ void function CleanupBoredNPCThread( entity guy )
 void function SpawnerExtend( int team )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+	svGlobal.levelEnt.WaitSignal( "SurvivalWaveStart" ) // wait for real start
 
 	int index = team == TEAM_MILITIA ? 0 : 1
 
@@ -1039,18 +825,19 @@ void function SpawnerExtend( int team )
 		{
 			//Escalate( team )
 
-	        int pilotCount = GetNPCArrayEx( "npc_pilot_elite", team, -1, <0,0,0>, -1 ).len() + GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
+	        //int pilotCount = GetNPCArrayEx( "npc_pilot_elite", team, -1, <0,0,0>, -1 ).len() + GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
+			int titanCount = GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
 
-			// PILOTS
-            array< entity > points = SpawnPoints_GetDropPod()
-            if ( pilotCount < TITANS_MAX_COUNT )
+			// TITANS
+			// not sure will these points collide with player's points
+            if ( titanCount < TITANS_MAX_COUNT )
             {
-                entity node = points[ GetSpawnPointIndex( points, team ) ]
+                entity node = GetNPCTitanSpawnPoint( team )
                 //entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team, TitanHandler )
                 if ( RandomInt( 10 ) == 0 ) // BT has 10% chance to spawn
                     waitthread ExtraSpawner_SpawnBTWithCooper( node.GetOrigin(), node.GetAngles(), team )
-                else
-                    waitthread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
+                else // use a different function to prevent pilots behaves silly
+                    waitthread ExtraSpawner_SpawnTitanWithPilot( node.GetOrigin(), node.GetAngles(), team )
             }
 		}
 		else
@@ -1078,6 +865,40 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 	return RandomInt( points.len() )
 }
 
+const float NPC_TITAN_POINT_SAFE_TIME = 10.0 // if the spawnpoint's lastUsedTime is less than this, we don't use it
+
+entity function GetNPCTitanSpawnPoint( int team )
+{
+	array<entity> spawnPoints
+	spawnPoints.extend( SpawnPoints_GetTitan() )
+	spawnPoints.extend( SpawnPoints_GetTitanStart( TEAM_IMC ) )
+	spawnPoints.extend( SpawnPoints_GetTitanStart( TEAM_MILITIA ) )
+
+	entity zone = DecideSpawnZone_Generic( spawnPoints, team )
+
+	if ( IsValid( zone ) )
+	{
+		// 20 Tries to get a random point close to the zone
+		for ( int i = 0; i < 20; i++ )
+		{
+			int index = RandomInt( spawnPoints.len() )
+			entity point = spawnPoints[ index ]
+
+			if ( Distance2D( point.GetOrigin(), zone.GetOrigin() ) < 6000 )
+			{
+				var usedTime = point.s.lastUsedTime
+				if ( usedTime + NPC_TITAN_POINT_SAFE_TIME < Time() )
+				{
+					point.s.lastUsedTime = Time() // mark as used
+					return point
+				}
+			}
+		}
+	}
+
+	return spawnPoints[ RandomInt( spawnPoints.len() ) ]
+}
+
 /////////////////////////////////////
 ///// NPC SPAWNER FUNCTIONS END /////
 /////////////////////////////////////
@@ -1088,9 +909,27 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 ///// TEMP FUNCTIONS /////
 //////////////////////////
 
+void function SpawnFakeFlagCarrier()
+{
+	entity flag = CreateEntity( "item_flag" )
+	flag.SetValueForModelKey( CTF_FLAG_MODEL )
+	flag.MarkAsNonMovingAttachment()
+	DispatchSpawn( flag )
+	flag.SetModel( CTF_FLAG_MODEL )
+	flag.SetOrigin( < 0, 0, 10000 > ) // never let the player pick it up
+	flag.SetVelocity( < 0, 0, 0 > )
+	SetTeam( flag, SURVIVAL_PLAYER_TEAM )
+
+	SetGlobalNetEnt( "flagCarrier", flag ) // this is required for showing the scoreboard!
+}
+
+bool function OnFlagCollected( entity player, entity flag )
+{
+	return false // so flag ent doesn't despawn
+}
+
 const array<string> FORCED_SURVIVAL_PLAYLIST =
 [
-    "mp_glitch",
     "mp_colony02",
     "mp_drydock",
     "mp_black_water_canal",
@@ -1098,7 +937,7 @@ const array<string> FORCED_SURVIVAL_PLAYLIST =
     "mp_homestead",
     "mp_forwardbase_kodai",
     "mp_angel_city"
-] // excluded mp_relic02, mp_grave, mp_eden, mp_wargames, mp_rise, mp_complex3 and mp_crashsite3, for they have very high parts or canyons?
+] // excluded mp_glitch, mp_relic02, mp_grave, mp_eden, mp_wargames, mp_rise, mp_complex3 and mp_crashsite3, for they have very high parts or canyons?
 
 void function ForceChangeMapAfterGame()
 {

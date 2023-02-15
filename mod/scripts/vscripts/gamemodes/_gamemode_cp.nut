@@ -505,6 +505,15 @@ void function HardpointThink( HardpointStruct hardpoint )
 		}
 		else if(cappingTeam==TEAM_UNASSIGNED) // nobody on point
 		{
+			// messed up, not using now
+			//if((GetHardpointState(hardpoint)>=CAPTURE_POINT_STATE_AMPED) || (GetHardpointState(hardpoint)==CAPTURE_POINT_STATE_SELF_UNAMPING))
+			//{
+			//	if (GetHardpointState(hardpoint) == CAPTURE_POINT_STATE_AMPED)
+			//		SetHardpointState(hardpoint,CAPTURE_POINT_STATE_SELF_UNAMPING) // plays a pulsating effect on the UI only when the hardpoint is amped
+			//}
+			// modified to fit self_unamping icon
+			// the "8" will work for proper hints however
+			//if((GetHardpointState(hardpoint)==CAPTURE_POINT_STATE_AMPED)||(GetHardpointState(hardpoint)==CAPTURE_POINT_STATE_AMPING)||(GetHardpointState(hardpoint)==CAPTURE_POINT_STATE_SELF_UNAMPING)||(GetHardpointState(hardpoint)==8))
 			if((GetHardpointState(hardpoint)==CAPTURE_POINT_STATE_AMPED)||(GetHardpointState(hardpoint)==CAPTURE_POINT_STATE_AMPING))
 			{
 				SetHardpointCappingTeam(hardpoint,hardpointEnt.GetTeam())
@@ -587,6 +596,10 @@ void function HardpointThink( HardpointStruct hardpoint )
 			}
 			else if(file.ampingEnabled)//amping or reamping
 			{
+				// i have no idea why but putting it CAPTURE_POINT_STATE_AMPING will say 'CONTESTED' on the UI
+				// since whether the point is contested is checked above, putting the hardpoint state to a value of 8 fixes it somehow
+				//if(GetHardpointState(hardpoint)<=CAPTURE_POINT_STATE_AMPING)
+				//	SetHardpointState(hardpoint, 8 )
 				if(GetHardpointState(hardpoint)<CAPTURE_POINT_STATE_AMPING)
 					SetHardpointState(hardpoint,CAPTURE_POINT_STATE_AMPING)
 				SetHardpointCaptureProgress( hardpoint, min( 2.0, GetHardpointCaptureProgress( hardpoint ) + ( deltaTime / HARDPOINT_AMPED_DELAY * capperAmount ) ) )

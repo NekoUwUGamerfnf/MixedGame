@@ -2,6 +2,7 @@
 global function RespawnShip_Init
 
 global function RespawnInDropShip
+global function SetDropshipRespawnPointsOverride
 
 enum eDropshipState
 {
@@ -17,8 +18,13 @@ struct RespawnShipStruct
 	array<entity> playersInDropship
 }
 
-array<entity> availableRespawnShips
-table < entity, RespawnShipStruct > respawnShipTable
+struct
+{
+	array<entity> availableRespawnShips
+	table < entity, RespawnShipStruct > respawnShipTable
+
+	array<entity> respawnShipSpawns
+} file
 
 const array<string> DROPSHIP_IDLE_ANIMS_POV = [
 
@@ -53,6 +59,18 @@ const array<string> DROPSHIP_EXIT_ANIMS = [
 void function RespawnShip_Init()
 {
 	AddCallback_OnPlayerRespawned( RespawnInDropShip )
+	AddCallback_EntitiesDidLoad( InitDropshipSpawnpoints )
+}
+
+void function InitDropshipSpawnpoints()
+{
+	foreach ( entity spawnpoints in GetZiplineDropshipSpawns() )
+		file.respawnShipSpawns.append( spawnpoints )
+}
+
+void function SetDropshipRespawnPointsOverride( array<entity> spawnPoints )
+{
+	file.respawnShipSpawns = spawnPoints
 }
 
 void function RespawnInDropShip( entity player )
@@ -70,18 +88,18 @@ void function RespawnInDropShip( entity player )
 	player.SetInvulnerable()
 
     bool shouldCreateNewShip = false
-    if( availableRespawnShips.len() == 0 )
+    if( file.availableRespawnShips.len() == 0 )
         shouldCreateNewShip = true
     else
     {
         bool atLeastOneShipAvailable
-        foreach( entity dropship in availableRespawnShips )
+        foreach( entity dropship in file.availableRespawnShips )
         {
             if( !IsValid( dropship ) )
                 continue
 			if( dropship.GetTeam() != player.GetTeam() )
 				continue
-            if( respawnShipTable[dropship].playersInDropship.len() < 4 )
+            if( file.respawnShipTable[dropship].playersInDropship.len() < 4 )
                 atLeastOneShipAvailable = true
         }
         if( !atLeastOneShipAvailable )
@@ -97,7 +115,7 @@ void function RespawnInDropShip( entity player )
 	}
     else
     {
-        foreach( entity chosenShip in availableRespawnShips )
+        foreach( entity chosenShip in file.availableRespawnShips )
         {
 			if( !IsValid( chosenShip ) )
 				continue
@@ -112,7 +130,7 @@ void function RespawnInDropShip( entity player )
 		thread RespawnShipThink( dropship )
 	}
 
-    RespawnShipStruct curShipStruct = respawnShipTable[dropship]
+    RespawnShipStruct curShipStruct = file.respawnShipTable[dropship]
 	//Attach player
 	FirstPersonSequenceStruct idleSequence
 	idleSequence.firstPersonAnim = DROPSHIP_IDLE_ANIMS_POV[ curShipStruct.playersInDropship.len() ]
@@ -136,7 +154,7 @@ void function RespawnInDropShip( entity player )
     thread TrackPlayerLifeStat( player, dropship )
 
     if( curShipStruct.playersInDropship.len() >= 4 )
-        availableRespawnShips.removebyvalue( dropship )
+        file.availableRespawnShips.removebyvalue( dropship )
 }
 
 void function TrackPlayerLifeStat( entity player, entity dropship )
@@ -146,7 +164,7 @@ void function TrackPlayerLifeStat( entity player, entity dropship )
     dropship.EndSignal( "OnDeath" )
     dropship.EndSignal( "OnDestroy" )
 
-    RespawnShipStruct curShipStruct = respawnShipTable[dropship]
+    RespawnShipStruct curShipStruct = file.respawnShipTable[dropship]
     OnThreadEnd(
         function(): ( player, curShipStruct )
         {
@@ -166,13 +184,15 @@ void function TrackPlayerLifeStat( entity player, entity dropship )
 
 entity function CreateRespawnShip( int team )
 {
-    array< entity > spawnPoint = GetZiplineDropshipSpawns()
+    array< entity > spawnPoint = file.respawnShipSpawns
 	entity node = spawnPoint[ GetSpawnPointIndex( spawnPoint, team ) ]
 	entity dropship = CreateDropship( team, node.GetOrigin(), node.GetAngles() ) //< 0,RandomInt( 360 ), 0 >
-	dropship.SetMaxHealth( 25000 )
-	dropship.SetHealth( 25000 )
-	dropship.SetShieldHealthMax( 2000 )
-	dropship.SetShieldHealth( 2000 )
+	dropship.SetInvulnerable()
+	HideName( dropship )
+	//dropship.SetMaxHealth( 25000 )
+	//dropship.SetHealth( 25000 )
+	//dropship.SetShieldHealthMax( 2000 )
+	//dropship.SetShieldHealth( 2000 )
 	AddEntityCallback_OnKilled( dropship, RespawnShipKilled )
 
     return dropship
@@ -180,8 +200,8 @@ entity function CreateRespawnShip( int team )
 
 void function RespawnShipKilled( entity dropship, var damageInfo )
 {
-	availableRespawnShips.removebyvalue( dropship )
-	foreach ( entity player in respawnShipTable[dropship].playersInDropship )
+	file.availableRespawnShips.removebyvalue( dropship )
+	foreach ( entity player in file.respawnShipTable[dropship].playersInDropship )
 	{
 		if ( IsValid( player ) )
 		{
@@ -197,9 +217,9 @@ void function RespawnShipThink( entity dropship )
     int team = dropship.GetTeam()
 
     RespawnShipStruct shipStruct
-    respawnShipTable[dropship] <- shipStruct
+    file.respawnShipTable[dropship] <- shipStruct
 	shipStruct.dropshipState = eDropshipState.InProgress
-    availableRespawnShips.append( dropship )
+    file.availableRespawnShips.append( dropship )
     
 	if ( team == TEAM_MILITIA )
 	{
@@ -226,7 +246,7 @@ void function RespawnShipThink( entity dropship )
 	thread WarpInEffectRespawnShip( dropship )
     dropship.WaitSignal( "deploy" )
 	shipStruct.dropshipState = eDropshipState.Returning
-    availableRespawnShips.removebyvalue( dropship )
+    file.availableRespawnShips.removebyvalue( dropship )
 
 	foreach( int i,entity player in shipStruct.playersInDropship )
 	{
@@ -245,7 +265,7 @@ void function RespawnShipDropPlayer( entity player, entity dropship, int playerD
 	player.EndSignal( "OnDestroy" )
     dropship.EndSignal( "OnDestroy" )
 
-    RespawnShipStruct curShipStruct = respawnShipTable[dropship]
+    RespawnShipStruct curShipStruct = file.respawnShipTable[dropship]
 
 	OnThreadEnd(
 		function() : ( player, curShipStruct )

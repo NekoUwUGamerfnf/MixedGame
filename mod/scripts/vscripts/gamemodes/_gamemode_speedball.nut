@@ -25,7 +25,7 @@ void function GamemodeSpeedball_Init()
 {
 	if ( modGamemodes.survival )
 		Modded_Gamemode_Survival_Init()
-	else
+	else // vanilla gameplay
 	{
 		PrecacheModel( CTF_FLAG_MODEL )
 		PrecacheModel( CTF_FLAG_BASE_MODEL )
