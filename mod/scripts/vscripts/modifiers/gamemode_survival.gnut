@@ -17,7 +17,7 @@ untyped // for GiveExtraWeaponMod()
 global function Modded_Gamemode_Survival_Init
 
 
-const int SURVIVAL_TOTAL_ENEMY_AMOUNT			= 660
+const int SURVIVAL_TOTAL_ENEMY_AMOUNT			= 1080
 
 const int SURVIVAL_PLAYER_TEAM                  = TEAM_MILITIA // TEAM_MILITIA
 const int SURVIVAL_NPC_TEAM						= TEAM_IMC
@@ -48,14 +48,17 @@ void function Modded_Gamemode_Survival_Init()
     Riff_ForceBoostAvailability( eBoostAvailability.Disabled ) // player will only have certain amount of boosts
     //Riff_ForceTitanAvailability( eTitanAvailability.Never ) // titan meter is controlled by server
 
-	AiGameModes_SetGruntWeapons( [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
-	AiGameModes_SetSpectreWeapons( [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
+	AiGameModes_SetGruntWeapons( [ "mp_weapon_rocket_launcher" ] )
+	AiGameModes_SetSpectreWeapons( [ "mp_weapon_defender" ] )
 
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 
     // modded settings
 	// rodeo
 	ClassicRodeo_SetEnabled( true )
+
+	// ai
+	ExtraSpawner_SetPilotWeapons( ["mp_weapon_epg", "mp_weapon_smr", "mp_weapon_pulse_lmg", "mp_weapon_rocket_launcher"] )
 
     // intro
 	ClassicMP_SetCustomIntro( ClassicMP_ShorterDropshipIntro_Setup, DROPSHIP_INTRO_LENGTH_SHORTER )
@@ -181,8 +184,8 @@ void function UpdateSurvivalPlayerClass( entity player )
 {
     if ( IsAlive( player ) )
     {
-        player.SetMaxHealth( SURVIVAL_PLAYER_HEALTH )
-        player.SetHealth( SURVIVAL_PLAYER_HEALTH )
+        //player.SetMaxHealth( SURVIVAL_PLAYER_HEALTH )
+        //player.SetHealth( SURVIVAL_PLAYER_HEALTH )
     }
 }
 
@@ -484,13 +487,22 @@ void function SurvivalWaveStartAnnouncement( entity player )
 
 void function SurvivalNPCSettings()
 {
-	AddSpawnCallback( "npc_soldier", SetUpSurvivalMinion )
-	AddSpawnCallback( "npc_spectre", SetUpSurvivalMinion )
+	//AddSpawnCallback( "npc_soldier", SetUpSurvivalRPGMinion )
+	//AddSpawnCallback( "npc_spectre", SetUpSurvivalRPGMinion )
+	AddSpawnCallback( "npc_stalker", SetUpSurvivalStalker )
 }
 
-void function SetUpSurvivalMinion( entity npc )
+void function SetUpSurvivalRPGMinion( entity npc )
 {
 	npc.GiveWeapon( "mp_weapon_rocket_launcher" ) // give minions at weapon
+}
+
+void function SetUpSurvivalStalker( entity npc )
+{
+	TakeAllWeapons( npc )
+
+	npc.GiveWeapon( "mp_weapon_epg" )
+	npc.SetActiveWeaponByName( "mp_weapon_epg" )
 }
 
 //////////////////////////////////////
@@ -506,6 +518,7 @@ void function SetUpSurvivalMinion( entity npc )
 void function SurvivalTurretSettings()
 {
 	AddSpawnCallback( "npc_turret_sentry", SetUpSurvivalTurret )
+	AddDamageFinalCallback( "npc_turret_sentry", OnPlayerTurretFinalDamaged )
 }
 
 void function SetUpSurvivalTurret( entity npc )
@@ -594,6 +607,15 @@ void function OnPlayerTurretDamaged( entity turret, var damageInfo )
 
 		TurretWaitForBeingRepaired( turret )
 	}
+}
+
+void function OnPlayerTurretFinalDamaged( entity turret, var damageInfo )
+{
+	entity bossPlayer = turret.GetBossPlayer()
+	if ( !IsValid( bossPlayer ) || bossPlayer.IsNPC() ) // for we may add turret grunts?
+		return
+
+	OnPlayerTurretDamaged( turret, damageInfo )
 }
 
 void function TurretWaitForBeingRepaired( entity turret )
@@ -816,6 +838,17 @@ void function SurvivalTeamWinsTheGame()
 	GameRules_SetTeamScore( SURVIVAL_NPC_TEAM, 0 )
 	AddTeamScore( SURVIVAL_PLAYER_TEAM, 1 ) // at least make player have the winning hint?
 
+	// Respawn dead players
+	foreach ( entity player in GetPlayerArray() )
+	{
+		if ( !IsAlive( player ) )
+		{
+			RespawnAsPilot( player )
+			// respawn into dropship to prevent unhappy situations from now
+			RespawnInDropShip( player )
+		}
+	}
+
 	SetWinner( SURVIVAL_PLAYER_TEAM )
 }
 
@@ -892,9 +925,9 @@ void function StartNPCSpawner()
     thread SpawnerExtend( SURVIVAL_NPC_TEAM )
 }
 
-const int SQUADS_MAX_COUNT = 5
-const int REAPERS_MAX_COUNT = 4
-const int TITANS_MAX_COUNT = 4
+const int SQUADS_MAX_COUNT = 4
+const int REAPERS_MAX_COUNT = 6
+const int TITANS_MAX_COUNT = 6
 
 // Populates the match
 void function Spawner( int team )
@@ -1207,13 +1240,12 @@ bool function OnFlagCollected( entity player, entity flag )
 const array<string> FORCED_SURVIVAL_PLAYLIST =
 [
     "mp_colony02",
-    "mp_drydock",
     "mp_black_water_canal",
     "mp_thaw",
     "mp_homestead",
     "mp_forwardbase_kodai",
     "mp_angel_city"
-] // excluded mp_glitch, mp_relic02, mp_grave, mp_eden, mp_wargames, mp_rise, mp_complex3 and mp_crashsite3, for they have very high parts or canyons?
+] // excluded mp_glitch, mp_relic02, mp_grave, mp_eden, mp_wargames, mp_drydock, mp_rise, mp_complex3 and mp_crashsite3, for they have very high parts or canyons?
 
 void function ForceChangeMapAfterGame()
 {
