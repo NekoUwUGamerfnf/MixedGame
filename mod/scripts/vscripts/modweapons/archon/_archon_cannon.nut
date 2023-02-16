@@ -508,7 +508,8 @@ function FireArcNoTargets( entity weapon, WeaponPrimaryAttackParams attackParams
 			else if ( IsVortexSphere( vortexHit.vortex ) )
 			{
 				// do damage to vortex_sphere entities that isn't the titan "vortex shield"
-				local damageNear = weapon.GetWeaponInfoFileKeyField( "damage_near_value" )
+				//local damageNear = weapon.GetWeaponInfoFileKeyField( "damage_near_value" )
+				float damageNear = weapon.GetWeaponSettingFloat( eWeaponVar.damage_near_value )
 				local damage = damageNear * GraphCapped( chargeFrac, 0, 1, 0.0, 10.0 ) // do more damage the more charged the weapon is.
 				VortexSphereDrainHealthForDamage( vortexHit.vortex, damage )
                 if ( IsValid( player ) && player.IsPlayer() )
