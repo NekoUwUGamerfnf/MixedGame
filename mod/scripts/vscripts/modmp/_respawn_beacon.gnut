@@ -51,6 +51,16 @@ void function Respawn_Beacon_Init()
     InitRespawnBeaconDropship()
     PrecacheModel( $"models/Robots/mobile_hardpoint/mobile_hardpoint.mdl" )
     RegisterSignal( "OnContinousUseStopped" )
+    RegisterSignal( "OnPinged" )
+    RegisterSignal( "StopPing" )
+    RegisterSignal( "PlayerCollectingRespawnBanner" )
+    RegisterSignal( "PlayerActivatingRespawnBeacon" )
+
+    // Ping System Init
+    PrecacheSprite($"materials/vgui/hud/weapons/target_ring_mid_pilot.vmt")//enemy_ping_active
+	PrecacheSprite($"materials/vgui/hud/weapons/target_ring_back.vmt")//normal_enemy_ping
+	PrecacheSprite($"materials/vgui/hud/weapons/target_ring_front_pilot.vmt")//enemy_ping_normal */
+	PrecacheSprite($"materials/vgui/hud/weapons/target_ring_back.vmt")//static
 
     AddCallback_OnClientConnected( OnClientConnected )
     AddCallback_GameStateEnter( eGameState.WinnerDetermined, OnGameWinnerDetermined )
@@ -193,7 +203,7 @@ const float RESPAWN_BEACON_USE_DIST2            = 64 * 64
 
 void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
 {
-    if ( GetGameState() != eGameState.Playing )
+    if ( GetGameState() >= eGameState.Playing )
     {
         SendHudMessage( player, "不在可用時期", -1, -0.3, 255, 255, 0, 255, 0.2, 1.5, 0.5 )
         return
@@ -239,6 +249,13 @@ void function PlayerAttemptUseRespawnBeacon( entity player, entity beacon )
     foreach ( void functionref( entity, array<entity> ) callbackFunc in file.playerBeaconActivateCallbacks )
     {
         callbackFunc( player, playersToRespawn )
+    }
+
+    // signal all beacons to disable ping
+    foreach ( entity beacon in file.respawnBeacons )
+    {
+        if ( IsValid( beacon ) )
+            beacon.Signal( "StopPing" )
     }
     
     vector origin = beacon.GetOrigin()
@@ -358,6 +375,7 @@ void function RespawnBeaconActivate_Threaded( entity beacon, int team )
 	indicatorFX.DisableHibernation()
     activeFXs.append( indicatorFX )
 
+    beacon.Signal( "PlayerActivatingRespawnBeacon" )
     EmitSoundOnEntity( beacon, "hardpoint_console_captured" )
     thread PlayAnim( beacon, "mh_inactive_2_active" ) // amped animation
 
@@ -719,6 +737,7 @@ entity function CreatePlayerBanner( entity player )
     int solidType = 6 // SOLID_VPHYSICS
 
     entity banner = CreatePropDynamic( PLAYER_BANNER_MODEL, origin, angles, solidType )
+    PingPlayerBanner( banner )
     banner.kv.fadedist = 10000 // prevent it from fading out
     banner.SetUsable()
     banner.SetUsableByGroup( "friendlies pilot" )
@@ -775,7 +794,11 @@ void function PlayerCollectBanner( entity collector, entity bannerOwner, entity 
         file.teamCarringBanners[ team ] <- [] // init
     file.teamCarringBanners[ team ].append( bannerOwner ) // make banner's owner able to be respawned
     
+    // send signals
+    collector.Signal( "PlayerCollectingRespawnBanner" )
+    banner.Signal( "PlayerCollectingRespawnBanner" )
     thread BannerWeaponAnimationThink( collector )
+    PingRespawnBeacons()
     
     NSSendInfoMessageToPlayer( collector, "回收了 " + bannerOwner.GetPlayerName() + " 的旗幟" )
 
@@ -800,6 +823,7 @@ void function BannerWeaponAnimationThink( entity player )
 {
     player.EndSignal( "OnDeath" )
     player.EndSignal( "OnDestroy" )
+    player.EndSignal( "PlayerCollectingRespawnBanner" )
 
     array<string> savedMods
     bool hasBurnCard = false
@@ -877,3 +901,71 @@ void function ClearPlayerBanners( entity player )
 ///////////////////////////////////////
 ///// PLAYER BANNER FUNCTIONS END /////
 ///////////////////////////////////////
+
+
+
+/////////////////////////////////
+///// PING SYSTEM FUNCTIONS /////
+/////////////////////////////////
+
+void function PingRespawnBeacons()
+{
+    foreach ( entity beacon in file.respawnBeacons )
+    {
+        if ( IsValid( beacon ) )
+            PingRespawnBeacon( beacon )
+    }
+}
+
+void function PingRespawnBeacon( entity beacon )
+{
+    vector origin = beacon.GetOrigin()
+    vector angles = beacon.GetAngles()
+    asset material = $"materials/vgui/hud/weapons/target_ring_front_pilot.vmt"
+    string colorString = "0 255 0"
+    entity ping = CreatePingWithMaterial( origin, angles, material, colorString )
+    ping.EndSignal( "OnDestroy" )
+
+    WaitSignal( beacon, "OnDestroy", "OnPinged", "StopPing", "PlayerActivatingRespawnBeacon" )
+    ping.Destroy()
+}
+
+void function PingPlayerBanner( entity banner )
+{
+    vector origin = banner.GetOrigin()
+    vector angles = banner.GetAngles()
+    asset material = $"materials/vgui/hud/weapons/target_ring_front_pilot.vmt"
+    string colorString = "0 0 255"
+    entity ping = CreatePingWithMaterial( origin, angles, material, colorString )
+    ping.EndSignal( "OnDestroy" )
+
+    WaitSignal( banner, "OnDestroy", "OnPinged", "StopPing", "PlayerCollectingRespawnBanner" )
+    ping.Destroy()
+}
+
+// Create a 2D sprite at position
+entity function CreatePingWithMaterial( vector origin, vector angles, asset sprite, string lightcolor = "255 0 0", float scale = 0.5, int rendermode = 10 )
+{	
+	// Attach a light so we can see it
+	entity env_sprite = CreateEntity( "env_sprite" )
+	env_sprite.SetScriptName( UniqueString( "molotov_sprite" ) )
+	env_sprite.kv.rendermode = rendermode //These do NOT follow any pattern, trial an error is your friend, as you dont have any others anyway (they go from like 1 to 10 or sth, I hontely dont know)
+	env_sprite.kv.origin = origin
+	env_sprite.kv.angles = angles
+	env_sprite.kv.rendercolor = lightcolor
+	env_sprite.kv.renderamt = 255
+	env_sprite.kv.framerate = "30.0"
+	env_sprite.SetValueForModelKey( sprite )
+	env_sprite.kv.scale = string( scale )
+	env_sprite.kv.spawnflags = 1
+	env_sprite.kv.GlowProxySize = 64.0
+	env_sprite.kv.HDRColorScale = 4.0
+	DispatchSpawn( env_sprite )
+	EntFireByHandle( env_sprite, "ShowSprite", "", 0, null, null )
+
+	return env_sprite
+}
+
+/////////////////////////////////////
+///// PING SYSTEM FUNCIONTS END /////
+/////////////////////////////////////
