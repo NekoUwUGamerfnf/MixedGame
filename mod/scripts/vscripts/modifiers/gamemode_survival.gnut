@@ -25,15 +25,20 @@ const int SURVIVAL_NPC_TEAM						= TEAM_IMC
 const string SURVIVAL_BURNMETER_REWARD          = "burnmeter_at_turret_weapon" // whatever you do, never give another "mp_ability_burncardweapon"
 const int SURVIVAL_BOOST_COUNT 					= 2
 
+
 struct SurvivalPlayerStruct
 {
-    float titanEarnMeter // this mode's earnMeter is controlled manually
+    //float titanEarnMeter // this mode's earnMeter is controlled manually
+	float lastDeathProtectionTime
 }
 
 struct
 {
 	array<entity> beaconTempModels
-    table< string, SurvivalPlayerStruct > playerSurvivalTable // it's better to use player's uid instead of the entity
+	float lastBeaconActivateTime
+
+    table< entity, SurvivalPlayerStruct > playerSurvivalTable // it's better to use player's uid instead of the entity
+	table< entity, bool > turretsWaitingForRepair
 
 	bool waveStarted = false
 	array<string> respawnedPlayerUIDs // saved for respawning players
@@ -43,6 +48,14 @@ void function Modded_Gamemode_Survival_Init()
 {
 	// Initialize
 	RegisterSignal( "SurvivalWaveStart" )
+
+	// Ping System Init
+	RegisterSignal( "OnPinged" )
+    RegisterSignal( "StopPing" )
+    PrecacheSprite($"materials/vgui/hud/weapons/target_ring_mid_pilot.vmt")//enemy_ping_active
+	PrecacheSprite($"materials/vgui/hud/weapons/target_ring_back.vmt")//normal_enemy_ping
+	PrecacheSprite($"materials/vgui/hud/weapons/target_ring_front_pilot.vmt")//enemy_ping_normal */
+	PrecacheSprite($"materials/vgui/hud/weapons/target_ring_back.vmt")//static
 
     // Vanilla Mode Settings
     Riff_ForceBoostAvailability( eBoostAvailability.Disabled ) // player will only have certain amount of boosts
@@ -83,6 +96,9 @@ void function Modded_Gamemode_Survival_Init()
 	SetDefaultCustomHighlight( "enemy_player", "enemy_titan", "sp_friendly_hero", "sp_friendly_hero" )
 
     // Callbacks
+	AddDamageFinalCallback( "player", OnSurvivalPlayerFinalDamaged )
+	SetUsedCoreCallback( OnSurvivalPlayerCoreUsed ) // to nerf monarch
+
     AddCallback_PlayerClassChanged( OnPlayerClassChanged )
     AddCallback_OnClientConnected( OnClientConnected )
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
@@ -93,6 +109,7 @@ void function Modded_Gamemode_Survival_Init()
 	AddCallback_GameStateEnter( eGameState.Epilogue, OnGameEpilogue )
 
 	// modded callbacks
+	AddCallback_OnPlayerRespawnBannerDropped( OnBannerDropped )
 	AddCallback_OnPlayerRespawnBannerCollected( OnBannerCollected )
 	AddCallback_OnPlayerActivateRespawnBeacon( OnBeaconActivated )
 
@@ -121,6 +138,7 @@ void function OnClientConnected( entity player )
 void function OnPlayerRespawned( entity player )
 {
 	SurvivalPlayerMarkAsRespawned( player )
+	SurvivalPlayerMessageThink( player )
 }
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
@@ -157,15 +175,24 @@ void function OnGameEpilogue()
 
 }
 
+// modified callbacks
+void function OnBannerDropped( entity player, entity banner )
+{
+	PingPlayerBanner( banner )
+}
+
 void function OnBannerCollected( entity collector, entity bannerOwner )
 {
 	SendChatMessageForBannerCollection( collector, bannerOwner )
+	PingSurvivalRespawnBeacons()
 }
 
 void function OnBeaconActivated( entity activator, array<entity> playersToRespawn )
 {
+	file.lastBeaconActivateTime = Time() // for player's notifications
 	AddScoreForBeaconActivation( activator, playersToRespawn )
 	SendChatMessageForBeaconActivation( activator )
+	//DeactivateBeaconPings()
 }
 
 //////////////////////////////////
@@ -178,14 +205,17 @@ void function OnBeaconActivated( entity activator, array<entity> playersToRespaw
 ///// LOADOUT FUNCTIONS /////
 /////////////////////////////
 
-const int SURVIVAL_PLAYER_HEALTH = 100
+const int SURVIVAL_PLAYER_HEALTH			= 150 // give players more space
 
 void function UpdateSurvivalPlayerClass( entity player )
 {
     if ( IsAlive( player ) )
     {
-        //player.SetMaxHealth( SURVIVAL_PLAYER_HEALTH )
-        //player.SetHealth( SURVIVAL_PLAYER_HEALTH )
+		if ( !player.IsTitan() ) // good to check this...
+		{
+			player.SetMaxHealth( SURVIVAL_PLAYER_HEALTH )
+			player.SetHealth( SURVIVAL_PLAYER_HEALTH )
+		}
     }
 }
 
@@ -241,6 +271,19 @@ void function GivePlayerSurvivalBoost_Threaded( entity player )
 	DeployableTurret_SetAISettingsForPlayer_AT( player, "npc_turret_sentry_burn_card_at_fd" )
 }
 
+// nerf monarch: they won't receive shields if not at max level
+void function OnSurvivalPlayerCoreUsed( entity titan, entity coreWeapon )
+{
+	string className = coreWeapon.GetWeaponClassName()
+	if ( className == "mp_titancore_upgrade" )
+	{
+		entity titanSoul = titan.GetTitanSoul()
+		int currentUpgradeCount = titanSoul.GetTitanSoulNetInt( "upgradeCount" )
+		if ( currentUpgradeCount < 3 ) // not max level
+			titanSoul.SetShieldHealth( 0 ) // remove all shields
+	}
+}
+
 /////////////////////////////////
 ///// LOADOUT FUNCTIONS END /////
 /////////////////////////////////
@@ -256,7 +299,7 @@ void function InitSurvivalPlayer( entity player )
     SetTeam( player, SURVIVAL_PLAYER_TEAM ) // always set player to the right team
 
     SurvivalPlayerStruct emptyStruct
-    file.playerSurvivalTable[ player.GetUID() ] <- emptyStruct
+    file.playerSurvivalTable[ player ] <- emptyStruct
 
 	// starting loadouts
 	if ( GetGameState() >= eGameState.Playing ) // this is required for not crashing the server
@@ -272,6 +315,109 @@ void function InitSurvivalPlayer( entity player )
 ///////////////////////////////////////////
 ///// PLAYER INITIALIZE FUNCTIONS END /////
 ///////////////////////////////////////////
+
+
+
+///////////////////////////////////
+///// PLAYER DAMAGE FUNCTIONS /////
+///////////////////////////////////
+
+const int SURVIVAL_LESS_PLAYER_COUNT				= 2 // less than this will be consider as "less players"
+const int SURVIVAL_NORMAL_PLAYER_COUNT				= 4 // normal player count
+const int SURVIVAL_MORE_PLAYER_COUNT				= 6 // more player count
+
+const float NPC_DAMAGE_MULTIPLIER_LESS_PLAYERS		= 0.75
+const float NPC_DAMAGE_MULTIPLIER_NORMAL_PLAYERS	= 1.0
+const float NPC_DAMAGE_MULTIPLIER_MORE_PLAYERS		= 1.5
+
+const float PLAYER_DEATH_PROTECTION_COOLDOWN		= 30 // every 30s give player a chance to protect themselves
+const float PLAYER_DEATH_PROTECTION_DURATION		= 1.0 // player won't die within this time
+
+float function GetSurvivalPlayerDamageReceivedMultiplier()
+{
+	int playerCount = GetPlayerArrayOfTeam( SURVIVAL_PLAYER_TEAM ).len()
+	
+	float damageScale = 1.0
+	if ( playerCount <= SURVIVAL_LESS_PLAYER_COUNT )
+	{
+		//float damagePerPlayer = fabs ( ( NPC_DAMAGE_MULTIPLIER_NORMAL_PLAYERS - NPC_DAMAGE_MULTIPLIER_LESS_PLAYERS ) / float ( SURVIVAL_NORMAL_PLAYER_COUNT - SURVIVAL_LESS_PLAYER_COUNT ) )
+		//float countDiffer = SURVIVAL_LESS_PLAYER_COUNT - playerCount
+		//damageScale -= ( countDiffer * damagePerPlayer )
+		damageScale = NPC_DAMAGE_MULTIPLIER_LESS_PLAYERS
+	}
+	else if ( playerCount > SURVIVAL_LESS_PLAYER_COUNT && playerCount <= SURVIVAL_NORMAL_PLAYER_COUNT )
+	{
+		//float damagePerPlayer = fabs ( ( NPC_DAMAGE_MULTIPLIER_MORE_PLAYERS - NPC_DAMAGE_MULTIPLIER_NORMAL_PLAYERS ) / float ( SURVIVAL_MORE_PLAYER_COUNT - SURVIVAL_NORMAL_PLAYER_COUNT ) )
+		//float countDiffer = SURVIVAL_MORE_PLAYER_COUNT - playerCount
+		//damageScale += ( countDiffer * damagePerPlayer )
+		damageScale = NPC_DAMAGE_MULTIPLIER_NORMAL_PLAYERS
+	}
+	else if ( playerCount >= SURVIVAL_MORE_PLAYER_COUNT )
+		damageScale = NPC_DAMAGE_MULTIPLIER_MORE_PLAYERS
+
+	return damageScale
+}
+
+bool function ShouldGivePlayerDeathProtection( entity player )
+{
+	if ( !file.waveStarted ) // save player's death protection to wave start
+		return false
+	if ( player.IsTitan() )
+		return false
+	if ( file.playerSurvivalTable[ player ].lastDeathProtectionTime + PLAYER_DEATH_PROTECTION_COOLDOWN >= Time() )
+		return false
+
+	return true
+}
+
+void function PlayerDeathProtectionThink( entity player )
+{
+	print( "enabling death protection" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+
+	EnableDemigod( player )
+	file.playerSurvivalTable[ player ].lastDeathProtectionTime = Time()
+
+	OnThreadEnd
+	(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				if ( IsDemigod( player ) )
+					DisableDemigod( player )
+			}
+		}
+	)
+
+	wait PLAYER_DEATH_PROTECTION_DURATION
+}
+
+void function OnSurvivalPlayerFinalDamaged( entity player, var damageInfo )
+{
+	if ( player.IsTitan() ) // titans take multiplied damage
+	{
+		DamageInfo_ScaleDamage( damageInfo, GetSurvivalPlayerDamageReceivedMultiplier() )
+		return
+	}
+
+	float damage = DamageInfo_GetDamage( damageInfo )
+	int playerHealth = player.GetShieldHealth() + player.GetHealth()
+	bool isKillshot = playerHealth <= damage
+	if ( isKillshot )
+	{
+		if ( ShouldGivePlayerDeathProtection( player ) )
+		{
+			//DamageInfo_SetDamage( damageInfo, playerHealth - 1 ) // don't kill the player
+			thread PlayerDeathProtectionThink( player )
+		}
+	}
+}
+
+///////////////////////////////////////
+///// PLAYER DAMAGE FUNCTIONS END /////
+///////////////////////////////////////
 
 
 
@@ -291,6 +437,7 @@ void function SpawnBeaconTempModels()
             continue
 
 		entity prop = CreatePropDynamic( spawnpoint.GetModelName(), spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 6 )
+		thread PlayAnim( prop, "mh_inactive_idle" )
 		file.beaconTempModels.append( prop )
 	}
 }
@@ -360,7 +507,7 @@ void function TryGiveTitanToPlayer( entity player )
 ///// GAMESTATE FUNCTIONS /////
 ///////////////////////////////
 
-const float SURVIVAL_WAVE_START_DELAY 			= 40 // for players ready up?
+const float SURVIVAL_WAVE_START_DELAY 			= 35 // for players ready up?
 const float SURVIVAL_WAVE_TIME_LIMIT			= 720 // 12 min, if player can't finish the wave they will lose
 
 void function SurvivalTimerThink()
@@ -410,12 +557,99 @@ void function SurvivalTimerThink_Threaded()
 ///// ANNOUNCEMENT FUNCTIONS /////
 //////////////////////////////////
 
+const string SURVIVAL_BANNER_MESSAGE_ID 			= "21"
+const string SURVIVAL_BEACON_MESSAGE_ID				= "22"
+const float SURVIVAL_BEACON_MESSAGE_DELAY			= 15 // if the beacon was activated recently we don't show the banner message
+
+void function SurvivalPlayerMessageThink( entity player )
+{
+	thread SurvivalPlayerMessageThink_Threaded( player )
+}
+
+void function ClearPlayerSurvivalMessage( entity player )
+{
+	NSDeleteStatusMessageOnPlayer( player, SURVIVAL_BANNER_MESSAGE_ID ) // try to delete existing one
+	NSDeleteStatusMessageOnPlayer( player, SURVIVAL_BEACON_MESSAGE_ID ) // try to delete existing one
+}
+
+void function SurvivalPlayerMessageThink_Threaded( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+
+	OnThreadEnd
+	(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+				ClearPlayerSurvivalMessage( player )
+		}
+	)
+
+	int team = SURVIVAL_PLAYER_TEAM
+	ClearPlayerSurvivalMessage( player ) // defensive fix
+
+	bool bannerMsgCreated = false
+	bool beaconMsgCreated = false
+	while ( true )
+	{
+		WaitFrame()
+		
+		if ( !file.waveStarted ) // wait until wave start
+			continue
+
+		int bannerCount = GetTeamActiveRespawnBanners( team ).len()
+		int deadPlayerCount = GetPlayerArrayOfTeam( team ).len() - GetPlayerArrayOfTeam_Alive( team ).len()
+		
+		if ( deadPlayerCount > 0 && file.lastBeaconActivateTime + SURVIVAL_BEACON_MESSAGE_DELAY < Time() )
+		{
+			if ( bannerMsgCreated )
+			{
+				NSEditStatusMessageOnPlayer( player, "", "旗幟已收集 " + string( bannerCount ) + " / " + string( deadPlayerCount ), SURVIVAL_BANNER_MESSAGE_ID ) // init health message
+			}
+			else
+			{
+				NSDeleteStatusMessageOnPlayer( player, SURVIVAL_BANNER_MESSAGE_ID ) // defensive fix
+				NSCreateStatusMessageOnPlayer( player, "", "", SURVIVAL_BANNER_MESSAGE_ID )
+				bannerMsgCreated = true
+			}
+		}
+		else // no dead players
+		{
+			if ( beaconMsgCreated )
+			{
+				NSDeleteStatusMessageOnPlayer( player, SURVIVAL_BANNER_MESSAGE_ID )
+				bannerMsgCreated = false
+			}
+		}
+
+
+		if ( bannerCount > 0 )
+		{
+			if ( !beaconMsgCreated )
+			{
+				NSDeleteStatusMessageOnPlayer( player, SURVIVAL_BEACON_MESSAGE_ID ) // defensive fix
+				NSCreateStatusMessageOnPlayer( player, "", "激活重生信標以重生友方玩家", SURVIVAL_BEACON_MESSAGE_ID )
+				beaconMsgCreated = true
+			}
+		}
+		else // no banners
+		{
+			if ( beaconMsgCreated )
+			{
+				NSDeleteStatusMessageOnPlayer( player, SURVIVAL_BEACON_MESSAGE_ID )
+				beaconMsgCreated = false
+			}
+		}
+	}
+}
+
 void function SurvivalGamemodeAnnouncement( entity player )
 {
 	thread DelayedSendGamemodeMessage( player )
 
 	// TEMP NORIFICATION
-    Chat_ServerPrivateMessage( player, "本服务器得分系统与语音未完工，目前在测试数据", false )
+    Chat_ServerPrivateMessage( player, "本服务器对话与出怪机制未完工，目前在测试数据", false )
     Chat_ServerPrivateMessage( player, "无复活，尽可能在NPC的攻击下存活。死亡的玩家会掉落旗帜卡，拾取后对重生信标使用以进行重生", false )
 }
 
@@ -521,19 +755,19 @@ void function SurvivalTurretSettings()
 	AddDamageFinalCallback( "npc_turret_sentry", OnPlayerTurretFinalDamaged )
 }
 
-void function SetUpSurvivalTurret( entity npc )
+void function SetUpSurvivalTurret( entity turret )
 {
-	entity bossPlayer = npc.GetBossPlayer()
+	entity bossPlayer = turret.GetBossPlayer()
 	if ( !IsValid( bossPlayer ) || bossPlayer.IsNPC() ) // for we may add turret grunts?
 		return
 	
 	// init some settings
-	npc.s.waitingForRepair <- false // for not multiplying the repair function!
+	file.turretsWaitingForRepair[ turret ] <- false // for not multiplying the repair function!
 
-	Highlight_SetOwnedHighlight( npc, "sp_friendly_hero" )
-	AddEntityCallback_OnDamaged( npc, OnPlayerTurretDamaged )
-	TurretWaitForBeingPickedUp( npc )
-	thread TrackTurretBossPlayerLifeTime( npc, bossPlayer )
+	Highlight_SetOwnedHighlight( turret, "sp_friendly_hero" )
+	AddEntityCallback_OnDamaged( turret, OnPlayerTurretDamaged )
+	TurretWaitForBeingPickedUp( turret )
+	thread TrackTurretBossPlayerLifeTime( turret, bossPlayer )
 }
 
 void function TrackTurretBossPlayerLifeTime( entity turret, entity bossPlayer )
@@ -622,9 +856,9 @@ void function TurretWaitForBeingRepaired( entity turret )
 {
 	RemoveCallback_OnUseEntity( turret, PlayerPickUpTurret ) // disable the pickupable
 	//RemoveCallback_OnUseEntity( turret, PlayerRepairTurret ) // defensive fix
-	if ( turret.s.waitingForRepair ) // defensive fix!!
+	if ( file.turretsWaitingForRepair[ turret ] ) // defensive fix!!
 		return
-	turret.s.waitingForRepair = true
+	file.turretsWaitingForRepair[ turret ] = true
 
 	DisablePlayerTurret( turret )
 	turret.Highlight_SetParam( 3, 0, HIGHLIGHT_COLOR_ENEMY ) // notify the player this turret is down
@@ -642,7 +876,7 @@ function PlayerRepairTurret( turret, player )
 
 	RemoveCallback_OnUseEntity( turret, PlayerRepairTurret )
 
-	turret.s.waitingForRepair = false
+	file.turretsWaitingForRepair[ turret ] = false
 	EnablePlayerTurret( turret )
 	AddPlayerScore( player, "FDRepairTurret" ) // score event
 
@@ -915,9 +1149,9 @@ void function EvacEpilogueCompleted( entity dropship )
 
 
 
-///////////////////////////////
-///// SCORE FUNCTIONS END /////
-///////////////////////////////
+/////////////////////////////////
+///// NPC SPAWNER FUNCTIONS /////
+/////////////////////////////////
 
 void function StartNPCSpawner()
 {
@@ -925,9 +1159,9 @@ void function StartNPCSpawner()
     thread SpawnerExtend( SURVIVAL_NPC_TEAM )
 }
 
-const int SQUADS_MAX_COUNT = 4
-const int REAPERS_MAX_COUNT = 6
-const int TITANS_MAX_COUNT = 6
+const int SQUADS_MAX_COUNT = 5
+const int REAPERS_MAX_COUNT = 4
+const int TITANS_MAX_COUNT = 4
 
 // Populates the match
 void function Spawner( int team )
@@ -1210,6 +1444,139 @@ entity function GetNPCTitanSpawnPoint( int team )
 
 /////////////////////////////////////
 ///// NPC SPAWNER FUNCTIONS END /////
+/////////////////////////////////////
+
+
+
+/////////////////////////////////
+///// PING SYSTEM FUNCTIONS /////
+/////////////////////////////////
+
+void function PingSurvivalRespawnBeacons()
+{
+    foreach ( entity beacon in GetAllRespawnBeaconEntities() )
+    {
+        if ( IsValid( beacon ) )
+            PingRespawnBeacon( beacon )
+    }
+
+	thread TrackSurvivalTeamBannerCount() // to disable the ping in proper time
+}
+
+void function TrackSurvivalTeamBannerCount()
+{
+	int team = SURVIVAL_PLAYER_TEAM
+
+	while ( true )
+	{
+		WaitFrame()
+		int bannerCount = GetTeamActiveRespawnBanners( team ).len()
+		if ( bannerCount == 0 ) // banner used or banner owner quit
+			break
+	}
+
+	DeactivateBeaconPings() // deactive the pings
+}
+
+const asset SURVIVAL_BEACON_INDICATOR			= FX_EVAC_MARKER
+
+void function PingRespawnBeacon( entity beacon )
+{
+	thread PingRespawnBeacon_Threaded( beacon )
+}
+
+void function PingRespawnBeacon_Threaded( entity beacon )
+{
+	vector origin = beacon.GetOrigin()
+    vector angles = beacon.GetAngles()
+
+	// indicator pings
+	int indicFxId = GetParticleSystemIndex( SURVIVAL_BEACON_INDICATOR )
+    entity indicatorFX = StartParticleEffectInWorld_ReturnEntity( indicFxId, origin, < 0,0,0 > )
+	SetTeam( indicatorFX, SURVIVAL_PLAYER_TEAM )
+	EffectSetControlPointVector( indicatorFX, 1, < 0, 110, 0 > ) // green
+	indicatorFX.DisableHibernation() // prevent it from fading out
+
+	// sprite pings
+    asset material = $"materials/vgui/hud/weapons/target_ring_front_pilot.vmt"
+    string colorString = "0 255 0"
+    entity ping = CreatePingWithMaterial( origin, angles, material, colorString )
+
+    WaitSignal( beacon, "OnDestroy", "OnPinged", "StopPing", "PlayerActivatingRespawnBeacon" )
+
+	if ( IsValid( indicatorFX ) )
+		EffectStop( indicatorFX )
+	if ( IsValid( ping ) )
+    	ping.Destroy()
+}
+
+void function DeactivateBeaconPings()
+{
+	// signal all beacons to disable ping
+    foreach ( entity beacon in GetAllRespawnBeaconEntities() )
+    {
+        if ( IsValid( beacon ) )
+            beacon.Signal( "StopPing" )
+    }
+}
+
+const asset SURVIVAL_BANNER_INICATOR 			= $"P_ar_titan_droppoint"
+
+void function PingPlayerBanner( entity banner )
+{
+	thread PingPlayerBanner_Threaded( banner )
+}
+
+void function PingPlayerBanner_Threaded( entity banner )
+{
+	vector origin = banner.GetOrigin()
+    vector angles = banner.GetAngles()
+    vector surfaceNormal = < 0, 0, 1 >
+
+	// indicator pings
+	int indicFxId = GetParticleSystemIndex( SURVIVAL_BANNER_INICATOR )
+    entity indicatorFX = StartParticleEffectInWorld_ReturnEntity( indicFxId, origin, surfaceNormal )
+    EffectSetControlPointVector( indicatorFX, 1, < 0, 110, 0 > ) // green
+	indicatorFX.DisableHibernation() // prevent it from fading out
+
+	// sprite pings
+    asset material = $"materials/vgui/hud/weapons/target_ring_front_pilot.vmt"
+    string colorString = "0 0 255"
+    entity ping = CreatePingWithMaterial( origin, angles, material, colorString )
+
+    WaitSignal( banner, "OnDestroy", "OnPinged", "StopPing", "PlayerCollectingRespawnBanner" )
+
+	if ( IsValid( indicatorFX ) )
+		EffectStop( indicatorFX )
+    if ( IsValid( ping ) )
+		ping.Destroy()
+}
+
+// Create a 2D sprite at position
+entity function CreatePingWithMaterial( vector origin, vector angles, asset sprite, string lightcolor = "255 0 0", float scale = 0.5, int rendermode = 10 )
+{	
+	// Attach a light so we can see it
+	entity env_sprite = CreateEntity( "env_sprite" )
+	env_sprite.SetScriptName( UniqueString( "molotov_sprite" ) )
+	env_sprite.kv.rendermode = rendermode //These do NOT follow any pattern, trial an error is your friend, as you dont have any others anyway (they go from like 1 to 10 or sth, I hontely dont know)
+	env_sprite.kv.origin = origin
+	env_sprite.kv.angles = angles
+	env_sprite.kv.rendercolor = lightcolor
+	env_sprite.kv.renderamt = 255
+	env_sprite.kv.framerate = "30.0"
+	env_sprite.SetValueForModelKey( sprite )
+	env_sprite.kv.scale = string( scale )
+	env_sprite.kv.spawnflags = 1
+	env_sprite.kv.GlowProxySize = 64.0
+	env_sprite.kv.HDRColorScale = 4.0
+	DispatchSpawn( env_sprite )
+	EntFireByHandle( env_sprite, "ShowSprite", "", 0, null, null )
+
+	return env_sprite
+}
+
+/////////////////////////////////////
+///// PING SYSTEM FUNCIONTS END /////
 /////////////////////////////////////
 
 
