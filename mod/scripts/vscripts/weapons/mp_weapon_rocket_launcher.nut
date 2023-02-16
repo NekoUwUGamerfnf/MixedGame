@@ -530,6 +530,10 @@ void function OnWeaponOwnerChanged_weapon_rocket_launcher( entity weapon, Weapon
 	{
 		if ( weaponOwner.IsNPC() )
 			weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
+		else
+			weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
 	}
+	else
+		weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
 	#endif
 }
