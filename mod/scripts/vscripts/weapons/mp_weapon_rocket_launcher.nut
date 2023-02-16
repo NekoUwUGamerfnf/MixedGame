@@ -119,10 +119,6 @@ void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 		
 		thread CalculateGuidancePoint( weapon, weaponOwner )
 	}
-
-	// modified! for npc swiching to it
-	if ( weaponOwner.IsNPC() )
-		weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
 }
 
 void function OnWeaponDeactivate_weapon_rocket_launcher( entity weapon )
@@ -131,11 +127,6 @@ void function OnWeaponDeactivate_weapon_rocket_launcher( entity weapon )
 	{
 		weapon.Signal( "StopGuidedLaser" )
 	}
-
-	// modified!
-	entity weaponOwner = weapon.GetWeaponOwner()
-	if ( weaponOwner.IsNPC() )
-		weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
 }
 
 var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
@@ -532,5 +523,13 @@ void function OnWeaponOwnerChanged_weapon_rocket_launcher( entity weapon, Weapon
 {
 	#if SERVER
 		weapon.w.missileFiredCallback = null
+
+	// modified! for npc swiching to it
+	entity weaponOwner = weapon.GetWeaponOwner()
+	if ( IsValid( weaponOwner ) )
+	{
+		if ( weaponOwner.IsNPC() )
+			weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
+	}
 	#endif
 }
