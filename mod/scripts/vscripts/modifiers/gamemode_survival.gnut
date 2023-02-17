@@ -22,14 +22,16 @@ const int SURVIVAL_TOTAL_ENEMY_AMOUNT			= 1080
 const int SURVIVAL_PLAYER_TEAM                  = TEAM_MILITIA // TEAM_MILITIA
 const int SURVIVAL_NPC_TEAM						= TEAM_IMC
 
-const string SURVIVAL_BURNMETER_REWARD          = "burnmeter_at_turret_weapon" // whatever you do, never give another "mp_ability_burncardweapon"
-const int SURVIVAL_BOOST_COUNT 					= 2
+
+const string SURVIVAL_BURNMETER_REWARD          = "burnmeter_ap_turret_weapon" // whatever you do, never give another "mp_ability_burncardweapon"
+const int SURVIVAL_STARTER_BOOST_COUNT 			= 0
 
 
 struct SurvivalPlayerStruct
 {
     //float titanEarnMeter // this mode's earnMeter is controlled manually
 	float lastDeathProtectionTime
+	int activeBoostCount
 }
 
 struct
@@ -58,7 +60,7 @@ void function Modded_Gamemode_Survival_Init()
 	PrecacheSprite($"materials/vgui/hud/weapons/target_ring_back.vmt")//static
 
     // Vanilla Mode Settings
-    Riff_ForceBoostAvailability( eBoostAvailability.Disabled ) // player will only have certain amount of boosts
+    //Riff_ForceBoostAvailability( eBoostAvailability.Disabled ) // player will only have certain amount of boosts, this will make disembarking clear the boosts!
     //Riff_ForceTitanAvailability( eTitanAvailability.Never ) // titan meter is controlled by server
 
 	AiGameModes_SetGruntWeapons( [ "mp_weapon_rocket_launcher" ] )
@@ -68,7 +70,7 @@ void function Modded_Gamemode_Survival_Init()
 
     // modded settings
 	// rodeo
-	ClassicRodeo_SetEnabled( true )
+	//ClassicRodeo_SetEnabled( true )
 
 	// ai
 	ExtraSpawner_SetPilotWeapons( ["mp_weapon_epg", "mp_weapon_smr", "mp_weapon_pulse_lmg", "mp_weapon_rocket_launcher"] )
@@ -107,6 +109,8 @@ void function Modded_Gamemode_Survival_Init()
     AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
     AddCallback_GameStateEnter( eGameState.Playing, OnGamePlaying )
 	AddCallback_GameStateEnter( eGameState.Epilogue, OnGameEpilogue )
+	//AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
+	//AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
 
 	// modded callbacks
 	AddCallback_OnPlayerRespawnBannerDropped( OnBannerDropped )
@@ -263,7 +267,7 @@ void function GivePlayerSurvivalBoost_Threaded( entity player )
 {
 	//has to be delayed because PlayerConnect callbacks get called in wrong order
 	WaitFrame()
-	for ( int i = 0; i < SURVIVAL_BOOST_COUNT; i++ ) // give a certain amount of burncard
+	for ( int i = 0; i < SURVIVAL_STARTER_BOOST_COUNT; i++ ) // give a certain amount of burncard
 		PlayerInventory_PushInventoryItemByBurnRef( player, SURVIVAL_BURNMETER_REWARD )
 
 	// turret settings
@@ -279,7 +283,7 @@ void function OnSurvivalPlayerCoreUsed( entity titan, entity coreWeapon )
 	{
 		entity titanSoul = titan.GetTitanSoul()
 		int currentUpgradeCount = titanSoul.GetTitanSoulNetInt( "upgradeCount" )
-		if ( currentUpgradeCount < 3 ) // not max level
+		if ( currentUpgradeCount < 4 ) // not max level
 			titanSoul.SetShieldHealth( 0 ) // remove all shields
 	}
 }
@@ -326,9 +330,9 @@ const int SURVIVAL_LESS_PLAYER_COUNT				= 2 // less than this will be consider a
 const int SURVIVAL_NORMAL_PLAYER_COUNT				= 4 // normal player count
 const int SURVIVAL_MORE_PLAYER_COUNT				= 6 // more player count
 
-const float NPC_DAMAGE_MULTIPLIER_LESS_PLAYERS		= 0.75
+const float NPC_DAMAGE_MULTIPLIER_LESS_PLAYERS		= 0.8
 const float NPC_DAMAGE_MULTIPLIER_NORMAL_PLAYERS	= 1.0
-const float NPC_DAMAGE_MULTIPLIER_MORE_PLAYERS		= 1.5
+const float NPC_DAMAGE_MULTIPLIER_MORE_PLAYERS		= 1.25
 
 const float PLAYER_DEATH_PROTECTION_COOLDOWN		= 30 // every 30s give player a chance to protect themselves
 const float PLAYER_DEATH_PROTECTION_DURATION		= 1.0 // player won't die within this time
@@ -372,7 +376,7 @@ bool function ShouldGivePlayerDeathProtection( entity player )
 
 void function PlayerDeathProtectionThink( entity player )
 {
-	print( "enabling death protection" )
+	//print( "enabling death protection" )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 
@@ -399,6 +403,7 @@ void function OnSurvivalPlayerFinalDamaged( entity player, var damageInfo )
 	if ( player.IsTitan() ) // titans take multiplied damage
 	{
 		DamageInfo_ScaleDamage( damageInfo, GetSurvivalPlayerDamageReceivedMultiplier() )
+		//print( GetSurvivalPlayerDamageReceivedMultiplier() )
 		return
 	}
 
@@ -1046,6 +1051,9 @@ void function SurvivalEnemyNPCKilled( entity victim, var damageInfo )
 
 	if ( scoreToRemove > 0 )
 	{
+		if ( GetGameState() != eGameState.Playing ) // game already end?
+			return
+
 		player.AddToPlayerGameStat( PGS_KILLS, scoreToRemove )
 		
 		int scoreLeft = GameRules_GetTeamScore( SURVIVAL_NPC_TEAM )
@@ -1159,9 +1167,9 @@ void function StartNPCSpawner()
     thread SpawnerExtend( SURVIVAL_NPC_TEAM )
 }
 
-const int SQUADS_MAX_COUNT = 5
+const int SQUADS_MAX_COUNT = 10
 const int REAPERS_MAX_COUNT = 4
-const int TITANS_MAX_COUNT = 4
+const int TITANS_MAX_COUNT = 6
 
 // Populates the match
 void function Spawner( int team )
