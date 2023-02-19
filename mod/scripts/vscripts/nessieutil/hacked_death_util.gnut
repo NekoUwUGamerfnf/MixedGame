@@ -8,6 +8,10 @@ global function SetHackedDeathEnabled
 global function IsHackedDeathEnabled
 global function IsPlayerHackedDeath
 
+// death effect
+const asset FLESH_PINKMIST_FX = $"death_pinkmist_LG_nochunk"
+const asset MECHNAICAL_PINKMIST_FX = $"xo_damage_exp_2"
+
 struct
 {
     bool hackedDeathEnabled = false
@@ -18,6 +22,8 @@ void function Hacked_Death_Utility_Init()
     // funny HACKs!
 	RegisterSignal( "StartHackedDeath" )
 	RegisterSignal( "RecoverFromHackedDeath" )
+	PrecacheParticleSystem( FLESH_PINKMIST_FX )
+	PrecacheParticleSystem( MECHNAICAL_PINKMIST_FX )
 	
 	AddPostDamageCallback( "player", HackedDeath_PlayerPostDamage ) // this can get player's real taken damage
 	AddDeathCallback( "player", HackedDeath_PlayerRealDeath )
@@ -86,21 +92,25 @@ void function PlayerStartHackedDeath( entity player, var damageInfo )
 	player.SetHealth( player.GetMaxHealth() ) // so player's visual will be clean
 	player.Signal( "StopHealthRegenThink" )
 	//StopPlayerWoundedSound( player ) // doing a loop to stop this now
-	EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
+	//EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
 	TakeAllOffhandInstantNow( player ) // can this cancel grapple things?
 	player.FreezeControlsOnServer() // freeze them, avoid picking up weapons
 	StopPlayerJumpJetSound( player ) // disable jumpjet sound
 	CodeCallback_OnEntityKilled( player, damageInfo )
-	CodeCallback_OnPlayerKilled( player, damageInfo )
+	//CodeCallback_OnPlayerKilled( player, damageInfo )
 	CreateHackedDeathFakeCorpse( player, damageInfo )
 	// save offhands so player can have cooked grenades out, usage has been freezed
 	//TakeOffhandWeaponsNow( player ) // just leave weapon bars full, it looks better! should put lower for "stealing" mutator to work
 	// fuck you respawn why leaving a annying death sound
 	if( IsPlayerDeathsHidden() )
+	{
 		AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD ) // better show attacker's callsign?
+		EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" ) // extra death sound
+	}
 	player.SetPlayerSettings( "spectator" ) // well this can't show a death icon on scoreboard, also changes player model so messed up corpses
 	player.NotSolid()
 	player.StopPhysics() // need to do this again after SetPlayerSettings()
+	CodeCallback_OnPlayerKilled( player, damageInfo ) // moved down for later disabling prediction? or death sound won't always play
 }
 
 void function StopPlayerJumpJetSound( entity player )
@@ -177,6 +187,8 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	if( IsValid( player.GetActiveWeapon() ) && IsWeaponDropsEnabled() ) 
 		DropCopyOfPlayerWeapon( player, damageInfo ) // this can be too complex, but it's the best way to solve it
 	
+	if( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET ) // only play fx when killed by bullets
+		PlayHackedDeathKilledEffectOnPlayer( player )
 	// need to check this, or dropping a invalid weapon will crash the game
 	// game's weapon taken will leave a empty weapon bar, maybe no need to fix it
 	//if( IsValid( player.GetActiveWeapon() ) && IsWeaponDropsEnabled() ) 
@@ -198,6 +210,41 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 				)
 	fakeBody.SetOrigin( player.GetOrigin() ) // sometimes it moves to weird position, maybe because navmeshes?
 	fakeBody.SetAngles( player.GetAngles() )
+}
+
+void function PlayHackedDeathKilledEffectOnPlayer( entity player )
+{
+	int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
+	if( attachmentIndex <= 0 ) // no valid attachments
+		return
+	vector origin = player.GetAttachmentOrigin( attachmentIndex )
+	if( player.IsMechanical() )
+	{
+		// this should play independently
+		//int particleIndex = GetParticleSystemIndex( MECHNAICAL_PINKMIST_FX )
+		vector angles = player.GetAttachmentAngles( attachmentIndex )
+		entity fx = PlayFX( MECHNAICAL_PINKMIST_FX, origin, angles)
+		//entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+		thread FastStopParticle( fx, 1.5 )
+	}
+	else
+	{
+		// this should play on player's FX_PATTACH_POINT_FOLLOW to make it more visible
+		int particleIndex = GetParticleSystemIndex( FLESH_PINKMIST_FX )
+		entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+		SetForceDrawWhileParented( fx, true )
+		
+		// play this fx on world will leave a less effective fx, which is... pretty weird
+		//entity fx = StartParticleEffectInWorld_ReturnEntity( particleIndex, origin, < 0,0,0 > ) //PlayFX( MECHNAICAL_PINKMIST_FX, origin, angles )
+		//PlayFX( FLESH_PINKMIST_FX, origin, angles )
+	}
+}
+
+void function FastStopParticle( entity fx, float delay )
+{
+    wait delay
+    if( IsValid( fx ) )
+        EffectStop( fx )
 }
 
 entity function DropCopyOfPlayerWeapon( entity player, var damageInfo )
