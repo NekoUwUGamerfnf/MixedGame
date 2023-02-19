@@ -153,8 +153,8 @@ void function WaitForPlayers()
 {
 	// note: atm if someone disconnects as this happens the game will just wait forever
 	float endTime = Time() + file.waitingForPlayersMaxDuration
-	if( ClassicMP_IsRunningDropshipIntro() )
-		endTime = Time() + ( file.waitingForPlayersMaxDuration * 0.5 )
+	//if( ClassicMP_IsRunningDropshipIntro() ) // no need to reduce time since we'll go pickLoadout state
+	//	endTime = Time() + ( file.waitingForPlayersMaxDuration * 0.5 )
 	
 	while ( ( GetPendingClientsCount() != 0 && endTime > Time() ) || GetPlayerArray().len() == 0 )
 		WaitFrame()
