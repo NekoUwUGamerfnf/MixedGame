@@ -163,8 +163,8 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 	{
 		// do a fake explosion effect for better client visual, hardcoded!
 		// this won't work due "projectile_do_predict_impact_effects"
-		//PlayFX( $"P_impact_exp_lrg_metal", pos )
-		//EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "explo_40mm_splashed_impact_3p" )
+		PlayFX( $"P_impact_exp_lrg_metal", pos )
+		EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "explo_40mm_splashed_impact_3p" )
 	}
 
 	int bounceCount = projectile.GetProjectileWeaponSettingInt( eWeaponVar.projectile_ricochet_max_count )
