@@ -114,14 +114,27 @@ void function OnWeaponSustainedDischargeEnd_Defender( entity weapon )
 		
 		if( IsAlive( owner ) ) // defensive fix
 		{
+			#if SERVER
+				if ( owner.IsWatchingSpecReplay() || !owner.IsWatchingKillReplay() )
+					return
+			#elseif CLIENT
+				if ( owner != GetLocalViewPlayer()  )
+					return
+			#endif
 			// client should predict these
 			WeaponPrimaryAttackParams attackParams
 			attackParams.dir = weapon.GetAttackDirection()
 			attackParams.pos = weapon.GetAttackPosition()
 
-			#if SERVER // defensive fix, don't run on client, also loses visual lol
-			weapon.RemoveMod( "apex_charge_rifle" )
-			weapon.AddMod( "apex_charge_rifle_burst" )
+			#if SERVER // defensive fix, don't run on client
+				weapon.RemoveMod( "apex_charge_rifle" )
+				weapon.AddMod( "apex_charge_rifle_burst" )
+			#elseif CLIENT
+				if ( InPrediction() && IsFirstTimePredicted() )
+				{
+					weapon.RemoveMod( "apex_charge_rifle" )
+					weapon.AddMod( "apex_charge_rifle_burst" )
+				}
 			#endif
 			//owner.Weapon_StartCustomActivity( "ACT_VM_DRAW", false )
 			weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, DF_GIB | DF_EXPLOSION )
@@ -206,7 +219,7 @@ void function ChargeRifleBeam_ServerSide( entity weapon, float duration )
 	entity destEntMover = CreateEntity( "script_mover_lightweight" )
 	destEntMover.kv.SpawnAsPhysicsMover = 0
 	DispatchSpawn( destEntMover )
-	CreateServerSideWeaponTracer( weaponOwner, destEntMover, duration, $"P_wpn_defender_beam" )
+	CreateServerSideWeaponTracer( weaponOwner, weapon, destEntMover, duration, $"P_wpn_defender_beam" )
 	float startTime = Time()
 
 	OnThreadEnd(
@@ -226,10 +239,10 @@ void function ChargeRifleBeam_ServerSide( entity weapon, float duration )
 	}
 }
 
-void function CreateServerSideWeaponTracer( entity player, entity destEnt, float lifeTime = 5.0, asset beamEffectName = $"P_wpn_charge_tool_beam" )
+void function CreateServerSideWeaponTracer( entity player, entity weapon, entity destEnt, float lifeTime = 5.0, asset beamEffectName = $"P_wpn_charge_tool_beam" )
 {
 	entity cpEnd = CreateEntity( "info_placement_helper" )
-	cpEnd.SetParent( player, "PROPGUN", false, 0.0 )
+	cpEnd.SetParent( weapon, "muzzle_flash", false, 0.0 )
 	SetTargetName( cpEnd, UniqueString( "arc_cannon_beam_cpEnd" ) )
 	DispatchSpawn( cpEnd )
 
@@ -246,7 +259,8 @@ void function CreateServerSideWeaponTracer( entity player, entity destEnt, float
 
 	DispatchSpawn( tracer )
 
-	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	weapon.EndSignal( "OnDestroy" )
 	destEnt.EndSignal( "OnDestroy" )
 
 	OnThreadEnd( 
