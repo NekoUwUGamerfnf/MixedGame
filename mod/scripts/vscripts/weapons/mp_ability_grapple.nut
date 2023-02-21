@@ -5,15 +5,14 @@ global function OnWeaponAttemptOffhandSwitch_ability_grapple
 global function CodeCallback_OnGrapple
 global function GrappleWeaponInit
 
-global function OnProjectileCollision_weapon_zipline_gun
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_ability_grapple
-
-global function ToolZipline_DestroyZipline
 #endif
 
-// grapple is hard to handle!
-//global function OnWeaponOwnerChange_ability_grapple // for zipline
+// modified callbacks
+global function OnWeaponOwnerChange_ability_grapple
+global function OnProjectileCollision_ability_grapple
+
 
 struct
 {
@@ -22,59 +21,26 @@ struct
 
 const int GRAPPLEFLAG_CHARGED	= (1<<0)
 
-global struct PlacedZipline
-{
-	entity start,
-	entity mid,
-	entity end,
-
-	entity AnchorStart,
-	entity AnchorEnd,
-	vector StartLocation,
-	vector EndLocation
-}
-
-global array< PlacedZipline > PlacedZiplines;
-
-const vector ZIPLINE_ANCHOR_OFFSET = Vector( 0.0, 0.0, 60.0 ); //Fit archor model, z = 80 is better
-const vector ZIPLINE_ANCHOR_ANGLES = Vector( 0.0, 0.0, 0.0 );
-//const asset ZIPLINE_ANCHOR_MODEL = $"models/weapons/titan_trip_wire/titan_trip_wire_projectile.mdl"
-const asset ZIPLINE_ANCHOR_MODEL = $"models/signs/flag_base_pole_ctf.mdl"
-
-const int ZIPLINE_autoDetachDistance = 150;
-const float ZIPLINE_MAX_LENGTH = 5500
-const float ZIPLINE_MoveSpeedScale = 1.0;
-const float ZIPLINE_LIFETIME = 30
-const int ZIPLINE_LAUNCH_SPEED_SCALE = 1
-const float ZIPLINE_GRAVITY_SCALE = 0.001
-const float ZIPLINE_MAX_COUNT = 64
-
 // bison titan
 const float BISON_GRAPPLE_DURATION = 1.0
 
+
 void function GrappleWeaponInit()
 {
+	// modified fix: manually do a impact fx
 	//file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "exp_rocket_archer" )
-	file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "40mm_mortar_shots" )
-#if SERVER
-	//AddClientCommandCallback( "ToolZipline_AddZipline", ClientCommand_ToolZipline_AddZipline );
-	PrecacheModel( ZIPLINE_ANCHOR_MODEL )
-	thread ToolZipline_UpdateZiplines()
-#endif
+	//file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "40mm_mortar_shots" ) // this may cause client desync!
 
 	// modified, also for client
 	RegisterSignal( "BisonGrappled" )
 }
 
-// for zipline
-/* // grapple is hard to handle!
+// modified for cooldowns
 void function OnWeaponOwnerChange_ability_grapple( entity weapon, WeaponOwnerChangedParams changeParams )
 {
-#if SERVER
-	thread DelayedStartForcedCooldownThink( weapon, ["zipline_gun"] )
-#endif
+	//if( weapon.HasMod( "zipline_gun" ) )
+
 }
-*/
 
 void function OnWeaponActivate_ability_grapple( entity weapon )
 {
@@ -106,6 +72,12 @@ int function GetPVEAbilityLevel( entity weapon )
 
 var function OnWeaponPrimaryAttack_ability_grapple( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapons
+	if( weapon.HasMod( "zipline_gun" ) )
+	{
+		return OnWeaponPrimaryAttack_ability_zipline_gun( weapon, attackParams )
+	}
+
 	entity owner = weapon.GetWeaponOwner()
 
 #if SERVER
@@ -135,32 +107,12 @@ var function OnWeaponPrimaryAttack_ability_grapple( entity weapon, WeaponPrimary
 
 	PlayerUsedOffhand( owner, weapon )
 
-	if( weapon.HasMod( "zipline_gun" ) )
+	owner.Grapple( attackParams.dir )
+
+	// for bison: not allowed to control players or npcs by grapple
+	if( weapon.HasMod( "bison_grapple" ) )
 	{
-		#if SERVER
-		if( owner.IsPlayer() )
-		{
-			if( owner.GetSuitGrapplePower() >= 100 || weapon.HasMod( "infinite_recharge_zipline" ) )
-			{
-				thread HolsterWeaponForPilotInstants( weapon )
-				FireZipline( weapon, attackParams, true )
-			}
-			else
-			{
-				SendHudMessage(owner, "需要完全充满以使用滑索枪", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-				return 1
-			}
-		}
-		#endif
-	}
-	else
-	{
-		owner.Grapple( attackParams.dir )
-		// for bison: not allowed to control players or npcs by grapple
-		if( weapon.HasMod( "bison_grapple" ) )
-		{
-			thread BisonDelayedAutoDetach( owner )
-		}
+		thread BisonDelayedAutoDetach( owner )
 	}
 
 	return 1
@@ -209,8 +161,12 @@ void function DoGrappleImpactExplosion( entity player, entity grappleWeapon, ent
 	if ( !nade )
 		return
 
-	nade.SetImpactEffectTable( file.grappleExplodeImpactTable )
+	// modified fix: manually do a impact fx
+	//nade.SetImpactEffectTable( file.grappleExplodeImpactTable )
 	nade.GrenadeExplode( hitNormal )
+	#if SERVER
+		PlayImpactFXTable( hitpos, player, "exp_satchel" )
+	#endif
 }
 
 void function CodeCallback_OnGrapple( entity player, entity hitent, vector hitpos, vector hitNormal )
@@ -250,87 +206,12 @@ void function CodeCallback_OnGrapple( entity player, entity hitent, vector hitpo
 	}
 }
 
-int function FireZipline( entity weapon, WeaponPrimaryAttackParams attackParams, bool playerFired )
+// modified callback
+void function OnProjectileCollision_ability_grapple( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	bool shouldCreateProjectile = false
-	if ( IsServer() || weapon.ShouldPredictProjectiles() )
-		shouldCreateProjectile = true
-
-	#if CLIENT
-		if ( !playerFired )
-			shouldCreateProjectile = false
-	#endif
-
-	if ( shouldCreateProjectile )
-	{
-		int damageFlags = weapon.GetWeaponDamageFlags()
-		entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, ZIPLINE_LAUNCH_SPEED_SCALE, damageFlags, damageFlags, playerFired, 0 )
-
-		if ( bolt != null )
-		{
-			bolt.kv.gravity = ZIPLINE_GRAVITY_SCALE
-
-			thread DelayedStartParticleSystem( bolt )
-		}
-	}
-
-	return 1
-}
-
-// trail fix
-void function DelayedStartParticleSystem( entity bolt )
-{
-    WaitFrame()
-    if( IsValid( bolt ) )
-        StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"weapon_kraber_projectile" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-}
-
-void function OnProjectileCollision_weapon_zipline_gun( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
-{
-#if SERVER
-	entity owner = projectile.GetOwner()
-	if ( !IsValid( owner ) )
-		return
-
-	if ( !owner.IsPlayer() )
-		return
-
-	PlacedZipline playerZipline = ToolZipline_AddZipline( owner, projectile )
-	EmitSoundOnEntity( projectile, "Wpn_LaserTripMine_Land" )
-
 	array<string> mods = projectile.ProjectileGetMods()
-
-	if ( CanTetherEntities( playerZipline.start, playerZipline.end ) )
-	{
-		EmitSoundOnEntityOnlyToPlayer( owner, owner, "Wpn_LaserTripMine_Land")
-		SendHudMessage(owner, "成功部署滑索", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-		if( !mods.contains( "infinite_duration_zipline" ) )
-			thread ToolZipline_DestroyAfterTime( playerZipline, ZIPLINE_LIFETIME )
-	}
-	else
-	{
-		#if SERVER
-		if( owner.IsPlayer() && IsValid( owner ) )
-		{
-			SendHudMessage(owner, "滑索部署失败，充能返还", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-			owner.SetSuitGrapplePower( owner.GetSuitGrapplePower() + 100 )
-		}
-		#endif
-		ToolZipline_DestroyZipline( playerZipline, true )
-	}
-#endif
-}
-
-bool function CanTetherEntities( entity startEnt, entity endEnt )
-{
-	if ( Distance( startEnt.GetOrigin(), endEnt.GetOrigin() ) > ZIPLINE_MAX_LENGTH )
-		return false
-
-	TraceResults traceResult = TraceLine( startEnt.GetOrigin(), endEnt.GetOrigin(), [], TRACE_MASK_NPCWORLDSTATIC, TRACE_COLLISION_GROUP_NONE )
-	if ( traceResult.fraction < 1 )
-		return false
-
-	return true
+	if ( mods.contains( "zipline_gun" ) )
+		return OnProjectileCollision_ability_zipline_gun( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }
 
 #if SERVER
@@ -341,137 +222,5 @@ var function OnWeaponNpcPrimaryAttack_ability_grapple( entity weapon, WeaponPrim
 	owner.GrappleNPC( attackParams.dir )
 
 	return 1
-}
-
-PlacedZipline function ToolZipline_AddZipline( entity player, entity projectile )
-{
-	vector StartPos = player.GetOrigin();
-	vector EndPos = projectile.GetOrigin();
-
-	entity AnchorStart = ToolZipline_CreateAnchorEntity( StartPos, ZIPLINE_ANCHOR_ANGLES, 0.0 );
-	entity AnchorEnd = ToolZipline_CreateAnchorEntity( EndPos, ZIPLINE_ANCHOR_ANGLES, 0.0 );
-	ZipLine z = CreateZipLine( StartPos + ZIPLINE_ANCHOR_OFFSET, EndPos + ZIPLINE_ANCHOR_OFFSET, ZIPLINE_autoDetachDistance, ZIPLINE_MoveSpeedScale );
-
-	PlacedZipline NewZipline;
-	NewZipline.StartLocation = StartPos;
-	NewZipline.EndLocation = EndPos;
-	NewZipline.AnchorStart = AnchorStart;
-	NewZipline.AnchorEnd = AnchorEnd;
-	NewZipline.start = z.start;
-	NewZipline.mid = z.mid;
-	NewZipline.end = z.end;
-	PlacedZiplines.append( NewZipline );
-
-	if( PlacedZiplines.len() >= ZIPLINE_MAX_COUNT )
-	{
-		PlacedZipline CurrentZipline = PlacedZiplines[0]
-		ToolZipline_DestroyZipline( CurrentZipline, true )
-		PlacedZiplines.remove( 0 )
-	}
-
-	return NewZipline;
-}
-
-entity function ToolZipline_CreateAnchorEntity( vector Pos, vector Angles, float Offset )
-{
-	entity prop_dynamic = CreateEntity( "prop_dynamic" );
-	prop_dynamic.SetValueForModelKey( ZIPLINE_ANCHOR_MODEL );
-	prop_dynamic.kv.fadedist = -1;
-	prop_dynamic.kv.renderamt = 255;
-	prop_dynamic.kv.rendercolor = "255 255 255";
-	prop_dynamic.kv.solid = 0; // 0 = no collision, 2 = bounding box, 6 = use vPhysics, 8 = hitboxes only
-	prop_dynamic.kv.modelscale = 1
-	SetTeam( prop_dynamic, TEAM_BOTH );	// need to have a team other then 0 or it won't take impact damage
-
-	vector pos = Pos - AnglesToRight( Angles ) * Offset
-	prop_dynamic.SetOrigin( pos );
-	prop_dynamic.SetAngles( Angles );
-	DispatchSpawn( prop_dynamic );
-	return prop_dynamic;
-}
-
-void function ToolZipline_UpdateZiplines()
-{
-	while( true )
-	{
-		for( int i = PlacedZiplines.len() - 1; i >= 0; --i )
-		{
-			PlacedZipline CurrentZipline = PlacedZiplines[i];
-			if( !IsValid( CurrentZipline.AnchorStart ) || !IsValid( CurrentZipline.AnchorEnd ) )
-			{
-				ToolZipline_DestroyZipline( CurrentZipline, true );
-				PlacedZiplines.remove( i );
-			}
-			else
-			{
-				if( CurrentZipline.AnchorStart.GetOrigin() != CurrentZipline.StartLocation || CurrentZipline.AnchorEnd.GetOrigin() != CurrentZipline.EndLocation )
-				{
-					ToolZipline_DestroyZipline( CurrentZipline );
-
-					CurrentZipline.StartLocation = CurrentZipline.AnchorStart.GetOrigin();
-					CurrentZipline.EndLocation = CurrentZipline.AnchorEnd.GetOrigin();
-
-					ZipLine z = CreateZipLine( CurrentZipline.StartLocation + ZIPLINE_ANCHOR_OFFSET, CurrentZipline.EndLocation + ZIPLINE_ANCHOR_OFFSET, ZIPLINE_autoDetachDistance, ZIPLINE_MoveSpeedScale );
-					CurrentZipline.start = z.start;
-					CurrentZipline.mid = z.mid;
-					CurrentZipline.end = z.end;
-				}
-			}
-		}
-
-		WaitFrame();
-	}
-}
-
-void function ToolZipline_DestroyZipline( PlacedZipline zip, bool completeDestroy = false )
-{
-	if( IsValid( zip.start ) )
-	{
-		zip.start.Destroy();
-	}
-	if( IsValid( zip.mid ) )
-	{
-		zip.mid.Destroy();
-	}
-	if( IsValid( zip.end ) )
-	{
-		zip.end.Destroy();
-	}
-	if( completeDestroy )
-	{
-		if( IsValid( zip.AnchorStart ) )
-		{
-			zip.AnchorStart.Destroy();
-		}
-		if( IsValid( zip.AnchorEnd ) )
-		{
-			zip.AnchorEnd.Destroy();
-		}
-	}
-}
-
-void function ToolZipline_DestroyAfterTime( PlacedZipline zip, float delay )
-{
-	wait delay
-	if( IsValid( zip.start ) )
-	{
-		zip.start.Destroy();
-	}
-	if( IsValid( zip.mid ) )
-	{
-		zip.mid.Destroy();
-	}
-	if( IsValid( zip.end ) )
-	{
-		zip.end.Destroy();
-	}
-	if( IsValid( zip.AnchorStart ) )
-	{
-		zip.AnchorStart.Destroy();
-	}
-	if( IsValid( zip.AnchorEnd ) )
-	{
-		zip.AnchorEnd.Destroy();
-	}
 }
 #endif
