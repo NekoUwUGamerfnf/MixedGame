@@ -45,6 +45,7 @@ const float ZIPLINE_PLACEMENT_YAW_OFFSET = 10 // prevent zipline from directly s
 
 const int ZIPLINE_AUTODETACH_DISTANCE = 150 
 const float ZIPLINE_MAX_LENGTH = 4750 // was 5500
+const float ZIPLINE_MIN_LENGTH = 500 // a zipline must have at least this long!
 const float ZIPLINE_MOVESPEED_SCALE = 1.66 // 999, close to pathfinder's 1000 
 const float ZIPLINE_LIFETIME = 30
 const int ZIPLINE_LAUNCH_SPEED_SCALE = 1
@@ -190,9 +191,11 @@ void function StartZiplinePlacement( entity player, entity weapon ) // main cont
 	AddButtonPressedPlayerInputCallback( player, IN_ZOOM, PlayerCancelZiplinePlacement )
 	AddButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, PlayerCancelZiplinePlacement )
 	
+	float powerRequired = weapon.GetWeaponSettingFloat( eWeaponVar.grapple_power_required )
+
 	OnThreadEnd
 	(
-		function(): ( player, proxyAnchorEnd, results )
+		function(): ( player, powerRequired, proxyAnchorEnd, results )
 		{
 			if ( IsValid( proxyAnchorEnd ) )
 				proxyAnchorEnd.Destroy()
@@ -206,7 +209,7 @@ void function StartZiplinePlacement( entity player, entity weapon ) // main cont
 				if ( results.success )
 				{
 					SendHudMessage( player, "滑索已放置", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
-					player.SetSuitGrapplePower( 0 ) // clear usage
+					player.SetSuitGrapplePower( max( 0, player.GetSuitGrapplePower() - powerRequired ) ) // clear usage
 					thread DelayedEnablePlacedZiplinePlayerWeapon( player )
 				}
 				else // canceled
@@ -237,7 +240,7 @@ void function StartZiplinePlacement( entity player, entity weapon ) // main cont
 		if ( PlayerCanPlaceZipline( player, ignoredEnts, startPos, endPos ) )
 		{
 			SendHudMessage( player, "滑索位置：可用" + cancelHint, -1, -0.35, 255, 255, 100, 255, 0, 0.2, 0 )
-			proxyAnchorEnd.Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 0, < 15, 15, 15 > ) // much more highlight it
+			proxyAnchorEnd.Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 0, < 20, 20, 20 > ) // much more highlight it
 			if ( player.IsInputCommandHeld( IN_ATTACK ) ) // player wants to fire zipline
 			{
 				ZiplineGun_FireZipline( player )
@@ -247,8 +250,11 @@ void function StartZiplinePlacement( entity player, entity weapon ) // main cont
 		}
 		else
 		{
-			SendHudMessage( player, "滑索位置：不可用" + cancelHint, -1, -0.35, 255, 255, 100, 255, 0, 0.2, 0 )
-			proxyAnchorEnd.Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 0, < 15, 0, 0 > ) // much more highlight it
+			string message = "滑索位置：不可用"
+			if ( PlayerInAirMoveState( player ) )
+				message = "接触地面以放置滑索"
+			SendHudMessage( player, message + cancelHint, -1, -0.35, 255, 255, 100, 255, 0, 0.2, 0 )
+			proxyAnchorEnd.Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 0, < 20, 0, 0 > ) // much more highlight it
 			if ( player.IsInputCommandHeld( IN_ATTACK ) ) // player wants to fire zipline
 			{
 				if ( lastWarnedTime + warnInterval < Time() ) // ready to notify
@@ -314,10 +320,13 @@ ZiplinePlacementData function GetZiplinePlacementDataForPlayer( entity player )
 
 bool function PlayerCanPlaceZipline( entity player, array<entity> ignoredEnts, vector startPos, vector endPos )
 {
-	if ( !player.IsOnGround() )
+	if ( PlayerInAirMoveState( player ) )
 		return false
 
-	if ( Distance( startPos, endPos ) > ZIPLINE_MAX_LENGTH )
+	float distance = Distance( startPos, endPos )
+	if ( distance < ZIPLINE_MIN_LENGTH )
+		return false
+	if ( distance > ZIPLINE_MAX_LENGTH )
 		return false
 
 	array<entity> ignores = ignoredEnts
@@ -332,6 +341,23 @@ bool function PlayerCanPlaceZipline( entity player, array<entity> ignoredEnts, v
 		return false
 
 	return true
+}
+
+bool function PlayerInAirMoveState( entity player )
+{
+	if ( !player.IsOnGround() )
+		return true
+
+	if ( player.IsWallRunning() )
+		return true
+
+	if ( player.IsWallHanging() )
+		return true
+
+	if ( player.IsTraversing() )
+		return true
+
+	return false
 }
 
 bool function CanTetherEntities( entity startEnt, entity endEnt )
