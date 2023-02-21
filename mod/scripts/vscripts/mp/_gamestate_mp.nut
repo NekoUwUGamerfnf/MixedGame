@@ -207,7 +207,7 @@ void function GameStateEnter_PickLoadout_Threaded()
 	// warpjump style
 	if ( ClassicMP_IsRunningDropshipIntro() && !file.usePickLoadoutScreen )
 	{
-		pickloadoutLength = 7.3 // warp jump sound duration
+		pickloadoutLength = 8.0 // warp jump sound duration
 		thread PlayerScreenFadeToBlack() // this is required for late joiners screen fade to black
 	}
 
