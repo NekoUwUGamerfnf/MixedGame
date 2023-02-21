@@ -137,6 +137,9 @@ bool function OnWeaponAttemptOffhandSwitch_ability_grapple( entity weapon )
 		entity ownerPlayer = weapon.GetWeaponOwner()
 		ownerPlayer.Grapple( <0,0,1> )
 	}
+
+	// limit removed for now
+	/*
 	if( weapon.HasMod( "pm2" ) && !allowSwitch )
 	{
 		entity ownerPlayer = weapon.GetWeaponOwner()
@@ -144,6 +147,7 @@ bool function OnWeaponAttemptOffhandSwitch_ability_grapple( entity weapon )
 		SendHudMessage(ownerPlayer, "需要完全充满以使用加长钩爪", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
 		#endif
 	}
+	*/
 
 	return allowSwitch
 }
