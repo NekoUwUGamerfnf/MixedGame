@@ -60,26 +60,6 @@ file
 	PLAYER_DECOY_STATE_COUNT
 */
 
-// mirage_decoy
-const float MIRAGE_DECOY_LIFETIME = 60.0
-// hardcode every movement here
-const string MIRAGE_DECOY_FORWARD = "DecoyMoveForward"
-const string MIRAGE_DECOY_LEFT = "DecoyMoveLeft"
-const string MIRAGE_DECOY_RIGHT = "DecoyMoveRight"
-const string MIRAGE_DECOY_BACK = "DecoyMoveBack"
-const string MIRAGE_DECOY_SPRINT = "DecoySprint"
-const string MIRAGE_DECOY_CROUCH = "DecoyCrouch"
-const string MIRAGE_DECOY_JUMP = "DecoyJump"
-const string MIRAGE_DECOY_WALLRUN = "DecoyWallRun"
-const string MIRAGE_DECOY_SLIDE = "DecoySlide"
-struct MirageDecoyStruct
-{
-	entity decoy
-	string lastAction
-}
-table< string, MirageDecoyStruct > mirageDecoyTable // use to track remote decoys
-//
-
 // reset decoy's model will lead to a really weird behavior
 const array<asset> RANDOM_DECOY_ASSETS = 
 [
@@ -260,13 +240,6 @@ var function OnWeaponPrimaryAttack_holopilot( entity weapon, WeaponPrimaryAttack
 		// weaponOwner.SetAngles(decoy.GetAngles())
 		// weaponOwner.SetVelocity(decoy.GetVelocity())
 	}
-	/*
-	else if( weapon.HasMod( "mirage_decoy" ) )
-	{
-		entity decoy = CreateHoloPilotDecoys( weaponOwner, 1 )
-		thread MirageDecoyThink( weaponOwner, decoy )
-	}
-	*/
 	else
 	{
 		entity decoy = CreateHoloPilotDecoys( weaponOwner, 1 )
