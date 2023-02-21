@@ -15,8 +15,6 @@ global function CreateHoloPilotDecoys
 global function SetupDecoy_Common
 
 global function Decoy_Init
-
-global function SetNessieDecoyOn
 #if MP
 global function GetDecoyActiveCountForPlayer
 #endif //if MP
@@ -43,9 +41,6 @@ struct
 	bool isStrangeDecoy = false
 	// infinite decoy array
 	array<entity> infiniteDecoyOnWorld = []
-
-	// defined for nessy.gnut
-	bool isNessieOutfit = false
 }
 file
 
@@ -306,6 +301,7 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 	for( int i = 0; i < numberOfDecoysToMake; ++i )
 	{
 		decoy = player.CreatePlayerDecoy( stickPercentToRun )
+		//print( decoy )
 		decoy.SetMaxHealth( 50 )
 		decoy.SetHealth( 50 )
 		decoy.EnableAttackableByAI( 50, 0, AI_AP_FLAG_NONE )
@@ -321,12 +317,6 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 			decoy.SetModel( decoyModel )
 			//decoy.SetValueForModelKey( decoyModel )
 			DispatchSpawn( decoy )
-		}
-		if( file.isNessieOutfit )
-		{
-			CreateNessyHat( hatassets, decoy )
-			CreateNessyBackpack( backpackassets, decoy )
-			//CreateNessyPistol( pistolassets, decoy )
 		}
 		if ( setOriginAndAngles )
 		{
@@ -603,14 +593,6 @@ bool function PlayerCanUseDecoy( entity weapon ) //For holopilot and HoloPilot N
 		return false
 	return true
 }
-
-// nessie modify
-#if SERVER
-void function SetNessieDecoyOn( bool isOn )
-{
-	file.isNessieOutfit = isOn
-}
-#endif
 
 // holoshift stuff!
 #if SERVER
