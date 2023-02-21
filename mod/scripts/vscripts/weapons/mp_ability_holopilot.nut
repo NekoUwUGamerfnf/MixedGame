@@ -302,6 +302,7 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 	{
 		decoy = player.CreatePlayerDecoy( stickPercentToRun )
 		//print( decoy )
+		DispatchSpawn( decoy ) // this might broke otherthings, but it will make decoys call "OnSpawnedCallback()"
 		decoy.SetMaxHealth( 50 )
 		decoy.SetHealth( 50 )
 		decoy.EnableAttackableByAI( 50, 0, AI_AP_FLAG_NONE )
