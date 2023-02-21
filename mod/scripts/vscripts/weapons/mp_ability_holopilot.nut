@@ -30,6 +30,7 @@ const float PHASE_REWIND_PATH_SNAPSHOT_INTERVAL = 0.1
 
 // for infinite_decoy
 const int WORLD_MAX_DECOY_COUNT = 24 // you can only spawn this much of decoy!
+
 struct
 {
 	table< entity, int > playerToDecoysActiveTable //Mainly used to track stat for holopilot unlock
@@ -318,9 +319,8 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 			decoy.SetOrigin( player.GetOrigin() + < 0,0,15 > )
 			asset decoyModel = RANDOM_DECOY_ASSETS[ RandomInt( RANDOM_DECOY_ASSETS.len() ) ]
 			decoy.SetModel( decoyModel )
-			decoy.SetValueForModelKey( decoyModel )
+			//decoy.SetValueForModelKey( decoyModel )
 			DispatchSpawn( decoy )
-			//decoy.Anim_Play(  )
 		}
 		if( file.isNessieOutfit )
 		{
@@ -740,40 +740,3 @@ void function HoloRewindForceCrouch( entity player )
 		player.UnforceCrouch()
 }
 #endif
-
-// mirage decoy stuff, WIP
-/*
-#if SERVER
-void function MirageDecoyThink( entity owner )
-{
-	owner.EndSignal( "OnDeath" )
-	owner.EndSignal( "OnDestroy" )
-	owner.EndSignal( "MirageDecoyEnd" )
-	thread MirageDecoyLifeTimeManagement( decoy )
-	RegisterMirageDecoyButton( owner )
-	while( true )
-	{
-		owner.WaitSignal( "ControlDecoy" )
-		waitthread MirageDecoyControlThink( owner )
-	}
-	
-}
-
-void function MirageDecoyControlThink( entity owner )
-{
-	entity curDecoy =
-	decoy.Anim_Play( animation )
-}
-
-void function MirageDecoyLifeTimeManagement( entity owner )
-{
-	wait MIRAGE_DECOY_LIFETIME
-	owner.Signal( "MirageDecoyEnd" )
-}
-
-void function RegisterMirageDecoyButton( entity owner )
-{
-
-}
-#endif
-*/
