@@ -525,6 +525,7 @@ void function OnWeaponOwnerChanged_weapon_rocket_launcher( entity weapon, Weapon
 		weapon.w.missileFiredCallback = null
 
 	// modified! for npc swiching to it
+	/* // this will make all npcs carrying a red line, don't know why
 	entity weaponOwner = weapon.GetWeaponOwner()
 	if ( IsValid( weaponOwner ) )
 	{
@@ -535,5 +536,6 @@ void function OnWeaponOwnerChanged_weapon_rocket_launcher( entity weapon, Weapon
 	}
 	else
 		weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+	*/
 	#endif
 }
