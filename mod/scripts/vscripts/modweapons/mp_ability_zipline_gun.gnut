@@ -4,6 +4,10 @@ global function OnWeaponOwnerChange_ability_zipline_gun
 global function OnWeaponPrimaryAttack_ability_zipline_gun
 global function OnProjectileCollision_ability_zipline_gun
 
+#if SERVER
+global function ZiplineGun_FireZipline
+#endif
+
 struct PlacedZipline
 {
 	entity start,
@@ -16,6 +20,13 @@ struct PlacedZipline
 	vector endLocation
 }
 
+// formatting the placement by using GetZiplinePlacementDataForPlayer()
+struct ZiplinePlacementData
+{
+	vector startPos // eyepos
+	vector endPos // traceResult
+}
+
 struct
 {
     array< PlacedZipline > placedZiplines
@@ -26,11 +37,15 @@ const vector ZIPLINE_ANCHOR_ANGLES = Vector( 0.0, 0.0, 0.0 )
 //const asset ZIPLINE_ANCHOR_MODEL = $"models/weapons/titan_trip_wire/titan_trip_wire_projectile.mdl"
 const asset ZIPLINE_ANCHOR_MODEL = $"models/signs/flag_base_pole_ctf.mdl"
 const float ZIPLINE_ANCHOR_MODELSCALE = 1.1 // won't work on most model
-const string ZIPLINE_ROPE_MODEL = "cable/tether.vmt"
+const string ZIPLINE_ROPE_MODEL = "cable/zipline.vmt" // you can't change zipline's material
+const float ZIPLINE_ROPE_WIGGLE_DURATION = 0.4
+const float ZIPLINE_ROPE_WIGGLE_FADEOUT = 0.2
+const float ZIPLINE_WIGGLE_WAIT = ZIPLINE_ROPE_WIGGLE_DURATION + ZIPLINE_ROPE_WIGGLE_FADEOUT
+const float ZIPLINE_PLACEMENT_YAW_OFFSET = 10 // prevent zipline from directly spawn on player's head
 
 const int ZIPLINE_AUTODETACH_DISTANCE = 150 
-const float ZIPLINE_MAX_LENGTH = 5500
-const float ZIPLINE_MOVESPEED_SCALE = 1.0 
+const float ZIPLINE_MAX_LENGTH = 4750 // was 5500
+const float ZIPLINE_MOVESPEED_SCALE = 1.66 // 999, close to pathfinder's 1000 
 const float ZIPLINE_LIFETIME = 30
 const int ZIPLINE_LAUNCH_SPEED_SCALE = 1
 const float ZIPLINE_GRAVITY_SCALE = 0.001
@@ -40,6 +55,7 @@ void function MpAbilityZiplineGun_Init()
 {
     #if SERVER
         RegisterSignal( "StartZiplinePlacement" )
+		RegisterSignal( "EndZiplinePlacement" )
 
         PrecacheModel( ZIPLINE_ANCHOR_MODEL )
         thread ZiplineGun_UpdateZiplines()
@@ -144,51 +160,178 @@ int function FireZiplineProjectile( entity weapon, WeaponPrimaryAttackParams att
 }
 
 #if SERVER
+const int HIGHLIGHT_CONTEXT_NEUTRAL = 3 // taken from sh_highlights.gnut
+
 void function StartZiplinePlacement( entity player, entity weapon ) // main controlling function!
 {
     player.Signal( "StartZiplinePlacement" )
     player.EndSignal( "StartZiplinePlacement" )
+	player.EndSignal( "EndZiplinePlacement" ) // cancelling
     player.EndSignal( "OnDeath" )
     player.EndSignal( "OnDestroy" )
     weapon.EndSignal( "OnDestroy" )
 
-    entity proxyAnchorStart = ZiplineGun_CreateAnchorEntity( < 0,0,0 >, ZIPLINE_ANCHOR_ANGLES, 0.0 )
-    proxyAnchorStart.SetOwner( player )
-    proxyAnchorStart.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
-    Highlight_SetOwnedHighlight( proxyAnchorStart, "enemy_boss_bounty" )
+	table results = {}
+	results.success <- false
 
+	array<entity> ignoredEnts = []
     entity proxyAnchorEnd = ZiplineGun_CreateAnchorEntity( < 0,0,0 >, ZIPLINE_ANCHOR_ANGLES, 0.0 )
-    proxyAnchorStart.SetOwner( player )
-    proxyAnchorStart.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
-    Highlight_SetOwnedHighlight( proxyAnchorStart, "enemy_boss_bounty" )
+    proxyAnchorEnd.SetOwner( player )
+	proxyAnchorEnd.SetBossPlayer( player )
+    proxyAnchorEnd.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
+    Highlight_SetOwnedHighlight( proxyAnchorEnd, "enemy_boss_bounty" )
+	ignoredEnts.append( proxyAnchorEnd )
 
+	// can't handle it
+	//entity tempRope = CreateZiplinePlacementRope( player, proxyAnchorEnd )
+	//ignoredEnts.append( tempRope )
+
+	// control
+	AddButtonPressedPlayerInputCallback( player, IN_ZOOM, PlayerCancelZiplinePlacement )
+	AddButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, PlayerCancelZiplinePlacement )
+	
+	OnThreadEnd
+	(
+		function(): ( player, proxyAnchorEnd, results )
+		{
+			if ( IsValid( proxyAnchorEnd ) )
+				proxyAnchorEnd.Destroy()
+
+			// player
+			if ( IsValid( player ) )
+			{
+				RemoveButtonPressedPlayerInputCallback( player, IN_ZOOM, PlayerCancelZiplinePlacement )
+				RemoveButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, PlayerCancelZiplinePlacement )
+
+				if ( results.success )
+				{
+					SendHudMessage( player, "滑索已放置", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
+					player.SetSuitGrapplePower( 0 ) // clear usage
+					thread DelayedEnablePlacedZiplinePlayerWeapon( player )
+				}
+				else // canceled
+				{
+					SendHudMessage( player, "滑索放置已取消", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
+					player.DeployWeapon()
+					player.Server_TurnOffhandWeaponsDisabledOff()
+				}
+			}
+		}
+	)
+
+	float lastWarnedTime = 0.0
+	float warnInterval = 0.5
+	string cancelHint = "\n(按下 瞄准 取消放置)"
+	
     while ( true )
     {
+		// keep holster weapon
+		player.HolsterWeapon()
+		player.Server_TurnOffhandWeaponsDisabledOn()
+
+		ZiplinePlacementData data = GetZiplinePlacementDataForPlayer( player )
+		vector startPos = data.startPos
+		vector endPos = data.endPos
+
+		proxyAnchorEnd.SetOrigin( endPos )
+		if ( PlayerCanPlaceZipline( player, ignoredEnts, startPos, endPos ) )
+		{
+			SendHudMessage( player, "滑索位置：可用" + cancelHint, -1, -0.35, 255, 255, 100, 255, 0, 0.2, 0 )
+			proxyAnchorEnd.Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 0, < 15, 15, 15 > ) // much more highlight it
+			if ( player.IsInputCommandHeld( IN_ATTACK ) ) // player wants to fire zipline
+			{
+				ZiplineGun_FireZipline( player )
+				results.success = true // mark as succeeded
+				return
+			}
+		}
+		else
+		{
+			SendHudMessage( player, "滑索位置：不可用" + cancelHint, -1, -0.35, 255, 255, 100, 255, 0, 0.2, 0 )
+			proxyAnchorEnd.Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 0, < 15, 0, 0 > ) // much more highlight it
+			if ( player.IsInputCommandHeld( IN_ATTACK ) ) // player wants to fire zipline
+			{
+				if ( lastWarnedTime + warnInterval < Time() ) // ready to notify
+				{
+					EmitSoundOnEntityOnlyToPlayer( player, player, "coop_sentrygun_deploymentdeniedbeep" )
+					lastWarnedTime = Time()
+				}
+			}
+		}
+
 		WaitFrame()
-        //entity tempRope = CreateZiplinePlacementRope( player )
-        //Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 0, HIGHLIGHT_COLOR_INTERACT )
-        //Highlight_SetParam( HIGHLIGHT_CONTEXT_NEUTRAL, 0, <1, 0, 0> )
     }
 }
 
-entity function CreateZiplinePlacementRope( entity player )
+void function PlayerCancelZiplinePlacement( entity player )
 {
-    vector startPos = player.EyePosition()
-	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * ZIPLINE_MAX_LENGTH, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
-    vector endPos = traceResult.endPos
+	player.Signal( "EndZiplinePlacement" )
+}
+
+void function DelayedEnablePlacedZiplinePlayerWeapon( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	wait ZIPLINE_WIGGLE_WAIT // wait for zipline wiggle
+
+	player.DeployWeapon()
+	player.Server_TurnOffhandWeaponsDisabledOff()
+}
+
+/* // can't handle it
+entity function CreateZiplinePlacementRope( entity player, entity anchorEnd )
+{
+    ZiplinePlacementData data = GetZiplinePlacementDataForPlayer( player )
+	vector startPos = data.startPos
+    vector endPos = data.endPos
 
     entity startEnt = CreateExpensiveScriptMover()
-    startEnt.SetOrigin( startPos )
+    startEnt.SetParent( player, "HEADSHOT" )
     entity endEnt = CreateExpensiveScriptMover()
-    endEnt.SetOrigin( endPos )
+    endEnt.SetParent( anchorEnd )
 
     float ropeLength = GetZiplineRopeLength( startPos, endPos )
     entity rope = CreateRope( <0,0,0>, <0,0,0>, ropeLength, endEnt, startEnt, 0, 0, ZIPLINE_ROPE_MODEL )
     rope.SetOwner( player )
+	rope.SetBossPlayer( player )
     rope.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
     Highlight_SetOwnedHighlight( rope, "enemy_boss_bounty" )
 
     return rope
+}
+*/
+
+ZiplinePlacementData function GetZiplinePlacementDataForPlayer( entity player )
+{
+	ZiplinePlacementData data
+	vector eyeAngles = player.EyeAngles()
+	data.startPos = player.GetOrigin() + AnglesToRight( eyeAngles ) * ZIPLINE_PLACEMENT_YAW_OFFSET
+	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * ZIPLINE_MAX_LENGTH, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	data.endPos = traceResult.endPos
+	//data.endPos = GetPlayerCrosshairOrigin( player ) // this is messed up if player is holstering weapon
+
+	return data
+}
+
+bool function PlayerCanPlaceZipline( entity player, array<entity> ignoredEnts, vector startPos, vector endPos )
+{
+	if ( !player.IsOnGround() )
+		return false
+
+	if ( Distance( startPos, endPos ) > ZIPLINE_MAX_LENGTH )
+		return false
+
+	array<entity> ignores = ignoredEnts
+	ignores.append( player )
+	// free placement, do another trace here
+	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * ZIPLINE_MAX_LENGTH, ignores, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	entity hitEnt = traceResult.hitEnt
+	//print( hitEnt )
+	if ( !IsValid( hitEnt ) )
+		return false
+	if ( !hitEnt.IsWorld() && hitEnt.GetClassName() != "prop_dynamic" ) // only placable on solid entities
+		return false
+
+	return true
 }
 
 bool function CanTetherEntities( entity startEnt, entity endEnt )
@@ -219,27 +362,47 @@ void function ZiplineGun_FireZipline( entity player )
 
 void function ZiplineGun_FireZipline_Threaded( entity player )
 {
-    vector startPos = player.EyePosition()
-	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * ZIPLINE_MAX_LENGTH, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
-    vector endPos = traceResult.endPos
+    player.EndSignal( "OnDestroy" ) // death won't cancel fired zipline
+
+    ZiplinePlacementData data = GetZiplinePlacementDataForPlayer( player )
+	vector startPos = data.startPos
+    vector endPos = data.endPos
+	vector startWithOffset = startPos + ZIPLINE_ANCHOR_OFFSET
+	vector endWithOffset = endPos + ZIPLINE_ANCHOR_OFFSET
+
+	entity ziplineStartEnt = CreateExpensiveScriptMover()
+	ziplineStartEnt.SetModel( $"models/dev/empty_model.mdl" )
+    ziplineStartEnt.SetOrigin( startWithOffset )
+	ziplineStartEnt.EndSignal( "OnDestroy" )
 
     entity ziplineEndEnt = CreateExpensiveScriptMover()
 	ziplineEndEnt.SetModel( $"models/dev/empty_model.mdl" )
-    ziplineEndEnt.SetOrigin( endPos )
-    ziplineEndEnt.SetAngles( traceResult.surfaceNormal )
-    //ziplineEndEnt.SetParentWithHitbox( titan, traceResult.hitGroup, true )
+    ziplineEndEnt.SetOrigin( endWithOffset )
+	ziplineEndEnt.EndSignal( "OnDestroy" )
 
 	entity anchorStart = ZiplineGun_CreateAnchorEntity( startPos, ZIPLINE_ANCHOR_ANGLES, 0.0 )
-    entity anchorEnd = ZiplineGun_CreateAnchorEntity( endPos, ZIPLINE_ANCHOR_ANGLES, 0.0 )
+    entity anchorEnd = ZiplineGun_CreateAnchorEntity( < 0, 0, 0 >, ZIPLINE_ANCHOR_ANGLES, 0.0 )
     anchorStart.EndSignal( "OnDestroy" )
     anchorEnd.EndSignal( "OnDestroy" )
 
     table results = {}
     results.success <- false
 
-    OnThreadEnd
+    float exactLength = Distance( startPos, endPos )
+	float ropeLength = GetZiplineRopeLength( startPos, endPos )
+    entity rope = CreateRope( <0,0,0>, <0,0,0>, ropeLength, ziplineEndEnt, ziplineStartEnt, 0, 0, ZIPLINE_ROPE_MODEL )
+	rope.DisableHibernation()
+    WiggleZiplineRope( rope, exactLength )
+
+    vector destLocal = ziplineEndEnt.GetLocalOrigin()
+	ziplineEndEnt.SetAbsOrigin( startWithOffset )
+	ziplineEndEnt.NonPhysicsMoveInWorldSpaceToLocalPos( destLocal, ZIPLINE_WIGGLE_WAIT, 0, 0 )
+	StartParticleEffectOnEntity( ziplineEndEnt, GetParticleSystemIndex( $"weapon_kraber_projectile" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	EmitSoundOnEntity( anchorStart, "Wpn_TetherTrap_PopOpen_3p" ) // Spring Sound
+
+	OnThreadEnd
     (
-        function(): ( results, anchorStart, anchorEnd, ziplineEndEnt )
+        function(): ( results, anchorStart, anchorEnd, ziplineStartEnt, ziplineEndEnt, rope )
         {
             if ( !results.success ) // not a succeeded placement
             {
@@ -249,46 +412,44 @@ void function ZiplineGun_FireZipline_Threaded( entity player )
                     anchorEnd.Destroy()
             }
             // clean up
+			if ( IsValid( ziplineStartEnt ) )
+				ziplineStartEnt.Destroy()
             if ( IsValid( ziplineEndEnt ) )
                 ziplineEndEnt.Destroy()
+			if ( IsValid( rope ) )
+				rope.Destroy() // destroy the visual rope
         }
     )
-
-    float exactLength = Distance( startPos, endPos )
-	float ropeLength = GetZiplineRopeLength( startPos, endPos )
-    entity rope = CreateRope( <0,0,0>, <0,0,0>, ropeLength, ziplineEndEnt, anchorStart, 0, 0, ZIPLINE_ROPE_MODEL )
-	rope.DisableHibernation()
-    WiggleZiplineRope( rope, exactLength )
-
-    ziplineEndEnt.EndSignal( "OnDestroy" )
-    vector destLocal = ziplineEndEnt.GetLocalOrigin()
-	ziplineEndEnt.SetAbsOrigin( startPos )
-	ziplineEndEnt.NonPhysicsMoveInWorldSpaceToLocalPos( destLocal, 0.3, 0, 0 )
     
-    wait 0.3 // wait for rope to wiggle?
+    wait ZIPLINE_WIGGLE_WAIT // wait for rope to wiggle?
 
-	ZipLine z = CreateZipLine( startPos + ZIPLINE_ANCHOR_OFFSET, endPos + ZIPLINE_ANCHOR_OFFSET, ZIPLINE_AUTODETACH_DISTANCE, ZIPLINE_MOVESPEED_SCALE )
-    results.success = true // mark as succeeded
+	ZipLine ziplineStruct = CreateZipLine( startWithOffset, endWithOffset, ZIPLINE_AUTODETACH_DISTANCE, ZIPLINE_MOVESPEED_SCALE )
+	results.success = true // mark as succeeded
+	// deploy anchor
+	anchorEnd.SetOrigin( endPos )
+	EmitSoundOnEntity( anchorEnd, "Wpn_LaserTripMine_Land" )
 
 	PlacedZipline newZipline
 	newZipline.startLocation = startPos
 	newZipline.endLocation = endPos
 	newZipline.anchorStart = anchorStart
 	newZipline.anchorEnd = anchorEnd
-	newZipline.start = z.start
-	newZipline.mid = z.mid
-	newZipline.end = z.end
+	newZipline.start = ziplineStruct.start
+	newZipline.mid = ziplineStruct.mid
+	newZipline.end = ziplineStruct.end
 	file.placedZiplines.append( newZipline )
 
 	CheckZiplineWorldLimit()
+	thread ZiplineGun_DestroyAfterTime( newZipline, ZIPLINE_LIFETIME )
 }
 
 void function WiggleZiplineRope( entity rope, float length )
 {
-	const float magnitude = 0.1
-	const float speed = 16.0
-	const float duration = 0.7
-	const float fadeDuration = 0.3
+	const float magnitude = 0.05
+	const float speed = 0.5
+	// same as zipline's deployment duration
+	const float duration = ZIPLINE_ROPE_WIGGLE_DURATION
+	const float fadeDuration = ZIPLINE_ROPE_WIGGLE_FADEOUT
 
 	rope.RopeWiggle( length * 1.5, magnitude, speed, duration, fadeDuration )
 }
@@ -318,16 +479,16 @@ PlacedZipline function ZiplineGun_AddZipline( entity startEnt, entity endEnt )
 
 	entity anchorStart = ZiplineGun_CreateAnchorEntity( startPos, ZIPLINE_ANCHOR_ANGLES, 0.0 ) 
 	entity anchorEnd = ZiplineGun_CreateAnchorEntity( endPos, ZIPLINE_ANCHOR_ANGLES, 0.0 ) 
-	ZipLine z = CreateZipLine( startPos + ZIPLINE_ANCHOR_OFFSET, endPos + ZIPLINE_ANCHOR_OFFSET, ZIPLINE_AUTODETACH_DISTANCE, ZIPLINE_MOVESPEED_SCALE ) 
+	ZipLine ziplineStruct = CreateZipLine( startPos + ZIPLINE_ANCHOR_OFFSET, endPos + ZIPLINE_ANCHOR_OFFSET, ZIPLINE_AUTODETACH_DISTANCE, ZIPLINE_MOVESPEED_SCALE ) 
 
 	PlacedZipline newZipline 
 	newZipline.startLocation = startPos 
 	newZipline.endLocation = endPos 
 	newZipline.anchorStart = anchorStart 
 	newZipline.anchorEnd = anchorEnd 
-	newZipline.start = z.start 
-	newZipline.mid = z.mid 
-	newZipline.end = z.end 
+	newZipline.start = ziplineStruct.start 
+	newZipline.mid = ziplineStruct.mid 
+	newZipline.end = ziplineStruct.end 
 	file.placedZiplines.append( newZipline ) 
 
 	CheckZiplineWorldLimit()
@@ -339,7 +500,7 @@ entity function ZiplineGun_CreateAnchorEntity( vector Pos, vector Angles, float 
 {
 	entity prop_dynamic = CreateEntity( "prop_dynamic" ) 
 	prop_dynamic.SetValueForModelKey( ZIPLINE_ANCHOR_MODEL ) 
-	prop_dynamic.kv.fadedist = -1 
+	prop_dynamic.kv.fadedist = 65535
 	prop_dynamic.kv.renderamt = 255 
 	prop_dynamic.kv.rendercolor = "255 255 255" 
 	prop_dynamic.kv.solid = 0  // 0 = no collision, 2 = bounding box, 6 = use vPhysics, 8 = hitboxes only
