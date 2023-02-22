@@ -7,6 +7,7 @@ global function OnWeaponDeactivate_weapon_rocket_launcher
 global function OnWeaponPrimaryAttack_weapon_rocket_launcher
 global function OnWeaponOwnerChanged_weapon_rocket_launcher
 
+// modified callbacks
 global function OnProjectileCollision_weapon_rocket_launcher
 
 global function OnWeaponStartZoomIn_weapon_rocket_launcher
