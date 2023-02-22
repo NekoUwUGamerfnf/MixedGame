@@ -25,7 +25,8 @@ void function Hacked_Death_Utility_Init()
 	PrecacheParticleSystem( FLESH_PINKMIST_FX )
 	PrecacheParticleSystem( MECHNAICAL_PINKMIST_FX )
 	
-	AddPostDamageCallback( "player", HackedDeath_PlayerPostDamage ) // this can get player's real taken damage
+	//AddPostDamageCallback( "player", HackedDeath_PlayerPostDamage ) // this can get player's real taken damage
+	AddDamageFinalCallback( "player", HackedDeath_PlayerFinalDamaged )
 	AddDeathCallback( "player", HackedDeath_PlayerRealDeath )
 	AddCallback_OnClientConnected( InitHackedDeathForPlayer )
 
@@ -115,9 +116,11 @@ void function DisablePlayerUselessSoundsLifeLong( entity player )
 	while( true )
 	{
 		if( file.hackedDeathEnabled )
+		{
 			StopPlayerWoundedSound( player )
-		if ( !IsAlive( player ) ) // prevent player's jumpjet sound floating around
-			StopPlayerJumpJetSound( player )
+			if ( !IsAlive( player ) ) // prevent player's jumpjet sound floating around
+				StopPlayerJumpJetSound( player )
+		}
 		if ( !player.IsZiplining() ) // prevent stucking sound!
 			StopSoundOnEntity( player, "3p_zipline_loop" )
 		WaitFrame()
@@ -146,45 +149,72 @@ void function HackedDeath_PlayerPostDamage( entity player, var damageInfo )
 	}
 }
 
+void function HackedDeath_PlayerFinalDamaged( entity player, var damageInfo )
+{
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || player.IsTitan() )	
+		return // these could be nice
+	if( !file.hackedDeathEnabled || !RespawnsEnabled() ) // don't do hacked death for elimination modes
+		return
+	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
+	{
+		DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 ) // don't kill the player
+		if( IsPlayerDeathsHidden() ) // add a extra death sound here
+			EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" ) // extra death sound
+		PlayerStartHackedDeath( player, damageInfo )
+	}
+}
+
 void function PlayerStartHackedDeath( entity player, var damageInfo )
 {
 	player.s.hackedDeath = true // for IsAlive() checks
 	player.Signal( "StartHackedDeath" ) // signal this
 	player.Signal( "OnDeath" ) // this will trigger most things that EndSignal( "OnDeath" )
 	player.kv.VisibilityFlags = 0
+	
 	// these now be in CreateHackedDeathFakeCorpse()
 	//player.Anim_Stop()
 	//player.NotSolid()
 	//player.StopPhysics()
-	HideName( player )
+	//HideName( player )
+	
 	//HolsterAndDisableWeapons( player ) // player is able to pick up weapons, don't let them able to use it
 	thread ForceHolsterForHackedDeath( player ) // defensive fix for sometimes player DeployWeapon() from other scripts...
+	
 	DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
-	DamageInfo_SetDamage( damageInfo, max( player.GetHealth() - 1, 0 ) )
+	//DamageInfo_SetDamage( damageInfo, max( player.GetHealth() - 1, 0 ) )
+	
 	player.SetInvulnerable()
 	player.SetHealth( player.GetMaxHealth() ) // so player's visual will be clean
 	player.Signal( "StopHealthRegenThink" )
+	
 	//StopPlayerWoundedSound( player ) // doing a loop to stop this now
 	//EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
 	//TakeAllOffhandInstantNow( player ) // grapple now handling in callbacks // can this cancel grapple things?
 	StopPlayerGrapple( player ) // stop player's grapple rope!
-	player.FreezeControlsOnServer() // freeze them, avoid picking up weapons
-	StopPlayerJumpJetSound( player ) // disable jumpjet sound
-	CodeCallback_OnEntityKilled( player, damageInfo )
-	//CodeCallback_OnPlayerKilled( player, damageInfo )
-	CreateHackedDeathFakeCorpse( player, damageInfo )
 	// save offhands so player can have cooked grenades out, usage has been freezed
 	//TakeOffhandWeaponsNow( player ) // just leave weapon bars full, it looks better! should put lower for "stealing" mutator to work
+	
+	player.FreezeControlsOnServer() // freeze them, avoid picking up weapons
+	
+	//StopPlayerJumpJetSound( player ) // disable jumpjet sound
+	
+	CodeCallback_OnEntityKilled( player, damageInfo ) // display obit
+	CodeCallback_OnPlayerKilled( player, damageInfo ) // moved down
+	
+	CreateHackedDeathFakeCorpse( player, damageInfo )
+	
 	// fuck you respawn why leaving a annying death sound
-	if( IsPlayerDeathsHidden() )
-	{
-		AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD ) // better show attacker's callsign?
-		EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" ) // extra death sound
-	}
+	//if( IsPlayerDeathsHidden() )
+	//{
+		//AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD ) // better show attacker's callsign?
+		//EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" ) // extra death sound
+	//}
+
 	player.SetPlayerSettings( "spectator" ) // well this can't show a death icon on scoreboard, also changes player model so messed up corpses
 	player.NotSolid()
 	player.StopPhysics() // need to do this again after SetPlayerSettings()
-	CodeCallback_OnPlayerKilled( player, damageInfo ) // moved down for later disabling prediction? or death sound won't always play
+	
+	//CodeCallback_OnPlayerKilled( player, damageInfo ) // moved down for later disabling prediction? or death sound won't always play
 }
 
 void function StopPlayerJumpJetSound( entity player )
@@ -299,7 +329,8 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	player.Anim_Stop()
 	player.NotSolid()
 	player.StopPhysics() // after fake corpse get player's velocity
-	player.kv.contents = (int(player.kv.contents) | CONTENTS_NOGRAPPLE) // grapple now handling in callbacks // make player unable to be grappled, hope this will cancel attacker's grapple
+	HideName( player )
+	//player.kv.contents = (int(player.kv.contents) | CONTENTS_NOGRAPPLE) // grapple now handling in callbacks // make player unable to be grappled, hope this will cancel attacker's grapple
 	// warns: contents can't be like ( int( player.kv.contents ) | CONTENTS_NOGRAPPLE ), remove useless spaces
 }
 
