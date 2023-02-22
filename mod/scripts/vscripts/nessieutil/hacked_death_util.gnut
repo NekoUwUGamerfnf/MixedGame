@@ -28,6 +28,12 @@ void function Hacked_Death_Utility_Init()
 	AddPostDamageCallback( "player", HackedDeath_PlayerPostDamage ) // this can get player's real taken damage
 	AddDeathCallback( "player", HackedDeath_PlayerRealDeath )
 	AddCallback_OnClientConnected( InitHackedDeathForPlayer )
+
+	// handling grapple
+	RegisterSignal( "OnGrappled" )
+	RegisterSignal( "GrappleCancelled" )
+	AddCallback_MpAbilityGrapplePrimaryAttack( HackedDeathOnPlayerFireGrapple )
+	AddCallback_OnPlayerGrappled( HackedDeathOnPlayerGrappled ) // modified callback in _codecallbacks.gnut
 }
 
 void function InitHackedDeathForPlayer( entity player )
@@ -35,6 +41,72 @@ void function InitHackedDeathForPlayer( entity player )
 	player.s.hackedDeath <- false
 	thread DisablePlayerUselessSoundsLifeLong( player )
 }
+
+// Grapple settings
+void function HackedDeathOnPlayerFireGrapple( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	// modified signal
+	if ( file.hackedDeathEnabled )
+	{
+		entity player = weapon.GetWeaponOwner()
+		player.Signal( "OnGrappled" )
+	}
+}
+
+void function HackedDeathOnPlayerGrappled( entity player, entity victim )
+{
+	// hacked death: track attacker cancelling the grapple, players are able to grapple a spectator player if they're not actually dead
+	if ( file.hackedDeathEnabled )
+		thread TrackPlayerGrappleDetach( player, victim )
+}
+
+void function TrackPlayerGrappleDetach( entity player, entity target )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	target.EndSignal( "OnDeath" ) // wait for target hacked death
+	target.EndSignal( "OnDestroy" )
+
+	table results = {}
+	results.cancelled <- false
+
+	OnThreadEnd
+	(
+		function(): ( player, target, results )
+		{
+			if ( IsValid( player ) )
+			{
+				if ( IsValid( target ) ) // target still valid, meaning they're just hacked deathed
+				{
+					if ( !results.cancelled ) // not manually cancelled
+					{
+						player.Grapple( < 0, 0, 0 > ) // fire another grapple while grappling will cancel current one
+						//print( "Player being forced cancelling grapple!" )
+					}
+				}
+
+				// clean up
+				RemoveButtonPressedPlayerInputCallback( player, IN_DUCK, PlayerPressedGrappleDetachButton )
+				RemoveButtonPressedPlayerInputCallback( player, IN_DUCKTOGGLE, PlayerPressedGrappleDetachButton )
+			}
+		}
+	)
+
+	// check cancelling through crouching
+	AddButtonPressedPlayerInputCallback( player, IN_DUCK, PlayerPressedGrappleDetachButton )
+	AddButtonPressedPlayerInputCallback( player, IN_DUCKTOGGLE, PlayerPressedGrappleDetachButton )
+
+	// solved: // "OnGrappled" is a modified signal in mp_ability_grapple.gnut, should really be handed by AddCallback_MpAbilityGrapplePrimaryAttack() )
+	WaitSignal( player, "GrappleCancelled", "OnGrappled" )
+	results.cancelled = true // if triggered these signals we consider it as grapple cancelled
+	//print( "Player cancelled grapple!" )
+}
+
+void function PlayerPressedGrappleDetachButton( entity player )
+{
+	player.Signal( "GrappleCancelled" )
+}
+
 
 void function DisablePlayerUselessSoundsLifeLong( entity player )
 {
@@ -94,7 +166,8 @@ void function PlayerStartHackedDeath( entity player, var damageInfo )
 	player.Signal( "StopHealthRegenThink" )
 	//StopPlayerWoundedSound( player ) // doing a loop to stop this now
 	//EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
-	TakeAllOffhandInstantNow( player ) // can this cancel grapple things?
+	//TakeAllOffhandInstantNow( player ) // grapple now handling in callbacks // can this cancel grapple things?
+	StopPlayerGrapple( player ) // stop player's grapple rope!
 	player.FreezeControlsOnServer() // freeze them, avoid picking up weapons
 	StopPlayerJumpJetSound( player ) // disable jumpjet sound
 	CodeCallback_OnEntityKilled( player, damageInfo )
@@ -129,7 +202,8 @@ void function StopPlayerJumpJetSound( entity player )
 void function ForceHolsterForHackedDeath( entity player )
 {
 	player.EndSignal( "OnDestroy" )
-
+	
+	WaitFrame() // assume player will never be in hacked death before this
 	HolsterAndDisableWeapons( player )
 	while( player.s.hackedDeath ) // keep try to holster weapon if player is being hackedDeath
 	{
@@ -151,6 +225,15 @@ void function TakeAllOffhandInstantNow( entity player )
 	{
 		if( offhand.GetWeaponInfoFileKeyField( "fire_mode" ) == "offhand_instant" )
 			player.TakeWeaponNow( offhand.GetWeaponClassName() )
+	}
+}
+
+void function StopPlayerGrapple( entity player )
+{
+	if ( PlayerHasWeapon( player, "mp_ability_grapple" ) )
+	{
+		//player.Grapple( < 0, 0, 0 > ) // fire another grapple while grappling will cancel current one
+		player.TakeWeaponNow( "mp_ability_grapple" ) // this one works better, for player's grapple won't show a icon upon hacked death
 	}
 }
 
@@ -216,7 +299,7 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	player.Anim_Stop()
 	player.NotSolid()
 	player.StopPhysics() // after fake corpse get player's velocity
-	player.kv.contents = (int(player.kv.contents) | CONTENTS_NOGRAPPLE) // make player unable to be grappled, hope this will cancel attacker's grapple
+	player.kv.contents = (int(player.kv.contents) | CONTENTS_NOGRAPPLE) // grapple now handling in callbacks // make player unable to be grappled, hope this will cancel attacker's grapple
 	// warns: contents can't be like ( int( player.kv.contents ) | CONTENTS_NOGRAPPLE ), remove useless spaces
 }
 
@@ -399,7 +482,7 @@ void function GiveFakeBodyCopyOfPlayerWeapon( entity fakeBody, entity player )
 void function PlayerRecoverFromHackedDeath( entity player )
 {
 	player.s.hackedDeath = false
-	player.kv.contents = (int(player.kv.contents) & ~CONTENTS_NOGRAPPLE) // remove unable to be grappled content
+	//player.kv.contents = (int(player.kv.contents) & ~CONTENTS_NOGRAPPLE) // grapple now handling in callbacks  // remove unable to be grappled content
 	player.Signal( "RecoverFromHackedDeath" ) // signal this
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 	player.ClearInvulnerable()
