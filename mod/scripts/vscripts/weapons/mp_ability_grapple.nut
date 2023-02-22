@@ -13,33 +13,29 @@ global function OnWeaponNpcPrimaryAttack_ability_grapple
 global function OnWeaponOwnerChange_ability_grapple
 global function OnProjectileCollision_ability_grapple
 
+global function AddCallback_MpAbilityGrapplePrimaryAttack
+global function AddCallback_OnGrapple
 
 struct
 {
 	int grappleExplodeImpactTable
+
+	array< void functionref( entity, WeaponPrimaryAttackParams ) > weaponPrimaryAttackCallbacks
+	array< void functionref( entity, entity, vector, vector ) > onGrappleCallbacks
 } file
 
 const int GRAPPLEFLAG_CHARGED	= (1<<0)
-
-// bison titan
-const float BISON_GRAPPLE_DURATION = 1.0
-
 
 void function GrappleWeaponInit()
 {
 	// modified fix: manually do a impact fx
 	//file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "exp_rocket_archer" )
 	//file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "40mm_mortar_shots" ) // this may cause client desync!
-
-	// modified, also for client
-	RegisterSignal( "BisonGrappled" )
-	RegisterSignal( "OnGrappled" )
 }
 
 // modified for cooldowns
 void function OnWeaponOwnerChange_ability_grapple( entity weapon, WeaponOwnerChangedParams changeParams )
 {
-	//if( weapon.HasMod( "zipline_gun" ) )
 
 }
 
@@ -109,25 +105,12 @@ var function OnWeaponPrimaryAttack_ability_grapple( entity weapon, WeaponPrimary
 	PlayerUsedOffhand( owner, weapon )
 
 	owner.Grapple( attackParams.dir )
-	// modified signal
-	owner.Signal( "OnGrappled" )
 
-	// for bison: not allowed to control players or npcs by grapple
-	if( weapon.HasMod( "bison_grapple" ) )
-	{
-		thread BisonDelayedAutoDetach( owner )
-	}
+	// run callbacks
+	foreach ( void functionref( entity, WeaponPrimaryAttackParams ) callbackFunc in file.weaponPrimaryAttackCallbacks )
+		callbackFunc( weapon, attackParams )
 
 	return 1
-}
-
-void function BisonDelayedAutoDetach( entity player )
-{
-	player.Signal( "BisonGrappled" )
-	player.EndSignal( "BisonGrappled" )
-	wait BISON_GRAPPLE_DURATION
-	if( IsAlive( player ) )
-		player.Grapple( < 0,0,0 > )
 }
 
 bool function OnWeaponAttemptOffhandSwitch_ability_grapple( entity weapon )
@@ -201,13 +184,6 @@ void function CodeCallback_OnGrapple( entity player, entity hitent, vector hitpo
 		if ( !grappleWeapon.GetWeaponSettingBool( eWeaponVar.grapple_weapon ) )
 			return
 
-		// for hacked death: if we killed the grappled player we detach
-		#if SERVER
-			// WIP, maybe better to use player.kv.contents
-			//if ( IsHackedDeathEnabled() && hitent.IsPlayer() )
-			//	thread TrackHackedDeathGrappledPlayerDeath( player, hitent )
-		#endif
-
 		int flags = grappleWeapon.GetScriptFlags0()
 		if ( ! (flags & GRAPPLEFLAG_CHARGED) )
 			return
@@ -218,9 +194,23 @@ void function CodeCallback_OnGrapple( entity player, entity hitent, vector hitpo
 
 		DoGrappleImpactExplosion( player, grappleWeapon, hitent, hitpos, hitNormal )
 	}
+
+	// run callbacks
+	foreach ( void functionref( entity, entity, vector, vector ) callbackFunc in file.onGrappleCallbacks )
+		callbackFunc( player, hitent, hitpos, hitNormal )
 }
 
 // modified callback
+void function AddCallback_MpAbilityGrapplePrimaryAttack( void functionref( entity, WeaponPrimaryAttackParams ) callbackFunc )
+{
+	file.weaponPrimaryAttackCallbacks.append( callbackFunc )
+}
+
+void function AddCallback_OnGrapple( void functionref( entity, entity, vector, vector ) callbackFunc )
+{
+	file.onGrappleCallbacks.append( callbackFunc )
+}
+
 void function OnProjectileCollision_ability_grapple( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	array<string> mods = projectile.ProjectileGetMods()
@@ -237,23 +227,4 @@ var function OnWeaponNpcPrimaryAttack_ability_grapple( entity weapon, WeaponPrim
 
 	return 1
 }
-
-/* // WIP, maybe better to use player.kv.contents
-void function TrackHackedDeathGrappledPlayerDeath( entity player, entity victim )
-{
-	player.EndSignal( "OnGrappled" ) // if player fired another grapple we end this thread
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-	victim.EndSignal( "OnDestroy" )
-
-	while ( true )
-	{
-		if ( !IsAlive( victim ) )
-			break
-		WaitFrame()
-	}
-
-	player.Grapple( < 0, 0, 0 > ) // if victim died we end the grapple
-}
-*/
 #endif
