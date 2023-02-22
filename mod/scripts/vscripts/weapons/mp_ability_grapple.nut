@@ -33,6 +33,7 @@ void function GrappleWeaponInit()
 
 	// modified, also for client
 	RegisterSignal( "BisonGrappled" )
+	RegisterSignal( "OnGrappled" )
 }
 
 // modified for cooldowns
@@ -108,6 +109,8 @@ var function OnWeaponPrimaryAttack_ability_grapple( entity weapon, WeaponPrimary
 	PlayerUsedOffhand( owner, weapon )
 
 	owner.Grapple( attackParams.dir )
+	// modified signal
+	owner.Signal( "OnGrappled" )
 
 	// for bison: not allowed to control players or npcs by grapple
 	if( weapon.HasMod( "bison_grapple" ) )
@@ -198,6 +201,13 @@ void function CodeCallback_OnGrapple( entity player, entity hitent, vector hitpo
 		if ( !grappleWeapon.GetWeaponSettingBool( eWeaponVar.grapple_weapon ) )
 			return
 
+		// for hacked death: if we killed the grappled player we detach
+		#if SERVER
+			// WIP, maybe better to use player.kv.contents
+			//if ( IsHackedDeathEnabled() && hitent.IsPlayer() )
+			//	thread TrackHackedDeathGrappledPlayerDeath( player, hitent )
+		#endif
+
 		int flags = grappleWeapon.GetScriptFlags0()
 		if ( ! (flags & GRAPPLEFLAG_CHARGED) )
 			return
@@ -227,4 +237,23 @@ var function OnWeaponNpcPrimaryAttack_ability_grapple( entity weapon, WeaponPrim
 
 	return 1
 }
+
+/* // WIP, maybe better to use player.kv.contents
+void function TrackHackedDeathGrappledPlayerDeath( entity player, entity victim )
+{
+	player.EndSignal( "OnGrappled" ) // if player fired another grapple we end this thread
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	victim.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		if ( !IsAlive( victim ) )
+			break
+		WaitFrame()
+	}
+
+	player.Grapple( < 0, 0, 0 > ) // if victim died we end the grapple
+}
+*/
 #endif
