@@ -4,11 +4,19 @@ const float BISON_DAMAGE_REDUCTION_SEVERITY = 0.15
 const float BISON_SPEED_BOOST_SEVERITY = 0.15
 const float BISON_VICTIM_SLOW_DURATION = 0.2
 
+// bison titan
+const float BISON_GRAPPLE_DURATION = 1.0
+
 void function Bison_Init()
 {
     AddCallback_OnPilotBecomesTitan( OnPlayerBecomeBison )
     AddSpawnCallback( "npc_titan", OnBisonSpawned )
     AddDamageCallbackSourceID( eDamageSourceId.berserker_melee, BerserkerMelee_DamagedTarget )
+
+    // bison grapple settings
+	RegisterSignal( "BisonGrappled" )
+    RegisterSignal( "BisonGrappleCancelled" )
+    AddCallback_MpAbilityGrapplePrimaryAttack( BisonOnUseGrapple )
 }
 
 void function BerserkerMelee_DamagedTarget( entity victim, var damageInfo )
@@ -113,4 +121,47 @@ void function HandlePlayerBisonAbility( entity player )
     )
 
     WaitForever()
+}
+
+void function BisonOnUseGrapple( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    // for bison: not allowed to control players or npcs forever by grapple
+	if( weapon.HasMod( "bison_grapple" ) )
+	{
+        entity player = weapon.GetWeaponOwner()
+		thread BisonDelayedAutoDetach( player )
+	}
+}
+
+void function BisonDelayedAutoDetach( entity player )
+{
+	player.Signal( "BisonGrappled" )
+	player.EndSignal( "BisonGrappled" )
+    player.EndSignal( "BisonGrappleCancelled" )
+
+    // check cancelling through crouching
+	AddButtonPressedPlayerInputCallback( player, IN_DUCK, PlayerPressedGrappleDetachButton )
+	AddButtonPressedPlayerInputCallback( player, IN_DUCKTOGGLE, PlayerPressedGrappleDetachButton )
+
+    OnThreadEnd
+    (
+        function(): ( player )
+        {
+            if ( IsValid( player ) )
+            {
+                // clean up
+				RemoveButtonPressedPlayerInputCallback( player, IN_DUCK, PlayerPressedGrappleDetachButton )
+				RemoveButtonPressedPlayerInputCallback( player, IN_DUCKTOGGLE, PlayerPressedGrappleDetachButton )
+            }
+        }
+    )
+
+	wait BISON_GRAPPLE_DURATION // limited grapple duration
+	if( IsAlive( player ) )
+		player.Grapple( < 0,0,0 > ) // grapple again while another one is active will cancel it
+}
+
+void function PlayerPressedGrappleDetachButton( entity player )
+{
+	player.Signal( "BisonGrappleCancelled" )
 }
