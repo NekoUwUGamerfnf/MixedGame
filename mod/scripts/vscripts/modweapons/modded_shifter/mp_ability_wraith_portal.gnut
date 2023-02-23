@@ -23,6 +23,7 @@ const float PORTAL_WARP_TIME_PER_SEGMENT = 0.2 // better don't change this, if c
 const float PORTAL_NODES_MAX = PORTAL_TRAVEL_LENGTH_MAX / PORTAL_WARP_TIME_PER_SEGMENT // use for checking overloaded nodes
 //const float PORTAL_NODES_MIN = 8 // no need for now
 const float PORTAL_DEPLOY_TIME = 1.2 // defensive fix
+const float PORTAL_COOLDOWN_TIME = 1.5
 const float PORTAL_FX_TICKRATE = 1.5
 
 const bool shouldDoWarpEffect = true // warp is so annoying! can turn it off if need( before I able to remove extra nodes )
@@ -335,9 +336,33 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	//DebugDrawCircle( startPos, startAng, 60, 128, 255, 128, false, PORTAL_DURATION, 32 )
 	//DebugDrawCircle( endPos, endAng, 60, 128, 255, 128, false, PORTAL_DURATION, 32 )
 
-	entity startTrig = CreateTriggerRadiusMultiple( startPos, 64, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, 48, 48 )
-	entity endTrig = CreateTriggerRadiusMultiple( endPos, 64, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, 48, 48 )
+	// triggerRadiusMultiple is actually a scriptRef and they can't handle vertical positions, should use entity "trigger_cylinder"
+	//entity startTrig = CreateTriggerRadiusMultiple( startPos, 64, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, 48, 48 )
+	//entity endTrig = CreateTriggerRadiusMultiple( endPos, 64, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, 48, 48 )
 	
+	entity startTrig = CreateEntity( "trigger_cylinder" )
+	startTrig.SetRadius( 64 )
+	startTrig.SetAboveHeight( 18 )
+	startTrig.SetBelowHeight( 18 )
+	startTrig.SetOrigin( startPos )
+	startTrig.kv.triggerFilterNpc = "none" // never teleports npcs
+	startTrig.kv.triggerFilterPlayer = "all"
+	startTrig.kv.triggerFilterNonCharacter = "0"
+	startTrig.SetEnterCallback( OnPortalTiggerEnter )
+	DispatchSpawn( startTrig )
+
+	entity endTrig = CreateEntity( "trigger_cylinder" )
+	endTrig.SetRadius( 64 )
+	endTrig.SetAboveHeight( 32 )
+	endTrig.SetBelowHeight( 32 )
+	endTrig.SetOrigin( endPos )
+	endTrig.kv.triggerFilterNpc = "none" // never teleports npcs
+	endTrig.kv.triggerFilterPlayer = "all"
+	endTrig.kv.triggerFilterNonCharacter = "0"
+	endTrig.SetEnterCallback( OnPortalTiggerEnter )
+	DispatchSpawn( endTrig )
+
+
 	//print( "[PORTAL] Total travel time is " + string( travelTime ) )
 
 	// let's remove overloaded nodes
@@ -527,11 +552,12 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	EmitSoundAtPosition( TEAM_UNASSIGNED, endTrig.GetOrigin(), SHIFTER_END_SOUND_3P_TITAN )
 	//print( "[PORTAL] " + player.GetPlayerName() + " placed portal!" )
 
-	AddCallback_ScriptTriggerEnter( startTrig, OnPortalTiggerEnter )
-	AddCallback_ScriptTriggerEnter( endTrig, OnPortalTiggerEnter )
+	// now using "trigger_cylinder" instead of script triggers
+	//AddCallback_ScriptTriggerEnter( startTrig, OnPortalTiggerEnter )
+	//AddCallback_ScriptTriggerEnter( endTrig, OnPortalTiggerEnter )
 
-	ScriptTriggerSetEnabled( startTrig, true )
-	ScriptTriggerSetEnabled( endTrig, true )
+	//ScriptTriggerSetEnabled( startTrig, true )
+	//ScriptTriggerSetEnabled( endTrig, true )
 
 	thread DelayedMakeOwnerAbleToPortal( startTrig )
 	thread DelayedMakeOwnerAbleToPortal( endTrig )
@@ -575,14 +601,18 @@ void function PortalLifetimeManagement( entity startTrig, entity endTrig, float 
 	}
 }
 
-void function OnPortalTiggerEnter( entity trigger, entity player )
+void function OnPortalTiggerEnter( entity trigger, entity ent )
 {
-	if( !IsValid( player ) )
+	if ( !ent.IsPlayer() )
 		return
-	
+	if ( !IsAlive( ent ) )
+		return
+	if( ent.IsPhaseShifted() || ent.GetParent() )
+		return
+
 	//print( "[PORTAL] Someone entered trigger!" )
 
-	thread PortalTravelThink( trigger, player )
+	thread PortalTravelThink( trigger, ent )
 }
 
 void function PortalTravelThink( entity trigger, entity player )
@@ -636,10 +666,10 @@ void function PortalTravelThink( entity trigger, entity player )
 	//if( shouldDoWarpEffect && totalTime >= PORTAL_TRAVEL_LENGTH_MAX ) // hardcoded now
 		//phaseTimeMulti = 0.75 // should set bit lower
 
-	if( player.IsPhaseShifted() || player.GetParent() )
-	{
-		return
-	}
+	//if( player.IsPhaseShifted() || player.GetParent() )
+	//{
+		//return
+	//}
 	if( player.GetUID() == ownerUID && !canPortalOwner )
 	{
 		return
@@ -659,10 +689,10 @@ void function PortalTravelThink( entity trigger, entity player )
 	if( !file.inPortalCooldownPlayers.contains( player.GetUID() ) )
 	{
 		// CancelPhaseShift() version
-		if( shouldDoWarpEffect )
-			thread PortalCooldownThink( player, totalTime )
-		else
-			thread PortalCooldownThink( player, totalTime * phaseTimeMulti )
+		//if( shouldDoWarpEffect )
+		//	thread PortalCooldownThink( player, totalTime )
+		//else
+		//	thread PortalCooldownThink( player, totalTime * phaseTimeMulti )
 		//print( "[PORTAL] Set someone in portal cooldown!" )
 	}
 	entity portalTrail = CreatePhaseShiftTrail( player )
@@ -791,6 +821,8 @@ void function PortalTravelThink( entity trigger, entity player )
 		//player.WaitSignal( "StopPhaseShift" ) // wait till player exit phase, wraith's portal don't have this lmao
 		wait fixedTimePerSigment + 0.1
 		//player.Signal( "StopPhaseShift" )
+
+		thread PortalCooldownThink( player ) // we successfully teleported, make player in cooldown
 	}
 	else
 	{
@@ -827,6 +859,17 @@ void function TravelEndForceCrouch( entity player )
 		player.UnforceCrouch()
 }
 
+void function PortalCooldownThink( entity player )
+{
+	if( !IsValid( player ) )
+		return
+	string playerUID = player.GetUID()
+	file.inPortalCooldownPlayers.append( playerUID )
+	wait PORTAL_COOLDOWN_TIME
+	file.inPortalCooldownPlayers.fastremovebyvalue( playerUID )
+}
+
+/* // abandoned, now using a const
 void function PortalCooldownThink( entity player, float travelTime )
 {
 	if( !IsValid( player ) )
@@ -836,10 +879,11 @@ void function PortalCooldownThink( entity player, float travelTime )
 	wait travelTime * 1.1 + PORTAL_DEPLOY_TIME
 	file.inPortalCooldownPlayers.fastremovebyvalue( playerUID )
 }
+*/
 
 void function DelayedMakeOwnerAbleToPortal( entity trigger ) // defensive fix
 {
-	wait PORTAL_DEPLOY_TIME
+	wait PORTAL_COOLDOWN_TIME //PORTAL_DEPLOY_TIME
 	if( IsValid( trigger ) )
 		file.portalGoalTable[ trigger ].canPortalOwner = true
 	//print( "[PORTAL] Set owner able to use portal!" )
