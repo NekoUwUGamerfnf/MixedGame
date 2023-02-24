@@ -1,0 +1,104 @@
+untyped // ent.s requires this
+global function Modded_Gamemode_OraOra_Init
+
+void function Modded_Gamemode_OraOra_Init()
+{
+    SetWeaponDropsEnabled( false )
+	SetLoadoutGracePeriodEnabled( false )
+    SetHealthRegenDisabled( true )
+    // register things for ingame script
+    if( GetGameState() >= eGameState.Prematch )
+    {
+        foreach( entity player in GetPlayerArray() )
+            InitPlayerStat( player )
+    }
+    AddCallback_OnClientConnected( InitPlayerStat )
+    AddCallback_OnPlayerGetsNewPilotLoadout( OnPilotGetLoadout )
+    AddCallback_OnTouchHealthKit( "item_titan_battery", OnBatteryCollected )
+    AddDeathCallback( "player", OnPlayerDead )
+}
+
+void function InitPlayerStat( entity player )
+{
+    player.s.fighterStrike <- 0
+}
+
+bool function OnBatteryCollected( entity player, entity battery )
+{
+    if( !IsAlive( player ) )
+        return false
+    if( player.GetHealth() == player.GetMaxHealth() )
+        return false
+    entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
+    //EmitSoundOnEntityOnlyToPlayer( player, player, "UI_TitanBattery_Pilot_Give_TitanBattery" )
+    bool amped = false
+    if( "isAmped" in battery.s )
+    {
+        if( battery.s.isAmped )
+        {
+            EffectSetControlPointVector( shieldFXHandle, 1, < 255, 165, 0 > )
+            player.SetHealth( player.GetMaxHealth() )
+            amped = true
+        }
+        else
+        {
+            EffectSetControlPointVector( shieldFXHandle, 1, < 115, 247, 255 > )
+            player.SetHealth( min( player.GetMaxHealth(), player.GetHealth() + player.GetMaxHealth() * 0.5 ) )
+        }
+        MessageToPlayer( player, eEventNotifications.Rodeo_PilotAppliedBatteryToYou, player, amped )
+        return true
+    }
+    EffectSetControlPointVector( shieldFXHandle, 1, < 115, 247, 255 > )
+    player.SetHealth( min( player.GetMaxHealth(), player.GetHealth() + player.GetMaxHealth() * 0.5 ) )
+    MessageToPlayer( player, eEventNotifications.Rodeo_PilotAppliedBatteryToYou, player, amped )
+    return true
+}
+
+void function OnPlayerDead( entity victim, var damageInfo )
+{
+    entity battery = Rodeo_CreateBatteryPack()
+    battery.s.touchEnabledTime <- 999999 // don't allow players to pick up batteries
+    Highlight_SetNeutralHighlight( battery, "sp_friendly_hero" )
+    
+    if( victim.s.fighterStrike >= 3 )
+    {
+        battery.s.isAmped <- true
+        battery.SetSkin( 2 )
+        battery.Highlight_SetParam( 0, 0, < 100,100,0 > )
+    }
+    else
+    {
+        battery.s.isAmped <- false
+        battery.Highlight_SetParam( 0, 0, < 0,100,0 > )
+    }
+    battery.SetOrigin( victim.GetOrigin() + < 0,0,10 > )
+    battery.SetVelocity( < 0,0,5 > )
+
+    victim.s.fighterStrike = 0
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( IsValid( attacker ) )
+    {
+        if( attacker.IsPlayer() && attacker != victim )
+            attacker.s.fighterStrike += 1
+    }
+}
+
+void function OnPilotGetLoadout( entity player, PilotLoadoutDef p )
+{
+    player.SetMaxHealth( 500 )
+    player.SetHealth( 500 )
+    TakeAllWeapons( player )
+    thread DisableBoostBar( player )
+    SyncedMelee_Disable( player )
+    player.GiveWeapon( "mp_weapon_gunship_missile", ["pilot_emptyhanded"] )
+    player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_ORDNANCE, ["shuriken"] )
+    player.GiveOffhandWeapon( "mp_weapon_grenade_sonar", OFFHAND_SPECIAL, ["kunai"] )
+    player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["fighter_melee", "fake_human_melee", "jetpack_fx_melee"] )
+}
+
+void function DisableBoostBar( entity player )
+{
+    WaitFrame()
+    if( IsValid( player ) )
+        PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
+}
