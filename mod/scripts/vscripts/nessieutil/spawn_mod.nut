@@ -73,6 +73,25 @@ void function SpawnCommand()
 	#endif
 }
 
+void function CheckSpawnModPlayerName(string name)
+{
+    array<entity> players = GetPlayerArray()
+    successfulnames = [];
+    foreach (entity player in players)
+    {
+        if (player != null)
+        {
+            string playername = player.GetPlayerName()
+            if (playername.tolower().find(name.tolower()) != null)
+            {
+                print("Detected " + playername + "!")
+                successfulnames.append(player)
+            }
+        }
+    }
+    return;
+}
+
 bool function FastBall1(entity player, array<string> args)
 {
 	#if SERVER
@@ -99,7 +118,7 @@ bool function FastBall1(entity player, array<string> args)
     // if player typed "health somethinghere"
     switch (args[0]) {
         default:
-            CheckPlayerName(args[0])
+            CheckSpawnModPlayerName(args[0])
                 foreach (entity p in successfulnames)
                     sheep1.append(p)
             break;
@@ -190,7 +209,7 @@ bool function SpawnCMD(entity player, array<string> args)
             break;
 
         default:
-            CheckPlayerName(args[0])
+            CheckSpawnModPlayerName(args[0])
                 foreach (entity p in successfulnames)
                     sheep1.append(p)
             break;
