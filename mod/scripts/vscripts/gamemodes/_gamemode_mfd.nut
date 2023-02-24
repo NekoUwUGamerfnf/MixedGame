@@ -384,8 +384,8 @@ void function MakePlayerZombie( entity player )
 	// need to replace this with a custom empty weapon at some point
 	//player.GiveWeapon( "mp_weapon_rocket_launcher" )
 	player.GiveWeapon( "mp_weapon_gunship_missile", ["melee_convertor"] )
-	player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["apex_melee", "zombie_craw"] )
-	player.GiveOffhandWeapon( "mp_weapon_grenade_sonar", OFFHAND_SPECIAL, ["kunai", "zombie_knife"] )
+	player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["pushback_melee", "fake_human_melee", "jetpack_fx_melee"] ) // was "apex_melee", "zombie_craw"
+	player.GiveOffhandWeapon( "mp_weapon_grenade_sonar", OFFHAND_SPECIAL, ["kunai"] ) // removed "zombie_knife"
 	//player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_ORDNANCE, ["shuriken"] )
 	player.GiveOffhandWeapon( "mp_weapon_grenade_emp", OFFHAND_ORDNANCE, ["impulse_grenade"] )
 

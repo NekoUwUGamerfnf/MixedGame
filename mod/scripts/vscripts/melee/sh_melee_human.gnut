@@ -43,6 +43,7 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 		return
 	}
 
+	// warns!!! states other than PLAYER_MELEE_STATE_NONE will make player unable to melee
 	local meleeAttackType = PLAYER_MELEE_STATE_HUMAN_KICK_ATTACK
 	if ( activeWeapon.GetWeaponClassName() == "mp_weapon_dash_melee" )
 		meleeAttackType = PLAYER_MELEE_STATE_HUMAN_EVISCERATE_ATTACK
@@ -50,7 +51,6 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 	player.PlayerMelee_StartAttack( meleeAttackType )
 	
 	bool isDashMelee = meleeWeapon.HasMod( "apex_melee" ) || meleeWeapon.HasMod( "pushback_melee" )
-	bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" )
 	bool doJetPackFX = meleeWeapon.HasMod( "jetpack_fx_melee" )
 
 #if SERVER
@@ -61,20 +61,11 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 		thread KickMeleeApplyingThink( player )
 #endif
 
-	if ( player.PlayerMelee_GetState() == PLAYER_MELEE_STATE_HUMAN_EVISCERATE_ATTACK ) // respawn messed this up, but maybe useful if we want to make client don't predict a lunging event
+	if ( player.PlayerMelee_GetState() == PLAYER_MELEE_STATE_HUMAN_EVISCERATE_ATTACK ) // fix: this will player unable to melee! // respawn messed this up, but maybe useful if we want to make client don't predict a lunging event
 	{
-		if( isFighterMelee ) // no lunge for this kind of melee, putting here for better client visual?
-		{
-#if SERVER
-			thread HumanMeleeAttack_DashThread( player, meleeWeapon )
-#endif
-		}
-		else // vanilla behavior
-		{
-			vector lungeTargetPos = (player.GetOrigin() + (player.GetViewVector() * 300))
-			player.Lunge_SetTargetPosition( lungeTargetPos )
-			player.Lunge_EnableFlying()
-		}
+		vector lungeTargetPos = (player.GetOrigin() + (player.GetViewVector() * 300))
+		player.Lunge_SetTargetPosition( lungeTargetPos )
+		player.Lunge_EnableFlying()
 	}
 	else
 	{
@@ -92,9 +83,9 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 			{
 /*
 #if SERVER
-				print( "SERVER: " + player + " is calling Lunge_SetTargetEntity() from HumanUnsyncedMelee()\n" )
+			print( "SERVER: " + player + " is calling Lunge_SetTargetEntity() from HumanUnsyncedMelee()\n" )
 #else
-				print( "CLIENT: " + player + " is calling Lunge_SetTargetEntity() from HumanUnsyncedMelee()\n" )
+			print( "CLIENT: " + player + " is calling Lunge_SetTargetEntity() from HumanUnsyncedMelee()\n" )
 #endif
 */
 				if ( player.Lunge_SetTargetEntity( lungeTarget, true ) )
@@ -277,9 +268,15 @@ function HumanMeleeAttack_DoImpact( entity player, entity meleeWeapon, traceResu
 	local damageSource = eDamageSourceId[weaponName]
 	int damageAmount = GetDamageAmountForTarget( meleeWeapon, target )
 
+	// modified checks!!!
 	bool applyKickDamage = expect bool( player.s.applyKickDamage )
 	if( applyKickDamage )
 		damageSource = eDamageSourceId.human_melee
+
+	bool isPushBackMelee = meleeWeapon.HasMod( "fighter_melee" ) || meleeWeapon.HasMod( "apex_melee" ) || meleeWeapon.HasMod( "pushback_melee" )
+	if( isPushBackMelee )
+		return HumanMeleeAttack_PushBackAttack( player, target, meleeWeapon, traceResult, applyKickDamage )
+	// end
 
 	if ( IsHumanSized( target ) )
 	{
@@ -298,12 +295,9 @@ function HumanMeleeAttack_DoImpact( entity player, entity meleeWeapon, traceResu
 	vector damageForce = AnglesToForward( angles ) * meleeWeapon.GetWeaponDamageForce()
 
 	//print( "SERVER: HumanMeleeAttack_DoImpact() applying damage to " + target + "\n" )
-	bool isPushBackMelee = meleeWeapon.HasMod( "fighter_melee" ) || meleeWeapon.HasMod( "apex_melee" ) || meleeWeapon.HasMod( "pushback_melee" )
 
 	if ( target.IsNPC() && target.CanBeGroundExecuted() )
 		target.TakeDamage( target.GetHealth(), player, player, { scriptType = DF_RAGDOLL | meleeWeapon.GetWeaponDamageFlags(), damageType = DMG_MELEE_ATTACK, damageSourceId = damageSource, origin = traceResult.position, force = Vector( 0, 0, 0 ) } )
-	else if( isPushBackMelee )
-		return HumanMeleeAttack_PushBackAttack( player, target, meleeWeapon, traceResult, applyKickDamage )
 	else
 		target.TakeDamage( damageAmount, player, player, { scriptType = meleeWeapon.GetWeaponDamageFlags(), damageType = DMG_MELEE_ATTACK, damageSourceId = damageSource, origin = traceResult.position, force = damageForce } )
 
@@ -421,6 +415,8 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 	vector pushBackVelocity = AnglesToForward( angles ) * meleeWeapon.GetWeaponDamageForce()
 	vector damageOrigin = expect vector( traceResult.position )
 
+	bool noSelfKnockback = meleeWeapon.HasMod( "fighter_melee" ) // fighter melee won't knockback player themselves
+
 	vector targetDirection = VectorToAngles( traceResult.position - traceResult.startPosition )
 
 	if( target.IsPlayer() || target.IsNPC() )
@@ -463,8 +459,11 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 	{
 		if( IsValidMeleeState( player ) )
 		{
-			thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
-			PushEntWithVelocity( player, backVel )
+			if ( !noSelfKnockback )
+			{
+				thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
+				PushEntWithVelocity( player, backVel )
+			}
 		}
 		return
 	}
@@ -472,8 +471,11 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 
 	// titan.SetVelocity( backVel )
 	
-	thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
-	PushEntWithVelocity( player, backVel )
+	if ( !noSelfKnockback )
+	{
+		thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
+		PushEntWithVelocity( player, backVel )
+	}
 
 	if ( target.IsPlayer() && target.PlayerMelee_IsAttackActive() )
 	{
