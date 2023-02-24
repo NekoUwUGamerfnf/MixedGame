@@ -1,8 +1,26 @@
 untyped // ent.s requires this
 global function Modded_Gamemode_OraOra_Init
 
+const array<string> ORAORA_PLAYLIST = 
+[
+    "mp_glitch",
+    "mp_colony02",
+    "mp_wargames",
+    "mp_eden",
+    "mp_drydock",
+    "mp_black_water_canal",
+    "mp_thaw",
+    "mp_grave",
+    "mp_homestead",
+    "mp_forwardbase_kodai",
+    "mp_angel_city",
+]
+
 void function Modded_Gamemode_OraOra_Init()
 {
+    Riff_ForceTitanAvailability( eTitanAvailability.Never )
+	Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
+
     SetWeaponDropsEnabled( false )
 	SetLoadoutGracePeriodEnabled( false )
     SetHealthRegenDisabled( true )
@@ -15,7 +33,12 @@ void function Modded_Gamemode_OraOra_Init()
     AddCallback_OnClientConnected( InitPlayerStat )
     AddCallback_OnPlayerGetsNewPilotLoadout( OnPilotGetLoadout )
     AddCallback_OnTouchHealthKit( "item_titan_battery", OnBatteryCollected )
+    AddCallback_GameStateEnter( eGameState.Postmatch, OnGamePostmatch )
     AddDeathCallback( "player", OnPlayerDead )
+
+      // skip intro and make things faster!
+	ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, 3.0 )
+    SetWaitingForPlayersMaxDuration( 0.0 ) // so you don't have to wait so freaking long
 }
 
 void function InitPlayerStat( entity player )
@@ -81,6 +104,18 @@ void function OnPlayerDead( entity victim, var damageInfo )
         if( attacker.IsPlayer() && attacker != victim )
             attacker.s.fighterStrike += 1
     }
+
+    entity pilot = CreateNPC( "npc_pilot_elite", TEAM_BOTH, victim.GetOrigin(), victim.GetAngles() )//CreateNPC( "npc_soldier", team, pos, rot )
+    pilot.SetMaxHealth( 10000 )
+    pilot.SetHealth( 10000 )
+    Highlight_SetEnemyHighlight( pilot, "enemy_player" )
+    DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
+    array<entity> npcPilots = GetNPCArrayByClass( "npc_pilot_elite" )
+    if ( npcPilots.len() > 32 )
+    {
+        if ( IsValid( npcPilots[0] ) )
+            npcPilots[0].Destroy()
+    }
 }
 
 void function OnPilotGetLoadout( entity player, PilotLoadoutDef p )
@@ -90,9 +125,14 @@ void function OnPilotGetLoadout( entity player, PilotLoadoutDef p )
     TakeAllWeapons( player )
     thread DisableBoostBar( player )
     SyncedMelee_Disable( player )
-    player.GiveWeapon( "mp_weapon_gunship_missile", ["pilot_emptyhanded"] )
-    player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_ORDNANCE, ["shuriken"] )
-    player.GiveOffhandWeapon( "mp_weapon_grenade_sonar", OFFHAND_SPECIAL, ["kunai"] )
+    //player.GiveWeapon( "mp_weapon_gunship_missile", ["pilot_emptyhanded"] )
+    player.GiveWeapon( "mp_weapon_arc_launcher", ["smoke_launcher" ,"at_unlimited_ammo", ] )
+    player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL, ["zipline_gun", "infinite_duration_zipline"] )
+    player.GiveOffhandWeapon( "mp_ability_heal", OFFHAND_ORDNANCE, ["jump_pad", "infinite_jump_pad"] )
+    player.GiveOffhandWeapon( "mp_weapon_deployable_cover", OFFHAND_ANTIRODEO, ["deployable_dome_shield"] )
+    player.GiveOffhandWeapon( "mp_ability_shifter", OFFHAND_INVENTORY, ["wraith_portal", "amped_tacticals"] )
+    //player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_ORDNANCE, ["shuriken"] )
+    //player.GiveOffhandWeapon( "mp_weapon_grenade_sonar", OFFHAND_SPECIAL, ["kunai"] )
     player.GiveOffhandWeapon( "melee_pilot_emptyhanded", OFFHAND_MELEE, ["fighter_melee", "fake_human_melee", "jetpack_fx_melee"] )
 }
 
@@ -101,4 +141,16 @@ void function DisableBoostBar( entity player )
     WaitFrame()
     if( IsValid( player ) )
         PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
+}
+
+void function OnGamePostmatch()
+{
+    array<string> curPlayList = ORAORA_PLAYLIST
+    int mapIndex = curPlayList.find( GetMapName() )
+    mapIndex += 1 // next map index
+	if( mapIndex == curPlayList.len() ) // reached last map?
+		mapIndex = 0
+	string nextMap = curPlayList[mapIndex]
+
+    ServerCommand( "map " + nextMap )
 }
