@@ -41,7 +41,8 @@ struct
 
 	// strange things
 	bool isInfiniteDecoy = false
-	bool isStrangeDecoy = false
+	bool isRandomDecoy = false
+	bool isCloakDecoy = false
 	// infinite decoy array
 	array<entity> infiniteDecoyOnWorld = []
 
@@ -71,20 +72,27 @@ const array<asset> RANDOM_DECOY_ASSETS =
 [
 	$"models/humans/pilots/pilot_medium_stalker_m.mdl", 
 	$"models/humans/pilots/pilot_medium_stalker_f.mdl", 
-	$"models/humans/pilots/pilot_light_ged_f.mdl", 
-	$"models/humans/pilots/pilot_light_ged_m.mdl", 
-	$"models/humans/pilots/pilot_light_jester_m.mdl", 
-	$"models/humans/pilots/pilot_light_jester_f.mdl", 
-	$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
-	$"models/humans/pilots/pilot_medium_reaper_f.mdl", 
 	$"models/humans/pilots/pilot_medium_geist_m.mdl", 
 	$"models/humans/pilots/pilot_medium_geist_f.mdl", 
+	$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
+	$"models/humans/pilots/pilot_medium_reaper_f.mdl", 
+	$"models/humans/pilots/pilot_light_ged_m.mdl", 
+	$"models/humans/pilots/pilot_light_ged_f.mdl", 
+	$"models/humans/pilots/pilot_light_jester_m.mdl", 
+	$"models/humans/pilots/pilot_light_jester_f.mdl", 
+	$"models/humans/pilots/pilot_heavy_drex_m.mdl", 
+	$"models/humans/pilots/pilot_heavy_drex_f.mdl", 
+	$"models/humans/pilots/pilot_heavy_roog_m.mdl", 
+	$"models/humans/pilots/pilot_heavy_roog_f.mdl", 
 	$"models/humans/grunts/mlt_grunt_lmg.mdl", 
 	$"models/humans/grunts/imc_grunt_lmg.mdl", 
-	$"models/humans/heroes/imc_hero_ash.mdl", 
-	$"models/humans/heroes/mlt_hero_jack.mdl", 
-	$"models/humans/heroes/mlt_hero_sarah.mdl", 
-	$"models/humans/heroes/imc_hero_blisk.mdl", 
+	$"models/humans/grunts/imc_grunt_shield_captain.mdl", 
+	$"models/robots/spectre/imc_spectre.mdl"
+	$"models/Humans/heroes/imc_hero_ash.mdl", 
+	$"models/Humans/heroes/imc_hero_blisk.mdl", 
+	$"models/Humans/heroes/mlt_hero_jack.mdl", 
+	$"models/Humans/heroes/mlt_hero_sarah.mdl", 
+	$"models/Humans/heroes/imc_hero_blisk.mdl", 
 	$"models/humans/pilots/sp_medium_geist_f.mdl", 
 	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
 	$"models/humans/pilots/sp_medium_stalker_m.mdl"
@@ -211,12 +219,14 @@ var function OnWeaponPrimaryAttack_holopilot( entity weapon, WeaponPrimaryAttack
 	entity weaponOwner = weapon.GetWeaponOwner()
 	Assert( weaponOwner.IsPlayer() )
 
-	if( weapon.HasMod( "dead_ringer" ) )
+	if ( weapon.HasMod( "dead_ringer" ) )
 		return OnAbilityStart_FakeDeath( weapon, attackParams )
-	if( weapon.HasMod( "infinite_decoy" ) )
+	if ( weapon.HasMod( "infinite_decoy" ) )
 		file.isInfiniteDecoy = true
-	if( weapon.HasMod( "strange_decoy" ) )
-		file.isStrangeDecoy = true
+	if ( weapon.HasMod( "random_decoy" ) )
+		file.isRandomDecoy = true
+	if ( weapon.HasMod( "cloak_decoy" ) )
+		file.isCloakDecoy = true
 
 	if ( !PlayerCanUseDecoy( weapon ) )
 		return 0
@@ -276,10 +286,15 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 	if ( setOriginAndAngles )
 		stickPercentToRun = 0.0
 
+	// modified settings really should be a function AddCallback_OnHolopilotDecoyCreated()
+	// along with making the function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake = 1, entity weapon = null )
 	entity decoy
 	for( int i = 0; i < numberOfDecoysToMake; ++i )
 	{
-		decoy = player.CreatePlayerDecoy( stickPercentToRun )
+		if( file.isRandomDecoy )
+			decoy = CreateStrangeDecoyForPlayer( player, stickPercentToRun )
+		else
+			decoy = player.CreatePlayerDecoy( stickPercentToRun )
 		//print( decoy )
 		//decoy.SetCloakDuration( 0, 0, 0 )
 		//DispatchSpawn( decoy ) // this WILL break decoy's movespeed, but it will make decoys call "OnSpawnedCallback()"
@@ -287,24 +302,17 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 		decoy.SetHealth( 50 )
 		decoy.EnableAttackableByAI( 50, 0, AI_AP_FLAG_NONE )
 		SetObjectCanBeMeleed( decoy, true )
-		if( file.isInfiniteDecoy )
+		if ( file.isInfiniteDecoy )
 			decoy.SetTimeout( 9999 )
 		else
 			decoy.SetTimeout( DECOY_DURATION )
-		if( file.isNessieOutfit )
+		if ( file.isCloakDecoy )
 		{
-			CreateNessyHat( hatassets, decoy )
-			CreateNessyBackpack( backpackassets, decoy )
-			//CreateNessyPistol( pistolassets, decoy )
+			decoy.SetCloakDuration( 0, 0, 0 ) // this will make decoy spawn with no "flash" effect
+			player.SetCloakDuration( 0, 0.05, 0.5 ) // instead, we will make player flash
 		}
-		if( file.isStrangeDecoy )
-		{
-			decoy.SetOrigin( player.GetOrigin() + < 0,0,15 > )
-			asset decoyModel = RANDOM_DECOY_ASSETS[ RandomInt( RANDOM_DECOY_ASSETS.len() ) ]
-			decoy.SetModel( decoyModel )
-			//decoy.SetValueForModelKey( decoyModel )
-			DispatchSpawn( decoy )
-		}
+		if ( file.isNessieOutfit )
+			thread SpawnNessyOutfit( decoy )
 		if ( setOriginAndAngles )
 		{
 			vector angleToAdd = CalculateAngleSegmentForDecoy( i, HOLOPILOT_ANGLE_SEGMENT )
@@ -436,10 +444,12 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 		decoy.SetFriendlyFire( true ) // so you can adjust decoy count yourself
 	else
 		decoy.SetFriendlyFire( false )
+	decoy.SetKillOnCollision( false )
+
 	// clean it up
 	file.isInfiniteDecoy = false
-	file.isStrangeDecoy = false
-	decoy.SetKillOnCollision( false )
+	file.isRandomDecoy = false
+	file.isCloakDecoy = false
 }
 
 	vector function CalculateAngleSegmentForDecoy( int loopIteration, vector angleSegment )
@@ -715,5 +725,36 @@ void function HoloRewindForceCrouch( entity player )
 	wait 0.2
 	if( IsValid( player ) )
 		player.UnforceCrouch()
+}
+
+// Strange decoy
+entity function CreateStrangeDecoyForPlayer( entity player, float stickPercentToRun = 0.0 )
+{
+	// reset player's model before they place a decoy, also make the decoy models have no camo
+	asset playerModel = player.GetModelName()
+	int playerSkin = player.GetSkin()
+	int playerCamo = player.GetCamo()
+
+	asset decoyModel = RANDOM_DECOY_ASSETS[ RandomInt( RANDOM_DECOY_ASSETS.len() ) ]
+	player.SetModel( decoyModel )
+	player.SetSkin( 0 )
+	player.SetCamo( 0 )
+
+	entity decoy = player.CreatePlayerDecoy( stickPercentToRun )
+	//decoy.SetOrigin( player.GetOrigin() + < 0,0,15 > )
+
+	//decoy.SetModel( decoyModel )
+	//decoy.SetValueForModelKey( decoyModel )
+	//vector baseSpeed = decoy.GetVelocity() // try to store then restore the velocity
+	//print( decoy )
+	//DispatchSpawn( decoy ) // this WILL break decoy's movespeed, but it will make decoys call "OnSpawnedCallback()"
+	//decoy.SetVelocity( baseSpeed ) // won't work, this still can't make decoy have any speed
+
+	// recover player settings
+	player.SetModel( playerModel )
+	player.SetSkin( playerSkin )
+	player.SetCamo( playerCamo )
+
+	return decoy
 }
 #endif
