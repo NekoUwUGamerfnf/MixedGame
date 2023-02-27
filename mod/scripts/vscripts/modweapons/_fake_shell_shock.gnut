@@ -1,0 +1,57 @@
+global function FakeShellShock_Init
+
+// a function for manually creating apex legends's "shellshock" effect
+global function FakeShellShock_ApplyForDuration
+
+struct
+{
+    table<entity, int> playerShellShockStacks
+} file
+
+void function FakeShellShock_Init()
+{
+    AddCallback_OnClientConnected( InitPlayerFakeShellShock )
+}
+
+void function InitPlayerFakeShellShock( entity player )
+{
+    file.playerShellShockStacks[ player ] <- 0
+}
+
+void function FakeShellShock_ApplyForDuration( entity victim, float duration )
+{
+	thread FakeShellShock_Threaded( victim, duration )
+}
+
+void function FakeShellShock_Threaded( entity victim, float duration )
+{
+    if ( !victim.IsPlayer() ) // only players have CinematicFlag
+        return
+	victim.EndSignal( "OnDeath" )
+    file.playerShellShockStacks[ victim ] += 1 // stacking the shellshock
+	StatusEffect_AddTimed( victim, eStatusEffect.move_slow, 0.25, duration, 0.25 )
+	//StatusEffect_AddTimed( victim, eStatusEffect.turn_slow, 0.25, duration, 0.25 )
+	AddCinematicFlag( victim, CE_FLAG_EXECUTION )
+
+	OnThreadEnd(
+		function(): ( victim )
+		{
+			if( IsValid( victim ) )
+            {
+                if ( !IsAlive( victim ) ) // triggered "OnDeath"
+                {
+				    RemoveCinematicFlag( victim, CE_FLAG_EXECUTION )
+                    file.playerShellShockStacks[ victim ] = 0 // reset the stack
+                }
+                else // still alive
+                {
+                    file.playerShellShockStacks[ victim ] -= 1
+                    if ( file.playerShellShockStacks[ victim ] == 0 ) // only remove screen blur if player have no stack, avoiding shorter shellshocks overriding longer ones
+                        RemoveCinematicFlag( victim, CE_FLAG_EXECUTION )
+                }
+            }
+		}
+	)
+
+	wait duration	
+}
