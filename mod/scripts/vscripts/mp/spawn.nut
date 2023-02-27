@@ -38,6 +38,9 @@ const float ENEMY_NOSPAWN_RADIUS = 1500 // most weapon's outer range, cause it l
 const float FFA_NOSPAWN_RADIUS = 1000 // still don't too close to an enemy
 const float FFA_SPAWN_RADIUS = 2000 
 
+// modified: try to add more spawnpoints for ffa
+const float FFA_EXTRA_SPAWNPOINTS_SEARCH_RADIUS = 1000 // every existing spawnpoint will search search for other spawnpoints within this range, each game
+
 struct NoSpawnArea
 {
 	string id
@@ -54,6 +57,10 @@ struct {
 	array< bool functionref( entity, int ) > customSpawnpointValidationRules
 
 	table<string, NoSpawnArea> noSpawnAreas
+
+	// modified: try to add more spawnpoints for ffa
+	array<entity> ffaExtraPilotSpawns
+	array<entity> ffaExtraTitanSpawns
 } file
 
 void function Spawn_Init()
@@ -70,8 +77,21 @@ void function Spawn_Init()
 	AddCallback_GameStateEnter( eGameState.Prematch, ResetSpawnzones )
 	AddSpawnCallbackEditorClass( "trigger_multiple", "trigger_mp_spawn_zone", AddSpawnZoneTrigger )
 
+	// modified: add spawn_on_friendly support
+	AddCallback_OnClientConnected( TrackFriendlySpawnLifeLong )
 	// modified: prevent spawning in friendly's deadly area
 	AddCallback_OnPlayerKilled( AddNoSpawnAreaForBeingKilled )
+	// modified: try to add more spawnpoints for ffa
+	AddCallback_EntitiesDidLoad( FFAExtraSpawnPoints )
+}
+
+// modified: add spawn_on_friendly support
+void function TrackFriendlySpawnLifeLong( entity player )
+{
+	if ( IsFFAGame() ) // we don't track for ffa
+		return
+	
+	TrackPlayerFriendlyPilotSpawn( player )
 }
 
 // modified: prevent spawning in friendly's deadly area
@@ -91,6 +111,24 @@ void function AddNoSpawnAreaForBeingKilled( entity victim, entity attacker, var 
 			CreateNoSpawnArea( victim.GetTeam(), TEAM_INVALID, victim.GetOrigin(), DEADLY_AREA_DURATION, DEADLY_AREA_RADIUS )
 		}
 	}
+}
+
+// modified: try to add more spawnpoints for ffa
+void function FFAExtraSpawnPoints()
+{
+	if ( !IsFFAGame() )
+		return
+
+	array<entity> pilotSpawns = SpawnPoints_GetPilot()
+	foreach ( entity spawnpoint in pilotSpawns )
+	{
+		TryCreatePilotSpawnsBasedOnSpawnPoint( spawnpoint )
+	}
+}
+
+void function TryCreatePilotSpawnsBasedOnSpawnPoint( entity spawnpoint )
+{
+
 }
 
 // modified: try to make spawnpoints near teammates and bit far from enemy
@@ -227,6 +265,10 @@ entity function FindSpawnPoint( entity player, bool isTitan, bool useStartSpawnp
 		spawnpoints = isTitan ? SpawnPoints_GetTitanStart( team ) : SpawnPoints_GetPilotStart( team )
 	else
 		spawnpoints = isTitan ? SpawnPoints_GetTitan() : SpawnPoints_GetPilot()
+
+	// modified: add spawn_on_friendly support
+	if ( !IsFFAGame() && !isTitan ) // if we're not in ffa, should also rating "spawn_on_friendly" points
+		spawnpoints.extend( GetTeamFriendlyPilotSpawns( team ) )
 	
 	InitRatings( player, player.GetTeam() )
 	
@@ -255,7 +297,7 @@ entity function FindSpawnPoint( entity player, bool isTitan, bool useStartSpawnp
 			
 		spawnpoints = useStartSpawnpoint ? SpawnPoints_GetPilotStart( team ) : SpawnPoints_GetPilot()
 	}
-	
+
 	entity spawnpoint = GetBestSpawnpoint( player, spawnpoints )
 		
 	spawnpoint.s.lastUsedTime = Time()
