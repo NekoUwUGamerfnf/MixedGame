@@ -32,6 +32,7 @@ void function GamemodeSpeedball_Init()
 
 		// gamemode settings
 		SetRoundBased( true )
+		SetSwitchSidesBased( true ) // northstar is missing this...
 		SetRespawnsEnabled( false )
 		SetShouldUseRoundWinningKillReplay( true )
 		EarnMeterMP_SetPassiveGainProgessEnable( false )
