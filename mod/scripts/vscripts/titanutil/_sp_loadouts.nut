@@ -41,8 +41,7 @@ table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player
 		switch( offhand.GetWeaponClassName() )
 		{
 			// Next attack time (burst fire):
-			/*
-			case "mp_titanweapon_salvo_rockets":
+			case "mp_titanweapon_homing_rockets":
 			{
 				float cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
 				float nextAttackTime = offhand.GetNextAttackAllowedTime()
@@ -52,14 +51,12 @@ table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player
 					cooldowns[slot] = NAT/cooldownTime
 			}
 			break
-			*/
 
 
 			// Set charge to 100%:
 			case "mp_titanweapon_vortex_shield":
 			case "mp_titanweapon_heat_shield":
 			case "mp_titanweapon_shoulder_rockets":
-			//case "mp_titanweapon_homing_rockets":
 			{
 				cooldowns[slot] = 1.0 - offhand.GetWeaponChargeFraction()
 			}
@@ -81,7 +78,6 @@ table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player
 			case "mp_titanability_rearm":
 			case "mp_titanweapon_stun_laser":
 			case "mp_titanability_rocketeer_ammo_swap":
-			case "mp_titanweapon_homing_rockets":
 			case "mp_titanweapon_salvo_rockets":
 			case "mp_titanability_laser_trip":
 			{
@@ -185,20 +181,17 @@ void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,
 		switch( offhandName )
 		{
 			// Next attack time (burst fire):
-			/*
-			case "mp_titanweapon_salvo_rockets":
+			case "mp_titanweapon_homing_rockets":
 			{
 				float cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
 				offhand.SetNextAttackAllowedTime( Time() + (cooldownTime * severity) )
 			}
 			break
-			*/
 
 			// Set charge to 100%:
 			case "mp_titanweapon_vortex_shield":
 			case "mp_titanweapon_heat_shield":
 			case "mp_titanweapon_shoulder_rockets":
-			//case "mp_titanweapon_homing_rockets":
 			{
 				offhand.SetWeaponChargeFractionForced( 1.0 - severity )
 			}
@@ -221,21 +214,12 @@ void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,
 			case "mp_titanweapon_stun_laser":
 			case "mp_titanability_rocketeer_ammo_swap":
 			case "mp_titanweapon_salvo_rockets":
-			//case "mp_titanweapon_homing_rockets":
 			case "mp_titanability_laser_trip":
 			{
 				int maxClipAmmo = offhand.GetWeaponPrimaryClipCountMax()
 				offhand.SetWeaponPrimaryClipCountAbsolute( maxClipAmmo * severity )
 			}
 			break
-
-			case "mp_titanweapon_homing_rockets":
-			{
-				int maxClipAmmo = offhand.GetWeaponPrimaryClipCountMax()
-				if( severity == 0 )
-					severity += 0.1
-				offhand.SetWeaponPrimaryClipCountAbsolute( maxClipAmmo * severity )
-			}
 
 			// Do nothing:
 			case "mp_titanability_basic_block":
@@ -276,19 +260,16 @@ float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, enti
 	switch( offhand.GetWeaponClassName() )
 	{
 		// Next attack time (burst fire):
-		/*
-		case "mp_titanweapon_salvo_rockets":
+		case "mp_titanweapon_homing_rockets":
 		{
 			cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
 		}
 		break
-		*/
 
 		// Set charge to 100%:
 		case "mp_titanweapon_vortex_shield":
 		case "mp_titanweapon_heat_shield":
 		case "mp_titanweapon_shoulder_rockets":
-		//case "mp_titanweapon_homing_rockets":
 		{
 			cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_time ) + offhand.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
 		}
@@ -310,7 +291,6 @@ float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, enti
 		case "mp_titanability_rearm":
 		case "mp_titanweapon_stun_laser":
 		case "mp_titanability_rocketeer_ammo_swap":
-		case "mp_titanweapon_homing_rockets":
 		case "mp_titanweapon_salvo_rockets":
 		case "mp_titanability_laser_trip":
 		{
