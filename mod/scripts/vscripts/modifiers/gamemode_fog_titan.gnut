@@ -1,3 +1,4 @@
+untyped // for bubbleShield.s
 global function Modded_Gamemode_Fog_Titan_Init
 
 const float SPEED_BOOST_SEVERITY = 0.25
@@ -12,22 +13,34 @@ const array<string> NPC_WEAPONS =
     "mp_titanweapon_rocketeer_rocketstream",
 ]
 
-const int REAPER_HEALTH = 10000
+const int GRUNT_HEALTH      = 300
+const int SPECTRE_HEALTH    = 500
+const int STALKER_HEALTH    = 800
+const int REAPER_HEALTH     = 7500
 
 void function Modded_Gamemode_Fog_Titan_Init()
 {
     Riff_ForceSetSpawnAsTitan( eSpawnAsTitan.Always )
     Riff_ForceTitanExitEnabled( eTitanExitEnabled.Never )
     AddSpawnCallback( "env_fog_controller", InitTitanFog )
+    AddSpawnCallback( "npc_titan", OnTitanSpawned )
     AddCallback_OnPilotBecomesTitan( OnClassChangeBecomeTitan )
+    AddCallback_OnPlayerKilled( OnPlayerKilled )
 
     // npc settings
     AiGameModes_SetGruntWeapons( NPC_WEAPONS )
     AiGameModes_SetSpectreWeapons( NPC_WEAPONS )
+    AddSpawnCallback( "npc_soldier", AddGruntHealth )
+    AddSpawnCallback( "npc_spectre", AddSpectreHealth )
     AddSpawnCallback( "npc_stalker", ReplaceStalkerWeapon )
     AddSpawnCallback( "npc_super_spectre", AddReaperHealth )
 
+    // modified
+    AITdm_SetSquadsPerTeam( 4 )
+    AITdm_SetReapersPerTeam( 2 )
+
     // what
+    SetShouldPlayFactionDialogue( false )
     SetEnemyHighlightHide( true )
 }
 
@@ -43,15 +56,120 @@ void function InitTitanFog( entity fogController )
 	fogController.kv.forceontosky = true
 }
 
+void function OnTitanSpawned( entity titan )
+{
+    entity owner = GetPetTitanOwner( titan )
+	if( !IsValid( owner ) )
+		return
+    
+    bool respawnAsTitan = expect bool( owner.GetPersistentVar( "spawnAsTitan" ) ) || Riff_SpawnAsTitan() == 1
+    if ( !respawnAsTitan ) // player is not respawning as a titan! don't protect npcs
+        return
+
+	// check if player has a titan dropping, if not it means player disembarked and created their pet titans, don't give protection if so.
+	if ( "spawnWithoutSoul" in titan.s )
+	{
+        // this is defined in CreateAutoTitanForPlayer_ForTitanBecomesPilot(), mark the titan as "disembarked" not "hotdropping"
+		if ( expect bool ( titan.s.spawnWithoutSoul ) )
+			return
+	}
+
+    thread GiveTitanProtection( owner, titan )
+}
+
+void function GiveTitanProtection( entity player, entity titan )
+{
+    player.EndSignal( "OnDestroy" )
+    player.EndSignal( "OnDeath" )
+
+    table bubbleData = {} 
+    bubbleData.bubbleShield <- null // we create it later, it has to be a table for we passing the bubble to OnThreadEnd()
+
+    OnThreadEnd
+    (
+        function(): ( bubbleData )
+        {
+            //print( "RUNNING OnThreadEnd()" )
+            if ( IsValid( bubbleData.bubbleShield ) ) // clean up the bubble
+            {
+                var bubble = bubbleData.bubbleShield
+                expect entity ( bubble )
+                DestroyBubbleShield( bubble )
+            }
+        }
+    )
+
+    wait GetHotDropImpactTime( titan, "at_hotdrop_01" ) // this is the animation "RespawnAsTitan()" uses, wait for it
+    
+    // create a bubble here, for passing it to functions below
+    int team = titan.GetTeam()
+    TraceResults traceresult = TraceLine( titan.GetOrigin(), titan.GetOrigin() + < 0, 0, -65535 >, titan, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+    vector origin = titan.GetOrigin()
+    if ( origin.z > traceresult.endPos.z ) // if the endPos is lower than titan's base origin
+        origin = traceresult.endPos // use the trace instead
+    vector angles = titan.GetAngles()
+
+    entity bubble = CreateRanbowDomeShield( origin, angles ) // in nessie_funny.gnut
+    bubble.EndSignal( "OnDestroy" )
+    
+    bubbleData.bubbleShield = bubble
+
+    waitthread ProtectHotDropNPCTitan( titan, bubble ) // player will be transfered later, so we should protect npc titan temporarily
+    
+    if ( !player.IsTitan() ) // player still not respawned as titan, they're just doing titanfall
+    {
+        //print( "player is not a titan!" ) 
+        return
+    }
+
+    WaitForever() // protect forever until player dead
+}
+
+void function ProtectHotDropNPCTitan( entity titan, entity bubbleShield = null )
+{
+    titan.EndSignal( "OnDestroy" )
+
+    table bubbleStat = {}
+    bubbleStat.validStart <- false
+    if ( IsValid( bubbleShield ) )
+        bubbleStat.validStart = true // if we pass a bubble shield, dont fade it
+    else
+    {
+        int team = titan.GetTeam()
+        vector origin = titan.GetOrigin()
+        vector angles = titan.GetAngles()
+        bubbleShield = CreateRanbowDomeShield( origin, angles ) // in nessie_funny.gnut
+    }
+
+    bubbleShield.EndSignal( "OnDestroy" )
+
+    titan.SetInvulnerable() // protect the titan
+
+    OnThreadEnd
+    (
+        function(): ( titan, bubbleShield, bubbleStat )
+        {
+            if ( IsValid( titan ) )
+                titan.ClearInvulnerable()
+            if ( IsValid( bubbleShield ) && !bubbleStat.validStart ) // if we pass a bubble shield, dont fade it
+                DestroyBubbleShield( bubbleShield )
+        }
+    )
+
+    WaitTillHotDropComplete( titan ) // wait for titan actucally drop to ground
+}
+
 void function OnClassChangeBecomeTitan( entity player, entity titan )
 {
+    //HideName( player ) // so they will likely not show in fog
     SyncedMelee_Disable( player )
     // remove main weapon and give fighter melee
     foreach ( entity weapon in player.GetMainWeapons() )
     {
         player.TakeWeaponNow( weapon.GetWeaponClassName() )
     }
-    player.GiveWeapon( "mp_weapon_gunship_missile", ["titan_emptyhanded"] )
+    //player.GiveWeapon( "mp_weapon_gunship_missile", ["titan_emptyhanded"] )
+    player.GiveWeapon( "mp_titanweapon_meteor", ["storm_launcher"] )
     entity melee = player.GetMeleeWeapon()
     if ( IsValid( melee ) )
         melee.AddMod( "fighter_melee" )
@@ -110,8 +228,111 @@ void function OnClassChangeBecomeTitan( entity player, entity titan )
     StatusEffect_AddEndless( player, eStatusEffect.speed_boost, SPEED_BOOST_SEVERITY )
 }
 
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+    thread ReplacePlayerAsTitan( victim )
+}
+
+// basically same as RespawnAsTitan(), but this one won't do score events
+void function ReplacePlayerAsTitan( entity player )
+{
+    player.EndSignal( "OnDestroy" )
+    PlayerChangeToSpectatorClass( player ) // prevent a crash with going from titan => pilot on respawn
+    WaitFrame() // wait for other postDeath functions set up
+
+	// respawn crash exploit hotfix
+	if ( IsAlive( player ) ) 
+        return
+
+	player.Signal( "PlayerRespawnStarted" )
+
+	player.isSpawning = true
+	entity spawnpoint = FindSpawnPoint( player, true, ( ShouldStartSpawn( player ) || Flag( "ForceStartSpawn" ) ) && !IsFFAGame() )
+
+ 	TitanLoadoutDef titanLoadout = GetTitanLoadoutForPlayer( player )
+	
+	asset model = GetPlayerSettingsAssetForClassName( titanLoadout.setFile, "bodymodel" )
+	Attachment warpAttach = GetAttachmentAtTimeFromModel( model, "at_hotdrop_01", "offset", spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 0 )
+	PlayFX( TURBO_WARP_FX, warpAttach.position, warpAttach.angle )
+		
+	entity titan = CreateAutoTitanForPlayer_FromTitanLoadout( player, titanLoadout, spawnpoint.GetOrigin(), spawnpoint.GetAngles() )
+	DispatchSpawn( titan )
+	player.SetPetTitan( null ) // prevent embark prompt from showing up
+	
+	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // hide hud
+	
+	entity camera = CreateTitanDropCamera( spawnpoint.GetAngles(), < 90, titan.GetAngles().y, 0 > )
+	camera.SetParent( titan )
+	
+	// calc offset for spawnpoint angle
+	// todo this seems bad but too lazy to figure it out rn
+	//vector xyOffset = RotateAroundOrigin2D( < 44, 0, 0 >, < 0, 0, 0>, spawnpoint.GetAngles().y )
+	//xyOffset.z = 520 // < 44, 0, 520 > at 0,0,0, seems to be the offset used in tf2
+	//print( xyOffset )
+	
+	vector xyOffset = RotateAroundOrigin2D( < 44, 0, 520 >, < 0, 0, 0 >, spawnpoint.GetAngles().y )
+	
+	camera.SetLocalOrigin( xyOffset )
+	camera.SetLocalAngles( < camera.GetAngles().x, spawnpoint.GetAngles().y, camera.GetAngles().z > ) // this straight up just does not work lol
+	camera.Fire( "Enable", "!activator", 0, player )
+	
+	titan.EndSignal( "OnDestroy" )
+	OnThreadEnd( function() : ( player, titan, camera )
+	{
+		if ( IsValid( player ) )
+		{
+			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // show hud
+			player.isSpawning = false
+		}
+	
+		if ( IsValid( titan ) )
+			titan.Destroy() // pilotbecomestitan leaves an npc titan that we need to delete
+		else
+			RespawnAsPilot( player ) // this is 100% an edgecase, just avoid softlocking if we ever hit it in playable gamestates
+		
+		camera.Fire( "Disable", "!activator", 0, player )
+		camera.Destroy()
+	})
+	
+	waitthread TitanHotDrop( titan, "at_hotdrop_01", spawnpoint.GetOrigin(), spawnpoint.GetAngles(), player, camera ) // do hotdrop anim
+	
+	player.RespawnPlayer( null ) // spawn player as pilot so they get their pilot loadout on embark
+	player.SetOrigin( titan.GetOrigin() )
+	ClearTitanAvailable( player ) // titanfall succeed, clear titan availability
+	
+	// don't make player titan when entity batteryContainer is not valid.
+	// This will prevent a servercrash that sometimes occur when evac is disabled and somebody is calling a titan in the defeat screen.
+	if( IsValid( titan.GetTitanSoul().soul.batteryContainer ) )
+		PilotBecomesTitan( player, titan ) // make player titan
+	else
+		print( "batteryContainer is not a valid entity in RespawnAsTitan(). Skipping PilotBecomesTitan()." )
+}
+
+void function PlayerChangeToSpectatorClass( entity player )
+{
+    asset model = player.GetModelName()
+    // this can't be done right before player becoming a titan! will cause their sound to be "out of titan" style, which makes most things too loud
+    player.SetPlayerSettings( "spectator" ) 
+    player.SetModel( model ) // restore titan ragdoll model
+}
+
+void function AddGruntHealth( entity npc )
+{
+    npc.SetMaxHealth( GRUNT_HEALTH )
+    npc.SetHealth( GRUNT_HEALTH )
+}
+
+void function AddSpectreHealth( entity npc )
+{
+    npc.SetMaxHealth( SPECTRE_HEALTH )
+    npc.SetHealth( SPECTRE_HEALTH )
+}
+
 void function ReplaceStalkerWeapon( entity npc )
 {
+    npc.SetMaxHealth( STALKER_HEALTH )
+    npc.SetHealth( STALKER_HEALTH )
+
     npc.TakeActiveWeapon()
     string weapon = NPC_WEAPONS[ RandomInt( NPC_WEAPONS.len() ) ]
 	npc.GiveWeapon( weapon )
