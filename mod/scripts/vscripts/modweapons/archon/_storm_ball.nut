@@ -46,7 +46,9 @@ void function MpTitanweaponStormBall_Init()
 	PrecacheParticleSystem( FX_EMP_GLOW )
 	PrecacheParticleSystem( FX_EMP_ORB )
 
-
+	#if SERVER
+		AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_emp, StormCore_DamagedTarget )
+	#endif
 }
 
 bool function OnWeaponAttemptOffhandSwitch_titanweapon_storm_ball( entity weapon )
@@ -187,9 +189,6 @@ void function FireStormBall( entity weapon, vector pos, vector dir, bool shouldP
 
 
 				vector origin = owner.OffsetPositionFromView( <0, 0, 0>, <25, -25, 15> )
-				#if SERVER
-					AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_emp, StormCore_DamagedTarget )
-				#endif
 
 				thread UpdateStormCoreField( owner, bolt, weapon, origin, lifetime )
 
@@ -436,6 +435,12 @@ void function StormCore_DamagedTarget( entity target, var damageInfo )
 {
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	if ( !IsValid( inflictor ) )
+		return
+	if ( !inflictor.IsProjectile() )
+		return
+	
+	array<string> mods = inflictor.ProjectileGetMods()
+	if ( !mods.contains( "storm_core" ) ) // not storm core!
 		return
 		
 	OnBallLightningDamage( target, damageInfo )
