@@ -90,6 +90,9 @@ void function OnWeaponDeactivate_Meteor( entity weapon )
 
 var function OnWeaponPrimaryAttack_Meteor( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	if ( weapon.HasMod( "storm_launcher" ) )
+		return OnWeaponPrimaryAttack_StormLauncher( weapon, attackParams )
+
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
 	return PlayerOrNPCFire_Meteor( attackParams, true, weapon )
@@ -144,6 +147,9 @@ void function Scorch_SelfDamageReduction( entity target, var damageInfo )
 
 var function OnWeaponNpcPrimaryAttack_Meteor( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	if ( weapon.HasMod( "storm_launcher" ) )
+		return OnWeaponNpcPrimaryAttack_StormLauncher( weapon, attackParams )
+
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 	return PlayerOrNPCFire_Meteor( attackParams, false, weapon )
 }
@@ -432,6 +438,10 @@ entity function CreateThermiteTrailOnMovingGeo( entity movingGeo, vector origin,
 
 void function OnProjectileCollision_Meteor( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	array<string> mods = projectile.ProjectileGetMods()
+	if ( mods.contains( "storm_launcher" ) )
+		return // storm launcher won't dispatch any effect
+
 	#if SERVER
 	if ( projectile.proj.projectileBounceCount > 0 )
 		return
