@@ -9,12 +9,16 @@ const TITAN_SWORD_KNOCKBACK_SCALE_MP = 400.0
 const TITAN_SWORD_KNOCKBACK_SCALE_MP_SWORD_CORE = 100.0
 const TITAN_SWORD_KNOCKBACK_SCALE_SP = 300.0
 
+// dash punch
 const TITAN_DASH_PUNCH_DURATION = 1.0
 const TITAN_DASH_PUNCH_SPEEDSCALE = 475
 const TITAN_DASH_PUNCH_SPEEDSCALE_STRYDER = 500
 const TITAN_DASH_PUNCH_SPEEDSCALE_OGRE = 387.5
 const TITAN_DASH_PUNCH_SPEEDSCALE_BISON = 490
 const TITAN_DASH_PUNCH_COOLDOWN = 2.0
+
+// fighter melee
+const float TITAN_FIGHTER_PUNCH_KNOCKBACK_SCALE = 50
 
 function MeleeTitanShared_Init()
 {
@@ -206,8 +210,10 @@ void function TitanMeleeAttack( entity titan )
 				continue
 			}
 		}
-
-		titan.PlayerMelee_SetAttackHitEntity( targetEnt )
+		
+		//titan.PlayerMelee_SetAttackHitEntity( targetEnt ) // this will trigger freezelock on player
+		if ( !meleeWeapon.HasMod( "fighter_melee" ) ) // fighter melee is too fast, don't freeze player!
+			titan.PlayerMelee_SetAttackHitEntity( targetEnt )
 
 		if ( IsHumanSized( targetEnt ) )
 		{
@@ -276,7 +282,7 @@ void function TitanMeleeAttack( entity titan )
 		const float SCALE_WHEN_ENEMY_TITAN = 1.0
 		const float SCALE_WHEN_WORLD = 0.5
 		const float SCALE_WHEN_OTHER_TARGETS = 0.2
-		const float SCALE_AS_BISON = 0.2
+		const float SCALE_AS_BISON = 0.2 // bison will have less screen shake?
 
 		float severityScale = 0.0
 		if ( didHitAnEnemyTitan )
@@ -288,7 +294,7 @@ void function TitanMeleeAttack( entity titan )
 		else if( meleeWeapon.HasMod( "bison_punch" ) )
 			severityScale = SCALE_AS_BISON
 		
-		//meleeWeapon.DoMeleeHitConfirmation( severityScale )
+		//meleeWeapon.DoMeleeHitConfirmation( severityScale ) // this will trigger screen shake on player
 		if ( !meleeWeapon.HasMod( "fighter_melee" ) ) // fighter melee is too fast, don't play a hitConfrim for it!!!
 			meleeWeapon.DoMeleeHitConfirmation( severityScale )
 	}
@@ -348,8 +354,9 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		return
 
 	//local hasDashPunch = (titan.PlayerMelee_GetState() == PLAYER_MELEE_STATE_TITAN_DASH_PUNCH)
-	local hasDashPunch = meleeWeapon.HasMod( "dash_punch" )
+	bool hasDashPunch = meleeWeapon.HasMod( "dash_punch" )
 	bool isBisonPunch = meleeWeapon.HasMod( "bison_punch" )
+	bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" )
 
 	// Shove target away:
 	{
@@ -379,6 +386,10 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		{
 			pushBackScale = TITAN_PUNCH_KNOCKBACK_SCALE
 		}
+
+		// fighter melee: target always receive less knockback
+		if ( isFighterMelee )
+			pushBackScale = TITAN_FIGHTER_PUNCH_KNOCKBACK_SCALE
 
 		vector angles = titan.EyeAngles()
 		vector pushBackVelocity = AnglesToForward( angles ) * pushBackScale
@@ -414,8 +425,11 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		backVel.z = 0
 
 		// titan.SetVelocity( backVel )
-
-		PushEntWithVelocity( titan, backVel )
+		
+		//PushEntWithVelocity( titan, backVel )
+		// fighter melee: owner won't receive knockback, but they will receive "melee_freezelook_on_hit"
+		if ( !isFighterMelee )
+			PushEntWithVelocity( titan, backVel )
 
 		if ( enemyTitan.IsPlayer() && enemyTitan.PlayerMelee_IsAttackActive() )
 		{
@@ -445,7 +459,7 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 	// THIS IS STARTING TO GET UNWIELDY
 	if ( hasShiftCore )
 		damageTable.damageSourceId = eDamageSourceId.mp_titancore_shift_core
-	else if( isBisonPunch )
+	else if( isBisonPunch || isFighterMelee )
 	{
 		damageTable.damageSourceId = eDamageSourceId.berserker_melee
 		EmitSoundOnEntityOnlyToPlayer( titan, titan, "titan_melee_hit" )
