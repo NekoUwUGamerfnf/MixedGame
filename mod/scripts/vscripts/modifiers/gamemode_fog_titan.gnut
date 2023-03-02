@@ -1,0 +1,126 @@
+global function Modded_Gamemode_Fog_Titan_Init
+
+const float SPEED_BOOST_SEVERITY = 0.25
+
+const array<string> NPC_WEAPONS =
+[
+    "mp_titanweapon_xo16_vanguard",
+    "mp_titanweapon_sniper",
+    "mp_titanweapon_leadwall",
+    "mp_titanweapon_meteor",
+    "mp_titanweapon_predator_cannon",
+    "mp_titanweapon_rocketeer_rocketstream",
+]
+
+const int REAPER_HEALTH = 10000
+
+void function Modded_Gamemode_Fog_Titan_Init()
+{
+    Riff_ForceSetSpawnAsTitan( eSpawnAsTitan.Always )
+    Riff_ForceTitanExitEnabled( eTitanExitEnabled.Never )
+    AddSpawnCallback( "env_fog_controller", InitTitanFog )
+    AddCallback_OnPilotBecomesTitan( OnClassChangeBecomeTitan )
+
+    // npc settings
+    AiGameModes_SetGruntWeapons( NPC_WEAPONS )
+    AiGameModes_SetSpectreWeapons( NPC_WEAPONS )
+    AddSpawnCallback( "npc_stalker", ReplaceStalkerWeapon )
+    AddSpawnCallback( "npc_super_spectre", AddReaperHealth )
+
+    // what
+    SetEnemyHighlightHide( true )
+}
+
+void function InitTitanFog( entity fogController )
+{
+    fogController.kv.fogztop = "60000"
+	fogController.kv.fogzbottom = "60000"
+	fogController.kv.foghalfdisttop = "60000"
+	fogController.kv.foghalfdistbottom = "200"
+	fogController.kv.fogdistoffset = "600"
+	fogController.kv.fogdensity = "1.0"
+
+	fogController.kv.forceontosky = true
+}
+
+void function OnClassChangeBecomeTitan( entity player, entity titan )
+{
+    SyncedMelee_Disable( player )
+    // remove main weapon and give fighter melee
+    foreach ( entity weapon in player.GetMainWeapons() )
+    {
+        player.TakeWeaponNow( weapon.GetWeaponClassName() )
+    }
+    player.GiveWeapon( "mp_weapon_gunship_missile", ["titan_emptyhanded"] )
+    entity melee = player.GetMeleeWeapon()
+    if ( IsValid( melee ) )
+        melee.AddMod( "fighter_melee" )
+
+    // offhand replace
+    for ( int i = 0; i <= OFFHAND_ANTIRODEO; i++ ) // for better sloting
+    {
+        entity nowWeapon = player.GetOffhandWeapon( i )
+        if( IsValid( nowWeapon ))
+        {
+            string className = nowWeapon.GetWeaponClassName()
+            switch( className )
+            {
+                // replace legion's ability
+                case "mp_titanability_gun_shield":
+                    player.TakeWeaponNow( className )
+                    player.GiveOffhandWeapon( "mp_titanability_particle_wall", i, ["brute4_bubble_shield"] )
+                    break
+                case "mp_titanability_ammo_swap":
+                    player.TakeWeaponNow( className )
+                    player.GiveOffhandWeapon( "mp_titanability_smoke", i )
+                    break
+                case "mp_titanability_power_shot":
+                    player.TakeWeaponNow( className )
+                    player.GiveOffhandWeapon( "mp_titanweapon_homing_rockets", i, ["burn_mod_titan_homing_rockets", "fighter_rockets"] )
+                    break
+                // replace tone's tracker rockets
+                case "mp_titanweapon_tracker_rockets":
+                    player.TakeWeaponNow( className )
+                    player.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", i, ["missile_racks", "fighter_rockets"] )
+                    break
+                // replace northstar's hover and tether
+                case "mp_titanability_tether_trap":
+                    player.TakeWeaponNow( className )
+                    player.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", i, ["slow_recovery_vortex", "fighter_vortex"] )
+                    break
+                // nerf heat shield
+                case "mp_titanweapon_heat_shield":
+                    nowWeapon.AddMod( "fighter_shield" )
+                    break
+            }
+        }
+    }
+
+    // core replace
+    player.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
+    player.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["damage_core"] )
+
+    // add turbo titan
+    array<string> settingMods = player.GetPlayerSettingsMods()
+    settingMods.removebyvalue( "pas_mobility_dash_capacity" )
+    settingMods.append( "turbo_titan" )
+    player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), settingMods )
+
+    // add speed boost
+    StatusEffect_AddEndless( player, eStatusEffect.speed_boost, SPEED_BOOST_SEVERITY )
+}
+
+void function ReplaceStalkerWeapon( entity npc )
+{
+    npc.TakeActiveWeapon()
+    string weapon = NPC_WEAPONS[ RandomInt( NPC_WEAPONS.len() ) ]
+	npc.GiveWeapon( weapon )
+	npc.SetActiveWeaponByName( weapon )
+}
+
+void function AddReaperHealth( entity npc )
+{
+    Highlight_ClearEnemyHighlight( npc )
+    npc.SetMaxHealth( REAPER_HEALTH )
+    npc.SetHealth( REAPER_HEALTH )
+}

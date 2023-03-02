@@ -641,14 +641,14 @@ function VortexDrainedByImpact( entity vortexWeapon, entity weapon, entity proje
 	{
 		amount = projectile.GetProjectileWeaponSettingFloat( eWeaponVar.vortex_drain )
 		// atlas vortex nerf
-		if( vortexWeapon.HasMod( "atlas_vortex" ) )
+		if( vortexWeapon.HasMod( "atlas_vortex" ) || vortexWeapon.HasMod( "fighter_vortex" ) )
 			amount = amount > 0.045 ? amount : 0.045
 	}
 	else
 	{
 		amount = weapon.GetWeaponSettingFloat( eWeaponVar.vortex_drain )
 		// atlas vortex nerf
-		if( vortexWeapon.HasMod( "atlas_vortex" ) )
+		if( vortexWeapon.HasMod( "atlas_vortex" ) || vortexWeapon.HasMod( "fighter_vortex" ) )
 			amount = amount > 0.033 ? amount : 0.033
 	}
 
