@@ -2,20 +2,35 @@ untyped
 global function GamemodeAITdm_Init
 
 
-const SQUADS_PER_TEAM = 3
+// these are now default settings
+const int SQUADS_PER_TEAM = 4 // was 3, really should be 4 in vanilla!!!
 
-const REAPERS_PER_TEAM = 2
+const int REAPERS_PER_TEAM = 2
 
-const LEVEL_SPECTRES = 125
-const LEVEL_STALKERS = 380
-const LEVEL_REAPERS = 500
+const int LEVEL_SPECTRES = 125
+const int LEVEL_STALKERS = 380
+const int LEVEL_REAPERS = 500
+
+// modified... really should add settings for these settings
+global function AITdm_SetSquadsPerTeam
+global function AITdm_SetReapersPerTeam
+global function AITdm_SetLevelSpectres
+global function AITdm_SetLevelStalkers
+global function AITdm_SetLevelReapers
 
 struct
 {
 	// Due to team based escalation everything is an array
-	array< int > levels = [ LEVEL_SPECTRES, LEVEL_SPECTRES ]
+	array< int > levels = [] //[ LEVEL_SPECTRES, LEVEL_SPECTRES ] // modified, since we added modification should leave these to the start of spawner
 	array< array< string > > podEntities = [ [ "npc_soldier" ], [ "npc_soldier" ] ]
 	array< bool > reapers = [ false, false ]
+
+	// modified... really should add settings for these
+	int squadsPerTeam = SQUADS_PER_TEAM // default
+	int reapersPerTeam = REAPERS_PER_TEAM
+	int levelSpectres = LEVEL_SPECTRES
+	int levelStalkers = LEVEL_STALKERS
+	int levelReapers = LEVEL_REAPERS
 } file
 
 // modded gamemodes
@@ -74,6 +89,32 @@ void function GamemodeAITdm_Init()
 		// nscn specifics
 		SetShouldPlayDefaultMusic( true )
 	}
+}
+
+// modified... really should add settings for these settings
+void function AITdm_SetSquadsPerTeam( int squads )
+{
+	file.squadsPerTeam = squads
+}
+
+void function AITdm_SetReapersPerTeam( int reapers )
+{
+	file.reapersPerTeam = reapers
+}
+
+void function AITdm_SetLevelSpectres( int level )
+{
+	file.levelSpectres = level
+}
+
+void function AITdm_SetLevelStalkers( int level )
+{
+	file.levelStalkers = level
+}
+
+void function AITdm_SetLevelReapers( int level )
+{
+	file.levelReapers = level
 }
 
 // Starts skyshow, this also requiers AINs but doesn't crash if they're missing
@@ -219,7 +260,7 @@ void function SpawnIntroBatch_Threaded( int team )
 	
 	int ships = shipNodes.len()
 	
-	for ( int i = 0; i < SQUADS_PER_TEAM; i++ )
+	for ( int i = 0; i < file.squadsPerTeam; i++ )
 	{
 		if ( pods != 0 || ships == 0 )
 		{
@@ -264,6 +305,7 @@ void function Spawner_Threaded( int team )
 	// used to index into escalation arrays
 	int index = team == TEAM_MILITIA ? 0 : 1
 	
+	file.levels = [ file.levelSpectres, file.levelSpectres ] // due we added settings, should init levels here!
 	
 	while( true )
 	{
@@ -278,7 +320,7 @@ void function Spawner_Threaded( int team )
 		if ( file.reapers[ index ] )
 		{
 			array< entity > points = SpawnPoints_GetDropPod()
-			if ( reaperCount < REAPERS_PER_TEAM )
+			if ( reaperCount < file.reapersPerTeam )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				waitthread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
@@ -286,7 +328,7 @@ void function Spawner_Threaded( int team )
 		}
 		
 		// NORMAL SPAWNS
-		if ( count < SQUADS_PER_TEAM * 4 - 2 )
+		if ( count < file.squadsPerTeam * 4 - 2 )
 		{
 			string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
 			
@@ -332,19 +374,19 @@ void function Escalate( int team )
 	// Based on score escalate a team
 	switch ( file.levels[ index ] )
 	{
-		case LEVEL_SPECTRES:
-			file.levels[ index ] = LEVEL_STALKERS
+		case file.levelSpectres:
+			file.levels[ index ] = file.levelStalkers
 			file.podEntities[ index ].append( "npc_spectre" )
 			SetGlobalNetInt( defcon, 2 )
 			return
 		
-		case LEVEL_STALKERS:
-			file.levels[ index ] = LEVEL_REAPERS
+		case file.levelStalkers:
+			file.levels[ index ] = file.levelReapers
 			file.podEntities[ index ].append( "npc_stalker" )
 			SetGlobalNetInt( defcon, 3 )
 			return
 		
-		case LEVEL_REAPERS:
+		case file.levelReapers:
 			file.reapers[ index ] = true
 			SetGlobalNetInt( defcon, 4 )
 			return
