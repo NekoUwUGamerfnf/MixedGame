@@ -18,22 +18,6 @@ const float PUSH_STRENGTH_MAX = 125.0
 const float EXPLOSION_DELAY = 0.1
 const float FX_END_CAP_TIME = 1.5
 
-// Anti Gravity Star
-const float MAX_WAIT_TIME_ANTI = 6.0
-const float POP_DELAY_ANTI = 0.1
-const float PULL_DELAY_ANTI = 2.0
-const float PUSH_DELAY_ANTI = 0.2
-const float POP_HEIGHT_ANTI = 1
-const float PULL_RANGE_ANTI = 150.0
-const float PULL_STRENGTH_MAX_ANTI = 300.0
-const float PULL_VERT_VEL_ANTI = 60
-const float PUSH_STRENGTH_MAX_ANTI = 0.0
-const float EXPLOSION_DELAY_ANTI = 0.1
-const float FX_END_CAP_TIME_ANTI = 1.5
-//const float PULL_VERTICAL_KNOCKUP_MAX = 75.0
-//const float PULL_VERTICAL_KNOCKUP_MIN = 55.0
-//const float PUSH_STRENGTH_MIN = 100.0
-
 // Bleedout balance
 const float PULL_DELAY_BLEEDOUT = 1.0
 
@@ -63,37 +47,35 @@ var function OnWeaponTossReleaseAnimEvent_weapon_greanade_gravity( entity weapon
 {
 	if( weapon.HasMod( "gravity_lift" ) )
 		return OnWeaponTossReleaseAnimEvent_ability_gravity_lift( weapon, attackParams )
-	else
-		return Grenade_OnWeaponTossReleaseAnimEvent( weapon, attackParams )
-	
+
+	// vanilla behavior
+	return Grenade_OnWeaponTossReleaseAnimEvent( weapon, attackParams )
 }
 
 void function OnProjectileCollision_weapon_grenade_gravity( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	array<string> mods = projectile.ProjectileGetMods()
-	if( mods.contains( "gravity_lift" ) )
-	{
+
+	if ( mods.contains( "gravity_lift" ) )
 		return OnProjectileCollision_ability_gravity_lift( projectile, pos, normal, hitEnt, hitbox, isCritical )
-	}
-	else
-	{
-		if( mods.contains( "shuriken" ) )
-		{
-			return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
-		}
+	if ( mods.contains( "ninja_projectile" ) )
+		return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	if ( mods.contains( "anti_gravity_star" ) )
+		return OnProjectileCollision_weapon_anti_gravity_star( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
-		bool didStick = PlantSuperStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
 
-		if ( !didStick )
-			return
+	// vanilla behavior
+	bool didStick = PlantSuperStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
 
-		if ( projectile.IsMarkedForDeletion() )
-			return
+	if ( !didStick )
+		return
 
-		#if SERVER
-			thread GravityGrenadeThink( projectile, hitEnt, normal, pos )
-		#endif
-	}
+	if ( projectile.IsMarkedForDeletion() )
+		return
+
+	#if SERVER
+		thread GravityGrenadeThink( projectile, hitEnt, normal, pos )
+	#endif
 }
 
 #if SERVER
@@ -148,26 +130,18 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 	WaitFrame()
 
 	array<string> mods = projectile.ProjectileGetMods()
-	if( mods.contains( "anti_gravity_star" ) || mods.contains( "friendlyfire_weapon" ) || IsFriendlyFireOn() )
-		SetTeam( projectile, TEAM_UNASSIGNED ) // anti_gravity all players, or pull all players
+	if( mods.contains( "friendlyfire_weapon" ) || IsFriendlyFireOn() )
+		SetTeam( projectile, TEAM_UNASSIGNED ) // pull all players
 
 	vector pullPosition
 	if ( hitEnt == svGlobal.worldspawn )
-	{
-		if( mods.contains( "anti_gravity_star" ) )
-			pullPosition = pos + normal * POP_HEIGHT_ANTI
-		else
-			pullPosition = pos + normal * POP_HEIGHT
-	}
+		pullPosition = pos + normal * POP_HEIGHT
 	else
 		pullPosition = projectile.GetOrigin()
 
 	entity gravTrig = CreateEntity( "trigger_point_gravity" )
 	// pull inner radius, pull outer radius, reduce speed inner radius, reduce speed outer radius, pull accel, pull speed, 0
-	if( mods.contains( "anti_gravity_star" ) )
-		gravTrig.SetParams( 0.0, PULL_RANGE_ANTI * 2, 32, 128, 1500, 600 )
-	else
-		gravTrig.SetParams( 0.0, PULL_RANGE * 2, 32, 128, 1500, 600 ) // more subtle pulling effect before popping up
+	gravTrig.SetParams( 0.0, PULL_RANGE * 2, 32, 128, 1500, 600 ) // more subtle pulling effect before popping up
 	gravTrig.SetOrigin( projectile.GetOrigin() )
 	projectile.ClearParent()
 	projectile.SetParent( gravTrig )
@@ -180,10 +154,7 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 	trig.SetOrigin( projectile.GetOrigin() )
 	SetGravityGrenadeTriggerFilters( projectile, trig )
 	trig.kv.triggerFilterPlayer = "none" // player effects
-	if( mods.contains( "anti_gravity_star" ) )
-		trig.SetEnterCallback( OnAntiGravTrigEnter )
-	else
-		trig.SetEnterCallback( OnGravGrenadeTrigEnter )
+	trig.SetEnterCallback( OnGravGrenadeTrigEnter )
 	trig.SetLeaveCallback( OnGravGrenadeTrigLeave )
 
 	SetTeam( gravTrig, projectile.GetTeam() )
@@ -198,8 +169,6 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 //	EmitSoundOnEntity( projectile, "gravitystar_vortex" )
 
 	string noSpawnArea = CreateNoSpawnArea( TEAM_INVALID, projectile.GetTeam(), projectile.GetOrigin(), MAX_WAIT_TIME + POP_DELAY + PULL_DELAY + EXPLOSION_DELAY + 0.1, PULL_RANGE * 3.0 )
-	if( mods.contains( "anti_gravity_star" ) )
-		noSpawnArea = CreateNoSpawnArea( TEAM_INVALID, projectile.GetTeam(), projectile.GetOrigin(), MAX_WAIT_TIME_ANTI + POP_DELAY_ANTI + PULL_DELAY_ANTI + EXPLOSION_DELAY_ANTI + 0.1, PULL_RANGE_ANTI * 3.0 )
 
 	OnThreadEnd(
 		function() : ( gravTrig, trig, FX, noSpawnArea )
@@ -219,10 +188,7 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 	if ( mods.contains( "gravity_mine" ) && !hitEnt.IsPlayer() && !hitEnt.IsNPC() )
 		GravityGrenadeTriggerThink( projectile ) 
 
-	if( mods.contains( "anti_gravity_star" ) )
-		wait POP_DELAY_ANTI
-	else
-		wait POP_DELAY
+	wait POP_DELAY
 
 	entity mover = CreateOwnedScriptMover( projectile )
 	projectile.SetParent( mover, "ref", true )
@@ -230,38 +196,24 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 
 	if ( hitEnt == svGlobal.worldspawn )
 	{
-		if( mods.contains( "anti_gravity_star" ) )
-			mover.NonPhysicsMoveTo( pullPosition, POP_DELAY_ANTI, 0, POP_DELAY_ANTI )
-		else
-			mover.NonPhysicsMoveTo( pullPosition, POP_DELAY, 0, POP_DELAY )
+		mover.NonPhysicsMoveTo( pullPosition, POP_DELAY, 0, POP_DELAY )
 		gravTrig.SetOrigin( pullPosition )
 		gravTrig.RoundOriginAndAnglesToNearestNetworkValue()
 	}
 
 	// full strength radius, outer radius, reduce vel radius, accel, maxvel
-	if( mods.contains( "anti_gravity_star" ) )
-		gravTrig.SetParams( PULL_RANGE_ANTI, PULL_RANGE_ANTI * 2, 32, 128, -1500, 400 )
-	else
-		gravTrig.SetParams( PULL_RANGE, PULL_RANGE * 2, 32, 128, 2000, 400 ) // more intense pull
+	gravTrig.SetParams( PULL_RANGE, PULL_RANGE * 2, 32, 128, 2000, 400 ) // more intense pull
 
 	AI_CreateDangerousArea( projectile, projectile, PULL_RANGE * 2.0, TEAM_INVALID, true, false )
 
-	if( mods.contains( "anti_gravity_star" ) )
-		wait PULL_DELAY_ANTI
-	else if( mods.contains( "bleedout_balance" ) )
+	if( mods.contains( "bleedout_balance" ) )
 		wait PULL_DELAY_BLEEDOUT
 	else
 		wait PULL_DELAY
 
-	if( mods.contains( "anti_gravity_star" ) )
-		projectile.SetGrenadeTimer( EXPLOSION_DELAY_ANTI )
-	else
-		projectile.SetGrenadeTimer( EXPLOSION_DELAY )
+	projectile.SetGrenadeTimer( EXPLOSION_DELAY )
 		
-	if( mods.contains( "anti_gravity_star" ) )
-		wait EXPLOSION_DELAY_ANTI - 0.1 // ensure gravTrig is destroyed before detonation
-	else
-		wait EXPLOSION_DELAY - 0.1
+	wait EXPLOSION_DELAY - 0.1
 
 	thread DestroyAfterDelay( mover, 0.25 )
 }
@@ -281,12 +233,6 @@ void function OnGravGrenadeTrigEnter( entity trigger, entity ent )
 
 		thread EndNPCGravGrenadeAnim( ent )
 	}
-}
-
-void function OnAntiGravTrigEnter( entity trigger, entity ent )
-{
-	if ( ent.GetTeam() != trigger.GetTeam() )
-		return
 }
 
 void function OnGravGrenadeTrigLeave( entity trigger, entity ent )
@@ -311,8 +257,6 @@ void function EndNPCGravGrenadeAnim( entity ent )
 
 void function Proto_SetEnemyVelocity_Pull( entity enemy, vector projOrigin )
 {
-	
-
 	if ( enemy.IsPhaseShifted() )
 		return
 	vector enemyOrigin = enemy.GetOrigin()
@@ -323,10 +267,7 @@ void function Proto_SetEnemyVelocity_Pull( entity enemy, vector projOrigin )
 	vector newVelocity = enemy.GetVelocity() * GraphCapped( dist, 50, PULL_RANGE, 0, 1 ) + dir * GraphCapped( dist, 50, PULL_RANGE, 0, PULL_STRENGTH_MAX ) + < 0, 0, GraphCapped( distZ, -50, 0, PULL_VERT_VEL, 0 )>
 	if ( enemy.IsTitan() )
 		newVelocity.z = 0
-	/*
-	if( hopupindex == 1 )
-		newVelocity = enemy.GetVelocity() * GraphCapped( dist, 50, PULL_RANGE_ANTI, 0, 1 ) + dir * GraphCapped( dist, 50, PULL_RANGE_ANTI, 0, PULL_STRENGTH_MAX_ANTI ) + < 0, 0, GraphCapped( distZ, -50, 0, PULL_VERT_VEL, 0 )>
-	*/
+
 	enemy.SetVelocity( newVelocity )
 }
 
@@ -338,8 +279,6 @@ array<entity> function GetNearbyEnemiesForGravGrenade( entity projectile )
 	vector origin = projectile.GetOrigin()
 	array<entity> nearbyEnemies
 	array<entity> guys = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, origin, PULL_RANGE )
-	if( mods.contains( "anti_gravity_star" ) )
-		guys = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, origin, PULL_RANGE_ANTI )
 	foreach ( guy in guys )
 	{
 		if ( !IsAlive( guy ) )
@@ -350,8 +289,6 @@ array<entity> function GetNearbyEnemiesForGravGrenade( entity projectile )
 	}
 
 	array<entity> ai = GetNPCArrayEx( "any", TEAM_ANY, team, origin, PULL_RANGE )
-	if( mods.contains( "anti_gravity_star" ) )
-		ai = GetNPCArrayEx( "any", TEAM_ANY, team, origin, PULL_RANGE_ANTI )
 	foreach ( guy in ai )
 	{
 		if ( IsAlive( guy ) )
@@ -368,10 +305,6 @@ array<entity> function GetNearbyProjectilesForGravGrenade( entity gravGrenade )
 	vector origin = gravGrenade.GetOrigin()
 
 	array<entity> projectiles = GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, origin, PULL_RANGE )
-	/*
-	if( hopupindex == 1 )
-		projectiles = GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, origin, PULL_RANGE_ANTI )
-	*/
 	array<entity> affectedProjectiles
 
 	entity projectileOwner
