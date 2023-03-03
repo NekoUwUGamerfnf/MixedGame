@@ -39,16 +39,13 @@ var function OnWeaponTossReleaseAnimEvent_weapon_grenade_sonar( entity weapon, W
 
 void function OnProjectileCollision_weapon_grenade_sonar( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	array<string> mods = projectile.ProjectileGetMods()
+	if( mods.contains( "ninja_projectile" ) )
+		return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
+
 	#if SERVER
 	projectile.proj.onlyAllowSmartPistolDamage = false
-
 	#endif
-
-	array<string> mods = projectile.ProjectileGetMods()
-	if( mods.contains( "kunai" ) )
-	{
-		return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
-	}
 
 	if ( IsHumanSized( hitEnt ) )//Don't stick on Pilots/Grunts/Spectres. Causes pulse blade to fall into ground
 		return
