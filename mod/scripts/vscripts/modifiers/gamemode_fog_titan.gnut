@@ -2,6 +2,7 @@ untyped // for bubbleShield.s
 global function Modded_Gamemode_Fog_Titan_Init
 
 const float SPEED_BOOST_SEVERITY = 0.25
+const float INTRO_LENGTH         = 5
 
 const array<string> NPC_WEAPONS =
 [
@@ -24,6 +25,7 @@ void function Modded_Gamemode_Fog_Titan_Init()
     Riff_ForceTitanExitEnabled( eTitanExitEnabled.Never )
     AddSpawnCallback( "env_fog_controller", InitTitanFog )
     AddSpawnCallback( "npc_titan", OnTitanSpawned )
+    AddCallback_OnPlayerRespawned( OnPlayerRespawned )
     AddCallback_OnPilotBecomesTitan( OnClassChangeBecomeTitan )
     AddCallback_OnPlayerKilled( OnPlayerKilled )
     AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
@@ -35,12 +37,15 @@ void function Modded_Gamemode_Fog_Titan_Init()
     AddSpawnCallback( "npc_spectre", AddSpectreHealth )
     AddSpawnCallback( "npc_stalker", ReplaceStalkerWeapon )
     AddSpawnCallback( "npc_super_spectre", AddReaperHealth )
+    ClassicMP_SetCustomIntro( TTDMIntroSetup, INTRO_LENGTH )
 
     // modified
     AITdm_SetSquadsPerTeam( 4 )
     AITdm_SetReapersPerTeam( 2 )
 
     // what
+    SetWaitingForPlayersMaxDuration( 0.0 ) // so you don't have to wait so freaking long
+    SetShouldInstantlyChangeMap( true )
     SetShouldPlayFactionDialogue( false )
     SetEnemyHighlightHide( true )
 }
@@ -160,10 +165,14 @@ void function ProtectHotDropNPCTitan( entity titan, entity bubbleShield = null )
     WaitTillHotDropComplete( titan ) // wait for titan actucally drop to ground
 }
 
+void function OnPlayerRespawned( entity player )
+{
+    SyncedMelee_Disable( player )
+}
+
 void function OnClassChangeBecomeTitan( entity player, entity titan )
 {
     //HideName( player ) // so they will likely not show in fog
-    SyncedMelee_Disable( player )
     // remove main weapon and give fighter melee
     foreach ( entity weapon in player.GetMainWeapons() )
     {
@@ -232,7 +241,16 @@ void function OnClassChangeBecomeTitan( entity player, entity titan )
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
+    Titan_RodeoPanelCleanup( victim.GetTitanSoul() )
     thread ReplacePlayerAsTitan( victim )
+}
+
+void function Titan_RodeoPanelCleanup( entity soul )
+{
+    if ( !IsValid( soul ) )
+        return
+	if ( IsValid( soul.soul.batteryContainer ) )
+		soul.soul.batteryContainer.Kill_Deprecated_UseDestroyInstead()
 }
 
 // basically same as RespawnAsTitan(), but this one won't do score events
@@ -240,6 +258,7 @@ void function ReplacePlayerAsTitan( entity player )
 {
     player.EndSignal( "OnDestroy" )
     PlayerChangeToSpectatorClass( player ) // prevent a crash with going from titan => pilot on respawn
+    player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
     WaitFrame() // wait for other postDeath functions set up
 
 	// respawn crash exploit hotfix
@@ -351,4 +370,60 @@ void function AddReaperHealth( entity npc )
     Highlight_ClearEnemyHighlight( npc )
     npc.SetMaxHealth( REAPER_HEALTH )
     npc.SetHealth( REAPER_HEALTH )
+}
+
+// taken from _gamemode_ttdm.gnut
+void function TTDMIntroSetup()
+{
+	// this should show intermission cam for 15 sec in prematch, before spawning players as titans
+	AddCallback_GameStateEnter( eGameState.Prematch, TTDMIntroStart )
+	AddCallback_OnClientConnected( TTDMIntroShowIntermissionCam )
+}
+
+void function TTDMIntroStart()
+{
+	thread TTDMIntroStartThreaded()
+}
+
+void function TTDMIntroStartThreaded()
+{
+	ClassicMP_OnIntroStarted()
+
+	foreach ( entity player in GetPlayerArray() )
+	{
+		if ( !IsPrivateMatchSpectator( player ) )
+			TTDMIntroShowIntermissionCam( player )
+		else
+			RespawnPrivateMatchSpectator( player )
+	}
+
+	wait INTRO_LENGTH
+
+	ClassicMP_OnIntroFinished()
+}
+
+void function TTDMIntroShowIntermissionCam( entity player )
+{
+	if ( GetGameState() != eGameState.Prematch )
+		return
+
+	thread PlayerWatchesTTDMIntroIntermissionCam( player )
+}
+
+void function PlayerWatchesTTDMIntroIntermissionCam( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	ScreenFadeFromBlack( player )
+
+	entity intermissionCam = GetEntArrayByClass_Expensive( "info_intermission" )[ 0 ]
+
+	// the angle set here seems sorta inconsistent as to whether it actually works or just stays at 0 for some reason
+	player.SetObserverModeStaticPosition( intermissionCam.GetOrigin() )
+	player.SetObserverModeStaticAngles( intermissionCam.GetAngles() )
+	player.StartObserverMode( OBS_MODE_STATIC_LOCKED )
+
+	wait INTRO_LENGTH
+
+	RespawnAsTitan( player, false )
+	TryGameModeAnnouncement( player )
 }
