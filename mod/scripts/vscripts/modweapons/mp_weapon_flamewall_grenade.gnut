@@ -1,0 +1,311 @@
+// dot damage handling in _thermite_dot.gnut
+global function MpWeaponFlameWallGrenade_Init
+
+global function OnWeaponTossReleaseAnimEvent_weapon_flamewall_grenade
+global function OnProjectileCollision_weapon_flamewall_grenade
+global function OnProjectileIgnite_weapon_flamewall_grenade
+
+void function MpWeaponFlameWallGrenade_Init()
+{
+
+}
+
+var function OnWeaponTossReleaseAnimEvent_weapon_flamewall_grenade( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	entity grenade = Grenade_OnWeaponToss_ReturnEntity( weapon, attackParams, 1.0 )
+	if( !IsValid( grenade ) )
+		return
+#if SERVER
+	vector attackAngle = VectorToAngles( attackParams.dir )
+	grenade.proj.savedAngles = < 0,attackAngle.y,0 >
+#endif
+	grenade.SetModel( $"models/weapons/grenades/smoke_grenade_projectile.mdl" )
+
+	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
+	
+}
+
+void function OnProjectileCollision_weapon_flamewall_grenade( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+	entity player = projectile.GetOwner()
+	array<string> mods = projectile.ProjectileGetMods()
+
+	if ( hitEnt == player )
+		return
+
+	table collisionParams =
+	{
+		pos = pos,
+		normal = normal,
+		hitEnt = hitEnt,
+		hitbox = hitbox
+	}
+
+	if( mods.contains( "flamewall_grenade" ) )
+	{
+		bool result = PlantStickyEntityOnWorldThatBouncesOffWalls( projectile, collisionParams, 0.7 )
+#if SERVER
+		projectile.proj.savedOrigin = normal
+#endif
+		if( !result )
+			return
+	}
+
+	if ( projectile.GrenadeHasIgnited() )
+		return
+
+	projectile.GrenadeIgnite()
+}
+
+void function OnProjectileIgnite_weapon_flamewall_grenade( entity projectile )
+{
+	projectile.SetDoesExplode( false )
+
+	#if SERVER
+		projectile.proj.onlyAllowSmartPistolDamage = false
+
+		entity player = projectile.GetOwner()
+
+		if ( !IsAlive( player ) )
+		{
+			projectile.Destroy()
+			return
+		}
+
+        StartFlameWall( projectile )
+        return
+
+	#endif
+}
+
+#if SERVER
+// flamewall_grenade stuff
+void function StartFlameWall( entity projectile )
+{
+	entity inflictor = CreateOncePerTickDamageInflictorHelper( THERMITE_GRENADE_BURN_TIME )
+	inflictor.SetScriptName( "thermite_dot_inflictor" ) // dot damage handling in _thermite_dot.gnut
+
+    // do some weapon check
+    entity owner = projectile.GetOwner()
+    if ( !IsAlive( owner ) )
+    {
+        if ( IsValid( projectile ) )
+            projectile.Destroy()
+        return
+    }
+	entity thermiteWeapon
+    foreach( entity offhand in owner.GetOffhandWeapons() )
+    {
+        if( offhand.HasMod( "flamewall_grenade" ) )
+            thermiteWeapon = offhand
+    }
+    if( !IsValid( thermiteWeapon ) )
+    {
+        if ( IsValid( projectile ) )
+            projectile.Destroy()
+        //print( "Thermite Weapon Invalid!" )
+        return
+    }
+
+    WeaponPrimaryAttackParams attackParams
+	vector startPos = projectile.GetOrigin() + < 0, 0, 5 > // add a bit offset
+	vector fireAng = projectile.proj.savedAngles
+	// hardcoded!!!!
+	array<entity> fakeProjectiles
+	array<vector> vectorGroup = [AnglesToForward( < 0,fireAng.y - 90,0 > ), AnglesToForward( < 0,fireAng.y + 90,0 > )]
+	attackParams.pos = startPos
+	attackParams.dir = < 0,0,0 >
+	fakeProjectiles.append( thermiteWeapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true ) )
+	attackParams.pos = startPos
+	attackParams.dir = < 0,0,0 >
+	fakeProjectiles.append( thermiteWeapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, false, true, true ) )
+	
+    // start attack...
+    EmitSoundOnEntity( projectile, "flamewall_flame_start" )
+	foreach( int index, entity projectile in fakeProjectiles )
+	{
+		if ( projectile )
+		{
+			attackParams.pos = startPos
+			attackParams.dir = vectorGroup[index]
+			projectile.SetModel( $"models/dev/empty_model.mdl" )
+			//weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
+			thread BeginFlameWall( projectile, 0, inflictor, attackParams, attackParams.dir )
+		}
+	}
+}
+
+void function BeginFlameWall( entity projectile, int projectileCount, entity inflictor, WeaponPrimaryAttackParams attackParams, vector direction )
+{
+	projectile.EndSignal( "OnDestroy" )
+	projectile.SetAbsOrigin( projectile.GetOrigin() )
+	projectile.SetAbsAngles( projectile.GetAngles() )
+	projectile.SetVelocity( Vector( 0, 0, 0 ) )
+	projectile.StopPhysics()
+	projectile.SetTakeDamageType( DAMAGE_NO )
+	projectile.Hide()
+	projectile.NotSolid()
+	projectile.proj.savedOrigin = < -999999.0, -999999.0, -999999.0 >
+	vector startPos = attackParams.pos
+	waitthread ThermiteAttackWave( projectile, projectileCount, inflictor, startPos, attackParams.dir, CreateThermiteWallSegment )
+	projectile.Destroy()
+}
+
+// basically same as WeaponAttackWave, but this one removed firstTrace's offset 
+void function ThermiteAttackWave( entity ent, int projectileCount, entity inflictor, vector pos, vector dir, bool functionref( entity, int, entity, entity, vector, vector, int ) waveFunc )
+{
+	ent.EndSignal( "OnDestroy" )
+
+	entity weapon
+	entity projectile
+	int maxCount
+	float step
+	entity owner
+	int damageNearValueTitanArmor
+	int count = 0
+	array<vector> positions = []
+	vector lastDownPos
+    int succeededTrace = 0 // track succeeded trace!
+	bool firstTrace = true
+
+	dir = <dir.x, dir.y, 0.0>
+	dir = Normalize( dir )
+	vector angles = VectorToAngles( dir )
+
+	if ( ent.IsProjectile() )
+	{
+		projectile = ent
+		string chargedPrefix = ""
+		if ( ent.proj.isChargedShot )
+			chargedPrefix = "charge_"
+
+		maxCount = expect int( ent.ProjectileGetWeaponInfoFileKeyField( chargedPrefix + "wave_max_count" ) )
+		step = expect float( ent.ProjectileGetWeaponInfoFileKeyField( chargedPrefix + "wave_step_dist" ) )
+		owner = ent.GetOwner()
+		damageNearValueTitanArmor = projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+	}
+	else
+	{
+		weapon = ent
+		maxCount = expect int( ent.GetWeaponInfoFileKeyField( "wave_max_count" ) )
+		step = expect float( ent.GetWeaponInfoFileKeyField( "wave_step_dist" ) )
+		owner = ent.GetWeaponOwner()
+		damageNearValueTitanArmor = weapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+	}
+
+	owner.EndSignal( "OnDestroy" )
+
+	for ( int i = 0; i < maxCount; i++ )
+	{
+        vector newPos = pos
+		if ( !firstTrace )
+			newPos = pos + dir * step
+
+		vector traceStart = pos
+		vector traceEndUnder = newPos
+		vector traceEndOver = newPos
+
+		if ( !firstTrace )
+		{
+			traceStart = lastDownPos + <0.0, 0.0, 80.0 >
+			traceEndUnder = <newPos.x, newPos.y, traceStart.z - 40.0 >
+			traceEndOver = <newPos.x, newPos.y, traceStart.z + step * 0.57735056839> // The over height is to cover the case of a sheer surface that then continues gradually upwards (like mp_box)
+		}
+		firstTrace = false
+
+		VortexBulletHit ornull vortexHit = VortexBulletHitCheck( owner, traceStart, traceEndOver )
+		if ( vortexHit )
+		{
+			expect VortexBulletHit( vortexHit )
+			entity vortexWeapon = vortexHit.vortex.GetOwnerWeapon()
+
+			if ( vortexWeapon && vortexWeapon.GetWeaponClassName() == "mp_titanweapon_vortex_shield" )
+				VortexDrainedByImpact( vortexWeapon, weapon, projectile, null ) // drain the vortex shield
+			else if ( IsVortexSphere( vortexHit.vortex ) )
+				VortexSphereDrainHealthForDamage( vortexHit.vortex, damageNearValueTitanArmor )
+
+			WaitFrame()
+			continue
+		}
+
+		//DebugDrawLine( traceStart, traceEndUnder, 0, 255, 0, true, 25.0 )
+		array ignoreArray = []
+		if ( IsValid( inflictor ) && inflictor.GetOwner() != null )
+			ignoreArray.append( inflictor.GetOwner() )
+
+		TraceResults forwardTrace = TraceLine( traceStart, traceEndUnder, ignoreArray, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_BLOCK_WEAPONS )
+		if ( forwardTrace.fraction == 1.0 )
+		{
+			//DebugDrawLine( forwardTrace.endPos, forwardTrace.endPos + <0.0, 0.0, -1000.0>, 255, 0, 0, true, 25.0 )
+			TraceResults downTrace = TraceLine( forwardTrace.endPos, forwardTrace.endPos + <0.0, 0.0, -1000.0>, ignoreArray, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_BLOCK_WEAPONS )
+			if ( downTrace.fraction == 1.0 )
+            {
+                //print( "downTrace( in forwardTrace ) failed" )
+				break
+            }
+
+			entity movingGeo = null
+			if ( downTrace.hitEnt && downTrace.hitEnt.HasPusherRootParent() && !downTrace.hitEnt.IsMarkedForDeletion() )
+				movingGeo = downTrace.hitEnt
+
+			if ( !waveFunc( ent, projectileCount, inflictor, movingGeo, downTrace.endPos, angles, i ) )
+				return
+            
+            succeededTrace += 1
+			lastDownPos = downTrace.endPos
+			pos = forwardTrace.endPos
+
+            WaitFrame()
+			continue
+		}
+		else
+		{
+			if ( IsValid( forwardTrace.hitEnt ) && (StatusEffect_Get( forwardTrace.hitEnt, eStatusEffect.pass_through_amps_weapon ) > 0) && !CheckPassThroughDir( forwardTrace.hitEnt, forwardTrace.surfaceNormal, forwardTrace.endPos ) )
+			{
+                //print( "forwardTrace failed" )
+            	break
+            }
+		}
+
+        TraceResults upwardTrace = TraceLine( traceStart, traceEndOver, ignoreArray, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_BLOCK_WEAPONS )
+		//DebugDrawLine( traceStart, traceEndOver, 0, 0, 255, true, 25.0 )
+		if ( upwardTrace.fraction < 1.0 )
+		{
+			if ( IsValid( upwardTrace.hitEnt ) )
+			{
+				if ( upwardTrace.hitEnt.IsWorld() )
+                {
+                    //print( "upwardTrace failed" )
+					break
+                }
+			}
+		}
+		else
+		{
+			TraceResults downTrace = TraceLine( upwardTrace.endPos, upwardTrace.endPos + <0.0, 0.0, -1000.0>, ignoreArray, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_BLOCK_WEAPONS )
+            if ( downTrace.fraction == 1.0 )
+            {
+                //print( "downTrace failed" )
+                break
+            }
+
+            entity movingGeo = null
+            if ( downTrace.hitEnt && downTrace.hitEnt.HasPusherRootParent() && !downTrace.hitEnt.IsMarkedForDeletion() )
+                movingGeo = downTrace.hitEnt
+
+            if ( !waveFunc( ent, projectileCount, inflictor, movingGeo, downTrace.endPos, angles, i ) )
+                return
+
+            succeededTrace += 1
+            lastDownPos = downTrace.endPos
+            pos = forwardTrace.endPos
+        }
+
+        WaitFrame()
+	}
+
+    //print( "succeededTrace: " + string( succeededTrace ) )
+    if ( succeededTrace <= 1 ) // no trace success!
+        waveFunc( ent, 1, inflictor, null, pos, angles, 1 )
+}
+#endif // #if SERVER

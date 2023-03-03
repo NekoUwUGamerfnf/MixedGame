@@ -210,7 +210,7 @@ function Proto_MeteorCreatesThermite( entity projectile, entity hitEnt = null )
 	float fireSpeed
 
 	array<string> mods = projectile.ProjectileGetMods()
-	if ( mods.contains( "pas_scorch_weapon" ) || mods.contains( "thermite_grenade" ) )
+	if ( mods.contains( "pas_scorch_weapon" ) || mods.contains( "meteor_grenade" ) )
 	{
 		fireCount = 8
 		fireSpeed = 200

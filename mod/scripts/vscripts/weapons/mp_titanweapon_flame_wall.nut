@@ -6,7 +6,7 @@ global function OnWeaponActivate_titancore_flame_wall
 
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_FlameWall
-global function BeginFlameWave
+global function BeginFlameWave // modified to globalize it
 global function CreateThermiteWallSegment
 #endif
 
@@ -146,6 +146,8 @@ bool function CreateThermiteWallSegment( entity projectile, int projectileCount,
 		{
 			damageSource = eDamageSourceId.mp_titanweapon_flame_wall
 			duration = mods.contains( "pas_scorch_firewall" ) ? PAS_SCORCH_FIREWALL_DURATION : FLAME_WALL_THERMITE_DURATION
+			
+			// modified: flamewall_grenade
 			if( mods.contains( "flamewall_grenade" ) )
 				duration = THERMITE_GRENADE_BURN_TIME
 		}
