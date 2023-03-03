@@ -177,6 +177,8 @@ void function TitanMeleeAttack( entity titan )
 	entity meleeWeapon = titan.GetMeleeWeapon()
 	vector traceStartPos = titan.EyePosition()
 
+	bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" )
+
 	const int IMPACT_EFFECT_FLAGS = 0
 	array<VisibleEntityInCone> hitResults = PlayerMelee_FindVisibleEntitiesInCone( titan )
 	foreach( hit in hitResults )
@@ -212,7 +214,7 @@ void function TitanMeleeAttack( entity titan )
 		}
 		
 		//titan.PlayerMelee_SetAttackHitEntity( targetEnt ) // this will trigger freezelock on player
-		if ( !meleeWeapon.HasMod( "fighter_melee" ) ) // fighter melee is too fast, don't freeze player!
+		if ( !isFighterMelee ) // fighter melee is too fast, don't freeze player!
 			titan.PlayerMelee_SetAttackHitEntity( targetEnt )
 
 		if ( IsHumanSized( targetEnt ) )
@@ -251,6 +253,12 @@ void function TitanMeleeAttack( entity titan )
 #endif // #if SERVER
 
 		didHitATarget = true
+
+#if SERVER
+		// do a extra fx for fighter melee
+		if ( isFighterMelee )
+			PlayFX( $"P_xo_sword_melee_metal", damageOrigin )
+#endif // #if SERVER
 	}
 
 	bool didHitTheWorld = false
@@ -274,6 +282,12 @@ void function TitanMeleeAttack( entity titan )
 			titan.DispatchImpactEffects( tr.hitEnt, traceStartPos, tr.endPos, tr.surfaceNormal, tr.surfaceProp, tr.staticPropIndex, DMG_MELEE_ATTACK, meleeWeapon.GetImpactTableIndex(), titan, IMPACT_EFFECT_FLAGS )
 			titan.PlayerMelee_SetAttackHitEntity( tr.hitEnt )
 			didHitTheWorld = true
+
+#if SERVER
+			// do a extra fx for fighter melee
+			if ( isFighterMelee )
+				PlayFX( $"P_xo_sword_melee_metal", tr.endPos )
+#endif // #if SERVER
 		}
 	}
 
@@ -283,6 +297,7 @@ void function TitanMeleeAttack( entity titan )
 		const float SCALE_WHEN_WORLD = 0.5
 		const float SCALE_WHEN_OTHER_TARGETS = 0.2
 		const float SCALE_AS_BISON = 0.2 // bison will have less screen shake?
+		const float SCALE_FIGHTER_MELEE = 0.05 // fighter melee shakes even less
 
 		float severityScale = 0.0
 		if ( didHitAnEnemyTitan )
@@ -293,10 +308,18 @@ void function TitanMeleeAttack( entity titan )
 			severityScale = SCALE_WHEN_OTHER_TARGETS
 		else if( meleeWeapon.HasMod( "bison_punch" ) )
 			severityScale = SCALE_AS_BISON
+			
+		if( isFighterMelee )
+			severityScale = SCALE_FIGHTER_MELEE
 		
-		//meleeWeapon.DoMeleeHitConfirmation( severityScale ) // this will trigger screen shake on player
-		if ( !meleeWeapon.HasMod( "fighter_melee" ) ) // fighter melee is too fast, don't play a hitConfrim for it!!!
-			meleeWeapon.DoMeleeHitConfirmation( severityScale )
+		meleeWeapon.DoMeleeHitConfirmation( severityScale ) // this will trigger screen shake on player
+		//if ( !isFighterMelee ) // fighter melee is too fast, don't play a hitConfrim for it!!!
+		//	meleeWeapon.DoMeleeHitConfirmation( severityScale )
+
+#if SERVER
+		if ( isFighterMelee ) // fighter melee
+			EmitSoundOnEntityOnlyToPlayer( titan, titan, "titan_melee_hit" ) // do a sound to atleast let players know that they hit an target
+#endif // #if SERVER
 	}
 }
 
@@ -460,10 +483,7 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 	if ( hasShiftCore )
 		damageTable.damageSourceId = eDamageSourceId.mp_titancore_shift_core
 	else if( isBisonPunch || isFighterMelee )
-	{
 		damageTable.damageSourceId = eDamageSourceId.berserker_melee
-		EmitSoundOnEntityOnlyToPlayer( titan, titan, "titan_melee_hit" )
-	}
 
 	enemyTitan.TakeDamage( damageAmount, titan, titan, damageTable )
 	
