@@ -1,0 +1,61 @@
+global function MpWeaponArcStar_Init
+
+global function OnProjectileCollision_weapon_arc_star
+
+const float ARC_STAR_EXPLOSION_DELAY = 1.5
+const float ARC_STAR_WARNING_TIME = 1.0
+const string ARC_STAR_WARNING_SFX_LOOP = "Weapon_Vortex_Gun.ExplosiveWarningBeep"
+
+void function MpWeaponArcStar_Init()
+{
+    #if SERVER
+        AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_grenade_gravity, ArcStar_DamagedPlayerOrNPC )
+    #endif
+}
+
+void function OnProjectileCollision_weapon_arc_star( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+    bool didStick = PlantSuperStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+
+	if ( !didStick )
+		return
+
+	if ( projectile.IsMarkedForDeletion() )
+		return
+
+	#if SERVER
+		thread ArcStarExplode( projectile, normal )
+	#endif
+}
+
+#if SERVER
+void function ArcStarExplode( entity projectile, vector hitNormal )
+{
+    projectile.EndSignal( "OnDestroy" )
+
+    if ( ARC_STAR_EXPLOSION_DELAY > ARC_STAR_WARNING_TIME )
+        wait ARC_STAR_EXPLOSION_DELAY - ARC_STAR_WARNING_TIME
+
+    EmitSoundOnEntity( projectile, ARC_STAR_WARNING_SFX_LOOP )
+    wait ARC_STAR_WARNING_TIME
+
+    projectile.GrenadeExplode( hitNormal )
+}
+
+void function ArcStar_DamagedPlayerOrNPC( entity victim, var damageInfo )
+{
+    entity inflictor = DamageInfo_GetInflictor( damageInfo )
+    if ( !IsValid( inflictor ) )
+        return
+    if ( !inflictor.IsProjectile() )
+        return
+    
+    array<string> mods = inflictor.ProjectileGetMods()
+    if ( mods.contains( "arc_star" ) )
+    {
+        EMP_DamagedPlayerOrNPC( victim, damageInfo )
+        DamageInfo_SetDamageSourceIdentifier( damageInfo, eDamageSourceId.mp_weapon_grenade_emp )
+    }
+}
+#endif
+

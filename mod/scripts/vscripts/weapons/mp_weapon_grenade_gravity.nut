@@ -3,7 +3,10 @@ global function OnWeaponTossReleaseAnimEvent_weapon_greanade_gravity
 global function OnProjectileCollision_weapon_grenade_gravity
 global function MpWeaponGrenadeGravity_Init
 
-//int hopupindex = 0
+#if SERVER
+// modified, share to mp_weapon_anti_gravity_star
+global function GravityGrenadeTriggerThink
+#endif
 
 // Vanilla
 const float MAX_WAIT_TIME = 6.0 // trigger wait time
@@ -58,10 +61,15 @@ void function OnProjectileCollision_weapon_grenade_gravity( entity projectile, v
 
 	if ( mods.contains( "gravity_lift" ) )
 		return OnProjectileCollision_ability_gravity_lift( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	
 	if ( mods.contains( "ninja_projectile" ) )
 		return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	
 	if ( mods.contains( "anti_gravity_star" ) )
 		return OnProjectileCollision_weapon_anti_gravity_star( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	
+	if ( mods.contains( "arc_star" ) )
+		return OnProjectileCollision_weapon_arc_star( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
 
 	// vanilla behavior
@@ -88,6 +96,15 @@ void function TriggerWait( entity trig, float maxtime )
 
 void function SetGravityGrenadeTriggerFilters( entity gravityMine, entity trig )
 {
+	// friendlyFire condition
+	if ( IsFriendlyFireOn() )
+	{
+		// remove all filters
+		trig.kv.triggerFilterTeamIMC = "0"
+		trig.kv.triggerFilterTeamMilitia = "0"
+		trig.kv.triggerFilterNonCharacter = "0"
+	}
+
 	if ( gravityMine.GetTeam() == TEAM_IMC )
 		trig.kv.triggerFilterTeamIMC = "0"
 	else if ( gravityMine.GetTeam() == TEAM_MILITIA )
