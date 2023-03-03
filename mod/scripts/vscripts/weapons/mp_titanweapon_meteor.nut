@@ -440,7 +440,7 @@ void function OnProjectileCollision_Meteor( entity projectile, vector pos, vecto
 {
 	array<string> mods = projectile.ProjectileGetMods()
 	if ( mods.contains( "storm_launcher" ) )
-		return // storm launcher won't dispatch any effect
+		return OnProjectileCollision_StormLauncher( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
 	#if SERVER
 	if ( projectile.proj.projectileBounceCount > 0 )
