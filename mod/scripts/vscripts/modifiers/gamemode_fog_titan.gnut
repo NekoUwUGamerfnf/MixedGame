@@ -1,8 +1,9 @@
 untyped // for bubbleShield.s
 global function Modded_Gamemode_Fog_Titan_Init
 
-const float SPEED_BOOST_SEVERITY = 0.25
-const float INTRO_LENGTH         = 5
+const float SPEED_BOOST_SEVERITY    = 0.25
+const float INTRO_LENGTH            = 5
+const float MAX_SQUADS              = 5
 
 const array<string> NPC_WEAPONS =
 [
@@ -40,6 +41,10 @@ void function Modded_Gamemode_Fog_Titan_Init()
     AddSpawnCallback( "npc_super_spectre", AddReaperHealth )
     ClassicMP_SetCustomIntro( TTDMIntroSetup, INTRO_LENGTH )
 
+    // taken from _gamemode_aitdm
+    AddCallback_OnNPCKilled( HandleScoreEvent )
+	AddCallback_OnPlayerKilled( HandleScoreEvent )
+
     // modified
     AITdm_SetSquadsPerTeam( 4 )
     AITdm_SetReapersPerTeam( 2 )
@@ -48,7 +53,7 @@ void function Modded_Gamemode_Fog_Titan_Init()
     SetWaitingForPlayersMaxDuration( 0.0 ) // so you don't have to wait so freaking long
     SetShouldInstantlyChangeMap( true )
     SetShouldPlayFactionDialogue( false )
-    SetEnemyHighlightHide( true )
+    //SetEnemyHighlightHide( true )
 }
 
 void function InitTitanFog( entity fogController )
@@ -258,14 +263,14 @@ void function Titan_RodeoPanelCleanup( entity soul )
 void function ReplacePlayerAsTitan( entity player )
 {
     player.EndSignal( "OnDestroy" )
-    PlayerChangeToSpectatorClass( player ) // prevent a crash with going from titan => pilot on respawn
-    player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
     WaitFrame() // wait for other postDeath functions set up
 
 	// respawn crash exploit hotfix
 	if ( IsAlive( player ) ) 
         return
 
+    PlayerChangeToSpectatorClass( player ) // prevent a crash with going from titan => pilot on respawn
+    player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
 	player.Signal( "PlayerRespawnStarted" )
 
 	player.isSpawning = true
@@ -345,6 +350,7 @@ void function OnGamePrematch()
 
 void function OnGamePlaying()
 {
+    Spawner( TEAM_BOTH ) // spawn these things
     thread DisableSyncedMeleeLifeLong()
 }
 
@@ -384,12 +390,180 @@ void function ReplaceStalkerWeapon( entity npc )
 
 void function AddReaperHealth( entity npc )
 {
-    Highlight_ClearEnemyHighlight( npc )
+    //Highlight_ClearEnemyHighlight( npc )
     npc.SetMaxHealth( REAPER_HEALTH )
     npc.SetHealth( REAPER_HEALTH )
 }
 
-// taken from _gamemode_ttdm.gnut
+
+// taken  from _gamemode_aitdm.nut, manually do spawner
+void function Spawner( int team )
+{
+    thread Spawner_Threaded( team )
+}
+
+void function Spawner_Threaded( int team )
+{
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+	
+	while( true )
+	{
+		// TODO: this should possibly not count scripted npc spawns, probably only the ones spawned by this script
+		array<entity> npcs = GetNPCArrayOfTeam( team )
+		int count = npcs.len()
+		int reaperCount = GetNPCArrayEx( "npc_super_spectre", team, -1, <0,0,0>, -1 ).len()
+		
+		// NORMAL SPAWNS
+		if ( count < MAX_SQUADS * 4 - 2 )
+		{
+			array<string> ents = [ "npc_soldier", "npc_spectre", "npc_stalker" ]
+            string ent = ents[ RandomInt( ents.len() ) ]
+			
+			array< entity > points = GetZiplineDropshipSpawns()
+			// Prefer dropship when spawning grunts
+			if ( ent == "npc_soldier" && points.len() != 0 )
+			{
+				if ( RandomInt( points.len() ) )
+				{
+					entity node = points[ RandomInt( points.len() ) ]
+					waitthread Aitdm_SpawnDropShip( node, team )
+					continue
+				}
+			}
+			
+			points = SpawnPoints_GetDropPod()
+			entity node = points[ RandomInt( points.len() ) ]
+			waitthread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent, SquadHandler )
+		}
+		
+		WaitFrame()
+	}
+}
+
+void function Aitdm_SpawnDropShip( entity node, int team )
+{
+	thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
+	wait 20
+}
+
+void function SquadHandler( array<entity> guys )
+{
+	// Not all maps have assaultpoints / have weird assault points ( looking at you ac )
+	// So we use enemies with a large radius
+	array< entity > points = GetNPCArrayOfEnemies( guys[0].GetTeam() )
+	
+	if ( points.len()  == 0 )
+		return
+	
+	vector point
+	point = points[ RandomInt( points.len() ) ].GetOrigin()
+	
+	array<entity> players = GetPlayerArrayOfEnemies( guys[0].GetTeam() )
+	
+	// Setup AI
+	foreach ( guy in guys )
+	{
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultPoint( point )
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+		
+		// show on enemy radar
+		foreach ( player in players )
+			guy.Minimap_AlwaysShow( 0, player )
+		
+		
+		//thread AITdm_CleanupBoredNPCThread( guy )
+	}
+	
+	// Every 5 - 15 secs change AssaultPoint
+	while ( true )
+	{	
+		foreach ( guy in guys )
+		{
+			// Check if alive
+			if ( !IsAlive( guy ) )
+			{
+				guys.removebyvalue( guy )
+				continue
+			}
+			// Stop func if our squad has been killed off
+			if ( guys.len() == 0 )
+				return
+			
+			// Get point and send guy to it
+			points = GetNPCArrayOfEnemies( guy.GetTeam() )
+			if ( points.len() == 0 )
+				continue
+				
+			point = points[ RandomInt( points.len() ) ].GetOrigin()
+			
+			guy.AssaultPoint( point )
+		}
+		wait RandomFloatRange(5.0,15.0)
+	}
+}
+
+// Used to handle both player and ai events
+void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
+{
+	// Basic checks
+	if ( !( victim != attacker && attacker.IsPlayer() || attacker.IsTitan() && attacker.GetBossPlayer() != null && GetGameState() == eGameState.Playing ) )
+		return
+	
+	// Hacked spectre filter
+	if ( victim.GetOwner() == attacker )
+		return
+	
+	// Split score so we can check if we are over the score max
+	// without showing the wrong value on client
+	int teamScore
+	int playerScore
+	string eventName
+	
+	// Handle AI, marvins aren't setup so we check for them to prevent crash
+	if ( victim.IsNPC() && victim.GetClassName() != "npc_marvin" )
+	{
+		switch ( victim.GetClassName() )
+		{
+			case "npc_soldier":
+			case "npc_spectre":
+			case "npc_stalker":
+				playerScore = 1
+				break
+			case "npc_super_spectre":
+				playerScore = 3
+				break
+			default:
+				playerScore = 0
+				break
+		}
+		
+		// Titan kills get handled bellow this
+		if ( eventName != "KillNPCTitan"  && eventName != "" )
+			playerScore = ScoreEvent_GetPointValue( GetScoreEvent( eventName ) )
+	}
+	
+	if ( victim.IsPlayer() )
+		playerScore = 5
+	
+	// Player ejecting triggers this without the extra check
+	if ( victim.IsTitan() && victim.GetBossPlayer() != attacker )
+		playerScore += 10
+	
+	
+	teamScore = playerScore
+	
+	// Check score so we dont go over max
+	if ( GameRules_GetTeamScore(attacker.GetTeam()) + teamScore > GetScoreLimit_FromPlaylist() )
+		teamScore = GetScoreLimit_FromPlaylist() - GameRules_GetTeamScore(attacker.GetTeam())
+	
+	// Add score + update network int to trigger the "Score +n" popup
+	AddTeamScore( attacker.GetTeam(), teamScore )
+	attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, playerScore )
+}
+
+
+// taken from _gamemode_ttdm.nut
 void function TTDMIntroSetup()
 {
 	// this should show intermission cam for 15 sec in prematch, before spawning players as titans
