@@ -186,7 +186,8 @@ bool function EnemyCanSeeSpawnPoint( int team, entity spawnpoint )
 
 void function InitSpawnpoint( entity spawnpoint ) 
 {
-	spawnpoint.s.lastUsedTime <- -999
+	if ( !( "lastUsedTime" in spawnpoint.s ) )
+		spawnpoint.s.lastUsedTime <- -999
 }
 
 void function SetRespawnsEnabled( bool enabled )
