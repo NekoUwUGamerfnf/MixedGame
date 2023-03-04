@@ -225,7 +225,7 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 
 	// handle modded conditions
 	//wait PULL_DELAY
-	int delay = PULL_DELAY
+	float delay = PULL_DELAY
 
 	if( mods.contains( "bleedout_balance" ) )
 		delay = PULL_DELAY_BLEEDOUT
