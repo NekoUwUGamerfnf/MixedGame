@@ -19,6 +19,8 @@ global function Burnmeter_GetDisabledRewards
 global function Burnmeter_SetForcedReward
 global function Burnmeter_GetForcedReward
 
+global function Burnmeter_SetRewardDisableNotification // for modded_burnmeter_items.gnut
+
 const float PHASE_REWIND_LENGTH = 2.0
 // taken from wraith portal in apex, assuming it's the same as tf2's
 // 0.1 can be too fast for ttf2 scripts
@@ -32,11 +34,6 @@ const int MAPHACK_PULSE_COUNT = 4
 const float MAPHACK_PULSE_DELAY = 2.0
 const float MAPHACK_PULSE_LENGTH = 0.5
 
-// modified...
-const float HACKED_SPECTRE_DURATION = 120
-const float PET_REAPER_DURATION = 120
-const array<string> SPECTRE_WEAPONS = ["mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff"]
-
 struct
 {
 	string forcedGlobalBurncardOverride = ""
@@ -46,6 +43,8 @@ struct
 	// nessie modify
 	array<string> disabledRewards
 	string forcedReward = ""
+
+	array<string> skipNotificationRewards
 } file
 
 void function BurnMeter_Init()
@@ -67,10 +66,8 @@ void function BurnMeter_Init()
 	BurnReward_GetByRef( "burnmeter_harvester_shield" ).rewardAvailableCallback = PlayerUsesHarvesterShieldBurncard
 	BurnReward_GetByRef( "burnmeter_amped_weapons_permanent" ).rewardAvailableCallback = PlayerUsesPermanentAmpedWeaponsBurncard
 	BurnReward_GetByRef( "burnmeter_instant_battery" ).rewardAvailableCallback = Burnmeter_AmpedBattery
-	//BurnReward_GetByRef( "burnmeter_rodeo_grenade" ).rewardAvailableCallback = PlayerUsesRodeoGrenadeBurncard
-	BurnReward_GetByRef( "burnmeter_rodeo_grenade" ).rewardAvailableCallback = PlayerUsesHackedSpectreBurncard
-	//BurnReward_GetByRef( "burnmeter_nuke_titan" ).rewardAvailableCallback = PlayerUsesNukeTitanBurncard // unused in vanilla, fun though
-	BurnReward_GetByRef( "burnmeter_nuke_titan" ).rewardAvailableCallback = PlayerUsesReaperfallBurncard
+	BurnReward_GetByRef( "burnmeter_rodeo_grenade" ).rewardAvailableCallback = PlayerUsesRodeoGrenadeBurncard
+	BurnReward_GetByRef( "burnmeter_nuke_titan" ).rewardAvailableCallback = PlayerUsesNukeTitanBurncard // unused in vanilla, fun though
 
 	BurnMeter_SetBoostRewardCount( "burnmeter_ticks", 2 )
 
@@ -94,7 +91,6 @@ void function BurnMeter_SetBoostLimit( string burnRef, int limit )
 {
 	file.boostLimits[burnRef] <- limit
 }
-
 
 void function BurnMeter_SetBoostRewardCount( string burnRef, int rewardCount )
 {
@@ -275,7 +271,10 @@ void function UseBurnCardWeapon( entity weapon, entity player )
 {
 	string ref = GetSelectedBurncardRefFromWeaponOrPlayer( weapon, player )
 
-	Remote_CallFunction_Replay( player, "ServerCallback_RewardUsed", BurnReward_GetByRef( ref ).id )
+	//Remote_CallFunction_Replay( player, "ServerCallback_RewardUsed", BurnReward_GetByRef( ref ).id )
+	// modified: if the reward is mark as "skip notification", we don't do it
+	if ( !file.skipNotificationRewards.contains( ref ) )
+		Remote_CallFunction_Replay( player, "ServerCallback_RewardUsed", BurnReward_GetByRef( ref ).id )
 	RunBurnCardUseFunc( player, ref )
 
 	if ( PlayerEarnMeter_IsRewardAvailable( player ) )
@@ -301,26 +300,6 @@ void function BurnMeter_GiveRewardDirect( entity player, string itemRef )
 		
 	PlayerInventory_PushInventoryItemByBurnRef( player, itemRef )
 	Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", player.s.respawnTime )
-}
-
-void function Burnmeter_SetRewardsDisabled( array<string> rewards )
-{
-	file.disabledRewards = rewards
-}
-
-array<string> function Burnmeter_GetDisabledRewards()
-{
-	return file.disabledRewards
-}
-
-void function Burnmeter_SetForcedReward( string reward )
-{
-	file.forcedReward = reward
-}
-
-string function Burnmeter_GetForcedReward()
-{
-	return file.forcedReward
 }
 
 int function GetBurnCardWeaponSkin( entity weapon )
@@ -714,114 +693,29 @@ void function PlayerUsesRodeoGrenadeBurncard( entity player )
 	player.SetPlayerNetInt( "numSuperRodeoGrenades", player.GetPlayerNetInt( "numSuperRodeoGrenades" ) + 1 )
 }
 
-// unused burncard that's mentioned in a few areas and has a validiation function in sh_burnmeter ( BurnMeter_SummonReaperCanUse ), thought it'd be neat to add it
-void function PlayerUsesReaperfallBurncard( entity player )
+// nessie modify
+void function Burnmeter_SetRewardsDisabled( array<string> rewards )
 {
-	thread PlayerUsesReaperBurncardThreaded( player )
-	/*
-	Point spawnpoint = GetTitanReplacementPoint( player, false )
-	entity reaper = CreateSuperSpectre( player.GetTeam(), spawnpoint.origin, spawnpoint.angles )
-	DispatchSpawn( reaper )
-
-	thread SuperSpectre_WarpFall( reaper )
-	*/
+	file.disabledRewards = rewards
 }
 
-void function PlayerUsesReaperBurncardThreaded( entity player )
+array<string> function Burnmeter_GetDisabledRewards()
 {
-	Point spawnpoint = GetTitanReplacementPoint( player, false )
-	entity spawnNpc = CreateNPC( "npc_super_spectre", player.GetTeam(), spawnpoint.origin, spawnpoint.angles );
-    SetSpawnOption_AISettings( spawnNpc, "npc_super_spectre_burnmeter");
-    DispatchSpawn( spawnNpc );
-	Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", spawnpoint.origin.x, spawnpoint.origin.y, spawnpoint.origin.z, Time() + 1.5 ) //manually set time because i don't know how to get Reaper's WarpFall impact time
-
-	//int followBehavior = GetDefaultNPCFollowBehavior( spawnNpc )
-	//spawnNpc.InitFollowBehavior( player, followBehavior )
-	//spawnNpc.EnableBehavior( "Follow" )
-	if( IsValid(player) )
-	{
-		spawnNpc.SetBossPlayer( player )
-		spawnNpc.SetOwner( player )
-	}
-	Highlight_SetOwnedHighlight( spawnNpc, "friendly_ai" )
-	//spawnNpc.EnableBehavior( "Follow" )
-	spawnNpc.SetTitle(player.GetPlayerName() + "的死神")
-    thread SuperSpectre_WarpFall( spawnNpc )
-
-	//followbehavior stuff
-	NPCFollowsPlayer( spawnNpc, player )
-
-	thread AfterTimeDestroyNPC( spawnNpc, PET_REAPER_DURATION )
+	return file.disabledRewards
 }
 
-void function PlayerUsesHackedSpectreBurncard( entity player )
+void function Burnmeter_SetForcedReward( string reward )
 {
-	thread PlayerUsesHackedSpectreBurncardThreaded( player )
+	file.forcedReward = reward
 }
 
-void function PlayerUsesHackedSpectreBurncardThreaded( entity player )
+string function Burnmeter_GetForcedReward()
 {
-	Point spawnpoint = GetTitanReplacementPoint( player, false )
-	Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", spawnpoint.origin.x, spawnpoint.origin.y, spawnpoint.origin.z, Time() + 5 )
-	int team = player.GetTeam()
-	entity pod = CreateDropPod( spawnpoint.origin, spawnpoint.angles )
-	string squadName = MakeSquadName( team, UniqueString( "ZiplineTable" ) )
-	array<entity> guys
-
-	SetTeam( pod, team )
-
-	InitFireteamDropPod( pod )
-
-	waitthread LaunchAnimDropPod( pod, "pod_testpath", spawnpoint.origin, spawnpoint.angles )
-
-	for (int i = 0; i < 4 ;i++ ) 
-	{
-	  	entity soldier = CreateNPC( "npc_spectre", team, spawnpoint.origin, spawnpoint.angles )
-
-	    SetTeam( soldier, team )
-	    //soldier.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
-	    //soldier.AssaultPoint(Vector(-487.158, 646.772, 960.031))
-	    //soldier.AssaultSetFightRadius( 64 )
-		DispatchSpawn( soldier )
-		if( IsValid( player ) )
-		{
-			soldier.SetBossPlayer( player )
-			soldier.SetOwner( player )
-		}
-		Highlight_SetOwnedHighlight( soldier, "friendly_ai" )
-	    SetSquad( soldier, squadName )
-	    ReplaceWeapon( soldier, SPECTRE_WEAPONS[ RandomInt( SPECTRE_WEAPONS.len() ) ], [] )
-	    guys.append( soldier )
-
-	    thread AfterTimeDestroyNPC( soldier, HACKED_SPECTRE_DURATION )
-	}
-
-	ActivateFireteamDropPod( pod, guys )
-
-	foreach ( guy in guys )
-	{
-	    guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
-		guy.AssaultSetGoalRadius( 50 )//set this extremely small so they can follow you around
-	}
-
-	foreach ( guy in guys )
-	{
-		//followbehavior stuff
-		if( IsValid(player) && player.IsPlayer() )
-			NPCFollowsPlayer( guy, player )
-  	}
+	return file.forcedReward
 }
 
-void function ReplaceWeapon( entity guy, string weapon, array<string> mods )
+void function Burnmeter_SetRewardDisableNotification( string ref )
 {
-	guy.TakeActiveWeapon()
-	guy.GiveWeapon( weapon, mods )
-	guy.SetActiveWeaponByName( weapon )
-}
-
-void function AfterTimeDestroyNPC( entity npc, float delay )
-{
-	wait delay
-	if( IsValid(npc) )
-		npc.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+	if ( !file.skipNotificationRewards.contains( ref ) )
+		file.skipNotificationRewards.append( ref )
 }

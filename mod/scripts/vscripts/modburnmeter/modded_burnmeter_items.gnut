@@ -1,0 +1,225 @@
+global function Modded_BurnMeter_Items_Init
+
+// modified...
+// team emp
+const float TEAM_EMP_DURATION = 8
+
+// reaper fall
+const float PET_REAPER_DURATION = 120
+
+// spectre squad
+const float HACKED_SPECTRE_DURATION = 120
+const array<string> SPECTRE_WEAPONS = ["mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff"]
+
+void function Modded_BurnMeter_Items_Init()
+{
+    AddCallback_GameStateEnter( eGameState.Prematch, InitModdedBurnMeter ) // init a bit later than vanilla burnmeters
+}
+
+void function InitModdedBurnMeter()
+{
+	Burnmeter_SetRewardDisableNotification( "burnmeter_radar_jammer" ) // this will make radar_jammer not showing it's base notification
+	BurnReward_GetByRef( "burnmeter_radar_jammer" ).rewardAvailableCallback = PlayerUsesTeamEMPBurnBard
+    
+	BurnReward_GetByRef( "burnmeter_nuke_titan" ).rewardAvailableCallback = PlayerUsesReaperfallBurncard
+
+    BurnReward_GetByRef( "burnmeter_instant_battery" ).rewardAvailableCallback = Burnmeter_AmpedBattery
+    BurnReward_GetByRef( "burnmeter_rodeo_grenade" ).rewardAvailableCallback = PlayerUsesHackedSpectreBurncard
+
+	// test
+	RegisterSignal( "OnBoosted" )
+	AddClientCommandCallback( "boostpilot", CC_BoostPilotEffect )
+}
+
+// test
+bool function CC_BoostPilotEffect( entity player, array<string> args )
+{
+	float ampTime = 0.0
+	if ( args.len() > 0 )
+	{
+		try{
+			ampTime = float( args[0] )
+		}
+		catch ( ex )
+		{
+			print( "args wrong! enter a float" )
+			return true
+		}
+	}
+	else
+	{
+		print( "args wrong! enter a float" )
+		return true
+	}
+	
+	thread BoostPlayer( player, ampTime )
+	return true
+}
+
+void function BoostPlayer( entity player, float ampTime )
+{
+	player.EndSignal( "OnDestroy" )
+	player.Signal( "OnBoosted" ) // end existing thread
+	player.EndSignal( "OnBoosted" )
+	player.SetPlayerNetTime( "boostTimedEffectLastsTill", 0.0 ) // clean up last
+
+	wait 1.0 // wait for clean up
+	player.SetPlayerNetTime( "boostTimedEffectLastsTill", Time() + ampTime )
+	wait ampTime
+	player.SetPlayerNetTime( "boostTimedEffectLastsTill", 0.0 ) // clean up
+}
+
+// team emp
+void function PlayerUsesTeamEMPBurnBard( entity player )
+{
+    thread GivePlayerTeamEMPEffect( player )
+}
+
+void function GivePlayerTeamEMPEffect( entity player )
+{
+    player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.Signal( "PlayerEMPed" ) // registered in _team_emp.gnut
+	player.EndSignal( "PlayerEMPed" )
+
+    //StatusEffect_AddEndless( player, eStatusEffect.gravity_grenade_visual, 1.0 )
+    int visualEffect = StatusEffect_AddEndless( player, eStatusEffect.emp, 1.0 )
+
+	OnThreadEnd
+	(
+		function(): ( player, visualEffect )
+		{
+			if ( IsValid( player ) )
+			{
+				StatusEffect_Stop( player, visualEffect )
+				EnableOffhandWeapons( player )
+				RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+			}
+		}
+	)
+
+    AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+    DisableOffhandWeapons( player )
+
+	// ANNOUNCEMENT_STYLE_BIG = 0 ( client-side "cl_team_emp" uses this )
+	// ANNOUNCEMENT_STYLE_QUICK = 1 
+	// ANNOUNCEMENT_STYLE_SWEEP = 5 ( burncards uses this, may be better )
+    NSSendAnnouncementMessageToPlayer( player, "#BURNMETER_REWARD_ENEMY_EMP", "#BURNMETER_REWARD_ENEMY_EMP_HINT", < 255, 0, 0 >, 2, 5 )
+    EmitSoundOnEntityOnlyToPlayer( player, player, "UI_LH_1P_Enemy_CappingLhp" )
+
+    wait TEAM_EMP_DURATION
+}
+
+// reaper fall
+// unused burncard that's mentioned in a few areas and has a validiation function in sh_burnmeter ( BurnMeter_SummonReaperCanUse ), thought it'd be neat to add it
+void function PlayerUsesReaperfallBurncard( entity player )
+{
+	thread PlayerUsesReaperBurncardThreaded( player )
+	/*
+	Point spawnpoint = GetTitanReplacementPoint( player, false )
+	entity reaper = CreateSuperSpectre( player.GetTeam(), spawnpoint.origin, spawnpoint.angles )
+	DispatchSpawn( reaper )
+
+	thread SuperSpectre_WarpFall( reaper )
+	*/
+}
+
+void function PlayerUsesReaperBurncardThreaded( entity player )
+{
+	Point spawnpoint = GetTitanReplacementPoint( player, false )
+	entity spawnNpc = CreateNPC( "npc_super_spectre", player.GetTeam(), spawnpoint.origin, spawnpoint.angles );
+    SetSpawnOption_AISettings( spawnNpc, "npc_super_spectre_burnmeter");
+    DispatchSpawn( spawnNpc );
+	Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", spawnpoint.origin.x, spawnpoint.origin.y, spawnpoint.origin.z, Time() + 1.5 ) //manually set time because i don't know how to get Reaper's WarpFall impact time
+
+	//int followBehavior = GetDefaultNPCFollowBehavior( spawnNpc )
+	//spawnNpc.InitFollowBehavior( player, followBehavior )
+	//spawnNpc.EnableBehavior( "Follow" )
+	if( IsValid(player) )
+	{
+		spawnNpc.SetBossPlayer( player )
+		spawnNpc.SetOwner( player )
+	}
+	Highlight_SetOwnedHighlight( spawnNpc, "friendly_ai" )
+	//spawnNpc.EnableBehavior( "Follow" )
+	spawnNpc.SetTitle(player.GetPlayerName() + "的死神")
+    thread SuperSpectre_WarpFall( spawnNpc )
+
+	//followbehavior stuff
+	NPCFollowsPlayer( spawnNpc, player )
+
+	thread AfterTimeDestroyNPC( spawnNpc, PET_REAPER_DURATION )
+}
+
+// spectre squad
+void function PlayerUsesHackedSpectreBurncard( entity player )
+{
+	thread PlayerUsesHackedSpectreBurncardThreaded( player )
+}
+
+void function PlayerUsesHackedSpectreBurncardThreaded( entity player )
+{
+	Point spawnpoint = GetTitanReplacementPoint( player, false )
+	Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", spawnpoint.origin.x, spawnpoint.origin.y, spawnpoint.origin.z, Time() + 5 )
+	int team = player.GetTeam()
+	entity pod = CreateDropPod( spawnpoint.origin, spawnpoint.angles )
+	string squadName = MakeSquadName( team, UniqueString( "ZiplineTable" ) )
+	array<entity> guys
+
+	SetTeam( pod, team )
+
+	InitFireteamDropPod( pod )
+
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", spawnpoint.origin, spawnpoint.angles )
+
+	for (int i = 0; i < 4 ;i++ ) 
+	{
+	  	entity soldier = CreateNPC( "npc_spectre", team, spawnpoint.origin, spawnpoint.angles )
+
+	    SetTeam( soldier, team )
+	    //soldier.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	    //soldier.AssaultPoint(Vector(-487.158, 646.772, 960.031))
+	    //soldier.AssaultSetFightRadius( 64 )
+		DispatchSpawn( soldier )
+		if( IsValid( player ) )
+		{
+			soldier.SetBossPlayer( player )
+			soldier.SetOwner( player )
+		}
+		Highlight_SetOwnedHighlight( soldier, "friendly_ai" )
+	    SetSquad( soldier, squadName )
+	    ReplaceWeapon( soldier, SPECTRE_WEAPONS[ RandomInt( SPECTRE_WEAPONS.len() ) ], [] )
+	    guys.append( soldier )
+
+	    thread AfterTimeDestroyNPC( soldier, HACKED_SPECTRE_DURATION )
+	}
+
+	ActivateFireteamDropPod( pod, guys )
+
+	foreach ( guy in guys )
+	{
+	    guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultSetGoalRadius( 50 )//set this extremely small so they can follow you around
+	}
+
+	foreach ( guy in guys )
+	{
+		//followbehavior stuff
+		if( IsValid(player) && player.IsPlayer() )
+			NPCFollowsPlayer( guy, player )
+  	}
+}
+
+void function ReplaceWeapon( entity guy, string weapon, array<string> mods )
+{
+	guy.TakeActiveWeapon()
+	guy.GiveWeapon( weapon, mods )
+	guy.SetActiveWeaponByName( weapon )
+}
+
+void function AfterTimeDestroyNPC( entity npc, float delay )
+{
+	wait delay
+	if( IsValid(npc) )
+		npc.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+}
