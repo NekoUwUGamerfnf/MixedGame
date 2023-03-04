@@ -1554,6 +1554,7 @@ vector function GetBulletCollectionOffset( entity weapon )
 
 
 #if SERVER
+// nessie: should really leave a AddCallback_OnVortexSphereDrainHealthForDamage
 function VortexSphereDrainHealthForDamage( entity vortexSphere, damage )
 {
 	// don't drain the health of vortex_spheres that are set to be invulnerable. This is the case for the Particle Wall

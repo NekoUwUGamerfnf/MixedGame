@@ -9,10 +9,17 @@ global function ServerCallback_PilotCreatedGunShield
 
 const FX_TITAN_GUN_SHIELD_VM = $"P_titan_gun_shield_FP"
 const FX_TITAN_GUN_SHIELD_WALL = $"P_titan_gun_shield_3P"
+const FX_TITAN_GUN_SHIELD_WALL_PILOT = $"P_anti_titan_shield_3P"
 const FX_TITAN_GUN_SHIELD_BREAK = $"P_xo_armor_break_CP"
 global const float TITAN_GUN_SHIELD_RADIUS = 105
 global const int TITAN_GUN_SHIELD_HEALTH = 2500
 global const int PAS_LEGION_SHEILD_HEALTH = 5000
+
+// pilot gunshields
+const int PILOT_GUN_SHIELD_RADIUS = 35
+const int PILOT_GUN_SHIELD_HEIGHT = 60
+const int PILOT_GUN_SHIELD_FOV = 75
+const int PILOT_GUN_SHIELD_HEALTH = 200
 
 #if CLIENT
 struct
@@ -26,21 +33,13 @@ void function MpTitanAbilityGunShield_Init()
 	PrecacheParticleSystem( FX_TITAN_GUN_SHIELD_WALL )
 	PrecacheParticleSystem( FX_TITAN_GUN_SHIELD_VM )
 	PrecacheParticleSystem( FX_TITAN_GUN_SHIELD_BREAK )
+	PrecacheParticleSystem( FX_TITAN_GUN_SHIELD_WALL_PILOT )
 	RegisterSignal( "GunShieldEnd" )
 }
 
 var function OnWeaponPrimaryAttack_gun_shield( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	// pilot gunshield
-	if ( weapon.HasMod( "pilot_gunshield" ) )
-		return OnWeaponPrimaryAttack_pilot_gun_shield( weapon, attackParams )
-
-
 	entity weaponOwner = weapon.GetWeaponOwner()
-
-	// modified: anti crash!!!
-	if ( weaponOwner.GetViewModelEntity().GetModelName() != $"models/weapons/titan_predator/atpov_titan_predator.mdl" )
-		return 0 // never create shield if player not using predator cannon model
 
 	Assert( IsValid( weaponOwner ), "weapon owner is not valid at the start of on weapon primary attack" )
 	Assert( IsAlive( weaponOwner ), "weapon owner is not alive at the start of on weapon primary attack" )
@@ -59,9 +58,14 @@ var function OnWeaponPrimaryAttack_gun_shield( entity weapon, WeaponPrimaryAttac
 	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
 	if ( weaponOwner.IsPlayer() )
 		PlayerUsedOffhand( weaponOwner, weapon )
-
-	thread GunShieldThink( primaryWeapon, weapon, weaponOwner, duration )
-
+	if( IsPilot( weaponOwner ) )
+	{
+		#if SERVER
+		thread CreateHumanSizedGunShield( weaponOwner, duration )
+		#endif
+	}
+	else
+		thread GunShieldThink( primaryWeapon, weapon, weaponOwner, duration )
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
 
@@ -90,8 +94,8 @@ void function GunShieldThink( entity weapon, entity shieldWeapon, entity owner, 
 					while( weapon.GetForcedADS() )
 						weapon.ClearForcedADS()
 				}
-
-				weapon.StopWeaponEffect( FX_TITAN_GUN_SHIELD_VM, FX_TITAN_GUN_SHIELD_WALL )
+				if( !IsPilot( owner ) )
+					weapon.StopWeaponEffect( FX_TITAN_GUN_SHIELD_VM, FX_TITAN_GUN_SHIELD_WALL )
 			}
 			if ( IsValid( owner ) )
 			{
@@ -121,8 +125,7 @@ bool function CanUseGunShield( entity owner, bool reqZoom = true )
 {
 	if ( !owner.IsNPC() )
 	{
-		// default behavior: titan gunshield
-		if ( owner.GetViewModelEntity().GetModelName() != $"models/weapons/titan_predator/atpov_titan_predator.mdl" )
+		if ( !IsPilot( owner ) && owner.GetViewModelEntity().GetModelName() != $"models/weapons/titan_predator/atpov_titan_predator.mdl" )
 			return false
 
 		if ( owner.PlayerMelee_IsAttackActive() )
@@ -162,7 +165,8 @@ void function Sv_CreateGunShield( entity titan, entity weapon, entity shieldWeap
 
 	if ( titan.IsPlayer() )
 	{
-		Remote_CallFunction_Replay( titan, "ServerCallback_PilotCreatedGunShield", weaponEHandle, shieldEHandle )
+		if( !IsPilot( titan ) )
+			Remote_CallFunction_Replay( titan, "ServerCallback_PilotCreatedGunShield", weaponEHandle, shieldEHandle )
 		EmitSoundOnEntityOnlyToPlayer( vortexWeapon, titan, "weapon_predator_mountedshield_start_1p" )
 		EmitSoundOnEntityExceptToPlayer( vortexWeapon, titan, "weapon_predator_mountedshield_start_3p" )
 	}
@@ -211,6 +215,69 @@ void function Sv_CreateGunShield( entity titan, entity weapon, entity shieldWeap
 		WaitForever()
 }
 
+void function CreateHumanSizedGunShield( entity player, float duration = 6.0 )
+{
+	vector angles = VectorToAngles( player.EyeAngles() )
+	entity vortexSphere = CreateShieldWithSettings( player.GetOrigin(), angles, PILOT_GUN_SHIELD_RADIUS, PILOT_GUN_SHIELD_HEIGHT, PILOT_GUN_SHIELD_FOV, duration, PILOT_GUN_SHIELD_HEALTH, FX_TITAN_GUN_SHIELD_WALL_PILOT )
+	thread DrainHealthOverTime( vortexSphere, vortexSphere.e.shieldWallFX, duration )
+
+	vortexSphere.SetOwner( player )
+	vortexSphere.SetBlocksRadiusDamage( true )
+	SetTeam( vortexSphere, player.GetTeam() )
+	vortexSphere.SetParent( player, "ORIGIN" )
+	vortexSphere.e.shieldWallFX.SetAngles( < 20,0,94 > )
+	vortexSphere.e.shieldWallFX.SetOrigin( < 31,0,32 > )
+
+	thread ShieldADSThink( player, vortexSphere, duration )
+	/*
+	vortexSphere.SetParent( player, "PROPGUN" )
+	vortexSphere.e.shieldWallFX.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY)
+	vortexSphere.SetAngles( < 20,0,100 > )
+	vortexSphere.SetOrigin( < 20,0,5 > )
+	*/
+}
+
+void function ShieldADSThink( entity player, entity vortexSphere, float duration )
+{
+	float startTime = Time()
+	float progressTime
+
+	while( true )
+	{
+		progressTime = Time()
+		if( progressTime - startTime >= duration )
+			break
+		entity weapon = player.GetActiveWeapon()
+		if( IsValid( weapon ) )
+			weapon.SetForcedADS()
+		if( !IsValid( vortexSphere ) )
+			break
+		if( !IsAlive( player ) )
+			break
+		WaitFrame()
+	}
+
+	OnThreadEnd(
+		function(): ( player, vortexSphere )
+		{
+			if( IsValid( vortexSphere ) )
+				vortexSphere.Destroy()
+			if( IsValid( player ) )
+			{
+				foreach( entity weapon in player.GetMainWeapons() )
+				{
+					if( IsValid( weapon ) )
+					{
+						while( weapon.GetForcedADS() )
+							weapon.ClearForcedADS()
+					}
+				}
+			}
+		}
+	)
+	
+}
+
 entity function CreateGunShieldVortexSphere( entity player, entity vortexWeapon, entity shieldWeapon )
 {
 	int attachmentID = vortexWeapon.LookupAttachment( "gun_shield" )
@@ -242,25 +309,8 @@ entity function CreateGunShieldVortexSphere( entity player, entity vortexWeapon,
 	vortexSphere.kv.physics_max_mass = 2
 	vortexSphere.kv.physics_max_size = 6
 	float health
-
-	// modified!!! allowing pilot to use gun shield
 	entity soul = player.GetTitanSoul()
 
-	if ( IsValid( soul ) )
-	{
-		bool hasShieldUpgrade = false
-		if( SoulHasPassive( soul, ePassives.PAS_LEGION_GUNSHIELD ) || shieldWeapon.HasMod( "fd_gun_shield" ) || shieldWeapon.HasMod( "pas_legion_gunshield" ) )
-			hasShieldUpgrade = true
-
-		if ( hasShieldUpgrade )
-			health = PAS_LEGION_SHEILD_HEALTH
-		else
-			health = TITAN_GUN_SHIELD_HEALTH
-	}
-	else // pilot using it?
-		health = TITAN_GUN_SHIELD_HEALTH
-
-	/*
 	if( !IsValid( soul ) )
 		return
 
@@ -272,8 +322,6 @@ entity function CreateGunShieldVortexSphere( entity player, entity vortexWeapon,
 		health = PAS_LEGION_SHEILD_HEALTH
 	else
 		health = TITAN_GUN_SHIELD_HEALTH
-	*/
-
 	vortexSphere.SetHealth( health )
 	vortexSphere.SetMaxHealth( health )
 
