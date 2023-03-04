@@ -22,7 +22,7 @@ const float EXPLOSION_DELAY = 0.1
 const float FX_END_CAP_TIME = 1.5
 
 // Bleedout balance
-const float PULL_DELAY_BLEEDOUT = 1.0
+const float PULL_DELAY_BLEEDOUT = 0.75
 
 struct
 {
@@ -223,10 +223,14 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 
 	AI_CreateDangerousArea( projectile, projectile, PULL_RANGE * 2.0, TEAM_INVALID, true, false )
 
+	// handle modded conditions
+	//wait PULL_DELAY
+	int delay = PULL_DELAY
+
 	if( mods.contains( "bleedout_balance" ) )
-		wait PULL_DELAY_BLEEDOUT
-	else
-		wait PULL_DELAY
+		delay = PULL_DELAY_BLEEDOUT
+
+	wait delay
 
 	projectile.SetGrenadeTimer( EXPLOSION_DELAY )
 		
