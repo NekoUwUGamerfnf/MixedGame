@@ -96,7 +96,7 @@ void function CreepingBombardmentWeapon_Detonation( vector origin, vector angles
 void function CreepingBombardmentExplode( entity bombModel, entity owner )
 {
 	EmitSoundAtPosition( TEAM_ANY, bombModel.GetOrigin(), "skyway_scripted_titanhill_mortar_explode" )
-    PlayImpactFXTable( bombModel.GetOrigin(), owner, "exp_satchel" )
+    PlayImpactFXTable( bombModel.GetOrigin(), owner, "exp_satchel", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
     RadiusDamage(
         bombModel.GetOrigin(),						// center
         owner,		                				// attacker

@@ -161,10 +161,16 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 #if SERVER
 	if( mods.contains( "explosive_sniper" ) )
 	{
+		// hardcoded fix...
+		float creationTime = projectile.GetProjectileCreationTime()
+		float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
+		if ( Time() < maxFixTime )
+			PlayImpactFXTable( pos, projectile, "40mm_splasher_rounds", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
 		// do a fake explosion effect for better client visual, hardcoded!
-		// this won't work due "projectile_do_predict_impact_effects"
-		PlayFX( $"P_impact_exp_lrg_metal", pos )
-		EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "explo_40mm_splashed_impact_3p" )
+		// correct this: it's because we played a single FX, not a impact table // this won't work due "projectile_do_predict_impact_effects"
+		//PlayImpactFXTable( pos, hitEnt, "" )
+		//PlayFX( $"P_impact_exp_lrg_metal", pos ) // a single FX won't work on some condition... consider a better ImpactEffectTable
+		//EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "explo_40mm_splashed_impact_3p" )
 	}
 
 	int bounceCount = projectile.GetProjectileWeaponSettingInt( eWeaponVar.projectile_ricochet_max_count )

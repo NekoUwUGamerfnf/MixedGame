@@ -111,7 +111,7 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 		{
 #if SERVER
 			// visual fix for client hitting near target, hardcoded. "exp_mgl" have airburst effect so PlayImpactFXTable() is better 
-			PlayImpactFXTable( pos, projectile, "exp_mgl" )
+			PlayImpactFXTable( pos, projectile, "exp_mgl", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
 #endif
 			projectile.ExplodeForCollisionCallback( normal )
 			return

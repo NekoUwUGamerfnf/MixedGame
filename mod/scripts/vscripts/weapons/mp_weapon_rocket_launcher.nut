@@ -200,9 +200,13 @@ void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, v
 	array<string> mods = projectile.ProjectileGetMods()
 	if( mods.contains( "no_lock_required" ) || mods.contains( "guided_missile" ) )
 	{
-		// do a fake explosion effect for better client visual, hardcoded!
-		PlayFX( $"P_impact_exp_lrg_metal", pos )
-		EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Explo_Archer_Impact_3P" )
+		// do a fake explosion effect for better client visual, hardcoded!..
+		float creationTime = projectile.GetProjectileCreationTime()
+		float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
+		if ( Time() < maxFixTime )
+			PlayImpactFXTable( pos, projectile, "exp_rocket_archer", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+		//PlayFX( $"P_impact_exp_lrg_metal", pos ) // a single FX won't work on some condition... consider a better ImpactEffectTable
+		//EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Explo_Archer_Impact_3P" )
 	}
 #endif
 }

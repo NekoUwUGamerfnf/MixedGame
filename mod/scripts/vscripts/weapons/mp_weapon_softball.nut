@@ -381,8 +381,8 @@ void function DetonateGrenadeAfterTime( entity projectile, float delay, string i
 			if( IsValid( projectile ) )
 			{
 				projectile.GrenadeExplode( projectile.proj.savedOrigin )
-				if( Time() - startTime <= 0.1 ) // not making it too loud, just server-forced prediction
-					PlayImpactFXTable( projectile.GetOrigin() + projectile.proj.savedOrigin, projectile, impactFXName )
+				if( Time() - startTime <= 0.3 ) // not making it too loud, just server-forced prediction
+					PlayImpactFXTable( projectile.GetOrigin() + projectile.proj.savedOrigin, projectile, impactFXName, SF_ENVEXPLOSION_INCLUDE_ENTITIES )
 			}
 		}
 	)
