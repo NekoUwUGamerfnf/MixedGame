@@ -11,8 +11,11 @@ function MeleeHumanShared_Init()
 	RegisterSignal( "StopSlowMoMelee" )
 	RegisterSignal( "StopHighlightValidMeleeEnemy" )
 
-	// modified signal to stop meleethread
+	// modified signal to stop melee dash
 	RegisterSignal( "MeleeImpact" )
+	RegisterSignal( "MeleeDash" )
+	// to stop last jet fx
+	RegisterSignal( "MeleeJetFX" )
 }
 
 function HumanUnsyncedMelee( entity player, bool movestunBlocked )
@@ -104,9 +107,9 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 					#if SERVER
 					if ( doJetPackFX )
 					{
-						if ( isDashMelee ) // dashMelee will also play a fx if player in valid state
+						if ( isDashMelee ) // for dash melee, player not in a valid state won't play a fx, should do it manually
 						{
-							if ( !IsValidMeleeState( player ) )
+							if ( !IsValidMeleeState( player ) ) 
 								thread HumanMeleeJetFX( player )
 						}
 						else
@@ -328,6 +331,8 @@ function HumanMeleeAttack_DoImpact( entity player, entity meleeWeapon, traceResu
 void function HumanMeleeJetFX( entity player )
 {
 	player.EndSignal( "OnDeath" )
+	player.Signal( "MeleeJetFX" )
+	player.EndSignal( "MeleeJetFX" )
 
 	array<entity> fx
 
@@ -524,6 +529,9 @@ void function HumanMeleeAttack_PushBackAttack( entity player, entity target, ent
 	//player.PlayerMelee_EndAttack() // so no more freezelook
 }
 
+// move limiter
+const float HUMAN_MELEE_IMPACT_MOVE_LIMITER_DURATION	= 0.3
+
 void function PushBackMeleeMoveLimiter( entity player )
 {
 	player.EndSignal( "OnDestroy" )
@@ -532,53 +540,122 @@ void function PushBackMeleeMoveLimiter( entity player )
 	
 	int moveLockEffect = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 1.0 ) // 1.0 will lock player's movement
 	
+	table results = {}
+	results.interrupted <- false
+
 	OnThreadEnd(
-		function(): ( player, moveLockEffect )
+		function(): ( player, results, moveLockEffect )
 		{
 			if( IsValid( player ) )
 			{
 				StatusEffect_Stop( player, moveLockEffect )
+				/* // really no need to reset speed...
+				if ( results.interrupted ) // if player interrupted the knockback..
+				{
+					vector fixVel = player.GetVelocity()
+					// remove their horizonal speed from knockback
+					fixVel.x = 0
+					fixVel.y = 0
+					player.SetVelocity( fixVel )
+				}
+				*/
 			}
 		}
 	)
 	
-	wait 0.3 // magic number, stun for 0.3s
+	wait HUMAN_MELEE_IMPACT_MOVE_LIMITER_DURATION
+	/* // really no need to reset speed...
+	float endTime = Time() + HUMAN_MELEE_IMPACT_MOVE_LIMITER_DURATION
+
+	while ( Time() < endTime )
+	{
+		if ( !IsValidMeleeState( player ) ) // player leave valid state!
+		{
+			results.interrupted = true // mark as being interrupted
+			return // end dash
+		}
+
+		WaitFrame()
+	}
+	*/
+	
 }
+
+// melee dash
+const float HUMAN_MELEE_DASH_DELAY					= 0.1 // 0.1s grace period
+const float HUMAN_MELEE_DASH_DURATION 				= 0.2
+const float HUMAN_MELEE_DASH_DURATION_NOT_MOVING	= 0.3 // if player is not moving, we last a bit longer
+const float HUMAN_MELEE_DASH_FORCE	 				= 275 // really should set this higher, since player will have to overcome friction
 
 void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
 {
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "MeleeImpact" )
+	player.Signal( "MeleeDash" )
+	player.EndSignal( "MeleeDash" )
 
-	float dashScale = 130 // was 110
-	//if( player.IsSprinting() ) // since player will cancel their sprinting when try to melee, this is not needed
-	//	dashScale = 130
-
-	WaitFrame()
-	if( !IsValidMeleeState( player ) )
+	wait HUMAN_MELEE_DASH_DELAY
+	if ( !IsValidMeleeState( player ) ) // not in valid state!
 		return
 	
-	thread HumanMeleeJetFX( player ) // if we're lunging to a target do an extra jetpack fx
-	
-	WaitFrame()
+	table results = {}
+	results.startSpeed <- null
+	results.interrupted <- false
+	results.meleeImpact <- true
 
-	vector viewVector = player.GetViewVector() * dashScale
-	viewVector.z = 0
-	vector targetVelocity = player.GetVelocity() + viewVector
-	
-	player.SetGroundFrictionScale( 0 ) 
-	OnThreadEnd(
-		function(): ( player )
+	thread HumanMeleeJetFX( player ) // always play a fx if you try to dashMelee
+
+	OnThreadEnd
+	(
+		function(): ( player, results )
 		{
-			if( IsValid( player ) )
-				player.SetGroundFrictionScale( 1 )
+			if ( results.startSpeed != null )
+			{
+				// if player have a melee impact or they're being interrupted, we reset speed to start speed
+				if ( !results.meleeImpact || results.interrupted )
+				{
+					vector fixVel = expect vector ( results.startSpeed )
+					fixVel.z = player.GetVelocity().z
+					player.SetVelocity( fixVel )
+				}
+			}
 		}
 	)
-	
-	player.SetVelocity( targetVelocity )
 
-	wait 0.2
+	float duration = HUMAN_MELEE_DASH_DURATION
+	if ( GetVelocityForce( player.GetVelocity() ) == 0 ) // player has no horizonal speed!
+		duration = HUMAN_MELEE_DASH_DURATION_NOT_MOVING
+
+	float startTime = Time()
+	float endTime = startTime + duration
+	vector startSpeed = player.GetVelocity()
+	results.startSpeed <- startSpeed
+
+	bool firstLoop = true
+	while ( Time() < endTime )
+	{
+		if ( !firstLoop )
+			WaitFrame()
+		firstLoop = false
+
+		if ( !IsValidMeleeState( player ) ) // player leave valid state!
+		{
+			results.interrupted = true // mark as being interrupted
+			return // end dash
+		}
+
+		float speedScale = HUMAN_MELEE_DASH_FORCE
+		vector addSpeed = player.GetViewVector() * speedScale
+		player.SetVelocity( startSpeed + addSpeed ) // keep this speed for a while
+	}
+
+	results.meleeImpact = false // if we reached here it means we're not interrupted by melee impact
+}
+
+float function GetVelocityForce( vector vel )
+{
+    return sqrt( vel.x * vel.x + vel.y * vel.y + vel.z * vel.z )
 }
 
 bool function IsValidMeleeState( entity player )
