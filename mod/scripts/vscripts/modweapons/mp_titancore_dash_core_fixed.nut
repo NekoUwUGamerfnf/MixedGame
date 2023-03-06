@@ -87,9 +87,10 @@ void function DashCoreThink( entity weapon, float coreDuration )
 				if ( owner.IsPlayer() )
 				{
 					EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Deactivated_1P" )
+					// clearn up
 					ScreenFade( owner, 0, 0, 0, 0, 0.1, 0.1, FFADE_OUT | FFADE_PURGE )
 					owner.SetPowerRegenRateScale( 1.0 )
-		            //owner.SetDodgePowerDelayScale( 1.0 )
+		            owner.SetDodgePowerDelayScale( 1.0 )
 				}
 			}
 
