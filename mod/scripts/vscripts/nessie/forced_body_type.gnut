@@ -1,0 +1,105 @@
+// basically works for altpilot.gnut and amped_pilots.gnut, for they may reset player's model
+// be awared that this file won't be able to handle most situations, for it's using AddDamageCallback()
+untyped // for player.SetPlayerSettings() to work
+global function Forced_BodyType_Init
+
+global function SetPlayerForcedBodyType
+global function SetPlayerBodyTypeDependOnSurfaceProp
+
+const string BODY_TYPE_FLESH_SETFILE        = "pilot_medium_male"
+const string BODY_TYPE_MECHANICAL_SETFILE   = "pilot_light_male"
+
+// hardcoded, get from GetSurfacePropForEntity()
+const int SURFACEPROP_FLESH                 = 18
+const int SURFACEPROP_METAL_SPECTRE         = 94
+
+struct
+{
+    string forcedBodyType = "" // "flesh", "mechanical"
+    bool bodyTypeDependOnSurfaceProp = false
+} file
+
+void function Forced_BodyType_Init()
+{
+    AddDamageCallback( "player", OnPlayerDamaged )
+}
+
+void function SetPlayerForcedBodyType( string bodyType )
+{
+    file.forcedBodyType = bodyType
+}
+
+void function SetPlayerBodyTypeDependOnSurfaceProp( bool enable )
+{
+    file.bodyTypeDependOnSurfaceProp = enable
+}
+
+void function OnPlayerDamaged( entity player, var damageInfo )
+{
+    if ( player.IsTitan() ) // don't do anything to titans
+        return
+    bool isKillshot = ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) ) <= 0
+    //print( "isKillshot: " + string( isKillshot ) )
+    if ( isKillshot ) // the killshot
+        UpdatePlayerToForcedBodyType( player )
+}
+
+void function UpdatePlayerToForcedBodyType( entity player )
+{
+    bool bodyTypeValid = file.forcedBodyType == "flesh" || file.forcedBodyType == "mechanical"
+    if ( !bodyTypeValid && !file.bodyTypeDependOnSurfaceProp ) // not using a valid settings
+        return
+
+    bool isMechanical = false
+    if ( file.bodyTypeDependOnSurfaceProp )
+    {
+        // "metal_spectre" is for robotic pilots while "flesh" is for human ones
+        int surfacePropId = GetSurfacePropForEntity( player )
+        if ( surfacePropId == SURFACEPROP_FLESH )
+            isMechanical = false
+        else if ( surfacePropId == SURFACEPROP_METAL_SPECTRE )
+            isMechanical = true
+        else // not a valid surface prop, get from it's setfile
+            isMechanical = player.IsMechanical()
+    }
+
+    //print( "setfile isMechanical: " + string( isMechanical ) )
+    string setFileToUse = isMechanical ? BODY_TYPE_MECHANICAL_SETFILE : BODY_TYPE_FLESH_SETFILE
+    
+
+    // save model and skin
+    asset model = player.GetModelName()
+    int skin = player.GetSkin()
+    int camo = player.GetCamo()
+
+    // save player's head state
+    int stateIndex
+    int bodyGroupIndex = player.FindBodyGroup( "removableHead" )
+	if ( bodyGroupIndex == -1 ) // don't have a removableHead
+		bodyGroupIndex = player.FindBodyGroup( "head" )
+	if ( bodyGroupIndex > -1 )
+		stateIndex = player.GetBodyGroupState( bodyGroupIndex )
+
+    // save health and shield
+    int health = player.GetHealth()
+    int maxHealth = player.GetMaxHealth()
+    int shield = player.GetShieldHealth()
+    int maxShield = player.GetShieldHealthMax()
+
+    // force change to certain setfile
+    player.SetPlayerSettings( setFileToUse )
+
+    // update model and skin
+    player.SetModel( model )
+    player.SetSkin( skin )
+    player.SetCamo( camo )
+
+    // update head
+    player.SetBodygroup( bodyGroupIndex, stateIndex )
+
+    // update health and shield so they won't be reset
+    player.SetMaxHealth( maxHealth )
+    player.SetHealth( health )
+    player.SetShieldHealthMax( maxShield )
+    player.SetShieldHealth( shield )
+}
