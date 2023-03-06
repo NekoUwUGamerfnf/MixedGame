@@ -167,7 +167,7 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 		if ( Time() < maxFixTime )
 		{
 			//PlayImpactFXTable( pos, projectile, "40mm_splasher_rounds", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
-			// splasher rounds can be too annoying, change to use this
+			// splasher rounds can be too loud, change to use this
 			PlayImpactFXTable( pos, projectile, "exp_softball", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
 		}
 		// do a fake explosion effect for better client visual, hardcoded!
