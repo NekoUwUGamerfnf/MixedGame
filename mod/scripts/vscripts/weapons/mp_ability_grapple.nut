@@ -33,6 +33,11 @@ void function GrappleWeaponInit()
 	// modified fix: manually do a impact fx
 	//file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "exp_rocket_archer" )
 	//file.grappleExplodeImpactTable = PrecacheImpactEffectTable( "40mm_mortar_shots" ) // this may cause client desync!
+#if SERVER
+	// modified signal, required!!!
+	RegisterSignal( "OnGrappled" )
+	RegisterSignal( "GrappleCancelled" )
+#endif
 }
 
 // modified for cooldowns

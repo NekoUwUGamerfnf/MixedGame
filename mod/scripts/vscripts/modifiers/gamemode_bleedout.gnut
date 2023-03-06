@@ -153,6 +153,10 @@ void function Modded_Gamemode_Bleedout_Init()
     AddCallback_GameStateEnter( eGameState.Playing, SetBleedoutModeScoreEvent )
     //ScoreEvent_SetEarnMeterValues( "EliminatePilot", BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE, BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE )
 
+	// grapple!!!
+	AddCallback_OnPlayerGrappled( BleedoutOnPlayerGrappled )
+
+	// UNUSED
     RegisterSignal( "GiveMeleeAfterGracePeriod" )
 
     // do these in playlistvar?, pretty annoying
@@ -1859,6 +1863,7 @@ void function Bleedout_ScreenFadeThink( entity player )
 	WaitForever()
 }
 
+// WIP
 void function Bleedout_FakePlayerThink( entity player ) // don't know how to do this
 {
 	float fadeDist 	= 10000.0
@@ -1880,6 +1885,60 @@ void function Bleedout_FakePlayerThink( entity player ) // don't know how to do 
 	fakePlayer.Anim_Play( "pt_wounded_drag_zinger_A_idle" )
 }
 
+// grapple
+void function BleedoutOnPlayerGrappled( entity player, entity victim )
+{
+	// hacked death: track attacker cancelling the grapple, players are able to grapple a spectator player if they're not actually dead
+	thread TrackPlayerGrappleDetach( player, victim )
+}
+
+void function TrackPlayerGrappleDetach( entity player, entity target )
+{
+	player.EndSignal( "BleedOut_OnStartDying" ) // go to OnThreadEnd() if player start bleedout...
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+
+	table results = {}
+	results.cancelled <- false
+
+	OnThreadEnd
+	(
+		function(): ( player, target, results )
+		{
+			if ( IsValid( player ) )
+			{
+				if ( IsAlive( target ) ) // target still alive, meaning there's only player entered bleedout
+				{
+					if ( !results.cancelled ) // not manually cancelled
+					{
+						player.Grapple( < 0, 0, 0 > ) // fire another grapple while grappling will cancel current one
+						print( "Player being forced cancelling grapple!" )
+					}
+				}
+
+				// clean up
+				RemoveButtonPressedPlayerInputCallback( player, IN_DUCK, PlayerPressedGrappleDetachButton )
+				RemoveButtonPressedPlayerInputCallback( player, IN_DUCKTOGGLE, PlayerPressedGrappleDetachButton )
+			}
+		}
+	)
+
+	// check cancelling through crouching
+	AddButtonPressedPlayerInputCallback( player, IN_DUCK, PlayerPressedGrappleDetachButton )
+	AddButtonPressedPlayerInputCallback( player, IN_DUCKTOGGLE, PlayerPressedGrappleDetachButton )
+
+	// signals all handled in mp_ability_grapple.nut
+	WaitSignal( player, "GrappleCancelled", "OnGrappled" )
+	results.cancelled = true // if triggered these signals we consider it as grapple cancelled
+	print( "Player cancelled grapple!" )
+}
+
+void function PlayerPressedGrappleDetachButton( entity player )
+{
+	player.Signal( "GrappleCancelled" )
+}
+
+// health regen: pas_fast_regen won't take effect, all players have less regen rate
 void function Bleedout_HealthRegenThink( entity player )
 {
     player.EndSignal( "OnDestroy" )
