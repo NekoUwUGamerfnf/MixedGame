@@ -4,16 +4,9 @@ global function ThermiteBurn
 global const float THERMITE_GRENADE_BURN_TIME = 6.0
 global const float THERMITE_TRAIL_SOUND_TIME = 2.0
 
-global const float BLEEDOUT_BALANCE_BURN_TIME = 1.0
-
-// flamewall_grenade stuff
-const asset FLAME_WALL_FX = $"P_wpn_meteor_wall"
-
-const string FLAME_WALL_PROJECTILE_SFX = "flamewall_flame_start"
-const string FLAME_WALL_GROUND_SFX = "Explo_ThermiteGrenade_Impact_3P"
-const string FLAME_WALL_GROUND_BEGINNING_SFX = "flamewall_flame_burn_front"
-const string FLAME_WALL_GROUND_MIDDLE_SFX = "flamewall_flame_burn_middle"
-const string FLAME_WALL_GROUND_END_SFX = "flamewall_flame_burn_end"
+// bleedout balance
+const float BLEEDOUT_BURN_TIME = 3.0 // halfed normal duration
+const float BLEEDOUT_STICK_BURN_TIME = 1.0 // sticked firestar will have less duration
 #endif
 
 global function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade
@@ -63,7 +56,7 @@ void function OnProjectileCollision_weapon_thermite_grenade( entity projectile, 
 	{
 		#if SERVER
 		if( mods.contains( "bleedout_balance" ) )
-			thread EarlyExtinguishFireStar( projectile, BLEEDOUT_BALANCE_BURN_TIME )
+			thread EarlyExtinguishFireStar( projectile, BLEEDOUT_STICK_BURN_TIME )
 		#endif
 	}
 
@@ -110,7 +103,12 @@ void function OnProjectileIgnite_weapon_thermite_grenade( entity projectile )
 			return
 		}
 
-		thread ThermiteBurn( THERMITE_GRENADE_BURN_TIME, player, projectile )
+		// modified to add bleedout balance
+		//thread ThermiteBurn( THERMITE_GRENADE_BURN_TIME, player, projectile )
+		float burnTime = THERMITE_GRENADE_BURN_TIME
+		if ( mods.contains( "bleedout_balance" ) )
+			burnTime = BLEEDOUT_BURN_TIME
+		thread ThermiteBurn( burnTime, player, projectile )
 
 		entity entAttachedTo = projectile.GetParent()
 		if ( !IsValid( entAttachedTo ) )
