@@ -487,6 +487,8 @@ function Vortex_HandleElectricDamage( entity ent, entity attacker, damage, entit
 }
 
 // this function handles all incoming vortex impact events
+// nessie: should add a function AddCallback_ModdedVortexAbsorb() to handle modded projectiles
+// AddCallback_ModdedVortexAbsorb( string weaponName, string modName, string absorbBehavior )
 bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector origin, int damageSourceID, entity weapon, string weaponName, string impactType, entity projectile = null, damageType = null, reflect = false )
 {
 	if ( weaponName in VortexIgnoreClassnames && VortexIgnoreClassnames[weaponName] )
@@ -1554,7 +1556,8 @@ vector function GetBulletCollectionOffset( entity weapon )
 
 
 #if SERVER
-// nessie: should really leave a AddCallback_OnVortexSphereDrainHealthForDamage
+// nessie: really should leave a AddEntityCallback_OnVortexSphereDrainHealthForDamage()
+// AddEntityCallback_OnVortexSphereDrainHealthForDamage( entity vortexSphere, var damageInfo )
 function VortexSphereDrainHealthForDamage( entity vortexSphere, damage )
 {
 	// don't drain the health of vortex_spheres that are set to be invulnerable. This is the case for the Particle Wall
