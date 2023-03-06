@@ -16,10 +16,12 @@ global function OnProjectileCollision_ability_grapple
 global function AddCallback_MpAbilityGrapplePrimaryAttack
 global function AddCallback_OnGrapple
 
+
 struct
 {
 	int grappleExplodeImpactTable
 
+	// modified callback
 	array< void functionref( entity, WeaponPrimaryAttackParams ) > weaponPrimaryAttackCallbacks
 	array< void functionref( entity, entity, vector, vector ) > onGrappleCallbacks
 } file
@@ -106,6 +108,11 @@ var function OnWeaponPrimaryAttack_ability_grapple( entity weapon, WeaponPrimary
 
 	owner.Grapple( attackParams.dir )
 
+	// modified signal
+#if SERVER
+	owner.Signal( "OnGrappled" )
+#endif
+
 	// run callbacks
 	foreach ( void functionref( entity, WeaponPrimaryAttackParams ) callbackFunc in file.weaponPrimaryAttackCallbacks )
 		callbackFunc( weapon, attackParams )
@@ -168,6 +175,9 @@ void function CodeCallback_OnGrapple( entity player, entity hitent, vector hitpo
 #endif //
 
 	// assault impact:
+	// make them in a function, so things below can set up
+	TryGrappleImpactExplosion( player, hitent, hitpos, hitNormal )
+	/*
 	{
 		if ( !IsValid( player ) )
 			return
@@ -194,29 +204,50 @@ void function CodeCallback_OnGrapple( entity player, entity hitent, vector hitpo
 
 		DoGrappleImpactExplosion( player, grappleWeapon, hitent, hitpos, hitNormal )
 	}
+	*/
 
 	// run callbacks
 	foreach ( void functionref( entity, entity, vector, vector ) callbackFunc in file.onGrappleCallbacks )
 		callbackFunc( player, hitent, hitpos, hitNormal )
 }
 
-// modified callback
-void function AddCallback_MpAbilityGrapplePrimaryAttack( void functionref( entity, WeaponPrimaryAttackParams ) callbackFunc )
+// splited function
+void function TryGrappleImpactExplosion( entity player, entity hitent, vector hitpos, vector hitNormal )
 {
-	file.weaponPrimaryAttackCallbacks.append( callbackFunc )
+	if ( !IsValid( player ) )
+		return
+
+	entity grappleWeapon = null
+	foreach( entity offhand in player.GetOffhandWeapons() )
+	{
+		if( offhand.GetWeaponClassName() == "mp_ability_grapple" )
+			grappleWeapon = offhand
+	}
+
+	if ( !IsValid( grappleWeapon ) )
+		return
+	if ( !grappleWeapon.GetWeaponSettingBool( eWeaponVar.grapple_weapon ) )
+		return
+
+	int flags = grappleWeapon.GetScriptFlags0()
+	if ( ! (flags & GRAPPLEFLAG_CHARGED) )
+		return
+
+	int expDamage = grappleWeapon.GetWeaponSettingInt( eWeaponVar.explosion_damage )
+	if ( expDamage <= 0 )
+		return
+
+	DoGrappleImpactExplosion( player, grappleWeapon, hitent, hitpos, hitNormal )
 }
 
-void function AddCallback_OnGrapple( void functionref( entity, entity, vector, vector ) callbackFunc )
-{
-	file.onGrappleCallbacks.append( callbackFunc )
-}
-
+// modified
 void function OnProjectileCollision_ability_grapple( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	array<string> mods = projectile.ProjectileGetMods()
 	if ( mods.contains( "zipline_gun" ) )
 		return OnProjectileCollision_ability_zipline_gun( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }
+
 
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_ability_grapple( entity weapon, WeaponPrimaryAttackParams attackParams )
@@ -228,3 +259,15 @@ var function OnWeaponNpcPrimaryAttack_ability_grapple( entity weapon, WeaponPrim
 	return 1
 }
 #endif
+
+
+// modified callback
+void function AddCallback_MpAbilityGrapplePrimaryAttack( void functionref( entity, WeaponPrimaryAttackParams ) callbackFunc )
+{
+	file.weaponPrimaryAttackCallbacks.append( callbackFunc )
+}
+
+void function AddCallback_OnGrapple( void functionref( entity, entity, vector, vector ) callbackFunc )
+{
+	file.onGrappleCallbacks.append( callbackFunc )
+}
