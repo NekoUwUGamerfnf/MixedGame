@@ -152,12 +152,20 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		AddPlayerScore( attacker, "KilledMVP", victim )
 	
 	// headshot
+	//if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
+	//	AddPlayerScore( attacker, "Headshot", victim )
+	// modified to handle bleedout damage redirect and dialogue
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
-		AddPlayerScore( attacker, "Headshot", victim )
+	{
+		// if the victim is killed by redirected damage, we don't do headshot medal event and dialogue
+		if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) != eDamageSourceId.bleedout )
+		{
+			AddPlayerScore( attacker, "Headshot", victim )
+			PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
+		}
+	}
 
-	// special method of killing dialogues
-	if( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
-		PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
+	// special method of killing dialogues	
 	if( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == damagedef_titan_step )
 		PlayFactionDialogueToPlayer( "kc_hitandrun", attacker )
 
