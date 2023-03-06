@@ -32,11 +32,11 @@ void function MpTitanWeaponFlameWave_Init()
 
 void function OnWeaponActivate_titancore_flame_wave( entity weapon )
 {
-	entity owner = weapon.GetWeaponOwner()
 	if( weapon.HasMod( "storm_core" ) )
 		return OnWeaponActivate_titancore_storm_wave( weapon )
-	else if( owner.IsPlayer() && weapon.HasMod( "ground_slam" ) )
+	if( weapon.HasMod( "ground_slam" ) )
 		return OnWeaponActivate_titancore_ground_slam( weapon )
+
 	weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
 	OnAbilityCharge_TitanCore( weapon )
 }
@@ -44,11 +44,12 @@ void function OnWeaponActivate_titancore_flame_wave( entity weapon )
 
 bool function OnAbilityCharge_FlameWave( entity weapon )
 {
-	entity owner = weapon.GetWeaponOwner()
 	if( weapon.HasMod( "storm_core" ) )
 		return OnAbilityCharge_StormWave( weapon )
-	else if( owner.IsPlayer() && weapon.HasMod( "ground_slam" ) )
+	if( weapon.HasMod( "ground_slam" ) )
 		return OnAbilityCharge_GoundSlam( weapon )
+
+	entity owner = weapon.GetWeaponOwner()
 	#if SERVER
 		float chargeTime = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
 		entity soul = owner.GetTitanSoul()
@@ -69,11 +70,12 @@ bool function OnAbilityCharge_FlameWave( entity weapon )
 
 void function OnAbilityChargeEnd_FlameWave( entity weapon )
 {
-	entity owner = weapon.GetWeaponOwner()
 	if( weapon.HasMod( "storm_core" ) )
 		return OnAbilityChargeEnd_StormWave( weapon )
-	else if( owner.IsPlayer() && weapon.HasMod( "ground_slam" ) )
+	if( weapon.HasMod( "ground_slam" ) )
 		return OnAbilityChargeEnd_GoundSlam( weapon )
+
+	entity owner = weapon.GetWeaponOwner()
 	#if SERVER
 		if ( owner.IsPlayer() )
 			owner.SetTitanDisembarkEnabled( true )
@@ -83,11 +85,11 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 
 var function OnWeaponPrimaryAttack_titancore_flame_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	entity owner = weapon.GetWeaponOwner()
 	if( weapon.HasMod( "storm_core" ) )
 		return OnWeaponPrimaryAttack_titancore_storm_wave( weapon, attackParams )
-	else if( owner.IsPlayer() && weapon.HasMod( "ground_slam" ) )
+	if( weapon.HasMod( "ground_slam" ) )
 		return OnWeaponPrimaryAttack_titancore_ground_slam( weapon, attackParams )
+
 	OnAbilityStart_TitanCore( weapon )
 
 	#if SERVER
