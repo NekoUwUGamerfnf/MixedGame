@@ -322,8 +322,7 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	if( IsValid( player.GetActiveWeapon() ) && IsWeaponDropsEnabled() ) 
 		DropCopyOfPlayerWeapon( player, damageInfo ) // this can be too complex, but it's the best way to solve it
 	
-	if( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET ) // only play fx when killed by bullets
-		PlayHackedDeathKilledEffectOnPlayer( player, damageInfo )
+	PlayHackedDeathKilledEffectOnPlayer( player, damageInfo )
 
 	// need to check this, or dropping a invalid weapon will crash the game
 	// game's weapon taken will leave a empty weapon bar, maybe no need to fix it
@@ -368,24 +367,43 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 void function PlayHackedDeathKilledEffectOnPlayer( entity player, var damageInfo )
 {
 	int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
-	if( attachmentIndex <= 0 ) // no valid attachments
-		return
-	vector origin = player.GetAttachmentOrigin( attachmentIndex )
+	vector origin = player.GetOrigin() + < 0, 0, 20 > // add a bit offset by default
+	vector angles = player.GetAngles()
+	if( attachmentIndex > 0 ) // get valid attachment
+	{
+		// update origin and angles
+		origin = player.GetAttachmentOrigin( attachmentIndex )
+		angles = player.GetAttachmentAngles( attachmentIndex )
+	}
+
+	bool isGibDeath = ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_GIB ) > 0
+	bool isBulletShot = ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET ) > 0
 	if( player.IsMechanical() )
 	{
-		// this should play independently
-		//int particleIndex = GetParticleSystemIndex( MECHNAICAL_PINKMIST_FX )
-		vector angles = player.GetAttachmentAngles( attachmentIndex )
-		entity fx = PlayFX( MECHNAICAL_PINKMIST_FX, origin, angles )
-		//entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
-		thread FastStopParticle( fx, 0.5 )
+		if ( isBulletShot && !isGibDeath ) // only play fx when killed by bullets
+		{
+			// this should play independently
+			//int particleIndex = GetParticleSystemIndex( MECHNAICAL_PINKMIST_FX )
+			
+			entity fx = PlayFX( MECHNAICAL_PINKMIST_FX, origin, angles )
+			//entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+			thread FastStopParticle( fx, 1.0 )
+		}
 	}
 	else // flesh
 	{
-		// this should play on player's FX_PATTACH_POINT_FOLLOW to make it more visible
-		int particleIndex = GetParticleSystemIndex( FLESH_PINKMIST_FX )
-		entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
-		SetForceDrawWhileParented( fx, true )
+		if ( isGibDeath ) // if killed by gib
+		{
+			// "death.pinkmist" is played when a grunt is gibbed, but we've made them silentDeath, so manually do a sound event
+			EmitSoundAtPosition( TEAM_UNASSIGNED, player.GetOrigin(), "death.pinkmist" )
+		}
+		else if ( isBulletShot ) // only play fx when killed by bullets
+		{
+			// this should play on player's FX_PATTACH_POINT_FOLLOW to make it more visible
+			int particleIndex = GetParticleSystemIndex( FLESH_PINKMIST_FX )
+			entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+			SetForceDrawWhileParented( fx, true )
+		}
 		
 		// play this fx on world will leave a less effective fx, which is... pretty weird
 		//entity fx = StartParticleEffectInWorld_ReturnEntity( particleIndex, origin, < 0,0,0 > ) //PlayFX( MECHNAICAL_PINKMIST_FX, origin, angles )
