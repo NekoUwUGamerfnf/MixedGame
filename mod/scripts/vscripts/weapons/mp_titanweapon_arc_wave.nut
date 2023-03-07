@@ -56,6 +56,11 @@ void function OnWeaponDeactivate_titanweapon_arcwave( entity weapon )
 
 var function OnWeaponPrimaryAttack_titanweapon_arc_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "stryder_fire_wave" ) )
+		return OnWeaponPrimaryAttack_titanweapon_fire_wave( weapon, attackParams )
+
+	// vanilla behavior
 	entity weaponOwner = weapon.GetWeaponOwner()
 	if ( weaponOwner.IsPhaseShifted() )
 		return 0
@@ -112,11 +117,17 @@ void function BeginEmpWave( entity projectile, WeaponPrimaryAttackParams attackP
 	EmitSoundOnEntity( projectile, "arcwave_tail_3p" )
 	waitthread WeaponAttackWave( projectile, 0, projectile, attackParams.pos, attackParams.dir, CreateEmpWaveSegment )
 	StopSoundOnEntity( projectile, "arcwave_tail_3p" )
+
 	projectile.Destroy()
 }
 
 var function OnWeaponNpcPrimaryAttack_titanweapon_arc_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "stryder_fire_wave" ) )
+		return OnWeaponNpcPrimaryAttack_titanweapon_fire_wave( weapon, attackParams )
+
+	// vanilla behavior
 	const float FUSE_TIME = 99.0
 	entity projectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, false, true, true )
 	if ( IsValid( projectile ) )
