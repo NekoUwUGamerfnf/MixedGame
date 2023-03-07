@@ -111,7 +111,7 @@ var function OnWeaponPrimaryAttack_titanweapon_arc_ball( entity weapon, WeaponPr
 
 //void function FireArcBall( entity weapon, vector pos, vector dir, bool shouldPredict, float damage = BALL_LIGHTNING_DAMAGE, bool isCharged = false )
 // return a entity so we can modify arcballs not only through this function
-entity function FireArcBall( entity weapon, vector pos, vector dir, bool shouldPredict, float damage = BALL_LIGHTNING_DAMAGE, bool isCharged = false, bool forceVisualFix = false )
+entity function FireArcBall( entity weapon, vector pos, vector dir, bool shouldPredict, float damage = BALL_LIGHTNING_DAMAGE, bool isCharged = false )
 {
 	entity owner = weapon.GetWeaponOwner()
 
@@ -165,10 +165,6 @@ entity function FireArcBall( entity weapon, vector pos, vector dir, bool shouldP
 
 			ballLightning.e.ballLightningData.damage = damage
 
-			// fix for charge balls
-			if( forceVisualFix )
-				thread DelayedStartParticleSystem( bolt )
-
 			/*{
 				// HACK: bolts don't have collision so...
 				entity collision = CreateEntity( "prop_script" )
@@ -197,19 +193,10 @@ entity function FireArcBall( entity weapon, vector pos, vector dir, bool shouldP
 				thread TrackCollision( collision, bolt )
 			}*/
 		#endif
-		return bolt
+
+		return bolt // modified!!!
 	}
 }
-
-// trail fix
-#if SERVER
-void function DelayedStartParticleSystem( entity bolt )
-{
-    WaitFrame()
-    if( IsValid( bolt ) )
-        StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"P_wpn_arcball_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-}
-#endif
 
 #if SERVER
 void function OnArcBallCollDamaged( entity collision, var damageInfo )

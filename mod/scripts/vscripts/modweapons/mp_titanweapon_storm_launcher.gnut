@@ -7,21 +7,26 @@ global function OnWeaponNpcPrimaryAttack_StormLauncher
 #endif
 
 // fx
-const FX_EMP_FIELD						= $"P_xo_emp_field"
-const FX_EMP_FIELD_1P					= $"P_body_emp_1P"
-const FX_EMP_GLOW                       = $"P_titan_core_atlas_charge"
-const FX_EMP_ORB                        = $"P_wpn_arcball_trail"
+const asset FX_EMP_FIELD					= $"P_xo_emp_field"
+const asset FX_EMP_FIELD_1P					= $"P_body_emp_1P"
+const asset FX_EMP_GLOW                     = $"P_titan_core_atlas_charge"
+const asset FX_EMP_ORB                      = $"P_wpn_arcball_trail"
 
 // damages
-const int STORM_DAMAGE                  = 10
-const int STORM_DAMAGE_HEAVYARMOR       = 250
-const float STORM_DAMAGE_INTERVAL		= 0.1
-const int STORM_BALL_DAMAGE_FLAGS       = DF_EXPLOSION | DF_STOPS_TITAN_REGEN | DF_DOOM_FATALITY | DF_SKIP_DAMAGE_PROT
+const int STORM_DAMAGE                  	= 10
+const int STORM_DAMAGE_HEAVYARMOR       	= 180
+const int STORM_DAMAGE_HEAVYARMOR_CHARGED   = 450 // charged storm ball
+const float STORM_DAMAGE_INTERVAL			= 0.1 // no need to change this
+
+const int STORM_BALL_DAMAGE_FLAGS			= DF_EXPLOSION | DF_GIB | DF_STOPS_TITAN_REGEN | DF_DOOM_FATALITY
+const int STORM_LIGHTNING_DAMAGE_FLAGS      = DF_ELECTRICAL | DF_GIB | DF_DISSOLVE
 
 void function MpTitanWeaponStormLauncher_Init()
 {
     #if SERVER
-        AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_emp, StormLauncher_DamagedTarget )
+		// don't use eDamageSourceId.mp_titancore_emp, since it has been registered in GameModeRulesRegisterTimerCreditException()
+		// also don't use eDamageSourceId.mp_titanweapon_arc_ball, it has been registered in RegisterBallLightningDamage()
+        AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_emp_volley, StormLauncher_DamagedTarget )
     #endif
 }
 
@@ -73,7 +78,9 @@ var function PlayerOrNPCFire_StormLauncher( WeaponPrimaryAttackParams attackPara
         {
 			EmitSoundOnEntity( bolt, "weapon_thermitelauncher_projectile_3p" )
             #if SERVER
-                AttachStormBall( bolt, 0.15 ) // wait 0.15s for client prediction
+				bool charged = weapon.HasMod( "super_charged" )
+                AttachStormBall( bolt, charged ) // wait 0.15s for client prediction
+				bolt.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_emp_volley ) // change damageSourceID
             #endif
         }
 	}
@@ -82,55 +89,68 @@ var function PlayerOrNPCFire_StormLauncher( WeaponPrimaryAttackParams attackPara
 }
 
 #if SERVER
-void function AttachStormBall( entity projectile, float delay )
+void function AttachStormBall( entity projectile, bool charged = false )
 {
-    thread AttachStormBall_Threaded( projectile, delay )
+    thread AttachStormBall_Threaded( projectile, charged )
 }
 
-void function AttachStormBall_Threaded( entity projectile, float delay )
+void function AttachStormBall_Threaded( entity projectile, bool charged )
 {
     projectile.EndSignal( "OnDestroy" )
 
-    wait delay
-    PlayFXOnEntity( FX_EMP_FIELD, projectile, "", <0, 0, -21.0> )
+    WaitFrame() // wait for client to predict it...
+	PlayFXOnEntity( FX_EMP_ORB, projectile, "" )
     PlayFXOnEntity( FX_EMP_FIELD, projectile, "", <0, 0, -20.0> )
-    PlayFXOnEntity( FX_EMP_FIELD, projectile, "", <0, 0, -22.0> )
-    PlayFXOnEntity( FX_EMP_GLOW, projectile )
+	PlayFXOnEntity( FX_EMP_FIELD, projectile, "", <0, 0, -21.0> )
+	PlayFXOnEntity( FX_EMP_FIELD, projectile, "", <0, 0, -22.0> )
     EmitSoundOnEntity( projectile, "EMP_Titan_Electrical_Field" )
-    EmitSoundOnEntity( projectile, "Wpn_LaserTripMine_LaserLoop" )
 
-    thread UpdateStormBallField( projectile )
+	if ( charged ) // for charged storm ball, do extra fx and sound
+	{
+		PlayFXOnEntity( FX_EMP_GLOW, projectile )
+		EmitSoundOnEntity( projectile, "Wpn_LaserTripMine_LaserLoop" )
+	}
+
+    thread UpdateStormBallField( projectile, charged )
 }
 
-void function UpdateStormBallField( entity projectile )
+void function UpdateStormBallField( entity projectile, bool charged )
 {
     projectile.EndSignal( "OnDestroy" )
 
+	float interval = STORM_DAMAGE_INTERVAL
 	while ( true )
 	{
-		wait STORM_DAMAGE_INTERVAL
-		StormBallFieldDamage( projectile )
+		StormBallFieldDamage( projectile, charged )
+		wait interval
 	}
 }
 
-void function StormBallFieldDamage( entity projectile )
+void function StormBallFieldDamage( entity projectile, bool charged )
 {
+	//print( "RUNNING StormBallFieldDamage()" )
     vector origin = projectile.GetOrigin()
     entity attacker = projectile.GetOwner()
+
+	int damage = STORM_DAMAGE
+	int titanDamage = STORM_DAMAGE_HEAVYARMOR
+	if ( charged )
+		titanDamage = STORM_DAMAGE_HEAVYARMOR_CHARGED
 
 	RadiusDamage(
 		origin,									    // center
 		attacker,								    // attacker
 		projectile,									// inflictor
-		STORM_DAMAGE,					            // damage
-		STORM_DAMAGE_HEAVYARMOR,					// damageHeavyArmor
-		ARC_TITAN_EMP_FIELD_INNER_RADIUS,		    // innerRadius
-		ARC_TITAN_EMP_FIELD_RADIUS,				    // outerRadius
+		damage,					            		// damage
+		titanDamage,								// damageHeavyArmor
+		ARC_TITAN_EMP_FIELD_INNER_RADIUS,		    // innerRadius, no need to change since we need match visual effect
+		ARC_TITAN_EMP_FIELD_RADIUS,				    // outerRadius, no need to change since we need match visual effect
 		SF_ENVEXPLOSION_NO_DAMAGEOWNER,			    // flags
 		0,										    // distanceFromAttacker
 		0,					                        // explosionForce
-		STORM_BALL_DAMAGE_FLAGS,	                // scriptDamageFlags
-		eDamageSourceId.mp_titancore_emp )			// scriptDamageSourceIdentifier
+		STORM_LIGHTNING_DAMAGE_FLAGS,	            // scriptDamageFlags
+		eDamageSourceId.mp_titanweapon_emp_volley 	// scriptDamageSourceIdentifier
+	)			
 }
 
 void function StormLauncher_DamagedTarget( entity victim, var damageInfo )
@@ -149,17 +169,6 @@ void function StormLauncher_DamagedTarget( entity victim, var damageInfo )
 	if( !IsValid( attacker ) )
 		return
 
-    if ( attacker == victim )
-    {
-        DamageInfo_SetDamage( damageInfo, 0 )
-        return
-    }
-	if ( attacker.GetTeam() == victim.GetTeam() )
-    {
-        DamageInfo_SetDamage( damageInfo, 0 )
-        return
-    }
-
     // checks all passed, these are actual effects
     if ( victim.IsPlayer() )
 	{
@@ -169,6 +178,7 @@ void function StormLauncher_DamagedTarget( entity victim, var damageInfo )
 		 	EmitSoundOnEntityOnlyToPlayer( victim, victim, "flesh_explo_med_3p_vs_1p" )
 	}
 
-	OnBallLightningDamage( victim, damageInfo )
+	// this will cause a projectile with no ball lightning dealing no damage!
+	//OnBallLightningDamage( victim, damageInfo )
 }
 #endif

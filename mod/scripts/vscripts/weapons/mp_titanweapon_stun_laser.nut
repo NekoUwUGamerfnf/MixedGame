@@ -95,15 +95,13 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	if( weapon.GetWeaponClassName() != "mp_titanweapon_stun_laser" )
 		return
 	
-	/* // this was handle in RegisterBallLightningDamage()
-	if( weapon.HasMod( "charge_ball" ) )
-	{
-		if( target.GetTeam() != attacker.GetTeam() )
-			OnBallLightningDamage( target, damageInfo )
+	// modded weapon
+	// archon's laser, only do damage
+	if ( weapon.HasMod( "archon_laser" ) )
 		return
-	}
-	*/
 
+
+	// vanguard shield gain think
 	//if ( attacker.GetTeam() == target.GetTeam() ) // we added friendly fire, do a new check now!
 	if ( attacker.GetTeam() == target.GetTeam() && !IsFriendlyFireOn() ) 
 	{

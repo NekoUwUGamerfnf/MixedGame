@@ -1,0 +1,113 @@
+// this file is a fake ttf1 40mm
+global function MpTitanWeaponAtlas40mm_Init
+
+global function OnWeaponPrimaryAttack_titanweapon_atlas_40mm
+global function OnProjectileCollision_titanweapon_atlas_40mm
+#if SERVER
+global function OnWeaponNpcPrimaryAttack_titanweapon_atlas_40mm
+#endif
+
+void function MpTitanWeaponAtlas40mm_Init()
+{
+#if SERVER
+    AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_40mm, Atlas40mm_DamagedTarget )
+#endif
+}
+
+var function OnWeaponPrimaryAttack_titanweapon_atlas_40mm( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+
+	return FireWeaponPlayerAndNPC( attackParams, true, weapon )
+}
+
+#if SERVER
+var function OnWeaponNpcPrimaryAttack_titanweapon_atlas_40mm( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+
+	return FireWeaponPlayerAndNPC( attackParams, false, weapon )
+}
+#endif // #if SERVER
+
+// aware: this function should always keep up with mp_titanweapon_40mm, for client prediction
+int function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool playerFired, entity weapon )
+{
+	entity owner = weapon.GetWeaponOwner()
+	if ( weapon.HasMod( "pas_tone_burst" ) )
+	{
+		if ( attackParams.burstIndex == 0 )
+		{
+			int level = weapon.GetWeaponChargeLevel()
+
+			weapon.SetWeaponBurstFireCount( maxint( 1, level ) )
+		}
+	}
+
+	bool shouldCreateProjectile = false
+	if ( IsServer() || weapon.ShouldPredictProjectiles() )
+		shouldCreateProjectile = true
+	#if CLIENT
+		if ( !playerFired )
+			shouldCreateProjectile = false
+	#endif
+
+	if ( shouldCreateProjectile )
+	{
+		float speed = PROJECTILE_SPEED_40MM
+
+		bool hasMortarShotMod = weapon.HasMod( "mortar_shots" )
+		if( hasMortarShotMod )
+			speed *= 0.6
+
+		//TODO:: Calculate better attackParams.dir if auto-titan using mortarShots
+		entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, speed, damageTypes.gibBullet | DF_IMPACT | DF_EXPLOSION | DF_RAGDOLL | DF_KNOCK_BACK, DF_EXPLOSION | DF_RAGDOLL | DF_KNOCK_BACK, playerFired , 0 )
+		if ( bolt )
+		{
+			if ( hasMortarShotMod )
+			{
+				bolt.kv.gravity = 4.0
+				bolt.kv.lifetime = 10.0
+				#if SERVER
+					EmitSoundOnEntity( bolt, MORTAR_SHOT_SFX_LOOP )
+				#endif
+			}
+			else
+			{
+				bolt.kv.gravity = 0.05
+			}
+
+			#if SERVER
+				// modded for atlas_40mm( fake ttf1 40mm )
+				bolt.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_40mm )
+			#endif
+		}
+	}
+
+	weapon.w.lastFireTime = Time()
+	return 1
+}
+
+void function OnProjectileCollision_titanweapon_atlas_40mm( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCrit )
+{
+    // no impact effect for now
+}
+
+#if SERVER
+// stub
+void function Atlas40mm_DamagedTarget( entity ent, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsAlive( attacker ) )
+		return
+
+	if ( ent == attacker )
+		return
+
+	entity inflictor = DamageInfo_GetInflictor( damageInfo ) // projectile itself
+	if( !IsValid( inflictor ) )
+		return
+	if( !inflictor.IsProjectile() )
+		return
+}
+#endif

@@ -180,6 +180,7 @@ void function FireStormBall( entity weapon, vector pos, vector dir, bool shouldP
 
 			if ( IsValid( bolt ) )
 			{
+				bolt.ProjectileSetDamageSourceID( eDamageSourceId.mp_titancore_emp ) // change damageSourceID
 				PlayFXOnEntity( FX_EMP_FIELD, bolt, "", <0, 0, -21.0> )
 				PlayFXOnEntity( FX_EMP_FIELD, bolt, "", <0, 0, -20.0> )
 				PlayFXOnEntity( FX_EMP_FIELD, bolt, "", <0, 0, -22.0> )
@@ -442,8 +443,9 @@ void function StormCore_DamagedTarget( entity target, var damageInfo )
 	array<string> mods = inflictor.ProjectileGetMods()
 	if ( !mods.contains( "storm_core" ) ) // not storm core!
 		return
-		
-	OnBallLightningDamage( target, damageInfo )
+	
+	// this will cause a projectile with no ball lightning dealing no damage!
+	//OnBallLightningDamage( target, damageInfo )
 
     entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if( !IsValid( attacker ) )

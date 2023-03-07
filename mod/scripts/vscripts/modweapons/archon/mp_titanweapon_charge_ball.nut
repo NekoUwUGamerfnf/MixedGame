@@ -21,8 +21,8 @@ void function MpTitanweaponChargeBall_Init()
 	PrecacheParticleSystem( $"P_impact_exp_emp_med_air" )
 
 	#if SERVER
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_stun_laser, ChargeBallOnDamage )
-		RegisterBallLightningDamage( eDamageSourceId.mp_titanweapon_stun_laser ) // doing check in stun laser damagesourceID
+		AddDamageCallbackSourceID( eDamageSourceId.charge_ball, ChargeBallOnDamage )
+		RegisterBallLightningDamage( eDamageSourceId.charge_ball )
 	#endif
 }
 
@@ -72,20 +72,20 @@ var function OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall( entity weapon
 	{
 		if ( weapon.HasMod( "thylord_module" ) )
 		{
-			FireArcBall( weapon, attackPos, attackDir, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*3.2, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*3.2, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false, true )
+			FireArchonChargeBall( weapon, attackPos, attackDir, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false )
+			FireArchonChargeBall( weapon, attackPos, attackDir + rightVec * angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false )
+			FireArchonChargeBall( weapon, attackPos, attackDir + rightVec * -angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false )
+			FireArchonChargeBall( weapon, attackPos, attackDir + rightVec * angleoffset*3.2, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false )
+			FireArchonChargeBall( weapon, attackPos, attackDir + rightVec * -angleoffset*3.2, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED_MOD, false )
 			weapon.EmitWeaponSound_1p3p( "Weapon_ArcLauncher_Fire_1P", "Weapon_ArcLauncher_Fire_3P" )
 			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 			//weapon.StopWeaponEffect( CHARGEBALL_CHARGE_FX_1P, CHARGEBALL_CHARGE_FX_3P )
 		}
 		else
 		{
-			FireArcBall( weapon, attackPos, attackDir, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false, true )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false, true )
-			FireArcBall( weapon, attackPos, attackDir + rightVec * -angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false, true )
+			FireArchonChargeBall( weapon, attackPos, attackDir, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false )
+			FireArchonChargeBall( weapon, attackPos, attackDir + rightVec * angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false )
+			FireArchonChargeBall( weapon, attackPos, attackDir + rightVec * -angleoffset*1.6, shouldPredict, CHARGEBALL_LIGHTNING_DAMAGE_CHARGED, false )
 			weapon.EmitWeaponSound_1p3p( "Weapon_ArcLauncher_Fire_1P", "Weapon_ArcLauncher_Fire_3P" )
 			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 			//weapon.StopWeaponEffect( CHARGEBALL_CHARGE_FX_1P, CHARGEBALL_CHARGE_FX_3P )
@@ -144,3 +144,77 @@ void function ChargeBallOnDamage( entity ent, var damageInfo )
 
 	StatusEffect_AddTimed( ent, eStatusEffect.emp, 0.1, ARC_TITAN_EMP_DURATION, ARC_TITAN_EMP_FADEOUT_DURATION )
 }
+
+// taken from mp_titanweapon_arc_ball.nut, archon requires a independed arcball launch
+entity function FireArchonChargeBall( entity weapon, vector pos, vector dir, bool shouldPredict, float damage = BALL_LIGHTNING_DAMAGE, bool isCharged = false )
+{
+	entity owner = weapon.GetWeaponOwner()
+
+	float speed = 500.0
+
+	if ( isCharged )
+		speed = 350.0
+
+	if ( owner.IsPlayer() )
+	{
+		vector myVelocity = owner.GetVelocity()
+
+		float mySpeed = Length( myVelocity )
+
+		myVelocity = Normalize( myVelocity )
+
+		float dotProduct = DotProduct( myVelocity, dir )
+
+		dotProduct = max( 0, dotProduct )
+
+		speed = speed + ( mySpeed*dotProduct )
+	}
+
+	int team = TEAM_UNASSIGNED
+	if ( IsValid( owner ) )
+		team = owner.GetTeam()
+
+	entity bolt = weapon.FireWeaponBolt( pos, dir, speed, damageTypes.arcCannon | DF_IMPACT, damageTypes.arcCannon | DF_EXPLOSION, shouldPredict, 0 )
+	if ( bolt != null )
+	{
+		bolt.kv.rendercolor = "0 0 0"
+		bolt.kv.renderamt = 0
+		bolt.kv.fadedist = 1
+		bolt.kv.gravity = 5
+		SetTeam( bolt, team )
+
+		float lifetime = 8.0
+
+		if ( isCharged )
+		{
+			bolt.SetProjectilTrailEffectIndex( 1 )
+			lifetime = 20.0
+		}
+
+		bolt.SetProjectileLifetime( lifetime )
+
+		#if SERVER
+			bolt.ProjectileSetDamageSourceID( eDamageSourceId.charge_ball )
+
+			AttachBallLightning( bolt, bolt ) // not using( weapon, bolt ) since we want to make the lightning use projectile's damageSourceID
+
+			entity ballLightning = expect entity( bolt.s.ballLightning )
+
+			ballLightning.e.ballLightningData.damage = damage
+
+			// fix for charge balls
+			thread DelayedStartParticleSystem( bolt )
+		#endif
+		return bolt
+	}
+}
+
+// trail fix
+#if SERVER
+void function DelayedStartParticleSystem( entity bolt )
+{
+    WaitFrame()
+    if( IsValid( bolt ) )
+        StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"P_wpn_arcball_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+}
+#endif

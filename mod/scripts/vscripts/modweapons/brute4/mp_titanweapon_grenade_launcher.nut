@@ -71,6 +71,7 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	{
 		nade.SetModel( $"models/weapons/grenades/m20_f_grenade_projectile.mdl" )
 		#if SERVER
+			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_shoulder_grenade ) // change damageSourceID
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
 		#else

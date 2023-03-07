@@ -741,6 +741,7 @@ function Vortex_RemoveOldestAbsorbedProjectile( entity vortexWeapon )
 	vortexSphere.RemoveProjectileFromSphere()
 }
 
+// nessie: should add some mod callbacks to change certain mod weapon's vortex behavior...
 function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vector origin, int damageSourceID, string weaponName, string impactType )
 {
 	entity player = vortexWeapon.GetWeaponOwner()

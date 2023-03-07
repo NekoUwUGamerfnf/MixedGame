@@ -50,6 +50,11 @@ void function OnWeaponDeactivate_titanweapon_40mm( entity weapon )
 
 var function OnWeaponPrimaryAttack_titanweapon_40mm( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "atlas_40mm" ) )
+		return OnWeaponPrimaryAttack_titanweapon_atlas_40mm( weapon, attackParams )
+
+	// vanilla behavior
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
 	return FireWeaponPlayerAndNPC( attackParams, true, weapon )
@@ -58,6 +63,11 @@ var function OnWeaponPrimaryAttack_titanweapon_40mm( entity weapon, WeaponPrimar
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_titanweapon_40mm( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "atlas_40mm" ) )
+		return OnWeaponNpcPrimaryAttack_titanweapon_atlas_40mm( weapon, attackParams )
+
+	// vanilla behavior
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
 	return FireWeaponPlayerAndNPC( attackParams, false, weapon )
@@ -182,12 +192,18 @@ void function OnWeaponOwnerChanged_titanweapon_40mm( entity weapon, WeaponOwnerC
 
 void function OnProjectileCollision_titanweapon_sticky_40mm( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCrit )
 {
+	// modded weapon
+	array<string> mods = projectile.ProjectileGetMods()
+	if ( mods.contains( "atlas_40mm" ) )
+		return OnProjectileCollision_titanweapon_atlas_40mm( projectile, pos, normal, hitEnt, hitbox, isCrit )
+
+	// vanilla behavior
 	#if SERVER
 	entity owner = projectile.GetOwner()
 	if ( !IsAlive( owner ) )
 		return
 
-	array<string> mods = projectile.ProjectileGetMods()
+	//array<string> mods = projectile.ProjectileGetMods()
 	if ( mods.contains( "pas_tone_weapon" ) && isCrit )
  		ApplyTrackerMark( owner, hitEnt )
 	#endif
@@ -343,10 +359,8 @@ void function Tracker40mm_DamagedTarget( entity ent, var damageInfo )
 		return
 	if( !inflictor.IsProjectile() )
 		return
-	array<string> projectileMods = inflictor.ProjectileGetMods()
-	if( projectileMods.contains( "atlas_40mm" ) ) // atlas never try to apply a mark or do additnal damage
-		return
 
+	// friendly fire conditon
 	// can't apply a mark to friendly players, deal additional damage
 	if( IsFriendlyFireOn() && ent.GetTeam() == attacker.GetTeam() && ent.GetArmorType() == ARMOR_TYPE_HEAVY )
 	{

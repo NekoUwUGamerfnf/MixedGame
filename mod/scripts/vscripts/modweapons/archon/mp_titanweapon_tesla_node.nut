@@ -364,7 +364,9 @@ void function ArcPylon_DamagedPlayerOrNPC( entity ent, var damageInfo )
 		else
 		 	EmitSoundOnEntityOnlyToPlayer( ent, ent, "flesh_explo_med_3p_vs_1p" )
 	}
-	OnBallLightningDamage( ent, damageInfo )
+
+	// this will cause a projectile with no ball lightning dealing no damage!
+	//OnBallLightningDamage( ent, damageInfo )
 
 	if ( !IsAlive( ent ) )
 		return

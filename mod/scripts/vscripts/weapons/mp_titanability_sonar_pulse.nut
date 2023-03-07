@@ -12,6 +12,7 @@ const int SONAR_PULSE_RADIUS = 1250
 const float SONAR_PULSE_DURATION = 5.0
 const float FD_SONAR_PULSE_DURATION = 10.0
 
+// orbital strike
 const float STRIKE_ALARM_TIME = 7
 const float STRIKE_DELAY = 1
 const float STRIKE_RADIUS = 512
@@ -27,6 +28,11 @@ bool function OnWeaponAttemptOffhandSwitch_titanability_sonar_pulse( entity weap
 
 var function OnWeaponPrimaryAttack_titanability_sonar_pulse( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "archon_stun_impact" ) )
+		return OnWeaponPrimaryAttack_titanweapon_stun_impact( weapon, attackParams )
+
+	// vanilla behavior
 	entity weaponOwner = weapon.GetWeaponOwner()
 	if ( weaponOwner.IsPlayer() )
 		PlayerUsedOffhand( weaponOwner, weapon )
@@ -37,6 +43,10 @@ var function OnWeaponPrimaryAttack_titanability_sonar_pulse( entity weapon, Weap
 #if SERVER
 var function OnWeaponNPCPrimaryAttack_titanability_sonar_pulse( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "archon_stun_impact" ) )
+		return OnWeaponNPCPrimaryAttack_titanweapon_stun_impact( weapon, attackParams )
+
 	if ( IsSingleplayer() )
 	{
 		entity titan = weapon.GetWeaponOwner()
@@ -63,13 +73,18 @@ int function FireSonarPulse( entity weapon, WeaponPrimaryAttackParams attackPara
 
 void function OnProjectileCollision_titanability_sonar_pulse( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	// modded weapon
+	array<string> mods = projectile.ProjectileGetMods()
+	if ( mods.contains( "archon_stun_impact" ) )
+		return OnProjectileCollision_titanweapon_stun_impact( projectile, pos, normal, hitEnt, hitbox, isCritical )
+
+	// the behavior has been modded, should change it someday
 	#if SERVER
 		entity owner = projectile.GetOwner()
 		if ( !IsValid( owner ) )
 			return
 
 		int team = owner.GetTeam()
-		array<string> mods = projectile.ProjectileGetMods()
 		bool hasIncreasedDuration = mods.contains( "fd_sonar_duration" )
 		bool hasDamageAmp = mods.contains( "fd_sonar_damage_amp" )
 		bool hasOgreSonar = mods.contains( "ogre_sonar" )
