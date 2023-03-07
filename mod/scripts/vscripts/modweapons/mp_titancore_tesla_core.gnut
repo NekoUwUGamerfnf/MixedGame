@@ -53,7 +53,7 @@ var function OnAbilityStart_Tesla_Core( entity weapon, WeaponPrimaryAttackParams
 
 void function TeslaCoreThink( entity weapon, float coreDuration )
 {
-	#if SERVER
+#if SERVER
 	weapon.EndSignal( "OnDestroy" )
 	entity owner = weapon.GetWeaponOwner()
 	owner.EndSignal( "OnDestroy" )
@@ -75,11 +75,12 @@ void function TeslaCoreThink( entity weapon, float coreDuration )
         EmitSoundOnEntity( owner, "Titan_Ronin_Sword_Core_Activated_Upgraded_3P" )
     }
 
-
 	entity soul = owner.GetTitanSoul()
 	int statusEffect = StatusEffect_AddEndless( soul, eStatusEffect.damageAmpFXOnly, 1.0 ) // add a visual effect
 
 	thread TeslaCoreEMPFireldThink( owner )
+	if ( weapon.HasMod( "archon_tesla" ) )
+		thread ArchonMainWeaponSuperChargedThink( owner, coreDuration )
     //thread EMPTitanThinkConstant( owner ) // start empField
 	// using a modified empField function now!
     //thread TrackEMPTitanDoomedState( owner ) // vanilla empField will end after titan doomed, let's do a check here
@@ -126,7 +127,7 @@ void function TeslaCoreThink( entity weapon, float coreDuration )
 	)
 
 	wait coreDuration
-	#endif
+#endif
 }
 
 #if SERVER
@@ -249,5 +250,90 @@ void function TeslaCoreEMPFireldThink( entity titan )
 
 		wait interval
 	}
+}
+
+// archon tesla core
+void function ArchonMainWeaponSuperChargedThink( entity owner, float coreDuration )
+{
+	// same signals as empField does, so it can get exact duration
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "StopEMPField" )
+	owner.EndSignal( "TeslaCoreEnd" )
+
+	entity chargeWeapon
+	foreach ( entity weapon in owner.GetMainWeapons() )
+	{
+		if ( weapon.HasMod( "storm_launcher" ) )
+		{
+			chargeWeapon = weapon
+			break
+		}
+	}
+
+	if ( !IsValid( chargeWeapon ) ) // don't have a storm launcher
+		return
+	if ( chargeWeapon.HasMod( "super_charged" ) ) // already has a super charged! don't do logic below
+		return
+
+
+	table results = {}
+	results.weapon <- chargeWeapon
+	results.starterClipMod <- ""
+	results.clipUpgrade <- ""
+
+	OnThreadEnd
+	(
+		function(): ( results )
+		{
+			entity weapon = expect entity( results.weapon )
+			if ( IsValid( weapon ) ) // weapon still valid, we clean up mods
+			{
+				array<string> mods = weapon.GetMods()
+				string modToGive = expect string( results.starterClipMod ) // get starter mod
+				string modToRemove = expect string( results.clipUpgrade ) // get upgrade
+				mods.removebyvalue( "super_charged" ) // remove super charged
+				if ( modToRemove != "" )
+					mods.removebyvalue( modToRemove )
+				if ( modToGive != "" )
+					mods.append( modToGive )
+
+				weapon.SetMods( mods ) // reset to starter mods
+			}
+		}
+	)
+
+	array<string> mods = chargeWeapon.GetMods()
+	string starterClipMod = ""
+	string clipUpgrade = ""
+	if ( chargeWeapon.HasMod( "fd_wpn_upgrade_1" ) ) // 2 clip at start
+	{
+		starterClipMod = "fd_wpn_upgrade_1"
+		clipUpgrade = "fd_wpn_upgrade_2" // upgrade to 3
+	}
+	else if ( chargeWeapon.HasMod( "fd_wpn_upgrade_2" ) ) // 3 clip at start
+	{
+		starterClipMod = "fd_wpn_upgrade_2"
+		clipUpgrade = "" // don't upgrade
+	}
+	else // 1 clip at start
+	{
+		starterClipMod = ""
+		clipUpgrade = "fd_wpn_upgrade_1" // upgrade to 2
+	}
+	// add it to weapon
+	if ( starterClipMod != "" )
+		mods.removebyvalue( starterClipMod )
+	if ( clipUpgrade != "" )
+		mods.append( clipUpgrade )
+
+	// for later we clean up
+	results.starterClipMod <- starterClipMod
+	results.clipUpgrade <- clipUpgrade
+
+	mods.append( "super_charged" ) // add charged mod
+	chargeWeapon.SetMods( mods ) // update mod
+
+	wait coreDuration
 }
 #endif // SERVER
