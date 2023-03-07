@@ -1,13 +1,17 @@
-global function Bison_Init
+untyped // for player.GetPlayerSettingsMods()
+global function BisonUtil_Init
 
 const float BISON_DAMAGE_REDUCTION_SEVERITY = 0.15
 const float BISON_SPEED_BOOST_SEVERITY = 0.0 // was 0.15, will cause bison's movement animations messed up
-const float BISON_VICTIM_SLOW_DURATION = 0.2
+const float BISON_VICTIM_SLOW_DURATION = 0.0 // no slow effect for now
+const float BISON_DASH_RECHARGE_RATE_SCALE = 3.0 // since we've removed bison's speed boost, should give them more charge
+const float BISON_DASH_RECHARGE_RATE_SCALE_TURBO = 1.75 // bison with pas_mobility_dash_capacity receive less rate
+const float BISON_DASH_RECHARGE_DELAY_SCALE = 0.0 // bison won't have any delay recharging another dash 
 
 // bison titan
 const float BISON_GRAPPLE_DURATION = 1.0
 
-void function Bison_Init()
+void function BisonUtil_Init()
 {
     AddCallback_OnPilotBecomesTitan( OnPlayerBecomeBison )
     AddSpawnCallback( "npc_titan", OnBisonSpawned )
@@ -33,8 +37,8 @@ void function BerserkerMelee_DamagedTarget( entity victim, var damageInfo )
     entity soul = victim.GetTitanSoul()
     if( !IsValid( soul ) )
         return
-    //StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 0.25, BISON_VICTIM_SLOW_DURATION, 0.25 )
-    //StatusEffect_AddTimed( soul, eStatusEffect.dodge_speed_slow, 0.25, BISON_VICTIM_SLOW_DURATION * 2, 1.0 )
+    StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 0.25, BISON_VICTIM_SLOW_DURATION, 0.25 )
+    StatusEffect_AddTimed( soul, eStatusEffect.dodge_speed_slow, 0.25, BISON_VICTIM_SLOW_DURATION * 2, 1.0 )
     if( soul.IsDoomed() )
         DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * 1.5 )
 }
@@ -117,13 +121,27 @@ void function HandlePlayerBisonAbility( entity player )
     }
     */
 
+    // speed
     int speedBoost = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, BISON_SPEED_BOOST_SEVERITY )
+    
+    // dash power regen
+    array<string> classMods = player.GetPlayerSettingsMods()
+    float powerRegenScale = BISON_DASH_RECHARGE_RATE_SCALE
+    if ( classMods.contains( "pas_mobility_dash_capacity" ) || classMods.contains( "turbo_titan" ) ) // has turbo engine or in turbo titan mode
+        powerRegenScale = BISON_DASH_RECHARGE_RATE_SCALE_TURBO // nerfed rate
+    player.SetPowerRegenRateScale( powerRegenScale )
+    player.SetDodgePowerDelayScale( BISON_DASH_RECHARGE_DELAY_SCALE )
 
     OnThreadEnd(
         function(): ( player, soul, speedBoost )
         {
             if( IsValid( player ) )
+            {
+                // clean up
                 StatusEffect_Stop( player, speedBoost )
+                player.SetPowerRegenRateScale( 1.0 )
+                player.SetDodgePowerDelayScale( 1.0 )
+            }
         }
     )
 
