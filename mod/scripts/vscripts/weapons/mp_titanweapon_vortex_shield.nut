@@ -399,6 +399,8 @@ bool function OnWeaponChargeBegin_titanweapon_vortex_shield( entity weapon )
 	// modded weapon
 	if( weapon.HasMod( "shock_shield" ) )
 		return OnWeaponChargeBegin_titanweapon_shock_shield( weapon )
+	if ( weapon.HasMod( "vortex_blocker" ) )
+		OnWeaponChargeBegin_titanability_vortex_blocker( weapon ) // this one won't overwrite default vortex
 	
 	// vanilla behavior
 	entity weaponOwner = weapon.GetWeaponOwner()
