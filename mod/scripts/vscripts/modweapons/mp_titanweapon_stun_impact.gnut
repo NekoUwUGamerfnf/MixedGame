@@ -1,0 +1,147 @@
+global function MpTitanWeaponStunImpact_Init
+
+global function OnWeaponPrimaryAttack_titanweapon_stun_impact
+global function OnProjectileCollision_titanweapon_stun_impact
+
+#if SERVER
+global function OnWeaponNPCPrimaryAttack_titanweapon_stun_impact
+#endif
+
+// consts
+const float STUN_IMPACT_PROJECTILE_FUSE_TIME        = 5.0 // max fuse time
+//const float STUN_IMPACT_PROJECTILE_DETONATION_DELAY = 0.5 // handled by "grenade_ignition_time"
+const int STUN_IMPACT_DAMAGE_FLAGS                  = DF_RAGDOLL | DF_EXPLOSION | DF_ELECTRICAL
+
+void function MpTitanWeaponStunImpact_Init()
+{
+#if SERVER
+    // this is a safe damageSourceID, respawn didn't do anything to it
+    AddDamageCallbackSourceID( damagedef_shield_captain_arc_shield, ImpactStun_OnDamagedTarget )
+#endif
+}
+
+var function OnWeaponPrimaryAttack_titanweapon_stun_impact( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    entity weaponOwner = weapon.GetWeaponOwner()
+	if ( weaponOwner.IsPlayer() )
+		PlayerUsedOffhand( weaponOwner, weapon )
+
+	return FireStunImpactProjectile( weapon, attackParams, true )
+}
+
+// projectile function, shuold keep up with FireSonarPulse() for client prediction
+int function FireStunImpactProjectile( entity weapon, WeaponPrimaryAttackParams attackParams, bool playerFired )
+{
+    #if CLIENT
+        if ( !weapon.ShouldPredictProjectiles() )
+            return 1
+    #endif // #if CLIENT
+
+    bool shouldCreateProjectile = false
+	if ( IsServer() || weapon.ShouldPredictProjectiles() )
+		shouldCreateProjectile = true
+
+    vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
+	entity projectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0, 0, 0 >, STUN_IMPACT_PROJECTILE_FUSE_TIME, STUN_IMPACT_DAMAGE_FLAGS, STUN_IMPACT_DAMAGE_FLAGS, shouldCreateProjectile, true, false )
+	weapon.SetWeaponChargeFractionForced( 1.0 ) // this will end the pod sequence immediately
+    if ( projectile )
+    {
+        projectile.SetModel( $"models/weapons/grenades/arc_grenade_projectile.mdl" )
+        #if SERVER
+            projectile.ProjectileSetDamageSourceID( damagedef_shield_captain_arc_shield )
+            thread DelayedFixTrailEffect( projectile )
+        #endif
+    }
+
+	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
+}
+
+void function OnProjectileCollision_titanweapon_stun_impact( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+
+    // force stick on server
+    if ( hitEnt.IsWorld() )
+	{
+		projectile.StopPhysics()
+	}
+	else
+	{
+		if ( !projectile.IsMarkedForDeletion() && !hitEnt.IsMarkedForDeletion() )
+		{
+			if ( hitbox > 0 )
+				projectile.SetParentWithHitbox( hitEnt, hitbox, true )
+			else // Hit a func_brush
+				projectile.SetParent( hitEnt )
+
+			if ( hitEnt.IsPlayer() )
+			{
+				thread HandleDisappearingParent( projectile, hitEnt )
+			}
+		}
+	}
+
+#if SERVER
+    if ( projectile.GrenadeHasIgnited() )
+        return
+    //Triggering this on the client triggers an impact effect.
+    projectile.GrenadeIgnite()
+#endif
+}
+
+#if SERVER
+void function HandleDisappearingParent( entity ent, entity parentEnt )
+{
+	parentEnt.EndSignal( "OnDeath" )
+	ent.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+	function() : ( ent )
+		{
+			ent.ClearParent()
+		}
+	)
+
+	parentEnt.WaitSignal( "StartPhaseShift" )
+}
+#else
+void function HandleDisappearingParent( entity ent, entity parentEnt )
+{
+	parentEnt.EndSignal( "OnDeath" )
+	ent.EndSignal( "OnDestroy" )
+
+	parentEnt.WaitSignal( "StartPhaseShift" )
+
+	ent.ClearParent()
+}
+#endif
+
+#if SERVER
+void function ImpactStun_OnDamagedTarget( entity victim, var damageInfo )
+{
+    entity inflictor = DamageInfo_GetInflictor( damageInfo )
+    if ( !IsValid( inflictor ) )
+        return
+    if ( !inflictor.IsProjectile() )
+        return
+    
+    array<string> mods = inflictor.ProjectileGetMods()
+    if ( !mods.contains( "archon_stun_impact" ) ) // don't have the mod! should check it
+        return
+
+    EMP_DamagedPlayerOrNPC( victim, damageInfo )
+}
+
+void function DelayedFixTrailEffect( entity projectile )
+{
+    projectile.EndSignal( "OnDestroy" )
+    WaitFrame()
+    PlayFXOnEntity( $"wpn_grenade_frag_blue", projectile )
+}
+
+// npc
+var function OnWeaponNPCPrimaryAttack_titanweapon_stun_impact( entity weapon, WeaponPrimaryAttackParams attackParams )
+{   
+	return FireStunImpactProjectile( weapon, attackParams, false )
+}
+
+#endif
