@@ -37,6 +37,10 @@ const float LASER_TRIP_DEPLOY_POWER = 900.0
 const float LASER_TRIP_DEPLOY_SIDE_POWER = 1200.0
 const int SHARED_ENERGY_RESTORE_AMOUNT = 350
 
+// fabebt balance...
+const float LASER_TRIP_HEALTH_BT				= 200
+const float LASER_TRIP_DAMAGE_HEAVY_ARMOR_BT 	= 1200.0
+
 struct
 {
 	int laserPylonsIdx
@@ -78,8 +82,11 @@ array<entity> function GetLaserPylonsInRadius( vector origin, float radius )
 
 void function OnWeaponOwnerChanged_titanweapon_laser_trip( entity weapon, WeaponOwnerChangedParams changeParams )
 {
+	// modded weapon
 	if( weapon.HasMod( "tesla_node" ) )
 		return OnWeaponOwnerChanged_titanweapon_Arc_pylon( weapon, changeParams )
+	
+	// vanilla behavior
 	#if SERVER
 	entity owner = weapon.GetWeaponOwner()
 
@@ -100,8 +107,11 @@ var function OnWeaponNPCPrimaryAttack_titanweapon_laser_trip( entity weapon, Wea
 
 var function OnWeaponPrimaryAttack_titanweapon_laser_trip( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
 	if( weapon.HasMod( "tesla_node" ) )
 		return OnWeaponPrimaryAttack_titanweapon_Arc_pylon( weapon, attackParams )
+	
+	// vanilla behavior
 	entity owner = weapon.GetWeaponOwner()
 	int curCost = weapon.GetWeaponCurrentEnergyCost()
 	if ( !owner.CanUseSharedEnergy( curCost ) )
@@ -160,16 +170,13 @@ var function OnWeaponPrimaryAttack_titanweapon_laser_trip( entity weapon, Weapon
 void function OnLaserPylonPlanted( entity projectile )
 {
 	#if SERVER
-	array<string> mods = projectile.ProjectileGetMods()
-	if( mods.contains( "tesla_node" ) )
-		thread DeployArcPylon( projectile )
-	else
 		thread DeployLaserPylon( projectile )
 	#endif
 
 }
 
 #if SERVER
+// has been modified to support "fakebt_balance"
 function DeployLaserPylon( entity projectile )
 {
 	vector origin = projectile.GetOrigin() // - <0,0,40>
@@ -203,12 +210,27 @@ function DeployLaserPylon( entity projectile )
 		pylons[0].Destroy()
 	}
 
+	// fakebt_balance
+	array<string> mods = projectile.ProjectileGetMods()
+	bool isBTVersion = mods.contains( "fakebt_balance" )
+	int health = LASER_TRIP_HEALTH
+	int heavyArmorDamage = LASER_TRIP_DAMAGE_HEAVY_ARMOR
+	if ( isBTVersion )
+	{
+		health = LASER_TRIP_HEALTH_BT
+		heavyArmorDamage = LASER_TRIP_DAMAGE_HEAVY_ARMOR_BT
+	}
+
 	entity tower = CreatePropScript( LASER_TRIP_MODEL, origin, angles, SOLID_VPHYSICS )
 	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 	tower.EnableAttackableByAI( 20, 0, AI_AP_FLAG_NONE )
 	SetTargetName( tower, "Laser Tripwire Base" )
-	tower.SetMaxHealth( LASER_TRIP_HEALTH )
-	tower.SetHealth( LASER_TRIP_HEALTH )
+	// has been modified to support "fakebt_balance"
+	//tower.SetMaxHealth( LASER_TRIP_HEALTH )
+	//tower.SetHealth( LASER_TRIP_HEALTH )
+	tower.SetMaxHealth( health )
+	tower.SetHealth( health )
+	//
 	tower.SetTakeDamageType( DAMAGE_YES )
 	tower.SetDamageNotifications( true )
 	tower.SetDeathNotifications( true )
@@ -293,11 +315,14 @@ function DeployLaserPylon( entity projectile )
 				if ( IsValid( titan ) )
 				{
 					RadiusDamage(
-						pylonOrigin,											// center
+						pylonOrigin,									// center
 						titan,											// attacker
 						inflictor,										// inflictor
 						LASER_TRIP_DAMAGE,								// damage
-						LASER_TRIP_DAMAGE_HEAVY_ARMOR,					// damageHeavyArmor
+						// has been modified to support "fakebt_balance"
+						//LASER_TRIP_DAMAGE_HEAVY_ARMOR,				// damageHeavyArmor
+						heavyArmorDamage,
+						//
 						LASER_TRIP_INNER_RADIUS,						// innerRadius
 						LASER_TRIP_OUTER_RADIUS,						// outerRadius
 						SF_ENVEXPLOSION_NO_DAMAGEOWNER,					// flags
