@@ -2923,6 +2923,7 @@ string function GenerateTitanOSAlias( entity player, string aliasSuffix )
 		Assert( IsValid( titan ) )
 		string titanCharacterName = GetTitanCharacterName( titan )
 
+		// client install required: force use bt's voiceline if model is titan_buddy.mdl
 		if( titan.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
 			return "diag_gs_titanBt_" + aliasSuffix
 

@@ -2,191 +2,203 @@ untyped // almost everything is hardcoded in this file!
 
 global function TitanPick_Init
 
-global function DropPlayerTitanWeapon
+global function TitanPick_SoulSetEnableWeaponDrop
+global function TitanPick_SoulSetEnableWeaponPick
+
+global function TitanPick_SoulSetWeaponDropTitanCharcterName
+
+// registering new titan
+global function TitanPick_RegisterTitanWeaponDrop
+global function TitanPick_AddIllegalWeaponMod
+
+global function TitanPick_DropTitanWeapon
 global function GiveDroppedTitanWeapon
 
-global struct TitanWeaponStruct
+const float TITAN_WEAPON_DROP_LIFETIME      = 60 // after this time the weapon drop will be destroyed
+const vector DEFAULT_DROP_ORIGIN    = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
+const vector DEFAULT_DROP_ANGLES    = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
+
+struct DroppedTitanWeapon
 {
-    string weaponClassname
+    string weaponClassName
     string weaponName
-    entity weaponModel
     array<string> weaponMods
     int weaponAmmo
     int weaponSkin
     int weaponCamo
+
+    // keep same as WeaponDropFunctions does
+    void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction
 }
 
-global array<TitanWeaponStruct> droppedWeapons = []
+struct WeaponDropFunctions
+{
+    asset functionref( entity weapon ) modelNameFunc
+    string functionref( entity weapon ) displayNameFunc
+
+    // keep same as DroppedTitanWeapon does
+    void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction 
+}
+
+struct
+{
+    table<entity, bool> soulEnabledTitanDrop
+    table<entity, bool> soulEnabledTitanPick
+    table<entity, string> soulWeaponDropCharcterName // default classes registered in titan_replace.gnut
+    
+    table<string, WeaponDropFunctions> registeredWeaponDrop
+    table<entity, DroppedTitanWeapon> droppedWeaponPropsTable
+    array<string> illegalWeaponMods
+} file
 
 void function TitanPick_Init() 
 {
-    #if SERVER
     AddCallback_OnPlayerKilled( OnTitanKilled )
     AddCallback_OnNPCKilled( OnTitanKilled )
-    #endif
 }
 
-#if SERVER
 void function OnTitanKilled( entity victim, entity attacker,var damageInfo )
 {
     if( !victim.IsTitan() )
         return
-    if( victim.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
+    entity soul = victim.GetTitanSoul()
+    //print( soul )
+    if ( !IsValid( soul ) )
         return
-    DropPlayerTitanWeapon( victim )
-}
-
-void function DropPlayerTitanWeapon( entity player, vector droppoint = < 9999,9999,9999 >, vector dropangle = < 9999,9999,9999 > ) 
-{
-    thread DropPlayerTitanWeapon_Threaded( player, droppoint, dropangle )
-}
-
-void function DropPlayerTitanWeapon_Threaded( entity player, vector droppoint, vector dropangle )
-{
-    array < entity > weapons = player.GetMainWeapons()
-    if( droppoint == < 9999,9999,9999 > ) // hack, this means drop right under player or titan
+    if ( soul in file.soulEnabledTitanDrop )
     {
-        droppoint = player.GetOrigin() + < 0,0,10 > //< -70,-20,20 >
+        //print( "here" )
+        if ( !file.soulEnabledTitanDrop[ soul ] )
+            return
     }
-    if( dropangle == < 9999,9999,9999 > ) // hack, this means drop right under player or titan
+
+    TitanPick_DropTitanWeapon( victim )
+}
+
+void function TitanPick_DropTitanWeapon( entity titan, vector droppoint = DEFAULT_DROP_ORIGIN, vector dropangle = DEFAULT_DROP_ORIGIN ) 
+{
+    entity soul = titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return
+
+    array<entity> weapons = titan.GetMainWeapons()
+    if ( weapons.len() == 0 )
+        return
+
+    entity weapon = weapons[0]
+    if ( !IsValid( weapon ) )
+        return
+    
+    string charaName = GetTitanCharacterName( titan ) // default character name
+    //print( "charaName " + charaName )
+    if ( soul in file.soulWeaponDropCharcterName ) // soul has another character name
+        charaName = file.soulWeaponDropCharcterName[ soul ]
+    charaName = charaName.tolower()
+    if ( !( charaName in file.registeredWeaponDrop ) ) // can't find current character name!
+        return
+
+    // all checks passed
+    // try to drop right under player
+    array<entity> ignoreEnts
+    // always ignore all npcs and players, try to drop onto ground
+    ignoreEnts.extend( GetPlayerArray() )
+    ignoreEnts.extend( GetNPCArray() )
+    // trace down to ground
+    vector traceStart = titan.GetOrigin()
+    vector traceEnd = traceStart + < 0, 0, -65535 >
+    TraceResults downTrace = TraceLine( traceStart, traceEnd, ignoreEnts, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+
+    // calculate default drop point
+    if( droppoint == DEFAULT_DROP_ORIGIN ) 
     {
-        dropangle = player.GetAngles() + < 0,0,10 >
+        vector titanPos = titan.GetOrigin()
+        droppoint = titanPos
+        
+        vector endPos = downTrace.endPos
+        if ( titanPos.z > endPos.z ) // playerPos is higher than traced pos
+            droppoint = endPos // use trace endPos instead
+        
+        droppoint += < 0,0,15 > // add a bit offset
+    }
+    if( dropangle == DEFAULT_DROP_ORIGIN ) 
+    {
+        vector surfaceAng = VectorToAngles( downTrace.surfaceNormal )
+        //vector titanYaw = < 0, titan.GetAngles().y, 0 >
+        dropangle = surfaceAng + < 90, 0, 0 > //+ titanYaw
+        dropangle.x = ClampAngle( dropangle.x )
+        dropangle.z = 90
+        /*
+        dropangle = titan.GetAngles() + < 0,0,10 >
         dropangle.x = 0
         dropangle.z = 90
+        */
     }
     
-    if ( IsValid(player) && weapons.len() != 0 ) 
-    {
-        if ( IsValid(weapons[0]) )
-        {
-            asset modelname = weapons[0].GetModelName()
-            string name = GetWeaponName_ReturnString( weapons[0] )
-            if( player.IsPlayer() )
-                modelname = GetWorldModelName( weapons[0] )
-            if( modelname == $"" )
-                return
-            if( name == "未知武器" )
-                return
-            int skin = weapons[0].GetSkin()
-            int camo = weapons[0].GetCamo()
-            entity weaponmodel = CreatePropDynamic( modelname, droppoint, dropangle , SOLID_VPHYSICS )
-            
-            weaponmodel.EndSignal( "OnDestroy" )
-            weaponmodel.SetUsable()
-            weaponmodel.SetUsableByGroup("titan")
-            weaponmodel.SetUsePrompts("按住 %use% 以撿起" + name, "按下 %use% 以撿起" + name)
-            AddCallback_OnUseEntity( weaponmodel, GiveDroppedTitanWeapon )
+    WeaponDropFunctions curDropFuncs
+    curDropFuncs = file.registeredWeaponDrop[ charaName ] // get this titan's dropFuncs
 
-            TitanWeaponStruct tempweapon
-            tempweapon.weaponName = name
-            tempweapon.weaponClassname = weapons[0].GetWeaponClassName()
-            tempweapon.weaponModel = weaponmodel
-            tempweapon.weaponMods = RemoveTacticalWeaponMods( weapons[0].GetMods() )
-            tempweapon.weaponAmmo = 0
-			try // since chargeWeapons usually no need to save chargeFraction and tone's "burst loader" will be recognize as chargeWeapons, use a try{}catch{} is better
-			{
-				tempweapon.weaponAmmo = weapons[0].GetWeaponPrimaryClipCount()
-			}
-			catch(ex)
-			{}
-			tempweapon.weaponSkin = skin
-            tempweapon.weaponCamo = camo
-            droppedWeapons.append( tempweapon )
-            
-            wait 60 // life time
-            droppedWeapons.fastremovebyvalue( tempweapon )
-            if (IsValid(weaponmodel))
-            {
-                weaponmodel.Destroy()
-            }
-        }
+    asset modelname = curDropFuncs.modelNameFunc( weapon )
+    string dispalyName = curDropFuncs.displayNameFunc( weapon )
+    if ( modelname == $"" || dispalyName == "" )
+        return
+
+    int skin = weapon.GetSkin()
+    int camo = weapon.GetCamo()
+    entity weaponProp = CreatePropDynamic( modelname, droppoint, dropangle, SOLID_VPHYSICS )
+    
+    weaponProp.SetUsable()
+    weaponProp.SetUsableByGroup( "titan" )
+    weaponProp.SetUsePrompts( "按住 %use% 以撿起 " + dispalyName, "按下 %use% 以撿起 " + dispalyName )
+    AddCallback_OnUseEntity( weaponProp, GiveDroppedTitanWeapon )
+
+    DroppedTitanWeapon weaponStruct
+    weaponStruct.weaponName = dispalyName
+    weaponStruct.weaponClassName = weapon.GetWeaponClassName()
+    weaponStruct.weaponMods = RemoveIllegalWeaponMods( weapon.GetMods() )
+    weaponStruct.weaponAmmo = 0
+    // since chargeWeapons usually no need to save chargeFraction but tone's "burst loader" will be recognize as chargeWeapons, use a try-catch is better
+    try { weaponStruct.weaponAmmo = weapon.GetWeaponPrimaryClipCount() }
+    catch(ex) {}
+    
+    weaponStruct.weaponSkin = skin
+    weaponStruct.weaponCamo = camo
+
+    weaponStruct.loadoutFunction = curDropFuncs.loadoutFunction
+
+    file.droppedWeaponPropsTable[ weaponProp ] <- weaponStruct
+    thread TitanWeaponDropLifeTime( weaponProp )
+}
+
+void function TitanWeaponDropLifeTime( entity weaponProp )
+{
+    weaponProp.EndSignal( "OnDestroy" )
+    wait 60 // life time
+    if ( IsValid( weaponProp ) )
+    {
+        delete file.droppedWeaponPropsTable[ weaponProp ]
+        weaponProp.Destroy()
     }
 }
 
-void function ReplaceTitanWeapon( entity player, entity weaponmodel ) 
+// for some weapon mod that was not good for holding forever
+array<string> function RemoveIllegalWeaponMods( array<string> mods )
 {
-    TitanWeaponStruct replacementWeapon
-    foreach( TitanWeaponStruct tempweapon in droppedWeapons )
+    array<string> replaceArray
+    foreach( string mod in mods )
     {
-        if( tempweapon.weaponModel == weaponmodel )
-        {
-            replacementWeapon = tempweapon
-            droppedWeapons.fastremovebyvalue( tempweapon )
-        }
-    }
-    if( replacementWeapon.weaponModel == null )
-        return
+        if ( file.illegalWeaponMods.contains( mod ) ) // skip illegal mod
+            continue
+        /*
+        if( mod == "Smart_Core" ||
+            mod == "rocketeer_ammo_swap" ||
+            mod == "LongRangeAmmo" )
+            continue
+        */
 
-    if( player.GetMainWeapons().len() > 0 )
-        player.TakeWeaponNow( player.GetMainWeapons()[0].GetWeaponClassName() )
-    player.GiveWeapon( replacementWeapon.weaponClassname, replacementWeapon.weaponMods )
-    player.SetActiveWeaponByName( replacementWeapon.weaponClassname )
-    array < entity > weapons = player.GetMainWeapons()
-    if ( IsValid(player) && weapons.len() != 0 ) 
-    {
-        try // since chargeWeapons usually no need to save chargeFraction and tone's "burst loader" will be recognize as chargeWeapons, use a try{}catch{} is better
-		{
-            weapons[0].SetWeaponPrimaryClipCount( replacementWeapon.weaponAmmo )
-		}
-		catch(ex)
-		{}
-        weapons[0].SetSkin( replacementWeapon.weaponSkin )
-        weapons[0].SetCamo( replacementWeapon.weaponCamo )
-        GiveOffhandsForWeaponReplace( player )
-    }
-    replacementWeapon.weaponModel.Destroy()
-}
-
-void function GiveOffhandsForWeaponReplace( entity player )
-{
-    if( !IsAlive( player ) )
-        return
-    entity weapon = player.GetMainWeapons()[0]
-    if( !IsValid( weapon ) )
-        return
-
-    string classname = weapon.GetWeaponClassName()
-    array<string> mods = weapon.GetMods()
-
-    table<int,float> cooldowns = GetWeaponCooldownsForTitanLoadoutSwitch( player )
-
-    if( classname == "mp_titanweapon_particle_accelerator" )
-        BecomeIon( player, true )
-    if( classname == "mp_titanweapon_sticky_40mm" )
-    {
-        if( mods.contains( "atlas_40mm" ) )
-            BecomeAtlas( player, true )
-        else
-            BecomeTone( player, true )
+        replaceArray.append( mod )
     }
 
-    if( classname == "mp_titanweapon_leadwall" )
-        BecomeRonin( player, true )
-    if( classname == "mp_titanweapon_sniper" )
-    {
-        if( mods.contains( "arc_cannon" ) )
-            BecomeArchon( player, true )
-        else
-            BecomeNorthstar( player, true )
-    }
-    if( classname == "mp_titanweapon_rocketeer_rocketstream" )
-    {
-        if( mods.contains( "brute4_rocket_launcher" ) )
-            BecomeBrute4( player, true )
-        else
-            BecomeStryder( player, true )
-    }
-
-    if( classname == "mp_titanweapon_meteor" )
-        BecomeScorch( player, true )
-    if( classname == "mp_titanweapon_predator_cannon" )
-        BecomeLegion( player, true )
-    if( classname == "mp_titanweapon_triplethreat" )
-        BecomeOgre( player, true )
-    if( classname == "mp_titanweapon_xo16_vanguard" )
-        BecomeMonarch( player, true )
-
-    SetWeaponCooldownsForTitanLoadoutSwitch( player, cooldowns )
+    return replaceArray
 }
 
 function GiveDroppedTitanWeapon( weaponmodel, player ) 
@@ -196,181 +208,103 @@ function GiveDroppedTitanWeapon( weaponmodel, player )
 	
 	bool canPickUp = true
     entity soul = player.GetTitanSoul()
-    if( IsValid( soul ) )
-    {
-        if( "disableTitanPick" in soul.s )
-        {
-            canPickUp = !( expect bool( soul.s.disableTitanPick ) )
-        }
-    }
+    if( !IsValid( soul ) )
+        return
+    if( soul in file.soulEnabledTitanPick )
+        canPickUp = file.soulEnabledTitanPick[ soul ]
 	if( !canPickUp )
 	{
-		string title = player.GetTitle()
-		SendHudMessage(player, "当前机体不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1) // title + " 不可更换装备", will display a weird string for vanilla titans
+		SendHudMessage(player, "当前机体不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
 		return
 	}
+
 	if( IsTitanCoreFiring( player ) )
 	{
 		SendHudMessage( player, "核心启动期间不可更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
 		return
 	}
-        
-	DropPlayerTitanWeapon( player, weaponmodel.GetOrigin(), weaponmodel.GetAngles() )
+    
+    // replace current weapon
+	TitanPick_DropTitanWeapon( player, weaponmodel.GetOrigin(), weaponmodel.GetAngles() )
 	ReplaceTitanWeapon( player, weaponmodel )
 }
 
-array<string> function RemoveTacticalWeaponMods( array<string> mods )
+void function ReplaceTitanWeapon( entity player, entity weaponProp ) 
 {
-    array<string> replaceArray
-    foreach( string mod in mods )
-    {
-        if( mod == "Smart_Core" ||
-            mod == "rocketeer_ammo_swap" ||
-            mod == "LongRangeAmmo" )
-            continue
+    if ( !IsValid( weaponProp ) )
+        return
+        
+    DroppedTitanWeapon replacementWeapon = file.droppedWeaponPropsTable[ weaponProp ]
 
-        replaceArray.append( mod )
-    }
+    // replace first weapon
+    if( player.GetMainWeapons().len() > 0 )
+        player.TakeWeaponNow( player.GetMainWeapons()[0].GetWeaponClassName() )
+    entity weapon = player.GiveWeapon( replacementWeapon.weaponClassName, replacementWeapon.weaponMods )
+    player.SetActiveWeaponByName( replacementWeapon.weaponClassName )
 
-    return replaceArray
+    // since chargeWeapons usually no need to save chargeFraction and tone's "burst loader" will be recognize as chargeWeapons, use a try{}catch{} is better
+    try { weapon.SetWeaponPrimaryClipCount( replacementWeapon.weaponAmmo ) }
+    catch(ex) {}
+    weapon.SetSkin( replacementWeapon.weaponSkin )
+    weapon.SetCamo( replacementWeapon.weaponCamo )
+
+    table<int,float> cooldowns = GetWeaponCooldownsForTitanLoadoutSwitch( player )
+    // give offhands
+    replacementWeapon.loadoutFunction( player, true, false )
+    // apply cooldown
+    SetWeaponCooldownsForTitanLoadoutSwitch( player, cooldowns )
+
+    delete file.droppedWeaponPropsTable[ weaponProp ]
+    weaponProp.Destroy()
 }
 
-string function GetWeaponName_ReturnString( entity weapon )
+// utility
+void function TitanPick_RegisterTitanWeaponDrop( string charaName, asset functionref( entity weapon ) modelNameFunc, string functionref( entity weapon ) displayNameFunc, void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction  )
 {
-    string classname = weapon.GetWeaponClassName()
-    array<string> mods = weapon.GetMods()
-    
-    if( classname == "mp_titanweapon_particle_accelerator" )
+    charaName = charaName.tolower() // always use tolower()
+
+    if ( charaName in file.registeredWeaponDrop )
     {
-        if( mods.contains( "pas_ion_weapon" ) )
-            return "分裂槍 [纏結能量]"
-        if( mods.contains( "pas_ion_weapon_ads" ) )
-            return "分裂槍 [折射鏡片]"
-        return "分裂槍"
+        print( "[TITAN PICK] titan character name " + charaName + " already registered!" )
+        return
     }
-    if( classname == "mp_titanweapon_sticky_40mm" )
-    {
-        if( mods.contains( "atlas_40mm" ) )
-            return "40mm機炮"
-        if( mods.contains( "pas_tone_weapon" ) )
-            return "40mm追蹤機炮 [強化追蹤彈藥]"
-        if( mods.contains( "pas_tone_burst" ) )
-            return "40mm追蹤機炮 [連發填充器]"
-        return "40mm追蹤機炮"
-    }
-    if( classname == "mp_titanweapon_predator_cannon" )
-    {
-        if( mods.contains( "pas_legion_weapon" ) )
-            return "獵殺者機炮 [強化彈藥容量]"
-        if( mods.contains( "pas_legion_spinup" ) )
-            return "獵殺者機炮 [輕合金]"
-        return "獵殺者機炮"
-    }
-    if( classname == "mp_titanweapon_meteor" )
-    {
-        if( mods.contains( "pas_scorch_weapon" ) )
-            return "T-203鋁熱劑發射器 [野火投射器]"
-        return "T-203鋁熱劑發射器"
-    }
-    if( classname == "mp_titanweapon_xo16_vanguard" )
-    {
-        if( mods.contains( "battle_rifle" ) )
-        {
-            if( mods.contains( "rapid_reload" ) )
-                return "XO-16 [快速武裝，加速器]"
-            return "XO-16 [加速器]"
-        }
-        if( mods.contains( "arc_rounds" ) )
-        {
-            if( mods.contains( "rapid_reload" ) )
-                return "XO-16 [電弧彈藥，快速武裝]"
-            return "XO-16 [電弧彈藥]"
-        }
-        if( mods.contains( "arc_rounds_with_battle_rifle" ) )
-        {
-            if( mods.contains( "rapid_reload" ) )
-                return "XO-16 [電弧彈藥，快速武裝，加速器]"
-            return "XO-16 [電弧彈藥，加速器]"
-        }
-        return "XO-16"
-    }
-    if( classname == "mp_titanweapon_leadwall" )
-    {
-        if( mods.contains( "pas_ronin_weapon" ) )
-            return "天女散花 [彈跳彈藥]"
-        return "天女散花"
-    }
-    if( classname == "mp_titanweapon_sniper" )
-    {
-        if( mods.contains( "arc_cannon" ) )
-        {
-            //temp fix
-            return "未知武器"
-            if( mods.contains( "capacitor" ) )
-                return "電弧機炮 [電容器]"
-            if( mods.contains( "chain_reaction" ) )
-                return "電弧機炮 [連鎖反應]"
-            if( mods.contains( "generator_mod" ) )
-                return "電弧機炮 [發電裝置]"
-            return "電弧機炮"
-        }
-        if( mods.contains( "pas_northstar_optics" ) )
-            return "電漿磁軌炮 [威脅光鏡]"
-        if( mods.contains( "pas_northstar_weapon" ) )
-            return "電漿磁軌炮 [穿刺射擊]"
-        return "電漿磁軌炮"
-    }
-    if( classname == "mp_titanweapon_rocketeer_rocketstream" )
-    {
-        //temp fix
-        if( mods.contains( "brute4_rocket_launcher" ) )
-            return "未知武器"
-        if( mods.contains( "straight_shot" ) )
-            return "四段火箭 [直射系統]"
-        if( mods.contains( "rapid_detonator" ) )
-            return "四段火箭 [快速引爆]"
-        return "四段火箭"
-    }
-    if( classname == "mp_titanweapon_triplethreat" )
-    {
-        if( mods.contains( "rolling_rounds" ) )
-            return "三連環榴彈 [滾動彈藥]"
-        if( mods.contains( "hydraulic_launcher" ) )
-            return "三連環榴彈 [液壓驅動]"
-        if( mods.contains( "mine_field" ) )
-            return "三連環榴彈 [地雷區]"
-        return "三連環榴彈"
-    }
-    return "未知武器"
+
+    WeaponDropFunctions dropFuncsStruct
+    dropFuncsStruct.modelNameFunc = modelNameFunc
+    dropFuncsStruct.displayNameFunc = displayNameFunc
+    dropFuncsStruct.loadoutFunction = loadoutFunction
+
+    file.registeredWeaponDrop[ charaName ] <- dropFuncsStruct
+
+    print( "[TITAN PICK] registered " + charaName )
 }
 
-asset function GetWorldModelName( entity weapon )
+// weapon mod settings
+void function TitanPick_AddIllegalWeaponMod( string mod )
 {
-    string modelname = weapon.GetWeaponClassName()
-    switch( modelname )
-    {
-        case "mp_titanweapon_particle_accelerator":
-            return $"models/weapons/titan_particle_accelerator/w_titan_particle_accelerator.mdl"
-        case "mp_titanweapon_sticky_40mm":
-            return $"models/weapons/thr_40mm/w_thr_40mm.mdl"
-        case "mp_titanweapon_predator_cannon":
-        case "mp_titanweapon_predator_cannon_siege":
-            return $"models/weapons/titan_predator/w_titan_predator.mdl"
-        case "mp_titanweapon_meteor":
-            return $"models/weapons/titan_thermite_launcher/w_titan_thermite_launcher.mdl"
-        case "mp_titanweapon_xo16_vanguard":
-        case "mp_titanweapon_xo16_shorty":
-            return $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl"
-        case "mp_titanweapon_leadwall":
-            return $"models/weapons/titan_triple_threat/w_titan_triple_threat.mdl"
-        case "mp_titanweapon_sniper":
-            return $"models/weapons/titan_sniper_rifle/w_titan_sniper_rifle.mdl"
-        case "mp_titanweapon_rocketeer_rocketstream":
-            return $"models/weapons/titan_rocket_launcher/titan_rocket_launcher.mdl"
-        case "mp_titanweapon_triplethreat":
-            return $"models/weapons/titan_triple_threat_og/w_titan_triple_threat_og.mdl"
-    }
-    return $""
+    if ( !file.illegalWeaponMods.contains( mod ) )
+        file.illegalWeaponMods.append( mod )
 }
 
-#endif
+// soul settings...
+void function TitanPick_SoulSetEnableWeaponDrop( entity titanSoul, bool enable )
+{
+    if ( !( titanSoul in file.soulEnabledTitanDrop ) )
+		file.soulEnabledTitanDrop[ titanSoul ] <- true // default value
+	file.soulEnabledTitanDrop[ titanSoul ] = enable
+}
+
+void function TitanPick_SoulSetEnableWeaponPick( entity titanSoul, bool enable )
+{
+    if ( !( titanSoul in file.soulEnabledTitanPick ) )
+		file.soulEnabledTitanPick[ titanSoul ] <- true // default value
+	file.soulEnabledTitanPick[ titanSoul ] = enable
+}
+
+void function TitanPick_SoulSetWeaponDropTitanCharcterName( entity titanSoul, string charaName )
+{
+    charaName = charaName.tolower()
+    if ( !( titanSoul in file.soulWeaponDropCharcterName ) )
+		file.soulWeaponDropCharcterName[ titanSoul ] <- "" // default value
+	file.soulWeaponDropCharcterName[ titanSoul ] = charaName
+}

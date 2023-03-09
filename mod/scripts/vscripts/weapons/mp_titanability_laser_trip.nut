@@ -38,8 +38,8 @@ const float LASER_TRIP_DEPLOY_SIDE_POWER = 1200.0
 const int SHARED_ENERGY_RESTORE_AMOUNT = 350
 
 // fabebt balance...
-const float LASER_TRIP_HEALTH_BT				= 200
-const float LASER_TRIP_DAMAGE_HEAVY_ARMOR_BT 	= 1200.0
+const int LASER_TRIP_HEALTH_BT					= 200
+const int LASER_TRIP_DAMAGE_HEAVY_ARMOR_BT 		= 1200
 
 struct
 {
@@ -210,15 +210,16 @@ function DeployLaserPylon( entity projectile )
 		pylons[0].Destroy()
 	}
 
-	// fakebt_balance
+	// fakebt_balance, modified to change damage
 	array<string> mods = projectile.ProjectileGetMods()
 	bool isBTVersion = mods.contains( "fakebt_balance" )
-	int health = LASER_TRIP_HEALTH
-	int heavyArmorDamage = LASER_TRIP_DAMAGE_HEAVY_ARMOR
+	int health = int ( LASER_TRIP_HEALTH )
+	table damageTable = {}
+	damageTable.heavyArmorDamage <- LASER_TRIP_DAMAGE_HEAVY_ARMOR
 	if ( isBTVersion )
 	{
 		health = LASER_TRIP_HEALTH_BT
-		heavyArmorDamage = LASER_TRIP_DAMAGE_HEAVY_ARMOR_BT
+		damageTable.heavyArmorDamage = LASER_TRIP_DAMAGE_HEAVY_ARMOR_BT
 	}
 
 	entity tower = CreatePropScript( LASER_TRIP_MODEL, origin, angles, SOLID_VPHYSICS )
@@ -303,25 +304,44 @@ function DeployLaserPylon( entity projectile )
 
 	vector pylonOrigin = pylon.GetOrigin()
 	OnThreadEnd(
-	function() : ( projectile, inflictor, tower, pylon, noSpawnIdx, team, pylonOrigin )
+	// modified to add pilot usage
+	//function() : ( projectile, inflictor, tower, pylon, noSpawnIdx, team, pylonOrigin )
+	function() : ( projectile, inflictor, tower, pylon, noSpawnIdx, team, pylonOrigin, owner, damageTable )
 		{
 			PlayFX( LASER_TRIP_EXPLODE_FX, pylonOrigin, < -90.0, 0.0, 0.0 > )
 			EmitSoundAtPosition( team, pylonOrigin, "Wpn_LaserTripMine_MineDestroyed" )
 
 			entity soul = pylon.GetOwner()
-			if ( IsValid( soul ) )
+			// modified to add pilot usage
+			bool isPilot = false
+			if ( IsValid( owner ) )
 			{
-				entity titan = soul.GetTitan()
-				if ( IsValid( titan ) )
+				if ( owner.IsPlayer() && !owner.IsTitan() )
+					isPilot = true
+			}
+			print( "isPilot: " + string( isPilot ) )
+			//if ( IsValid( soul ) )
+			if ( IsValid( soul ) || isPilot )
+			{
+				//entity titan = soul.GetTitan()
+				entity attacker
+				if ( IsValid( soul ) )
+					attacker = soul.GetTitan()
+				else if ( isPilot )
+					attacker = owner
+				//if ( IsValid( titan ) )
+				if ( IsValid( attacker ) )
 				{
 					RadiusDamage(
 						pylonOrigin,									// center
-						titan,											// attacker
+						// add pilot usage
+						//titan,										// attacker
+						attacker,
 						inflictor,										// inflictor
 						LASER_TRIP_DAMAGE,								// damage
 						// has been modified to support "fakebt_balance"
 						//LASER_TRIP_DAMAGE_HEAVY_ARMOR,				// damageHeavyArmor
-						heavyArmorDamage,
+						damageTable.heavyArmorDamage,
 						//
 						LASER_TRIP_INNER_RADIUS,						// innerRadius
 						LASER_TRIP_OUTER_RADIUS,						// outerRadius

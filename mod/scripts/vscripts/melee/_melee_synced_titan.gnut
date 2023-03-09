@@ -9,6 +9,8 @@ const TEAM_JUMPJET_DBL = $"P_team_jump_jet_DBL"
 
 // modified
 global function MeleeSyncedTitan_ExecutionNotInvulnerable
+// modified to have more execution options
+global function MeleeSyncedTitan_SetSoulDoClassicExecution
 
 // note: executionRefs
 // Ion Random: execution_random_0
@@ -42,6 +44,8 @@ struct
 
 	// modified
 	bool titanExecutionNotInvulnerable = false
+	// modified to have more execution options
+	table<entity, bool> soulDoClassicExecution
 } file
 
 int RAGDOLL_IMPACT_TABLE_IDX = -1
@@ -61,17 +65,6 @@ function MeleeSyncedTitan_Init()
 
 	Init3pExecutions()
 }
-
-////////////////////
-///// MODIFIED /////
-////////////////////
-void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
-{
-	file.titanExecutionNotInvulnerable = notInvulnerable
-}
-///////////////
-///// END /////
-///////////////
 
 void function Init3pExecutions()
 {
@@ -287,19 +280,14 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 
 void functionref( SyncedMelee action, entity attacker, entity target ) function GetTitanSyncedMeleeFunc( entity attacker, entity target )
 {
+	// modified here...
 	bool useClassicExecution = false
 
 	entity soul = attacker.GetTitanSoul()
 	// could get some tf1 execution
-	if( "classicExecution" in soul.s )
-	{
-		useClassicExecution = expect bool( soul.s.classicExecution )
-	}
+	if ( soul in file.soulDoClassicExecution )
+		useClassicExecution = file.soulDoClassicExecution[ soul ] 
 
-	// fixed: must do this, since ttf2 executions can't handle non-pilot conditions
-	// abandoned, could handle in TitanVsTitan_3p()
-	//if( attacker.IsNPC() && !TitanHasNpcPilot( attacker ) ) 
-	//	useClassicExecution = true 
 	//entity soul = attacker.GetTitanSoul() // moved up
 	#if SP
 	TitanLoadoutDef loadout = GetTitanLoadoutForCurrentMap()
@@ -307,7 +295,7 @@ void functionref( SyncedMelee action, entity attacker, entity target ) function 
 	TitanLoadoutDef loadout = soul.soul.titanLoadout // GetActiveTitanLoadout( attacker )
 	#endif
 	string executionRef = loadout.titanExecution
-	if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_COREMETER ) )
+	if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_COREMETER ) ) // idk why respawn have to hardcode this
 		executionRef = "execution_vanguard_kit"
 
 	//if ( executionRef in file.executionData_3p )
@@ -1165,8 +1153,9 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		data = file.executionData_3p[ executionRef ]
 		shouldApplyBatteryAfterRodeo = true
 	}
+	// extra check for npc monarch executions -- spawn with no passive and ref "execution_random_6", uses random execution!
 	else if( executionRef == "execution_random_6" && TitanHasNpcPilot( attacker ) ) // also check if pilot valid
-	{ // extra check for npc monarch executions -- spawn with no passive, uses random execution!
+	{
 		if( CoinFlip() ) 
 		{
 			executionRef = "execution_vanguard_kit"
@@ -1213,6 +1202,9 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		targetSequence.firstPersonAnim = ""
 
 	targetSequence.thirdPersonAnim = data.targetAnimation3p[ victimType ]
+
+	// for bt being executed... they have renamed animations
+	//if ( target.GetModelName() )
 	
 	targetSequence.thirdPersonCameraEntity = target
 
@@ -1754,3 +1746,20 @@ void function Rocket_Pod( entity guy, string tag, entity victim )
  		guy.GiveOffhandWeapon( oldOffhandWeapon.GetWeaponClassName(), 0, oldOffhandWeapon.GetMods() )
 }
 
+////////////////////
+///// MODIFIED /////
+////////////////////
+void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
+{
+	file.titanExecutionNotInvulnerable = notInvulnerable
+}
+
+void function MeleeSyncedTitan_SetSoulDoClassicExecution( entity titanSoul, bool doClassic )
+{
+	if ( !( titanSoul in file.soulDoClassicExecution ) )
+		file.soulDoClassicExecution[ titanSoul ] <- false // default value
+	file.soulDoClassicExecution[ titanSoul ] = doClassic
+}
+///////////////
+///// END /////
+///////////////

@@ -92,6 +92,7 @@ global function DevPrintAllStatusEffectsOnEnt
 	global function AddThreatScopeColorStatusEffect
 	global function RemoveThreatScopeColorStatusEffect
 
+	// modified to globlize these
 	global function PROTO_Flak_Rifle_DamagedPlayerOrNPC
 	global function TripleThreatGrenade_DamagedPlayerOrNPC
 	global function VanguardEnergySiphon_DamagedPlayerOrNPC

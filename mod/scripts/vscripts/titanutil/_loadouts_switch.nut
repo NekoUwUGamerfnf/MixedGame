@@ -45,10 +45,12 @@ table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player
 			{
 				float cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
 				float nextAttackTime = offhand.GetNextAttackAllowedTime()
+				if ( nextAttackTime < Time() ) // already be allowed to attack
+					nextAttackTime = Time()
 				float NAT = nextAttackTime - Time()
 
 				if ( NAT >= 0 )
-					cooldowns[slot] = NAT/cooldownTime
+					cooldowns[slot] = 1.0 - NAT/cooldownTime
 			}
 			break
 
@@ -184,7 +186,7 @@ void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,
 			case "mp_titanweapon_homing_rockets":
 			{
 				float cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
-				offhand.SetNextAttackAllowedTime( Time() + (cooldownTime * severity) )
+				offhand.SetNextAttackAllowedTime( Time() + ( cooldownTime * (1.0 - severity) ) )
 			}
 			break
 

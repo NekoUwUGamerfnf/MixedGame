@@ -25,6 +25,10 @@ global function DoomedHealthThink
 global function UndoomTitan
 global function RestoreTitan
 
+// modified for modded titan doom state
+global function TitanHealth_SetSoulInfiniteDoomedState
+global function TitanHealth_SetSoulDoomedHealthLossDamage
+
 global const SIGNAL_TITAN_HEALTH_REGEN = "BeginTitanHealthRegen"
 global const SIGNAL_TITAN_SHIELD_REGEN = "BeginTitanShieldRegen"
 
@@ -46,7 +50,11 @@ const float TITAN_HEALTH_HISTORY_FALLOFF_END = 4.0
 
 struct
 {
-  float earn_meter_titan_multiplier
+  	float earn_meter_titan_multiplier
+
+	// modified for modded titan doom state
+	table<entity, bool> soulInfiniteDoomedState
+	table<entity, float> soulDoomedHealthLossDamage
 } file
 
 void function TitanHealth_Init()
@@ -641,14 +649,13 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 	if ( !IsValid( soulOwner ) )
 		return
 
-	// For fakeBT, so that it's not gonna infinite-dooom
-	bool isInfinite = true
-
-	if( "shouldInfiniteDoom" in titanSoul.s )
-		isInfinite = expect bool( titanSoul.s.shouldInfiniteDoom )
+	// For fakeBT( and other modded conditions ), so that it's not gonna infinite-dooom
+	bool isInfiniteDoom = PROTO_AlternateDoomedState() // default value
+	if( titanSoul in file.soulInfiniteDoomedState ) // overwrite
+		isInfiniteDoom = file.soulInfiniteDoomedState[ titanSoul ]
 
 	//if ( PROTO_AlternateDoomedState() )
-	if ( PROTO_AlternateDoomedState() && isInfinite )
+	if ( isInfiniteDoom )
 	{
 		//printt( soulOwner.GetHealth() )
 		soulOwner.SetHealth( doomedHealth )
@@ -684,6 +691,9 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 
 	string settings = GetSoulPlayerSettings( titanSoul )
 	float damageMod = 1.0
+	// modified for modded titan doomed state
+	if( titanSoul in file.soulDoomedHealthLossDamage )
+		damageMod = file.soulDoomedHealthLossDamage[ titanSoul ]
 	while ( true )
 	{
 		table lastAttackInfo = expect table( titanSoul.lastAttackInfo )
@@ -702,8 +712,14 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 			return
 		if ( soulOwner.IsPlayer() )
 		{
-			if ( PlayerHasPassive( soulOwner, ePassives.PAS_DOOMED_TIME ) || !isInfinite )
-				damageMod = 0.4
+			//if ( PlayerHasPassive( soulOwner, ePassives.PAS_DOOMED_TIME ) )
+			//	damageMod = 0.4
+			//else
+			//	damageMod = 1.0
+
+			// re-enabled this
+			if ( PlayerHasPassive( soulOwner, ePassives.PAS_DOOMED_TIME ) )
+				damageMod *= 0.4 // less doomed damage if passive valid
 
 			if ( PlayerHasAutoEject( soulOwner ) )
 			{
@@ -1088,4 +1104,19 @@ void function Titan_MonarchCleanup( entity soul, var damageInfo )
 		return
 
 	titan.SetBodygroup( statesIndex, 2 )
+}
+
+// modded titan doomed state
+void function TitanHealth_SetSoulInfiniteDoomedState( entity titanSoul, bool infinite )
+{
+	if( !( titanSoul in file.soulInfiniteDoomedState ) )
+		file.soulInfiniteDoomedState[ titanSoul ] <- PROTO_AlternateDoomedState() // default value
+	file.soulInfiniteDoomedState[ titanSoul ] = infinite
+}
+
+void function TitanHealth_SetSoulDoomedHealthLossDamage( entity titanSoul, float damageMod )
+{
+	if( !( titanSoul in file.soulDoomedHealthLossDamage ) )
+		file.soulDoomedHealthLossDamage[ titanSoul ] <- 1.0 // default value
+	file.soulDoomedHealthLossDamage[ titanSoul ] = damageMod
 }

@@ -1,23 +1,26 @@
 untyped
 global function BTReplace_Init
 
-struct
-{
-	table<entity, float> btLastPrimaryAmmo
-} file
-
 void function BTReplace_Init() 
 {
-	// precach
-	PrecacheParticleSystem( $"P_BT_eye_SM" )
-	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
+    #if SERVER
+    	PrecacheParticleSystem( $"P_BT_eye_SM" )
+    	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
+		AddSpawnCallback("npc_titan", OnTitanfallBT )
+		AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
+		AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
+		// register things for ingame script
+		if( GetGameState() >= eGameState.Prematch )
+		{
+			foreach( entity player in GetPlayerArray() )
+				OnClientConnected( player )
+		}
+		AddCallback_OnClientConnected( OnClientConnected )
 
-	AddSpawnCallback( "npc_titan", OnTitanSpawned )
-	AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
-	AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
+    #endif
 }
 
-void function OnTitanSpawned( entity titan )
+void function OnTitanfallBT( entity titan )
 {
 	// needs to be a player's titan
 	entity player = GetPetTitanOwner( titan )
@@ -44,12 +47,18 @@ void function OnPilotBecomesTitan( entity player, entity titan )
 void function OnTitanBecomesPilot( entity player, entity titan )
 {
 	//SetBTLoadout( titan )
-	//SetAutoTitanTitle( titan )
+	SetAutoTitanTitle( titan )
+}
+
+void function OnClientConnected( entity player )
+{
+	InitDoomedType( player )
 }
 
 //Apply loadout
 void function SetBTLoadout( entity titan )
 {
+	#if SERVER
 	if (IsValid( titan )) //Anti Crash
 	{
 		entity player = GetPetTitanOwner( titan )
@@ -62,7 +71,10 @@ void function SetBTLoadout( entity titan )
 			//Monarch as Fake BT
 			if( titan.GetModelName() == $"models/titans/medium/titan_medium_vanguard.mdl" && titan.GetCamo() == -1 && titan.GetSkin() == 3 )
 			{
+
 				// notification done here!
+				// check if player has a titan dropping, if not it means player disembarked and created their pet titans, don't give loadouts if so.
+				//bool isTitanDropping = expect bool( player.s.replacementDropInProgress )
 				bool isTitanDropping = true
 				if ( "spawnWithoutSoul" in titan.s )
 				{
@@ -74,18 +86,11 @@ void function SetBTLoadout( entity titan )
 				if( isTitanDropping )
 				{
 					// Moved to titan_health.gnut, no more infinite doom
-					if( !( soul in file.btLastPrimaryAmmo ) )
-						file.btLastPrimaryAmmo[ soul ] <- 0.0
-					file.btLastPrimaryAmmo[ soul ] = 1.0 // float, to save ammo counts
-					// since bt have been changed to have execution target animations, this is no longer required
-					//TitanHealth_SetSoulInfiniteDoomedState( soul, false ) // bt won't have infinite doomed state
-					//TitanHealth_SetSoulDoomedHealthLossDamage( soul, 0.4 ) // bt take less damage from doomed health loss
-					TitanPick_SoulSetEnableWeaponDrop( soul, false ) // setting titans won't drop weapon
-					TitanPick_SoulSetEnableWeaponPick( soul, false ) // setting players unable to replace weapons from ground
-					PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( soul, false )	// disable earnmeter smoke avaibility
+					soul.s.shouldInfiniteDoom <- false 	// initlizing...
+					soul.s.lastPrimaryAmmo <- 1.0 		// float, to save ammo counts
+					soul.s.disableOffhandSmoke <- true 	// re-exam electric smoke 
 					//soul.s.disableTitanPick <- true // seems already set in titan_replace.gnut. setting players unable to replace weapons from ground
 					SendHudMessage(player, "已启用SB-7274装备，取消\"边境帝王\"战绘以使用原版帝王",  -1, 0.2, 200, 200, 225, 255, 0.15, 12, 1)
-					// skin disabled
 					//SendHudMessage(player, "已启用SB-7274装备\n帝王被动将修改皮肤及处决动画\n取消\"边境帝王\"战绘以使用原版帝王",  -1, 0.2, 200, 200, 225, 255, 0.15, 12, 1);
 				}
 
@@ -133,7 +138,7 @@ void function SetBTLoadout( entity titan )
 				
 				//Titan Core
 				titan.TakeOffhandWeapon(OFFHAND_EQUIPMENT)
-				titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["fakebt_balance"] )
+				titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT )
 
 
 				//Executions & Skins
@@ -178,9 +183,11 @@ void function SetBTLoadout( entity titan )
 			}
 		}
 	}
+	#endif
 }
 void function SetBTOffhands( entity player )
 {
+	#if SERVER
 	if( IsValid(player) )
 	{
 		if ( player.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
@@ -338,14 +345,13 @@ void function SetBTOffhands( entity player )
 				int clipAmmoLeft = mainweapon.GetWeaponPrimaryClipCount() // always calcs current clip percentage
     			int maxClipAmmo = mainweapon.GetWeaponPrimaryClipCountMax()
 				float clipLeft = float( clipAmmoLeft ) / float( maxClipAmmo )
-
-				// update primary clip size
-				if( !( soul in file.btLastPrimaryAmmo ) )
-					file.btLastPrimaryAmmo[ soul ] <- 0.0
-				file.btLastPrimaryAmmo[ soul ] = clipLeft
+				if( !( "lastPrimaryAmmo" in soul.s ) )
+					soul.s.lastPrimaryAmmo <- 0.0
+				soul.s.lastPrimaryAmmo = clipLeft
 			}
 		}
 	}
+	#endif
 }
 
 void function UpdateBTOffhands( entity player )
@@ -359,6 +365,13 @@ void function UpdateBTOffhands( entity player )
 		SetBTOffhands( player )
 		WaitFrame()
 	}
+}
+
+void function InitDoomedType( entity player )
+{
+	#if SERVER
+	player.s.shouldInfiniteDoom <- true
+	#endif
 }
 
 void function TakeWeaponAmmo( entity player )
@@ -384,8 +397,7 @@ void function ReplaceWeaponAmmo( entity player, entity soul )
 	entity mainweapon = player.GetActiveWeapon()
 	if( IsValid(mainweapon) )
 	{
-		float clipLeftPercentage = file.btLastPrimaryAmmo[ soul ]
-		// defensive fix...
+		float clipLeftPercentage = expect float( soul.s.lastPrimaryAmmo )
 		if( clipLeftPercentage > 1 )
 			clipLeftPercentage = 1
 		if( clipLeftPercentage < 0 )
@@ -397,6 +409,7 @@ void function ReplaceWeaponAmmo( entity player, entity soul )
 
 void function EjectingVoiceline( entity titan )
 {
+	#if SERVER
 	if( IsValid(titan) )
 	{
 		entity player = GetPetTitanOwner(titan)
@@ -413,22 +426,28 @@ void function EjectingVoiceline( entity titan )
 			}
 		}
 	}
+	#endif
 }
 
 void function SetAutoTitanTitle( entity titan )
 {
+	#if SERVER
 	if( IsValid(titan) && titan.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
 		titan.SetTitle( "SB-7274" )
+	#endif
 }
 
 void function SetPlayerTitanTitle( entity player )
 {
+	#if SERVER
 	if( IsValid(player) && player.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
 		player.SetTitle( "SB-7274" )
+	#endif
 }
 
 bool function CheckVoiceline( entity titan )
 {
+	#if SERVER
 	if( IsValid(titan) )
 	{
 		entity soul = titan.GetTitanSoul()
@@ -444,6 +463,7 @@ bool function CheckVoiceline( entity titan )
 			return true
 		}	
 	}
+	#endif
 	return false
 }
 
