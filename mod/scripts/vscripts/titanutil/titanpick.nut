@@ -11,12 +11,13 @@ global function TitanPick_SoulSetWeaponDropTitanCharcterName
 global function TitanPick_RegisterTitanWeaponDrop
 global function TitanPick_AddIllegalWeaponMod
 
-global function TitanPick_DropTitanWeapon
+global function TitanPick_TitanDropWeapon
 global function GiveDroppedTitanWeapon
 
-const float TITAN_WEAPON_DROP_LIFETIME      = 60 // after this time the weapon drop will be destroyed
-const vector DEFAULT_DROP_ORIGIN    = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
-const vector DEFAULT_DROP_ANGLES    = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
+const string TITAN_DROPPED_WEAPON_SCRIPTNAME    = "titanPickWeaponDrop"
+const float TITAN_WEAPON_DROP_LIFETIME          = 60 // after this time the weapon drop will be destroyed
+const vector DEFAULT_DROP_ORIGIN                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
+const vector DEFAULT_DROP_ANGLES                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
 
 struct DroppedTitanWeapon
 {
@@ -33,7 +34,7 @@ struct DroppedTitanWeapon
 
 struct WeaponDropFunctions
 {
-    asset functionref( entity weapon ) modelNameFunc
+    entity functionref( entity weapon, vector origin, vector angles ) weaponPropFunc
     string functionref( entity weapon ) displayNameFunc
 
     // keep same as DroppedTitanWeapon does
@@ -61,7 +62,13 @@ void function OnTitanKilled( entity victim, entity attacker,var damageInfo )
 {
     if( !victim.IsTitan() )
         return
-    entity soul = victim.GetTitanSoul()
+    
+    TryDropWeaponOnTitanKilled( victim )
+}
+
+void function TryDropWeaponOnTitanKilled( entity titan )
+{
+    entity soul = titan.GetTitanSoul()
     //print( soul )
     if ( !IsValid( soul ) )
         return
@@ -72,15 +79,20 @@ void function OnTitanKilled( entity victim, entity attacker,var damageInfo )
             return
     }
 
-    TitanPick_DropTitanWeapon( victim )
+
+    // all checks passed
+    // try to drop right under player( default origin and angles )
+    TitanPick_TitanDropWeapon( titan )
 }
 
-void function TitanPick_DropTitanWeapon( entity titan, vector droppoint = DEFAULT_DROP_ORIGIN, vector dropangle = DEFAULT_DROP_ORIGIN ) 
+// this will create a weapon drop based on a titan
+entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFAULT_DROP_ORIGIN, vector dropangle = DEFAULT_DROP_ANGLES, bool snapToGround = true ) 
 {
+    // get charaName from this titan
     entity soul = titan.GetTitanSoul()
     if ( !IsValid( soul ) )
         return
-
+    
     array<entity> weapons = titan.GetMainWeapons()
     if ( weapons.len() == 0 )
         return
@@ -97,20 +109,21 @@ void function TitanPick_DropTitanWeapon( entity titan, vector droppoint = DEFAUL
     if ( !( charaName in file.registeredWeaponDrop ) ) // can't find current character name!
         return
 
-    // all checks passed
-    // try to drop right under player
-    array<entity> ignoreEnts
-    // always ignore all npcs and players, try to drop onto ground
-    ignoreEnts.extend( GetPlayerArray() )
-    ignoreEnts.extend( GetNPCArray() )
-    // trace down to ground
-    vector traceStart = titan.GetOrigin()
-    vector traceEnd = traceStart + < 0, 0, -65535 >
-    TraceResults downTrace = TraceLine( traceStart, traceEnd, ignoreEnts, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
-
-    // calculate default drop point
-    if( droppoint == DEFAULT_DROP_ORIGIN ) 
+    if ( snapToGround ) // try to drop the weapon onto ground
     {
+        array<entity> ignoreEnts
+        // always ignore all npcs and players, try to drop onto ground
+        ignoreEnts.extend( GetPlayerArray() )
+        ignoreEnts.extend( GetNPCArray() )
+        // trace down to ground
+        vector traceStart = droppoint
+        if ( traceStart == DEFAULT_DROP_ORIGIN ) // not given any droppoint
+            traceStart = titan.GetOrigin() // use titan orgin instead
+
+        vector traceEnd = traceStart + < 0, 0, -65535 >
+        TraceResults downTrace = TraceLine( traceStart, traceEnd, ignoreEnts, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+
+        // calculate default drop point
         vector titanPos = titan.GetOrigin()
         droppoint = titanPos
         
@@ -119,9 +132,8 @@ void function TitanPick_DropTitanWeapon( entity titan, vector droppoint = DEFAUL
             droppoint = endPos // use trace endPos instead
         
         droppoint += < 0,0,15 > // add a bit offset
-    }
-    if( dropangle == DEFAULT_DROP_ORIGIN ) 
-    {
+
+        // get surface angle
         vector surfaceAng = VectorToAngles( downTrace.surfaceNormal )
         //vector titanYaw = < 0, titan.GetAngles().y, 0 >
         dropangle = surfaceAng + < 90, 0, 0 > //+ titanYaw
@@ -133,26 +145,38 @@ void function TitanPick_DropTitanWeapon( entity titan, vector droppoint = DEFAUL
         dropangle.z = 90
         */
     }
-    
+    else
+    {
+        if ( droppoint == DEFAULT_DROP_ORIGIN )
+            droppoint = titan.GetOrigin()
+        if ( dropangle == DEFAULT_DROP_ANGLES )
+        {
+            dropangle = titan.GetAngles() + < 0,0,10 >
+            dropangle.x = 0
+            dropangle.z = 90
+        }
+    }
+
     WeaponDropFunctions curDropFuncs
     curDropFuncs = file.registeredWeaponDrop[ charaName ] // get this titan's dropFuncs
 
-    asset modelname = curDropFuncs.modelNameFunc( weapon )
-    string dispalyName = curDropFuncs.displayNameFunc( weapon )
-    if ( modelname == $"" || dispalyName == "" )
-        return
+    string displayName = curDropFuncs.displayNameFunc( weapon ) // this one is dropped by a titan, has weapon entity valid
 
     int skin = weapon.GetSkin()
     int camo = weapon.GetCamo()
-    entity weaponProp = CreatePropDynamic( modelname, droppoint, dropangle, SOLID_VPHYSICS )
+    entity weaponProp = curDropFuncs.weaponPropFunc( weapon, droppoint, dropangle ) //CreatePropDynamic( modelname, droppoint, dropangle, SOLID_VPHYSICS )
     
+    if ( displayName == "" || !IsValid( weaponProp ) )
+        return
+
     weaponProp.SetUsable()
     weaponProp.SetUsableByGroup( "titan" )
-    weaponProp.SetUsePrompts( "按住 %use% 以撿起 " + dispalyName, "按下 %use% 以撿起 " + dispalyName )
+    weaponProp.SetUsePrompts( "按住 %use% 以撿起 " + displayName, "按下 %use% 以撿起 " + displayName )
+    weaponProp.SetScriptName( TITAN_DROPPED_WEAPON_SCRIPTNAME )
     AddCallback_OnUseEntity( weaponProp, GiveDroppedTitanWeapon )
 
     DroppedTitanWeapon weaponStruct
-    weaponStruct.weaponName = dispalyName
+    weaponStruct.weaponName = displayName
     weaponStruct.weaponClassName = weapon.GetWeaponClassName()
     weaponStruct.weaponMods = RemoveIllegalWeaponMods( weapon.GetMods() )
     weaponStruct.weaponAmmo = 0
@@ -167,6 +191,8 @@ void function TitanPick_DropTitanWeapon( entity titan, vector droppoint = DEFAUL
 
     file.droppedWeaponPropsTable[ weaponProp ] <- weaponStruct
     thread TitanWeaponDropLifeTime( weaponProp )
+
+    return weaponProp
 }
 
 void function TitanWeaponDropLifeTime( entity weaponProp )
@@ -225,7 +251,7 @@ function GiveDroppedTitanWeapon( weaponmodel, player )
 	}
     
     // replace current weapon
-	TitanPick_DropTitanWeapon( player, weaponmodel.GetOrigin(), weaponmodel.GetAngles() )
+	TitanPick_TitanDropWeapon( player, weaponmodel.GetOrigin(), weaponmodel.GetAngles(), false )
 	ReplaceTitanWeapon( player, weaponmodel )
 }
 
@@ -259,7 +285,7 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
 }
 
 // utility
-void function TitanPick_RegisterTitanWeaponDrop( string charaName, asset functionref( entity weapon ) modelNameFunc, string functionref( entity weapon ) displayNameFunc, void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction  )
+void function TitanPick_RegisterTitanWeaponDrop( string charaName, entity functionref( entity weapon, vector origin, vector angles ) weaponPropFunc, string functionref( entity weapon ) displayNameFunc, void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction  )
 {
     charaName = charaName.tolower() // always use tolower()
 
@@ -270,7 +296,7 @@ void function TitanPick_RegisterTitanWeaponDrop( string charaName, asset functio
     }
 
     WeaponDropFunctions dropFuncsStruct
-    dropFuncsStruct.modelNameFunc = modelNameFunc
+    dropFuncsStruct.weaponPropFunc = weaponPropFunc
     dropFuncsStruct.displayNameFunc = displayNameFunc
     dropFuncsStruct.loadoutFunction = loadoutFunction
 
