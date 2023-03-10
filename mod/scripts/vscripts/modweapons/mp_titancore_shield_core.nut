@@ -75,8 +75,8 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 
 	entity soul = owner.GetTitanSoul()
 	table storedShield = {}
-	storedShield.starterShield = soul.GetShieldHealth()
-	storedShield.starterMaxShield = soul.GetShieldHealthMax()
+	storedShield.starterShield <- soul.GetShieldHealth()
+	storedShield.starterMaxShield <- soul.GetShieldHealthMax()
 	soul.SetShieldHealthMax( SHIELD_CORE_MAX_SHIELD )
 	AddEntityCallback_OnDamaged( owner, TrackShieldCoreBeingDamaged )
 
