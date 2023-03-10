@@ -89,6 +89,9 @@ void function OnWeaponActivate_Meteor( entity weapon )
 
 void function OnWeaponDeactivate_Meteor( entity weapon )
 {
+	// modded weapon
+	if ( weapon.HasMod( "storm_launcher" ) )
+		return OnWeaponDeactivate_StormLauncher( weapon )
 }
 
 var function OnWeaponPrimaryAttack_Meteor( entity weapon, WeaponPrimaryAttackParams attackParams )
