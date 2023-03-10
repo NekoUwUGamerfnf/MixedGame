@@ -319,7 +319,7 @@ function DeployLaserPylon( entity projectile )
 				if ( owner.IsPlayer() && !owner.IsTitan() )
 					isPilot = true
 			}
-			print( "isPilot: " + string( isPilot ) )
+			//print( "isPilot: " + string( isPilot ) )
 			//if ( IsValid( soul ) )
 			if ( IsValid( soul ) || isPilot )
 			{
