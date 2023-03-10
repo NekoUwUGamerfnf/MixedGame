@@ -415,7 +415,7 @@ bool function OnWeaponAttemptOffhandSwitch_titanweapon_shock_shield( entity weap
 function OnShieldDestroyed(entity weapon, WeaponPrimaryAttackParams attackParams)
 {
 	entity player = weapon.GetWeaponOwner()
-	FireArcCannon( weapon, attackParams )
+	FireArchonCannon( weapon, attackParams )
 
 	weapon.PlayWeaponEffect( SHOCK_RELEASE_EFFECT_FP, SHOCK_RELEASE_EFFECT, "vortex_center")
 	weapon.StopWeaponSound( "vortex_shield_loop_1P" )
