@@ -1018,12 +1018,14 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 
 	target.e.syncedMeleeAttacker = attacker
 	DisableWeapons( attacker, [] )
-	DisableWeapons( target, [] )
+	//DisableWeapons( target, [] ) // modified
 
 	//	attacker.SetInvulnerable()
 	target.SetInvulnerable()
 	if ( target.IsPlayer() )
 		HolsterAndDisableWeapons( target )
+	else
+		DisableWeapons( target, [] )
 
 	entity soul = target.GetTitanSoul()
 	soul.SetInvalidHealthBarEnt( true )
@@ -1086,8 +1088,8 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 					ClearPlayerAnimViewEntity( target )
 					DeployAndEnableWeapons( target )
 				}
-
-				EnableWeapons( target, [] )
+				else
+					EnableWeapons( target, [] )
 
 				if ( !target.IsNPC() )
 					target.PlayerMelee_ExecutionEndTarget()
@@ -1168,11 +1170,11 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	if ( executionRef == "execution_bt" ) // if we're using default bt execution
 	{
 		// select a random one
-		array<string> btExecutions = 
+		const array<string> btExecutions = 
 		[
 			"execution_bt_flip",
 			"execution_bt_kickshoot",
-			"execution_bt_pilotrip"
+			"execution_bt_pilotrip",
 		]
 		executionRef = btExecutions[ RandomInt( btExecutions.len() ) ]
 		data = file.executionData_3p[ executionRef ] // update execution data
@@ -1210,12 +1212,39 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	// HACK FOR SP!!!
 	e.replacedPrimary <- false
 	string xo16 = "mp_titanweapon_xo16_shorty"
+	// modified for mp usage
 	//if ( IsSingleplayer() && attacker.IsPlayer() && data.attackerAnimation3p == "bt_synced_titan_execute_kickshoot_A" )
-	if ( attacker.IsPlayer() && data.attackerAnimation3p == "bt_synced_titan_execute_kickshoot_A" )
+	if ( data.attackerAnimation3p == "bt_synced_titan_execute_kickshoot_A" )
 	{
 		array<entity> weapons = attacker.GetMainWeapons()
 		if ( weapons.len() > 0 )
 		{
+			// fakebt version
+			entity xo16Weapon
+			foreach ( entity weapon in weapons )
+			{
+				if ( weapon.GetWeaponClassName() == xo16 )
+					xo16Weapon = weapon
+			}
+			if ( IsValid( xo16Weapon ) ) // don't want to make bt reload while executing
+			{
+				attacker.SetActiveWeaponByName( xo16 )
+				xo16Weapon.SetWeaponPrimaryClipCount( xo16Weapon.GetWeaponPrimaryClipCountMax() )
+			}
+			else // can't find xo16
+			{
+				entity activeWeapon = attacker.GetActiveWeapon()
+				if ( IsValid( activeWeapon ) ) // use active weapon instead
+					activeWeapon.SetWeaponPrimaryClipCount( activeWeapon.GetWeaponPrimaryClipCountMax() )
+				else // don't event have a active Weapon???
+				{
+					e.replacedPrimary = true
+					e.oldPrimary <- weapons[0].GetWeaponClassName()
+					attacker.SetActiveWeaponBySlot( 0 )
+					attacker.ReplaceActiveWeapon( xo16 ) //this assumes the active weapon is the weapon in slot 0 so we need to set active weapon to the one in slot 0
+				}
+			}
+			/* // allow bt to use any active weapon, requires refilling ammo
 			if ( weapons[0].GetWeaponClassName() != xo16 )
 			{
 				e.replacedPrimary = true
@@ -1223,6 +1252,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 				attacker.SetActiveWeaponBySlot( 0 )
 				attacker.ReplaceActiveWeapon( xo16 ) //this assumes the active weapon is the weapon in slot 0 so we need to set active weapon to the one in slot 0
 			}
+			*/
 		}
 	}
 	// END HACK FOR SP!!!
