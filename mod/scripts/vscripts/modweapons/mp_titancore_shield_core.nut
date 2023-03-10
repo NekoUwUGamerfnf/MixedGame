@@ -6,7 +6,7 @@ global function OnCoreChargeEnd_Shield_Core
 
 global function OnAbilityStart_Shield_Core
 
-const float SHIELD_CORE_REGEN_DELAY = 1.0
+const float SHIELD_CORE_REGEN_DELAY = 1.5
 const int SHILED_CORE_REGEN_RATE = 200
 const float SHIELD_CORE_REGEN_TICKRATE = 0.1 // 2000 shields per second
 const int SHIELD_CORE_MAX_SHIELD = 5000
