@@ -8,8 +8,8 @@ global function OnAbilityStart_Shield_Core
 
 const float SHIELD_CORE_REGEN_DELAY = 1.0
 const int SHILED_CORE_REGEN_RATE = 200
-const float SHIELD_CORE_REGEN_TICKRATE = 0.1
-const int SHIELD_CORE_MAX_SHIELD = 4000
+const float SHIELD_CORE_REGEN_TICKRATE = 0.1 // 2000 shields per second
+const int SHIELD_CORE_MAX_SHIELD = 5000
 
 void function Shield_Core_Init()
 {
@@ -78,6 +78,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 	storedShield.starterShield <- soul.GetShieldHealth()
 	storedShield.starterMaxShield <- soul.GetShieldHealthMax()
 	soul.SetShieldHealthMax( SHIELD_CORE_MAX_SHIELD )
+	soul.SetShieldHealth( SHIELD_CORE_MAX_SHIELD )
 	AddEntityCallback_OnDamaged( owner, TrackShieldCoreBeingDamaged )
 
 	if ( owner.IsPlayer() )
