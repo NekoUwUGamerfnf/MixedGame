@@ -82,7 +82,7 @@ void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 	if ( !hasGuidedMissiles )
 	{
 		// modded weapon
-		if ( weapon.HasMod( "no_lock_required" ) )
+		if( weapon.HasMod("no_lock_required") )
 			SmartAmmo_SetAllowUnlockedFiring( weapon, true )
 		else // vanilla behavior
 			SmartAmmo_SetAllowUnlockedFiring( weapon, !IsMultiplayer() )
@@ -448,8 +448,6 @@ void function ADSLaserEnd( entity weapon )
 }
 
 // modified function
-const string GUIDED_MISSILE_LIMIT_MOD	= "guided_missile_no_reload"
-const float WEAPON_REPLACE_DELAY		= 1.5 // at least give the weapon enough time to play sound and fx...
 void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entity missile )
 {
 	if( !weaponOwner.IsPlayer() )
@@ -469,22 +467,17 @@ void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entit
 			//print( "guiding end!" )
 			if( IsValid( weapon ) )
 			{
-				if ( !IsAlive( weaponOwner ) ) // owner not alive, just destroy this archer...
-				{
-					weapon.Destroy()
-					return
-				}
-
-				weapon.RemoveMod( GUIDED_MISSILE_LIMIT_MOD )
-				float delay = expect float ( fireInterval.timeLeft )
-				thread ReplaceGuidedArcher( weaponOwner, weapon, delay )
+				thread DelayedEnableRocketAttack( weapon, expect float ( fireInterval.timeLeft ) )
+				//weapon.RemoveMod( "disable_reload" ) // client can't predict this
 			}
 		}
 	)
 	
-	fireInterval.timeLeft = WEAPON_REPLACE_DELAY
-	float minReloadTime = Time() + WEAPON_REPLACE_DELAY
-	weapon.AddMod( GUIDED_MISSILE_LIMIT_MOD )
+	// try to prevent SetNextAttackAllowedTime() during a firing interval( which will make it not work )
+	float minReloadDelay = 1 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
+	fireInterval.timeLeft = minReloadDelay
+	float minReloadTime = Time() + minReloadDelay
+	//weapon.AddMod( "disable_reload" ) // client can't predict this and it's not necessary, just to prevent softlock
 	while( true )
 	{
 		if ( Time() >= minReloadTime ) // must in valid reload time to trigger manually reloading
@@ -504,47 +497,13 @@ void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entit
 	//print( "guiding interrupted!" )
 }
 
-void function ReplaceGuidedArcher( entity owner, entity weapon, float delay )
+void function DelayedEnableRocketAttack( entity weapon, float delay )
 {
-	owner.EndSignal( "OnDeath" )
-	owner.EndSignal( "OnDestroy" )
-
-	wait delay
-	OnThreadEnd
-	(
-		function(): ( weapon )
-		{
-			if ( IsValid( weapon ) )
-				weapon.Destroy()
-		}
-	)
-
-	string weaponName = weapon.GetWeaponClassName()
-	int clip = weapon.GetWeaponPrimaryClipCount()
-	int ammo = weapon.GetWeaponPrimaryAmmoCount()
-	int skin = weapon.GetSkin()
-	int camo = weapon.GetCamo()
-	array<string> mods = weapon.GetMods()
-	mods.removebyvalue( GUIDED_MISSILE_LIMIT_MOD )
-	int slot = 0
-	foreach ( entity mainWeapon in owner.GetMainWeapons() )
-	{
-		if ( mainWeapon == weapon )
-			break
-		slot += 1
-	}
-
-	if ( IsValid( weapon ) )
-		weapon.Destroy()
-	entity newWeapon = owner.GiveWeapon( weaponName, mods )
-	newWeapon.SetWeaponPrimaryClipCount( clip )
-	newWeapon.SetWeaponPrimaryAmmoCount( ammo )
-	newWeapon.SetSkin( skin )
-	newWeapon.SetSkin( camo )
-	owner.SetActiveWeaponBySlot( slot )
-	// skip first deploy anim
-	owner.HolsterWeapon()
-	owner.DeployWeapon()
+	weapon.EndSignal( "OnDestroy" )
+	wait delay + 0.3
+	// refresh next attack time, so the weapon will start reloading. add 0.3s more for defensive fix
+	weapon.SetNextAttackAllowedTime( Time() + 0.3 )
+	weapon.SetWeaponPrimaryClipCount( 0 )
 }
 
 void function RocketEffectFix( entity weapon )
