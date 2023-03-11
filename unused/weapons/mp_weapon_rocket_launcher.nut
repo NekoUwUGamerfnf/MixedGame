@@ -75,12 +75,10 @@ void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 
 	if ( !hasGuidedMissiles )
 	{
-		// modded weapon
 		if( weapon.HasMod("no_lock_required") )
 			SmartAmmo_SetAllowUnlockedFiring( weapon, true )
-		else // vanilla behavior
+		else
 			SmartAmmo_SetAllowUnlockedFiring( weapon, !IsMultiplayer() )
-			
 		if ( IsSingleplayer() )
 		{
 			SmartAmmo_SetMissileSpeed( weapon, 1750 )
@@ -159,9 +157,7 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 	#if SERVER
 		if ( weaponOwner.GetTitanSoulBeingRodeoed() != null )
 			attackParams.pos = attackParams.pos + up * 20
-		
-		// no lock required version
-		if ( weapon.HasMod( "no_lock_required" ) || weapon.HasMod( "guided_missile" ) )
+		if( weapon.HasMod( "no_lock_required" ) || weapon.HasMod( "guided_missile" ) )
 			RocketEffectFix( weaponOwner, weapon )
 	#endif
 
@@ -222,6 +218,8 @@ void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, v
 		float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
 		if ( Time() < maxFixTime )
 			PlayImpactFXTable( pos, projectile, "exp_rocket_archer", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+		//PlayFX( $"P_impact_exp_lrg_metal", pos ) // a single FX won't work on some condition... consider a better ImpactEffectTable
+		//EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Explo_Archer_Impact_3P" )
 	}
 #endif
 }
@@ -259,7 +257,49 @@ void function ADSLaserEnd( entity weapon )
 	weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
 }
 
+/* fake ads laser version
+void function ADSLaserStart( entity player, entity weapon )
+{
+	#if SERVER
+	entity fx = PlayLoopFXOnEntity( $"P_wpn_lasercannon_aim_short", weapon, "muzzle_flash", null, null, ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY )
+	fx.SetOwner( player )
+
+	OnThreadEnd(
+		function(): ( fx )
+		{
+			if( IsValid( fx ) )
+				fx.Destroy()
+		}
+	)
+
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.WaitSignal( "ADSLaserStop" )
+	#endif
+}
+
+void function ADSLaserEnd( entity player, entity weapon )
+{
+	#if SERVER
+	if( IsAlive( player ) && IsValid( weapon ) )
+	{
+		player.Signal( "ADSLaserStop" )
+	}
+	#endif
+}
+*/
+
 #if SERVER
+void function RocketEffectFix( entity player, entity weapon )
+{
+	//WaitFrame()
+	if( IsAlive( player ) && IsValid( weapon ) )
+	{
+		EmitSoundOnEntityOnlyToPlayer( weapon, player, "Weapon_Archer_Fire_1P" )
+		weapon.PlayWeaponEffect( $"P_wpn_muzzleflash_law_fp", $"P_wpn_muzzleflash_law", "muzzle_flash" )
+	}
+}
+
 var function OnWeaponNpcPrimaryAttack_S2S_weapon_rocket_launcher( entity weapon, WeaponPrimaryAttackParams attackParams, entity target )
 {
 	entity weaponOwner = weapon.GetWeaponOwner()
@@ -385,6 +425,115 @@ function playerHasMissileInFlight( entity weaponOwner, entity missile )
 
 	WaitSignal( missile, "OnDestroy" )
 }
+
+// modified function
+void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entity missile )
+{
+	if( !weaponOwner.IsPlayer() )
+		return
+	weapon.EndSignal( "OnDestroy" )
+	//weapon.AddMod( "disable_reload" ) // client will desync!
+	//weapon.AddMod( "guided_missile_aiming" )
+	weaponOwner.EndSignal( "OnDeath" )
+	weaponOwner.EndSignal( "OnDestroy" )
+	missile.EndSignal( "OnDestroy" )
+	OnThreadEnd(
+		function():( weapon, weaponOwner )
+		{
+			if( IsValid( weapon ) )
+			{
+				if( !IsAlive( weaponOwner ) ) // i don't care! destroy it!
+				{
+					weapon.Destroy()
+					return
+				}
+				thread HACK_ForceReloadLauncher( weapon, weaponOwner )
+			}
+			//if( IsValid( weapon ) )
+			//{
+			//	ADSLaserEnd( weapon )
+			//	weaponOwner.HolsterWeapon()
+			//	weapon.RemoveMod( "guided_missile_aiming" )
+				//weapon.RemoveMod( "disable_reload" ) // client will desync!
+			//	weaponOwner.DeployWeapon()
+			//}
+		}
+	)
+	
+	while( true )
+	{
+		if( weaponOwner.IsInputCommandHeld( IN_RELOAD ) || weaponOwner.IsInputCommandHeld( IN_USE_AND_RELOAD ) )
+			break
+		if( weaponOwner.GetActiveWeapon() != weapon )
+			break
+		if( !weapon.IsWeaponAdsButtonPressed() )
+			break
+		WaitFrame()
+	}
+	//print( "guiding interrupted!" )
+}
+
+void function HACK_ForceReloadLauncher( entity weapon, entity weaponOwner )
+{
+	weapon.EndSignal( "OnDestroy" )
+	weaponOwner.EndSignal( "OnDeath" )
+	weaponOwner.EndSignal( "OnDestroy" )
+	
+	OnThreadEnd(
+		function():( weapon, weaponOwner )
+		{
+			if( IsValid( weapon ) )
+			{
+				if( !IsAlive( weaponOwner ) ) // i don't care! destroy it!
+				{
+					weapon.Destroy()
+					return
+				}
+				weapon.RemoveMod( "guided_missile_refresh" )
+			}
+		}
+	)
+
+	weaponOwner.HolsterWeapon()
+	weapon.AddMod( "guided_missile_refresh" )
+	weaponOwner.DeployWeapon()
+	wait 1 // defensive fix, wait for player deploy weapon
+	ADSLaserEnd( weapon )
+	
+	// wait for next time weapon begin ads, then remove mod, likely it must have been completely reloaded
+	while( true ) 
+	{
+		WaitFrame()
+		if( weaponOwner.GetActiveWeapon() != weapon )
+			continue
+		float zoomFrac = weaponOwner.GetZoomFrac()
+		if ( zoomFrac >= 0.5 )
+			break
+	}
+	//print( "adsing after reload!" )
+	
+	/*
+	while( true )
+	{
+		WaitFrame()
+		if( weaponOwner.GetActiveWeapon() != weapon )
+			continue
+		if( weapon.GetWeaponPrimaryClipCount() > 0 ) // done reloading!
+		{
+			if( !weapon.IsReloading() && !weaponOwner.IsWallRunning() )
+			{
+				weaponOwner.HolsterWeapon()
+				weaponOwner.DeployWeapon()
+				break
+			}
+		}
+		//if( !weapon.IsReloading() )
+		//	break
+	}
+	print( "done reloading!" )
+	*/
+	
+}
 #endif // SERVER
 
 
@@ -392,22 +541,24 @@ void function OnWeaponOwnerChanged_weapon_rocket_launcher( entity weapon, Weapon
 {
 	#if SERVER
 		weapon.w.missileFiredCallback = null
+
+		// modified! for npc swiching to it
+		/* // this will make all npcs carrying a red line, don't know why
+		entity weaponOwner = weapon.GetWeaponOwner()
+		if ( IsValid( weaponOwner ) )
+		{
+			if ( weaponOwner.IsNPC() )
+				weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
+			else
+				weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+		}
+		else
+			weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+		*/
 	#endif
 }
 
-
-// modded functions
 #if SERVER
-void function RocketEffectFix( entity player, entity weapon )
-{
-	//WaitFrame()
-	if( IsAlive( player ) && IsValid( weapon ) )
-	{
-		EmitSoundOnEntityOnlyToPlayer( weapon, player, "Weapon_Archer_Fire_1P" )
-		weapon.PlayWeaponEffect( $"P_wpn_muzzleflash_law_fp", $"P_wpn_muzzleflash_law", "muzzle_flash" )
-	}
-}
-
 void function DelayedRocketLaserStart( entity weapon, entity weaponOwner )
 {
 	if ( IsValid( weapon ) && IsValid( weaponOwner ) && weapon == weaponOwner.GetActiveWeapon() )
