@@ -37,6 +37,7 @@ void function SpawnCommand()
     PrecacheModel($"models/robotics_r2/turret_plasma/plasma_turret_pc_3.mdl")
     PrecacheModel($"models/robotics_r2/turret_rocket/rocket_turret_posed.mdl")
     //prowler
+    /* // should never precache their corpses!
     PrecacheModel($"models/creatures/prowler/prowler_corpse_static_01.mdl")
     PrecacheModel($"models/creatures/prowler/prowler_corpse_static_02.mdl")
     PrecacheModel($"models/creatures/prowler/prowler_corpse_static_05.mdl")
@@ -52,6 +53,7 @@ void function SpawnCommand()
     PrecacheModel($"models/creatures/prowler/prowler_dead_static_10.mdl")
     PrecacheModel($"models/creatures/prowler/prowler_dead_static_11.mdl")
     PrecacheModel($"models/creatures/prowler/prowler_death1_static.mdl")
+    */
     PrecacheModel($"models/creatures/prowler/r2_prowler.mdl")
     PrecacheModel( $"models/titans/stryder/stryder_titan.mdl")
     PrecacheModel( $"models/titans/ogre/ogre_titan.mdl")
