@@ -340,7 +340,7 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 
 	// modified to add friendlyFire support
 	//decoy.SetFriendlyFire( false )
-	decoy.SetFriendlyFire( !IsFriendlyFireOn() )
+	decoy.SetFriendlyFire( IsFriendlyFireOn() )
 	decoy.SetKillOnCollision( false )
 }
 
