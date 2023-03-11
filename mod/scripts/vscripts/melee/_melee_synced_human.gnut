@@ -4,10 +4,29 @@ global function MeleeThread_PilotVsEnemy
 global function MeleeSyncedServer_Init
 
 // modified to have more execution options
+global function Melee_SetHumanSizedDoClassicExecution // set certain humanSized to use classic execution
+
+global function Melee_SetPlayerClassicExecutionsEnabled // player necksnapping
+global function Melee_ShouldPlayerClassicExecution
+global function Melee_SetNPCClassicExecutionsEnabled // npc necksnapping
+global function Melee_ShouldNPCClassicExecution
+global function Melee_SetUseRandomClassicExecutions
+global function Melee_IsClassicExecutionRandom
+
+global function Melee_SetSyncedMeleeAlwaysKill
+global function Melee_IsSyncedMeleeAlwaysKill
+
 struct
 {
+	bool playerDoClassicExecutions = false
+	bool npcDoClassicExecutions = false
+
+	bool randomClassicExecutions = false
+	bool alwaysKillTarget = false
+
 	table<entity, bool> humanSizedDoClassicExecution
 } file
+// end
 
 void function MeleeSyncedServer_Init()
 {
@@ -27,22 +46,24 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 	Assert( IsAlive( attacker ) )
 	Assert( IsAlive( target ) )
 
-	bool useClassicExecution = false
 	// could get some tf1 execution by using it
-	if( attacker in file.humanSizedDoClassicExecution )
-		useClassicExecution = file.humanSizedDoClassicExecution[ attacker ]
+	bool useClassicExecution = false
 
 	// modified in _melee_synced_nolimit.gnut
-	if ( ShouldPlayerClassicExecution() && attacker.IsPlayer() )
+	if ( file.playerDoClassicExecutions && attacker.IsPlayer() )
 		useClassicExecution = true
 	// modified in _melee_synced_npc.gnut
-	if ( ShouldNPCClassicExecution() && attacker.IsNPC() )
+	if ( file.npcDoClassicExecutions && attacker.IsNPC() )
 		useClassicExecution = true
+	
+	// ent in overwrite table
+	if(  attacker in file.humanSizedDoClassicExecution )
+		useClassicExecution = file.humanSizedDoClassicExecution[ attacker ]
 
 	bool isAttackerRef
-    #if MP
+#if MP
 	//if ( GetCurrentPlaylistVarInt( "fp_embark_enabled", eFirstPersonSequenceForce1PSetting.DISABLED ) >= eFirstPersonSequenceForce1PSetting.CLASSIC_EXECUTION )
-	if( useClassicExecution )
+	if ( useClassicExecution )
 	{
 		action.attackerAnimation1p = "ptpov_rspn101_melee_necksnap_rear"
 		action.attackerAnimation3p = "pt_rspn101_melee_necksnap_rear"
@@ -68,7 +89,7 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 				attachModel = $"models/weapons/kunai/w_kunai.mdl" // change execution model to kunai!
 			}
 		}
-		if( IsClassicExecutionRandom() && CoinFlip() )
+		if( file.randomClassicExecutions && CoinFlip() )
 			thisTimeDoSwordExecution = true
 		// modified in primary_melee.gnut
         if ( thisTimeDoSwordExecution ) // funny unused content
@@ -94,8 +115,9 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 		thread ForceRemoveCinematic( target )
 	}
 	else 
-    #endif
-		isAttackerRef = IsAttackerRef( action, target )
+#endif
+
+	isAttackerRef = IsAttackerRef( action, target )
 
 	vector attackerOrigin = attacker.GetOrigin()
 	vector targetOrigin = target.GetOrigin()
@@ -501,10 +523,8 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 					}
 				}
 
-				// if no limit we kill player even if player isn't reached death anim event
-				//if ( IsSyncedMeleeNoLimit() && IsAlive( target ) ) //Should have no need to PlayTitanCockpitSounds for target because the target is going to die
 				// force killing target
-				if ( IsSyncedMeleeAlwaysKill() && IsAlive( target ) )
+				if ( file.alwaysKillTarget && IsAlive( target ) )
 				{
 					if( IsValid( attacker ) )
 						target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.human_execution } )
@@ -785,10 +805,48 @@ void function ApplyGruntExecutionDamage( entity ref, entity attacker, entity tar
 }
 
 // modified to add more exection options
+void function Melee_SetPlayerClassicExecutionsEnabled( bool should )
+{
+	file.playerDoClassicExecutions = should
+}
+
+bool function Melee_ShouldPlayerClassicExecution()
+{
+	return file.playerDoClassicExecutions
+}
+
+void function Melee_SetNPCClassicExecutionsEnabled( bool should )
+{
+	file.npcDoClassicExecutions = should
+}
+
+bool function Melee_ShouldNPCClassicExecution()
+{
+	return file.npcDoClassicExecutions
+}
+
+void function Melee_SetUseRandomClassicExecutions( bool use )
+{
+	file.randomClassicExecutions = use
+}
+
+bool function Melee_IsClassicExecutionRandom()
+{
+	return file.randomClassicExecutions
+}
+
+void function Melee_SetSyncedMeleeAlwaysKill( bool always )
+{
+	file.alwaysKillTarget = always
+}
+
+bool function Melee_IsSyncedMeleeAlwaysKill()
+{
+	return file.alwaysKillTarget
+}
+
 void function Melee_SetHumanSizedDoClassicExecution( entity ent, bool doClassic )
 {
-	if ( !IsHumanSized( ent ) )
-		return
 	if ( !( ent in file.humanSizedDoClassicExecution ) )
 		file.humanSizedDoClassicExecution[ ent ] <- false // default value
 	file.humanSizedDoClassicExecution[ ent ] = doClassic

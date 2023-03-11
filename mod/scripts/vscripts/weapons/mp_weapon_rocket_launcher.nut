@@ -204,9 +204,6 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 			}
 
 			InitializeGuidedMissile( weaponOwner, missile )
-			#if SERVER // for better missile controling?
-			thread GuidedMissileReloadThink( weapon, weaponOwner, missile )
-			#endif
 		}
 	}
 }

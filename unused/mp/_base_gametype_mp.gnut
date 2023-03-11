@@ -225,6 +225,29 @@ void function HandleRespawningLateJoiners( entity player )
 				shouldDoLateSpawn = true
 			else if( !file.respawnedPlayerUIDs.contains( player.GetUID() ) ) // avoid multiple late spawns by disconnecting
 				shouldDoLateSpawn = true
+			// better way to do this
+			//else if( !file.lateSpawnedPlayerUIDs.contains( player.GetUID() ) ) // avoid multiple late spawns by disconnecting
+			//	shouldDoLateSpawn = true
+				
+			/* // was trying to add more conditions, but useless and hard to achieve...
+			float endTime
+			float gameTime
+			if ( IsRoundBased() )
+			{
+				endTime = expect float( GetServerVar( "roundEndTime" ) )
+				gameTime = GameMode_GetRoundTimeLimit( GAMETYPE ) * 60
+			}
+			else
+			{
+				endTime = expect float( GetServerVar( "gameEndTime" ) )
+				gameTime = float( GameMode_GetTimeLimit( GAMETYPE ) ) * 60
+			}
+			
+			else if( GetPlayerArrayOfTeam( player.GetTeam() ).len() > 1 )
+				shouldDoLateSpawn = false
+			else if( endTime - Time() < gameTime * 0.75 ) // early joiner can still be in elimination mode
+				shouldDoLateSpawn = false
+			*/
 
 			// do this so player don't have to wait so long till round end
 			if( shouldDoLateSpawn && file.enableLateRespawn ) // never try to respawn if this mechanic is disabled manually
@@ -234,6 +257,9 @@ void function HandleRespawningLateJoiners( entity player )
 				else // spawn as pilot
 					RespawnAsPilot( player )
 				connectingRespawned = true
+				// better way to do this
+				//if( !file.lateSpawnedPlayerUIDs.contains( player.GetUID() ) )
+				//	file.lateSpawnedPlayerUIDs.append( player.GetUID() )
 			}
 			else
 				thread PlayerBecomesSpectator( player )
@@ -286,8 +312,6 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.s.respawnCount++
 	player.s.respawnTime = Time()
 	ClearRecentDamageHistory( player )
-
-	// HACKED DEATH
 	if( IsHackedDeathEnabled() )
 	{
 		PlayerRecoverFromHackedDeath( player )
@@ -298,8 +322,6 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
 	
 	Loadouts_TryGivePilotLoadout( player )
-
-	// loadout grace period
 	if( IsLoadoutGracePeriodEnabled() )
 		GracePeriodThink( player ) // grace period done here
 	else
@@ -478,12 +500,35 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	//if ( !file.playerDeathsHidden || ( IsHackedDeathEnabled() && !player.IsWatchingKillReplay() ) ) // since we did a loop to stop death sound, it's good to make a killer outline for hackedDeathed players, remember to avoid doing this when players're watching replay!
 	if ( !file.playerDeathsHidden )
 		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", attacker.GetEncodedEHandle(), GetHealthFrac( attacker ), methodOfDeath )
+	// do a special sound for ttf1 necksnap if player's death is hidden, no need for now
+	
+	bool isClassicExecution
+	if ( ShouldPlayerClassicExecution() && attacker.IsPlayer() )
+		isClassicExecution = true
+	if ( ShouldNPCClassicExecution() && attacker.IsNPC() )
+		isClassicExecution = true
+	if( IsHackedDeathEnabled() && isClassicExecution && methodOfDeath == eDamageSourceId.human_execution )
+		EmitSoundOnEntityOnlyToPlayer( player, player, "player_death_begin" )
 
 	float deathcamLength = GetDeathCamLength( player )
 	wait deathcamLength
 	
 	if( IsHackedDeathEnabled() )
 		player.UnfreezeControlsOnServer() // unfreeze controls here, make players able to press respawn
+	/* // this visual is weird
+	if ( file.intermissionCamera != null )
+	{
+		if( shouldDoReplay ) // if not doing replay, player's camera should be at their death location.
+		{
+			player.SetObserverModeStaticPosition( file.intermissionCamera.GetOrigin() )
+			player.SetObserverModeStaticAngles( file.intermissionCamera.GetAngles() )
+			player.ClearParent() // sometimes they're still parented, do a defensive fix
+			if( !IsValid( player.GetParent() ) )
+				player.StartObserverMode( OBS_MODE_STATIC_LOCKED )
+			player.SetObserverTarget( null )
+		}
+	}
+	*/
 
 	// hack: double check if killcams are enabled and valid here in case gamestate has changed this
 	//shouldDoReplay = shouldDoReplay && Replay_IsEnabled() && KillcamsEnabled() && IsValid( attacker )
@@ -533,9 +578,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 			thread ForcedRespawnThink( player, waitBeforeRespawn )// if not doing replay, set player's camera to intermissionCam
 
 		}
-
-		// HACKED DEATH: to enable respawn button
-		if( IsHackedDeathEnabled() && !file.forcedRespawn )
+		if( IsHackedDeathEnabled() && !file.forcedRespawn ) // to enable respawn button
 		{
 			if( IsAlive( player, true ) )
 				player.Die( player, player, { damageSourceId = damagedef_despawn } )
@@ -543,14 +586,12 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 
 		player.WaitSignal( "RespawnMe" ) // set in base_gametype: ClientCommand_RespawnPlayer
 
-		// HACKED DEATH: defensive fix for hacked death, so player will respawn if they're not actual dead
-		if( respawnDelay > 0 && IsHackedDeathEnabled() && file.forcedRespawn )
+		if( respawnDelay > 0 && IsHackedDeathEnabled() && file.forcedRespawn ) // defensive fix for hacked death
 		{
 			if( IsAlive( player, true ) )
 				player.Die( player, player, { damageSourceId = damagedef_despawn } )
 			player.Signal( "RespawnMe" )
 		}
-
 		ClearRespawnAvailable( player ) // need so the respawn icon doesn't show for like a frame on next death
 
 		if ( ( expect bool( player.GetPersistentVar( "spawnAsTitan" ) ) && IsTitanAvailable( player ) ) || ( Riff_SpawnAsTitan() > 0 && Riff_ShouldSpawnAsTitan( player ) ) )	// spawn as titan
