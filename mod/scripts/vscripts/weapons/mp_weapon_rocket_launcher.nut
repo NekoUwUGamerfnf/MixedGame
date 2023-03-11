@@ -25,7 +25,13 @@ const LOCKON_RUMBLE_AMOUNT	= 45
 const S2S_MISSILE_SPEED = 2500
 const S2S_MISSILE_HOMING = 5000
 
+// modded rocket
 const float GUIDED_MISSILE_LIFETIME = 20
+// visual fix
+struct
+{
+	table<entity, entity> rocketLaserTable
+} file
 
 function MpWeaponRocketLauncher_Init()
 {
@@ -118,7 +124,6 @@ void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 	{
 		if ( !("guidedLaserPoint" in weaponOwner.s) )
 			weaponOwner.s.guidedLaserPoint <- null
-
 		
 		thread CalculateGuidancePoint( weapon, weaponOwner )
 	}
@@ -162,7 +167,7 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 		
 		// no lock required version
 		if ( weapon.HasMod( "no_lock_required" ) || weapon.HasMod( "guided_missile" ) )
-			RocketEffectFix( weaponOwner, weapon )
+			RocketEffectFix( weapon )
 	#endif
 
 	if ( !weapon.HasMod( "guided_missile" ) )
@@ -204,6 +209,10 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 			}
 
 			InitializeGuidedMissile( weaponOwner, missile )
+			// modified here
+			#if SERVER // for better missile controling?
+				thread GuidedMissileReloadThink( weapon, weaponOwner, missile )
+			#endif
 		}
 	}
 }
@@ -241,7 +250,6 @@ var function OnWeaponNpcPrimaryAttack_S2S_weapon_rocket_launcher( entity weapon,
 
 var function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	/*
 	// NPC can shoot the weapon at non-players, but when shooting at players it must be a titan
 	entity owner = weapon.GetWeaponOwner()
 	if ( IsValid( owner ) )
@@ -250,10 +258,9 @@ var function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher( entity weapon, Wea
 		if ( IsValid( enemy ) )
 		{
 			if ( enemy.IsPlayer() && !enemy.IsTitan() )
-				return
+				return 0
 		}
 	}
-	*/
 
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 	entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, 1800.0, damageTypes.projectileImpact, damageTypes.explosive, false, PROJECTILE_NOT_PREDICTED )
@@ -365,8 +372,9 @@ void function OnWeaponStartZoomIn_weapon_rocket_launcher( entity weapon )
 {
 	if( !weapon.HasMod( "guided_missile" ) )
 		return
-	entity weaponOwner = weapon.GetWeaponOwner()
-	thread ADSLaserStart( weaponOwner, weapon )
+#if SERVER
+	ADSLaserStart( weapon )
+#endif
 }
 
 void function OnWeaponStartZoomOut_weapon_rocket_launcher( entity weapon )
@@ -374,35 +382,160 @@ void function OnWeaponStartZoomOut_weapon_rocket_launcher( entity weapon )
 	if( !weapon.HasMod( "guided_missile" ) )
 		return
 	entity weaponOwner = weapon.GetWeaponOwner()
+#if SERVER
 	ADSLaserEnd( weapon )
+#endif
 }
 
 // modded functions
-void function ADSLaserStart( entity player, entity weapon )
+#if SERVER
+void function ADSLaserStart( entity weapon )
 {
-	WaitFrame()
-	if( !IsAlive( player ) || !IsValid( weapon ) )
+	thread ADSLaserStart_Threaded( weapon )
+}
+
+void function ADSLaserStart_Threaded( entity weapon )
+{
+	entity owner = weapon.GetWeaponOwner()
+	if ( !IsValid( owner ) )
 		return
-	
-	if( player.GetActiveWeapon() != weapon )
+	if ( !owner.IsPlayer() )
 		return
 
-	weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
+	WaitFrame()
+	if( !IsAlive( owner ) || !IsValid( weapon ) )
+		return
+	if( owner.GetActiveWeapon() != weapon )
+		return
+
+	entity viewModelEnt = owner.GetViewModelEntity()
+	if ( IsValid( viewModelEnt ) )
+	{
+		if ( !( viewModelEnt in file.rocketLaserTable ) )
+			file.rocketLaserTable[ viewModelEnt ] <- null
+		// this can make non_predicted client have proper fx
+		file.rocketLaserTable[ viewModelEnt ] = PlayFXOnEntity( $"P_wpn_lasercannon_aim", viewModelEnt, "flashlight" )
+	}
+	// thirdperson fx
+	weapon.PlayWeaponEffect( $"", $"P_wpn_lasercannon_aim", "flashlight" )
 }
 
 void function ADSLaserEnd( entity weapon )
 {
-	weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+	entity owner = weapon.GetWeaponOwner()
+	if ( !IsValid( owner ) )
+		return
+	if ( !owner.IsPlayer() )
+		return
+
+	entity viewModelEnt = owner.GetViewModelEntity()
+	if ( IsValid( viewModelEnt ) )
+	{
+		entity laserFX
+		if ( viewModelEnt in file.rocketLaserTable )
+			laserFX = file.rocketLaserTable[ viewModelEnt ]
+		if ( IsValid( laserFX ) )
+			EffectStop( laserFX )
+	}
+	// thirdperson fx
+	weapon.StopWeaponEffect( $"", $"P_wpn_lasercannon_aim" )
 }
 
-#if SERVER
-void function RocketEffectFix( entity player, entity weapon )
+// modified function
+void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entity missile )
 {
-	//WaitFrame()
-	if( IsAlive( player ) && IsValid( weapon ) )
+	if( !weaponOwner.IsPlayer() )
+		return
+	weapon.EndSignal( "OnDestroy" )
+	weaponOwner.EndSignal( "OnDeath" )
+	weaponOwner.EndSignal( "OnDestroy" )
+	missile.EndSignal( "OnDestroy" ) // wait for missile explode
+
+	OnThreadEnd
+	(
+		function():( weapon, weaponOwner )
+		{
+			//print( "guiding end!" )
+			if( IsValid( weapon ) )
+			{
+				// refresh next attack time, so the weapon will start reloading. add 0.3s more for defensive fix
+				weapon.SetNextAttackAllowedTime( Time() + 0.3 )
+			}
+		}
+	)
+	
+	while( true )
 	{
-		EmitSoundOnEntityOnlyToPlayer( weapon, player, "Weapon_Archer_Fire_1P" )
-		weapon.PlayWeaponEffect( $"P_wpn_muzzleflash_law_fp", $"P_wpn_muzzleflash_law", "muzzle_flash" )
+		if( weaponOwner.IsInputCommandHeld( IN_RELOAD ) || weaponOwner.IsInputCommandHeld( IN_USE_AND_RELOAD ) )
+			break
+		if( weaponOwner.GetActiveWeapon() != weapon )
+			break
+		if( !weapon.IsWeaponAdsButtonPressed() )
+			break
+		WaitFrame()
+	}
+	//print( "guiding interrupted!" )
+}
+
+void function RocketEffectFix( entity weapon )
+{
+	entity owner = weapon.GetWeaponOwner()
+	if ( !IsValid( owner ) )
+		return
+	if ( !owner.IsPlayer() )
+		return
+
+	if( IsAlive( owner ) && IsValid( weapon ) )
+	{
+		// play a sound
+		EmitSoundOnEntityOnlyToPlayer( weapon, owner, "Weapon_Archer_Fire_1P" )
+
+		entity viewModelEnt = owner.GetViewModelEntity()
+		// firstperson fx, force play it on vm
+		if ( IsValid( viewModelEnt ) )
+			thread RocketMuzzleThink( weapon, owner )
+	}
+}
+
+const float MUZZLE_MAX_DURATION = 2.0 // assume this is the fx's duration
+void function RocketMuzzleThink( entity weapon, entity owner )
+{
+	entity viewModelEnt = owner.GetViewModelEntity()
+	if ( !IsValid( viewModelEnt ) )
+		return
+
+	// firstperson fx, force play it on vm
+	entity fx = PlayFXOnEntity( $"P_wpn_muzzleflash_law_fp", viewModelEnt, "muzzle_flash" )
+	viewModelEnt.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDestroy" )
+	fx.EndSignal( "OnDestroy" )
+
+	OnThreadEnd
+	(
+		function(): ( fx )
+		{
+			if ( IsValid( fx ) )
+			{
+				//print( "try to stop muzzle fx" )
+				EffectStop( fx )
+			}
+			//else
+			//	print( "fx destroyed" )
+		}
+	)
+
+	float endTime = Time() + MUZZLE_MAX_DURATION
+	while ( Time() < endTime )
+	{
+		entity activeWeapon = owner.GetActiveWeapon()
+		if ( !IsValid( activeWeapon ) )
+			break
+		if ( activeWeapon != weapon ) // player switched weapon...
+		{
+			//print( "player switched weapon!" )
+			break // try to stop fx
+		}
+		WaitFrame()
 	}
 }
 
