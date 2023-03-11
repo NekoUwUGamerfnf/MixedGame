@@ -251,6 +251,8 @@ var function OnWeaponNpcPrimaryAttack_S2S_weapon_rocket_launcher( entity weapon,
 var function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// NPC can shoot the weapon at non-players, but when shooting at players it must be a titan
+	// nessie: add back this if we need
+	/*
 	entity owner = weapon.GetWeaponOwner()
 	if ( IsValid( owner ) )
 	{
@@ -261,6 +263,7 @@ var function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher( entity weapon, Wea
 				return 0
 		}
 	}
+	*/
 
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 	entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, 1800.0, damageTypes.projectileImpact, damageTypes.explosive, false, PROJECTILE_NOT_PREDICTED )
