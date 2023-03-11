@@ -1,0 +1,398 @@
+// notify that this file is not the same as "modded_stim" or "modded_shifter" does
+// this file only does modded decoy functions such as "random_decoy" and "cloak_decoy"
+// not a modding interfacer
+
+global function MpAbilityModdedHoloPilot_Init
+
+global function OnWeaponPrimaryAttack_modded_holopilot
+
+#if SERVER
+// this will find mods from weapon, then apply to CreateModdedHoloPilotDecoys()
+global function CreateModdedHoloPilotDecoys_BasedOnWeapon
+
+global function CreateModdedHoloPilotDecoys
+global function SetupModdedDecoy
+
+// separented callback from AddCallback_OnDecoyCreated
+global function AddCallback_OnModdedDecoyCreated
+#endif //if server
+
+// for infinite_decoy
+const int WORLD_MAX_DECOY_COUNT = 24 // you can only spawn this much of decoy!
+
+struct
+{
+    // callbacks
+    array< void functionref( entity ) > decoyCreatedCallbacks
+
+	// strange things
+	bool isInfiniteDecoy = false
+	bool isRandomDecoy = false
+	bool isCloakDecoy = false
+	// infinite decoy array
+	array<entity> infiniteDecoyOnWorld = []
+}
+file
+
+/*Player decoy states: defined in player_decoy_shared.h
+	PLAYER_DECOY_STATE_NONE,
+	PLAYER_DECOY_STATE_IDLE,
+	PLAYER_DECOY_STATE_CROUCH_IDLE,
+	PLAYER_DECOY_STATE_CROUCH_WALK,
+	PLAYER_DECOY_STATE_WALLHANG,
+	PLAYER_DECOY_STATE_AIRBORNE,
+	PLAYER_DECOY_STATE_WALK,
+	PLAYER_DECOY_STATE_RUN,
+	PLAYER_DECOY_STATE_SPRINT,
+	PLAYER_DECOY_STATE_DYING,
+	PLAYER_DECOY_STATE_COUNT
+*/
+
+void function MpAbilityModdedHoloPilot_Init()
+{
+    AddDecoyModifier( "infinite_decoy" )
+    AddDecoyModifier( "random_decoy" )
+    AddDecoyModifier( "cloak_decoy" )
+
+#if SERVER
+    AddCallback_PlayerDecoyDie( ModdedDecoyDestroyed )
+    AddCallback_PlayerDecoyDissolve( ModdedDecoyDestroyed )
+#endif
+}
+
+// callbacks
+#if SERVER
+void function AddCallback_OnModdedDecoyCreated( void functionref( entity ) callbackFunc )
+{
+    file.decoyCreatedCallbacks.append( callbackFunc )
+}
+
+void function ModdedDecoyDestroyed( entity decoy, int currentState )
+{
+    // infinite decoy clean up
+	file.infiniteDecoyOnWorld.removebyvalue( decoy )
+}
+#endif
+
+// vanilla
+var function OnWeaponPrimaryAttack_modded_holopilot( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	entity weaponOwner = weapon.GetWeaponOwner()
+	if ( !weaponOwner.IsPlayer() )
+        return 0
+
+    if ( !PlayerCanUseDecoy( weapon ) )
+		return 0
+
+#if SERVER
+    CreateModdedHoloPilotDecoys_BasedOnWeapon( weapon )
+#else
+	Rumble_Play( "rumble_holopilot_activate", {} )
+#endif
+
+	PlayerUsedOffhand( weaponOwner, weapon )
+	//return 0
+	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+}
+
+#if SERVER
+entity function CreateModdedHoloPilotDecoys_BasedOnWeapon( entity weapon )
+{
+    entity weaponOwner = weapon.GetWeaponOwner()
+    if ( !weaponOwner.IsPlayer() )
+        return
+
+    bool isInfiniteDecoy = false
+    bool isRandomDecoy = false
+    bool isCloakDecoy = false
+	if ( weapon.HasMod( "infinite_decoy" ) )
+		isInfiniteDecoy = true
+	if ( weapon.HasMod( "random_decoy" ) )
+		isRandomDecoy = true
+	if ( weapon.HasMod( "cloak_decoy" ) )
+		isCloakDecoy = true
+
+    return CreateModdedHoloPilotDecoys( weaponOwner, 1, isInfiniteDecoy, isRandomDecoy, isCloakDecoy )
+}
+
+entity function CreateModdedHoloPilotDecoys( entity player, int numberOfDecoysToMake = 1, bool infiniteDecoy = false, bool randomDecoy = false, bool cloakDecoy = false )
+{
+    if ( numberOfDecoysToMake <= 0 )
+        return
+    if ( !IsValid( player ) )
+        return
+
+	float displacementDistance = 30.0
+
+	bool setOriginAndAngles = numberOfDecoysToMake > 1
+
+	float stickPercentToRun = 0.65
+	if ( setOriginAndAngles )
+		stickPercentToRun = 0.0
+
+	// modified settings really should be a function AddCallback_OnHolopilotDecoyCreated()
+	// along with making the function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake = 1, entity weapon = null )
+	entity decoy
+	for( int i = 0; i < numberOfDecoysToMake; ++i )
+	{
+		if( randomDecoy )
+			decoy = CreateRandomDecoyForPlayer( player, stickPercentToRun )
+		else
+			decoy = player.CreatePlayerDecoy( stickPercentToRun )
+		//print( decoy )
+		//decoy.SetCloakDuration( 0, 0, 0 )
+		//DispatchSpawn( decoy ) // this WILL break decoy's movespeed, but it will make decoys call "OnSpawnedCallback()"
+		decoy.SetMaxHealth( 50 )
+		decoy.SetHealth( 50 )
+		decoy.EnableAttackableByAI( 50, 0, AI_AP_FLAG_NONE )
+		SetObjectCanBeMeleed( decoy, true )
+		if ( infiniteDecoy )
+			decoy.SetTimeout( 9999 )
+		else
+			decoy.SetTimeout( DECOY_DURATION )
+		if ( cloakDecoy )
+		{
+			decoy.SetCloakDuration( 0, 0, 0 ) // this will make decoy spawn with no "flash" effect
+			player.SetCloakDuration( 0, 0.05, 0.5 ) // instead, we will make player flash
+		}
+		if ( setOriginAndAngles )
+		{
+			vector angleToAdd = CalculateAngleSegmentForDecoy( i, HOLOPILOT_ANGLE_SEGMENT )
+			vector normalizedAngle = player.GetAngles() +  angleToAdd
+			normalizedAngle.y = AngleNormalize( normalizedAngle.y ) //Only care about changing the yaw
+			decoy.SetAngles( normalizedAngle )
+
+			vector forwardVector = AnglesToForward( normalizedAngle )
+			forwardVector *= displacementDistance
+			decoy.SetOrigin( player.GetOrigin() + forwardVector ) //Using player origin instead of decoy origin as defensive fix, see bug 223066
+			PutEntityInSafeSpot( decoy, player, null, player.GetOrigin(), decoy.GetOrigin()  )
+		}
+
+		SetupModdedDecoy( player, decoy, infiniteDecoy, randomDecoy, cloakDecoy )
+
+		// modified callbacks
+		foreach ( void functionref( entity ) callbackFunc in file.decoyCreatedCallbacks )
+			callbackFunc( decoy )
+	}
+
+	#if BATTLECHATTER_ENABLED
+		PlayBattleChatterLine( player, "bc_pHolo" )
+	#endif
+
+	return decoy
+}
+
+void function SetupModdedDecoy( entity player, entity decoy, bool infiniteDecoy = false, bool randomDecoy = false, bool cloakDecoy = false ) //functioned out mainly so holopilot execution can call this as well
+{
+	decoy.SetDeathNotifications( true )
+	decoy.SetPassThroughThickness( 0 )
+	decoy.SetNameVisibleToOwner( true )
+	decoy.SetNameVisibleToFriendly( true )
+	decoy.SetNameVisibleToEnemy( true )
+	decoy.SetDecoyRandomPulseRateMax( 0.5 ) //pulse amount per second
+	decoy.SetFadeDistance( DECOY_FADE_DISTANCE )
+
+	int friendlyTeam = decoy.GetTeam()
+	if( !infiniteDecoy )
+	{
+		EmitSoundOnEntityToTeam( decoy, "holopilot_loop", friendlyTeam  ) //loopingSound
+		EmitSoundOnEntityToEnemies( decoy, "holopilot_loop_enemy", friendlyTeam  ) ///loopingSound
+		decoy.decoy.loopingSounds = [ "holopilot_loop", "holopilot_loop_enemy" ]
+		Highlight_SetFriendlyHighlight( decoy, "friendly_player_decoy" )
+		Highlight_SetOwnedHighlight( decoy, "friendly_player_decoy" )
+	}
+	else // infinite decoy
+	{
+		file.infiniteDecoyOnWorld.append( decoy )
+		if( file.infiniteDecoyOnWorld.len() >= WORLD_MAX_DECOY_COUNT )
+		{
+			file.infiniteDecoyOnWorld.removebyvalue( null ) // remove all invalid decoy
+			if( IsValid( file.infiniteDecoyOnWorld[0] ) )
+				file.infiniteDecoyOnWorld[0].Destroy() // maybe this?
+		}
+		decoy.SetNameVisibleToOwner( false )
+		decoy.SetNameVisibleToFriendly( false )
+		decoy.SetNameVisibleToEnemy( false )
+	}
+	decoy.e.hasDefaultEnemyHighlight = true
+	SetDefaultMPEnemyHighlight( decoy )
+
+	int attachID = decoy.LookupAttachment( "CHESTFOCUS" )
+
+	#if MP
+	var childEnt = player.FirstMoveChild()
+	while ( childEnt != null )
+	{
+		expect entity( childEnt )
+
+		bool isBattery = false
+		bool createHologram = false
+		switch( childEnt.GetClassName() )
+		{
+			case "item_titan_battery":
+			{
+				isBattery = true
+				createHologram = true
+				break
+			}
+
+			case "item_flag":
+			{
+				createHologram = true
+				break
+			}
+		}
+
+		asset modelName = childEnt.GetModelName()
+		if ( createHologram && modelName != $"" && childEnt.GetParentAttachment() != "" )
+		{
+			entity decoyChildEnt = CreatePropDynamic( modelName, <0, 0, 0>, <0, 0, 0>, 0 )
+			decoyChildEnt.Highlight_SetInheritHighlight( true )
+			decoyChildEnt.SetParent( decoy, childEnt.GetParentAttachment() )
+
+			if ( isBattery ){
+				thread Decoy_BatteryFX( decoy, decoyChildEnt )
+			}else{
+				thread Decoy_FlagFX( decoy, decoyChildEnt )
+			}
+		}
+
+		childEnt = childEnt.NextMovePeer()
+	}
+	#endif // MP
+	
+	if( !infiniteDecoy )
+	{
+		entity holoPilotTrailFX = StartParticleEffectOnEntity_ReturnEntity( decoy, HOLO_PILOT_TRAIL_FX, FX_PATTACH_POINT_FOLLOW, attachID )
+		SetTeam( holoPilotTrailFX, friendlyTeam )
+		holoPilotTrailFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+		decoy.decoy.fxHandles.append( holoPilotTrailFX )
+	}
+	if( infiniteDecoy )
+		decoy.SetFriendlyFire( true ) // so you can adjust decoy count yourself
+	else
+		decoy.SetFriendlyFire( !IsFriendlyFireOn() )
+	decoy.SetKillOnCollision( false )
+}
+
+vector function CalculateAngleSegmentForDecoy( int loopIteration, vector angleSegment )
+{
+    if ( loopIteration == 0 )
+        return < 0, 0, 0 >
+
+    if ( loopIteration % 2 == 0  )
+        return ( loopIteration / 2 ) * angleSegment * -1
+    else
+        return ( ( loopIteration / 2 ) + 1 ) * angleSegment
+
+    unreachable
+}
+
+#if MP
+void function Decoy_BatteryFX( entity decoy, entity decoyChildEnt )
+{
+	decoy.EndSignal( "OnDeath" )
+	decoy.EndSignal( "CleanupFXAndSoundsForDecoy" )
+	Battery_StartFX( decoyChildEnt )
+
+	OnThreadEnd(
+		function() : ( decoyChildEnt )
+		{
+			Battery_StopFX( decoyChildEnt )
+			if ( IsValid( decoyChildEnt ) )
+				decoyChildEnt.Destroy()
+		}
+	)
+
+	WaitForever()
+}
+
+void function Decoy_FlagFX( entity decoy, entity decoyChildEnt )
+{
+	decoy.EndSignal( "OnDeath" )
+	decoy.EndSignal( "CleanupFXAndSoundsForDecoy" )
+
+	SetTeam( decoyChildEnt, decoy.GetTeam() )
+	entity flagTrailFX = StartParticleEffectOnEntity_ReturnEntity( decoyChildEnt, GetParticleSystemIndex( FLAG_FX_ENEMY ), FX_PATTACH_POINT_FOLLOW, decoyChildEnt.LookupAttachment( "fx_end" ) )
+	flagTrailFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+
+	OnThreadEnd(
+		function() : ( flagTrailFX, decoyChildEnt )
+		{
+			if ( IsValid( flagTrailFX ) )
+				flagTrailFX.Destroy()
+
+			if ( IsValid( decoyChildEnt ) )
+				decoyChildEnt.Destroy()
+		}
+	)
+
+	WaitForever()
+}
+
+#endif // MP
+#endif // SERVER
+
+#if SERVER
+// Random decoy
+// reset decoy's model will lead to a really weird behavior
+const array<asset> RANDOM_DECOY_ASSETS = 
+[
+	$"models/humans/pilots/pilot_medium_stalker_m.mdl", 
+	$"models/humans/pilots/pilot_medium_stalker_f.mdl", 
+	$"models/humans/pilots/pilot_medium_geist_m.mdl", 
+	$"models/humans/pilots/pilot_medium_geist_f.mdl", 
+	$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
+	$"models/humans/pilots/pilot_medium_reaper_f.mdl", 
+	$"models/humans/pilots/pilot_light_ged_m.mdl", 
+	$"models/humans/pilots/pilot_light_ged_f.mdl", 
+	$"models/humans/pilots/pilot_light_jester_m.mdl", 
+	$"models/humans/pilots/pilot_light_jester_f.mdl", 
+	$"models/humans/pilots/pilot_heavy_drex_m.mdl", 
+	$"models/humans/pilots/pilot_heavy_drex_f.mdl", 
+	$"models/humans/pilots/pilot_heavy_roog_m.mdl", 
+	$"models/humans/pilots/pilot_heavy_roog_f.mdl", 
+	$"models/humans/grunts/mlt_grunt_lmg.mdl", 
+	$"models/humans/grunts/imc_grunt_lmg.mdl", 
+	$"models/humans/grunts/imc_grunt_shield_captain.mdl", 
+	$"models/robots/spectre/imc_spectre.mdl"
+	$"models/Humans/heroes/imc_hero_ash.mdl", 
+	$"models/Humans/heroes/imc_hero_blisk.mdl", 
+	$"models/Humans/heroes/mlt_hero_jack.mdl", 
+	$"models/Humans/heroes/mlt_hero_sarah.mdl", 
+	$"models/Humans/heroes/imc_hero_blisk.mdl", 
+	$"models/humans/pilots/sp_medium_geist_f.mdl", 
+	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
+	$"models/humans/pilots/sp_medium_stalker_m.mdl"
+]
+
+entity function CreateRandomDecoyForPlayer( entity player, float stickPercentToRun = 0.0 )
+{
+	// reset player's model before they place a decoy, also make the decoy models have no camo
+	asset playerModel = player.GetModelName()
+	int playerSkin = player.GetSkin()
+	int playerCamo = player.GetCamo()
+
+	asset decoyModel = RANDOM_DECOY_ASSETS[ RandomInt( RANDOM_DECOY_ASSETS.len() ) ]
+	player.SetModel( decoyModel )
+	player.SetSkin( 0 )
+	player.SetCamo( 0 )
+
+	entity decoy = player.CreatePlayerDecoy( stickPercentToRun )
+	//decoy.SetOrigin( player.GetOrigin() + < 0,0,15 > )
+
+	//decoy.SetModel( decoyModel )
+	//decoy.SetValueForModelKey( decoyModel )
+	//vector baseSpeed = decoy.GetVelocity() // try to store then restore the velocity
+	//print( decoy )
+	//DispatchSpawn( decoy ) // this WILL break decoy's movespeed, but it will make decoys call "OnSpawnedCallback()"
+	//decoy.SetVelocity( baseSpeed ) // won't work, this still can't make decoy have any speed
+
+	// recover player settings
+	player.SetModel( playerModel )
+	player.SetSkin( playerSkin )
+	player.SetCamo( playerCamo )
+
+	return decoy
+}
+#endif
