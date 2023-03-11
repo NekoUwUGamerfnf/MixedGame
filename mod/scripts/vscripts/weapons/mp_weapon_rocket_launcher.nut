@@ -18,12 +18,12 @@ global function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher
 global function OnWeaponNpcPrimaryAttack_S2S_weapon_rocket_launcher
 #endif // #if SERVER
 
-
 //14 //RUMBLE_FLAT_BOTH
 const LOCKON_RUMBLE_INDEX 	= 1 //RUMBLE_PISTOL
 const LOCKON_RUMBLE_AMOUNT	= 45
 const S2S_MISSILE_SPEED = 2500
 const S2S_MISSILE_HOMING = 5000
+
 
 // modded rocket
 const float GUIDED_MISSILE_LIFETIME = 20
@@ -458,8 +458,8 @@ void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entit
 			//print( "guiding end!" )
 			if( IsValid( weapon ) )
 			{
-				// refresh next attack time, so the weapon will start reloading. add 0.3s more for defensive fix
-				weapon.SetNextAttackAllowedTime( Time() + 0.3 )
+				// refresh next attack time, so the weapon will start reloading. add 0.5s more to prevent SetNextAttackAllowedTime() during a firing interval( which will make it not work )
+				weapon.SetNextAttackAllowedTime( Time() + 0.5 )
 			}
 		}
 	)
