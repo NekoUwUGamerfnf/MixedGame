@@ -147,6 +147,8 @@ void function OnWeaponDeactivate_weapon_rocket_launcher( entity weapon )
 #if SERVER
 	if ( weaponOwner.IsNPC() )
 		weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+	// player laser: defensive try to stop
+	ADSLaserEnd( weapon )
 #endif
 }
 
@@ -534,17 +536,24 @@ void function ReplaceGuidedArcher( entity owner, entity weapon, float delay )
 		slot += 1
 	}
 
-	if ( IsValid( weapon ) )
-		weapon.Destroy()
+	
+	if ( !IsValid( weapon ) ) // previous weapon has been destroyed...
+		return
+	bool activeWeaponIsArcher = owner.GetActiveWeapon() == weapon
+	weapon.Destroy()
 	entity newWeapon = owner.GiveWeapon( weaponName, mods )
 	newWeapon.SetWeaponPrimaryClipCount( clip )
 	newWeapon.SetWeaponPrimaryAmmoCount( ammo )
 	newWeapon.SetSkin( skin )
 	newWeapon.SetSkin( camo )
-	owner.SetActiveWeaponBySlot( slot )
-	// skip first deploy anim
-	owner.HolsterWeapon()
-	owner.DeployWeapon()
+	if ( activeWeaponIsArcher ) // player is still holding previous archer
+	{
+		// switch to new archer
+		owner.SetActiveWeaponBySlot( slot )
+		// skip first deploy anim
+		owner.HolsterWeapon()
+		owner.DeployWeapon()
+	}
 }
 
 void function RocketEffectFix( entity weapon )
