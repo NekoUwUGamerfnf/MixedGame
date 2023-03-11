@@ -62,48 +62,49 @@ var function OnWeaponPrimaryAttackAnimEvent_weapon_satchel( entity weapon, Weapo
 
 var function OnWeaponTossReleaseAnimEvent_weapon_satchel( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
 	if( weapon.HasMod( "proximity_mine" ) || weapon.HasMod( "anti_titan_mine" ) )
-		OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( weapon, attackParams )
+		return OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( weapon, attackParams )
+
+	// vanilla behavior
+	#if CLIENT
+		if ( !weapon.ShouldPredictProjectiles() )
+			return
+	#endif
+
+	entity player = weapon.GetWeaponOwner()
+
+	vector attackPos
+	if ( IsValid( player ) )
+		attackPos = GetSatchelThrowStartPos( player, attackParams.pos )
 	else
-	{
-		#if CLIENT
-			if ( !weapon.ShouldPredictProjectiles() )
-				return
+		attackPos = attackParams.pos
+
+
+	vector attackVec = attackParams.dir
+	vector angularVelocity = Vector( 600, RandomFloatRange( -300, 300 ), 0 )
+
+	float fuseTime = 0.0	// infinite
+
+	int damageFlags = weapon.GetWeaponDamageFlags()
+	entity satchel = weapon.FireWeaponGrenade( attackPos, attackVec, angularVelocity, fuseTime, damageFlags, damageFlags, PROJECTILE_PREDICTED, true, true )
+	if ( satchel == null )
+		return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
+
+	Grenade_Init( satchel, weapon )
+	PlayerUsedOffhand( player, weapon )
+
+	#if SERVER
+		SetVisibleEntitiesInConeQueriableEnabled( satchel, true )
+		Satchel_PostFired_Init( satchel, player )
+		thread EnableTrapWarningSound( satchel, 0, DEFAULT_WARNING_SFX )
+		EmitSoundOnEntityExceptToPlayer( player, player, "weapon_r1_satchel.throw" )
+		PROTO_PlayTrapLightEffect( satchel, "LIGHT", player.GetTeam() )
+		#if BATTLECHATTER_ENABLED
+			TryPlayWeaponBattleChatterLine( player, weapon )
 		#endif
+	#endif
 
-		entity player = weapon.GetWeaponOwner()
-
-		vector attackPos
-		if ( IsValid( player ) )
-			attackPos = GetSatchelThrowStartPos( player, attackParams.pos )
-		else
-			attackPos = attackParams.pos
-
-
-		vector attackVec = attackParams.dir
-		vector angularVelocity = Vector( 600, RandomFloatRange( -300, 300 ), 0 )
-
-		float fuseTime = 0.0	// infinite
-
-		int damageFlags = weapon.GetWeaponDamageFlags()
-		entity satchel = weapon.FireWeaponGrenade( attackPos, attackVec, angularVelocity, fuseTime, damageFlags, damageFlags, PROJECTILE_PREDICTED, true, true )
-		if ( satchel == null )
-			return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
-
-		Grenade_Init( satchel, weapon )
-		PlayerUsedOffhand( player, weapon )
-
-		#if SERVER
-			SetVisibleEntitiesInConeQueriableEnabled( satchel, true )
-			Satchel_PostFired_Init( satchel, player )
-			thread EnableTrapWarningSound( satchel, 0, DEFAULT_WARNING_SFX )
-			EmitSoundOnEntityExceptToPlayer( player, player, "weapon_r1_satchel.throw" )
-			PROTO_PlayTrapLightEffect( satchel, "LIGHT", player.GetTeam() )
-			#if BATTLECHATTER_ENABLED
-				TryPlayWeaponBattleChatterLine( player, weapon )
-			#endif
-		#endif
-	}
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
 
