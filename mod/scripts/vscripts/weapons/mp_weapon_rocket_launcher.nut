@@ -469,8 +469,8 @@ void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entit
 	
 	while( true )
 	{
-		if( weaponOwner.IsInputCommandHeld( IN_RELOAD ) || weaponOwner.IsInputCommandHeld( IN_USE_AND_RELOAD ) )
-			break
+		//if( weaponOwner.IsInputCommandHeld( IN_RELOAD ) || weaponOwner.IsInputCommandHeld( IN_USE_AND_RELOAD ) )
+		//	break
 		if( weaponOwner.GetActiveWeapon() != weapon )
 			break
 		if( !weapon.IsWeaponAdsButtonPressed() )
