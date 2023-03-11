@@ -226,39 +226,6 @@ void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, v
 #endif
 }
 
-void function OnWeaponStartZoomIn_weapon_rocket_launcher( entity weapon )
-{
-	if( !weapon.HasMod( "guided_missile" ) )
-		return
-	entity weaponOwner = weapon.GetWeaponOwner()
-	thread ADSLaserStart( weaponOwner, weapon )
-}
-
-void function OnWeaponStartZoomOut_weapon_rocket_launcher( entity weapon )
-{
-	if( !weapon.HasMod( "guided_missile" ) )
-		return
-	entity weaponOwner = weapon.GetWeaponOwner()
-	ADSLaserEnd( weapon )
-}
-
-void function ADSLaserStart( entity player, entity weapon )
-{
-	WaitFrame()
-	if( !IsAlive( player ) || !IsValid( weapon ) )
-		return
-	
-	if( player.GetActiveWeapon() != weapon )
-		return
-
-	weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
-}
-
-void function ADSLaserEnd( entity weapon )
-{
-	weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
-}
-
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_S2S_weapon_rocket_launcher( entity weapon, WeaponPrimaryAttackParams attackParams, entity target )
 {
@@ -396,7 +363,41 @@ void function OnWeaponOwnerChanged_weapon_rocket_launcher( entity weapon, Weapon
 }
 
 
+// modded callbacks
+void function OnWeaponStartZoomIn_weapon_rocket_launcher( entity weapon )
+{
+	if( !weapon.HasMod( "guided_missile" ) )
+		return
+	entity weaponOwner = weapon.GetWeaponOwner()
+	thread ADSLaserStart( weaponOwner, weapon )
+}
+
+void function OnWeaponStartZoomOut_weapon_rocket_launcher( entity weapon )
+{
+	if( !weapon.HasMod( "guided_missile" ) )
+		return
+	entity weaponOwner = weapon.GetWeaponOwner()
+	ADSLaserEnd( weapon )
+}
+
 // modded functions
+void function ADSLaserStart( entity player, entity weapon )
+{
+	WaitFrame()
+	if( !IsAlive( player ) || !IsValid( weapon ) )
+		return
+	
+	if( player.GetActiveWeapon() != weapon )
+		return
+
+	weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
+}
+
+void function ADSLaserEnd( entity weapon )
+{
+	weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+}
+
 #if SERVER
 void function RocketEffectFix( entity player, entity weapon )
 {
