@@ -17,7 +17,8 @@ void function TeamShuffle_Init()
 void function ShuffleTeams()
 {
 	TeamShuffleThink()
-	if( ClassicMP_GetIntroLength() < 1 )
+	bool disabledClassicMP = !GetClassicMPMode() && !ClassicMP_ShouldTryIntroAndEpilogueWithoutClassicMP()
+	if( ClassicMP_GetIntroLength() < 1 || disabledClassicMP )
 	{
 		FixShuffle()
 		WaitFrame() // do need wait to make things shuffled
