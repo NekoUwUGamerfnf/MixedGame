@@ -67,16 +67,20 @@ function MpTitanweaponRocketeetRocketStream_Init()
 void function OnWeaponStartZoomIn_TitanWeapon_Rocketeer_RocketStream( entity weapon )
 {
 #if SERVER
+	// cluster missiles and fast shots
 	if ( weapon.HasMod( "burn_mod_titan_rocket_launcher" ) || 
 		 weapon.HasMod( "rocketeer_ammo_swap" ) ||
 		 weapon.HasMod( "brute4_fast_shot" ) ||
 		 weapon.HasMod( "rocketstream_fast" ) )
 		return
 
-	if( weapon.HasMod( "brute4_rocket_launcher" ) )
+	if( weapon.HasMod( "brute4_rocket_launcher" ) ) // brute4
 		weapon.AddMod( "brute4_fast_shot" )
-	else
+	else // vanilla
 		weapon.AddMod( "rocketstream_fast" )
+	
+	if ( weapon.HasMod( "brute_rocket" ) ) // brute additional mod
+		weapon.AddMod( "brute_rocket_fast_shot" )
 #endif
 	//weapon.PlayWeaponEffectNoCull( $"wpn_arc_cannon_electricity_fp", $"wpn_arc_cannon_electricity", "muzzle_flash" )
 	//weapon.PlayWeaponEffectNoCull( $"wpn_arc_cannon_charge_fp", $"wpn_arc_cannon_charge", "muzzle_flash" )
@@ -86,14 +90,18 @@ void function OnWeaponStartZoomIn_TitanWeapon_Rocketeer_RocketStream( entity wea
 void function OnWeaponStartZoomOut_TitanWeapon_Rocketeer_RocketStream( entity weapon )
 {
 #if SERVER
+	// cluster missiles
 	if ( weapon.HasMod( "burn_mod_titan_rocket_launcher" ) || 
 		 weapon.HasMod( "rocketeer_ammo_swap" ) )
 		return
 
-	if( weapon.HasMod( "brute4_rocket_launcher" ) )
+	if( weapon.HasMod( "brute4_rocket_launcher" ) ) // brute4
 		weapon.RemoveMod( "brute4_fast_shot" )
-	else
+	else // vanilla
 		weapon.RemoveMod( "rocketstream_fast" )
+
+	if ( weapon.HasMod( "brute_rocket" ) ) // brute additional mod
+		weapon.RemoveMod( "brute_rocket_fast_shot" )
 #endif
 	//weapon.StopWeaponEffect( $"wpn_arc_cannon_charge_fp", $"wpn_arc_cannon_charge" )
 	//weapon.StopWeaponEffect( $"wpn_arc_cannon_electricity_fp", $"wpn_arc_cannon_electricity" )
