@@ -158,6 +158,7 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 	array<string> mods = projectile.ProjectileGetMods()
 	if( mods.contains( "tediore_effect" ) )
 		return OnProjectileCollision_Tediore( projectile, pos, normal, hitEnt, hitbox, isCritical )
+		
 #if SERVER
 	if( mods.contains( "explosive_sniper" ) )
 	{
@@ -177,14 +178,45 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 		//EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "explo_40mm_splashed_impact_3p" )
 	}
 
+	// vanilla behavior
 	int bounceCount = projectile.GetProjectileWeaponSettingInt( eWeaponVar.projectile_ricochet_max_count )
 	if ( projectile.proj.projectileBounceCount >= bounceCount )
 		return
 
+	print( "projectile bounced!" )
 	if ( hitEnt == svGlobal.worldspawn )
 		EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Bullets.DefaultNearmiss" )
 
 	projectile.proj.projectileBounceCount++
+
+	//float traceFrac = TraceLineSimple( pos + normal, projectile.GetOrigin(), null )
+	//print( "traceFrac: " + string( traceFrac ) )
+	// bounced projectile, try to fix their explosion damage, will double the damage if they're not in valid bounce frac though
+	entity owner = projectile.GetOwner()
+	int damage 						= projectile.GetProjectileWeaponSettingInt( eWeaponVar.explosion_damage )
+	int titanDamage					= projectile.GetProjectileWeaponSettingInt( eWeaponVar.explosion_damage_heavy_armor )
+	float explosionRadius 			= projectile.GetProjectileWeaponSettingFloat( eWeaponVar.explosionradius )
+	float explosionInnerRadius 		= projectile.GetProjectileWeaponSettingFloat( eWeaponVar.explosion_inner_radius )
+	int damageFlags					= TEMP_GetDamageFlagsFromProjectile( projectile )
+	float explosionForce			= projectile.GetProjectileWeaponSettingFloat( eWeaponVar.impulse_force_explosions )
+	int damageSourceId 				= projectile.ProjectileGetDamageSourceID()
+	if ( damage > 0 && explosionRadius > 0 )
+	{
+		RadiusDamage(
+			pos,															// origin
+			owner,															// owner
+			projectile,		 												// inflictor
+			damage,															// normal damage
+			titanDamage,													// heavy armor damage
+			explosionInnerRadius,											// inner radius
+			explosionRadius,												// outer radius
+			SF_ENVEXPLOSION_NO_NPC_SOUND_EVENT,								// explosion flags
+			0, 																// distanceFromAttacker
+			explosionForce, 												// explosionForce
+			damageFlags,													// damage flags
+			damageSourceId													// damage source id
+		)
+	}
 #endif
 }
 
