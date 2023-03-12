@@ -10,15 +10,85 @@ bool hasShuffled = false
 void function TeamShuffle_Init()
 {
 	AddCallback_GameStateEnter( eGameState.Prematch, ShuffleTeams )
-	if( !(GAMETYPE == "tdm" && GetMapName() == "mp_forwardbase_kodai") )
-		AddCallback_OnPlayerKilled( CheckTeamBalance )
+	AddCallback_OnClientDisconnected( CheckPlayerDisconnect )
+	// viper battle compatible
+	//if( !(GAMETYPE == "tdm" && GetMapName() == "mp_forwardbase_kodai") )
+	//	AddCallback_OnPlayerKilled( CheckTeamBalance )
+	AddCallback_OnPlayerKilled( CheckTeamBalance )
+	AddClientCommandCallback( "switch", CC_TrySwitchTeam )
+}
+
+bool function CC_TrySwitchTeam( entity player, array<string> args )
+{
+	// Check if the gamemode or map are on the blacklist
+	bool gamemodeDisable = disabledGamemodes_Balance.contains(GAMETYPE) || IsFFAGame();
+	bool mapDisable = disabledMaps.contains(GetMapName());
+
+	// Blacklist guards
+  	if ( gamemodeDisable )
+	{
+    	Chat_ServerPrivateMessage( player, "当前模式不可切换队伍", false ) // chathook has been fucked up
+		return true
+	}
+
+  	if ( mapDisable )
+    {
+    	Chat_ServerPrivateMessage( player, "当前地图", false ) // chathook has been fucked up
+		return true
+	}
+	
+	if ( GetPlayerArray().len() == 1 )
+	{
+    	Chat_ServerPrivateMessage( player, "人数不足，不可切换队伍", false ) // chathook has been fucked up
+		return true
+	}
+
+	// Check if difference is smaller than 2 ( dont balance when it is 0 or 1 )
+	if( abs ( GetPlayerArrayOfTeam( TEAM_IMC ).len() - GetPlayerArrayOfTeam( TEAM_MILITIA ).len() ) <= BALANCE_ALLOWED_TEAM_DIFFERENCE )
+	{
+    	Chat_ServerPrivateMessage( player, "队伍已平衡，不可切换队伍", false ) // chathook has been fucked up
+		return true
+	}
+
+	int oldTeam = player.GetTeam()
+	SetTeam( player, GetOtherTeam( player.GetTeam() ) )
+	Chat_ServerPrivateMessage( player, "已切换队伍", false )
+	thread WaitForPlayerRespawnThenNotify( player )
+	NotifyClientsOfTeamChange( player, oldTeam, player.GetTeam() )
+	if( IsAlive( player ) ) // poor guy
+	{
+		player.Die( null, null, { damageSourceId = eDamageSourceId.team_switch } ) // better
+		if ( player.GetPlayerGameStat( PGS_DEATHS ) >= 1 ) // reduce the death count
+			player.AddToPlayerGameStat( PGS_DEATHS, -1 )
+	}
+	if( !RespawnsEnabled() ) // do need respawn the guy if respawnsdisabled
+		RespawnAsPilot( player )
+
+	return true
+}
+
+void function CheckPlayerDisconnect( entity player )
+{
+	// general check
+  	if ( !CanChangeTeam() )
+		return
+
+	int weakTeam = GetPlayerArrayOfTeam( TEAM_IMC ).len() > GetPlayerArrayOfTeam( TEAM_MILITIA ).len() ? TEAM_MILITIA : TEAM_IMC
+	foreach ( entity player in GetPlayerArrayOfTeam( GetOtherTeam( weakTeam ) ) )
+		Chat_ServerPrivateMessage( player, "队伍当前不平衡，可通过控制台输入switch切换队伍", false )
 }
 
 void function ShuffleTeams()
 {
 	TeamShuffleThink()
 	bool disabledClassicMP = !GetClassicMPMode() && !ClassicMP_ShouldTryIntroAndEpilogueWithoutClassicMP()
-	if( ClassicMP_GetIntroLength() < 1 || disabledClassicMP )
+	//print( "disabledClassicMP: " + string( disabledClassicMP ) )
+	if ( disabledClassicMP )
+	{
+		WaitFrame() // do need wait before shuffle
+		FixShuffle()
+	}
+	else if( ClassicMP_GetIntroLength() < 1 )
 	{
 		FixShuffle()
 		WaitFrame() // do need wait to make things shuffled
@@ -106,7 +176,11 @@ void function FixShuffle( float delay = 0 )
 		largerTeamIndex += 1
 
 		if( IsAlive( poorGuy ) ) // poor guy
+		{
 			poorGuy.Die( null, null, { damageSourceId = eDamageSourceId.team_switch } ) // better
+			if ( poorGuy.GetPlayerGameStat( PGS_DEATHS ) >= 1 ) // reduce the death count
+				poorGuy.AddToPlayerGameStat( PGS_DEATHS, -1 )
+		}
 		int oldTeam = poorGuy.GetTeam()
 		SetTeam( poorGuy, GetOtherTeam( largerTeam ) )
 		if( !RespawnsEnabled() ) // do need respawn the guy if respawnsdisabled
@@ -114,7 +188,7 @@ void function FixShuffle( float delay = 0 )
 	}
 	if( IsValid( poorGuy ) )
 	{ // only notice once
-		//Chat_ServerPrivateMessage( poorGuy, "由于队伍人数不平衡，你已被重新分队", false ) // chathook has been fucked up
+		Chat_ServerPrivateMessage( poorGuy, "由于队伍人数不平衡，你已被重新分队", false )
 		thread WaitForPlayerRespawnThenNotify( poorGuy )
 		NotifyClientsOfTeamChange( poorGuy, oldTeam, poorGuy.GetTeam() ) 
 	}
@@ -130,23 +204,8 @@ void function WaitForPlayerRespawnThenNotify( entity player )
 
 void function CheckTeamBalance( entity victim, entity attacker, var damageInfo )
 {  
-  	// Check if the gamemode or map are on the blacklist
-	bool gamemodeDisable = disabledGamemodes_Balance.contains(GAMETYPE) || IsFFAGame();
-	bool mapDisable = disabledMaps.contains(GetMapName());
-
-	// Blacklist guards
-  	if ( gamemodeDisable )
-    	return
-  
-  	if ( mapDisable )
-    	return
-  
-	// Check if difference is smaller than 2 ( dont balance when it is 0 or 1 )
-	// May be too aggresive ??
-	if( abs ( GetPlayerArrayOfTeam( TEAM_IMC ).len() - GetPlayerArrayOfTeam( TEAM_MILITIA ).len() ) <= BALANCE_ALLOWED_TEAM_DIFFERENCE )
-		return
-	
-	if ( GetPlayerArray().len() == 1 )
+	// general check
+  	if ( !CanChangeTeam() )
 		return
 	
 	// Compare victims teams size
@@ -156,10 +215,35 @@ void function CheckTeamBalance( entity victim, entity attacker, var damageInfo )
 	// We passed all checks, balance the teams
 	int oldTeam = victim.GetTeam()
 	SetTeam( victim, GetOtherTeam( victim.GetTeam() ) )
-	//Chat_ServerPrivateMessage( victim, "由于队伍人数不平衡，你已被重新分队", false ) // chathook has been fucked up
+	Chat_ServerPrivateMessage( victim, "由于队伍人数不平衡，你已被重新分队", false )
 	thread WaitForPlayerRespawnThenNotify( victim )
 	NotifyClientsOfTeamChange( victim, oldTeam, victim.GetTeam() )
 }
+
+bool function CanChangeTeam()
+{
+	// Check if the gamemode or map are on the blacklist
+	bool gamemodeDisable = disabledGamemodes_Balance.contains(GAMETYPE) || IsFFAGame();
+	bool mapDisable = disabledMaps.contains(GetMapName());
+
+	// Blacklist guards
+  	if ( gamemodeDisable )
+    	return false
+  
+  	if ( mapDisable )
+    	return false
+  
+	// Check if difference is smaller than 2 ( dont balance when it is 0 or 1 )
+	// May be too aggresive ??
+	if( abs ( GetPlayerArrayOfTeam( TEAM_IMC ).len() - GetPlayerArrayOfTeam( TEAM_MILITIA ).len() ) <= BALANCE_ALLOWED_TEAM_DIFFERENCE )
+		return false
+	
+	if ( GetPlayerArray().len() == 1 )
+		return false
+
+	return true
+}
+	
 
 /* // pandora version
 bool function ClientCommand_SwitchTeam( entity player, array<string> args )
