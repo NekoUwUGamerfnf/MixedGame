@@ -50,6 +50,7 @@ void function DashCoreThink( entity weapon, float coreDuration )
 	owner.EndSignal( "OnDeath" )
 	owner.EndSignal( "DisembarkingTitan" )
 	owner.EndSignal( "TitanEjectionStarted" )
+	owner.EndSignal( "OnSyncedMeleeVictim" )
 
 	if( !owner.IsTitan() )
 		return
