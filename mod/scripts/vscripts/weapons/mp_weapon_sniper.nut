@@ -183,7 +183,7 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 	if ( projectile.proj.projectileBounceCount >= bounceCount )
 		return
 
-	print( "projectile bounced!" )
+	//print( "projectile bounced!" )
 	if ( hitEnt == svGlobal.worldspawn )
 		EmitSoundAtPosition( TEAM_UNASSIGNED, pos, "Bullets.DefaultNearmiss" )
 
