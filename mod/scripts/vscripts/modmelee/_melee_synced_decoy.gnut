@@ -1,0 +1,217 @@
+// handling executing player's decoy
+global function MeleeSyncedDecoy_Init
+
+global function MeleeSyncedDecoy_CreateExecutableProp // utility
+global function MeleeSyncedDecoy_EnableExecutingOwnedDecoy
+global function MeleeSyncedDecoy_EnableExecutingAllDecoy
+global function MeleeSyncedDecoy_EnableExecutingProps
+
+const float DECOY_EXECUTION_RANGE			= 225
+const string EXECUTABLE_PROP_SCRIPTNAME		= "executable_prop" // if a prop spawn with this scriptName we can execute it
+
+struct
+{
+    bool enableExecutingOwnedDecoy = false
+    bool enableExecutingAllDecoy = false
+	bool enableExecutingProps = false
+} file
+
+void function MeleeSyncedDecoy_Init()
+{
+	SetFriendlyFireOn( true )
+	MeleeSyncedDecoy_EnableExecutingOwnedDecoy( true )
+	MeleeSyncedDecoy_EnableExecutingProps( true )
+	MeleeSyncedHuman_EnableNessieExecutions( true )
+	//AddDamageFinalCallback( "player_decoy", TryExecutePlayerDecoy ) // decoys won't call this
+	RegisterSignal( "DecoyStateChange" ) // for cancelling the animation
+
+    AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_PlayerDecoyStateChange( OnPlayerDecoyStateChange ) // modified callback in mp_ability_holopilot.nut
+
+	AddClientCommandCallback( "executable", CC_ExecutableProp )
+}
+
+bool function CC_ExecutableProp( entity player, array<string> args )
+{
+	MeleeSyncedDecoy_CreateExecutableProp( player.GetOrigin(), < 0, player.GetAngles().y, 0 > )
+	return true
+}
+
+void function MeleeSyncedDecoy_EnableExecutingOwnedDecoy( bool enable )
+{
+	file.enableExecutingOwnedDecoy = enable
+}
+
+void function MeleeSyncedDecoy_EnableExecutingAllDecoy( bool enable )
+{
+	file.enableExecutingAllDecoy = enable
+}
+
+void function MeleeSyncedDecoy_EnableExecutingProps( bool enable )
+{
+	file.enableExecutingProps = enable
+}
+
+void function OnClientConnected( entity player )
+{
+	AddButtonPressedPlayerInputCallback( player, IN_MELEE, ExecutingDecoysOrPropsThink )
+}
+
+void function OnPlayerDecoyStateChange( entity decoy, int previousState, int currentState )
+{
+	//print( "signal DecoyStateChanged" )
+	decoy.Signal( "DecoyStateChange" )
+}
+
+entity function MeleeSyncedDecoy_CreateExecutableProp( vector origin, vector angles )
+{
+	entity marder = CreateEntity( "prop_dynamic" )
+	marder.SetValueForModelKey( $"models/humans/heroes/imc_hero_marder.mdl" )
+	marder.SetOrigin( origin )
+	marder.SetAngles( angles )
+	marder.kv.solid = 6 // SOLID_VPHYSICS
+	Highlight_SetEnemyHighlight( marder, "enemy_player" )
+	marder.SetScriptName( EXECUTABLE_PROP_SCRIPTNAME )
+	DispatchSpawn( marder )
+	marder.SetModel( $"models/humans/heroes/imc_hero_marder.mdl" )
+	return marder
+}
+
+void function ExecutingDecoysOrPropsThink( entity player )
+{
+	TryExecutePlayerDecoy( player )
+}
+
+bool function TryExecutePlayerDecoy( entity player )
+{
+	if( player.IsTitan() )
+		return false
+	if( player.IsPhaseShifted() )
+		return false
+	if( player.ContextAction_IsActive() ) // doing a execution?
+		return false
+	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * DECOY_EXECUTION_RANGE, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+	if( !IsValid( traceResult.hitEnt ) )
+		return false
+	entity target = traceResult.hitEnt
+	//print( target )
+	entity bossPlayer = target.GetBossPlayer()
+	// execution validation check...
+	bool allowExecuting = false
+	if ( target.IsPlayerDecoy() )
+	{
+		if ( file.enableExecutingOwnedDecoy && bossPlayer == player )
+			allowExecuting = true
+		if ( file.enableExecutingAllDecoy )
+			allowExecuting = true
+	}
+	if ( file.enableExecutingProps )
+	{
+		if ( target.GetClassName() == "prop_script" || target.GetClassName() == "prop_dynamic" )
+		{
+			if( target.GetScriptName() == EXECUTABLE_PROP_SCRIPTNAME )
+				allowExecuting = true
+		}
+	}
+	if ( !allowExecuting )
+		return false
+
+	//print( "try to find action..." )
+	SyncedMeleeChooser ornull actions = GetSyncedMeleeChooserForPlayerVsTarget( player, target )
+	if( actions == null )
+		return false
+	expect SyncedMeleeChooser( actions )
+	SyncedMelee ornull action = FindBestSyncedMelee( player, target, actions )
+	if( action == null )
+		return false
+	
+	expect SyncedMelee( action )
+	//player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, 0.1 ) // temp fix, stop melee animations, which triggers when you try to execute a friendly
+	player.Anim_StopGesture( 0 ) // maybe use this? to stop existing melee animations, same as AttemptHumanMeleeExecution() does
+	thread MeleeThread_PilotVsEnemy( action, player, target )
+	
+	// classic executions should have no CinematicFlag, this has been done in _melee_synced_human's ForceRemoveExecutioCinematic()
+	thread PlayerSyncedMeleeScreenEffect( player )
+	// try to manually control target's lifetime
+	thread TrackTargetAnimTime( player, target, action )
+
+	return true
+}
+
+void function PlayerSyncedMeleeScreenEffect( entity player )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function() : ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+				RemoveCinematicFlag( player, CE_FLAG_EXECUTION )
+                RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+			}
+		}
+	)
+
+	if( player.IsTitan() )
+		AddCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+    AddCinematicFlag( player, CE_FLAG_EXECUTION )
+    AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+
+    WaittillAnimDone( player )
+}
+
+void function TrackTargetAnimTime( entity attacker, entity target, SyncedMelee action )
+{
+	attacker.EndSignal( "OnDeath" )
+	attacker.EndSignal( "OnDestroy" )
+	attacker.EndSignal( "OnAnimationInterrupted" )
+	target.EndSignal( "OnDestroy" )
+
+	if ( target.IsPlayerDecoy() )
+		target.SetKillOnCollision( true )
+
+	OnThreadEnd
+	(
+		function(): ( attacker, target )
+		{
+			// stop attacker sequence once target's animation interruped
+			if ( IsValid( attacker ) )
+				attacker.Anim_Stop()
+			// always dissolve the useless target, whether the animation is succeeded
+			if ( IsValid( target ) )
+			{
+				if ( target.IsPlayerDecoy() )
+					target.Decoy_Dissolve()
+				else
+				{
+					target.SetContinueAnimatingAfterRagdoll( true )
+					target.BecomeRagdoll( < 0, 0, 0 >, false )
+				}
+			}
+		}
+	)
+
+	// separent a function here, so cloak execution can signal the "DecoyStateChange" before waiting starts
+	if ( target.IsPlayerDecoy() )
+		WaitTillDecoyAnimDoneOrStateChanged( target, action )
+	else
+		WaittillAnimDone( target )
+}
+
+void function WaitTillDecoyAnimDoneOrStateChanged( entity animatingEnt, SyncedMelee action )
+{
+	waitthread WaitTillDecoyAnimDoneOrStateChanged_Thread( animatingEnt, action )
+}
+
+void function WaitTillDecoyAnimDoneOrStateChanged_Thread( entity animatingEnt, SyncedMelee action )
+{
+	animatingEnt.EndSignal( "OnDestroy" )
+
+	//print( "waiting for decoy anim done or state change..." )
+	animatingEnt.EndSignal( "DecoyStateChange" ) // to end the animation
+	animatingEnt.EndSignal( "OnAnimationInterrupted" )
+	animatingEnt.WaitSignal( "OnAnimationDone" )
+}

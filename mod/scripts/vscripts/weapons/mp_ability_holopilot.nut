@@ -32,7 +32,10 @@ global function CleanupExistingDecoy // globlized for multiple uses
 global function AddCallback_OnDecoyCreated // since decoys won't DispatchSpawn(), server can't use AddSpawnCallback()
 global function AddCallback_PlayerDecoyDie
 global function AddCallback_PlayerDecoyDissolve
+global function AddCallback_PlayerDecoyRemove
+global function AddCallback_PlayerDecoyStateChange
 #endif
+
 // modded decoy, this is not a modding interfacer, check more in mp_ability_modded_holopilot.gnut
 global function AddDecoyModifier
 //
@@ -48,6 +51,8 @@ struct
 	array< void functionref( entity ) > decoyCreatedCallbacks
 	array< void functionref( entity, int ) > playerDecoyDieCallbacks
 	array< void functionref( entity, int ) > playerDecoyDissolveCallbacks
+	array< void functionref( entity, int ) > playerDecoyRemoveCallbacks
+	array< void functionref( entity, int, int ) > playerDecoyStateChangeCallbacks
 
 	// modified
 	array<string> decoyModifiers = []
@@ -166,12 +171,23 @@ void function CodeCallback_PlayerDecoyDissolve( entity decoy, int currentState )
 void function CodeCallback_PlayerDecoyRemove( entity decoy, int currentState )
 {
 	//PrintFunc()
+
+	// modified callback
+	foreach ( void functionref( entity, int ) callbackFunc in file.playerDecoyRemoveCallbacks )
+		callbackFunc( decoy, currentState )
 }
 
 
 void function CodeCallback_PlayerDecoyStateChange( entity decoy, int previousState, int currentState )
 {
+	//print( "playerDecoy state Changed!" )
+	//print( "previousState: " + string( previousState ) )
+	//print( "currentState: " + string( currentState ) )
 	//PrintFunc()
+
+	// modified callback
+	foreach ( void functionref( entity, int, int ) callbackFunc in file.playerDecoyStateChangeCallbacks )
+		callbackFunc( decoy, previousState, currentState )
 }
 #endif // SERVER
 
@@ -468,5 +484,15 @@ void function AddCallback_PlayerDecoyDie( void functionref( entity, int ) callba
 void function AddCallback_PlayerDecoyDissolve( void functionref( entity, int ) callbackFunc )
 {
 	file.playerDecoyDissolveCallbacks.append( callbackFunc )
+}
+
+void function AddCallback_PlayerDecoyRemove( void functionref( entity, int ) callbackFunc )
+{
+	file.playerDecoyRemoveCallbacks.append( callbackFunc )
+}
+
+void function AddCallback_PlayerDecoyStateChange( void functionref( entity, int, int ) callbackFunc )
+{
+	file.playerDecoyStateChangeCallbacks.append( callbackFunc )
 }
 #endif
