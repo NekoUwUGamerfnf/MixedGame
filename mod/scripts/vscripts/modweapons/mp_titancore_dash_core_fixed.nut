@@ -68,7 +68,7 @@ void function DashCoreThink( entity weapon, float coreDuration )
 	if ( owner.IsPlayer() )
 	{
 		owner.Server_SetDodgePower( 100.0 )
-		owner.SetPowerRegenRateScale( 16.0 )
+		owner.SetPowerRegenRateScale( 10.0 )
 		//owner.SetPowerRegenRateScale( 16.0 )
 		if ( weapon.HasMod( "ttf1_dash_core" ) ) // specific
 			owner.SetDodgePowerDelayScale( 0.1 )
