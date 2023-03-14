@@ -12,8 +12,8 @@ const int DAMAGE_AGAINST_PILOTS 			= 30
 
 const float EMP_DAMAGE_TICK_RATE 			= 0.5
 
-const asset FX_EMP_FIELD						= $"P_xo_emp_field"
-const asset FX_EMP_FIELD_1P						= $"P_body_emp_1P"
+const asset FX_EMP_FIELD					= $"P_xo_emp_field"
+const asset FX_EMP_FIELD_1P					= $"P_body_emp_1P"
 
 // archon usage
 const int DAMAGE_AGAINST_TITANS_ARCHON 		= 400 // archon have main weapon upgrade, so empfield deal less damage
@@ -21,6 +21,10 @@ const int DAMAGE_AGAINST_TITANS_ARCHON 		= 400 // archon have main weapon upgrad
 void function Tesla_Core_Init()
 {
     RegisterSignal( "TeslaCoreEnd" ) // to end doomedstate tracks
+#if SERVER
+	// can't use titanEMPField as damageSourceID, since client will do most stuffs
+	AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_arc_blast, TeslaCoreDamagedTarget )
+#endif
 }
 
 bool function OnCoreCharge_Tesla_Core( entity weapon )
@@ -83,9 +87,10 @@ void function TeslaCoreThink( entity weapon, float coreDuration )
 
 	entity soul = owner.GetTitanSoul()
 	int statusEffect = StatusEffect_AddEndless( soul, eStatusEffect.damageAmpFXOnly, 1.0 ) // add a visual effect
-
-	thread TeslaCoreEMPFireldThink( owner )
-	if ( weapon.HasMod( "archon_tesla" ) )
+	
+	bool archonVersion = weapon.HasMod( "archon_tesla" )
+	thread TeslaCoreEMPFieldThink( owner, archonVersion )
+	if ( archonVersion )
 		thread ArchonMainWeaponSuperChargedThink( owner, coreDuration )
     //thread EMPTitanThinkConstant( owner ) // start empField
 	// using a modified empField function now!
@@ -98,6 +103,11 @@ void function TeslaCoreThink( entity weapon, float coreDuration )
 			{
 				StopSoundOnEntity( owner, "Titan_Ronin_Sword_Core_Activated_Upgraded_1P" )
                 StopSoundOnEntity( owner, "Titan_Ronin_Sword_Core_Activated_Upgraded_3P" )
+
+				// defensive fix
+				StopSoundOnEntity( owner, "EMP_Titan_Electrical_Field" )
+				if ( IsValid( owner.GetTitanSoul() ) )
+					EnableTitanRodeo( owner ) //Make the arc titan rodeoable now that it is no longer electrified.
 
                 if ( owner.IsPlayer() )
                 {
@@ -149,7 +159,7 @@ void function TrackEMPTitanDoomedState( entity titan )
 */
 
 // main mechanic goes here, from _ai_emp_titans.gnut
-void function TeslaCoreEMPFireldThink( entity titan )
+void function TeslaCoreEMPFieldThink( entity titan, bool isArchon = false )
 {
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
@@ -235,6 +245,8 @@ void function TeslaCoreEMPFireldThink( entity titan )
 	wait 0.5 // first wait here, for fx being setup
 	int damage = DAMAGE_AGAINST_PILOTS
 	int damageHeavyArmor = DAMAGE_AGAINST_TITANS
+	if ( isArchon )
+		damageHeavyArmor = DAMAGE_AGAINST_TITANS_ARCHON
 	float interval = EMP_DAMAGE_TICK_RATE
 
 	while ( true )
@@ -253,9 +265,57 @@ void function TeslaCoreEMPFireldThink( entity titan )
 			0,										// distanceFromAttacker
 			DAMAGE_AGAINST_PILOTS,					// explosionForce
 			DF_ELECTRICAL | DF_STOPS_TITAN_REGEN,	// scriptDamageFlags
-			eDamageSourceId.titanEmpField )			// scriptDamageSourceIdentifier
+			eDamageSourceId.mp_weapon_arc_blast )			// scriptDamageSourceIdentifier
 
 		wait interval
+	}
+}
+
+// damage, took from cl_ai_emp_titans.gnut
+const string ARC_TITAN_TITAN_SCREEN_SFX 	= "Titan_Offhand_ElectricSmoke_Titan_Damage_1P"
+const string ARC_TITAN_PILOT_SCREEN_SFX 	= "Titan_Offhand_ElectricSmoke_Human_Damage_1P"
+
+const float ARC_TITAN_EMP_DURATION			= 0.35
+const float ARC_TITAN_EMP_FADEOUT_DURATION	= 0.35
+const float ARC_TITAN_SCREEN_EFFECTS 		= 0.085
+// no idea why respawn uses client script to handle it...
+void function TeslaCoreDamagedTarget( entity victim, var damageInfo )
+{
+	if ( !IsAlive( victim ) )
+		return
+	if ( !victim.IsPlayer() )
+		return
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsAlive( attacker ) )
+		return
+
+	if ( DamageInfo_GetDamage( damageInfo ) <= 0 )
+		return
+
+	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_DOOMED_HEALTH_LOSS )
+		return
+
+	int attachID 	= attacker.LookupAttachment( "hijack" )
+	vector origin 	= attacker.GetOrigin() + < 0, 0, 80 >
+	if ( attachID > 0 )
+		origin		= attacker.GetAttachmentOrigin( attachID )
+	float distSqr 	= DistanceSqr( origin, victim.GetOrigin() )
+
+	float minDist 	= ARC_TITAN_EMP_FIELD_INNER_RADIUS_SQR
+	float maxDist 	= ARC_TITAN_EMP_FIELD_RADIUS_SQR
+	float empFxHigh = ARC_TITAN_SCREEN_EFFECTS
+	float empFxLow 	= ( ARC_TITAN_SCREEN_EFFECTS * 0.6 )
+	float screenEffectAmplitude = GraphCapped( distSqr, minDist, maxDist, empFxHigh, empFxLow )
+
+	if ( victim.IsTitan() )
+	{
+		Remote_CallFunction_Replay( victim, "ServerCallback_TitanEMP", screenEffectAmplitude, ARC_TITAN_EMP_DURATION, ARC_TITAN_EMP_FADEOUT_DURATION )
+		EmitSoundOnEntityOnlyToPlayer( victim, victim, ARC_TITAN_TITAN_SCREEN_SFX )
+	}
+	else
+	{
+		EmitSoundOnEntityOnlyToPlayer( victim, victim, ARC_TITAN_PILOT_SCREEN_SFX )
 	}
 }
 
