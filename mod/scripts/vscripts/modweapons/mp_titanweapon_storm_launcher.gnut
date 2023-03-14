@@ -21,7 +21,12 @@ const int STORM_DAMAGE_HEAVYARMOR_CHARGED   = 370 // charged storm ball
 const float STORM_DAMAGE_INTERVAL			= 0.1 // no need to change this
 
 const int STORM_BALL_DAMAGE_FLAGS			= DF_EXPLOSION | DF_GIB | DF_STOPS_TITAN_REGEN | DF_DOOM_FATALITY
-const int STORM_LIGHTNING_DAMAGE_FLAGS      = DF_ELECTRICAL | DF_GIB | DF_DISSOLVE
+const int STORM_LIGHTNING_DAMAGE_FLAGS      = DF_ELECTRICAL | DF_GIB | DF_DISSOLVE | DF_NO_HITBEEP // hide hitbeep, we do it in damaged sounds function
+
+struct
+{
+	table<entity, float> nextDamagedSoundTime
+} file
 
 void function MpTitanWeaponStormLauncher_Init()
 {
@@ -205,6 +210,9 @@ void function StormBallFieldDamage( entity projectile, bool charged )
 
 void function StormLauncher_DamagedTarget( entity victim, var damageInfo )
 {
+	if ( !IsAlive( victim ) )
+		return
+
     entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	if ( !IsValid( inflictor ) )
 		return
@@ -219,16 +227,54 @@ void function StormLauncher_DamagedTarget( entity victim, var damageInfo )
 	if( !IsValid( attacker ) )
 		return
 
-    // checks all passed, these are actual effects
-    if ( victim.IsPlayer() )
-	{
-		if ( victim.IsTitan() )
-		 	EmitSoundOnEntityOnlyToPlayer( victim, victim, "titan_rocket_explosion_3p_vs_1p" )
-		else
-		 	EmitSoundOnEntityOnlyToPlayer( victim, victim, "flesh_explo_med_3p_vs_1p" )
-	}
+	// checks all passed, these are actual effects
+    PlayDamageSounds( victim, attacker, "titan_rocket_explosion_3p_vs_1p", "Weapon.Explosion_Med", "flesh_explo_med_3p_vs_1p", "Weapon.Explosion_Med" )
 
 	// this will cause a projectile with no ball lightning dealing no damage!
 	//OnBallLightningDamage( victim, damageInfo )
+}
+
+void function PlayDamageSounds( entity ent, entity attacker, string titan1P_SFX, string titan3P_SFX, string pilot1P_SFX, string pilot3P_SFX )
+{
+	float currentTime = Time()
+
+	if ( !( ent in file.nextDamagedSoundTime ) )
+	{
+		if ( ent.IsPlayer() )
+			file.nextDamagedSoundTime[ ent ] <- currentTime
+		else
+			file.nextDamagedSoundTime[ ent ] <- currentTime + RandomFloat( 0.3 )
+	}
+
+	if ( file.nextDamagedSoundTime[ ent ] <= currentTime )
+	{
+		if ( ent.IsPlayer() )
+		{
+			if ( ent.IsTitan() )
+			{
+				EmitSoundOnEntityExceptToPlayer( ent, ent, titan3P_SFX )
+				EmitSoundOnEntityOnlyToPlayer( ent, ent, titan1P_SFX )
+				file.nextDamagedSoundTime[ ent ] = currentTime + RandomFloatRange( 0.5, 0.75 )
+			}
+			else
+			{
+				EmitSoundOnEntityExceptToPlayer( ent, ent, pilot3P_SFX )
+				EmitSoundOnEntityOnlyToPlayer( ent, ent, pilot1P_SFX )
+			}
+
+			// since we hide lightning's hitbeep, do it here
+			if ( IsValid( attacker ) && attacker.IsPlayer() )
+				EmitSoundOnEntityOnlyToPlayer( attacker, attacker, "Player.Hitbeep" )
+		}
+		else
+		{
+			if ( ent.IsTitan() )
+				EmitSoundOnEntity( ent, titan3P_SFX )
+			else if ( IsHumanSized( ent ) )
+				EmitSoundOnEntity( ent, pilot3P_SFX )
+		}
+
+		file.nextDamagedSoundTime[ ent ] = currentTime + RandomFloatRange( 0.75, 1.25 )
+	}
 }
 #endif
