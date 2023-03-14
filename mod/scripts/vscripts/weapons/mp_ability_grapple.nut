@@ -180,7 +180,7 @@ void function CodeCallback_OnGrapple( entity player, entity hitent, vector hitpo
 #endif //
 
 	// assault impact:
-	// make them in a function, so things below can set up
+	// make them in a function, so callbacks below can set up
 	TryGrappleImpactExplosion( player, hitent, hitpos, hitNormal )
 	/*
 	{

@@ -1,7 +1,7 @@
 untyped // for player.GetPlayerSettingsMods()
 global function BisonUtil_Init
 
-const float BISON_DAMAGE_REDUCTION_SEVERITY = 0.10
+const float BISON_DAMAGE_REDUCTION_SEVERITY = 0.15
 const float BISON_SPEED_BOOST_SEVERITY = 0.0 // was 0.15, will cause bison's movement animations messed up
 const float BISON_VICTIM_SLOW_DURATION = 0.0 // was 0.3, no slow effect for now
 const float BISON_DASH_RECHARGE_RATE_SCALE = 3.0 // since we've removed bison's speed boost, should give them more charge
@@ -10,6 +10,8 @@ const float BISON_DASH_RECHARGE_DELAY_SCALE = 0.0 // bison won't have any delay 
 
 // bison titan
 const float BISON_GRAPPLE_DURATION = 1.0
+const float BISON_GRAPPLE_COST_GRAPPLING_TITAN = 0.4
+const float BISON_GRAPPLE_COST_GRAPPLING_PILOT = 0.25
 
 void function BisonUtil_Init()
 {
@@ -21,6 +23,7 @@ void function BisonUtil_Init()
 	RegisterSignal( "BisonGrappled" )
     RegisterSignal( "BisonGrappleCancelled" )
     AddCallback_MpAbilityGrapplePrimaryAttack( BisonOnUseGrapple )
+    AddCallback_OnGrapple( OnBisonGrappleAttached )
 }
 
 void function BerserkerMelee_DamagedTarget( entity victim, var damageInfo )
@@ -192,4 +195,50 @@ void function BisonDelayedAutoDetach( entity player )
 void function PlayerPressedGrappleDetachButton( entity player )
 {
 	player.Signal( "BisonGrappleCancelled" )
+}
+
+void function OnBisonGrappleAttached( entity player, entity hitEnt, vector hitpos, vector hitNormal )
+{
+    entity grappleWeapon = null
+	foreach( entity offhand in player.GetOffhandWeapons() )
+	{
+		if( offhand.GetWeaponClassName() == "mp_ability_grapple" )
+			grappleWeapon = offhand
+	}
+
+    if ( !IsValid( grappleWeapon ) )
+        return
+
+    float powerPerGrapple = grappleWeapon.GetWeaponSettingFloat( eWeaponVar.grapple_power_required )
+    float ownerGrapplePower = player.GetSuitGrapplePower()
+    int grappleShotsLeft = int ( ownerGrapplePower / powerPerGrapple )
+    float grapplePowerCostMax
+    if ( ownerGrapplePower == 100 ) // max power
+        grapplePowerCostMax = powerPerGrapple // max cost
+    else
+        grapplePowerCostMax = ownerGrapplePower - ( grappleShotsLeft * powerPerGrapple ) // will never use next grapple's power
+
+    // npc grapple cost
+    if ( hitEnt.IsNPC() )
+    {
+        if ( hitEnt.IsTitan() )
+        {
+            float powerReduction = min ( grapplePowerCostMax, BISON_GRAPPLE_COST_GRAPPLING_TITAN )
+            player.SetSuitGrapplePower( max ( 0, ownerGrapplePower - powerReduction ) )
+        }
+    }
+    // player grapple costs
+    if ( hitEnt.IsPlayer() )
+    {
+        if ( hitEnt.IsTitan() )
+        {
+            float powerReduction = min ( grapplePowerCostMax, BISON_GRAPPLE_COST_GRAPPLING_TITAN )
+            player.SetSuitGrapplePower( max ( 0, ownerGrapplePower - powerReduction ) )
+        }
+        else
+        {
+            float powerReduction = min ( grapplePowerCostMax, BISON_GRAPPLE_COST_GRAPPLING_PILOT )
+            player.SetSuitGrapplePower( max ( 0, ownerGrapplePower - powerReduction ) )
+        }
+    }
 }
