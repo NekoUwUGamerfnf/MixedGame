@@ -1,3 +1,4 @@
+// file to prevent player enter death flash and blur, also modified many other vanilla functions! take care of that
 untyped
 global function Hacked_Death_Utility_Init
 
@@ -129,8 +130,6 @@ void function DisablePlayerUselessSoundsLifeLong( entity player )
 			if ( !IsAlive( player ) ) // prevent player's jumpjet sound floating around
 				StopPlayerJumpJetSound( player )
 		}
-		if ( !player.IsZiplining() ) // prevent stucking sound!
-			StopSoundOnEntity( player, "3p_zipline_loop" )
 		WaitFrame()
 	}
 }
@@ -185,6 +184,7 @@ void function PlayerStartHackedDeath( entity player, var damageInfo )
 	if ( player.Anim_IsActive() ) // try not to stop animation if don't have a anim active
 		player.Anim_Stop()
 	player.ClearParent()
+	player.kv.CollisionGroup = 0 // stop collision
 	player.NotSolid()
 	//player.StopPhysics() // now be in CreateHackedDeathFakeCorpse()
 	//HideName( player )
@@ -300,10 +300,10 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 
 	fakeBody.s.silentDeath <- true // don't play their death sound...
 
+	fakeBody.SetValueForModelKey( player.GetModelName() )
 	DispatchSpawn( fakeBody )
 	// setmodel should be done after they spawn
 	fakeBody.SetModel( player.GetModelName() )
-	fakeBody.SetValueForModelKey( player.GetModelName() )
 	// save player's head state and apply them to fakebody
     int stateIndex = -1
     int bodyGroupIndex = player.FindBodyGroup( "removableHead" )
@@ -319,6 +319,7 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	//fakeBody.SetCamo( player.GetCamo() )
 
 	//fakeBody.Anim_Stop() // don't manually do a anim_stop, this will cause them to flash away from spawnpoint
+	fakeBody.kv.CollisionGroup = 0 // stop collision
 	fakeBody.NotSolid() // don't let them blocking bullets
 	fakeBody.SetHealth( 1 ) // so spectres will die from frag grenades
 
@@ -338,17 +339,17 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	//fakeBody.TakeDamage( // take damage really can't handle it, use die()
 						    //9999, // so spectres will die from frag grenades
 	fakeBody.Die(
-				  null, 
-				  null, 
-				  { // damage table
-				  	forceKill = true, // force killing them
-				    weapon = DamageInfo_GetWeapon( damageInfo ), 
-				    origin = DamageInfo_GetDamagePosition( damageInfo ), 
-				    force = DamageInfo_GetDamageForce( damageInfo ), 
-				    scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
-				    damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo ) 
-				  } 
-				)
+		null, 
+		null, 
+		{ 	// damage table
+			forceKill = true, // force killing them
+			weapon = DamageInfo_GetWeapon( damageInfo ), 
+			origin = DamageInfo_GetDamagePosition( damageInfo ), 
+			force = DamageInfo_GetDamageForce( damageInfo ), 
+			scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+			damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo ) 
+		} 
+	)
 	fakeBody.SetOrigin( player.GetOrigin() ) // sometimes it moves to weird position, maybe because navmeshes?
 	fakeBody.SetAngles( player.GetAngles() )
 
@@ -363,6 +364,7 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 
 	player.StopPhysics() // after fake corpse get player's velocity
 	HideName( player )
+	
 	//player.kv.contents = (int(player.kv.contents) | CONTENTS_NOGRAPPLE) // grapple now handling in callbacks // make player unable to be grappled, hope this will cancel attacker's grapple
 	// warns: contents can't be like ( int( player.kv.contents ) | CONTENTS_NOGRAPPLE ), remove useless spaces
 }
@@ -432,6 +434,9 @@ entity function DropCopyOfPlayerWeapon( entity player, var damageInfo )
 	// actually dying will auto switch to mainweapons, maybe no need to do these?
 	if( !mainWeapons.contains( weapon ) ) // is offhandWeapon?
 		weapon = mainWeapons[0] // use slot1 mainWeapon, vanilla will drop the last weapon you used
+	string weaponType = expect string( weapon.GetWeaponInfoFileKeyField( "weaponClass" ) )
+	if ( weaponType == "titan" ) // this is titan weapon type?
+		return
 
 	string weaponName = weapon.GetWeaponClassName()
 	array<string> mods = weapon.GetMods()
@@ -517,6 +522,7 @@ entity function DropCopyOfPlayerWeapon( entity player, var damageInfo )
 		velocity += forceVec * forceMag
 	}
 
+	PutEntityInSafeSpot( weapon, player, null, player.GetOrigin(), weapon.GetOrigin() )
 	weaponToDrop.SetVelocity( velocity )
 
 	return weapon
@@ -587,6 +593,9 @@ void function PlayerRecoverFromHackedDeath( entity player )
 	player.Signal( "RecoverFromHackedDeath" ) // signal this
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 	player.ClearInvulnerable()
+	player.kv.CollisionGroup = TRACE_COLLISION_GROUP_PLAYER
+	if ( GetCurrentPlaylistVarInt( "no_pilot_collision", 0 ) == 1 )
+		player.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 	player.Solid()
 	player.SetNoTarget( false )
 	player.SetNoTargetSmartAmmo( false )
