@@ -27,6 +27,7 @@ global function SetPlayerRespawnForced
 global function SetLateJoinRespawnEnabled
 global function SetPlayerCameraToIntermissionCam
 global function SetGamemodeAnnouncementEnabled
+global function SetDeathCamLengthForced
 
 struct {
 	bool killcamsEnabled = true
@@ -46,6 +47,9 @@ struct {
 	// better way to do this
 	//array<string> lateSpawnedPlayerUIDs = []
 	bool enableGamemodeAnnouncement = true
+
+	// death cam modifier
+	float forcedDeathCamLength = -1
 } file
 
 void function BaseGametype_Init_MPSP()
@@ -60,14 +64,9 @@ void function BaseGametype_Init_MPSP()
 
 	RegisterSignal( "PlayerRespawnStarted" )
 	RegisterSignal( "KillCamOver" )
-}
 
-void function TakeOffhandWeaponsNow( entity player )
-{
-	foreach( entity offhand in player.GetOffhandWeapons() )
-	{
-		player.TakeWeaponNow( offhand.GetWeaponClassName() )
-	}
+	// maybe good to have this
+	AddCallback_OnClientConnected( OnClientConnected )
 }
 
 void function SetIntermissionCamera( entity camera )
@@ -251,8 +250,9 @@ void function DelayedGamemodeAnnouncement( entity player )
 	
 	if( !IsAlive( player ) )
 		player.WaitSignal( "OnRespawned" )
-	wait 2 // vanilla behavior: wait for player screen fade from black, then do a announcement
-	TryGameModeAnnouncement( player )
+	wait 1 // vanilla behavior: wait for player screen fade from black, then do a announcement
+	if ( GetGameState() == eGameState.Playing )
+		TryGameModeAnnouncement( player )
 }
 
 void function CodeCallback_OnClientDisconnected( entity player, string reason )
@@ -287,11 +287,9 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.s.respawnTime = Time()
 	ClearRecentDamageHistory( player )
 
-	// HACKED DEATH
+	// HACKED DEATH, before loadout grace period set up
 	if( IsHackedDeathEnabled() )
-	{
 		PlayerRecoverFromHackedDeath( player )
-	}
 	//player.ClearReplayDelay() // these has been done in CPlayer::RespawnPlayer()
 	//player.ClearViewEntity()
 	
@@ -480,6 +478,9 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", attacker.GetEncodedEHandle(), GetHealthFrac( attacker ), methodOfDeath )
 
 	float deathcamLength = GetDeathCamLength( player )
+	// modified death cam length
+	if ( file.forcedDeathCamLength > 0 )
+		deathcamLength = file.forcedDeathCamLength
 	wait deathcamLength
 	
 	if( IsHackedDeathEnabled() )
@@ -896,4 +897,30 @@ void function SetLateJoinRespawnEnabled( bool enabled )
 void function SetGamemodeAnnouncementEnabled( bool enabled )
 {
 	file.enableGamemodeAnnouncement = enabled
+}
+
+void function SetDeathCamLengthForced( float camLength )
+{
+	file.forcedDeathCamLength = camLength
+}
+
+// try to stop zipline sound sometimes caused by loss
+void function OnClientConnected( entity player )
+{
+	thread StopPlayerUselessZiplineSoundLifeLong( player )
+}
+
+void function StopPlayerUselessZiplineSoundLifeLong( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		if ( !player.IsZiplining() ) // prevent stucking sound!
+		{
+			StopSoundOnEntity( player, "player_zipline_loop" )
+			StopSoundOnEntity( player, "3p_zipline_loop" )
+		}
+		WaitFrame()
+	}
 }
