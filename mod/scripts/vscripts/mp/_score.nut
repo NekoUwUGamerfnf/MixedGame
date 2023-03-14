@@ -32,6 +32,9 @@ void function Score_Init()
 {
 	SvXP_Init()
 	AddCallback_OnClientConnected( InitPlayerForScoreEvents )
+
+	// modified
+	InitTitanKilledDialogues()
 }
 
 // modified!!!
@@ -367,7 +370,7 @@ void function SetupEarnMeterValuesForMixedModes_Threaded()
 
 	// todo needs earn/overdrive values
 	// player-controlled stuff
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.33 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.0, 0.15 )
