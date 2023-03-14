@@ -413,6 +413,13 @@ struct {
 
 void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints, int team, entity player )
 {	
+	if ( Riff_SpawnAsTitan() == 1 && !IsFFAGame() )	// spawn as titan
+	{
+		// use frontline spawns in 2-team modes
+		RateSpawnpoints_Frontline( checkClass, spawnpoints, team, player )
+		return
+	}
+
 	// now testing: use ffa points in 2-team modes
 	// modified checks...
 	array<float> preferSpawnNodeRatings

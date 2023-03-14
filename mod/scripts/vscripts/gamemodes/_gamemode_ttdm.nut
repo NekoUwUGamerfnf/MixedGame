@@ -26,7 +26,10 @@ void function TTDMIntroSetup()
 {
 	// this should show intermission cam for 15 sec in prematch, before spawning players as titans
 	AddCallback_GameStateEnter( eGameState.Prematch, TTDMIntroStart )
-	AddCallback_OnClientConnected( TTDMIntroShowIntermissionCam )
+	//AddCallback_OnClientConnected( TTDMIntroShowIntermissionCam )
+	// vanilla behavior...
+	AddCallback_GameStateEnter( eGameState.Playing, TTDMGameStart )
+	AddCallback_OnClientConnected( TTDMIntroConntectedPlayer )
 }
 
 void function TTDMIntroStart()
@@ -53,10 +56,40 @@ void function TTDMIntroStartThreaded()
 
 void function TTDMIntroShowIntermissionCam( entity player )
 {
+	// vanilla behavior
+	//if ( GetGameState() != eGameState.Prematch )
+	//	return
+	
+	thread PlayerWatchesTTDMIntroIntermissionCam( player )
+}
+
+// vanilla behavior
+void function TTDMGameStart()
+{
+	foreach ( entity player in GetPlayerArray_Alive() )
+	{
+		TryGameModeAnnouncement( player ) // announce players whose already alive
+		player.UnfreezeControlsOnServer() // if a player is alive they must be freezed, unfreeze them
+	}
+}
+
+void function TTDMIntroConntectedPlayer( entity player )
+{
 	if ( GetGameState() != eGameState.Prematch )
 		return
+		
+	thread TTDMIntroConntectedPlayer_Threaded( player )
+}
 
-	thread PlayerWatchesTTDMIntroIntermissionCam( player )
+void function TTDMIntroConntectedPlayer_Threaded( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	RespawnAsTitan( player, false )
+	if ( GetGameState() == eGameState.Prematch ) // still in intro
+		player.FreezeControlsOnServer() // freeze
+	else if ( GetGameState() == eGameState.Playing ) // they may connect near the end of intro
+		TryGameModeAnnouncement( player )
 }
 
 void function PlayerWatchesTTDMIntroIntermissionCam( entity player )
