@@ -14,11 +14,18 @@ global function CreateNessyWeapon
 global function CreateNessyFX
 global function ClearNessy
 
-global function Nessie_SetBatterySpawnEnabled
-global function Nessie_SetFunnyFlagEnabled
-global function Nessie_SetWorldMaxNessieCount
 global function Nessie_AlwaysSpawnRGBStuff
+// nessie
+global function Nessie_SetNessieSpawnEnabled
+global function Nessie_SetWorldMaxNessieCount
+// battery
+global function Nessie_SetBatterySpawnEnabled
+// flag
+global function Nessie_SetFunnyFlagEnabled
+// decoy
 global function Nessie_SetDecoyOutfit
+// holospray
+global function Nessie_SetHoloSprayEnabled
 
 struct NessyHat
 {
@@ -62,26 +69,35 @@ const int MAX_FUNNY_FLAGS = 32
 struct
 {
 	bool allSettingsEnabled = false
-
-	bool batterySpawnEnabled = false
-	bool flagSpawnEnabled = false
-	array<entity> nessieDolls = []
-	int worldMaxNessieCount = MAX_NESSIE_COUNT // default value
-	array<entity> funnyFlags = []
-
 	bool alwaysRGBSpawn = false // funny
+
+	// nessy
+	bool nessieSpawnEnabled = false
+	int worldMaxNessieCount = MAX_NESSIE_COUNT // default value
+	// battery
+	bool batterySpawnEnabled = false
+	// flag
+	bool flagSpawnEnabled = false
 	// decoy
 	bool decoyNessieOutfit = false
+	// holospray
+	bool holoSprayEnabled = false
 
 	// entities, no need to change default value
+	array<entity> nessieDolls = []
+	array<entity> funnyFlags = []
+
 	array<NessyHat> nessyhats = []
 	array<NessyPack> nessybackpacks = []
 	array<NessyPistol> nessypistols = []
 	array<NessyWeapon> nessyweapons = []
 	array<NessyFX> nessyfxs = []
 	array<NessyMix> nessymixs = []
-	array<string> nessyedplayer = []
+
+	// cooldowns
+	array<string> nessyedPlayer = []
 	array<string> battedPlayer = []
+	array<entity> holoSprayedPlayer = []
 } file
 
 // now only enabled nessies
@@ -180,6 +196,8 @@ void function EverythingNessy_Init()
 
 	Nessie_DecoyOutfitInit()
 
+	AddCallback_OnClientConnected( OnClientConnected )
+
 	// following things needs a setting to enable
 	if ( !file.allSettingsEnabled )
 		return
@@ -210,7 +228,7 @@ void function EverythingNessy_Init()
         foreach( entity player in GetPlayerArray() )
             OnClientConnected( player )
     }
-	AddCallback_OnClientConnected( OnClientConnected )
+	
 	// using _rodeo_titan.gnut for more fix about batteries
 	//AddClientCommandCallback( "spawnbatt", SpawnBattery )
 	//AddClientCommandCallback( "givebatt", GiveEmergencyBattery )
@@ -399,14 +417,52 @@ void function CheckFunnyFlagsLimit()
 	}
 }
 
+void function CallbackFuncThrowHoloSpray( entity player )
+{
+	if ( !file.holoSprayEnabled )
+		return
+
+	if ( file.holoSprayedPlayer.contains( player ) ) // cooldown
+		return
+	ThrowHoloSprayForPlayer( player )
+	AddHoloSprayCooldown( player ) // cooldown
+}
+
+void function AddHoloSprayCooldown( entity player )
+{
+	if ( file.holoSprayedPlayer.contains( player ) )
+		return
+
+	file.holoSprayedPlayer.append( player )
+	thread CleanUpPlayerHoloSprayCooldown( player )
+}
+
+void function CleanUpPlayerHoloSprayCooldown( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	wait 2 // at least wait for last spray dissolve
+	file.holoSprayedPlayer.removebyvalue( player )
+}
+
+void function Nessie_SetHoloSprayEnabled( bool enabled )
+{
+	file.holoSprayEnabled = enabled
+}
+
 void function OnClientConnected( entity player )
 {
-	player.s.hasFlag <- false
+	// nessie
 	AddButtonPressedPlayerInputCallback( player, IN_USE, CallbackFuncSpawnNessy )
 	AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, CallbackFuncSpawnNessy )
+	// battery
 	AddButtonPressedPlayerInputCallback( player, IN_MELEE, CallbackFuncSpawnBattery )
+	// flag
+	player.s.hasFlag <- false
 	AddButtonPressedPlayerInputCallback( player, IN_OFFHAND2, CallbackFuncSpawnFlag )
+	// ragdoll... not using
 	//AddButtonPressedPlayerInputCallback( player, IN_MELEE, CallbackFuncSpawnRagdoll )
+	// holospray
+	AddButtonPressedPlayerInputCallback( player, IN_OFFHAND0, CallbackFuncThrowHoloSpray )
 }
 
 void function OnPlayerRespawned( entity player )
@@ -625,6 +681,9 @@ bool function SpawnRGBNessie( entity player, array<string> args )
 
 void function CallbackFuncSpawnNessy( entity player )
 {
+	if ( !file.nessieSpawnEnabled || !file.allSettingsEnabled ) // bind together with allSettingsEnabled
+		return
+
 	// for rgb nessie check
 	bool badCombo = ( (player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ) )
 	bool goodCombo = ( ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_JUMP ) && player.IsInputCommandHeld( IN_BACK ) && player.IsInputCommandHeld( IN_MELEE ) )
@@ -747,6 +806,11 @@ void function CallbackFuncSpawnNessy( entity player )
 	NessieLimitThink()
 }
 
+void function Nessie_SetNessieSpawnEnabled( bool enabled )
+{
+	file.nessieSpawnEnabled = enabled
+}
+
 void function Nessie_SetWorldMaxNessieCount( int count )
 {
 	file.worldMaxNessieCount = count
@@ -838,7 +902,7 @@ void function ClearNessyedPlayer( entity player )
 	string uid = player.GetUID()
 	wait 3
 	if( IsValid( player ) )
-		file.nessyedplayer.removebyvalue( uid )	
+		file.nessyedPlayer.removebyvalue( uid )	
 }
 
 void function ClearBattedPlayer( entity player )
@@ -846,7 +910,7 @@ void function ClearBattedPlayer( entity player )
 	string uid = player.GetUID()
 	wait 3
 	if( IsValid( player ) )
-		file.nessyedplayer.removebyvalue( uid )	
+		file.nessyedPlayer.removebyvalue( uid )	
 }
 
 void function DelayedDissolveNessie( entity nessy )
