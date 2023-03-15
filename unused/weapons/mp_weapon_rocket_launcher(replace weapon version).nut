@@ -82,7 +82,7 @@ void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 	if ( !hasGuidedMissiles )
 	{
 		// modded weapon
-		if( weapon.HasMod("no_lock_required") )
+		if ( weapon.HasMod( "no_lock_required" ) )
 			SmartAmmo_SetAllowUnlockedFiring( weapon, true )
 		else // vanilla behavior
 			SmartAmmo_SetAllowUnlockedFiring( weapon, !IsMultiplayer() )
@@ -147,6 +147,8 @@ void function OnWeaponDeactivate_weapon_rocket_launcher( entity weapon )
 #if SERVER
 	if ( weaponOwner.IsNPC() )
 		weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+	// player laser: defensive try to stop
+	ADSLaserEnd( weapon )
 #endif
 }
 
@@ -448,6 +450,8 @@ void function ADSLaserEnd( entity weapon )
 }
 
 // modified function
+const string GUIDED_MISSILE_LIMIT_MOD	= "guided_missile_no_reload"
+const float WEAPON_REPLACE_DELAY		= 1.5 // at least give the weapon enough time to play sound and fx...
 void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entity missile )
 {
 	if( !weaponOwner.IsPlayer() )
@@ -467,17 +471,22 @@ void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entit
 			//print( "guiding end!" )
 			if( IsValid( weapon ) )
 			{
-				thread DelayedEnableRocketAttack( weapon, expect float ( fireInterval.timeLeft ) )
-				//weapon.RemoveMod( "disable_reload" ) // client can't predict this
+				if ( !IsAlive( weaponOwner ) ) // owner not alive, just destroy this archer...
+				{
+					weapon.Destroy()
+					return
+				}
+
+				weapon.RemoveMod( GUIDED_MISSILE_LIMIT_MOD )
+				float delay = expect float ( fireInterval.timeLeft )
+				thread ReplaceGuidedArcher( weaponOwner, weapon, delay )
 			}
 		}
 	)
 	
-	// try to prevent SetNextAttackAllowedTime() during a firing interval( which will make it not work )
-	float minReloadDelay = 1 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
-	fireInterval.timeLeft = minReloadDelay
-	float minReloadTime = Time() + minReloadDelay
-	weapon.AddMod( "disable_reload" ) // client can't predict this and it's not necessary, just to prevent softlock
+	fireInterval.timeLeft = WEAPON_REPLACE_DELAY
+	float minReloadTime = Time() + WEAPON_REPLACE_DELAY
+	weapon.AddMod( GUIDED_MISSILE_LIMIT_MOD )
 	while( true )
 	{
 		if ( Time() >= minReloadTime ) // must in valid reload time to trigger manually reloading
@@ -497,17 +506,54 @@ void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entit
 	//print( "guiding interrupted!" )
 }
 
-const float GUIDED_MISSILE_RELOAD_INTERVAL = 0.5
-void function DelayedEnableRocketAttack( entity weapon, float delay )
+void function ReplaceGuidedArcher( entity owner, entity weapon, float delay )
 {
-	weapon.EndSignal( "OnDestroy" )
-	wait delay + GUIDED_MISSILE_RELOAD_INTERVAL
-	// refresh next attack time, so the weapon will start reloading. add 0.3s more for defensive fix
-	weapon.SetNextAttackAllowedTime( Time() + GUIDED_MISSILE_RELOAD_INTERVAL )
-	//weapon.SetWeaponPrimaryClipCount( 0 )
-	// try to prevent SetNextAttackAllowedTime() while reloading, which will break ammo system
-	wait GUIDED_MISSILE_RELOAD_INTERVAL + 0.2
-	weapon.RemoveMod( "disable_reload" )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+
+	wait delay
+	OnThreadEnd
+	(
+		function(): ( weapon )
+		{
+			if ( IsValid( weapon ) )
+				weapon.Destroy()
+		}
+	)
+
+	string weaponName = weapon.GetWeaponClassName()
+	int clip = weapon.GetWeaponPrimaryClipCount()
+	int ammo = weapon.GetWeaponPrimaryAmmoCount()
+	int skin = weapon.GetSkin()
+	int camo = weapon.GetCamo()
+	array<string> mods = weapon.GetMods()
+	mods.removebyvalue( GUIDED_MISSILE_LIMIT_MOD )
+	int slot = 0
+	foreach ( entity mainWeapon in owner.GetMainWeapons() )
+	{
+		if ( mainWeapon == weapon )
+			break
+		slot += 1
+	}
+
+	
+	if ( !IsValid( weapon ) ) // previous weapon has been destroyed...
+		return
+	bool activeWeaponIsArcher = owner.GetActiveWeapon() == weapon
+	weapon.Destroy()
+	entity newWeapon = owner.GiveWeapon( weaponName, mods )
+	newWeapon.SetWeaponPrimaryClipCount( clip )
+	newWeapon.SetWeaponPrimaryAmmoCount( ammo )
+	newWeapon.SetSkin( skin )
+	newWeapon.SetSkin( camo )
+	if ( activeWeaponIsArcher ) // player is still holding previous archer
+	{
+		// switch to new archer
+		owner.SetActiveWeaponBySlot( slot )
+		// skip first deploy anim
+		owner.HolsterWeapon()
+		owner.DeployWeapon()
+	}
 }
 
 void function RocketEffectFix( entity weapon )
