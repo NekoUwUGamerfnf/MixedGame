@@ -497,7 +497,7 @@ void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entit
 	//print( "guiding interrupted!" )
 }
 
-const float GUIDED_MISSILE_RELOAD_INTERVAL = 0.5
+const float GUIDED_MISSILE_RELOAD_INTERVAL = 0.3
 void function DelayedEnableRocketAttack( entity weapon, float delay )
 {
 	weapon.EndSignal( "OnDestroy" )
