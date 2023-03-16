@@ -38,8 +38,11 @@ const float ENEMY_NOSPAWN_RADIUS = 1500 // most weapon's outer range, cause it l
 const float FFA_NOSPAWN_RADIUS = 1000 // still don't too close to an enemy
 const float FFA_SPAWN_RADIUS = 2000 
 
-// modified: try to add more spawnpoints for ffa
-const float FFA_EXTRA_SPAWNPOINTS_SEARCH_RADIUS = 1000 // every existing spawnpoint will search search for other spawnpoints within this range, each game
+// better solution: use all valid spawnpoints instead of just "gamemode_ffa" variant
+// modified: spawn point is not enough for most ffa maps, try to add more of them
+const int FFA_EXTRA_SPAWNPOINTS_MAX_PER_BASEPOINT = 8 // every existing spawnpoint will try to add 8 more points for ffa only
+const float FFA_EXTRA_SPAWNPOINTS_SEARCH_RADIUS = 3000 // every existing spawnpoint will search search for other spawnpoints within this range, each game
+const float FFA_EXTRA_SPAWNPOINTS_MIN_DISTANCE = 1000 // a new spawnpoint must be longer than this
 
 struct NoSpawnArea
 {
@@ -58,9 +61,8 @@ struct {
 
 	table<string, NoSpawnArea> noSpawnAreas
 
-	// modified: try to add more spawnpoints for ffa
-	array<entity> ffaExtraPilotSpawns
-	array<entity> ffaExtraTitanSpawns
+	// modified: spawn point is not enough for most ffa maps, try to add more of them
+	array<entity> ffaExtraSpawns
 } file
 
 void function Spawn_Init()
@@ -81,8 +83,8 @@ void function Spawn_Init()
 	AddCallback_OnClientConnected( TrackFriendlySpawnLifeLong )
 	// modified: prevent spawning in friendly's deadly area
 	AddCallback_OnPlayerKilled( AddNoSpawnAreaForBeingKilled )
-	// modified: try to add more spawnpoints for ffa
-	AddCallback_EntitiesDidLoad( FFAExtraSpawnPoints )
+	// modified: spawn point is not enough for most ffa maps, try to add more of them
+	//AddCallback_EntitiesDidLoad( FFAExtraSpawnPoints )
 }
 
 // modified: add spawn_on_friendly support
@@ -111,24 +113,6 @@ void function AddNoSpawnAreaForBeingKilled( entity victim, entity attacker, var 
 			CreateNoSpawnArea( victim.GetTeam(), TEAM_INVALID, victim.GetOrigin(), DEADLY_AREA_DURATION, DEADLY_AREA_RADIUS )
 		}
 	}
-}
-
-// modified: try to add more spawnpoints for ffa
-void function FFAExtraSpawnPoints()
-{
-	if ( !IsFFAGame() )
-		return
-
-	array<entity> pilotSpawns = SpawnPoints_GetPilot()
-	foreach ( entity spawnpoint in pilotSpawns )
-	{
-		TryCreatePilotSpawnsBasedOnSpawnPoint( spawnpoint )
-	}
-}
-
-void function TryCreatePilotSpawnsBasedOnSpawnPoint( entity spawnpoint )
-{
-
 }
 
 // modified: try to make spawnpoints near teammates and bit far from enemy
@@ -181,6 +165,51 @@ bool function EnemyCanSeeSpawnPoint( int team, entity spawnpoint )
 
 	// no enemy can see!
 	return false
+}
+
+// modified: spawn point is not enough for most ffa maps, try to add more of them
+void function FFAExtraSpawnPoints()
+{
+	if ( !IsFFAGame() )
+		return
+
+	array<entity> pilotSpawns = SpawnPoints_GetPilot()
+	foreach ( entity spawnpoint in pilotSpawns )
+	{
+		CreateFFAExtraSpawnPoints( spawnpoint )
+	}
+}
+
+void function CreateFFAExtraSpawnPoints( entity basePoint )
+{
+	vector origin = basePoint.GetOrigin()
+	vector angles = basePoint.GetAngles()
+
+	float rotatePerFind = 360.0 / FFA_EXTRA_SPAWNPOINTS_MAX_PER_BASEPOINT
+	for ( int i = 0; i < FFA_EXTRA_SPAWNPOINTS_MAX_PER_BASEPOINT; i++ )
+	{
+		vector normalTraceEnd = origin + AnglesToForward( angles + < 0, rotatePerFind, 0 > ) * FFA_EXTRA_SPAWNPOINTS_SEARCH_RADIUS
+		TraceResults normalTrace = TraceLine( origin, normalTraceEnd, basePoint, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+		vector newPos = normalTrace.endPos
+		if ( Distance2D( origin, newPos ) < FFA_EXTRA_SPAWNPOINTS_MIN_DISTANCE ) // not enough for a new spawnpoint
+			continue
+		vector upwardTraceEnd = newPos + < 0, 0, 100 > // at least make the player can stand on it
+		TraceResults upwardTrace = TraceLine( newPos, upwardTraceEnd, basePoint, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+		if ( IsValid( upwardTrace.hitEnt ) ) // has something blocking the roof
+			continue
+
+		entity newSpawn = CreateEntity( "info_spawnpoint_human" )
+		newSpawn.SetOrigin( newPos )
+		newSpawn.SetAngles( angles )
+		newSpawn.kv.ignoreGamemode = 1 // so game can get points through "SpawnPoint_GetPilot()"?
+		SetTeam( newSpawn, TEAM_BOTH )
+		newSpawn.SetScriptName( "ffa_extra_spawn" )
+		newSpawn.s.lastUsedTime <- -999
+		file.ffaExtraSpawns.append( newSpawn )
+		//DispatchSpawn( newSpawn )
+		print( "ffa spawn point created at: " + string ( newPos ) )
+		//newSpawn.SetModel( $"models/weapons/titan_trip_wire/titan_trip_wire.mdl" ) // visualize
+	}
 }
 //
 
@@ -267,9 +296,15 @@ entity function FindSpawnPoint( entity player, bool isTitan, bool useStartSpawnp
 	else
 		spawnpoints = isTitan ? SpawnPoints_GetTitan() : SpawnPoints_GetPilot()
 
+	// modified: spawn point is not enough for most ffa maps, try to add more of them
 	// modified: add spawn_on_friendly support
-	if ( !IsFFAGame() && !isTitan ) // if we're not in ffa, should also rating "spawn_on_friendly" points
-		spawnpoints.extend( GetTeamFriendlyPilotSpawns( team ) )
+	if ( IsFFAGame() )
+		spawnpoints.extend( file.ffaExtraSpawns )
+	else
+	{
+		if ( !isTitan ) // if we're not in ffa, should also rating "spawn_on_friendly" points
+			spawnpoints.extend( GetTeamFriendlyPilotSpawns( team ) )
+	}
 	
 	InitRatings( player, player.GetTeam() )
 	
@@ -343,7 +378,8 @@ entity function GetBestSpawnpoint( entity player, array<entity> spawnpoints )
 		
 		if ( IsValid( start ) )
 		{
-			start.s.lastUsedTime <- -999
+			if ( !( "lastUsedTime" in start.s ) )
+				start.s.lastUsedTime <- -999
 			validSpawns.append( start )
 		}
 	}
@@ -415,6 +451,7 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 {	
 	if ( Riff_SpawnAsTitan() == 1 && !IsFFAGame() )	// spawn as titan
 	{
+		print( "respawning as titan!" )
 		// use frontline spawns in 2-team modes
 		RateSpawnpoints_Frontline( checkClass, spawnpoints, team, player )
 		return
@@ -435,13 +472,12 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 			bool sameTeam = nodePlayer.GetTeam() == player.GetTeam()
 			float maxFriendlyDist = FRIENDLY_SPAWN_RADIUS
 			float maxEnemyDist = ENEMY_NOSPAWN_RADIUS
-			bool isFFA = IsFFAGame()
-			if ( isFFA )
+			if ( IsFFAGame() )
 				maxEnemyDist = FFA_SPAWN_RADIUS
 
 			// the closer a player is to a node the more they matter
 			float dist = Distance2D( preferSpawnNode, nodePlayer.GetOrigin() )
-			if ( dist > maxFriendlyDist && sameTeam )
+			if ( dist > maxFriendlyDist && sameTeam && !IsFFAGame() ) // only check friendlyDist if not ffa
 				continue
 			else if ( dist > maxEnemyDist && !sameTeam )
 				continue
@@ -458,15 +494,15 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 				if ( IsFFAGame() ) // in ffa everyone is on different teams, want to make players spawn near a battle area
 				{
 					if ( dist >= FFA_NOSPAWN_RADIUS && dist < FFA_SPAWN_RADIUS )
-						currentChange *= 0.2 // safe and battle zone, add more chance
+						currentChange *= 2.0 // safe and battle zone, add more chance
 					else
-						currentChange *= -0.2 // try not to spawn too far or too close
+						currentChange *= -0.6 // try not to spawn too far or too close
 				}
 				else
 					currentChange *= -0.6
 			}
 			else // friendly team
-				currentChange *= 0.8 // try to spawn near a friendly player
+				currentChange *= 2.0 // try to spawn near a friendly player
 				
 			currentRating += currentChange
 		}
@@ -487,36 +523,47 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 				petTitanModifier += 10.0
 			
 			float dist = Distance2D( spawnpoint.GetOrigin(), spawnStateGeneric.preferSpawnNodes[ i ] )
-			if ( dist > 750.0 )
+			if ( dist > 1500.0 ) // really should set this extramely high to receive InitialBonus
 				continue
 						
-			if ( dist < 600.0 && !spawnHasRecievedInitialBonus )
+			if ( dist < 1200.0 && !spawnHasRecievedInitialBonus )
 			{
 				currentRating += 10.0
 				spawnHasRecievedInitialBonus = true // should only get a bonus for simply being by a node once to avoid over-rating
 			}
 		
 			currentRating += ( preferSpawnNodeRatings[ i ] * ( ( 750.0 - dist ) / 75 ) ) +  max( RandomFloat( 1.25 ), 0.9 )
-			if ( dist < 250.0 ) // shouldn't get TOO close to an active node
+			if ( dist < 500.0 ) // shouldn't get TOO close to an active node
 				currentRating *= 0.7 
 				
 			if ( spawnpoint.s.lastUsedTime < 10.0 )
 				currentRating *= 0.7
+		}
 
-			if ( EnemyCanSeeSpawnPoint( team, spawnpoint ) )
-				currentRating *= 0 // never spawn in this area!!
-
+		// modified condition
+		if ( spawnpoint.s.lastUsedTime >= 10.0 && !EnemyCanSeeSpawnPoint( team, spawnpoint ) )
+		{
 			if ( IsFFAGame() )
 			{
 				if ( FFA_IsGoodSpawnPoint( team, spawnpoint ) )
-					currentRating *= 2.0
+				{
+					if ( currentRating == 0 ) // no rating yet
+						currentRating += 20 // add a bit
+					else
+						currentRating *= 2.0
+				}
 			}
 			else
 			{
 				if ( HasEnemyNearSpawnPoint( team, spawnpoint ) )
 					currentRating *= 0.0 // try not to spawn too close to enemy
 				else if ( HasFriendlyNearSpawnPoint( team, spawnpoint ) )
-					currentRating *= 2.0 // and mostly spawn near a friendly
+				{
+					if ( currentRating == 0 ) // no rating yet
+						currentRating += 20 // add a bit
+					else
+						currentRating *= 2.0 // and mostly spawn near a friendly
+				}
 			}
 		}
 	
@@ -644,7 +691,7 @@ void function RateSpawnpoints_SpawnZones( int checkClass, array<entity> spawnpoi
 
 		// modified over here
 		if ( HasEnemyNearSpawnPoint( team, spawn ) )
-			rating *= 0.0 // try not to spawn too close to enemy
+			rating *= 0.4 // try not to spawn too close to enemy
 		else if ( HasFriendlyNearSpawnPoint( team, spawn ) )
 			rating *= 2.0 // and mostly spawn near a friendly
 			
