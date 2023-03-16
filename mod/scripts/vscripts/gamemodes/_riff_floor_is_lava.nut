@@ -118,7 +118,8 @@ void function FloorIsLava_ThinkForPlayer( entity player )
 				damageMultiplier = FOG_DAMAGE_SCALE
 				
 			// scale damage by time spent in fog and depth
-			player.TakeDamage( player.GetMaxHealth() * GraphCapped( ( GetLethalFogTop() - height ) / ( GetLethalFogTop() - GetLethalFogBottom() ), 0.0, 1.0, 0.2, 1.0 ) * damageMultiplier, null, null, { damageSourceId = eDamageSourceId.floor_is_lava } )
+			if ( IsAlive( player ) ) // check for hacked death?
+				player.TakeDamage( player.GetMaxHealth() * GraphCapped( ( GetLethalFogTop() - height ) / ( GetLethalFogTop() - GetLethalFogBottom() ), 0.0, 1.0, 0.2, 1.0 ) * damageMultiplier, null, null, { damageSourceId = eDamageSourceId.floor_is_lava } )
 		
 			wait 0.1
 		}
