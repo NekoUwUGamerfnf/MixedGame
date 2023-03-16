@@ -25,6 +25,7 @@ const array<string> KRABER_PLAYLIST =
 
 const bool INFINITE_CLIP = false
 const bool ENABLE_CHARGE_RIFLE = true
+const bool ENABLE_RESPAWN_SPEED = true
 
 void function Modded_Gamemode_Kraber_Init()
 {
@@ -62,14 +63,15 @@ void function OnPlayerRespawned( entity player )
     // respawn not giving loadout, which will mess things up
 	//GiveKraber( player )
     DisableGrappleContent( player ) // make players unable to be grappled
-    thread DisableBoostBar( player )
-    //Remote_CallFunction_Replay( player, "ServerCallback_SpottingHighlight" ) // temp, just for fun
+    DisableBoostBar( player )
+    if ( ENABLE_RESPAWN_SPEED && GetGameState() >= eGameState.Playing )
+        PlayerRespawnSpeedBoost( player )
 }
 
 void function OnPlayerChangeLoadout( entity player , PilotLoadoutDef p)
 {
 	GiveKraber( player )
-    //thread DisableBoostBar( player ) // no need to reset boost everytime player try to change loadout
+    //DisableBoostBar( player ) // no need to reset boost everytime player try to change loadout
 }
 
 void function OnGamePrematch()
@@ -87,15 +89,15 @@ void function OnGameStart()
     HoloSpray_SetMaxCountPerPlayer( 4 )
 
     foreach( entity player in GetPlayerArray() )
-        thread DisableBoostBar( player ) // starting will re-enable player's boost, lets set it to disable again
+        DisableBoostBar( player ) // starting will re-enable player's boost, lets set it to disable again
 
     if ( INFINITE_CLIP )
-        thread RestorePlayerKraberClip()
+        RestorePlayerKraberClip()
 }
 
 void function OnGamePostmatch()
 {
-    thread KraberForcedPlaylist()
+    KraberForcedPlaylist()
 }
 
 void function GiveKraber( entity player )
@@ -161,7 +163,66 @@ void function EnableGrappleContent( entity player )
     player.kv.contents = (int(player.kv.contents) & ~CONTENTS_NOGRAPPLE) // remove unable to be grappled content
 }
 
+const float RESPAWN_SPEED_BOOST_DURATION_MAX = 5.0
+const float RESPAWN_SPEED_BOOST_SEVERITY = 0.4 // insanly high
+const float RESPAWN_SPEED_BOOST_DEACTIVATE_RANGE = 1500 // if we have enemy within this range we stop the speed boost
+
+void function PlayerRespawnSpeedBoost( entity player )
+{
+    thread PlayerRespawnSpeedBoost_Threaded( player )
+}
+
+void function PlayerRespawnSpeedBoost_Threaded( entity player )
+{
+    if ( HasEnemyInBoostDeactivateRange( player ) )
+        return
+
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    Remote_CallFunction_Replay( player, "ServerCallback_SpottingHighlight" ) // temp, just for fun, will highlight predicted fp proxy
+    int effect = StatusEffect_AddTimed( player, eStatusEffect.speed_boost, RESPAWN_SPEED_BOOST_SEVERITY, RESPAWN_SPEED_BOOST_DURATION_MAX, 0 )
+    int stimVisual = StatusEffect_AddTimed( player, eStatusEffect.stim_visual_effect, 1.0, 9999, 9999 )
+
+    OnThreadEnd
+    (
+        function(): ( player, stimVisual )
+        {
+            if ( IsValid( player ) )
+                StatusEffect_Stop( player, stimVisual )
+        }
+    )
+
+    float endTime = Time() + RESPAWN_SPEED_BOOST_DURATION_MAX
+    while ( Time() <= endTime )
+    {
+        WaitFrame()
+       
+        if ( HasEnemyInBoostDeactivateRange( player ) ) // found enemy...
+        {
+            StatusEffect_Stop( player, effect )
+            StatusEffect_Stop( player, stimVisual )
+            return
+        }
+    }
+}
+
+bool function HasEnemyInBoostDeactivateRange( entity player )
+{
+    array<entity> enemies = GetPlayerArrayOfEnemies_Alive( player.GetTeam() )
+    if ( enemies.len() == 0 )
+        return false
+    entity closestEnemy = GetClosest( enemies, player.GetOrigin(), RESPAWN_SPEED_BOOST_DEACTIVATE_RANGE )
+    if ( IsValid( closestEnemy ) )
+        return true
+    return false
+}
+
 void function DisableBoostBar( entity player )
+{
+    thread DisableBoostBar_Threaded( player )
+}
+
+void function DisableBoostBar_Threaded( entity player )
 {
     WaitFrame() // wait for player earn meter being set up
     if( IsValid( player ) )
@@ -169,6 +230,11 @@ void function DisableBoostBar( entity player )
 }
 
 void function RestorePlayerKraberClip()
+{
+    thread RestorePlayerKraberClip_Threaded()
+}
+
+void function RestorePlayerKraberClip_Threaded()
 {
     while( GetGameState() == eGameState.Playing )
     {
@@ -187,6 +253,11 @@ void function RestorePlayerKraberClip()
 }
 
 void function KraberForcedPlaylist()
+{
+    thread KraberForcedPlaylist_Threaded()
+}
+
+void function KraberForcedPlaylist_Threaded()
 {
     wait 5
     
