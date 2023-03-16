@@ -451,7 +451,7 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 {	
 	if ( Riff_SpawnAsTitan() == 1 && !IsFFAGame() )	// spawn as titan
 	{
-		print( "respawning as titan!" )
+		//print( "respawning as titan!" )
 		// use frontline spawns in 2-team modes
 		RateSpawnpoints_Frontline( checkClass, spawnpoints, team, player )
 		return
