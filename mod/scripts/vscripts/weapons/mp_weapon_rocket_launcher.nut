@@ -147,6 +147,9 @@ void function OnWeaponDeactivate_weapon_rocket_launcher( entity weapon )
 #if SERVER
 	if ( weaponOwner.IsNPC() )
 		weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
+	
+	// defensive fix
+	ADSLaserEnd( weapon )
 #endif
 }
 
@@ -402,6 +405,8 @@ void function ADSLaserStart( entity weapon )
 
 void function ADSLaserStart_Threaded( entity weapon )
 {
+	ADSLaserEnd( weapon ) // defensive fix: stop existing laser
+	
 	entity owner = weapon.GetWeaponOwner()
 	if ( !IsValid( owner ) )
 		return
@@ -419,8 +424,10 @@ void function ADSLaserStart_Threaded( entity weapon )
 	{
 		if ( !( viewModelEnt in file.rocketLaserTable ) )
 			file.rocketLaserTable[ viewModelEnt ] <- null
+		if ( IsValid( file.rocketLaserTable[ viewModelEnt ] ) ) // already has a laser valid
+			return
 		// this can make non_predicted client have proper fx
-		file.rocketLaserTable[ viewModelEnt ] = PlayFXOnEntity( $"P_wpn_lasercannon_aim", viewModelEnt, "flashlight" )
+		file.rocketLaserTable[ viewModelEnt ] = PlayLoopFXOnEntity( $"P_wpn_lasercannon_aim", viewModelEnt, "flashlight" )
 	}
 	// thirdperson fx
 	weapon.PlayWeaponEffect( $"", $"P_wpn_lasercannon_aim", "flashlight" )
@@ -441,7 +448,10 @@ void function ADSLaserEnd( entity weapon )
 		if ( viewModelEnt in file.rocketLaserTable )
 			laserFX = file.rocketLaserTable[ viewModelEnt ]
 		if ( IsValid( laserFX ) )
-			EffectStop( laserFX )
+		{
+			EntFireByHandle( laserFX, "Stop", "", 0, null, null )
+			laserFX.Destroy()
+		}
 	}
 	// thirdperson fx
 	weapon.StopWeaponEffect( $"", $"P_wpn_lasercannon_aim" )
