@@ -1,0 +1,126 @@
+global function Nessie_Weapon_Laser_Init
+
+global function Nessie_StartPlayerWeaponLaser
+
+const asset LASER_FX_RED            = $"P_wpn_lasercannon_aim_short"
+const asset LASER_FX_BLUE           = $"P_wpn_lasercannon_aim_short_blue"
+
+struct
+{
+    table<entity, entity> playerWeaponlaser
+} file
+
+void function Nessie_Weapon_Laser_Init()
+{
+    RegisterSignal( "StopWeaponLaser" )
+    AddCallback_OnClientConnected( OnClientConnected )    
+}
+
+void function OnClientConnected( entity player )
+{
+    file.playerWeaponlaser[ player ] <- null
+}
+
+void function Nessie_StartPlayerWeaponLaser( entity player )
+{
+    thread PlayerWeaponLaserThink( player )
+}
+
+void function PlayerWeaponLaserThink( entity player )
+{
+    player.EndSignal( "OnDestroy" )
+    player.EndSignal( "StopWeaponLaser" )
+
+    bool adsLaserActive = false
+    entity lastActiveWeapon = null
+    while ( true )
+    {
+        WaitFrame()
+        entity vmEnt = player.GetViewModelEntity()
+        if ( !IsValid( vmEnt ) )
+            continue
+
+        entity activeWeapon = player.GetActiveWeapon()
+        if ( !IsAlive( player ) )
+        {
+            StopPlayerActiveLaser( player )
+            continue
+        }
+        if ( !IsValid( activeWeapon ) )
+        {
+            StopPlayerActiveLaser( player )
+            continue
+        }
+        if ( activeWeapon.IsWeaponOffhand() )
+        {
+            StopPlayerActiveLaser( player )
+            continue
+        }
+
+        entity laser = file.playerWeaponlaser[ player ]
+        bool activeWeaponChange = activeWeapon != lastActiveWeapon
+        bool hasProScreen = activeWeapon.HasMod( "pro_screen" )
+        bool isSniper = vmEnt.LookupAttachment( "muzzle_flash_scoped" ) > 0
+        bool hasIndicator = activeWeapon.GetWeaponSettingAsset( eWeaponVar.grenade_arc_indicator_effect ) != $""
+        bool hipFireIndicator = activeWeapon.GetWeaponSettingBool( eWeaponVar.grenade_arc_indicator_show_from_hip )
+        if ( activeWeaponChange )
+            StopPlayerActiveLaser( player )
+        if ( hipFireIndicator )
+        {
+            StopPlayerActiveLaser( player )
+            return
+        }
+        if ( isSniper || hasIndicator )
+        {
+            if ( player.GetZoomFrac() == 1.0 ) // fully scoped
+            {
+                if ( !adsLaserActive )
+                {
+                    StartLaserOnPlayer( player, LASER_FX_BLUE, "muzzle_flash_scoped" )
+                    adsLaserActive = true
+                }
+            }
+            else if ( player.GetZoomFrac() > 0.1 ) // player try to ads
+            {
+                if ( IsValid( laser ) )
+                    StopPlayerActiveLaser( player ) 
+            }
+            else // not scoping
+            {
+                if ( adsLaserActive )
+                {
+                    StopPlayerActiveLaser( player ) 
+                    adsLaserActive = false
+                }
+                if ( !IsValid( laser ) )
+                    StartLaserOnPlayer( player, LASER_FX_BLUE, "muzzle_flash" )
+            }
+        }
+        else // normal weapon
+        {
+            if ( !IsValid( laser ) )
+                StartLaserOnPlayer( player, LASER_FX_BLUE, "muzzle_flash" )
+        }
+
+        lastActiveWeapon = activeWeapon
+    }
+}
+
+void function StartLaserOnPlayer( entity player, asset laserAsset, string attachment )
+{
+    entity vmEnt = player.GetViewModelEntity()
+    int attachID = vmEnt.LookupAttachment( attachment )
+    if ( attachID <= 0 )
+        return
+    file.playerWeaponlaser[ player ] = PlayLoopFXOnEntity( laserAsset, vmEnt, attachment )
+}
+
+void function StopPlayerActiveLaser( entity player )
+{
+    entity laserFX = file.playerWeaponlaser[ player ]
+    if ( IsValid( laserFX ) )
+    {
+        EntFireByHandle( laserFX, "Stop", "", 0, null, null )
+        laserFX.Destroy()
+    }
+}
