@@ -523,16 +523,16 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 				petTitanModifier += 10.0
 			
 			float dist = Distance2D( spawnpoint.GetOrigin(), spawnStateGeneric.preferSpawnNodes[ i ] )
-			if ( dist > 1500.0 ) // really should set this extramely high to receive InitialBonus
+			if ( dist > 5000.0 ) // really should set this extramely high to receive InitialBonus
 				continue
 						
-			if ( dist < 1200.0 && !spawnHasRecievedInitialBonus )
+			if ( dist < 4000.0 && !spawnHasRecievedInitialBonus )
 			{
 				currentRating += 10.0
 				spawnHasRecievedInitialBonus = true // should only get a bonus for simply being by a node once to avoid over-rating
 			}
 		
-			currentRating += ( preferSpawnNodeRatings[ i ] * ( ( 750.0 - dist ) / 75 ) ) +  max( RandomFloat( 1.25 ), 0.9 )
+			currentRating += ( preferSpawnNodeRatings[ i ] * ( ( 5000.0 - dist ) / 5000 ) ) +  max( RandomFloat( 1.25 ), 0.9 )
 			if ( dist < 500.0 ) // shouldn't get TOO close to an active node
 				currentRating *= 0.7 
 				
@@ -547,9 +547,7 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 			{
 				if ( FFA_IsGoodSpawnPoint( team, spawnpoint ) )
 				{
-					if ( currentRating == 0 ) // no rating yet
-						currentRating += 20 // add a bit
-					else
+					if ( currentRating > 0 )
 						currentRating *= 2.0
 				}
 			}
@@ -559,19 +557,22 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 					currentRating *= 0.0 // try not to spawn too close to enemy
 				else if ( HasFriendlyNearSpawnPoint( team, spawnpoint ) )
 				{
-					if ( currentRating == 0 ) // no rating yet
-						currentRating += 20 // add a bit
-					else
+					if ( currentRating > 0 ) // no rating yet
 						currentRating *= 2.0 // and mostly spawn near a friendly
 				}
 			}
 		}
-	
-		float rating = spawnpoint.CalculateRating( checkClass, team, currentRating, currentRating + petTitanModifier )
-		print( "spawnpoint at " + spawnpoint.GetOrigin() + " has rating: " + rating )
 		
-		if ( rating != 0.0 || currentRating != 0.0 )
-			print( "rating = " + rating + ", internal rating = " + currentRating )
+		if ( currentRating != 0 ) // check this or server will calculate too much
+		{
+			float rating = spawnpoint.CalculateRating( checkClass, team, currentRating, currentRating + petTitanModifier )
+			print( "spawnpoint at " + spawnpoint.GetOrigin() + " has rating: " + rating )
+			
+			if ( rating != 0.0 || currentRating != 0.0 )
+				print( "rating = " + rating + ", internal rating = " + currentRating )
+		}
+		else
+			print( "spawnpoint at " + spawnpoint.GetOrigin() + " has no rating" )
 	}
 }
 
@@ -684,20 +685,25 @@ void function RateSpawnpoints_SpawnZones( int checkClass, array<entity> spawnpoi
 	{
 		float rating = 0.0
 		float distance = Distance2D( spawn.GetOrigin(), spawnzone.GetOrigin() )
-		if ( distance < Distance2D( < 0, 0, 0 >, spawnzone.GetBoundingMaxs() ) )
+		float radius = Distance2D( < 0, 0, 0 >, spawnzone.GetBoundingMaxs() )
+		if ( distance < radius )
 			rating = 100.0
 		else // max 35 rating if not in zone, rate by closest
-			rating = 35.0 * ( 1 - ( distance / 5000.0 ) )
+			rating = 35.0 * ( 1 - ( distance / radius ) )
 
 		// modified over here
 		if ( HasEnemyNearSpawnPoint( team, spawn ) )
-			rating *= 0.4 // try not to spawn too close to enemy
+			rating *= -0.6 // try not to spawn too close to enemy
 		else if ( HasFriendlyNearSpawnPoint( team, spawn ) )
 			rating *= 2.0 // and mostly spawn near a friendly
-			
-		float calcedRating = spawn.CalculateRating( checkClass, player.GetTeam(), rating, rating )
-
-		print( "spawnpoint at " + spawn.GetOrigin() + " has rating: " + calcedRating )
+		
+		if ( rating != 0 )
+		{
+			float calcedRating = spawn.CalculateRating( checkClass, player.GetTeam(), rating, rating )
+			print( "spawnpoint at " + spawn.GetOrigin() + " has rating: " + calcedRating )
+		}
+		else
+			print( "spawnpoint at " + spawn.GetOrigin() + " has no rating" )
 	}
 }
 
