@@ -10,10 +10,15 @@ global function ExtraSpawner_SpawnGunShip
 
 global function ExtraSpawner_SpawnPilotElite
 global function ExtraSpawner_SpawnPilotCanEmbark
-global function ExtraSpawner_SpawnBTWithCooper
 global function ExtraSpawner_SpawnTitanWithPilot
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetPilotWeapons
+
+// boss titans
+global function ExtraSpawner_SpawnBTWithCooper
+global function ExtraSpawner_SpawnRoninWithAsh
+global function ExtraSpawner_SpawnLegionWithBlisk
+global function ExtraSpawner_SpawnMonarchWithSarah
 
 global function ExtraSpawner_SpawnCarePackageToGetWeapons
 // these settings should be done in prematch, don't do it right after levelLoad
@@ -219,10 +224,12 @@ bool function CC_SpawnPilotAndTitan( entity player, array<string> args )
 		return false
 		
     Point dropPoint = GetTitanReplacementPoint( player )
-	//thread ExtraSpawner_SpawnBTWithCooper( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
-	thread ExtraSpawner_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
-	//thread ExtraSpawner_SpawnTitanWithPilot( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
-    return true
+	thread ExtraSpawner_SpawnBTWithCooper( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+	//thread ExtraSpawner_SpawnMonarchWithSarah( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+	//thread ExtraSpawner_SpawnRoninWithAsh( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+   	//thread ExtraSpawner_SpawnLegionWithBlisk( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+	//thread ExtraSpawner_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+	return true
 }
 
 bool function CC_SpawnReaperCanLaunchTicks( entity player, array<string> args )
@@ -321,7 +328,7 @@ int function GetPlayerAISpawnTeam( entity player, array<string> args )
 //------------------------------------------------------
 
 // copied from cl_replacement_titan_hud.gnut
-void function Reaper_Spawnpoint( vector origin, int team, float impactTime, bool hasFriendlyWarning = false )
+void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, bool hasFriendlyWarning = false )
 {
 	array<entity> targetEffects = []
 	vector surfaceNormal = < 0, 0, 1 >
@@ -427,7 +434,7 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
 	{
 	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
 	}
-	thread Reaper_Spawnpoint( pos, team, 5.0 )
+	thread HotDrop_Spawnpoint( pos, team, 5.0 )
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiset )
@@ -521,6 +528,7 @@ void function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void 
 		thread titanHandler( titan )
 }
 
+// npc titans
 entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team )
 {
 	string setfile = "titan_buddy"
@@ -531,7 +539,7 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
 	{
 	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
 	}
-	thread Reaper_Spawnpoint( pos, team, 5.0 )
+	thread HotDrop_Spawnpoint( pos, team, 5.0 )
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiset )
@@ -559,18 +567,185 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
 	titanSoul.soul.seatedNpcPilot.team 					= team
 
 	NPCPilotWeaponStruct weaponStruct
+	// main weapon
 	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+	// anti-titan
+	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
 	weaponStruct.weaponMods = []
 	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
 
 	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/humans/heroes/mlt_hero_jack.mdl"
-	titanSoul.soul.seatedNpcPilot.title 				= "傑克庫伯"
+	titanSoul.soul.seatedNpcPilot.title 				= "#PATCH_PILOT2"
 
 	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
 
 	titanSoul.soul.seatedNpcPilot.health				= 1500
 
-	titan.SetTitle( "BT-7274" )
+	titan.SetTitle( "#NPC_BT_NAME" )
+	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	thread ExtraSpawner_TitanHandler( titan )
+
+	return titan
+}
+
+entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team )
+{
+	string setfile = "titan_stryder_leadwall"
+	string aiset = "npc_titan_stryder_leadwall_boss_fd"
+	string executionRef = "execution_ronin_prime" // funny with MeleeSyncedNPC
+
+	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
+	{
+	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
+	}
+	thread HotDrop_Spawnpoint( pos, team, 5.0 )
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiset )
+    titan.ai.titanSpawnLoadout.setFile = setfile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	DispatchSpawn( titan )
+
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+	thread NPCTitanHotdrops( titan, true )
+
+	// ash settings!
+	titanSoul.soul.seatedNpcPilot.isValid				= true
+
+	titanSoul.soul.seatedNpcPilot.team 					= team
+
+	NPCPilotWeaponStruct weaponStruct
+	// main weapon
+	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+	// anti-titan
+	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+
+	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/Humans/heroes/imc_hero_ash.mdl"
+	titanSoul.soul.seatedNpcPilot.title 				= "#BOSSNAME_ASH"
+
+	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
+
+	titanSoul.soul.seatedNpcPilot.health				= 1500
+
+	titan.SetTitle( "#BOSSNAME_ASH" )
+	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	thread ExtraSpawner_TitanHandler( titan )
+
+	return titan
+}
+
+entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int team )
+{
+	string setfile = "titan_ogre_minigun"
+	string aiset = "npc_titan_ogre_minigun_boss_fd"
+	string executionRef = "execution_legion_prime" // funny with MeleeSyncedNPC
+
+	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
+	{
+	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
+	}
+	thread HotDrop_Spawnpoint( pos, team, 5.0 )
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiset )
+    titan.ai.titanSpawnLoadout.setFile = setfile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	DispatchSpawn( titan )
+
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+	thread NPCTitanHotdrops( titan, true )
+
+	// blisk settings!
+	titanSoul.soul.seatedNpcPilot.isValid				= true
+
+	titanSoul.soul.seatedNpcPilot.team 					= team
+
+	NPCPilotWeaponStruct weaponStruct
+	// main weapon
+	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+	// anti-titan
+	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+
+	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/Humans/heroes/imc_hero_blisk.mdl"
+	titanSoul.soul.seatedNpcPilot.title 				= "#BOSSNAME_BLISK"
+
+	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
+
+	titanSoul.soul.seatedNpcPilot.health				= 1500
+
+	titan.SetTitle( "#BOSSNAME_BLISK" )
+	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	thread ExtraSpawner_TitanHandler( titan )
+
+	return titan
+}
+
+entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int team )
+{
+	string setfile = "titan_atlas_vanguard"
+	string aiset = "npc_titan_atlas_vanguard"
+	string executionRef = "execution_vanguard_kit" // funny with MeleeSyncedNPC
+
+	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
+	{
+	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
+	}
+	thread HotDrop_Spawnpoint( pos, team, 5.0 )
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiset )
+    titan.ai.titanSpawnLoadout.setFile = setfile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	DispatchSpawn( titan )
+
+	titan.TakeWeaponNow( "mp_titanweapon_xo16_vanguard" )
+	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["battle_rifle", "battle_rifle_icon"] )
+
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+	thread NPCTitanHotdrops( titan, true )
+
+	// sarah settings!
+	titanSoul.soul.seatedNpcPilot.isValid				= true
+
+	titanSoul.soul.seatedNpcPilot.team 					= team
+
+	NPCPilotWeaponStruct weaponStruct
+	// main weapon
+	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+	// anti-titan
+	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+
+	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/humans/heroes/mlt_hero_sarah.mdl"
+	titanSoul.soul.seatedNpcPilot.title 				= "#FACTION_LEADER_NAME_SARAH"
+
+	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
+
+	titanSoul.soul.seatedNpcPilot.health				= 1500
+
+	titan.SetTitle( "#FACTION_LEADER_NAME_SARAH" )
 	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
 	thread ExtraSpawner_TitanHandler( titan )
 
@@ -1260,7 +1435,7 @@ void function DisableDropPodHighlight( entity pod )
 void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, int team, string reaperSettings = "npc_super_spectre_aitdm", string tickSettings = "npc_frag_drone" )
 {
 	// nessie fix
-	thread Reaper_Spawnpoint( pos, team, 6.2 ) 
+	thread HotDrop_Spawnpoint( pos, team, 6.2 ) 
 
 	wait 5
 	entity reaper = CreateSuperSpectre( team, pos, rot )
