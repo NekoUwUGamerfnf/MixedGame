@@ -39,8 +39,17 @@ var function OnWeaponPrimaryAttack_gun_shield( entity weapon, WeaponPrimaryAttac
 	entity weaponOwner = weapon.GetWeaponOwner()
 
 	// modified: anti crash!!!
-	if ( weaponOwner.GetViewModelEntity().GetModelName() != $"models/weapons/titan_predator/atpov_titan_predator.mdl" )
-		return 0 // never create shield if player not using predator cannon model
+	if ( weaponOwner.IsPlayer() )
+	{
+		if ( weaponOwner.GetViewModelEntity().GetModelName() != $"models/weapons/titan_predator/atpov_titan_predator.mdl" )
+			return 0 // never create shield if player not using predator cannon model
+	}
+	else if ( weaponOwner.IsNPC() )
+	{
+		entity activeWeapon = weaponOwner.GetActiveWeapon()
+		if ( activeWeapon.GetModelName() != $"models/weapons/titan_predator/w_titan_predator.mdl" )
+			return 0 // never create shield if npc not having predator cannon model as primary
+	}
 
 	Assert( IsValid( weaponOwner ), "weapon owner is not valid at the start of on weapon primary attack" )
 	Assert( IsAlive( weaponOwner ), "weapon owner is not alive at the start of on weapon primary attack" )
