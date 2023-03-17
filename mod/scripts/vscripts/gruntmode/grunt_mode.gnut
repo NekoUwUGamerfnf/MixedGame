@@ -2,7 +2,7 @@ untyped
 global function Modded_Gamemode_GruntMode_Init
 
 // npc counts
-const SQUADS_PER_TEAM = 4
+const SQUADS_PER_TEAM = 5
 const REAPERS_PER_TEAM = 2
 
 const MARVINS_PER_TEAM = 0
@@ -325,78 +325,39 @@ void function ForceAddScoreForPlayerOrNPCKill( entity victim, var damageInfo )
 
 void function SpawnIntroBatch( int team )
 {
-	/* // we skip intro spawn
-	if( GetMapName() != "mp_rise" && GetMapName() != "mp_wargames" && GetMapName() != "mp_crashsite3" )
+	// intro spawn
+	for ( int i = 0; i < SQUADS_PER_TEAM; i++ )
 	{
-		array<entity> dropPodNodes = GetEntArrayByClass_Expensive( "info_spawnpoint_droppod_start" )
-		array<entity> dropShipNodes = GetValidIntroDropShipSpawn( dropPodNodes )
-
-		array<entity> podNodes
-		array<entity> shipNodes
-
-		// Sort per team
-		foreach ( node in dropPodNodes )
+		if ( RandomInt( 4 ) > 0 ) // 75% chance of spawning a specialist squad(??
 		{
-			if ( node.GetTeam() == team )
-				podNodes.append( node )
+			array< entity > points = SpawnPoints_GetDropPod()
+			entity node = points[ GetSpawnPointIndex( points, team ) ]
+			// 33% chance of spawning a shield captain
+			string leaderSet = RandomInt( 3 ) == 0 ? "npc_soldier_shield_captain" : "npc_soldier_pve_specialist"
+			//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
+			thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, leaderSet, SquadHandler )
+			wait 5 // wait 5s per spawn, or player will have model issue since there're too many entities
 		}
-
-		// If for some reason we're missing team nodes
-		// start spawner
-		if( podNodes.len() == 0 )
+		else
 		{
-			waitthread Spawner( team )
-			return
-		}
+			array< entity > points = GetZiplineDropshipSpawns()
 
-
-		// Spawn logic
-		int startIndex = 0
-		bool first = true
-		entity node
-
-		int pods = RandomInt( podNodes.len() + 1 )
-
-		int ships = shipNodes.len()
-
-		for ( int i = 0; i < SQUADS_PER_TEAM; i++ )
-		{
-			if ( pods != 0 || ships == 0 )
+			// Prefer dropship when spawning grunts
+			if ( points.len() / 4 > 0 ) // must have more than 4 points
 			{
-				int index = i
-
-				if ( index > podNodes.len() - 1 )
-					index = RandomInt( podNodes.len() )
-
-				node = podNodes[ index ]
-				// not spawning spectres now
-				thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", SquadHandler )
-
-				pods--
-			}
-			else
-			{
-				if ( startIndex == 0 )
-				startIndex = i // save where we started
-
-				node = shipNodes[ i - startIndex ]
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
-
-				ships--
+				wait 10
+				continue
 			}
 
-			// Vanilla has a delay after first spawn
-			if ( first )
-				wait 2
-
-			first = false
+			points = SpawnPoints_GetDropPod()
+			entity node = points[ GetSpawnPointIndex( points, team ) ]
+			thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", SquadHandler )
 		}
-
-		wait 15
 	}
-	*/
 
-	wait 15
+
 	thread Spawner( team )
 	thread SpawnerExtend( team )
 	thread SpawnerWeapons( team )
@@ -452,12 +413,9 @@ void function Spawner( int team )
 					// Prefer dropship when spawning grunts
 					if ( ent == "npc_soldier" && points.len() / 4 > 0 ) // must have more than 4 points
 					{
-						if ( RandomInt( points.len() / 4 ) )
-						{
-							entity node = points[ GetSpawnPointIndex( points, team ) ]
-							waitthread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
-							continue
-						}
+						entity node = points[ GetSpawnPointIndex( points, team ) ]
+						waitthread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
+						continue
 					}
 
 					points = SpawnPoints_GetDropPod()
