@@ -4,7 +4,8 @@ global function ExtraAISpawner_Init
 
 global function ExtraSpawner_SpawnTitanBT
 
-global function ExtraSpawner_SpawnNPC
+global function ExtraSpawner_SpawnNPCInDropPod
+global function ExtraSpawner_SpawnSpecialistGruntDropPod
 global function ExtraSpawner_SpawnTitanRandom
 global function ExtraSpawner_SpawnGunShip
 
@@ -13,6 +14,11 @@ global function ExtraSpawner_SpawnPilotCanEmbark
 global function ExtraSpawner_SpawnTitanWithPilot
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetPilotWeapons
+global function ExtraSpawner_SetPilotAntiTitanWeapons
+global function ExtraSpawner_SetGruntWeapons
+global function ExtraSpawner_SetGruntAntiTitanWeapons
+global function ExtraSpawner_SetSpectreWeapons
+global function ExtraSpawner_SetSpectreAntiTitanWeapons
 
 // boss titans
 global function ExtraSpawner_SpawnBTWithCooper
@@ -85,6 +91,12 @@ struct
 	array<string> carePackageWeapons
 	// now allowing every weapon to have a custom mod
 	table< string, array<string> > carePackageWeaponMods
+
+	// grunt and spectres
+	array<string> gruntMainWeapons
+	array<string> gruntAntiTitanWeapons
+	array<string> spectreMainWeapons
+	array<string> spectreAntiTitanWeapons
 } file
 
 void function ExtraAISpawner_Init()
@@ -194,6 +206,31 @@ void function KilledNPCPilotScoreEvent( entity pilot, var damageInfo )
 void function ExtraSpawner_SetPilotWeapons( array<string> weapons )
 {
 	file.pilotMainWeapons = weapons
+}
+
+void function ExtraSpawner_SetPilotAntiTitanWeapons( array<string> weapons )
+{
+	file.pilotAntiTitanWeapons = weapons
+}
+
+void function ExtraSpawner_SetGruntWeapons( array<string> weapons )
+{
+	file.gruntMainWeapons = weapons
+}
+
+void function ExtraSpawner_SetGruntAntiTitanWeapons( array<string> weapons )
+{
+	file.gruntAntiTitanWeapons = weapons
+}
+
+void function ExtraSpawner_SetSpectreWeapons( array<string> weapons )
+{
+	file.spectreMainWeapons = weapons
+}
+
+void function ExtraSpawner_SetSpectreAntiTitanWeapons( array<string> weapons )
+{
+	file.spectreAntiTitanWeapons = weapons
 }
 
 void function ExtraSpawner_SetCarePackageWeapons( array<string> weapons )
@@ -367,6 +404,23 @@ void function ReplaceWeapon( entity guy, string weapon, array<string> mods )
 	guy.TakeActiveWeapon()
 	guy.GiveWeapon( weapon, mods )
 	guy.SetActiveWeaponByName( weapon )
+}
+
+void function LaunchDropPodThenActivate( entity pod, array<entity> npcs, vector pos, vector rot, bool doDeployAnims = true )
+{
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+
+	if ( doDeployAnims )
+		ActivateFireteamDropPod( pod, npcs )
+	else
+	{
+		thread DropPodActiveThink( pod )
+		foreach ( entity npc in npcs )
+		{
+			if ( IsAlive( npc ) )
+				npc.ClearParent()
+		}
+	}
 }
 
 // utilities end
@@ -764,7 +818,12 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 	titanSoul.soul.seatedNpcPilot.team 					= team
 
 	NPCPilotWeaponStruct weaponStruct
+	// main weapon
 	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
+	weaponStruct.weaponMods = []
+	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+	// anti-titan
+	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
 	weaponStruct.weaponMods = []
 	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
 
@@ -780,22 +839,72 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 	return titan
 }
 
-void function ExtraSpawner_SpawnNPC( vector pos, vector rot, int team, string content )
+void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, string content )
 {
 	entity pod = CreateDropPod( pos, <0,0,0> )
 
     entity spawnNpc = CreateNPC( content, team, pos, rot )
 	spawnNpc.EndSignal( "OnDestroy" )
-    SetSpawnOption_AISettings( spawnNpc, content )
 	DispatchSpawn( spawnNpc ) // never delayed dispatchSpawn()
 
-    InitFireteamDropPod( pod ) 
+    InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
 	spawnNpc.SetParent( pod, "ATTACH", true )
-	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+	waitthread LaunchDropPodThenActivate( pod, [spawnNpc], pos, rot, false )
+}
 
-	// dissolve the pod right after landing( DropPodActiveThink() has been modified ), since it this kind of pod spawning is hacky( not spawning through pod function but set parented ) and unable to dissolve itself.
-    thread DropPodActiveThink( pod, 0.5 )
-	spawnNpc.ClearParent()
+void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, int team, string leaderAiSet = "npc_soldier_pve_specialist", void functionref( array<entity> guys ) squadHandler = null )
+{
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
+	
+	entity pod = CreateDropPod( pos, <0,0,0> )
+	
+	InitFireteamDropPod( pod )
+	
+	for ( int i = 0; i < 4 ;i++ )
+	{
+		entity npc = CreateNPC( "npc_soldier", team, pos,<0,0,0> )
+		if ( i == 0 ) // specialist as leader
+		{
+			SetSpawnOption_AISettings( npc, leaderAiSet )
+			// hardcoded here..
+			if ( leaderAiSet == "npc_soldier_pve_specialist" )
+			{
+				// same as shield captain
+				npc.SetMaxHealth( 350 )
+				npc.SetHealth( 350 )
+			}
+		}
+		DispatchSpawn( npc )
+		if ( i == 0 ) // specialist as leader
+		{
+			// hardcoded here..
+			if ( leaderAiSet == "npc_soldier_pve_specialist" )
+			{
+				if ( team == TEAM_MILITIA )
+					npc.SetModel( $"models/humans/grunts/mlt_grunt_lmg.mdl" )
+				else
+					npc.SetModel( $"models/humans/grunts/imc_grunt_lmg.mdl" )
+			}
+		}
+		SetSquad( npc, squadName )
+		
+		if ( file.gruntMainWeapons.len() > 0 )
+			ReplaceWeapon( npc, file.gruntMainWeapons[ RandomInt( file.gruntMainWeapons.len() ) ], [] )
+		if ( file.gruntAntiTitanWeapons.len() > 0 )
+			npc.GiveWeapon( file.gruntAntiTitanWeapons[ RandomInt( file.gruntAntiTitanWeapons.len() ) ] )
+		
+		npc.SetParent( pod, "ATTACH", true )
+		
+		npc.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guys.append( npc )
+	}
+	
+	// The order here is different so we can show on minimap while were still falling
+	if ( squadHandler != null )
+		thread squadHandler( guys )
+		
+	waitthread LaunchDropPodThenActivate( pod, guys, pos, rot )
 }
 
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
@@ -830,27 +939,20 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 
 void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team )
 {
-	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
-	entity pod = CreateDropPod( pos, rot )
+	// a dummy pod for getting droppod impact time
+	float podLaunchTime = expect float ( GetDropPodAnimDuration() )
 
 	entity pilot = ExtraSpawner_SpawnPilotElite( pos, rot, team )
-	ExtraSpawner_SetUpNPCPilot( pilot )
-	pilot.SetParent( pod, "ATTACH", true )
-	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
-	
-	// pilot drop and titanfall...
-	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
-	thread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
-	float podLaunchTime = pod.GetSequenceDuration( "pod_testpath" )
+	pilot.EndSignal( "OnDeath" )
+	pilot.EndSignal( "OnDestroy" )
 
 	wait 3 // send titan a little bit later
 	entity titan = ExtraSpawner_SpawnTitanForPilot( pilot, pos, rot )
 	thread ForceStartTitan( titan, pilot, 10 ) // to fit ownerLifeTimeCheck(), if pilot died instantly we stand the titan
+	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
-	wait podLaunchTime - 2.5 // wait for pod launch complete( wait 0.5s more )
-
-	ActivateFireteamDropPod( pod, [ pilot ] )
+	wait podLaunchTime - 3 // wait for pod launch complete
 	thread PilotSpawnProtection( pilot, titan, 15 ) // at least don't let players kill pilots while their titans're not landing
 
 	OnThreadEnd( 
@@ -883,7 +985,7 @@ void function StandUnboardedTitan( entity titan, bool doHandler = false )
 {
 	titan.EndSignal( "OnDestroy" )
 
-	titan.WaitSignal( "TitanHotDropComplete" )
+	waitthread WaitForHotdropToEnd( titan )
 	thread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
 	titan.ClearInvulnerable()
 	if ( doHandler )
@@ -897,10 +999,9 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.s.nextTitanRespawnAvailable <- null
 	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
 
-	// many things below should have a reference in _ai_pilots.gnut, for npc pilots ejecting
+	ExtraSpawner_SetUpNPCPilot( pilot )
 	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
-	//print( modelAsset ) // testing...
-	pilot.SetModel( modelAsset )//
+	pilot.SetModel( modelAsset )
 	pilot.SetMaxHealth( 1000 )
 	pilot.SetHealth( 1000 )
 	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
@@ -910,6 +1011,12 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	// want pilots move faster to their titans
 	//pilot.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	//pilot.DisableNPCMoveFlag( NPCMF_FOLLOW_SAFE_PATHS | NPCMF_INDOOR_ACTIVITY_OVERRIDE )
+
+	// attach to a droppod
+	entity pod = CreateDropPod( pos, <0,0,0> )
+	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
+	pilot.SetParent( pod, "ATTACH", true )
+	thread LaunchDropPodThenActivate( pod, [pilot], pos, rot )
 
 	return pilot
 }
