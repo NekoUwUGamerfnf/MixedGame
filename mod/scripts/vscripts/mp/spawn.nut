@@ -337,7 +337,8 @@ entity function FindSpawnPoint( entity player, bool isTitan, bool useStartSpawnp
 	entity spawnpoint = GetBestSpawnpoint( player, spawnpoints )
 		
 	spawnpoint.s.lastUsedTime = Time()
-	player.SetLastSpawnPoint( spawnpoint )
+	//player.SetLastSpawnPoint( spawnpoint )
+	player.p.lastSpawnPoint = spawnpoint
 		
 	return spawnpoint
 }
@@ -348,6 +349,8 @@ entity function GetBestSpawnpoint( entity player, array<entity> spawnpoints )
 	array<entity> validSpawns
 	foreach ( entity spawnpoint in spawnpoints )
 	{
+		if ( player.p.lastSpawnPoint == spawnpoint ) // don't do this
+			continue
 		if ( IsSpawnpointValid( spawnpoint, player.GetTeam() ) )
 		{
 			validSpawns.append( spawnpoint )
