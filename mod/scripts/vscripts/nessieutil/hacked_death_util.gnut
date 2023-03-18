@@ -2,12 +2,16 @@
 untyped
 global function Hacked_Death_Utility_Init
 
-global function PlayerStartHackedDeath
-global function PlayerRecoverFromHackedDeath
+global function HackedDeath_PlayerStart
+global function HackedDeath_PlayerRecoverFrom
 
-global function SetHackedDeathEnabled
-global function IsHackedDeathEnabled
-global function IsPlayerHackedDeath
+global function HackedDeath_SetEnabled
+global function HackedDeath_IsEnabled
+global function HackedDeath_IsPlayerHackedDeathed
+
+// maybe useful settings
+global function HackedDeath_SetFakeBodySilence
+global function HackedDeath_SetDeathEffectEnable
 
 // death effect
 const asset FLESH_PINKMIST_FX = $"death_pinkmist_LG_nochunk" // was death_pinkmist_nochunk
@@ -20,6 +24,10 @@ global float hackedDeathActualDamage = 0.0
 struct
 {
     bool hackedDeathEnabled = false
+
+	// settings
+	bool fakeBodySilence = true
+	bool deathEffectEnable = true
 } file
 
 void function Hacked_Death_Utility_Init()
@@ -152,7 +160,7 @@ void function HackedDeath_PlayerPostDamage( entity player, var damageInfo )
 		return
 	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
 	{
-		PlayerStartHackedDeath( player, damageInfo )
+		HackedDeath_PlayerStart( player, damageInfo )
 	}
 }
 
@@ -170,11 +178,11 @@ void function HackedDeath_PlayerFinalDamaged( entity player, var damageInfo )
 		DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 ) // don't kill the player
 		if( IsPlayerDeathsHidden() ) // add a extra death sound here
 			EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" ) // extra death sound
-		PlayerStartHackedDeath( player, damageInfo )
+		HackedDeath_PlayerStart( player, damageInfo )
 	}
 }
 
-void function PlayerStartHackedDeath( entity player, var damageInfo )
+void function HackedDeath_PlayerStart( entity player, var damageInfo )
 {
 	player.s.hackedDeath = true // for IsAlive() checks
 	player.Signal( "StartHackedDeath" ) // signal this
@@ -336,7 +344,8 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 		fakeBody.s.hackedDeathBody <- true // this will make the grunt play flesh pilot's headshotFX in TryHeadshotDeathFX()
 	}
 
-	fakeBody.s.silentDeath <- true // don't play their death sound...
+	if ( file.fakeBodySilence )
+		fakeBody.s.silentDeath <- true // don't play their death sound...
 
 	fakeBody.SetValueForModelKey( player.GetModelName() )
 	DispatchSpawn( fakeBody )
@@ -366,7 +375,8 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	if( IsValid( player.GetActiveWeapon() ) && IsWeaponDropsEnabled() ) 
 		DropCopyOfPlayerWeapon( player, damageInfo ) // this can be too complex, but it's the best way to solve it
 	
-	PlayHackedDeathKilledEffectOnPlayer( player, damageInfo )
+	if ( file.deathEffectEnable )
+		PlayHackedDeathKilledEffectOnPlayer( player, damageInfo )
 
 	// need to check this, or dropping a invalid weapon will crash the game
 	// game's weapon taken will leave a empty weapon bar, maybe no need to fix it
@@ -435,7 +445,7 @@ void function PlayHackedDeathKilledEffectOnPlayer( entity player, var damageInfo
 	}
 	else // flesh
 	{
-		if ( isGibDeath ) // if killed by gib
+		if ( isGibDeath && file.fakeBodySilence ) // if killed by gib
 		{
 			// "death.pinkmist" is played when a grunt is gibbed, but we've made them silentDeath, so manually do a sound event
 			EmitSoundAtPosition( TEAM_UNASSIGNED, player.GetOrigin(), "death.pinkmist" )
@@ -632,7 +642,7 @@ void function GiveFakeBodyCopyOfPlayerWeapon( entity fakeBody, entity player )
 }
 */
 
-void function PlayerRecoverFromHackedDeath( entity player )
+void function HackedDeath_PlayerRecoverFrom( entity player )
 {
 	player.s.hackedDeath = false
 	//player.kv.contents = (int(player.kv.contents) & ~CONTENTS_NOGRAPPLE) // grapple now handling in callbacks  // remove unable to be grappled content
@@ -649,7 +659,7 @@ void function PlayerRecoverFromHackedDeath( entity player )
 	DeployAndEnableWeapons( player )
 	//StopPlayerWoundedSound( player ) // doing a loop now
 	// fuck you respawn why leaving a annying death sound
-	RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD ) // PlayerStartHackedDeath() has removed this
+	RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD ) // HackedDeath_PlayerStart() has removed this
 }
 
 void function HackedDeath_PlayerRealDeath( entity player, var damageInfo )
@@ -663,23 +673,33 @@ void function HackedDeath_PlayerRealDeath( entity player, var damageInfo )
 	player.s.hackedDeath = true // ensure this
 }
 
-void function SetHackedDeathEnabled( bool enabled )
+void function HackedDeath_SetEnabled( bool enabled )
 {
 	file.hackedDeathEnabled = enabled
 	//SetWeaponDropsEnabled( enabled ) // bind together
 	Wargames_SetPlayerDissolveDisabled( enabled ) // bind together
 }
 
-bool function IsHackedDeathEnabled()
+bool function HackedDeath_IsEnabled()
 {
 	return file.hackedDeathEnabled
 }
 
-bool function IsPlayerHackedDeath( entity player )
+bool function HackedDeath_IsPlayerHackedDeathed( entity player )
 {
 	if( !player.IsPlayer() )
 		return false
 	if( !( "hackedDeath" in player.s ) )
 		return false
 	return expect bool( player.s.hackedDeath )
+}
+
+void function HackedDeath_SetFakeBodySilence( bool silence )
+{
+	file.fakeBodySilence = silence
+}
+
+void function HackedDeath_SetDeathEffectEnable( bool enable )
+{
+	file.deathEffectEnable = enable
 }

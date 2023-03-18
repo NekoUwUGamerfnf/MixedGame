@@ -133,7 +133,7 @@ void function MFDThink()
 				break
 			}
 			
-			//if( IsHackedDeathEnabled() ) // temp fix, should remove after successfully adjust "IsAlive()"
+			//if( HackedDeath_IsEnabled() ) // temp fix, should remove after successfully adjust "IsAlive()"
 			//{
 			//	if( expect bool( imcMark.s.hackedDeath ) || expect bool( militiaMark.s.hackedDeath ) )
 			//	{

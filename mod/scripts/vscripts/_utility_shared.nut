@@ -569,7 +569,7 @@ bool function IsAlive( entity ent, bool ignoreHackedDeath = false )
 		return false
 
 #if SERVER // extra check for hackedDeaths!
-	if( ent.IsPlayer() && IsHackedDeathEnabled() )
+	if( ent.IsPlayer() && HackedDeath_IsEnabled() )
 	{
 		if( !ignoreHackedDeath ) // for real killing players... they should ignore this check
 		{
