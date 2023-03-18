@@ -36,29 +36,7 @@ void function SpawnFromDroppod_Threaded( entity player, float destructionTime = 
 {
 	if( IsValid(player) )
 	{
-		/*
-		entity podSpawn
-		if ( droppod.droppodSpawns.len() != 0 )
-			podSpawn = droppod.droppodSpawns.getrandom()
-		else
-			podSpawn = SpawnPoints_GetPilot().getrandom()
-		*/
-
-		/* // droppod style respawn
-		array< entity > points = SpawnPoints_GetDropPod()
-		entity node = points[ GetSpawnPointIndex( points, player.GetTeam() ) ]
-
-		SpawnPlayerInDropPod( player, node.GetOrigin(), node.GetAngles(), 0.1 ) // dissolves right after disembarking
-		*/
-
-		// try to use titan spawnpoints for player respawning!
-		//entity spawnpoint = FindSpawnPoint( player, true, ( ShouldStartSpawn( player ) || Flag( "ForceStartSpawn" ) ) && !IsFFAGame() )
-		//SpawnPlayerInDropPod( player, spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 15 )
-
-		// should use a better one
-		//entity spawnpoint = droppod.droppodSpawns[ GetSpawnPointIndex( droppod.droppodSpawns, player.GetTeam() ) ]
-		//SpawnPlayerInDropPod( player, spawnpoint.GetOrigin(), spawnpoint.GetAngles(), 15 )
-		
+	
 		// can't implement it good enough
 		entity spawnpoint = FindPlayerDroppodSpawnPoint( player.GetTeam() )
 		SpawnPlayerInDropPod( player, spawnpoint.GetOrigin(), spawnpoint.GetAngles(), destructionTime )
@@ -75,71 +53,62 @@ void function CleanupSpawningDropPods()
 
 void function SpawnPlayerInDropPod( entity player, vector targetOrigin, vector angles, float destructionTime = -1 )
 {
+	if ( !IsValid( player ) )
+		return
+
+	entity pod = CreateDropPod( targetOrigin, angles )
+	
+	file.droppods.append( pod )
+	svGlobal.levelEnt.EndSignal( "CleanUpEntitiesForRoundEnd" )
+	
+	// TODO: we need to make a door for this, CreateDropPodDoor in _droppod_fireteam is just busted for some reason tho
+	
+	entity camera = CreateEntity( "point_viewcontrol" )
+	vector podloaction = pod.GetOrigin() + Vector( 0, 0, 3000 )
+	camera.SetLocalOrigin( podloaction )
+	camera.SetAngles( < 90, angles.y, 0 > )
+	
+	if ( !IsAlive( player ) )
+		player.RespawnPlayer( null )
+
+	if( IsValid( pod ) )
+	{
+		player.SetOrigin( pod.GetOrigin() )
+		player.SetAngles( pod.GetAngles() )
+		player.SetParent( pod )
+	}
+
 	if( IsValid( player ) )
 	{
-		entity pod = CreateDropPod( targetOrigin, angles )
-		
-		file.droppods.append( pod )
-		svGlobal.levelEnt.EndSignal( "CleanUpEntitiesForRoundEnd" )
-		
-		// TODO: we need to make a door for this, CreateDropPodDoor in _droppod_fireteam is just busted for some reason tho
-		
-		entity camera = CreateEntity( "point_viewcontrol" )
-		vector podloaction = pod.GetOrigin() + Vector( 0, 0, 3000 )
-		camera.SetLocalOrigin( podloaction )
-		camera.SetAngles( < 90, angles.y, 0 > )
-		
-		if ( !IsAlive( player ) )
-			player.RespawnPlayer( null )
+		player.FreezeControlsOnServer()
+		AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+		player.SetViewEntity( camera, true )
+	}
+	
+	// wait for this
+	LaunchAnimDropPod( pod, "pod_testpath", targetOrigin, angles )
+	
+	//WaitFrame()
+	if( IsValid( player ) && GetGameState() < eGameState.Postmatch )
+	{
+		player.ClearParent()
+		player.ClearViewEntity()
+		player.UnfreezeControlsOnServer()
+		player.Signal( "PlayerDroppodImpact" )
+		RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+	}
 
-		if( IsValid( pod ) )
+	if ( destructionTime != -1 && GamePlaying() )
+	{
+		wait destructionTime
+		if ( IsValid( pod ) )
 		{
-			player.SetOrigin( pod.GetOrigin() )
-			player.SetAngles( pod.GetAngles() )
-			player.SetParent( pod )
-		}
-
-		if( IsValid( player ) )
-		{
-			player.FreezeControlsOnServer()
-			AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
-			player.SetViewEntity( camera, true )
-		}
-		
-		// wait for this
-		LaunchAnimDropPod( pod, "pod_testpath", targetOrigin, angles )
-		
-		//WaitFrame()
-		if( IsValid( player ) && GetGameState() < eGameState.Postmatch )
-		{
-			player.ClearParent()
-			player.ClearViewEntity()
-			player.UnfreezeControlsOnServer()
-			player.Signal( "PlayerDroppodImpact" )
-			RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
-		}
-		
-		/*
-		// wait a frame, otherwise this won't properly work
-		WaitFrame()
-		vector doorPos = pod.GetAttachmentOrigin( pod.LookupAttachment( "hatch" ) )
-		
-		if( IsValid(player) )
-		{
-			vector viewAngles = doorPos - player.GetOrigin()
-			viewAngles.x = 3.0
-			
-			player.SetAngles( viewAngles )
-		}
-		*/
-
-		if ( destructionTime != -1 && GamePlaying() )
-		{
-			wait destructionTime
+			pod.NotSolid() // so it won't block player's movement
 			pod.Dissolve( ENTITY_DISSOLVE_NORMAL, < 0, 0, 0 >, 0 )
-			
+		
 			file.droppods.remove( file.droppods.find( pod ) )
 		}
+		
 	}
 }
 
@@ -147,8 +116,9 @@ void function AddDroppodSpawn()
 {
 	// now adding more spawnpoints
 	droppod.droppodSpawns.extend( SpawnPoints_GetTitan() )
-	droppod.droppodSpawns.extend( SpawnPoints_GetTitanStart( TEAM_IMC ) )
-	droppod.droppodSpawns.extend( SpawnPoints_GetTitanStart( TEAM_MILITIA ) )
+	// remove titan start points, since grunt mode uses them as titan's spawn point
+	//droppod.droppodSpawns.extend( SpawnPoints_GetTitanStart( TEAM_IMC ) )
+	//droppod.droppodSpawns.extend( SpawnPoints_GetTitanStart( TEAM_MILITIA ) )
 	droppod.droppodSpawns.extend( SpawnPoints_GetDropPod() )
 
 	array<entity> pilotSpawns
@@ -178,143 +148,6 @@ void function AddDroppodSpawn()
 		point.s.droppodLastUsedTeam <- TEAM_UNASSIGNED // for better checks?
 	}
 }
-
-/* // not using this version!
-void function AddDroppodSpawn( entity spawn )
-{
-	droppod.droppodSpawns.append( spawn )
-}
-*/
-
-/* // can't implement it good enough
-const float ENEMY_NOSPAWN_RADIUS = 1500
-const float SPAWN_ZONE_SEARCH_RADIUS = 2500
-const float DROPPOD_POINT_COOLDOWN = 10.0
-
-entity function FindPlayerDroppodSpawnPoint( int team )
-{
-	array<entity> spawnPoints = droppod.droppodSpawns
-	int enemyTeam = GetOtherTeam( team )
-	entity zone = DecideSpawnZone_Generic( spawnPoints, team )
-
-	entity chosenPoint
-	foreach ( entity point in spawnPoints )
-	{
-		if ( IsValid( zone ) ) // using a spawn zone...
-		{
-			// first used points, with spawnzone valid
-			if ( point.s.droppodLastUsedTeam == TEAM_UNASSIGNED && point.s.droppodLastUsedTime == -1 )
-			{
-				if ( Distance2D( point.GetOrigin(), zone.GetOrigin() ) <= SPAWN_ZONE_SEARCH_RADIUS ) // smaller search
-				{
-					chosenPoint = point
-					break
-				}
-			}
-			else // normal points
-			{
-				if ( Distance2D( point.GetOrigin(), zone.GetOrigin() ) <= SPAWN_ZONE_SEARCH_RADIUS ) // smaller search
-				{
-					if ( !HasEnemyUsedNearSpawnPoint( point, team ) )
-					{
-						if ( IsSpawnPointOffCooldown( point ) ) // enough time passed
-						{
-							chosenPoint = point
-							break
-						}
-					}
-				}
-			}
-		}
-
-		if ( point.s.droppodLastUsedTeam == TEAM_UNASSIGNED )
-		{
-			if ( !HasEnemyUsedNearSpawnPoint( point, team ) )
-			{
-				chosenPoint = point
-				break
-			}
-		}
-		else // point already has a team
-		{
-			if ( IsSpawnPointOffCooldown( point ) ) 
-			{
-				if ( !HasEnemyUsedNearSpawnPoint( point, team ) )
-				{
-					chosenPoint = point
-					break
-				}
-			}
-		}
-	}
-
-	if ( !IsValid( chosenPoint ) )
-	{
-		// if we reached here means no point valid! try to use a random one...
-		if ( IsValid( zone ) )
-		{
-			// 20 Tries to get a random point close to the zone
-			for ( int i = 0; i < 20; i++ )
-			{
-				entity point = spawnPoints[ RandomInt( spawnPoints.len() ) ]
-			
-				if ( Distance2D( point.GetOrigin(), zone.GetOrigin() ) < SPAWN_ZONE_SEARCH_RADIUS ) // smaller search
-				{
-					chosenPoint = point
-					break
-				}
-			}
-		}
-	}
-
-	if ( !IsValid( chosenPoint ) ) // still no point found, completely random!!!
-		chosenPoint = spawnPoints[ RandomInt( spawnPoints.len() ) ]
-	
-	chosenPoint.s.droppodLastUsedTime = Time()
-	chosenPoint.s.droppodLastUsedTeam = team
-	print( "chosenPoint was at: " + string( chosenPoint.GetOrigin() ) )
-	return chosenPoint
-}
-
-bool function HasEnemyNearSpawnPoint( entity point, int team )
-{
-	foreach ( entity player in GetPlayerArrayOfEnemies( team ) )
-	{
-		if ( IsValid( player.GetParent() ) ) // this is a player spawning from other method! skip them
-			continue
-
-		if ( Distance2D( player.GetOrigin(), point.GetOrigin() ) <= ENEMY_NOSPAWN_RADIUS )
-			return true
-	}
-
-	// no enemy in area!
-	return false
-}
-
-bool function HasEnemyUsedNearSpawnPoint( entity point, int team )
-{
-	int enemyTeam = GetOtherTeam( team )
-	foreach ( entity enemyPoint in droppod.droppodSpawns )
-	{
-		if ( enemyPoint.s.droppodLastUsedTeam == enemyTeam && !IsSpawnPointOffCooldown( enemyPoint ) )
-		{
-			if ( Distance2D( enemyPoint.GetOrigin(), point.GetOrigin() ) <= ENEMY_NOSPAWN_RADIUS )
-				return true
-		}
-	}
-
-	// no enemy
-	return false
-}
-
-bool function IsSpawnPointOffCooldown( entity point )
-{
-	if ( point.s.droppodLastUsedTime + DROPPOD_POINT_COOLDOWN < Time() ) // enough time passed
-		return true
-
-	return false
-}
-*/
 
 const float SPAWN_ZONE_SEARCH_RADIUS = 1800
 const float DROPPOD_POINT_COOLDOWN = 10.0
@@ -369,25 +202,3 @@ entity function FindPlayerDroppodSpawnPoint( int team )
 	//print( "[DROPPOD_RESPAWN] current respawn point origin: " + string( chosenPoint.GetOrigin() ) )
 	return chosenPoint
 }
-
-// should use a better one
-/*
-int function GetSpawnPointIndex( array< entity > points, int team )
-{
-	entity zone = DecideSpawnZone_Generic( points, team )
-	
-	if ( IsValid( zone ) )
-	{
-		// 20 Tries to get a random point close to the zone
-		for ( int i = 0; i < 20; i++ )
-		{
-			int index = RandomInt( points.len() )
-		
-			if ( Distance2D( points[ index ].GetOrigin(), zone.GetOrigin() ) < 1500 ) // smaller search
-				return index
-		}
-	}
-	
-	return RandomInt( points.len() )
-}
-*/
