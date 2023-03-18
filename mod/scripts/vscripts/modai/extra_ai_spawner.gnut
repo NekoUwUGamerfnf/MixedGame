@@ -4,6 +4,9 @@ global function ExtraAISpawner_Init
 
 global function ExtraSpawner_SpawnTitanBT
 
+global function ExtraSpawner_SpawnDropShip
+global function ExtraSpawner_SpawnDropPod
+
 global function ExtraSpawner_SpawnNPCInDropPod
 global function ExtraSpawner_SpawnSpecialistGruntDropPod
 global function ExtraSpawner_SpawnTitanRandom
@@ -12,13 +15,12 @@ global function ExtraSpawner_SpawnGunShip
 global function ExtraSpawner_SpawnPilotElite
 global function ExtraSpawner_SpawnPilotCanEmbark
 global function ExtraSpawner_SpawnTitanWithPilot
+// set up funcs
+global function ExtraSpawner_SetUpNPCWeapons 
+global function ExtraSpawner_SetUpNPCPilot
 // these settings should be done in prematch, don't do it right after levelLoad
-global function ExtraSpawner_SetPilotWeapons
-global function ExtraSpawner_SetPilotAntiTitanWeapons
-global function ExtraSpawner_SetGruntWeapons
-global function ExtraSpawner_SetGruntAntiTitanWeapons
-global function ExtraSpawner_SetSpectreWeapons
-global function ExtraSpawner_SetSpectreAntiTitanWeapons
+global function ExtraSpawner_SetNPCWeapons
+global function ExtraSpawner_SetNPCAntiTitanWeapons
 
 // boss titans
 global function ExtraSpawner_SpawnBTWithCooper
@@ -63,50 +65,30 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 
 struct
 {
-	// pilot weapons
-	array<string> pilotMainWeapons =
-	[ // try to make this all anti-titans? or grenadiers idk
-		"mp_weapon_rspn101_og", 
-		"mp_weapon_r97", 
-		"mp_weapon_car",
-		"mp_weapon_alternator_smg",
-		"mp_weapon_vinson" ,
-		"mp_weapon_epg",
-		//"mp_weapon_smr",
-		//"mp_weapon_defender",
-		//"mp_weapon_mgl",
-		//"mp_weapon_rocket_launcher"
-	]
+	// npc weapons, should we add a struct to set up mods for them?
+	table< string, array<string> > npcMainWeaponsTable
+	table< string, array<string> > npcAntiTitanWeaponsTable
 
-	array<string> pilotAntiTitanWeapons = 
-	[ 
-		//"mp_weapon_defender", 
-		"mp_weapon_rocket_launcher",
-		"mp_weapon_mgl",
-		"mp_weapon_arc_launcher", // modded, they can now be used by npcs
-		"mp_weapon_defender"
-	]
-
+	// care package
 	array<entity> usedplayer = []
-
 	array<string> carePackageWeapons
 	// now allowing every weapon to have a custom mod
 	table< string, array<string> > carePackageWeaponMods
-
-	// grunt and spectres
-	array<string> gruntMainWeapons
-	array<string> gruntAntiTitanWeapons
-	array<string> spectreMainWeapons
-	array<string> spectreAntiTitanWeapons
 } file
 
 void function ExtraAISpawner_Init()
 {
+	// intilize
 	InitCarePackageDefaultSettings()
+	InitDefaultNPCWeapons()
+	// prowler
 	ProwlerPrecache()
+	// care package
 	RegisterSignal( "PlayerUsedCarePackage" ) // for some grunt mode classes regen their ability?
 	PrecacheModel( CAREPACKAGE_MODEL )
+	// specialist grunts
 	PrecacheModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
+
 	// this should be in _ai_pilots.gnut
 	//RegisterSignal( "ForceStartMove" ) // the signal as been deleted
 	
@@ -194,6 +176,67 @@ void function InitCarePackageDefaultSettings()
 	file.carePackageWeaponMods["mp_weapon_esaw"] <- [ "pas_fast_reload", "extended_ammo", "pas_fast_swap", "pas_run_and_gun", "redline_sight" ] 
 }
 
+void function InitDefaultNPCWeapons()
+{
+	// pilot weapons
+	array<string> pilotMainWeapons =
+	[ // try to make this all anti-titans? or grenadiers idk
+		"mp_weapon_rspn101_og", 
+		"mp_weapon_r97", 
+		"mp_weapon_car",
+		"mp_weapon_alternator_smg",
+		"mp_weapon_vinson" ,
+		"mp_weapon_epg",
+		//"mp_weapon_smr",
+		//"mp_weapon_defender",
+		//"mp_weapon_mgl",
+		//"mp_weapon_rocket_launcher"
+	]
+	array<string> pilotAntiTitanWeapons = 
+	[ 
+		//"mp_weapon_defender", 
+		"mp_weapon_rocket_launcher",
+		"mp_weapon_mgl",
+		"mp_weapon_arc_launcher", // modded, they can now be used by npcs
+		"mp_weapon_defender"
+	]
+
+	// grunt weapons
+	array<string> gruntMainWeapons =
+	[
+		"mp_weapon_r97", 
+		"mp_weapon_rspn101", 
+		"mp_weapon_lmg", 
+		"mp_weapon_dmr"
+	]
+
+	// spectre weapons
+	array<string> spectreMainWeapons =
+	[
+		"mp_weapon_mastiff", 
+		"mp_weapon_doubletake", 
+		"mp_weapon_hemlok_smg"
+	]
+
+	// stalker weapons
+	array<string> stalkerMainWeapons =
+	[
+		"mp_weapon_mastiff", 
+		"mp_weapon_hemlok_smg",
+		"mp_weapon_lstar"
+	]
+
+	// pilot
+	file.npcMainWeaponsTable[ "npc_pilot_elite" ] <- pilotMainWeapons
+	file.npcAntiTitanWeaponsTable[ "npc_pilot_elite" ] <- pilotAntiTitanWeapons
+	// grunt
+	file.npcMainWeaponsTable[ "npc_soldier" ] <- gruntMainWeapons
+	// spectre
+	file.npcMainWeaponsTable[ "npc_spectre" ] <- spectreMainWeapons
+	// stalker
+	file.npcMainWeaponsTable[ "npc_stalker" ] <- stalkerMainWeapons
+}
+
 void function KilledNPCPilotScoreEvent( entity pilot, var damageInfo )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
@@ -204,34 +247,18 @@ void function KilledNPCPilotScoreEvent( entity pilot, var damageInfo )
 	AddPlayerScore( attacker, "EliminatePilot", pilot )
 }
 
-void function ExtraSpawner_SetPilotWeapons( array<string> weapons )
+void function ExtraSpawner_SetNPCWeapons( string npcClass, array<string> weapons )
 {
-	file.pilotMainWeapons = weapons
+	if ( !( npcClass in file.npcMainWeaponsTable ) )
+		file.npcMainWeaponsTable[ npcClass ] <- []
+	file.npcMainWeaponsTable[ npcClass ] = weapons
 }
 
-void function ExtraSpawner_SetPilotAntiTitanWeapons( array<string> weapons )
+void function ExtraSpawner_SetNPCAntiTitanWeapons( string npcClass, array<string> weapons )
 {
-	file.pilotAntiTitanWeapons = weapons
-}
-
-void function ExtraSpawner_SetGruntWeapons( array<string> weapons )
-{
-	file.gruntMainWeapons = weapons
-}
-
-void function ExtraSpawner_SetGruntAntiTitanWeapons( array<string> weapons )
-{
-	file.gruntAntiTitanWeapons = weapons
-}
-
-void function ExtraSpawner_SetSpectreWeapons( array<string> weapons )
-{
-	file.spectreMainWeapons = weapons
-}
-
-void function ExtraSpawner_SetSpectreAntiTitanWeapons( array<string> weapons )
-{
-	file.spectreAntiTitanWeapons = weapons
+	if ( !( npcClass in file.npcAntiTitanWeaponsTable ) )
+		file.npcAntiTitanWeaponsTable[ npcClass ] <- []
+	file.npcAntiTitanWeaponsTable[ npcClass ] = weapons
 }
 
 void function ExtraSpawner_SetCarePackageWeapons( array<string> weapons )
@@ -399,6 +426,26 @@ void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, boo
 	}
 }
 
+void function ExtraSpawner_SetUpNPCWeapons( entity npc )
+{
+	string className = npc.GetClassName()
+	
+	array<string> mainWeapons
+	array<string> antiTitanWeapons
+	if ( className in file.npcMainWeaponsTable )
+		mainWeapons = file.npcMainWeaponsTable[ className ]
+	if ( className in file.npcAntiTitanWeaponsTable )
+		antiTitanWeapons = file.npcAntiTitanWeaponsTable[ className ]
+	
+	if ( mainWeapons.len() == 0 && antiTitanWeapons.len() == 0 ) // no valid weapons
+		return
+
+	if ( mainWeapons.len() > 0 )
+		ReplaceWeapon( npc, mainWeapons[ RandomInt( mainWeapons.len() ) ], [] )
+	if ( antiTitanWeapons.len() > 0 )
+		npc.GiveWeapon( antiTitanWeapons[ RandomInt( antiTitanWeapons.len() ) ] )
+}
+
 // entity.ReplaceActiveWeapon gave grunts archers sometimes, this is my replacement for it
 void function ReplaceWeapon( entity guy, string weapon, array<string> mods )
 {
@@ -424,7 +471,108 @@ void function LaunchDropPodThenActivate( entity pod, array<entity> npcs, vector 
 	}
 }
 
+// so you can set up a titan without have to make a npc pilot embarking it
+void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int team, int pilotHealth = 250, bool pilotInvulnerable = false, asset pilotModel = $"", string pilotTitle = "鐵馭" )
+{
+	entity titanSoul = titan.GetTitanSoul()
+	if ( !IsValid( titanSoul ) )
+		return
+
+	// mark as having a pilot valid
+	titanSoul.soul.seatedNpcPilot.isValid				= true
+	titanSoul.soul.seatedNpcPilot.team 					= team
+
+	if ( pilotModel == $"" ) // if no model given, we use a random one
+		pilotModel = NPC_PILOT_ALLOWED_MODELS[ RandomInt( NPC_PILOT_ALLOWED_MODELS.len() ) ]
+	titanSoul.soul.seatedNpcPilot.modelAsset 			= pilotModel
+	titanSoul.soul.seatedNpcPilot.title 				= pilotTitle
+
+	titanSoul.soul.seatedNpcPilot.isInvulnerable		= pilotInvulnerable
+
+	titanSoul.soul.seatedNpcPilot.health				= pilotHealth
+
+	// set up weapons
+	array<string> mainWeapons = file.npcMainWeaponsTable[ "npc_pilot_elite" ]
+	array<string> antiTitanWeapons = file.npcAntiTitanWeaponsTable[ "npc_pilot_elite" ]
+	NPCPilotWeaponStruct weaponStruct
+	// main weapon
+	if ( mainWeapons.len() > 0 )
+	{
+		weaponStruct.weaponName = mainWeapons[ RandomInt( mainWeapons.len() ) ]
+		titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+	}
+	// anti-titan
+	if ( antiTitanWeapons.len() > 0 )
+	{
+		weaponStruct.weaponName = antiTitanWeapons[ RandomInt( antiTitanWeapons.len() ) ]
+		titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
+	}
+}
+
 // utilities end
+
+// copied from _ai_gamemodes, make them compatible with more settings
+void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, int count, void functionref( array<entity> guys ) squadHandler = null )
+{  
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+
+	CallinData drop
+	drop.origin 		= pos
+	drop.yaw 			  = rot.y
+	drop.dist 			= 768
+	drop.team 			= team
+	drop.squadname 	= squadName
+	SetDropTableSpawnFuncs( drop, CreateSoldier, count )
+	SetCallinStyle( drop, eDropStyle.ZIPLINE_NPC )
+  
+	thread RunDropshipDropoff( drop )
+	
+	WaitSignal( drop, "OnDropoff" )
+	
+	array< entity > guys = GetNPCArrayBySquad( squadName )
+	
+	foreach ( guy in guys )
+	{
+		ExtraSpawner_SetUpNPCWeapons( guy )
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	}
+	
+	if ( squadHandler != null )
+		thread squadHandler( guys )
+}
+
+
+void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, string content /*( ͡° ͜ʖ ͡°)*/, void functionref( array<entity> guys ) squadHandler = null )
+{
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
+	
+	entity pod = CreateDropPod( pos, <0,0,0> )
+	
+	InitFireteamDropPod( pod )
+	
+	for ( int i = 0; i < 4 ;i++ )
+	{
+		entity npc = CreateNPC( content, team, pos, <0,0,0> )
+		DispatchSpawn( npc )
+		SetSquad( npc, squadName )
+		
+		ExtraSpawner_SetUpNPCWeapons( npc )
+		
+		npc.SetParent( pod, "ATTACH", true )
+		
+		npc.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guys.append( npc )
+	}
+	
+	// The order here is different so we can show on minimap while were still falling
+	if ( squadHandler != null )
+		thread squadHandler( guys )
+		
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+	
+	ActivateFireteamDropPod( pod, guys )
+}
 
 entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team, bool standUp = true, void functionref( entity titan ) titanHandler = null )
 {
@@ -583,7 +731,7 @@ void function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void 
 		thread titanHandler( titan )
 }
 
-// npc titans
+// boss titans
 entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team )
 {
 	string setfile = "titan_buddy"
@@ -617,29 +765,11 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
 	thread NPCTitanHotdrops( titan, true )
 
 	// jack cooper settings!
-	titanSoul.soul.seatedNpcPilot.isValid				= true
-
-	titanSoul.soul.seatedNpcPilot.team 					= team
-
-	NPCPilotWeaponStruct weaponStruct
-	// main weapon
-	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-	// anti-titan
-	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-
-	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/humans/heroes/mlt_hero_jack.mdl"
-	titanSoul.soul.seatedNpcPilot.title 				= "#PATCH_PILOT2"
-
-	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
-
-	titanSoul.soul.seatedNpcPilot.health				= 1500
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_jack.mdl", "#PATCH_PILOT2" )
 
 	titan.SetTitle( "#NPC_BT_NAME" )
 	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	Highlight_SetEnemyHighlight( titan, "enemy_titan" ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan )
 
 	return titan
@@ -670,29 +800,11 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
 	thread NPCTitanHotdrops( titan, true )
 
 	// ash settings!
-	titanSoul.soul.seatedNpcPilot.isValid				= true
-
-	titanSoul.soul.seatedNpcPilot.team 					= team
-
-	NPCPilotWeaponStruct weaponStruct
-	// main weapon
-	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-	// anti-titan
-	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-
-	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/Humans/heroes/imc_hero_ash.mdl"
-	titanSoul.soul.seatedNpcPilot.title 				= "#BOSSNAME_ASH"
-
-	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
-
-	titanSoul.soul.seatedNpcPilot.health				= 1500
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_ash.mdl", "#BOSSNAME_ASH" )
 
 	titan.SetTitle( "#BOSSNAME_ASH" )
 	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	Highlight_SetEnemyHighlight( titan, "enemy_titan" ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan )
 
 	return titan
@@ -723,29 +835,11 @@ entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int t
 	thread NPCTitanHotdrops( titan, true )
 
 	// blisk settings!
-	titanSoul.soul.seatedNpcPilot.isValid				= true
-
-	titanSoul.soul.seatedNpcPilot.team 					= team
-
-	NPCPilotWeaponStruct weaponStruct
-	// main weapon
-	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-	// anti-titan
-	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-
-	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/Humans/heroes/imc_hero_blisk.mdl"
-	titanSoul.soul.seatedNpcPilot.title 				= "#BOSSNAME_BLISK"
-
-	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
-
-	titanSoul.soul.seatedNpcPilot.health				= 1500
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_blisk.mdl", "#BOSSNAME_BLISK" )
 
 	titan.SetTitle( "#BOSSNAME_BLISK" )
 	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	Highlight_SetEnemyHighlight( titan, "enemy_titan" ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan )
 
 	return titan
@@ -779,29 +873,11 @@ entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int 
 	thread NPCTitanHotdrops( titan, true )
 
 	// sarah settings!
-	titanSoul.soul.seatedNpcPilot.isValid				= true
-
-	titanSoul.soul.seatedNpcPilot.team 					= team
-
-	NPCPilotWeaponStruct weaponStruct
-	// main weapon
-	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-	// anti-titan
-	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-
-	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/humans/heroes/mlt_hero_sarah.mdl"
-	titanSoul.soul.seatedNpcPilot.title 				= "#FACTION_LEADER_NAME_SARAH"
-
-	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
-
-	titanSoul.soul.seatedNpcPilot.health				= 1500
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_sarah.mdl", "#FACTION_LEADER_NAME_SARAH" )
 
 	titan.SetTitle( "#FACTION_LEADER_NAME_SARAH" )
 	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	Highlight_SetEnemyHighlight( titan, "enemy_titan" ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan )
 
 	return titan
@@ -812,30 +888,11 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 	entity titan = ExtraSpawner_SpawnTitanRandom( pos, rot, team )
 
 	// titan won't have a soul until they DispatchSpawn()
-	entity titanSoul = titan.GetTitanSoul()
-	// pilot settings!
-	titanSoul.soul.seatedNpcPilot.isValid				= true
-
-	titanSoul.soul.seatedNpcPilot.team 					= team
-
-	NPCPilotWeaponStruct weaponStruct
-	// main weapon
-	weaponStruct.weaponName = file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-	// anti-titan
-	weaponStruct.weaponName = file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ]
-	weaponStruct.weaponMods = []
-	titanSoul.soul.seatedNpcPilot.weapons.append( weaponStruct )
-
-	titanSoul.soul.seatedNpcPilot.modelAsset 			= NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
-	titanSoul.soul.seatedNpcPilot.title 				= "鐵馭"
-
-	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
-
-	titanSoul.soul.seatedNpcPilot.health				= 1000
-
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1000, false, $"", "#NPC_PILOT" ) // can use a localized string since this pilot won't embark
+	
+	titan.SetTitle( "#NPC_PILOT" )
 	titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" ) // become smarter, since pilot has control of it
+	Highlight_SetEnemyHighlight( titan, "enemy_titan" ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan ) // forced handler
 	return titan
 }
@@ -853,7 +910,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 	waitthread LaunchDropPodThenActivate( pod, [spawnNpc], pos, rot, false )
 }
 
-void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, int team, string leaderAiSet = "npc_soldier_pve_specialist", void functionref( array<entity> guys ) squadHandler = null )
+void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, int team, string content, string leaderAiSet = "npc_soldier_pve_specialist", void functionref( array<entity> guys ) squadHandler = null )
 {
 	string squadName = MakeSquadName( team, UniqueString( "" ) )
 	array<entity> guys
@@ -864,32 +921,18 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 	
 	for ( int i = 0; i < 4 ;i++ )
 	{
-		entity npc = CreateNPC( "npc_soldier", team, pos,<0,0,0> )
+		entity npc
 		if ( i == 0 ) // specialist as leader
+			npc = ExtraSpawner_SpawnSpecialistGrunt( pos, <0,0,0>, team, leaderAiSet )
+		else
 		{
-			SetSpawnOption_AISettings( npc, leaderAiSet )
-			// hardcoded here..
-			npc.SetMaxHealth( 350 ) // same as shield captain
-			npc.SetHealth( 350 )
+			npc = CreateNPC( content, team, pos, <0,0,0> )
+			DispatchSpawn( npc )
 		}
-		DispatchSpawn( npc )
-		if ( i == 0 ) // specialist as leader
-		{
-			// hardcoded here..
-			if ( leaderAiSet == "npc_soldier_pve_specialist" )
-			{
-				if ( team == TEAM_MILITIA )
-					npc.SetModel( $"models/humans/heroes/mlt_hero_barker.mdl" )
-				else
-					npc.SetModel( $"models/humans/heroes/imc_hero_marder.mdl" )
-			}
-		}
+
 		SetSquad( npc, squadName )
 		
-		if ( file.gruntMainWeapons.len() > 0 )
-			ReplaceWeapon( npc, file.gruntMainWeapons[ RandomInt( file.gruntMainWeapons.len() ) ], [] )
-		if ( file.gruntAntiTitanWeapons.len() > 0 )
-			npc.GiveWeapon( file.gruntAntiTitanWeapons[ RandomInt( file.gruntAntiTitanWeapons.len() ) ] )
+		ExtraSpawner_SetUpNPCWeapons( npc )
 		
 		npc.SetParent( pod, "ATTACH", true )
 		
@@ -902,6 +945,29 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		thread squadHandler( guys )
 		
 	waitthread LaunchDropPodThenActivate( pod, guys, pos, rot )
+}
+
+entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int team, string aiSet = "npc_soldier_pve_specialist" )
+{
+	entity npc = CreateNPC( "npc_soldier", team, pos, rot )
+	SetSpawnOption_AISettings( npc, aiSet )
+	// hardcoded here..
+	npc.SetMaxHealth( 350 ) // same as shield captain
+	npc.SetHealth( 350 )
+
+	DispatchSpawn( npc )
+	// hardcoded here..
+	if ( aiSet == "npc_soldier_pve_specialist" )
+	{
+		if ( team == TEAM_MILITIA )
+			npc.SetModel( $"models/humans/heroes/mlt_hero_barker.mdl" )
+		else
+			npc.SetModel( $"models/humans/heroes/imc_hero_marder.mdl" )
+	}
+	if ( aiSet == "npc_soldier_shield_captain" )
+		npc.SetModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
+
+	return npc
 }
 
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
@@ -942,6 +1008,10 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	entity pilot = ExtraSpawner_SpawnPilotElite( pos, rot, team )
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
+	// attach to a droppod
+	entity pod = CreateDropPod( pos, <0,0,0> )
+	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
+	pilot.SetParent( pod, "ATTACH", true )
 
 	wait 3 // send titan a little bit later
 	entity titan = ExtraSpawner_SpawnTitanForPilot( pilot, pos, rot )
@@ -949,7 +1019,8 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
-	wait podLaunchTime - 3 // wait for pod launch complete
+	wait podLaunchTime - 2.5 // wait for pod launch complete( wait 0.5s more )
+	ActivateFireteamDropPod( pod, [ pilot ] )
 	thread PilotSpawnProtection( pilot, titan, 15 ) // at least don't let players kill pilots while their titans're not landing
 
 	OnThreadEnd( 
@@ -1003,17 +1074,13 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.SetHealth( 1000 )
 	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
 
-	ReplaceWeapon( pilot, file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ], [] ) //["npc_elite_weapon"]
-	pilot.GiveWeapon( file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ] ) // maybe don't do this?
+	ExtraSpawner_SetUpNPCWeapons( pilot )
+	// now using a better setup func
+	//ReplaceWeapon( pilot, file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ], [] ) //["npc_elite_weapon"]
+	//pilot.GiveWeapon( file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ] ) // maybe don't do this?
 	// want pilots move faster to their titans
 	//pilot.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	//pilot.DisableNPCMoveFlag( NPCMF_FOLLOW_SAFE_PATHS | NPCMF_INDOOR_ACTIVITY_OVERRIDE )
-
-	// attach to a droppod
-	entity pod = CreateDropPod( pos, <0,0,0> )
-	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
-	pilot.SetParent( pod, "ATTACH", true )
-	thread LaunchDropPodThenActivate( pod, [pilot], pos, rot )
 
 	return pilot
 }
