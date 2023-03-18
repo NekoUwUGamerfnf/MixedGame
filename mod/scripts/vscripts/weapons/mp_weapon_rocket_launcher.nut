@@ -130,8 +130,8 @@ void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 
 	// modified to add rocket lasers
 #if SERVER
-	if ( weaponOwner.IsNPC() )
-		thread DelayedRocketLaserStart( weapon, weaponOwner )
+	//if ( weaponOwner.IsNPC() )
+	//	thread DelayedRocketLaserStart( weapon, weaponOwner )
 #endif
 }
 
