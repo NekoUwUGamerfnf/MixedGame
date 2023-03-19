@@ -153,33 +153,17 @@ void function WaitForPlayers()
 {
 	// note: atm if someone disconnects as this happens the game will just wait forever
 	float endTime = Time() + file.waitingForPlayersMaxDuration
-	//if( ClassicMP_IsRunningDropshipIntro() ) // no need to reduce time since we'll go pickLoadout state
+	//if( Flag( "DropshipIntro" ) ) // no need to reduce time since we'll go pickLoadout state
 	//	endTime = Time() + ( file.waitingForPlayersMaxDuration * 0.5 )
 	
 	while ( ( GetPendingClientsCount() != 0 && endTime > Time() ) || GetPlayerArray().len() == 0 )
 		WaitFrame()
 
 	print( "done waiting!" )
-
-	/* // respawn don't do this, they will enter eGameState.PickLoadout before entering Prematch
-	if( ClassicMP_IsRunningDropshipIntro() )
-	{
-		//foreach( entity player in GetPlayerArray() )
-			//EmitSoundOnEntityOnlyToPlayer( player, player, "classicmp_warpjump" )
-
-		// this is better!
-		//EmitSoundAtPosition( TEAM_UNASSIGNED, < 0,0,0 >, "classicmp_warpjump" )
-		// don't know why late join players still can't hear it
-		entity soundEnt = CreatePropDynamic( $"models/dev/empty_model.mdl" )
-		//DispatchSpawn( soundEnt ) // CreatePropDynamic() already spawned it!
-		EmitSoundOnEntity( soundEnt, "classicmp_warpjump" )
-		wait 7.1 // sound duration
-	}
-	*/
 	
 	wait 1.0 // bit nicer
 	//if ( file.usePickLoadoutScreen ) // messed up
-	if ( file.usePickLoadoutScreen || ClassicMP_IsRunningDropshipIntro() ) // warpjump sound will be played on client if we're in eGameState.PickLoadout
+	if ( file.usePickLoadoutScreen || Flag( "DropshipIntro" ) ) // warpjump sound will be played on client if we're in eGameState.PickLoadout
 		SetGameState( eGameState.PickLoadout )
 	else
 		SetGameState( eGameState.Prematch ) 
@@ -205,7 +189,7 @@ void function GameStateEnter_PickLoadout_Threaded()
 	float pickloadoutLength = 20.0 // may need tweaking
 
 	// warpjump style
-	if ( ClassicMP_IsRunningDropshipIntro() && !file.usePickLoadoutScreen )
+	if ( !file.usePickLoadoutScreen && Flag( "DropshipIntro" ) )
 	{
 		pickloadoutLength = 8.0 // warp jump sound duration
 		thread PlayerScreenFadeToBlack() // this is required for late joiners screen fade to black
