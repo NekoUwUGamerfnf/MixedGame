@@ -318,12 +318,12 @@ void function BecomeSpecialistGrunt( entity player )
 		player,
 		"mp_weapon_car",													// primary weapon
 		"mp_weapon_mgl",													// secondary weapon
-		"mp_weapon_thermite_grenade",										// grenade
+		"",																	// grenade
 		$"models/humans/pilots/pilot_light_ged_m.mdl",						// imc player model
 		$"models/humans/pilots/pilot_light_ged_m.mdl",						// mlt player model
 		["disable_doublejump", "only_wallclimb"],							// class mods
 		"特種步兵",																// title
-		"以特種步兵重生：携帶三架無人機，按 USE 召喚至指定位置"						// respawn notification
+		"以特種步兵重生：携帶兩架無人機(每10s重生)，按 USE 召喚至指定位置"	// respawn notification
 	)
 
 	if( PlayerHasPassive( player, ePassives.PAS_ORDNANCE_PACK ) ) // prevent regen ticks
@@ -349,8 +349,13 @@ struct
 } specialistGrunt
 
 const float SPECIALIST_GRUNT_RECALL_RANGE = 600
+const float SPECIALIST_GRUNT_DRONE_COOLDOWN = 10.0
+const int SPECIALIST_GRUNT_DRONE_COUNT = 2 // was 3
+const bool SPECIALIST_GRUNT_DRONE_RESPAWN = true // was false
+const int SPECIALIST_GRUNT_DRONE_HEALTH = 140 // was 170
 const float SPECIALIST_GRUNT_RECALL_COOLDOWN = 3.0
 const float SPECIALIST_GRUNT_NOTIFICATION_COOLDOWN = 2.0
+
 void function SpecialistGruntThink( entity player )
 {
 	player.EndSignal( "OnDestroy" )
@@ -467,9 +472,10 @@ void function SpecialistGruntDronesSpawner( entity player )
     waitthread WaitForPlayerDropBeforeSpawnDrones( player )
 
 	array<entity> gruntDrones // maybe 3 drones is better?
-	gruntDrones.append( CreateDroneForSpecialistGrunt( player ) )
-	gruntDrones.append( CreateDroneForSpecialistGrunt( player ) )
-	gruntDrones.append( CreateDroneForSpecialistGrunt( player ) )
+	for ( int i = 0; i < SPECIALIST_GRUNT_DRONE_COUNT; i++ )
+		gruntDrones.append( CreateDroneForSpecialistGrunt( player ) )
+	// first spawn, play one sound
+	EmitSoundAtPosition( TEAM_UNASSIGNED, player.GetOrigin(), SHIFTER_END_SOUND_3P )
 
 	// OnThreadEnd() only triggers after delay, since this function won't do anything if player dies before drones spawn
 	OnThreadEnd(
@@ -510,8 +516,8 @@ entity function CreateDroneForSpecialistGrunt( entity player )
 	SetSpawnOption_AISettings( drone, dronename )
 	DispatchSpawn( drone )
 	// drone's health
-	drone.SetMaxHealth( 140 ) // was 170, since we have 3 drones now..
-	drone.SetHealth( 140 ) // was 170, since we have 3 drones now..
+	drone.SetMaxHealth( SPECIALIST_GRUNT_DRONE_HEALTH )
+	drone.SetHealth( SPECIALIST_GRUNT_DRONE_HEALTH )
 
 	drone.SetOwner( player )
 	drone.SetBossPlayer( player )
@@ -523,7 +529,24 @@ entity function CreateDroneForSpecialistGrunt( entity player )
     // for player recalling their drones
     specialistGrunt.classTable[player].ownedDrones.append( drone )
 
+	SendHudMessage( player, "無人機已重生",  -1, -0.3, 255, 255, 0, 255, 0.15, 6, 1 )
+	PlayDroneAppearFX( drone ) // phase out effect
+	if ( SPECIALIST_GRUNT_DRONE_RESPAWN )
+		thread TrackPlayerDroneRespawn( player, drone )
+
 	return drone
+}
+
+void function TrackPlayerDroneRespawn( entity player, entity drone )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	drone.EndSignal( "OnDestroy" )
+
+	drone.WaitSignal( "OnDeath" )
+	specialistGrunt.classTable[player].ownedDrones.removebyvalue( drone )
+	wait SPECIALIST_GRUNT_DRONE_COOLDOWN
+	CreateDroneForSpecialistGrunt( player )
 }
 
 void function DisableDroneSound( entity drone )
@@ -797,10 +820,12 @@ struct
 } beastKing
 
 const float BEAST_KING_PROWLER_COOLDOWN = 10.0
+const bool BEAST_KING_PROWLER_RESPAWN = true
 const float BEAST_KING_RECALL_RANGE = 750
 const float BEAST_KING_RECALL_COOLDOWN = 2.0
 const float BEAST_KING_NOTIFICATION_COOLDOWN = 2.0
 const int BEAST_KING_PROWLER_HEALTH = 380 // 100 more than normal prowlers
+
 void function BeastKingThink( entity player, array<string> allowedOffhands )
 {
 	player.EndSignal( "OnDestroy" )
@@ -921,7 +946,8 @@ void function BeastKingProwlerSpawner( entity player, float delay = 0.0 ) // the
 			else if ( !IsAlive( prowler ) ) // player still alive but prowler dead
             {
                 SendHudMessage( player, "獵獸已死亡",  -1, -0.3, 255, 255, 0, 255, 0.15, 6, 1 )
-				thread BeastKingProwlerSpawner( player, BEAST_KING_PROWLER_COOLDOWN ) // 30s for spawning another prowler
+				if ( BEAST_KING_PROWLER_RESPAWN )
+					thread BeastKingProwlerSpawner( player, BEAST_KING_PROWLER_COOLDOWN ) // 30s for spawning another prowler
             }
         }
 	)
@@ -961,6 +987,8 @@ entity function CreateProwlerForBeastKing( entity player )
     beastKing.classTable[player].ownedProwler = prowler
     beastKing.classTable[player].lastRecallTime = Time() - BEAST_KING_RECALL_COOLDOWN // make recall valid
     SendHudMessage( player, "獵獸已重生",  -1, -0.3, 255, 255, 0, 255, 0.15, 6, 1 )
+
+	PlayProwlerAppearFX( prowler ) // phase out effect
 
 	return prowler
 }
