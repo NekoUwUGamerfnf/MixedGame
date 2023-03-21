@@ -48,6 +48,11 @@ void function Hacked_Death_Utility_Init()
 	AddCallback_GameStateEnter( eGameState.Playing, HackedDeathGameSettings ) // settings done after game starts, to prevent being overwrite
 
 	// handling grapple
+	/* // these signal has been moved to mp_ability_grapple.nut, be sure to use it!
+	RegisterSignal( "OnGrappled" )
+	RegisterSignal( "GrappleCancelled" )
+	AddCallback_MpAbilityGrapplePrimaryAttack( HackedDeathOnPlayerFireGrapple )
+	*/
 	AddCallback_OnPlayerGrappled( HackedDeathOnPlayerGrappled ) // modified callback in _codecallbacks.gnut
 }
 
@@ -58,6 +63,18 @@ void function InitHackedDeathForPlayer( entity player )
 }
 
 // Grapple settings
+/* // these signal has been moved to mp_ability_grapple.nut, be sure to use it!
+void function HackedDeathOnPlayerFireGrapple( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	// modified signal
+	if ( file.hackedDeathEnabled )
+	{
+		entity player = weapon.GetWeaponOwner()
+		player.Signal( "OnGrappled" )
+	}
+}
+*/
+
 void function HackedDeathOnPlayerGrappled( entity player, entity victim )
 {
 	// hacked death: track attacker cancelling the grapple, players are able to grapple a spectator player if they're not actually dead
@@ -186,16 +203,21 @@ void function HackedDeath_PlayerStart( entity player, var damageInfo )
 	player.ClearParent()
 	player.kv.CollisionGroup = 0 // stop collision
 	player.NotSolid()
+	//player.StopPhysics() // now be in CreateHackedDeathFakeCorpse()
+	//HideName( player )
 	
 	//HolsterAndDisableWeapons( player ) // player is able to pick up weapons, don't let them able to use it
 	thread ForceHolsterForHackedDeath( player ) // defensive fix for sometimes player DeployWeapon() from other scripts...
 	
 	DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+	//DamageInfo_SetDamage( damageInfo, max( player.GetHealth() - 1, 0 ) )
 	
 	player.SetInvulnerable()
 	player.SetHealth( player.GetMaxHealth() ) // so player's visual will be clean
 	player.Signal( "StopHealthRegenThink" )
 	
+	//StopPlayerWoundedSound( player ) // doing a loop to stop this now
+	//EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
 	//TakeAllOffhandInstantNow( player ) // grapple now handling in callbacks // can this cancel grapple things?
 	StopPlayerGrapple( player ) // stop player's grapple rope!
 	// save offhands so player can have cooked grenades out, usage has been freezed
@@ -203,10 +225,13 @@ void function HackedDeath_PlayerStart( entity player, var damageInfo )
 	
 	player.FreezeControlsOnServer() // freeze them, avoid picking up weapons
 	
+	//StopPlayerJumpJetSound( player ) // disable jumpjet sound
+	CreateHackedDeathFakeCorpse( player, damageInfo )
 	
 	CodeCallback_OnEntityKilled( player, damageInfo ) // display obit
-	CreateHackedDeathFakeCorpse( player, damageInfo ) // create fake body before postDeathThread starts
-	CodeCallback_OnPlayerKilled( player, damageInfo )
+	CodeCallback_OnPlayerKilled( player, damageInfo ) // moved down
+	
+	//CreateHackedDeathFakeCorpse( player, damageInfo )
 	
 	// fuck you respawn why leaving a annying death sound
 	//if( IsPlayerDeathsHidden() )
@@ -216,6 +241,10 @@ void function HackedDeath_PlayerStart( entity player, var damageInfo )
 	//}
 
 	//player.SetPlayerSettings( "spectator" ) // well this can't show a death icon on scoreboard, also changes player model so messed up corpses
+	//player.NotSolid()
+	//player.StopPhysics() // need to do this again after SetPlayerSettings()
+	
+	//CodeCallback_OnPlayerKilled( player, damageInfo ) // moved down for later disabling prediction? or death sound won't always play
 }
 
 // vanilla won't stop player's jump jet sound upon death...
@@ -382,7 +411,7 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	entity fakeBody
 	if( player.IsMechanical() )
 		fakeBody = CreateNPC( "npc_spectre", player.GetTeam(), player.GetOrigin(), player.GetAngles() )
-	else // "npc_pilot_elite" cannot be gibbed
+	else // "npc_pilot_elite" cannot be gib
 	{
 		fakeBody = CreateNPC( "npc_soldier", player.GetTeam(), player.GetOrigin(), player.GetAngles() )
 		fakeBody.s.hackedDeathBody <- true // this will make the grunt play flesh pilot's headshotFX in TryHeadshotDeathFX()
@@ -410,8 +439,6 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	//fakeBody.SetCamo( player.GetCamo() )
 
 	//fakeBody.Anim_Stop() // don't manually do a anim_stop, this will cause them to flash away from spawnpoint
-	fakeBody.SetPoseParametersSameAs( player ) // make them use the same pose and sequence as player's
-	fakeBody.SequenceTransitionFromEntity( player )
 	fakeBody.kv.CollisionGroup = 0 // stop collision
 	fakeBody.NotSolid() // don't let them blocking bullets
 	fakeBody.SetHealth( 1 ) // so spectres will die from frag grenades
@@ -428,7 +455,10 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	// game's weapon taken will leave a empty weapon bar, maybe no need to fix it
 	//if( IsValid( player.GetActiveWeapon() ) && IsWeaponDropsEnabled() ) 
 	//	player.DropWeapon( player.GetActiveWeapon() ) // this can handle it, but weapon will be throw too far
-
+	// not using DamageInfo_GetAttacker( damageInfo ) cause extra_spanwer has given killing npcPilots a scoreEvent
+	
+	//fakeBody.TakeDamage( // take damage really can't handle it, use die()
+						    //9999, // so spectres will die from frag grenades
 	fakeBody.Die(
 		null, 
 		null, 
@@ -444,7 +474,7 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 	fakeBody.SetOrigin( player.GetOrigin() ) // sometimes it moves to weird position, maybe because navmeshes?
 	fakeBody.SetAngles( player.GetAngles() )
 
-	//print( "player on ground: " + string( player.IsOnGround() ) )
+	print( "player on ground: " + string( player.IsOnGround() ) )
 	if ( !player.IsOnGround() ) // if player died on ground we don't update velocity
 	{
 		vector forceVec = DamageInfo_GetDamageForce( damageInfo ) + player.GetVelocity()
@@ -455,10 +485,9 @@ void function CreateHackedDeathFakeCorpse( entity player, var damageInfo )
 			forceMag = MAX_FORCE
 
 		fakeBody.SetVelocity( forceVec * forceMag ) // so the body can fly as players does
-		print( forceVec * forceMag )
 	}
 
-	player.StopPhysics() // after fake corpse get player's velocity
+	//player.StopPhysics() // after fake corpse get player's velocity
 	HideName( player )
 	
 	//player.kv.contents = (int(player.kv.contents) | CONTENTS_NOGRAPPLE) // grapple now handling in callbacks // make player unable to be grappled, hope this will cancel attacker's grapple

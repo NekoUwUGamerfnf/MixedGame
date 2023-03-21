@@ -575,7 +575,7 @@ bool function IsAlive( entity ent, bool ignoreHackedDeath = false )
 		{
 			if( "respawnCount" in ent.s ) // for sometimes npcs searching for players( maybe only ticks? )
 			{
-				if( expect int( ent.s.respawnCount ) > 0 ) // at least respawned once, or game will crash( try to respawn multiple times at connection )
+				if( expect int( ent.s.respawnCount ) > 0 ) // at least respawned once, or game will crash( player will respawn multiple times at connection )
 				{
 					if( GetGameState() > eGameState.Prematch ) // avoid intro forceDie crash
 					{
