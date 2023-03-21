@@ -40,9 +40,6 @@ global function AddCallback_PlayerDecoyStateChange
 global function AddDecoyModifier
 //
 
-// for infinite_decoy
-const int WORLD_MAX_DECOY_COUNT = 24 // you can only spawn this much of decoy!
-
 struct
 {
 	table< entity, int > playerToDecoysActiveTable //Mainly used to track stat for holopilot unlock
