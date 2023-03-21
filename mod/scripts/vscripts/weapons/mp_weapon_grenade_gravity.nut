@@ -4,7 +4,7 @@ global function OnProjectileCollision_weapon_grenade_gravity
 global function MpWeaponGrenadeGravity_Init
 
 #if SERVER
-// modified, share to mp_weapon_anti_gravity_star
+// modified, share with mp_weapon_anti_gravity_star
 global function GravityGrenadeTriggerThink
 #endif
 
@@ -160,8 +160,11 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 		pullPosition = projectile.GetOrigin()
 
 	entity gravTrig = CreateEntity( "trigger_point_gravity" )
-	// pull inner radius, pull outer radius, reduce speed inner radius, reduce speed outer radius, pull accel, pull speed, 0
-	gravTrig.SetParams( 0.0, PULL_RANGE * 2, 32, 128, 1500, 600 ) // more subtle pulling effect before popping up
+	if ( !mods.contains( "kraber_ordnance" ) ) // kraber mode gravity star don't pull
+	{
+		// pull inner radius, pull outer radius, reduce speed inner radius, reduce speed outer radius, pull accel, pull speed, 0
+		gravTrig.SetParams( 0.0, PULL_RANGE * 2, 32, 128, 1500, 600 ) // more subtle pulling effect before popping up
+	}
 	gravTrig.SetOrigin( projectile.GetOrigin() )
 	projectile.ClearParent()
 	projectile.SetParent( gravTrig )
@@ -220,8 +223,11 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 		gravTrig.RoundOriginAndAnglesToNearestNetworkValue()
 	}
 
-	// full strength radius, outer radius, reduce vel radius, accel, maxvel
-	gravTrig.SetParams( PULL_RANGE, PULL_RANGE * 2, 32, 128, 2000, 400 ) // more intense pull
+	if ( !mods.contains( "kraber_ordnance" ) ) // kraber mode gravity star don't pull
+	{
+		// full strength radius, outer radius, reduce vel radius, accel, maxvel
+		gravTrig.SetParams( PULL_RANGE, PULL_RANGE * 2, 32, 128, 2000, 400 ) // more intense pull
+	}
 
 	AI_CreateDangerousArea( projectile, projectile, PULL_RANGE * 2.0, TEAM_INVALID, true, false )
 
