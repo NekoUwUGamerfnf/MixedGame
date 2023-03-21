@@ -28,6 +28,8 @@ global function GiveTitanToPlayer
 global function GetTimeLimit_ForGameMode
 
 // i want my game to have these!
+global function SetPickLoadoutEnabled
+global function SetPickLoadoutDuration // for modified intros
 global function SetWaitingForPlayersMaxDuration // so you don't have to wait so freaking long
 
 struct {
@@ -65,6 +67,8 @@ struct {
 	// modified
 	bool enteredSuddenDeath = false
 
+	bool pickLoadoutEnable = false
+	float pickLoadoutDuration = 20.0
 	float waitingForPlayersMaxDuration = 20.0
 } file
 
@@ -153,8 +157,6 @@ void function WaitForPlayers()
 {
 	// note: atm if someone disconnects as this happens the game will just wait forever
 	float endTime = Time() + file.waitingForPlayersMaxDuration
-	//if( Flag( "DropshipIntro" ) ) // no need to reduce time since we'll go pickLoadout state
-	//	endTime = Time() + ( file.waitingForPlayersMaxDuration * 0.5 )
 	
 	while ( ( GetPendingClientsCount() != 0 && endTime > Time() ) || GetPlayerArray().len() == 0 )
 		WaitFrame()
@@ -162,11 +164,10 @@ void function WaitForPlayers()
 	print( "done waiting!" )
 	
 	wait 1.0 // bit nicer
-	//if ( file.usePickLoadoutScreen ) // messed up
-	if ( file.usePickLoadoutScreen || Flag( "DropshipIntro" ) ) // warpjump sound will be played on client if we're in eGameState.PickLoadout
-		SetGameState( eGameState.PickLoadout )
+	if ( file.pickLoadoutEnable || file.usePickLoadoutScreen )
+		SetGameState( eGameState.PickLoadout ) // warpjump or wargames intro sound will be played on client if we're in eGameState.PickLoadout
 	else
-		SetGameState( eGameState.Prematch ) 
+		SetGameState( eGameState.Prematch )
 }
 
 void function WaitingForPlayers_ClientConnected( entity player )
@@ -186,16 +187,9 @@ void function GameStateEnter_PickLoadout()
 
 void function GameStateEnter_PickLoadout_Threaded()
 {	
-	float pickloadoutLength = 20.0 // may need tweaking
-
-	// warpjump style
-	if ( !file.usePickLoadoutScreen && Flag( "DropshipIntro" ) )
-	{
-		pickloadoutLength = 8.0 // warp jump sound duration
-		thread PlayerScreenFadeToBlack() // this is required for late joiners screen fade to black
-	}
-
-	SetServerVar( "minPickLoadOutTime", Time() + pickloadoutLength )
+	SetServerVar( "minPickLoadOutTime", Time() + file.pickLoadoutDuration )
+	if ( !file.usePickLoadoutScreen )
+		thread PickLoadoutScreenFadeToBlack() // this is required if you want late joiners screen fade to black
 	
 	// titan selection menu can change minPickLoadOutTime so we need to wait manually until we hit the time
 	while ( Time() < GetServerVar( "minPickLoadOutTime" ) )
@@ -204,9 +198,9 @@ void function GameStateEnter_PickLoadout_Threaded()
 	SetGameState( eGameState.Prematch )
 }
 
-void function PlayerScreenFadeToBlack()
+void function PickLoadoutScreenFadeToBlack()
 {
-	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // end this thread once we entered prematch
 
 	while ( GetGameState() == eGameState.PickLoadout )
 	{
@@ -337,6 +331,8 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		int announcementSubstr
 		if ( winningTeam > TEAM_UNASSIGNED )
 			announcementSubstr = player.GetTeam() == winningTeam ? file.announceRoundWinnerWinningSubstr : file.announceRoundWinnerLosingSubstr
+		else // draw
+			announcementSubstr = GetStringID( "#GENERIC_DRAW_ANNOUNCEMENT" )
 
 		if ( IsRoundBased() )
 			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceRoundWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME, GameRules_GetTeamScore2( TEAM_MILITIA ), GameRules_GetTeamScore2( TEAM_IMC ) )
@@ -382,7 +378,6 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	entity replayVictim = file.roundWinningKillReplayVictim
 	bool doReplay = Replay_IsEnabled() && IsRoundWinningKillReplayEnabled() && IsValid( replayAttacker ) && !ClassicMP_ShouldRunEpilogue()
 				 && Time() - file.roundWinningKillReplayTime <= ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY && winningTeam != TEAM_UNASSIGNED
-				 && !HackedDeath_IsEnabled() // don't replay for hacked death
 
 	float replayLength = 2.0 // extra delay if no replay
 	if ( doReplay )
@@ -403,8 +398,6 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 
 		SetServerVar( "roundWinningKillReplayEntHealthFrac", file.roundWinningKillReplayHealthFrac )
 		
-		//foreach ( entity player in GetPlayerArray() )
-			//thread PlayerWatchesRoundWinningKillReplay( player, replayLength )
 		foreach ( entity player in GetPlayerArray() )
 			thread PlayerWatchesRoundWinningKillReplay( player, replayAttacker, replayVictim, replayLength ) // pass attacker and victim to replay function
 
@@ -427,7 +420,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		}
 		else // failed to do replay
 		{
-			// done cleanup wait
+			// do cleanup wait
 			file.roundWinningKillReplayAttacker = null // clear this
 
 			CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
@@ -437,22 +430,6 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 
 		if ( killcamsWereEnabled ) // reset last
 			SetKillcamsEnabled( true )
-
-		// do this so when player respawns they won't flash to black scree
-		foreach( entity player in GetPlayerArray() )
-		{
-			player.ClearReplayDelay()
-			player.ClearViewEntity()
-			SetPlayerCameraToIntermissionCam( player )
-		}
-
-		wait 2.0 // good wait?
-		
-		//foreach( entity player in GetPlayerArray() )
-		//{
-		//	SetPlayerCameraToIntermissionCam( player )
-		//} 
-
 	}
 	else if ( IsRoundBased() ) // no replay roundBased
 	{
@@ -471,9 +448,6 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 			player.UnfreezeControlsOnServer()
 			ScreenFadeToBlackForever( player, GAME_POSTROUND_CLEANUP_WAIT )
 		}
-
-		//foreach( entity player in GetPlayerArray() )
-		//	SetPlayerCameraToIntermissionCam( player )
 
 		wait ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME
 		wait 2.0 // music so freaking long
@@ -575,30 +549,6 @@ void function PlayerWatchesRoundWinningKillReplay( entity player, entity replayA
 	}
 	else // can't do replay, wait a little bit
 		wait GAME_POSTROUND_CLEANUP_WAIT
-	
-	//if ( replayLength >= ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY - 0.5 ) // only do fade if close to full length replay
-	//{
-	// this doesn't work because fades don't work on players that are in a replay, unsure how official servers do this
-	//	wait replayLength - 2.0
-	
-	//}
-	//else
-	//	wait replayLength
-
-	
-		
-	//wait ROUND_WINNING_KILL_REPLAY_POST_DEATH_TIME // to have better visual
-	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
-	
-	// should do these in GameStateEnter_WinnerDetermined_Threaded()
-	//WaitFrame() // bit nicer
-	//player.ClearReplayDelay() // these should done in OnPlayerRespawned
-	//player.ClearViewEntity()
-
-	//WaitFrame()
-	//ScreenFadeFromBlack( player, 2.0, 10.0 )
-	// no need to do this, as we will unfreeze next round
-	//player.UnfreezeControlsOnServer()
 }
 
 
@@ -625,7 +575,6 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	entity replayVictim = file.roundWinningKillReplayVictim
 	bool doReplay = Replay_IsEnabled() && IsRoundWinningKillReplayEnabled() && IsValid( replayAttacker ) && !IsRoundBased() // for roundbased modes, we've already done the replay
 				 && Time() - file.roundWinningKillReplayTime <= SWITCHING_SIDES_DELAY
-				 && !HackedDeath_IsEnabled() // don't replay for hacked death
 	
 	float replayLength = 2.0 // extra delay if no replay
 	if ( doReplay )
@@ -645,9 +594,6 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	foreach ( entity player in GetPlayerArray() )
 		thread PlayerWatchesSwitchingSidesKillReplay( player, replayAttacker, replayVictim, doReplay, replayLength )
 
-	// all waits below should be the same time as PlayerWatchesSwitchingSidesKillReplay() does
-	//float timeToWait = doReplay ? SWITCHING_SIDES_DELAY_REPLAY : SWITCHING_SIDES_DELAY
-
 	wait ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME // whatever we do, just wait here
 
 	bool replaySuccess = doReplay && IsValid( replayAttacker )
@@ -656,22 +602,12 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	else
 		wait SWITCHING_SIDES_DELAY - GAME_POSTROUND_CLEANUP_WAIT // save time for cleanup
 
-	/* // changed
-	if( !doReplay )
-		wait replayLength + timeToWait - GAME_POSTROUND_CLEANUP_WAIT
-	else
-		wait replayLength + timeToWait
-	*/
-
 	file.roundWinningKillReplayAttacker = null // reset this after replay
 
 	PlayFactionDialogueToTeam( "mp_sideSwitching", TEAM_IMC )
 	PlayFactionDialogueToTeam( "mp_sideSwitching", TEAM_MILITIA )
 
 	CleanUpEntitiesForRoundEnd() // clean up players after dialogue
-	
-	//foreach( entity player in GetPlayerArray() )
-	//	SetPlayerCameraToIntermissionCam( player )
 	
 	wait GAME_POSTROUND_CLEANUP_WAIT // wait for better visual, may be no need for now?
 
@@ -682,18 +618,6 @@ void function GameStateEnter_SwitchingSides_Threaded()
 
 	if ( killcamsWereEnabled ) // reset here
 		SetKillcamsEnabled( true )
-
-	if( doReplay )
-	{
-		// do this so when player respawns they won't flash to black scree
-		foreach( entity player in GetPlayerArray() )
-		{
-			player.ClearReplayDelay()
-			player.ClearViewEntity()
-			SetPlayerCameraToIntermissionCam( player )
-		}
-		wait 2.0
-	}
 
 	if ( file.usePickLoadoutScreen )
 		SetGameState( eGameState.PickLoadout )
@@ -732,10 +656,6 @@ void function PlayerWatchesSwitchingSidesKillReplay( entity player, entity repla
 		player.SetViewIndex( replayAttacker.GetIndexForEntity() )
 		player.SetIsReplayRoundWinning( true )
 		
-		//if ( replayLength >= SWITCHING_SIDES_DELAY - 2.0 ) // only do fade if close to full length replay
-		//{
-		// this doesn't work because fades don't work on players that are in a replay, unsure how official servers do this
-		//wait replayLength - 2.0
 		float finalWait = replayLength - 2.0
 		if( finalWait <= 0 )
 			finalWait = 0.0
@@ -743,9 +663,6 @@ void function PlayerWatchesSwitchingSidesKillReplay( entity player, entity repla
 		ScreenFadeToBlackForever( player, 2.0 )
 
 		wait 2.0 // 2.0 is equal as SWITCHING_SIDES_DELAY_REPLAY
-		//}
-		//else
-		//	wait replayLength
 
 		wait GAME_POSTROUND_CLEANUP_WAIT // bit nicer to match GameStateEnter_SwitchingSides_Threaded() does
 	}
@@ -1388,6 +1305,17 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 		PlayFactionDialogueToTeam( "scoring_" + winning, winningTeam )
 		PlayFactionDialogueToTeam( "scoring_" + losing, losingTeam )
 	}
+}
+
+// modified here
+void function SetPickLoadoutEnabled( bool enable )
+{
+	file.pickLoadoutEnable = enable
+}
+
+void function SetPickLoadoutDuration( float duration )
+{
+	file.pickLoadoutDuration = duration
 }
 
 void function SetWaitingForPlayersMaxDuration( float duration )
