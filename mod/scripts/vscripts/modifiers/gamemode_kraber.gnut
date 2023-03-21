@@ -1,11 +1,21 @@
 global function Modded_Gamemode_Kraber_Init
 
+const string DEFAULT_REPLACEMENT_TACTICAL = "mp_ability_grapple"
 const array<string> TACTICALS_LIST = 
 [
     "mp_ability_heal", 
     "mp_ability_grapple", 
     "mp_ability_holopilot", 
     "mp_weapon_grenade_sonar"
+]
+
+// for ordnance_boost
+const string DEFAULT_REPLACEMENT_ORDNANCE = "mp_weapon_grenade_gravity"
+const array<string> ORDNANCES_LIST =
+[
+    "mp_weapon_grenade_gravity",
+    "mp_weapon_satchel",
+    "mp_weapon_frag_grenade"
 ]
 
 const array<string> KRABER_PLAYLIST = 
@@ -25,7 +35,9 @@ const array<string> KRABER_PLAYLIST =
 
 const bool INFINITE_CLIP = false
 const bool ENABLE_CHARGE_RIFLE = true
+const bool GRAPPLE_PLAYER_ALLOWED = false
 const bool ENABLE_RESPAWN_SPEED = true
+const bool ORDNANCE_BOOST = true
 
 void function Modded_Gamemode_Kraber_Init()
 {
@@ -49,6 +61,7 @@ void function Modded_Gamemode_Kraber_Init()
     Nessie_SetHoloSprayEnabled( true ) // kraber mode has no ordnances, so we replace them with holosprays
     
     Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
+    AddSpawnCallback( "player", OnPlayerEntSpawned ) // ordnance boost
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
 	AddCallback_GameStateEnter( eGameState.Playing, OnGameStart )
     AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
@@ -58,11 +71,18 @@ void function Modded_Gamemode_Kraber_Init()
     AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
 }
 
+void function OnPlayerEntSpawned( entity player )
+{
+    if ( ORDNANCE_BOOST )
+        AddEntityCallback_OnDamaged( player, OrdnanceBoostOnPlayerDamaged )
+}
+
 void function OnPlayerRespawned( entity player )
 {
     // respawn not giving loadout, which will mess things up
 	//GiveKraber( player )
-    DisableGrappleContent( player ) // make players unable to be grappled
+    if ( !GRAPPLE_PLAYER_ALLOWED )
+        DisableGrappleContent( player ) // make players unable to be grappled
     DisableBoostBar( player )
     if ( ENABLE_RESPAWN_SPEED && GetGameState() >= eGameState.Playing )
         PlayerRespawnSpeedBoost( player )
@@ -98,6 +118,19 @@ void function OnGameStart()
 void function OnGamePostmatch()
 {
     KraberForcedPlaylist()
+}
+
+// utilities
+void function DisableBoostBar( entity player )
+{
+    thread DisableBoostBar_Threaded( player )
+}
+
+void function DisableBoostBar_Threaded( entity player )
+{
+    WaitFrame() // wait for player earn meter being set up
+    if( IsValid( player ) )
+        PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
 }
 
 void function GiveKraber( entity player )
@@ -145,11 +178,31 @@ void function GiveKraber( entity player )
 
 	foreach( entity weapon in player.GetOffhandWeapons() )
 	{
-		if( !TACTICALS_LIST.contains( weapon.GetWeaponClassName() ) )
+        array<string> availableOffhands = TACTICALS_LIST
+        // ordnance boost
+        if ( ORDNANCE_BOOST )
+            availableOffhands.extend( ORDNANCES_LIST )
+
+		if( !availableOffhands.contains( weapon.GetWeaponClassName() ) )
 			player.TakeWeaponNow( weapon.GetWeaponClassName() )
 	}
     if( !IsValid( player.GetOffhandWeapon( OFFHAND_SPECIAL ) ) )
-        player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL )
+        player.GiveOffhandWeapon( DEFAULT_REPLACEMENT_TACTICAL, OFFHAND_SPECIAL )
+    // ordnance boost
+    if ( ORDNANCE_BOOST )
+    {
+        entity ordnance = player.GetOffhandWeapon( OFFHAND_ORDNANCE )
+        if ( !IsValid( ordnance ) )
+            player.GiveOffhandWeapon( DEFAULT_REPLACEMENT_ORDNANCE, OFFHAND_ORDNANCE, ["kraber_ordnance"] )
+        else
+        {
+            ordnance.AddMod( "kraber_ordnance" )
+            try { ordnance.SetWeaponPrimaryClipCount( ordnance.GetWeaponPrimaryClipCountMax() ) }
+            catch (ex) {}
+        }
+    }
+    
+    SetPlayerCooldowns( player ) // update cooldowns again
 }
 
 void function DisableGrappleContent( entity player )
@@ -217,18 +270,6 @@ bool function HasEnemyInBoostDeactivateRange( entity player )
     return false
 }
 
-void function DisableBoostBar( entity player )
-{
-    thread DisableBoostBar_Threaded( player )
-}
-
-void function DisableBoostBar_Threaded( entity player )
-{
-    WaitFrame() // wait for player earn meter being set up
-    if( IsValid( player ) )
-        PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
-}
-
 void function RestorePlayerKraberClip()
 {
     thread RestorePlayerKraberClip_Threaded()
@@ -249,6 +290,27 @@ void function RestorePlayerKraberClip_Threaded()
         }
 
         WaitFrame()
+    }
+}
+
+// ordnance boost
+void function OrdnanceBoostOnPlayerDamaged( entity player, var damageInfo )
+{
+    entity inflictor = DamageInfo_GetInflictor( damageInfo )
+    if ( !IsValid( inflictor ) )
+        return
+    if ( !inflictor.IsProjectile() )
+        return
+    array<string> mods = inflictor.ProjectileGetMods()
+    if ( !mods.contains( "kraber_ordnance" ) )
+        return
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if ( attacker != player ) // not attacked by self damage
+        DamageInfo_SetDamage( damageInfo, 0 )
+    else // self damage
+    {
+        if ( DamageInfo_GetDamage( damageInfo ) >= player.GetMaxHealth() ) // this will kill the player
+            DamageInfo_SetDamage( damageInfo, player.GetMaxHealth() - 1 ) // save player if they're with max health
     }
 }
 

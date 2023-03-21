@@ -96,20 +96,22 @@ void function TriggerWait( entity trig, float maxtime )
 
 void function SetGravityGrenadeTriggerFilters( entity gravityMine, entity trig )
 {
+	if ( gravityMine.GetTeam() == TEAM_IMC )
+		trig.kv.triggerFilterTeamIMC = "0"
+	else if ( gravityMine.GetTeam() == TEAM_MILITIA )
+		trig.kv.triggerFilterTeamMilitia = "0"
+	trig.kv.triggerFilterNonCharacter = "0"
+
+	// modifiers
+	array<string> mods = gravityMine.ProjectileGetMods()
 	// friendlyFire condition
-	if ( IsFriendlyFireOn() )
+	if ( mods.contains( "friendlyfire_weapon" ) || IsFriendlyFireOn() )
 	{
 		// remove all filters
 		trig.kv.triggerFilterTeamIMC = "0"
 		trig.kv.triggerFilterTeamMilitia = "0"
 		trig.kv.triggerFilterNonCharacter = "0"
 	}
-
-	if ( gravityMine.GetTeam() == TEAM_IMC )
-		trig.kv.triggerFilterTeamIMC = "0"
-	else if ( gravityMine.GetTeam() == TEAM_MILITIA )
-		trig.kv.triggerFilterTeamMilitia = "0"
-	trig.kv.triggerFilterNonCharacter = "0"
 }
 
 bool function GravityGrenadeTriggerThink( entity gravityMine )
@@ -139,13 +141,14 @@ bool function GravityGrenadeTriggerThink( entity gravityMine )
 	return trig.IsTouched()
 }
 
-
+// modified to add friendlyfire_weapon, bleedout_balance and kraber_ordnace
 void function GravityGrenadeThink( entity projectile, entity hitEnt, vector normal, vector pos )
 {
 	projectile.EndSignal( "OnDestroy" )
 
 	WaitFrame()
 
+	// modifiers
 	array<string> mods = projectile.ProjectileGetMods()
 	if( mods.contains( "friendlyfire_weapon" ) || IsFriendlyFireOn() )
 		SetTeam( projectile, TEAM_UNASSIGNED ) // pull all players
@@ -163,7 +166,6 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 	projectile.ClearParent()
 	projectile.SetParent( gravTrig )
 	gravTrig.RoundOriginAndAnglesToNearestNetworkValue()
-
 	entity trig = CreateEntity( "trigger_cylinder" )
 	trig.SetRadius( PULL_RANGE )
 	trig.SetAboveHeight( PULL_RANGE )
@@ -222,6 +224,16 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 	gravTrig.SetParams( PULL_RANGE, PULL_RANGE * 2, 32, 128, 2000, 400 ) // more intense pull
 
 	AI_CreateDangerousArea( projectile, projectile, PULL_RANGE * 2.0, TEAM_INVALID, true, false )
+
+	// kraber ordnance: only explosions
+	if ( mods.contains( "kraber_ordnance" ) )
+	{
+		//gravTrig.kv.triggerFilterPlayer = "none" // never affects players
+		if ( IsValid( gravTrig ) )
+			gravTrig.Destroy()
+		if ( IsValid( trig ) )
+			trig.Destroy()
+	}
 
 	// handle modded conditions
 	//wait PULL_DELAY
