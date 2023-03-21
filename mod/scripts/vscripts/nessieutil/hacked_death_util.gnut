@@ -4,6 +4,7 @@ global function Hacked_Death_Utility_Init
 
 global function HackedDeath_PlayerStart
 global function HackedDeath_PlayerRecoverFrom
+global function HackedDeath_ShouldHandleDamage
 
 global function HackedDeath_SetEnabled
 global function HackedDeath_IsEnabled
@@ -40,8 +41,7 @@ void function Hacked_Death_Utility_Init()
 	PrecacheParticleSystem( FLESH_PINKMIST_FX )
 	PrecacheParticleSystem( MECHNAICAL_PINKMIST_FX )
 	
-	//AddPostDamageCallback( "player", HackedDeath_PlayerPostDamage ) // this can get player's real taken damage
-	AddDamageFinalCallback( "player", HackedDeath_PlayerFinalDamaged )
+	AddDamageFinalCallback( "player", HackedDeath_PlayerFinalDamaged ) // this can get player's real taken damage
 	AddDeathCallback( "player", HackedDeath_PlayerRealDeath )
 	AddCallback_OnClientConnected( InitHackedDeathForPlayer )
 
@@ -49,6 +49,20 @@ void function Hacked_Death_Utility_Init()
 
 	// handling grapple
 	AddCallback_OnPlayerGrappled( HackedDeathOnPlayerGrappled ) // modified callback in _codecallbacks.gnut
+}
+
+// utility
+bool function HackedDeath_ShouldHandleDamage( entity ent, var damageInfo )
+{
+	if ( ent.IsMarkedForDeletion() )
+		return false
+	if ( !ent.IsPlayer() )
+		return false
+	if ( !file.hackedDeathEnabled || !RespawnsEnabled() ) // don't do hacked death for elimination modes
+		return false
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || ent.IsTitan() )	
+		return false // these shouldn't be handled by hacked death
+	return true
 }
 
 void function InitHackedDeathForPlayer( entity player )
@@ -137,30 +151,16 @@ void function DisablePlayerUselessSoundsLifeLong( entity player )
 void function StopPlayerWoundedSound( entity player )
 {
 	// player sound fadeout is done in client base I guess, not handling like stim sounds
-	//StopSoundOnEntity( player, "pilot_critical_breath_start_1p" ) // should save this for announcing player's low health
+	//StopSoundOnEntity( player, "pilot_critical_breath_start_1p" ) // should save this for notifying player's low health
 	StopSoundOnEntity( player, "pilot_critical_breath_loop_1p" )
 	StopSoundOnEntity( player, "pilot_critical_drone_loop_1p" )
 	StopSoundOnEntity( player, "pilot_wounded_loop_1p" )
 	StopSoundOnEntity( player, "player_death_begin" ) // this will make dying sounds better
 }
 
-void function HackedDeath_PlayerPostDamage( entity player, var damageInfo )
-{
-	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || player.IsTitan() )	
-		return // these could be nice
-	if( !file.hackedDeathEnabled || !RespawnsEnabled() ) // don't do hacked death for elimination modes
-		return
-	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
-	{
-		HackedDeath_PlayerStart( player, damageInfo )
-	}
-}
-
 void function HackedDeath_PlayerFinalDamaged( entity player, var damageInfo )
 {
-	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || player.IsTitan() )	
-		return // these could be nice
-	if( !file.hackedDeathEnabled || !RespawnsEnabled() ) // don't do hacked death for elimination modes
+	if ( !HackedDeath_ShouldHandleDamage( player, damageInfo ) )
 		return
 	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
 	{
@@ -169,7 +169,7 @@ void function HackedDeath_PlayerFinalDamaged( entity player, var damageInfo )
 		hackedDeathActualDamage = DamageInfo_GetDamage( damageInfo ) // save the damage
 		DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 ) // don't kill the player
 		if( IsPlayerDeathsHidden() ) // add a extra death sound here
-			EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" ) // extra death sound
+			EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
 		HackedDeath_PlayerStart( player, damageInfo )
 	}
 }
