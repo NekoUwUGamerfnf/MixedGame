@@ -14,6 +14,12 @@ https://github.com/Dinorush/Brute4
 
 I made them compatible with my own scripts! Thanks to their support!
 
+**This repository has something inspired by:**
+
+https://github.com/uniboi/HoloSprays
+
+I took ideas from these repos and made my own version of certain functions.
+
 **English**
 
 use loadedinits_after.gnut and loadedinits_before.gnut to Toggle gamemode modifiers
