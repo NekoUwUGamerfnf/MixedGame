@@ -28,9 +28,11 @@ global function GiveTitanToPlayer
 global function GetTimeLimit_ForGameMode
 
 // i want my game to have these!
+global function SetWaitingForPlayersMaxDuration // so you don't have to wait so freaking long
+
 global function SetPickLoadoutEnabled
 global function SetPickLoadoutDuration // for modified intros
-global function SetWaitingForPlayersMaxDuration // so you don't have to wait so freaking long
+global function SetTitanSelectionMenuDuration // overwrites SetPickLoadoutDuration()
 
 struct {
 	// used for togglable parts of gamestate
@@ -65,11 +67,12 @@ struct {
 	array<void functionref()> roundEndCleanupCallbacks
 
 	// modified
+	float waitingForPlayersMaxDuration = 20.0
 	bool enteredSuddenDeath = false
 
 	bool pickLoadoutEnable = false
-	float pickLoadoutDuration = 20.0
-	float waitingForPlayersMaxDuration = 20.0
+	float pickLoadoutDuration = 10.0
+	float titanSelectionMenuDuration = 20.0
 } file
 
 void function PIN_GameStart()
@@ -187,9 +190,13 @@ void function GameStateEnter_PickLoadout()
 
 void function GameStateEnter_PickLoadout_Threaded()
 {	
-	SetServerVar( "minPickLoadOutTime", Time() + file.pickLoadoutDuration )
+	float pickLoadoutTime = file.pickLoadoutDuration
+	if ( file.usePickLoadoutScreen )
+		pickLoadoutTime = file.titanSelectionMenuDuration
+
+	SetServerVar( "minPickLoadOutTime", Time() + pickLoadoutTime )
 	if ( !file.usePickLoadoutScreen )
-		thread PickLoadoutScreenFadeToBlack() // this is required if you want late joiners screen fade to black
+		thread PickLoadoutFadeToBlack() // this is required if you want late joiners screen fade to black
 	
 	// titan selection menu can change minPickLoadOutTime so we need to wait manually until we hit the time
 	while ( Time() < GetServerVar( "minPickLoadOutTime" ) )
@@ -198,7 +205,7 @@ void function GameStateEnter_PickLoadout_Threaded()
 	SetGameState( eGameState.Prematch )
 }
 
-void function PickLoadoutScreenFadeToBlack()
+void function PickLoadoutFadeToBlack()
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // end this thread once we entered prematch
 
@@ -483,7 +490,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		}
 		else if ( file.switchSidesBased && !file.hasSwitchedSides && highestScore >= ( roundScoreLimit.tofloat() / 2.0 ) ) // round up
 			SetGameState( eGameState.SwitchingSides ) // note: switchingsides will handle setting to pickloadout and prematch by itself
-		else if ( file.usePickLoadoutScreen )
+		else if ( file.pickLoadoutEnable || file.usePickLoadoutScreen )
 			SetGameState( eGameState.PickLoadout )
 		else
 			SetGameState ( eGameState.Prematch )
@@ -619,7 +626,7 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	if ( killcamsWereEnabled ) // reset here
 		SetKillcamsEnabled( true )
 
-	if ( file.usePickLoadoutScreen )
+	if ( file.pickLoadoutEnable || file.usePickLoadoutScreen )
 		SetGameState( eGameState.PickLoadout )
 	else
 		SetGameState ( eGameState.Prematch )
@@ -1308,6 +1315,11 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 }
 
 // modified here
+void function SetWaitingForPlayersMaxDuration( float duration )
+{
+	file.waitingForPlayersMaxDuration = duration
+}
+
 void function SetPickLoadoutEnabled( bool enable )
 {
 	file.pickLoadoutEnable = enable
@@ -1318,7 +1330,7 @@ void function SetPickLoadoutDuration( float duration )
 	file.pickLoadoutDuration = duration
 }
 
-void function SetWaitingForPlayersMaxDuration( float duration )
+void function SetTitanSelectionMenuDuration( float duration )
 {
-	file.waitingForPlayersMaxDuration = duration
+	file.titanSelectionMenuDuration = duration
 }
