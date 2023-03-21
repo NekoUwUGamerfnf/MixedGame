@@ -6,9 +6,9 @@ global function OnProjectileIgnite_weapon_smoke_launcher
 
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_weapon_smoke_launcher
-#endif
 
-const int SMOKE_GRENADE_COUNT = 3 // changable
+// smoke grenade settings
+const int SMOKE_GRENADE_COUNT_DEFAULT = 3 // you can change smoke grenade count through the keyvalue "projectiles_per_shot"
 const float SMOKE_GRENADE_VERTICAL_SPEED = 250
 const float SMOKE_GRENADE_HORIZONAL_SPEED = 400
 
@@ -19,11 +19,16 @@ const float SMOKE_TIME_UNLIMITED_AMMO = 1
 const float SMOKE_RADIUS = 150
 const float SMOKE_HEIGHT = 100
 
+struct
+{
+	table<entity, int> smokeLauncherGrenadeCount
+} file
+#endif
+
 void function MpWeaponSmokeLauncher_Init()
 {
 	#if SERVER
-	SmokePrecache()
-	RegisterSignal( "SmokeTriggerLeave" )
+		SmokePrecache()
 	#endif
 }
 
@@ -88,6 +93,7 @@ var function FireSmokeGrenade( entity weapon, WeaponPrimaryAttackParams attackPa
 
 		#if SERVER
 			nade.proj.savedAngles = VectorToAngles( attackParams.dir )
+			file.smokeLauncherGrenadeCount[ nade ] <- weapon.GetProjectilesPerShot()
 			thread DelayedStartSmokeParticle( nade )
 		#endif
 	}
@@ -121,14 +127,19 @@ void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
 #if SERVER
 	// smoke modifiers
 	array<string> mods = projectile.ProjectileGetMods()
-	bool isLimitedSmoke = false
-	if( mods.contains( "unlimited_balance" ) )
-		isLimitedSmoke = true // limited smoke will last shorter
+	float smokeDuration = SMOKE_TIME
+	if ( mods.contains( "unlimited_balance" ) )
+		smokeDuration = SMOKE_TIME_UNLIMITED_AMMO // limited smoke will last shorter
+	bool isLinedUpSmoke = mods.contains( "lined_up_spread" ) // lined up spread
 	//
+
+	int grenadeCount = SMOKE_GRENADE_COUNT_DEFAULT
+	if ( projectile in file.smokeLauncherGrenadeCount ) // this smoke launcher has saved grenade count
+		grenadeCount = file.smokeLauncherGrenadeCount[ projectile ]
 
 	vector origin = projectile.GetOrigin()
 	array<vector> velocitygroup
-	bool isOddNumber = SMOKE_GRENADE_COUNT % 2 != 0
+	bool isOddNumber = grenadeCount % 2 != 0
 	if( isOddNumber ) // spawn a center smoke if odd
 	{
 		vector upVector = AnglesToUp( projectile.proj.savedAngles )
@@ -137,21 +148,44 @@ void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
 	}
 	vector baseVector = AnglesToRight( projectile.proj.savedAngles )
 	vector baseAngles = < 0, VectorToAngles( baseVector ).y, 0 >
-	int smokeCount = isOddNumber ? SMOKE_GRENADE_COUNT - 1 : SMOKE_GRENADE_COUNT
-	float rotPerGrenade = 360 / float( smokeCount )
-	for( int i = 0; i < smokeCount; i++ )
+	int smokeCount = isOddNumber ? grenadeCount - 1 : grenadeCount
+	if ( isLinedUpSmoke ) // lined up spead
 	{
-		vector newAngles = < 0, baseAngles.y + i * rotPerGrenade, 0 >
-		vector newVector = AnglesToForward( newAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED
-		newVector.z = SMOKE_GRENADE_VERTICAL_SPEED
-		velocitygroup.append( newVector )
+		int grenadeGroup = 1
+		for( int i = 0; i < smokeCount; i += 2 )
+		{
+			// right grenade
+			vector rightAngles = baseAngles // base angles faces right
+			vector rightVel = AnglesToForward( rightAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED * grenadeGroup
+			rightVel.z = SMOKE_GRENADE_VERTICAL_SPEED
+			velocitygroup.append( rightVel )
+			// left grenade
+			vector leftAngles = < 0, baseAngles.y - 180, 0 > // flip
+			vector leftVel = AnglesToForward( leftAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED * grenadeGroup
+			leftVel.z = SMOKE_GRENADE_VERTICAL_SPEED
+			velocitygroup.append( leftVel )
+
+			grenadeGroup += 1
+		}
+	}
+	else // rotated spead
+	{
+		float rotPerGrenade = 360 / float( smokeCount )
+		for( int i = 0; i < smokeCount; i ++ )
+		{
+			vector newAngles = < 0, baseAngles.y + i * rotPerGrenade, 0 >
+			vector newVector = AnglesToForward( newAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED
+			newVector.z = SMOKE_GRENADE_VERTICAL_SPEED
+			velocitygroup.append( newVector )
+		}
 	}
 
 	for( int i = 0; i < velocitygroup.len(); i++ )
 	{
 		vector velocety = velocitygroup[i]
+		print( "current velocity: " + string( velocety ) )
 		entity grenade = CreatePropAsGrenade( velocety, origin )
-		thread DelayedSmokeGrenadeIgnite( grenade, isLimitedSmoke )
+		thread DelayedSmokeGrenadeIgnite( grenade, SMOKE_DEPLOY_DELAY, smokeDuration )
 	}
 
 #endif
@@ -180,11 +214,11 @@ void function DelayedStartSmokeParticle( entity nade )
 		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"P_wpn_grenade_smoke_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 }
 
-void function DelayedSmokeGrenadeIgnite( entity nade, bool shouldReduce = false )
+void function DelayedSmokeGrenadeIgnite( entity nade, float delay, float smokeDuration )
 {
 	nade.EndSignal( "OnDestroy" )
 
-	wait SMOKE_DEPLOY_DELAY
+	wait delay
 
 	SmokescreenStruct smokescreen
 	smokescreen.smokescreenFX = $"P_smokescreen_FD"
@@ -193,7 +227,7 @@ void function DelayedSmokeGrenadeIgnite( entity nade, bool shouldReduce = false 
 	smokescreen.isElectric = false
 	smokescreen.origin = nade.GetOrigin()
 	smokescreen.angles = <0,0,0>
-	smokescreen.lifetime = shouldReduce ? SMOKE_TIME_UNLIMITED_AMMO : SMOKE_TIME
+	smokescreen.lifetime = smokeDuration
 	smokescreen.fxXYRadius = SMOKE_RADIUS
 	smokescreen.fxZRadius = SMOKE_HEIGHT
 	smokescreen.fxOffsets = [<0.0, 0.0, 0.0>]
