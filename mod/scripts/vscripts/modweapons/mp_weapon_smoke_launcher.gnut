@@ -19,9 +19,28 @@ const float SMOKE_TIME_UNLIMITED_AMMO = 1
 const float SMOKE_RADIUS = 150
 const float SMOKE_HEIGHT = 100
 
+// electric smoke
+// basically same as electric smoke grenade
+const float SMOKE_LAUNCHER_ELECTRIC_SMOKE_INNER_RADIUS = 50
+const float SMOKE_LAUNCHER_ELECTRIC_SMOKE_RADIUS = 210
+const int SMOKE_LAUNCHER_ELECTRIC_SMOKE_DAMAGE = 150
+const int SMOKE_LAUNCHER_ELECTRIC_SMOKE_DAMAGE_HEAVYARMOR = 800
+const float ELECTRIC_SMOKE_DURATION = 6 // shorter lifetime to match electric smoke fx's duration
+
+struct SmokePropStruct
+{
+	entity owner
+	entity projectile
+	entity weapon
+}
+
 struct
 {
 	table<entity, int> smokeLauncherGrenadeCount
+
+	// electric smoke
+	table<entity, entity> smokeLauncherClusterWeapon
+	table<entity, SmokePropStruct> smokePropTable // for dealing damages
 } file
 #endif
 
@@ -94,7 +113,9 @@ var function FireSmokeGrenade( entity weapon, WeaponPrimaryAttackParams attackPa
 		#if SERVER
 			nade.proj.savedAngles = VectorToAngles( attackParams.dir )
 			file.smokeLauncherGrenadeCount[ nade ] <- weapon.GetProjectilesPerShot()
-			thread DelayedStartSmokeParticle( nade )
+			file.smokeLauncherClusterWeapon[ nade ] <- weapon
+
+			thread DelayedStartSmokeParticle( nade ) // visual fix
 		#endif
 	}
 
@@ -127,10 +148,16 @@ void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
 #if SERVER
 	// smoke modifiers
 	array<string> mods = projectile.ProjectileGetMods()
+	// balanced smoke
 	float smokeDuration = SMOKE_TIME
 	if ( mods.contains( "unlimited_balance" ) )
 		smokeDuration = SMOKE_TIME_UNLIMITED_AMMO // limited smoke will last shorter
+	// lined up smoke
 	bool isLinedUpSmoke = mods.contains( "lined_up_spread" ) // lined up spread
+	// electric smoke
+	bool isElectricSmoke = mods.contains( "electric_smoke_launcher" )
+	if ( isElectricSmoke )
+		smokeDuration = ELECTRIC_SMOKE_DURATION
 	//
 
 	int grenadeCount = SMOKE_GRENADE_COUNT_DEFAULT
@@ -183,9 +210,24 @@ void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
 	for( int i = 0; i < velocitygroup.len(); i++ )
 	{
 		vector velocety = velocitygroup[i]
-		print( "current velocity: " + string( velocety ) )
-		entity grenade = CreatePropAsGrenade( velocety, origin )
-		thread DelayedSmokeGrenadeIgnite( grenade, SMOKE_DEPLOY_DELAY, smokeDuration )
+		//print( "current velocity: " + string( velocety ) )
+		entity prop = CreatePropAsGrenade( velocety, origin )
+		if ( isElectricSmoke ) // electric smoke settings
+		{
+			if ( !( projectile in file.smokeLauncherClusterWeapon ) )
+				isElectricSmoke = false // mark as they don't have a electric smoke
+			else
+			{
+				entity weapon = file.smokeLauncherClusterWeapon[ projectile ]
+				entity owner = projectile.GetOwner()
+				SmokePropStruct newStruct
+				newStruct.owner = owner
+				newStruct.projectile = projectile
+				newStruct.weapon = weapon
+				file.smokePropTable[ prop ] <- newStruct
+			}
+		}
+		thread DelayedSmokeGrenadeIgnite( prop, isElectricSmoke, SMOKE_DEPLOY_DELAY, smokeDuration )
 	}
 
 #endif
@@ -194,45 +236,76 @@ void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
 #if SERVER
 entity function CreatePropAsGrenade( vector velocety, vector origin )
 {
-	entity nade = CreateEntity( "prop_physics" )
+	entity prop = CreateEntity( "prop_physics" )
 	//prop_physics does not compilable with most other models
-  	nade.SetModel( $"models/dev/empty_physics.mdl" )
- 	nade.SetOrigin( origin )
+  	prop.SetModel( $"models/dev/empty_physics.mdl" )
+ 	prop.SetOrigin( origin )
   	
-  	DispatchSpawn( nade )
-  	nade.SetVelocity( velocety )
-  	StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"P_wpn_grenade_smoke_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-	thread DelayedStartSmokeParticle( nade ) // for better client visual
+  	DispatchSpawn( prop )
+  	prop.SetVelocity( velocety )
+  	StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_wpn_grenade_smoke_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	thread DelayedStartSmokeParticle( prop ) // for better client visual
 
-  	return nade
+  	return prop
 }
 
-void function DelayedStartSmokeParticle( entity nade )
+void function DelayedStartSmokeParticle( entity prop )
 {
 	WaitFrame()
-	if( IsValid( nade ) )
-		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"P_wpn_grenade_smoke_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	if( IsValid( prop ) )
+		StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_wpn_grenade_smoke_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 }
 
-void function DelayedSmokeGrenadeIgnite( entity nade, float delay, float smokeDuration )
+void function DelayedSmokeGrenadeIgnite( entity prop, bool electricSmoke, float delay, float smokeDuration )
 {
-	nade.EndSignal( "OnDestroy" )
+	prop.EndSignal( "OnDestroy" )
 
 	wait delay
-
+	
 	SmokescreenStruct smokescreen
 	smokescreen.smokescreenFX = $"P_smokescreen_FD"
 	smokescreen.deploySound1p = SFX_SMOKE_GRENADE_DEPLOY
 	smokescreen.deploySound3p = SFX_SMOKE_GRENADE_DEPLOY
 	smokescreen.isElectric = false
-	smokescreen.origin = nade.GetOrigin()
+	smokescreen.origin = prop.GetOrigin()
 	smokescreen.angles = <0,0,0>
 	smokescreen.lifetime = smokeDuration
 	smokescreen.fxXYRadius = SMOKE_RADIUS
 	smokescreen.fxZRadius = SMOKE_HEIGHT
 	smokescreen.fxOffsets = [<0.0, 0.0, 0.0>]
+
+	// electric smoke...
+	if ( electricSmoke )
+	{
+		if ( prop in file.smokePropTable )
+		{
+			entity owner = file.smokePropTable[ prop ].owner
+			entity weapon = file.smokePropTable[ prop ].weapon
+
+			if ( IsValid( owner ) && IsValid( weapon ) )
+			{
+				smokescreen.smokescreenFX = FX_ELECTRIC_SMOKESCREEN_PILOT_AIR
+				smokescreen.ownerTeam = owner.GetTeam()
+				smokescreen.isElectric = true
+				smokescreen.damageSource = eDamageSourceId.mp_weapon_grenade_electric_smoke
+				smokescreen.deploySound1p = "explo_electric_smoke_impact"
+				smokescreen.deploySound3p = "explo_electric_smoke_impact"
+				smokescreen.attacker = owner
+				smokescreen.inflictor = owner
+				smokescreen.weaponOrProjectile = weapon
+
+				smokescreen.damageInnerRadius = SMOKE_LAUNCHER_ELECTRIC_SMOKE_INNER_RADIUS
+				smokescreen.damageOuterRadius = SMOKE_LAUNCHER_ELECTRIC_SMOKE_RADIUS
+				smokescreen.dangerousAreaRadius = smokescreen.damageOuterRadius * 1.5
+				smokescreen.damageDelay = delay
+				smokescreen.dpsPilot = SMOKE_LAUNCHER_ELECTRIC_SMOKE_DAMAGE
+				smokescreen.dpsTitan = SMOKE_LAUNCHER_ELECTRIC_SMOKE_DAMAGE_HEAVYARMOR
+			}
+		}
+	}
+
 	Smokescreen(smokescreen)
 
-	nade.Destroy()
+	prop.Destroy()
 }
 #endif
