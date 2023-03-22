@@ -13,8 +13,12 @@ void function FlightCore_Init()
 
 bool function OnAbilityStart_FlightCore( entity weapon )
 {
+	// modded weapon
 	if( weapon.HasMod( "barrage_core" ) )
 		return OnAbilityStart_BarrageCore( weapon )
+	//
+
+	// vanilla behavior
 	if ( !OnAbilityCharge_TitanCore( weapon ) )
 		return false
 
@@ -40,8 +44,12 @@ bool function OnAbilityStart_FlightCore( entity weapon )
 
 void function OnAbilityEnd_FlightCore( entity weapon )
 {
+	// modded weapon
 	if( weapon.HasMod( "barrage_core" ) )
 		return OnAbilityEnd_BarrageCore( weapon )
+	//
+
+	// vanilla behavior
 	entity titan = weapon.GetWeaponOwner()
 
 	#if SERVER

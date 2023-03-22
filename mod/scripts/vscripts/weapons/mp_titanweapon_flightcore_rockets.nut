@@ -8,6 +8,12 @@ global function OnWeaponNpcPrimaryAttack_titanweapon_flightcore_rockets
 
 var function OnWeaponPrimaryAttack_titanweapon_flightcore_rockets( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if( weapon.HasMod( "barrage_core_launcher" ) )
+		return OnWeaponPrimaryAttack_titanweapon_barrage_core_launcher( weapon, attackParams )
+	//
+
+	// vanilla behavior
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
 	bool shouldPredict = weapon.ShouldPredictProjectiles()
@@ -18,44 +24,41 @@ var function OnWeaponPrimaryAttack_titanweapon_flightcore_rockets( entity weapon
 
 	// Get missile firing information
 	entity owner = weapon.GetWeaponOwner()
-	if( weapon.HasMod( "barrage_core_launcher" ) )
-		return OnWeaponPrimaryAttack_titanweapon_barrage_core_launcher( weapon, attackParams )
+
+	vector offset
+	int altFireIndex = weapon.GetCurrentAltFireIndex()
+	float horizontalMultiplier
+	if ( altFireIndex == 1 )
+		horizontalMultiplier = RandomFloatRange( 0.25, 0.45 )
 	else
+		horizontalMultiplier = RandomFloatRange( -0.45, -0.25 )
+
+	if ( owner.IsPlayer() )
+		offset = AnglesToRight( owner.CameraAngles() ) * horizontalMultiplier
+	#if SERVER
+	else
+		offset = owner.GetPlayerOrNPCViewRight() * horizontalMultiplier
+	#endif
+
+	vector attackDir = attackParams.dir + offset + <0,0,RandomFloatRange(-0.25,0.55)>
+	vector attackPos = attackParams.pos + offset*32
+	attackDir = Normalize( attackDir )
+	entity missile = weapon.FireWeaponMissile( attackPos, attackDir, 1, (damageTypes.projectileImpact | DF_DOOM_FATALITY), damageTypes.explosive, false, shouldPredict )
+
+	if ( missile )
 	{
-		vector offset
-		int altFireIndex = weapon.GetCurrentAltFireIndex()
-		float horizontalMultiplier
-		if ( altFireIndex == 1 )
-			horizontalMultiplier = RandomFloatRange( 0.25, 0.45 )
-		else
-			horizontalMultiplier = RandomFloatRange( -0.45, -0.25 )
+		TraceResults result = TraceLine( owner.EyePosition(), owner.EyePosition() + attackParams.dir*50000, [ owner ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_BLOCK_WEAPONS )
+		missile.kv.lifetime = 10
+		missile.InitMissileForRandomDriftFromWeaponSettings( attackPos, attackDir )
+		thread DelayedTrackingStart( missile, result.endPos )
+	#if SERVER
+		missile.SetOwner( owner )
+		EmitSoundAtPosition( owner.GetTeam(), result.endPos, "Weapon_FlightCore_Incoming_Projectile" )
 
-		if ( owner.IsPlayer() )
-			offset = AnglesToRight( owner.CameraAngles() ) * horizontalMultiplier
-		#if SERVER
-		else
-			offset = owner.GetPlayerOrNPCViewRight() * horizontalMultiplier
-		#endif
-
-		vector attackDir = attackParams.dir + offset + <0,0,RandomFloatRange(-0.25,0.55)>
-		vector attackPos = attackParams.pos + offset*32
-		attackDir = Normalize( attackDir )
-		entity missile = weapon.FireWeaponMissile( attackPos, attackDir, 1, (damageTypes.projectileImpact | DF_DOOM_FATALITY), damageTypes.explosive, false, shouldPredict )
-
-		if ( missile )
-		{
-			TraceResults result = TraceLine( owner.EyePosition(), owner.EyePosition() + attackParams.dir*50000, [ owner ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_BLOCK_WEAPONS )
-			missile.kv.lifetime = 10
-			missile.InitMissileForRandomDriftFromWeaponSettings( attackPos, attackDir )
-			thread DelayedTrackingStart( missile, result.endPos )
-		#if SERVER
-			missile.SetOwner( owner )
-			EmitSoundAtPosition( owner.GetTeam(), result.endPos, "Weapon_FlightCore_Incoming_Projectile" )
-
-			thread MissileThink( missile )
-		#endif // SERVER
-		}
+		thread MissileThink( missile )
+	#endif // SERVER
 	}
+	
 	return 1
 }
 

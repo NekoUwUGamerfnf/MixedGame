@@ -144,7 +144,7 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 
 	if ( player.IsNPC() )
 	{
-		if( !player.ContextAction_IsActive() ) // check for npc executions to work!
+		if( !player.ContextAction_IsActive() ) // check for npc executions to work!(not work though)
 		{
 			player.SetVelocity( <0,0,0> )
 			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.0 )

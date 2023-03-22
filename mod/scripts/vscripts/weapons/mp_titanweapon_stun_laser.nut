@@ -48,8 +48,12 @@ bool function OnWeaponAttemptOffhandSwitch_titanweapon_stun_laser( entity weapon
 
 var function OnWeaponPrimaryAttack_titanweapon_stun_laser( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
 	if( weapon.HasMod( "charge_ball" ) )
 		return OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall( weapon, attackParams )
+	//
+	
+	// vanilla behavior
 	#if CLIENT
 		if ( !weapon.ShouldPredictProjectiles() )
 			return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )

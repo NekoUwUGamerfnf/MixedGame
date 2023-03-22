@@ -23,44 +23,43 @@ function MpTitanabilityBubbleShield_Init()
 
 var function OnWeaponPrimaryAttack_particle_wall( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapons
+	if( weapon.HasMod( "brute4_bubble_shield" ) )
+		return OnWeaponPrimaryAttack_dome_shield( weapon, attackParams )
+	//
+
+	// vanilla behavior
 	entity weaponOwner = weapon.GetWeaponOwner()
 	if ( weaponOwner.IsPlayer() )
 		PlayerUsedOffhand( weaponOwner, weapon )
 
 #if SERVER
-	if( weapon.HasMod( "brute4_bubble_shield" ) )
-	{
-		OnWeaponPrimaryAttack_dome_shield( weapon, attackParams )
-	}
+	float duration
+	if ( IsSingleplayer() )
+		duration = SP_PARTICLE_WALL_DURATION
 	else
-	{
-		float duration
-		if ( IsSingleplayer() )
-			duration = SP_PARTICLE_WALL_DURATION
-		else
-			duration = MP_PARTICLE_WALL_DURATION
-		CreateParticleWallFromOwner( weapon.GetWeaponOwner(), duration, attackParams )
-	}
+		duration = MP_PARTICLE_WALL_DURATION
+	CreateParticleWallFromOwner( weapon.GetWeaponOwner(), duration, attackParams )
 #endif
+
 	return weapon.GetWeaponInfoFileKeyField( "ammo_per_shot" )
 }
 
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_particle_wall( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapons
 	if( weapon.HasMod( "brute4_bubble_shield" ) )
-	{
-		OnWeaponNpcPrimaryAttack_dome_shield( weapon, attackParams )
-	}
+		return OnWeaponNpcPrimaryAttack_dome_shield( weapon, attackParams )
+	
+	// vanilla behavior
+	float duration
+	if ( IsSingleplayer() )
+		duration = SP_PARTICLE_WALL_DURATION
 	else
-	{
-		float duration
-		if ( IsSingleplayer() )
-			duration = SP_PARTICLE_WALL_DURATION
-		else
-			duration = MP_PARTICLE_WALL_DURATION
-		CreateParticleWallFromOwner( weapon.GetWeaponOwner(), duration, attackParams )
-	}
+		duration = MP_PARTICLE_WALL_DURATION
+	CreateParticleWallFromOwner( weapon.GetWeaponOwner(), duration, attackParams )
+
 	return weapon.GetWeaponInfoFileKeyField( "ammo_per_shot" )
 }
 #endif // #if SERVER
