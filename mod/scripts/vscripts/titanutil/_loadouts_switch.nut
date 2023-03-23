@@ -1,3 +1,4 @@
+// based on _sp_loadouts.gnut, really should rework this to tables
 global function GetWeaponCooldownsForTitanLoadoutSwitch
 global function SetWeaponCooldownsForTitanLoadoutSwitch
 
@@ -115,7 +116,7 @@ table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player
 
 			default:
 			{
-				CodeWarning( offhand.GetWeaponClassName() + " - not handled in GetWeaponCooldownsForTitanLoadoutSwitch()." )
+				//CodeWarning( offhand.GetWeaponClassName() + " - not handled in GetWeaponCooldownsForTitanLoadoutSwitch()." )
 			}
 		}
 
@@ -236,7 +237,7 @@ void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,
 
 			default:
 			{
-				CodeWarning( offhand.GetWeaponClassName() + " - not handled in SetWeaponCooldownsForTitanLoadoutSwitch()." )
+				//CodeWarning( offhand.GetWeaponClassName() + " - not handled in SetWeaponCooldownsForTitanLoadoutSwitch()." )
 			}
 		}
 	}
@@ -331,7 +332,7 @@ float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, enti
 
 		default:
 		{
-			CodeWarning( offhand.GetWeaponClassName() + " - not handled in GetWeaponCooldownsForTitanLoadoutSwitch()." )
+			//CodeWarning( offhand.GetWeaponClassName() + " - not handled in GetWeaponCooldownsForTitanLoadoutSwitch()." )
 		}
 	}
 
