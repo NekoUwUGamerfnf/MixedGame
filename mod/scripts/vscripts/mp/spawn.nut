@@ -116,11 +116,14 @@ void function AddNoSpawnAreaForBeingKilled( entity victim, entity attacker, var 
 }
 
 // modified: try to make spawnpoints near teammates and bit far from enemy
-bool function HasEnemyNearSpawnPoint( int team, entity spawnpoint )
+bool function HasEnemyNearSpawnPoint( int team, entity spawnpoint, bool checkFFa = false )
 {
+	float noSpawnRadius = ENEMY_NOSPAWN_RADIUS
+	if ( checkFFa )
+		noSpawnRadius = FFA_NOSPAWN_RADIUS
 	foreach ( entity player in GetPlayerArrayOfEnemies( team ) )
 	{
-		if ( Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) <= ENEMY_NOSPAWN_RADIUS )
+		if ( Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) <= noSpawnRadius )
 			return true
 	}
 
@@ -392,6 +395,7 @@ entity function GetBestSpawnpoint( entity player, array<entity> spawnpoints )
 
 bool function IsSpawnpointValid( entity spawnpoint, int team )
 {
+	/* // was testing making ffa use normal points, but it doesn't seem work well
 	if ( !spawnpoint.HasKey( "ignoreGamemode" ) || ( spawnpoint.HasKey( "ignoreGamemode" ) && spawnpoint.kv.ignoreGamemode == "0" ) ) // used by script-spawned spawnpoints
 	{
 		if ( file.spawnpointGamemodeOverride != "" )
@@ -400,8 +404,39 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 			if ( spawnpoint.HasKey( gamemodeKey ) && ( spawnpoint.kv[ gamemodeKey ] == "0" || spawnpoint.kv[ gamemodeKey ] == "" ) )
 				return false
 		}
-		else if ( GameModeRemove( spawnpoint ) )
-			return false
+		else
+		{
+			if ( IsFFAGame() )
+			{
+				string gamemodeKey = "gamemode_" + "tdm" // some map don't have enough ffa points, maybe this will be better
+				if ( spawnpoint.HasKey( gamemodeKey ) && (spawnpoint.kv[gamemodeKey] == "0" || spawnpoint.kv[gamemodeKey] == "") )
+				{
+					// printt( "Removing ent " + ent.GetClassName() + " with " + gamemodeKey + " = \"" + ent.kv[gamemodeKey] + "\" at " + ent.GetOrigin() )
+					spawnpoint.Destroy()
+					return false
+				}
+			}
+			else
+			{
+				if ( GameModeRemove( spawnpoint ) )
+					return false
+			}
+		}
+	}
+	*/
+	if ( !spawnpoint.HasKey( "ignoreGamemode" ) || ( spawnpoint.HasKey( "ignoreGamemode" ) && spawnpoint.kv.ignoreGamemode == "0" ) ) // used by script-spawned spawnpoints
+	{
+		if ( file.spawnpointGamemodeOverride != "" )
+		{
+			string gamemodeKey = "gamemode_" + file.spawnpointGamemodeOverride
+			if ( spawnpoint.HasKey( gamemodeKey ) && ( spawnpoint.kv[ gamemodeKey ] == "0" || spawnpoint.kv[ gamemodeKey ] == "" ) )
+				return false
+		}
+		else
+		{
+			if ( GameModeRemove( spawnpoint ) )
+				return false
+		}
 	}
 	
 	int compareTeam = spawnpoint.GetTeam()
@@ -535,7 +570,7 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 				spawnHasRecievedInitialBonus = true // should only get a bonus for simply being by a node once to avoid over-rating
 			}
 		
-			currentRating += ( preferSpawnNodeRatings[ i ] * ( ( 5000.0 - dist ) / 5000 ) ) +  max( RandomFloat( 1.25 ), 0.9 )
+			currentRating += ( preferSpawnNodeRatings[ i ] * ( ( 5000.0 - dist ) / 5000 ) ) * max( RandomFloat( 1.25 ), 0.9 )
 			if ( dist < 500.0 ) // shouldn't get TOO close to an active node
 				currentRating *= 0.7 
 				
@@ -544,25 +579,24 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 		}
 
 		// modified condition
-		if ( spawnpoint.s.lastUsedTime >= 10.0 && !EnemyCanSeeSpawnPoint( team, spawnpoint ) )
+		if ( IsFFAGame() )
 		{
-			if ( IsFFAGame() )
+			if ( FFA_IsGoodSpawnPoint( team, spawnpoint ) )
 			{
-				if ( FFA_IsGoodSpawnPoint( team, spawnpoint ) )
-				{
-					if ( currentRating > 0 )
-						currentRating *= 2.0
-				}
+				if ( currentRating > 0 )
+					currentRating *= 2.0
 			}
-			else
+			else if ( HasEnemyNearSpawnPoint( team, spawnpoint, true ) )
+				currentRating *= 0.0 // try not to spawn too close to enemy
+		}
+		else
+		{
+			if ( HasEnemyNearSpawnPoint( team, spawnpoint ) )
+				currentRating *= 0.0 // try not to spawn too close to enemy
+			else if ( HasFriendlyNearSpawnPoint( team, spawnpoint ) )
 			{
-				if ( HasEnemyNearSpawnPoint( team, spawnpoint ) )
-					currentRating *= 0.0 // try not to spawn too close to enemy
-				else if ( HasFriendlyNearSpawnPoint( team, spawnpoint ) )
-				{
-					if ( currentRating > 0 ) // no rating yet
-						currentRating *= 2.0 // and mostly spawn near a friendly
-				}
+				if ( currentRating > 0 ) // no rating yet
+					currentRating *= 2.0 // and mostly spawn near a friendly
 			}
 		}
 		
@@ -696,7 +730,7 @@ void function RateSpawnpoints_SpawnZones( int checkClass, array<entity> spawnpoi
 
 		// modified over here
 		if ( HasEnemyNearSpawnPoint( team, spawn ) )
-			rating *= -0.6 // try not to spawn too close to enemy
+			rating *= 0.0 // try not to spawn too close to enemy
 		else if ( HasFriendlyNearSpawnPoint( team, spawn ) )
 			rating *= 2.0 // and mostly spawn near a friendly
 		
