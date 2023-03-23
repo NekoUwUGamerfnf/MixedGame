@@ -39,6 +39,15 @@ global const FX_DRONE_P_EXPLOSION 			= $"P_drone_exp_plasma"
 global const FX_DRONE_W_EXPLOSION 			= $"P_drone_exp_worker"
 global const FX_DRONE_SHIELD_ROPE_GLOW 		= $"acl_light_white"
 
+// modified settings here
+global function AiDrone_SetDroneSpawnedByNPCRandomType
+
+struct
+{
+	bool randomDroneSpawnType = false
+} file
+//
+
 function AiDrone_Init()
 {
 	PrecacheParticleSystem( FX_DRONE_EXPLOSION )
@@ -891,7 +900,8 @@ void function DroneCleanupOnOwnerDeath_Thread( entity owner, entity drone )
 		WaitFrame()
 	}
 
-	wait RandomFloatRange( 2.0, 10.0 )
+	// modified here, we kill the drone right after owner death
+	//wait RandomFloatRange( 2.0, 10.0 )
 	drone.Die()
 }
 #endif // #if !SP
@@ -1064,6 +1074,17 @@ function DroneGruntThink( entity npc, string aiSettings )
 		//if ( !WithinEngagementRange( npc, pos ) )
 		//	continue
 
+		// modified here...
+		if ( file.randomDroneSpawnType )
+		{
+			array<string> validDroneTypes = 
+			[ 
+				"npc_drone_beam", 
+				"npc_drone_rocket", 
+				"npc_drone_plasma" 
+			]
+			aiSettings = validDroneTypes[ RandomInt( validDroneTypes.len() ) ]
+		}
 		drone = SpawnDroneFromNPC( npc, aiSettings )
 		if ( drone == null )
 			continue
@@ -1248,6 +1269,7 @@ function DroneSelfDestruct( drone, delay )
 
 function RepairDroneThink( entity drone )
 {
+	drone.EndSignal( "OnDestroy" )
 	drone.EndSignal( "OnDeath" )
 	local attachID
 	EmitSoundOnEntity( drone, "colony_spectre_initialize_beep" )
@@ -1255,7 +1277,7 @@ function RepairDroneThink( entity drone )
 
 	for ( ;; )
 	{
-		/*
+		/* // repair teammates version
 		if ( drone.e.repairSoul == null )
 		{
 			wait 1
@@ -1268,22 +1290,34 @@ function RepairDroneThink( entity drone )
 
 		//array<entity> players = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, drone.GetOrigin(), 100 )
 		//array<entity> npcs = GetNPCArrayEx( "any", TEAM_ANY, TEAM_ANY, drone.GetOrigin(), 100 )
-		
-		if( !IsValid( drone ) )
-			return
 
+		// repair owner version
 		string attachName = "HIJACK"
 		entity repairTarget = drone.GetOwner()
 
-		if ( IsSoul( repairTarget ) )
+		if ( IsValid( repairTarget ) )
 		{
-			repairTarget = repairTarget.GetTitan()
-			attachName = "HIJACK"
+			if ( IsSoul( repairTarget ) || repairTarget.IsTitan() )
+			{
+				if ( IsSoul( repairTarget ) )
+					repairTarget = repairTarget.GetTitan()
+				attachName = "HIJACK"
+			}
+			else if ( !repairTarget.IsTitan() )
+			{
+				// modified here
+				//Assert( !repairTarget.IsTitan() )
+				if ( repairTarget.LookupAttachment( "CHESTFOCUS" ) > 0 )
+					attachName = "CHESTFOCUS"
+				else
+					attachName = "ORIGIN"
+			}
 		}
-		else
+		
+		if ( !IsAlive( repairTarget ) )
 		{
-			Assert( !repairTarget.IsTitan() )
-			attachName = "ORIGIN"
+			wait 2
+			continue
 		}
 
 		/*
@@ -1293,8 +1327,9 @@ function RepairDroneThink( entity drone )
 			continue
 		}
 		*/
-
-		//drone.SetOwner( repairTitan )
+		
+		//drone.SetOwner( repairTitan ) // should be follow
+		drone.EnableBehavior( "Follow" )
 
 		if ( DroneCanRepairTarget( drone, repairTarget, attachName ) )
 		{
@@ -1302,6 +1337,8 @@ function RepairDroneThink( entity drone )
 			//P_wpn_defender_beam
 			waitthread DroneRepairsTarget( drone, repairTarget, attachName )
 		}
+
+		drone.DisableBehavior( "Follow" )
 		WaitFrame()
 	}
 }
@@ -1363,9 +1400,9 @@ function DroneRepairsTarget( drone, ent, attachName )
 		DroneRepairFX( drone, ent, attachName )
 
 		local maxHealth = ent.GetMaxHealth()
-		local healAmount = maxHealth * 0.03 // 0.005
+		local healAmount = maxHealth * 0.03
 		if( ent.IsTitan() )
-			healAmount = maxHealth * 0.002
+			healAmount = maxHealth * 0.002 // heal amount is 0.015 in vanilla
 		float healTime = RandomFloatRange( 0.8, 1.2 )
 
 		for ( float i = 0.0; i < healTime; i++ )
@@ -1379,8 +1416,8 @@ function DroneRepairsTarget( drone, ent, attachName )
 					return
 			}
 
-			if( ent.IsPlayer() )
-				StatusEffect_AddTimed( ent, eStatusEffect.stim_visual_effect, 1.0, 0.1, 0.0 )
+			if( ent.IsPlayer() ) // temp visual effect
+				StatusEffect_AddTimed( ent, eStatusEffect.stim_visual_effect, 1.0, 0.2, 0.0 )
 
 			local newHealth = ent.GetHealth() + healAmount
 			newHealth = min( newHealth, maxHealth )
@@ -1421,3 +1458,10 @@ function SetRepairDroneTarget( entity drone, entity repairTitan )
 	Assert( repairTitan.IsTitan() )
 	drone.e.repairSoul = repairTitan.GetTitanSoul()
 }
+
+// modified here...
+void function AiDrone_SetDroneSpawnedByNPCRandomType( bool random )
+{
+	file.randomDroneSpawnType = random
+}
+//

@@ -6,7 +6,6 @@ global function OnWeaponTossPrep_weapon_frag_drone // modified
 global function OnWeaponTossReleaseAnimEvent_weapon_frag_drone
 global function MpWeaponFragDrone_Init
 
-const array<string> droneAiSettings = ["npc_drone_rocket", "npc_drone_plasma", "npc_drone_beam"]
 void function MpWeaponFragDrone_Init()
 {
 	RegisterSignal( "OnFragDroneCollision" )
@@ -23,7 +22,13 @@ void function OnWeaponTossPrep_weapon_frag_drone( entity weapon, WeaponTossPrepP
     {
 #if SERVER
 		entity owner = weapon.GetWeaponOwner()
-		entity drone = SpawnDroneFromPlayer( owner, droneAiSettings[ RandomInt( droneAiSettings.len() ) ] )
+		array<string> validDroneTypes = 
+		[ 
+			"npc_drone_beam", 
+			"npc_drone_rocket", 
+			"npc_drone_plasma" 
+		]
+		entity drone = SpawnDroneFromPlayer( owner, validDroneTypes[ RandomInt( validDroneTypes.len() ) ] )
 		if( drone )
 		{
 			weapon.SetWeaponPrimaryClipCount( max( weapon.GetWeaponPrimaryClipCount() - weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot ), 0.0 ) )
@@ -274,22 +279,13 @@ void function TicksToDronesThreaded( entity tick )
 	vector tickang = tick.GetAngles()
 	int tickteam = tick.GetTeam()
 
-	int randomdrone = RandomInt(3)
-	string dronename = "npc_drone_worker"
-	switch( randomdrone )
-	{
-		case 0:
-			dronename = "npc_drone_beam"
-			break
-		case 1:
-			dronename = "npc_drone_rocket"
-			break
-		case 2:
-			dronename = "npc_drone_plasma"
-			break
-		default:
-			break
-	}
+	array<string> validDroneTypes = 
+    [ 
+        "npc_drone_beam", 
+        "npc_drone_rocket", 
+        "npc_drone_plasma" 
+    ]
+	string dronename = validDroneTypes[ RandomInt( validDroneTypes.len() ) ]
 
 	entity drone = CreateNPC("npc_drone" , tickteam , tickpos, tickang )
 	SetSpawnOption_AISettings( drone, dronename )
