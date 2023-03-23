@@ -1,6 +1,6 @@
 global function GamemodeTTDM_Init
 
-const float TTDMIntroLength = 15.0
+const float TTDMIntroLength = 10.0 // was 15.0
 
 void function GamemodeTTDM_Init()
 {
