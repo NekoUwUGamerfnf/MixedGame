@@ -2,20 +2,27 @@ global function MeleeSyncedNPC_Init
 
 global function MeleeSyncedNPC_EnableAll_Init
 
+// npc executing players or titans
 global function MeleeSyncedNPC_AllowNPCTitanExecutions
 global function MeleeSyncedNPC_OnlyAllowNPCTitanWithPilotsToExecute // default is true
 global function MeleeSyncedNPC_AllowNPCPilotExecutions
 global function MeleeSyncedNPC_AllowNPCSpectreExecutions
 global function MeleeSyncedNPC_AllowNPCGruntExecutions
-global function MeleeSyncedNPC_AllowExecutingNPCPilot // player executing npc
+// player executing npc pilot
+global function MeleeSyncedNPC_AllowExecutingNPCPilot // "pilotelite" is not a valid syncedMelee body type, this overwrites it to "human"
+// npc executing each other
+global function MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs // pilot models don't have syncedMeleeData, so let them use mp executions
 
+// utility, mostly shared with sh_melee.gnut
 global function MeleeSyncedNPC_IsTitanAbleToExecute
 global function MeleeSyncedNPC_IsPilotAbleToExecute
 global function MeleeSyncedNPC_IsSpectreAbleToExecute
 global function MeleeSyncedNPC_IsGruntAbleToExecute
 global function MeleeSyncedNPC_ExecutingNPCPilotAllowed
+global function MeleeSyncedNPC_IsPilotAbleToExecuteOtherNPCs
 
-global function NPCUseNormalSyncedMelee // they'will try to use executions from synced_melee_data.rson
+// normal synced melee with scripted cameras(not working well)
+global function MeleeSyncedNPC_NPCUseNormalSyncedMelee // they'will try to use executions from synced_melee_data.rson
 
 // must match npcs modifed in this file
 const array<string> NPC_EXECUTION_ALLOWED_CLASSES = 
@@ -51,6 +58,8 @@ struct
     bool npcSpectreExecution = false
     bool npcGruntExecution = false
 
+    bool npcPilotExecuteOtherNPCs = false
+
     bool useNormalSyncedMelee = false
 } file
 
@@ -76,21 +85,62 @@ void function MeleeSyncedNPC_EnableAll_Init()
     file.npcPilotExecution = true
     file.npcSpectreExecution = true
     file.npcGruntExecution = true
+    file.npcPilotExecuteOtherNPCs = true
 }
 
 void function NPCTrysSyncedMelee( entity victim, var damageInfo )
 {
     if( !IsValid( victim ) )
         return
-    if( !victim.IsPlayer() && !victim.IsTitan() ) // npc titan executing each other?
+    if( !victim.IsPlayer() && !victim.IsNPC() ) // not a valid type to be executed
         return
+
     entity attacker = DamageInfo_GetAttacker( damageInfo )
     if( !IsValid( attacker ) )
         return
     if( !attacker.IsNPC() )
         return
-    if( attacker.ContextAction_IsActive() || victim.ContextAction_IsActive() ) // doing a execution?
+    if( attacker.ContextAction_IsActive() || victim.ContextAction_IsActive() ) // already doing a execution?
 		return
+
+    // normal syncedMelee checks!
+    if( file.useNormalSyncedMelee && NPC_NORMAL_SYNCED_MELEE_ALLOWED_CLASSES.contains( attacker.GetClassName() ) )
+    {
+        if( TryNormalSyncedMelee( attacker, victim ) ) // normal syncedMelee exists on this class? or it's not 100% doing it?
+        {
+            DamageInfo_SetDamage( damageInfo, 0 )
+            return
+        }
+    }
+    // general class check
+    if( !NPC_EXECUTION_ALLOWED_CLASSES.contains( attacker.GetClassName() ) )
+        return
+
+    bool canProgress = victim.IsPlayer() || victim.IsTitan()
+    // specific class checks
+    // npc pilot try perform mp executions against other npcs
+    if ( IsPilotElite( attacker ) )
+    {
+        if ( victim.IsPlayer() && !file.npcPilotExecution )
+            canProgress = false
+        else if ( victim.IsNPC() && file.npcPilotExecuteOtherNPCs )
+            canProgress = true
+        //print( "pilotElite canProgress: " + string( canProgress ) )
+    }
+    // other npcs do have their syncedMeleeData, no need to perform a mp execution against other npcs
+    if( IsSpectre( attacker ) )
+    {
+        if ( !file.npcSpectreExecution )
+            canProgress = false
+    }
+    if( IsGrunt( attacker ) )
+    {
+        if ( !file.npcGruntExecution )
+            canProgress = false
+    }
+    
+    if ( !canProgress )
+        return
 
     // titan specific checks, should basically match AttemptScriptedExecution() checks
     if( attacker.IsTitan() )
@@ -107,27 +157,7 @@ void function NPCTrysSyncedMelee( entity victim, var damageInfo )
 			if( meleeWeapon.HasMod( "bison_punch" ) )
 				return
 		}
-    } 
-
-    // normal syncedMelee checks!
-    if( file.useNormalSyncedMelee && NPC_NORMAL_SYNCED_MELEE_ALLOWED_CLASSES.contains( attacker.GetClassName() ) )
-    {
-        if( TryNormalSyncedMelee( attacker, victim ) ) // normal syncedMelee exists on this class? or it's not 100% doing it?
-        {
-            DamageInfo_SetDamage( damageInfo, 0 )
-            return
-        }
     }
-
-    // class checks
-    if( IsPilotElite( attacker ) && !file.npcPilotExecution )
-        return
-    if( IsSpectre( attacker ) && !file.npcSpectreExecution )
-        return
-    if( IsGrunt( attacker ) && !file.npcGruntExecution )
-        return
-    if( !NPC_EXECUTION_ALLOWED_CLASSES.contains( attacker.GetClassName() ) )
-        return
 
     //if( DamageInfo_GetDamage( damageInfo ) >= victim.GetHealth() + victim.GetShieldHealth() ) // this hit will kill the victim
     //    return
@@ -163,14 +193,16 @@ void function NPCTrysSyncedMelee( entity victim, var damageInfo )
             return
         // succeed! reset damage
         DamageInfo_SetDamage( damageInfo, 0 ) // sometimes resetting damage don't work?
-        thread PlayerBeingSyncedMelee( victim )
+        if( victim.IsPlayer() )
+            thread PlayerBeingSyncedMelee( victim )
         thread MeleeThread_TitanVsTitan( action, attacker, victim )
     }
     else
     {
         // succeed! reset damage
         DamageInfo_SetDamage( damageInfo, 0 )
-        thread PlayerBeingSyncedMelee( victim )
+        if( victim.IsPlayer() )
+            thread PlayerBeingSyncedMelee( victim )
         thread MeleeThread_PilotVsEnemy( action, attacker, victim )
     }
 }
@@ -383,6 +415,11 @@ void function MeleeSyncedNPC_AllowExecutingNPCPilot( bool allow )
     file.canExecuteNpcPilot = allow
 }
 
+void function MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs( bool allow )
+{
+    file.npcPilotExecuteOtherNPCs = allow 
+}
+
 bool function MeleeSyncedNPC_IsTitanAbleToExecute()
 {
     return file.npcTitanExecution
@@ -408,7 +445,12 @@ bool function MeleeSyncedNPC_ExecutingNPCPilotAllowed()
     return file.canExecuteNpcPilot
 }
 
-void function NPCUseNormalSyncedMelee( bool use )
+bool function MeleeSyncedNPC_IsPilotAbleToExecuteOtherNPCs()
+{
+    return file.npcPilotExecuteOtherNPCs
+}
+
+void function MeleeSyncedNPC_NPCUseNormalSyncedMelee( bool use )
 {
     file.useNormalSyncedMelee = use
 }
