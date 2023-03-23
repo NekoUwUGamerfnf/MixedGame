@@ -1,4 +1,6 @@
 // based on _sp_loadouts.gnut, really should rework this to tables
+global function TitanLoadoutSwitch_Init
+
 global function GetWeaponCooldownsForTitanLoadoutSwitch
 global function SetWeaponCooldownsForTitanLoadoutSwitch
 
@@ -6,18 +8,32 @@ const float LOADOUT_SWITCH_COOLDOWN_PENALTY = 0.1
 
 struct WeaponCooldownData
 {
+	string weaponName
 	float timeStored
 	float severity
 }
 
 struct
 {
-	table< string, WeaponCooldownData > cooldownData
+	table< entity, array<WeaponCooldownData> > playerCooldownData
 } file
+
+void function TitanLoadoutSwitch_Init()
+{
+	AddCallback_OnClientConnected( OnClientConnected )
+}
+
+void function OnClientConnected( entity player )
+{
+	file.playerCooldownData[ player ] <- []
+}
 
 table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player )
 {
-	Assert( player.IsTitan() )
+	if ( !player.IsPlayer() ) // used on npcs?
+		return {}
+	if ( !player.IsTitan() )
+		return {}
 
 	entity coreWeapon = player.GetOffhandWeapon( OFFHAND_EQUIPMENT )
 	entity meleeWeapon = player.GetMeleeWeapon()
@@ -121,14 +137,29 @@ table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player
 		}
 
 		string weaponName = offhand.GetWeaponClassName()
-		WeaponCooldownData data
-		data.timeStored = Time()
-		data.severity = cooldowns[slot]
+		array<WeaponCooldownData> playerDatas = file.playerCooldownData[ player ]
+		bool foundData = false
+		foreach ( WeaponCooldownData data in playerDatas )
+		{
+			if ( data.weaponName == weaponName ) // found one valid data?
+			{
+				// update it
+				data.timeStored = Time()
+				data.severity = cooldowns[slot]
+				foundData = true
+			}
+		}
 
-		if ( !( weaponName in file.cooldownData ) )
-			file.cooldownData[ weaponName ] <- data
-		else
-			file.cooldownData[ weaponName ] = data
+		if ( !foundData ) // can't found any data
+		{
+			// append a new one
+			WeaponCooldownData data
+			data.weaponName = weaponName
+			data.timeStored = Time()
+			data.severity = cooldowns[slot]
+
+			file.playerCooldownData[ player ].append( data )
+		}
 
 		//printt( "GET: " + slot + " " + offhand.GetWeaponClassName() + " - " + cooldowns[slot] )
 	}
@@ -138,23 +169,16 @@ table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player
 
 void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,float> cooldowns )
 {
-	Assert( player.IsTitan() )
-
-/*
-	array<entity> weapons = GetPrimaryWeapons( player )
-	foreach ( weapon in weapons )
-	{
-		if ( weapon.GetWeaponPrimaryClipCountMax() > 0 )
-			weapon.SetWeaponPrimaryClipCount( 0 )
-	}
-*/
+	if ( !player.IsPlayer() ) // used on npcs?
+		return
+	if ( !player.IsTitan() )
+		return
 
 	entity coreWeapon = player.GetOffhandWeapon( OFFHAND_EQUIPMENT )
 	entity meleeWeapon = player.GetMeleeWeapon()
 	array<entity> offhandWeapons = player.GetOffhandWeapons()
 
 	// 1 is fully available, 0 is used up
-
 	float highestSeverity = 1.0
 
 	foreach ( slot,severity in cooldowns )
@@ -166,10 +190,14 @@ void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,
 
 		string offhandName = offhand.GetWeaponClassName()
 
-		if ( offhandName in file.cooldownData )
+		array<WeaponCooldownData> playerDatas = file.playerCooldownData[ player ]
+		foreach ( WeaponCooldownData data in playerDatas )
 		{
-			float savedSeverity = CalculateCurrentWeaponCooldownFromStoredTime( player, offhand, file.cooldownData[ offhandName ] )
-			severity = min( savedSeverity, severity )
+			if ( data.weaponName == offhandName ) // found saved severity in data
+			{
+				float savedSeverity = CalculateCurrentWeaponCooldownFromStoredTime( player, offhand, data )
+				severity = min( savedSeverity, severity )
+			}
 		}
 
 		highestSeverity = min( severity, highestSeverity )
@@ -254,11 +282,6 @@ void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,
 
 float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, entity offhand, WeaponCooldownData data )
 {
-	// if ( Time() - data.timeStored < 30.0 )
-	// 	return data.severity
-
-	// return 1.0
-
 	float cooldownTime = 10.0
 	switch( offhand.GetWeaponClassName() )
 	{
