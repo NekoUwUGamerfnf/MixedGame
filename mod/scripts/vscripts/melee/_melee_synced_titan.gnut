@@ -13,12 +13,8 @@ global function MeleeSyncedTitan_ExecutionNotInvulnerable
 global function MeleeSyncedTitan_SetSoulDoClassicExecution
 global function MeleeSyncedTitan_DisableVanguardKitExecution
 
-// note: executionRefs
-// Ion Random: execution_random_0
-// Ion 1: execution_ion
-// Ion 2: execution_ion_prime
-// Scorch Random: execution_random_1
-// I think this just follows the law...
+global function MeleeSyncedTitan_SetSoulUseExecutionCallback
+//
 
 enum eTitanExecutionType
 {
@@ -48,6 +44,7 @@ struct
 	// modified to have more execution options
 	table<entity, bool> soulDoClassicExecution
 	bool disableVanguardKit = false
+	table<entity, bool> soulUseExecutionCallback
 } file
 
 int RAGDOLL_IMPACT_TABLE_IDX = -1
@@ -398,8 +395,10 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 	if ( target.IsPlayer() )
 		HolsterAndDisableWeapons( target )
 
-	if ( ShouldHolsterWeaponForSyncedMelee( attacker ) )
-		HolsterAndDisableWeapons( attacker )
+	//if ( ShouldHolsterWeaponForSyncedMelee( attacker ) )
+	//	HolsterAndDisableWeapons( attacker )
+	// should set this always true
+	HolsterAndDisableWeapons( attacker )
 
 	local attackerViewBody
 
@@ -1134,11 +1133,11 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		return
 
 	entity attackerSoul = attacker.GetTitanSoul()
-	#if SP
+#if SP
 	TitanLoadoutDef loadout = GetTitanLoadoutForCurrentMap()
 	string executionRef = loadout.titanExecution
 	TitanExcutionData data = file.executionData_3p[ executionRef ]
-	#else
+#else
 	TitanLoadoutDef loadout = attackerSoul.soul.titanLoadout // GetActiveTitanLoadout( attacker )
 	string executionRef = loadout.titanExecution
 	TitanExcutionData data = file.executionData_3p[ executionRef ]
@@ -1153,7 +1152,8 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		executionRef = clonedLinkedExecutions.getrandom()
 		data = file.executionData_3p[ executionRef ]
 	}
-	#endif
+#endif
+
 	bool shouldApplyBatteryAfterRodeo = false
 	// modified to nerf monarch
 	if ( !file.disableVanguardKit )
@@ -1167,18 +1167,21 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	}
 
 	// extra check for npc monarch executions -- spawn with no passive and ref "execution_random_6", uses random execution!
-	if( executionRef == "execution_random_6" && TitanHasNpcPilot( attacker ) ) // also check if pilot valid
+	if ( !SoulHasPassive( attackerSoul, ePassives.PAS_VANGUARD_COREMETER ) )
 	{
-		if( CoinFlip() ) 
+		if( executionRef == "execution_random_6" && TitanHasNpcPilot( attacker ) ) // also check if pilot valid
 		{
-			executionRef = "execution_vanguard_kit"
-			data = file.executionData_3p[ executionRef ]
-			shouldApplyBatteryAfterRodeo = true
+			if( CoinFlip() ) 
+			{
+				executionRef = "execution_vanguard_kit"
+				data = file.executionData_3p[ executionRef ]
+				shouldApplyBatteryAfterRodeo = true
+			}
 		}
 	}
 
 	// add a condition for bt can use random executions
-	if ( executionRef == "execution_bt" ) // if we're using default bt execution
+	if ( executionRef == "execution_bt" ) // if we're using unnamed bt execution
 	{
 		// select a random one
 		const array<string> btExecutions = 
@@ -1189,6 +1192,21 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		]
 		executionRef = btExecutions[ RandomInt( btExecutions.len() ) ]
 		data = file.executionData_3p[ executionRef ] // update execution data
+	}
+
+	//print( "executionRef is: " + executionRef )
+	// modified: callbacks in sh_melee_synced_titan.gnut
+	// force attacker to use certain execution's weapon, to avoid visual issues
+	if ( attackerSoul in file.soulUseExecutionCallback )
+	{
+		if ( file.soulUseExecutionCallback[ attackerSoul ] )
+		{
+			if ( MeleeSyncedTitan_ExecutionRefHasCallback( executionRef ) )
+			{
+				//print( "found ref callbacks!" )
+				MeleeSyncedTitan_RunCallbackForRef( executionRef, attacker, target )
+			}
+		}
 	}
 
 	string victimType = GetSoulTitanSubClass( target.GetTitanSoul() )
@@ -1220,50 +1238,19 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 	target.e.syncedMeleeAttacker = attacker
 
+	// mp version handled in sh_melee_synced_titan.gnut, Execution_BT_KickShoot()
 	// HACK FOR SP!!!
 	e.replacedPrimary <- false
 	string xo16 = "mp_titanweapon_xo16_shorty"
-	// modified for mp usage
-	//if ( IsSingleplayer() && attacker.IsPlayer() && data.attackerAnimation3p == "bt_synced_titan_execute_kickshoot_A" )
-	if ( data.attackerAnimation3p == "bt_synced_titan_execute_kickshoot_A" )
+	array<entity> weapons = attacker.GetMainWeapons()
+	if ( IsSingleplayer() && attacker.IsPlayer() && data.attackerAnimation3p == "bt_synced_titan_execute_kickshoot_A" )
 	{
-		array<entity> weapons = attacker.GetMainWeapons()
-		if ( weapons.len() > 0 )
+		if ( weapons[0].GetWeaponClassName() != xo16 )
 		{
-			// fakebt version
-			entity xo16Weapon
-			foreach ( entity weapon in weapons )
-			{
-				if ( weapon.GetWeaponClassName() == xo16 )
-					xo16Weapon = weapon
-			}
-			if ( IsValid( xo16Weapon ) ) // don't want to make bt reload while executing
-			{
-				attacker.SetActiveWeaponByName( xo16 )
-				xo16Weapon.SetWeaponPrimaryClipCount( xo16Weapon.GetWeaponPrimaryClipCountMax() )
-			}
-			else // can't find xo16
-			{
-				entity activeWeapon = attacker.GetActiveWeapon()
-				if ( IsValid( activeWeapon ) ) // use active weapon instead
-					activeWeapon.SetWeaponPrimaryClipCount( activeWeapon.GetWeaponPrimaryClipCountMax() )
-				else // don't event have a active Weapon???
-				{
-					e.replacedPrimary = true
-					e.oldPrimary <- weapons[0].GetWeaponClassName()
-					attacker.SetActiveWeaponBySlot( 0 )
-					attacker.ReplaceActiveWeapon( xo16 ) //this assumes the active weapon is the weapon in slot 0 so we need to set active weapon to the one in slot 0
-				}
-			}
-			/* // allow bt to use any active weapon, requires refilling ammo
-			if ( weapons[0].GetWeaponClassName() != xo16 )
-			{
-				e.replacedPrimary = true
-				e.oldPrimary <- weapons[0].GetWeaponClassName()
-				attacker.SetActiveWeaponBySlot( 0 )
-				attacker.ReplaceActiveWeapon( xo16 ) //this assumes the active weapon is the weapon in slot 0 so we need to set active weapon to the one in slot 0
-			}
-			*/
+			e.replacedPrimary = true
+			e.oldPrimary <- weapons[0].GetWeaponClassName()
+			attacker.SetActiveWeaponBySlot( 0 )
+			attacker.ReplaceActiveWeapon( xo16 ) //this assumes the active weapon is the weapon in slot 0 so we need to set active weapon to the one in slot 0
 		}
 	}
 	// END HACK FOR SP!!!
@@ -1380,7 +1367,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 				else
 				{
 					EnableWeapons( attacker, [] )
-					Highlight_ClearEnemyHighlight( attacker ) // this only resets victim's highlights for some reason
+					//Highlight_ClearEnemyHighlight( attacker ) // this only resets victim's highlights for some reason
 				}
 
 				// changed for npc executions
@@ -1744,13 +1731,35 @@ void function OnNPCTitanSignalDeath( entity titan ) //Debug function, for bug 12
 void function Northstar_Rocket_Pod_Left( entity guy )
 {
 	entity victim = expect entity( GetOptionalAnimEventVar( guy, "rocket_pod_fire_left" ) )
-	Rocket_Pod( guy, "muzzle_flash", victim )
+	// defensive fixes here, for ronin usage
+	//Rocket_Pod( guy, "muzzle_flash", victim )
+	string tag = "muzzle_flash" // default, left rocket pod
+	int attachID = guy.LookupAttachment( tag )
+	if ( attachID <= 0 ) // not valid!
+	{
+		tag = "HAND_L" // try to use left hand
+		attachID = guy.LookupAttachment( tag )
+		if ( attachID <= 0 ) // still not valid!
+			return
+	}
+	Rocket_Pod( guy, tag, victim )
 }
 
 void function Northstar_Rocket_Pod_Right( entity guy )
 {
 	entity victim = expect entity( GetOptionalAnimEventVar( guy, "rocket_pod_fire_right" ) )
-	Rocket_Pod( guy, "muzzle_flash2", victim )
+	// defensive fixes here, for ronin usage
+	//Rocket_Pod( guy, "muzzle_flash2", victim )
+	string tag = "muzzle_flash2" // default, right rocket pod
+	int attachID = guy.LookupAttachment( tag )
+	if ( attachID <= 0 ) // not valid!
+	{
+		tag = "HAND_R" // try to use right hand
+		attachID = guy.LookupAttachment( tag )
+		if ( attachID <= 0 ) // still not valid!
+			return
+	}
+	Rocket_Pod( guy, tag, victim )
 }
 
 void function Rocket_Pod( entity guy, string tag, entity victim )
@@ -1802,6 +1811,13 @@ void function MeleeSyncedTitan_SetSoulDoClassicExecution( entity titanSoul, bool
 void function MeleeSyncedTitan_DisableVanguardKitExecution( bool disable )
 {
 	file.disableVanguardKit = disable
+}
+
+void function MeleeSyncedTitan_SetSoulUseExecutionCallback( entity titanSoul, bool useCallback )
+{
+	if ( !( titanSoul in file.soulUseExecutionCallback ) )
+		file.soulUseExecutionCallback[ titanSoul ] <- false // default value
+	file.soulUseExecutionCallback[ titanSoul ] = useCallback
 }
 ///////////////
 ///// END /////
