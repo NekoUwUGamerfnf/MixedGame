@@ -56,7 +56,8 @@ struct
 
 	// player table
 	table<entity, string> soulTitleTable
-	table<entity, string> soulPassiveTable
+	table<entity, string> soulPassiveTable // for saving player's starter passiveType
+	table<entity, string> soulExecutionRefTable // for saving player's starter executions
 } file
 
 void function TitanReplace_Enabled_Init()
@@ -93,7 +94,6 @@ void function TitanReplace_SetTitanLoadoutReplace( entity titan )
 	if( !IsValid( titanSoul ) ) // soul not spawned yet, mostly because disembarking, no worries
 		return
 	TitanReplace_InitSoulSettings( titanSoul ) // init! robbed monarch from npc pilots won't upgrade your weapons( shield regen only ), which means it's no need to setting a "titanSoul.s.disableTitanPick" for them. perfect
-	file.soulPassiveTable[ titanSoul ] = GetTitanPassiveType( titan ) // for checking player's passiveType
 
 	// following are player titans( pet titans )
 	entity player = GetPetTitanOwner( titan )
@@ -105,6 +105,11 @@ void function TitanReplace_SetTitanLoadoutReplace( entity titan )
 		if ( expect bool ( titan.s.spawnWithoutSoul ) )
 			return
 	}
+
+	// get passives and executionrefs here
+	file.soulPassiveTable[ titanSoul ] = GetTitanPassiveType( titan ) // for saving player's starter passiveType
+	file.soulExecutionRefTable[ titanSoul ] = titanSoul.soul.titanLoadout.titanExecution // for saving player's starter executions
+	print( "soul " + string( titanSoul ) + " 's executionRef is: " + file.soulExecutionRefTable[ titanSoul ] )
 
 	asset modelName = titan.GetModelName()
 	//print( "modelName is: " + string( modelName ) )
@@ -201,6 +206,8 @@ void function TitanReplace_InitSoulSettings( entity titanSoul ) // both using fo
 		file.soulTitleTable[ titanSoul ] <- ""
 	if ( !( titanSoul in file.soulPassiveTable ) )
 		file.soulPassiveTable[ titanSoul ] <- ""
+	if ( !( titanSoul in file.soulExecutionRefTable ) )
+		file.soulExecutionRefTable[ titanSoul ] <- ""
 }
 ///////////
 
@@ -299,7 +306,21 @@ void function TitanReplace_BecomeIon( entity titan, bool isPickup = false, bool 
             //Melee
             titan.GiveOffhandWeapon( "melee_titan_punch_ion", OFFHAND_MELEE )
 			
-			
+			//Executions
+			if ( isPickup )
+			{
+				if ( GetSoulTitanSubClass( soul ) == "atlas" ) // atlas titan
+				{
+					bool isProperLoadout = GetTitanCharacterName( titan ) == "ion" // a ion switching back to it's loadout
+					ChangeSoulTitanExecution( soul, "execution_ion", "execution_random_0" )
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, !isProperLoadout )
+				}
+				else // other titans
+				{
+					soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
+				}
+			}
         }
 	}
 }
@@ -396,6 +417,22 @@ void function TitanReplace_BecomeTone( entity titan, bool isPickup = false, bool
 		
             //Melee
             titan.GiveOffhandWeapon( "melee_titan_punch_tone", OFFHAND_MELEE )
+
+			//Executions
+			if ( isPickup )
+			{
+				if ( GetSoulTitanSubClass( soul ) == "atlas" ) // atlas titan
+				{
+					bool isProperLoadout = GetTitanCharacterName( titan ) == "tone" // a tone switching back to it's loadout
+					ChangeSoulTitanExecution( soul, "execution_tone", "execution_random_4" )
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, !isProperLoadout )
+				}
+				else // other titans
+				{
+					soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
+				}
+			}
         }
 	}
 }
@@ -419,10 +456,22 @@ void function TitanReplace_BecomeAtlas( entity titan, bool isPickup = false, boo
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
             }
+			//Skin & Camo
+			int skinIndex
+			int camoIndex
 			if( !isPickup )
 			{
+				bool foundSkin = false
 				foreach( entity weapon in titan.GetMainWeapons() )
+				{
+					if ( !foundSkin )
+					{
+						skinIndex = weapon.GetSkin()
+						camoIndex = weapon.GetCamo()
+						foundSkin = true
+					}
 					titan.TakeWeaponNow( weapon.GetWeaponClassName() )
+				}
 				thread TakeTitanEarnMeterSmoke( titan )
 			}
             foreach( entity offhand in titan.GetOffhandWeapons() )
@@ -456,7 +505,9 @@ void function TitanReplace_BecomeAtlas( entity titan, bool isPickup = false, boo
 			//Weapon
             if( !isPickup )
 			{
-                titan.GiveWeapon ("mp_titanweapon_sticky_40mm", ["atlas_40mm"])
+                entity newWeapon = titan.GiveWeapon( "mp_titanweapon_sticky_40mm", ["atlas_40mm"] )
+				newWeapon.SetSkin( skinIndex )
+				newWeapon.SetCamo( camoIndex )
             }
 
 			//Titan Core
@@ -465,6 +516,11 @@ void function TitanReplace_BecomeAtlas( entity titan, bool isPickup = false, boo
             //Melee
             //titan.GiveOffhandWeapon( "melee_titan_punch_ion", OFFHAND_MELEE, ["berserker", "dash_punch"] )
 			titan.GiveOffhandWeapon( "melee_titan_punch_tone", OFFHAND_MELEE )
+
+			//Executions
+			// for classic execution titans, always restore to starter execution
+			soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ]
+			MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
         }
 	}
 }
@@ -561,6 +617,22 @@ void function TitanReplace_BecomeRonin( entity titan, bool isPickup = false, boo
 		
             //Melee
             titan.GiveOffhandWeapon( "melee_titan_sword", OFFHAND_MELEE )
+
+			//Executions
+			if ( isPickup )
+			{
+				if ( GetSoulTitanSubClass( soul ) == "stryder" ) // stryder titan
+				{
+					bool isProperLoadout = GetTitanCharacterName( titan ) == "ronin" // a ronin switching back to it's loadout
+					ChangeSoulTitanExecution( soul, "execution_ronin", "execution_random_3" )
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, !isProperLoadout )
+				}
+				else // other titans
+				{
+					soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
+				}
+			}
         }
 	}
 }
@@ -660,6 +732,22 @@ void function TitanReplace_BecomeNorthstar( entity titan, bool isPickup = false,
 		
             //Melee
             titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
+
+			//Executions
+			if ( isPickup )
+			{
+				if ( GetSoulTitanSubClass( soul ) == "stryder" ) // stryder titan
+				{
+					bool isProperLoadout = GetTitanCharacterName( titan ) == "northstar" // a northstar switching back to it's loadout
+					ChangeSoulTitanExecution( soul, "execution_northstar", "execution_random_2" )
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, !isProperLoadout )
+				}
+				else // other titans
+				{
+					soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
+				}
+			}
         }
 	}
 }
@@ -683,10 +771,22 @@ void function TitanReplace_BecomeStryder( entity titan, bool isPickup = false, b
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
             }
+			//Skin & Camo
+			int skinIndex
+			int camoIndex
 			if( !isPickup )
 			{
+				bool foundSkin = false
 				foreach( entity weapon in titan.GetMainWeapons() )
+				{
+					if ( !foundSkin )
+					{
+						skinIndex = weapon.GetSkin()
+						camoIndex = weapon.GetCamo()
+						foundSkin = true
+					}
 					titan.TakeWeaponNow( weapon.GetWeaponClassName() )
+				}
 				thread TakeTitanEarnMeterSmoke( titan )
 			}
             foreach( entity offhand in titan.GetOffhandWeapons() )
@@ -726,8 +826,10 @@ void function TitanReplace_BecomeStryder( entity titan, bool isPickup = false, b
             if( !isPickup )
 			{
                 //titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream" )
-				titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["stryder_xo16"] )
-            }
+				entity newWeapon = titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["stryder_xo16"] )
+				newWeapon.SetSkin( skinIndex )
+				newWeapon.SetCamo( camoIndex )
+			}
 
 			//Titan Core
 			titan.GiveOffhandWeapon( "mp_titancore_shift_core", OFFHAND_EQUIPMENT, ["dash_core"] )
@@ -738,6 +840,11 @@ void function TitanReplace_BecomeStryder( entity titan, bool isPickup = false, b
             //titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE, ["berserker", "dash_punch"] )
 			titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
 			//titan.GiveOffhandWeapon( "melee_titan_sword", OFFHAND_MELEE )
+
+			//Executions
+			// for classic execution titans, always restore to starter execution
+			soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ]
+			MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
 		}
 	}
 }
@@ -831,6 +938,22 @@ void function TitanReplace_BecomeScorch( entity titan, bool isPickup = false, bo
 		
             //Melee
             titan.GiveOffhandWeapon( "melee_titan_punch_scorch", OFFHAND_MELEE )
+
+			//Executions
+			if ( isPickup )
+			{
+				if ( GetSoulTitanSubClass( soul ) == "ogre" ) // ogre titan
+				{
+					bool isProperLoadout = GetTitanCharacterName( titan ) == "scorch" // a scorch switching back to it's loadout
+					ChangeSoulTitanExecution( soul, "execution_scorch", "execution_random_1" )
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, !isProperLoadout )
+				}
+				else // other titans
+				{
+					soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
+				}
+			}
         }
 	}
 }
@@ -927,6 +1050,18 @@ void function TitanReplace_BecomeLegion( entity titan, bool isPickup = false, bo
 		
             //Melee
             titan.GiveOffhandWeapon( "melee_titan_punch_legion", OFFHAND_MELEE )
+
+			if ( GetSoulTitanSubClass( soul ) == "ogre" ) // ogre titan
+			{
+				bool isProperLoadout = GetTitanCharacterName( titan ) == "legion" // a legion switching back to it's loadout
+				ChangeSoulTitanExecution( soul, "execution_legion", "execution_random_5" )
+				MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, !isProperLoadout )
+			}
+			else // other titans
+			{
+				soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+				MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
+			}
         }
 	}
 }
@@ -998,6 +1133,11 @@ void function TitanReplace_BecomeOgre( entity titan, bool isPickup = false, bool
             //Melee
             //titan.GiveOffhandWeapon( "melee_titan_punch_legion", OFFHAND_MELEE, ["berserker", "dash_punch"] )
 			titan.GiveOffhandWeapon( "melee_titan_punch_legion", OFFHAND_MELEE )
+
+			//Executions
+			// for classic execution titans, always restore to starter execution
+			soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ]
+			MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
 		}
 	}
 }
@@ -1131,6 +1271,23 @@ void function TitanReplace_BecomeMonarch( entity titan, bool isPickup = false, b
 		
             //Melee
             titan.GiveOffhandWeapon( "melee_titan_punch_vanguard", OFFHAND_MELEE )
+
+			
+			//Executions
+			if ( isPickup )
+			{
+				if ( GetSoulTitanSubClass( soul ) == "atlas" ) // atlas titan
+				{
+					bool isProperLoadout = GetTitanCharacterName( titan ) == "vanguard" // a monarch switching back to it's loadout(technically impossible)
+					ChangeSoulTitanExecution( soul, "", "execution_random_6" ) // mornarch don't have _prime suffix ones, leave it empty
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, !isProperLoadout )
+				}
+				else // other titans
+				{
+					soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+					MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
+				}
+			}
         }
 	}
 }
@@ -1154,10 +1311,22 @@ void function TitanReplace_BecomeArchon( entity titan, bool isPickup = false, bo
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
             }
+			//Skin & Camo
+			int skinIndex
+			int camoIndex
 			if( !isPickup )
 			{
+				bool foundSkin = false
 				foreach( entity weapon in titan.GetMainWeapons() )
+				{
+					if ( !foundSkin )
+					{
+						skinIndex = weapon.GetSkin()
+						camoIndex = weapon.GetCamo()
+						foundSkin = true
+					}
 					titan.TakeWeaponNow( weapon.GetWeaponClassName() )
+				}
 			}
             foreach( entity offhand in titan.GetOffhandWeapons() )
 			{
@@ -1190,7 +1359,9 @@ void function TitanReplace_BecomeArchon( entity titan, bool isPickup = false, bo
 			//Weapon
 			if( !isPickup )
 			{
-				titan.GiveWeapon ( "mp_titanweapon_meteor", ["storm_launcher", "fd_wpn_upgrade_1"] )
+				entity newWeapon = titan.GiveWeapon( "mp_titanweapon_meteor", ["storm_launcher", "fd_wpn_upgrade_1"] )
+				newWeapon.SetSkin( skinIndex )
+				newWeapon.SetCamo( camoIndex )
 			}
 
 			//Titan Core
@@ -1198,6 +1369,11 @@ void function TitanReplace_BecomeArchon( entity titan, bool isPickup = false, bo
 
 			//Melee
 			titan.GiveOffhandWeapon( "melee_titan_punch_ion", OFFHAND_MELEE )
+
+			//Executions
+			// for modded titans, always try to use callbacks
+			soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+			MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
 		}
 	}
 }
@@ -1265,6 +1441,11 @@ void function TitanReplace_BecomeBrute( entity titan, bool isPickup = false, boo
 
 			//Melee
 			titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
+
+			//Executions
+			// for modded titans, always try to use callbacks
+			soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+			MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
 		}
 	}
 }
@@ -1348,6 +1529,11 @@ void function TitanReplace_BecomeModdedBrute4( entity titan, bool isPickup = fal
 
 			//Melee
 			titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
+
+			//Executions
+			// for modded titans, always try to use callbacks
+			soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+			MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
 		}
 	}
 }
@@ -1432,6 +1618,11 @@ void function TitanReplace_BecomeModdedArchon( entity titan, bool isPickup = fal
 
 			//Melee
 			titan.GiveOffhandWeapon( "melee_titan_punch_ion", OFFHAND_MELEE )
+
+			//Executions
+			// for modded titans, always try to use callbacks
+			soul.soul.titanLoadout.titanExecution = file.soulExecutionRefTable[ soul ] // restore to starter execution
+			MeleeSyncedTitan_SetSoulUseExecutionCallback( soul, true ) // enable execution callbacks for them
 		}
 	}
 }
@@ -1702,6 +1893,10 @@ void function RegisterLegionTitanPick()
 	TitanPick_RegisterTitanWeaponDrop( "legion", LegionWeaponWeaponPropFunc, LegionWeaponDisplayNameFunc, TitanReplace_BecomeLegion )
 	TitanPick_AddIllegalWeaponMod( "Smart_Core" )
 	TitanPick_AddIllegalWeaponMod( "LongRangeAmmo" )
+	TitanPick_AddIllegalWeaponMod( "CloseRangePowerShot" )
+	TitanPick_AddIllegalWeaponMod( "pas_CloseRangePowerShot" )
+	TitanPick_AddIllegalWeaponMod( "LongRangePowerShot" )
+	TitanPick_AddIllegalWeaponMod( "pas_LongRangePowerShot" )
 }
 
 entity function LegionWeaponWeaponPropFunc( entity weapon, vector origin, vector angles )
@@ -2049,23 +2244,10 @@ void function RemoveUnmatchedPassive( entity titan )
 	if( !titan.IsPlayer() )
 		return
 
-	entity soul = titan.GetTitanSoul()
-	string setFile
+	string charaName = GetTitanCharacterName( titan )
 
-	if ( titan.IsPlayer() )
-	{
-		setFile = titan.GetPlayerSettings()
-	}
-	else
-	{
-		string aiSettingsFile = titan.GetAISettingsName()
-		setFile = expect string( Dev_GetAISettingByKeyField_Global( aiSettingsFile, "npc_titan_player_settings" ) )
-	}
-
-    if(
-        setFile != "titan_atlas_stickybomb" ||
-        setFile != "titan_atlas_ion_prime"
-    )
+	// ion
+    if ( charaName != "ion" )
 	{
 		TakePassive( titan, ePassives.PAS_ION_TRIPWIRE )
 		TakePassive( titan, ePassives.PAS_ION_VORTEX )
@@ -2074,10 +2256,8 @@ void function RemoveUnmatchedPassive( entity titan )
 		TakePassive( titan, ePassives.PAS_ION_WEAPON_ADS )
 	}
 
-    if(
-        setFile != "titan_atlas_tracker" ||
-        setFile != "titan_atlas_tone_prime"
-    )
+	// tone
+    if ( charaName != "tone" )
 	{
         TakePassive( titan, ePassives.PAS_TONE_BURST )
 		TakePassive( titan, ePassives.PAS_TONE_ROCKETS )
@@ -2086,10 +2266,8 @@ void function RemoveUnmatchedPassive( entity titan )
 		TakePassive( titan, ePassives.PAS_TONE_WEAPON )
 	}
 
-    if(
-        setFile != "titan_stryder_leadwall" ||
-        setFile != "titan_stryder_ronin_prime"
-    )
+	// ronin
+	if ( charaName != "ronin" )
 	{
         TakePassive( titan, ePassives.PAS_RONIN_ARCWAVE )
 		TakePassive( titan, ePassives.PAS_RONIN_AUTOSHIFT )
@@ -2098,10 +2276,8 @@ void function RemoveUnmatchedPassive( entity titan )
 		TakePassive( titan, ePassives.PAS_RONIN_WEAPON )
 	}
 
-    if(
-        setFile != "titan_stryder_sniper" ||
-        setFile != "titan_stryder_northstar_prime"
-    )
+	// northstar
+	if ( charaName != "northstar" )
 	{
         TakePassive( titan, ePassives.PAS_NORTHSTAR_CLUSTER )
 		TakePassive( titan, ePassives.PAS_NORTHSTAR_FLIGHTCORE )
@@ -2110,10 +2286,8 @@ void function RemoveUnmatchedPassive( entity titan )
 		TakePassive( titan, ePassives.PAS_NORTHSTAR_WEAPON )
 	}
 
-    if(
-        setFile != "titan_ogre_meteor" ||
-        setFile != "titan_ogre_scorch_prime"
-    )
+	// scorch
+    if ( charaName != "scorch" )
 	{
         TakePassive( titan, ePassives.PAS_SCORCH_FIREWALL )
 		TakePassive( titan, ePassives.PAS_SCORCH_FLAMECORE )
@@ -2122,10 +2296,8 @@ void function RemoveUnmatchedPassive( entity titan )
 		TakePassive( titan, ePassives.PAS_SCORCH_WEAPON )
 	}
 
-    if(
-        setFile != "titan_ogre_minigun" ||
-        setFile != "titan_ogre_legion_prime"
-    )
+	// legion
+    if ( charaName != "legion" )
 	{
         TakePassive( titan, ePassives.PAS_LEGION_CHARGESHOT )
 		TakePassive( titan, ePassives.PAS_LEGION_GUNSHIELD )
@@ -2134,4 +2306,31 @@ void function RemoveUnmatchedPassive( entity titan )
 		TakePassive( titan, ePassives.PAS_LEGION_WEAPON )
 	}
 
+}
+
+void function ChangeSoulTitanExecution( entity soul, string desiredRef = "", string desiredRandomRef = "" )
+{
+	TitanLoadoutDef loadout = soul.soul.titanLoadout
+	if ( desiredRandomRef != "" )
+	{
+		string curRef = loadout.titanExecution
+		bool isRandom = curRef.find( "random" ) != null //
+		print( "isRandom: " + string ( isRandom ) )
+		if ( isRandom )
+		{
+			print( "soul has random execution, try changing to new one: " + desiredRandomRef )
+			soul.soul.titanLoadout.titanExecution = desiredRandomRef
+			return
+		}
+	}
+
+	if ( desiredRef != "" )
+	{
+		string primeSuffix = ""
+		if ( loadout.isPrime == "titan_is_prime" )
+			primeSuffix = "_prime"
+		string newRef = desiredRef + primeSuffix
+		print( "try changing to execution: " + newRef )
+		soul.soul.titanLoadout.titanExecution = newRef
+	}
 }
