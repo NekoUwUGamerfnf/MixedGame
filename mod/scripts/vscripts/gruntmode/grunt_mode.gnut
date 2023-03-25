@@ -2,7 +2,7 @@ untyped
 global function Modded_Gamemode_GruntMode_Init
 
 // npc counts
-const int SQUADS_PER_TEAM = 6
+const int SQUADS_PER_TEAM = 5
 const int SQUADS_PER_TEAM_MORE_PLAYERS = 3 // maybe do reduced squad if we have more players
 const int REAPERS_PER_TEAM = 2
 
@@ -63,7 +63,7 @@ struct
 	array< bool > reapers = [ false, false ]
 
 	array< bool > marvins = [ false, false ]
-	array< bool > prowlers = [ false, false ]
+	array< bool > prowlers = [ false, false ] // bind with stalkers
 	array< bool > weapondrops = [ false, false ]
 
 	array< bool > gunships = [ false, false ]
@@ -129,6 +129,7 @@ void function OnPlaying()
 	{
 		thread SpawnIntroBatch( TEAM_MILITIA )
 		thread SpawnIntroBatch( TEAM_IMC )
+		TryCleanupBoredNPCGameLong() // cleaning up
 	}
 }
 
@@ -330,7 +331,9 @@ void function Spawner( int team )
 			}
 
 			// NORMAL SPAWNS
-			int maxSquads = ReachedPlayerCheckAmount() ? SQUADS_PER_TEAM_MORE_PLAYERS : SQUADS_PER_TEAM
+			int maxSquads = SQUADS_PER_TEAM
+			if ( ReachedPlayerCheckAmount() && file.reapers[ index ] ) // if we have pretty much players and reached reaper level
+				maxSquads = SQUADS_PER_TEAM_MORE_PLAYERS // do reduced minions count
 			if ( count < maxSquads * 4 - 2 )
 			{
 				if ( RandomInt( 3 ) > 0 ) // 66% chance of spawning a specialist squad(??
@@ -641,9 +644,6 @@ void function SquadHandler( array<entity> guys )
 		// show on enemy radar
 		foreach ( player in players )
 			guy.Minimap_AlwaysShow( 0, player )
-		
-		
-		//thread AITdm_CleanupBoredNPCThread( guy )
 	}
 	
 	// Every 5 - 15 secs change AssaultPoint
@@ -699,9 +699,6 @@ void function TitanHandler( entity titan )
 	foreach ( player in players )
 		titan.Minimap_AlwaysShow( 0, player )
 	
-	
-	//thread AITdm_CleanupBoredNPCThread( guy )
-	
 	// Every 5 - 15 secs change AssaultPoint
 	while ( true )
 	{	
@@ -737,11 +734,33 @@ void function ReaperHandler( entity reaper )
 	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
 	foreach ( player in players )
 		reaper.Minimap_AlwaysShow( 0, player )
-
-	thread AITdm_CleanupBoredNPCThread( reaper )
 }
 
-void function AITdm_CleanupBoredNPCThread( entity guy )
+void function TryCleanupBoredNPCGameLong()
+{
+	thread TryCleanupBoredNPCGameLong_Threaded()
+}
+
+void function TryCleanupBoredNPCGameLong_Threaded()
+{
+	// keep searching new npcs and run CleanupBoredNPCThread() for them
+	while ( true )
+	{
+		foreach ( entity npc in GetNPCArray() )
+		{
+			if ( !( "waitingToBeCleanUp" in npc.s ) )
+				npc.s.waitingToBeCleanUp <- false
+			if ( !npc.s.waitingToBeCleanUp )
+			{
+				thread CleanupBoredNPCThread( npc )
+				npc.s.waitingToBeCleanUp = true
+			}
+		}
+		WaitFrame()
+	}
+}
+
+void function CleanupBoredNPCThread( entity guy )
 {
 	// track all ai that we spawn, ensure that they're never "bored" (i.e. stuck by themselves doing fuckall with nobody to see them) for too long
 	// if they are, kill them so we can free up slots for more ai to spawn
@@ -751,15 +770,16 @@ void function AITdm_CleanupBoredNPCThread( entity guy )
 	// vanilla probably messes more with making ai assaultpoint to fights when inactive and stuff like that, we don't do this so much
 
 	guy.EndSignal( "OnDestroy" )
-	wait 15.0 // cover spawning time from dropship/pod + before we start cleaning up
+	// cover spawning time from dropship/pod + before we start cleaning up
+	WaitFrame()
+	while ( IsValid( guy.GetParent() ) )
+		WaitFrame()
 
+	vector lastCheckOrigin // if they get stucked we also clean up
 	int cleanupFailures = 0 // when this hits 2, cleanup the npc
 	while ( cleanupFailures < 2 )
 	{
-		wait 10.0
-
-		if ( guy.GetParent() != null )
-			continue // never cleanup while spawning
+		wait 5.0
 
 		array<entity> otherGuys = GetPlayerArray()
 		otherGuys.extend( GetNPCArrayOfTeam( GetOtherTeam( guy.GetTeam() ) ) )
@@ -797,12 +817,17 @@ void function AITdm_CleanupBoredNPCThread( entity guy )
 			failedChecks = true
 		}
 
+		if ( Distance( guy.GetOrigin(), lastCheckOrigin ) <= 64 ) // assume they're not moving
+			failedChecks = true // mark as checks failed
+
 		if ( failedChecks )
 			cleanupFailures++
 		else
 			cleanupFailures--
+
+		lastCheckOrigin = guy.GetOrigin()
 	}
 
 	print( "cleaning up bored npc: " + guy + " from team " + guy.GetTeam() )
-	guy.Destroy()
+	guy.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 ) // dissolve them to have better visual
 }
