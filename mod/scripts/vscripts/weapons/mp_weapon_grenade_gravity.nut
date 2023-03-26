@@ -105,7 +105,7 @@ void function SetGravityGrenadeTriggerFilters( entity gravityMine, entity trig )
 	// modifiers
 	array<string> mods = gravityMine.ProjectileGetMods()
 	// friendlyFire condition
-	if ( mods.contains( "friendlyfire_weapon" ) || IsFriendlyFireOn() )
+	if ( mods.contains( "friendlyfire_weapon" ) || FriendlyFire_IsEnabled() )
 	{
 		// remove all filters
 		trig.kv.triggerFilterTeamIMC = "0"
@@ -150,7 +150,7 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 
 	// modifiers
 	array<string> mods = projectile.ProjectileGetMods()
-	if( mods.contains( "friendlyfire_weapon" ) || IsFriendlyFireOn() )
+	if( mods.contains( "friendlyfire_weapon" ) || FriendlyFire_IsEnabled() )
 		SetTeam( projectile, TEAM_UNASSIGNED ) // pull all players
 
 	vector pullPosition
