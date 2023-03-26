@@ -3064,7 +3064,7 @@ void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInf
 	//if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() )
 	if( !IsValid( attacker ) )  // we added friendly fire, do a new check now!
 		return
-	if( attacker.GetTeam() == ent.GetTeam() && !_rodeo_titan.gnut() )
+	if( attacker.GetTeam() == ent.GetTeam() && !FriendlyFire_IsEnabled() )
 		return
 
 	Elecriticy_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE )
