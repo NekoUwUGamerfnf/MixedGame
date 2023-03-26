@@ -1,0 +1,67 @@
+global function Pilot_CrouchWalk_Init
+
+const float RAVENANT_CROUCH_BOOST_SEVERITY = 0.58 // this is 172.24, match walk speed 173.50
+const float GRUNT_CROUCH_BOOST_SEVERITY = 0.58 // this is 172.24, match walk speed 173.50
+
+void function Pilot_CrouchWalk_Init()
+{
+    RegisterSignal( "PilotCrouchWalkThink" )
+    // ttf2 don't have other ways to modify classmods other than change class, so this is enough
+    AddCallback_PlayerClassChanged( OnPlayerClassChanged )
+}
+
+void function OnPlayerClassChanged( entity player )
+{
+    thread PilotCrouchWalkThink( player )
+}
+
+void function PilotCrouchWalkThink( entity player )
+{
+    // only run for living players( dead players will also change class to "spectator", prevent it )
+	if ( !IsAlive( player ) )
+		return
+
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.Signal( "PilotCrouchWalkThink" )
+	player.EndSignal( "PilotCrouchWalkThink" )
+
+	// check wallclimb mod, ttf2 don't have other ways to modify classmods than change class so this is enough
+	bool hasCrouchBoost = false
+    float boostSeverity
+	array<string> classMods = player.GetPlayerSettingsMods()
+	// ravenant crouch
+	if ( classMods.contains( "ravenant_ability" ) ) 
+	{
+		hasCrouchBoost = true
+		boostSeverity = RAVENANT_CROUCH_BOOST_SEVERITY
+	}
+	// gruntmode crouch boost
+	if ( classMods.contains( "courch_walk_boost" ) )
+	{
+		hasCrouchBoost = true
+		boostSeverity = GRUNT_CROUCH_BOOST_SEVERITY
+	}
+
+    if ( !hasCrouchBoost )
+        return
+
+    int crouchBoostHandle = -1
+    while ( true )
+    {
+        WaitFrame() // just enough
+
+        if ( !player.IsOnGround() || player.IsWallRunning() )
+            continue
+
+        if ( player.IsCrouched() && crouchBoostHandle == -1 ) // completely crouched, don't have to check sliding since slide in ttf2 not affected by speed_boost
+        {
+            crouchBoostHandle = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, boostSeverity )
+        }
+        else if ( !player.IsCrouched() && crouchBoostHandle != -1 ) // not crouched
+        {
+            StatusEffect_Stop( player, crouchBoostHandle )
+            crouchBoostHandle = -1
+        }
+    }
+}
