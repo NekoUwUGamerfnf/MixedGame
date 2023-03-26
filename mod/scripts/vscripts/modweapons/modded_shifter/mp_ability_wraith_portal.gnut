@@ -16,15 +16,18 @@ const float PORTAL_DURATION = 30 // should be a multipiler of PORTAL_FX_TICKRATE
 const float PORTAL_MAX_DISTANCE = 4200 // was 3500, may should set higher since lastPos wasn't very accurate
 const float PORTAL_CANCEL_PERCENTAGE = 0.95 // lower than this will be consider as cancelling a portal placement
 //const float PORTAL_MIN_DISTANCE = 150 // using PORTAL_CANCEL_PERCENTAGE
-const float PORTAL_TRAVEL_LENGTH_MAX = 2.0 // // should match PORTAL_MAX_DISTANCE, but don't know how to calculate now
-const float PORTAL_TRAVEL_LENGTH_MIN = 0.4 // min phase duation, basically shouldn't have a limit
+const float PORTAL_TRAVEL_DURATION_MAX = 2.0 // // should match PORTAL_MAX_DISTANCE, but don't know how to calculate now, don't change
+const float PORTAL_TRAVEL_DURATION_MIN = 0.4 // min phase duation, basically shouldn't have a limit(the travel lasts at least 2 ticks)
 //const float PORTAL_TRAVEL_TICKRATE = PORTAL_TICKRATE / 5 // travel tickrate, let's ingore this shit
 const float PORTAL_WARP_TIME_PER_SEGMENT = 0.2 // better don't change this, if changed, should set highter than 0.1
-const float PORTAL_NODES_MAX = PORTAL_TRAVEL_LENGTH_MAX / PORTAL_WARP_TIME_PER_SEGMENT // use for checking overloaded nodes
+const float PORTAL_NODES_MAX = PORTAL_TRAVEL_DURATION_MAX / PORTAL_WARP_TIME_PER_SEGMENT // use for checking overloaded nodes
 //const float PORTAL_NODES_MIN = 8 // no need for now
 const float PORTAL_DEPLOY_TIME = 1.2 // defensive fix
 const float PORTAL_COOLDOWN_TIME = 1.5
 const float PORTAL_FX_TICKRATE = 1.5
+
+// portal modifiers
+const float PORTAL_MAX_DISTANCE_GRUNT = 3200 // grunt mode specific: destroy portals on death, less distance
 
 const bool shouldDoWarpEffect = true // warp is so annoying! can turn it off if need( before I able to remove extra nodes )
 
@@ -153,29 +156,23 @@ void function PortalStart( entity player, entity weapon )
 		return
 	if( !IsValid( weapon ) )
 		return
-	// why signals not work?
-	//player.EndSignal( "OnDeath" )
-	//player.EndSignal( "OnDestroy" )
-	//player.EndSignal( "PlacedPortal" )
-	//weapon.EndSignal( "OnDestroy" )
+
 	bool isInfiniteDistance = false
 	bool isInfiniteDuration = false
+	bool isGruntModeVer = false
 	if( IsValid( weapon ) )
 	{
 		weapon.AddMod( "no_regen" )
+		thread PortalWeaponForcedAmmo( player, weapon ) // prevent weapon regening any ammo through other methods
 		if( weapon.HasMod( "infinite_distance_portal" ) )
 			isInfiniteDistance = true
 		if( weapon.HasMod( "infinite_duration_portal" ) )
 			isInfiniteDuration = true
+		if ( weapon.HasMod( "gm_phasewalker" ) )
+			isGruntModeVer = true
 		//weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() / 2 )
 	}
 
-	// moved to OnWeaponTossPrep() for better visual
-	//SendHudMessage( player,"正在架设传送门", -1, 0.65, 255, 255, 100, 1, 0, 3, 0 )
-
-	//wait PORTAL_DEPLOY_TIME // defensive fix
-	//if( !IsAlive( player ) ) // if player died before actually starting placing portal, just return
-	//	return
 	// should set up down here
 	thread PortalStartPointIndicator( player, weapon )
 	
@@ -183,7 +180,7 @@ void function PortalStart( entity player, entity weapon )
 	file.playerPlacingPortal[ playerUID ] = true
 
 	int statusEffect = -1
-	if( !isInfiniteDistance ) // infinite duration portal don't have a speed boost
+	if( !isInfiniteDistance && !isGruntModeVer ) // infinite duration portal don't have a speed boost, also grunt mode version
 		statusEffect = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, PORTAL_SPEED_BOOST_SEVERITY )
 	entity portalTrail = CreatePhaseShiftTrail( player )
 
@@ -206,26 +203,12 @@ void function PortalStart( entity player, entity weapon )
 	else if( TraceLine( player.GetOrigin(), player.GetOrigin() + ROOFCHECK_HEIGHT, [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE ).hitEnt != null )
 		startPos -= < 0,0,FIX_AMOUNT >
 	vector lastTickPos = player.GetOrigin()
-	float portalLeft = PORTAL_MAX_DISTANCE
-	float startTime = Time()
 
-	/* // shouldn't be at the bottom of the function, or it will be pretty messed up
-	OnThreadEnd(
-		function() : ( player, playerUID, weapon, startPos, startAng, progressVecs, progressAngs, travelTime, statusEffect, stimFX )
-		{
-			thread DelayedClearTable( playerUID )
-			if( IsValid( player ) )
-			{
-				StatusEffect_Stop( player, statusEffect )
-				StopSoundOnEntity( player, "Pilot_PhaseShift_Loop_1P" )
-				StopSoundOnEntity( player, "Pilot_PhaseShift_Loop_3P" )
-				PortalEnd( player, weapon, startPos, startAng, progressVecs, progressAngs, travelTime )
-			}
-			if( IsValid( stimFX ) )
-				EffectStop( stimFX )
-		}
-	)
-	*/
+	float maxPortalLength = PORTAL_MAX_DISTANCE
+	if ( isGruntModeVer )
+		maxPortalLength = PORTAL_MAX_DISTANCE_GRUNT
+	float portalLeft = maxPortalLength
+	float startTime = Time()
 	
 	while( true )
 	{
@@ -250,13 +233,6 @@ void function PortalStart( entity player, entity weapon )
 						break
 				}
 			}
-			/*
-			SendHudMessage( player,"传送门距离剩余：" + string( ( 1 - distance / PORTAL_MAX_DISTANCE ) * 100 ) + "%", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
-			if( player.GetVelocity() != < 0,0,0 > )
-				travelTime += PORTAL_TICKRATE
-			if( travelTime >= PORTAL_TRAVEL_LENGTH_MAX )
-				travelTime = PORTAL_TRAVEL_LENGTH_MAX
-			*/
 			if( player.GetVelocity() != < 0,0,0 > )
 			{
 				progressPoses.append( player.GetOrigin() )
@@ -276,7 +252,7 @@ void function PortalStart( entity player, entity weapon )
 				SendHudMessage( player,"传送门距离剩余：无限制", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
 				continue
 			}
-			float portalPercentage = portalLeft / PORTAL_MAX_DISTANCE * 100
+			float portalPercentage = float( int ( portalLeft / maxPortalLength * 10000 ) ) / 100 // leave 2 sorts
 			if( portalPercentage <= 0 )
 				portalPercentage = 0
 			SendHudMessage( player,"传送门距离剩余：" + string( portalPercentage ) + "%", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
@@ -295,6 +271,18 @@ void function PortalStart( entity player, entity weapon )
 	}
 	if( IsValid( portalTrail ) )
 		EffectStop( portalTrail )
+}
+
+void function PortalWeaponForcedAmmo( entity owner, entity weapon )
+{
+	weapon.EndSignal( "OnDestroy" )
+	owner.EndSignal( "PlacedPortal" ) // until owner place portal
+	int ammoToKeep = weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+	while ( true )
+	{
+		weapon.SetWeaponPrimaryClipCountAbsolute( ammoToKeep )
+		WaitFrame()
+	}
 }
 
 void function PortalEnd( entity player, entity weapon, vector startPos, vector startAng, array<vector> progressPoses, array<vector> progressAngs, array<bool> wasCrouchedArray, float travelTime, float portalLeft, bool isInfiniteDistance, bool isInfiniteDuration )
@@ -317,20 +305,19 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	EmitSoundOnEntity( player, SHIFTER_END_SOUND_3P )
 	//PlayFX( $"P_phase_shift_main", player.GetOrigin() ) // using cooldown management to do this
 
-	/* //using PORTAL_CANCEL_PERCENTAGE
-	if( fabs( Distance2D( startPos, endPos ) ) <= PORTAL_MIN_DISTANCE )
+	bool isGruntModeVer = weapon.HasMod( "gm_phasewalker" )
+	float maxPortalLength = PORTAL_MAX_DISTANCE
+	if ( isGruntModeVer )
+		maxPortalLength = PORTAL_MAX_DISTANCE_GRUNT
+	if( portalLeft / maxPortalLength >= PORTAL_CANCEL_PERCENTAGE && !isInfiniteDistance )
 	{
 		SendHudMessage( player,"传送门放置已取消", -1, 0.65, 255, 255, 100, 1, 0, 4, 0 )
 		thread DelayedRechargeWeapon( weapon )
 		return
 	}
-	*/
-	if( portalLeft / PORTAL_MAX_DISTANCE >= PORTAL_CANCEL_PERCENTAGE && !isInfiniteDistance )
-	{
-		SendHudMessage( player,"传送门放置已取消", -1, 0.65, 255, 255, 100, 1, 0, 4, 0 )
-		thread DelayedRechargeWeapon( weapon )
+	// grunt mode ver
+	if ( isGruntModeVer && !IsAlive( player ) ) // grunt player died
 		return
-	}
 
 	// idk how to use it
 	//DebugDrawCircle( startPos, startAng, 60, 128, 255, 128, false, PORTAL_DURATION, 32 )
@@ -369,7 +356,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	if( progressPoses.len() > PORTAL_NODES_MAX * 4 )
 	{
 		array<vector> tempVectors
-		float overTime = travelTime - PORTAL_TRAVEL_LENGTH_MAX
+		float overTime = travelTime - PORTAL_TRAVEL_DURATION_MAX
 		float overTicks = overTime / PORTAL_TICKRATE - 0.01 // hardcoded fix!
 		int segment = int( progressPoses.len() / PORTAL_NODES_MAX )
 		for( int i = 0; i < overTicks; i++ )
@@ -420,87 +407,6 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	//print( "Total travelTime is " + string( travelTime ) )
 	//print( "Total nodes.len() is " + string( progressPoses.len() ) )
 
-	//if( progressPoses.len() >= PORTAL_NODES_MAX )
-	/* // HACK!!! using hardcoded checking now!
-	if( travelTime > PORTAL_TRAVEL_LENGTH_MAX && progressPoses.len() > PORTAL_NODES_MAX && PORTAL_MAX_DISTANCE - portalLeft > PORTAL_MAX_DISTANCE * 0.3 )
-	{
-		//print( "[PORTAL] Travel time is larger than length_max and nodes are more than nodes_max" )
-		array<vector> tempVectors
-		float overTime = travelTime - PORTAL_TRAVEL_LENGTH_MAX
-		float overTicks = overTime / PORTAL_TICKRATE - 0.01 // hardcoded fix!
-		int segment = int( progressPoses.len() / PORTAL_NODES_MAX )
-		for( int i = 0; i < overTicks; i++ )
-		{
-			if( progressPoses.len() <= segment * i )
-				break
-			tempVectors.append( progressPoses[ segment * i ] )
-			//print( "[PORTAL] New Position index is: " + string( segment * i ) )
-		}
-		travelTime = tempVectors.len() * 0.15
-		progressPoses = tempVectors
-		//print( "[PORTAL] Nodes count reset to " + string( progressPoses.len() ) + ", and travel time has been set to " + string( travelTime ) )
-	}
-	else if( progressPoses.len() >= PORTAL_NODES_MAX )
-	{
-		//print( "[PORTAL] Nodes are more than nodes_max" )
-		array<vector> tempVectors
-		for( int i = 0; i < progressPoses.len() - 1; i++ )
-		{
-			if( i * 2 < progressPoses.len() - 1 )
-				tempVectors.append( progressPoses[ i * 2 ] )
-		}
-		travelTime = tempVectors.len() * 0.15
-		progressPoses = tempVectors
-		//print( "[PORTAL] Nodes count reset to " + string( progressPoses.len() ) + ", and travel time has been set to " + string( travelTime ) )
-	}
-	else if( travelTime >= PORTAL_TRAVEL_LENGTH_MAX )
-	{
-		//print( "[PORTAL] Travel time is larger than length_max" )
-		array<vector> tempVectors
-		for( int i = 0; i < progressPoses.len() - 1; i++ )
-		{
-			if( i * 2 < progressPoses.len() - 1 )
-				tempVectors.append( progressPoses[ i * 2 ] )
-		}
-		travelTime = tempVectors.len() * 0.15
-		progressPoses = tempVectors
-		//print( "[PORTAL] Nodes count reset to " + string( progressPoses.len() ) + ", and travel time has been set to " + string( travelTime ) )
-	}
-
-	// these works fine with very high portal distance, but fucked up with normal distance
-	if( progressPoses.len() > PORTAL_NODES_MAX )
-	{
-		print( "[PORTAL] Travel time is larger than length_max and nodes are more than nodes_max" )
-		array<vector> tempVectors
-		float overTime = travelTime - PORTAL_TRAVEL_LENGTH_MAX
-		float overTicks = overTime / PORTAL_TICKRATE - 0.01 // hardcoded fix!
-		int segment = int( progressPoses.len() / PORTAL_NODES_MAX )
-		for( int i = 0; i < overTicks; i++ )
-		{
-			if( progressPoses.len() <= segment * i )
-				break
-			tempVectors.append( progressPoses[ segment * i ] )
-			print( "[PORTAL] New Position index is: " + string( segment * i ) )
-		}
-		travelTime = tempVectors.len() * 0.15
-		progressPoses = tempVectors
-		print( "[PORTAL] Nodes count reset to " + string( progressPoses.len() ) + ", and travel time has been set to " + string( travelTime ) )
-	}
-	else
-	{
-		print( "[PORTAL] Travel time is smaller than length_max" )
-		array<vector> tempVectors
-		for( int i = 0; i < progressPoses.len() - 1; i++ )
-		{
-			if( i * 2 < progressPoses.len() - 1 )
-				tempVectors.append( progressPoses[ i * 2 ] )
-		}
-		travelTime = tempVectors.len() * 0.15
-		progressPoses = tempVectors
-		print( "[PORTAL] Nodes count reset to " + string( progressPoses.len() ) + ", and travel time has been set to " + string( travelTime ) )
-	}
-	*/
-
 	// reverse start & end origin and angle
 	PortalStruct startStruct
 	startStruct.goalPos = endPos
@@ -530,20 +436,6 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	file.portalGoalTable[ endTrig ] <- endStruct
 	SetTeam( endTrig, TEAM_MILITIA )
 
-	/* // no need to try this, seriously
-	startTrig.SetAngles( startAng )
-	startTrig.kv.fadedist = travelTime // to save travel duration
-	SetTeam( startTrig, TEAM_IMC ) // to check if it's start or end, imc = startTrig, mlt = endTrig
-
-	
-	endTrig.SetAngles( endAng )
-	endTrig.kv.fadedist = travelTime
-	SetTeam( endTrig, TEAM_MILITIA )
-
-	startTrig.kv.rendercolor =  string(endTrig.x) + " " + string(endTrig.y) + " " + string(endTrig.y)//pretty silly, save fliped pos by this
-	endTrig.kv.rendercolor = string(startPos.x) + " " + string(startPos.y) + " " + string(startPos.y)
-	*/
-
 	if( !( IsValid( startTrig ) || IsValid( endTrig ) || IsValid( player ) ) )
 		return
 
@@ -566,6 +458,13 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 		thread PortalLifetimeManagement( startTrig, endTrig, 99999 )
 	else
 		thread PortalLifetimeManagement( startTrig, endTrig, PORTAL_DURATION )
+
+	// grunt mode ver
+	if ( isGruntModeVer )
+	{
+		thread PortalTriggerDestroyOwnerDeath( player, startTrig )
+		thread PortalTriggerDestroyOwnerDeath( player, endTrig )
+	}
 }
 
 void function PortalLifetimeManagement( entity startTrig, entity endTrig, float duration )
@@ -601,6 +500,15 @@ void function PortalLifetimeManagement( entity startTrig, entity endTrig, float 
 	}
 }
 
+// grunt mode version
+void function PortalTriggerDestroyOwnerDeath( entity owner, entity portalTrig )
+{
+	portalTrig.EndSignal( "OnDestroy" )
+
+	owner.WaitSignal( "OnDeath", "OnDestroy" )
+	portalTrig.Destroy()
+}
+
 void function OnPortalTiggerEnter( entity trigger, entity ent )
 {
 	if ( !ent.IsPlayer() )
@@ -625,12 +533,6 @@ void function PortalTravelThink( entity trigger, entity player )
 	player.EndSignal( "StopPhaseShift" )
 	trigger.EndSignal( "OnDestroy" )
 
-	/* no need to try this, seriously
-	array<string> originConver = split( trigger.kv.rendercolor, " " )
-	float travelTime = float( trigger.kv.fadedist )
-	vector goalOrigin = < float( originConver[0] ), float( originConver[1] ), float( originConver[2] ) >
-	vector goalAngles = trigger.GetAngles()
-	*/
 	vector goalOrigin = file.portalGoalTable[ trigger ].goalPos
 	vector goalAngles = file.portalGoalTable[ trigger ].goalAng
 	float travelTime = file.portalGoalTable[ trigger ].travelTime
@@ -657,21 +559,6 @@ void function PortalTravelThink( entity trigger, entity player )
 	}
 	float totalTime = travelTime
 	float phaseTimeMulti = 1.1
-	// CancelPhaseShift() version, don't need this
-	//if( shouldDoWarpEffect )
-	//{
-		// player.WaitSignal( "StopPhaseShift" ) version
-		//phaseTimeMulti = 0.75 // should set bit lower
-		//if( totalSegments > 11 )
-			//phaseTimeMulti = 0.83 // tempfix
-	//}
-	//if( shouldDoWarpEffect && totalTime >= PORTAL_TRAVEL_LENGTH_MAX ) // hardcoded now
-		//phaseTimeMulti = 0.75 // should set bit lower
-
-	//if( player.IsPhaseShifted() || player.GetParent() )
-	//{
-		//return
-	//}
 	if( player.GetUID() == ownerUID && !canPortalOwner )
 	{
 		return
@@ -871,18 +758,6 @@ void function PortalCooldownThink( entity player )
 	file.inPortalCooldownPlayers.fastremovebyvalue( playerUID )
 }
 
-/* // abandoned, now using a const
-void function PortalCooldownThink( entity player, float travelTime )
-{
-	if( !IsValid( player ) )
-		return
-	string playerUID = player.GetUID()
-	file.inPortalCooldownPlayers.append( playerUID )
-	wait travelTime * 1.1 + PORTAL_DEPLOY_TIME
-	file.inPortalCooldownPlayers.fastremovebyvalue( playerUID )
-}
-*/
-
 void function DelayedMakeOwnerAbleToPortal( entity trigger ) // defensive fix
 {
 	wait PORTAL_COOLDOWN_TIME //PORTAL_DEPLOY_TIME
@@ -917,349 +792,4 @@ vector function CalculateFaceToOrigin( vector startPos, vector endPos )
 	vector moveAng = VectorToAngles( posDiffer )
     return moveAng
 }
-
-/* // OnThreadEnd() messed things up
-void function PortalStart( entity player, entity weapon )
-{
-	if( !IsAlive( player ) )
-		return
-	if( !IsValid( weapon ) )
-		return
-	// why signals not work?
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "PlacedPortal" )
-	weapon.EndSignal( "OnDestroy" )
-	if( IsValid( weapon ) )
-	{
-		weapon.AddMod( "no_regen" )
-		//weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() / 2 )
-	}
-
-	// should set up down here
-	string playerUID = player.GetUID()
-	file.playerPlacingPortal[ playerUID ] = true
-
-	int statusEffect = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, PORTAL_SPEED_BOOST_SEVERITY )
-	entity stimFX = StartParticleEffectOnEntity_ReturnEntity( player, PILOT_STIM_HLD_FX, FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
-	stimFX.SetOwner( player )
-	stimFX.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY)
-
-	EmitSoundOnEntityOnlyToPlayer( player, player, SHIFTER_START_SOUND_1P )
-	EmitSoundOnEntity( player, SHIFTER_START_SOUND_3P )
-	EmitSoundOnEntityOnlyToPlayer( player, player, "Pilot_PhaseShift_Loop_1P" )
-	EmitSoundOnEntity( player, "Pilot_PhaseShift_Loop_3P" )
-	PlayFX( $"P_phase_shift_main", player.GetOrigin() )
-
-	vector startPos = player.GetOrigin()
-	vector startAng = player.EyeAngles()
-	startAng.x = 0
-	array<vector> progressPoses
-	float travelTime
-	if( player.IsOnGround() )
-		startPos += < 0,0,FIX_AMOUNT >
-	else if( TraceLine( player.GetOrigin(), player.GetOrigin() + ROOFCHECK_HEIGHT, [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE ).hitEnt != null )
-		startPos -= < 0,0,FIX_AMOUNT >
-	vector lastTickPos = player.GetOrigin()
-	float portalLeft
-
-	// shouldn't be at the bottom of the function, or it will be pretty messed up
-	OnThreadEnd(
-		function() : ( player, playerUID, weapon, startPos, startAng, progressPoses, travelTime, portalLeft, statusEffect, stimFX )
-		{
-			file.playerPlacingPortal[ playerUID ] = false
-			if( IsValid( player ) )
-			{
-				StatusEffect_Stop( player, statusEffect )
-				StopSoundOnEntity( player, "Pilot_PhaseShift_Loop_1P" )
-				StopSoundOnEntity( player, "Pilot_PhaseShift_Loop_3P" )
-				PortalEnd( player, weapon, startPos, startAng, progressPoses, travelTime, portalLeft )
-			}
-			if( IsValid( stimFX ) )
-				EffectStop( stimFX )
-		}
-	)
-	
-	portalLeft += PORTAL_MAX_DISTANCE
-	while( true )
-	{
-		wait PORTAL_TICKRATE
-		if( IsAlive( player ) )
-		{
-
-			if( portalLeft <= 0 )
-			{
-				portalLeft = 0
-				break
-			}
-			if( !IsValid( weapon ) )
-				break
-
-			if( player.GetVelocity() != < 0,0,0 > )
-			{
-				progressPoses.append( player.GetOrigin() )
-				portalLeft -= fabs( Distance2D( lastTickPos, player.GetOrigin() ) )
-				//print( "Portal Left: " + string( portalLeft ) )
-				travelTime += PORTAL_TICKRATE
-				lastTickPos = player.GetOrigin()
-			}
-			float portalPercentage = portalLeft / PORTAL_MAX_DISTANCE * 100
-			if( portalPercentage <= 0 )
-				portalPercentage = 0
-			SendHudMessage( player,"传送门距离剩余：" + string( portalPercentage ) + "%", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
-		}
-		else
-			break
-	}
-}
-
-void function PortalEnd( entity player, entity weapon, vector startPos, vector startAng, array<vector> progressPoses, float travelTime, float portalLeft )
-{
-	if( IsValid( weapon ) )
-	{
-		weapon.RemoveMod( "no_regen" )
-		weapon.SetWeaponPrimaryClipCount( 0 )
-	}
-	vector endPos = player.GetOrigin()
-	vector endAng = player.EyeAngles()
-	endAng.x = 0
-	if( player.IsOnGround() )
-		endPos += < 0,0,FIX_AMOUNT >
-	else if( TraceLine( player.GetOrigin(), player.GetOrigin() + ROOFCHECK_HEIGHT, [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE ).hitEnt != null )
-		endPos -= < 0,0,FIX_AMOUNT >
-	
-	EmitSoundOnEntity( player, SHIFTER_END_SOUND_3P )
-	PlayFX( $"P_phase_shift_main", player.GetOrigin() )
-
-	if( portalLeft / PORTAL_MAX_DISTANCE >= PORTAL_CANCEL_PERCENTAGE )
-	{
-		SendHudMessage( player,"传送门放置已取消", -1, 0.65, 255, 255, 100, 1, 0, 4, 0 )
-		weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() )
-		print( "Portal Left: " + string( portalLeft ) )
-		return
-	}
-
-	entity startTrig = CreateTriggerRadiusMultiple( startPos, 64, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, 48, 48 )
-	entity endTrig = CreateTriggerRadiusMultiple( endPos, 64, [], TRIG_FLAG_PLAYERONLY | TRIG_FLAG_NO_PHASE_SHIFT, 48, 48 )
-	
-	//print( "[PORTAL] Total travel time is " + string( travelTime ) )
-
-	// let's remove overloaded nodes
-	if( progressPoses.len() >= PORTAL_NODES_MAX )
-	{
-		array<vector> tempVectors
-		float overTime = travelTime - PORTAL_TRAVEL_LENGTH_MAX
-		float overTicks = overTime / PORTAL_TICKRATE
-		int segment = int( progressPoses.len() / PORTAL_NODES_MAX )
-		for( int i = 0; i < overTicks; i++ )
-		{
-			if( progressPoses.len() <= segment * i )
-				break
-			tempVectors.append( progressPoses[ segment * i ] )
-		}
-		travelTime = PORTAL_TRAVEL_LENGTH_MAX
-		progressPoses = tempVectors
-		//print( "[PORTAL] Nodes count reset to " + string( progressPoses.len() ) + ", and travel time has been set to " + string( travelTime ) )
-	}
-
-	// reverse start & end origin and angle
-	PortalStruct startStruct
-	startStruct.goalPos = endPos
-	startStruct.travelTime = travelTime
-	startStruct.ownerUID = player.GetUID()
-	startStruct.canPortalOwner = false
-	startStruct.savedVecs.progPoses = progressPoses // reverse while phasing back, see below
-	file.portalGoalTable[ startTrig ] <- startStruct
-	SetTeam( startTrig, TEAM_IMC ) // to check if it's start or end, imc = startTrig, mlt = endTrig
-
-	PortalStruct endStruct
-	endStruct.goalPos = startPos
-	endStruct.travelTime = travelTime
-	endStruct.ownerUID = player.GetUID()
-	endStruct.canPortalOwner = false
-	endStruct.savedVecs.progPoses = progressPoses
-	file.portalGoalTable[ endTrig ] <- endStruct
-	SetTeam( endTrig, TEAM_MILITIA )
-
-	if( !( IsValid( startTrig ) || IsValid( endTrig ) || IsValid( player ) ) )
-		return
-
-	SendHudMessage( player,"传送门已放置!", -1, 0.65, 255, 255, 100, 1, 0, 4, 0 )
-	EmitSoundAtPosition( TEAM_UNASSIGNED, startTrig.GetOrigin(), SHIFTER_END_SOUND_3P_TITAN )
-	EmitSoundAtPosition( TEAM_UNASSIGNED, endTrig.GetOrigin(), SHIFTER_END_SOUND_3P_TITAN )
-	//print( "[PORTAL] " + player.GetPlayerName() + " placed portal!" )
-
-	AddCallback_ScriptTriggerEnter( startTrig, OnPortalTiggerEnter )
-	AddCallback_ScriptTriggerEnter( endTrig, OnPortalTiggerEnter )
-
-	ScriptTriggerSetEnabled( startTrig, true )
-	ScriptTriggerSetEnabled( endTrig, true )
-
-	thread PortalLifetimeManagement( startTrig, endTrig )
-}
-
-void function PortalLifetimeManagement( entity startTrig, entity endTrig )
-{
-	float startTime = Time()
-	while( Time() < startTime + PORTAL_DURATION )
-	{
-		wait PORTAL_FX_TICKRATE
-		if( IsValid( startTrig ) )
-		{
-			EmitSoundAtPosition( TEAM_UNASSIGNED, startTrig.GetOrigin(), "Pilot_PhaseShift_WarningToEnd_3P" )
-			PlayFX( $"P_phase_shift_main", startTrig.GetOrigin() )
-		}
-		if( IsValid( endTrig ) )
-		{
-			EmitSoundAtPosition( TEAM_UNASSIGNED, endTrig.GetOrigin(), "Pilot_PhaseShift_WarningToEnd_3P" )
-			PlayFX( $"P_phase_shift_main", endTrig.GetOrigin() )
-		}
-		if( !IsValid( startTrig ) && !IsValid( endTrig ) )
-			return
-	}
-	wait PORTAL_FX_TICKRATE
-	if( IsValid( startTrig ) )
-	{
-		EmitSoundAtPosition( TEAM_UNASSIGNED, startTrig.GetOrigin(), SHIFTER_END_SOUND_3P )
-		startTrig.Destroy()
-	}
-	if( IsValid( endTrig ) )
-	{
-		EmitSoundAtPosition( TEAM_UNASSIGNED, endTrig.GetOrigin(), SHIFTER_END_SOUND_3P )
-		endTrig.Destroy()
-	}
-}
-
-void function OnPortalTiggerEnter( entity trigger, entity player )
-{
-	if( !IsValid( player ) )
-		return
-	
-	//print( "[PORTAL] Someone entered trigger!" )
-
-	thread PortalTravelThink( trigger, player )
-}
-
-void function PortalTravelThink( entity trigger, entity player )
-{
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-	trigger.EndSignal( "OnDestroy" )
-
-	vector goalOrigin = file.portalGoalTable[ trigger ].goalPos
-	float travelTime = file.portalGoalTable[ trigger ].travelTime
-	string ownerUID = file.portalGoalTable[ trigger ].ownerUID
-	bool canPortalOwner = file.portalGoalTable[ trigger ].canPortalOwner
-	array<vector> progressPoses = file.portalGoalTable[ trigger ].savedVecs.progPoses
-	
-	int totalSegments = progressPoses.len()
-	float timePerSigment = PORTAL_TICKRATE + 0.05 // needs defensive fix
-	float totalTime = travelTime
-	float phaseTimeMulti = 1.1
-	if( shouldDoWarpEffect && totalTime >= PORTAL_TRAVEL_LENGTH_MAX )
-		phaseTimeMulti = 1.5
-
-	if( player.IsPhaseShifted() )
-	{
-		return
-	}
-	if( player.GetUID() == ownerUID && !canPortalOwner )
-	{
-		file.portalGoalTable[ trigger ].canPortalOwner = true
-		//print( "[PORTAL] Set owner able to use portal!" )
-		return
-	}
-	if( file.inPortalCooldownPlayers.contains( player.GetUID() ) )
-	{
-		//print( "[PORTAL] Someone is in cooldown so cannot portal!" )
-		return
-	}
-	if( player.GetUID() in file.playerPlacingPortal )
-	{
-		if( file.playerPlacingPortal[ player.GetUID() ] )
-		{
-			return
-		}
-	}
-	if( !file.inPortalCooldownPlayers.contains( player.GetUID() ) )
-	{
-		thread PortalCooldownThink( player, totalTime * phaseTimeMulti )
-		//print( "[PORTAL] Set someone in portal cooldown!" )
-	}
-
-	entity mover = CreateOwnedScriptMover(player)
-	//shouldn't be at the bottom of the function, or it will be pretty messed up
-	OnThreadEnd(
-		function() : ( player, mover, goalOrigin )
-		{
-			if( IsValid( player ) )
-			{
-				player.SetVelocity( < 0,0,0 > )
-				player.ClearParent()
-				player.DeployWeapon()
-				player.TouchGround() // able to double jump after leaving
-				//whatever we get from segmented teleport, just set player to the right origin
-				player.SetOrigin( goalOrigin )
-				FindNearestSafeSpotAndPutEntity( entity player, 1 )
-			}
-			if( IsValid( mover ) )
-				mover.Destroy()
-		}
-	)
-	player.SetParent( mover )
-	player.HolsterWeapon()
-	PhaseShift( player, 0, totalTime * phaseTimeMulti ) // phase player, defensive fix
-	if( shouldDoWarpEffect )
-	{
-		// phase all ticks
-		if( IsValid( trigger ) )
-		{
-			if( trigger.GetTeam() == TEAM_MILITIA ) // endTrig confrimation, reversed array
-			{
-				for( int i = totalSegments - 1; i >= 0; i-- )
-				{
-					wait timePerSigment
-					mover.NonPhysicsMoveTo( progressPoses[i] , timePerSigment, 0, 0 )
-					vector curAngle = CalculateFaceToOrigin( progressPoses[i-1], progressPoses[i] )
-					mover.NonPhysicsRotateTo( curAngle, timePerSigment, 0, 0 )
-				}
-			}
-			else if( trigger.GetTeam() == TEAM_IMC ) // startTrig confrimation, reversed array
-			{
-				for( int i = 0; i <= totalSegments - 1; i++ )
-				{
-					wait timePerSigment
-					mover.NonPhysicsMoveTo( progressPoses[i] , timePerSigment, 0, 0 )
-					vector curAngle = CalculateFaceToOrigin( progressPoses[i-1], progressPoses[i] )
-					mover.NonPhysicsRotateTo( curAngle, timePerSigment, 0, 0 )
-				}
-			}
-		}
-		wait totalTime * ( phaseTimeMulti - 1 )
-	}
-	else
-	{
-		mover.NonPhysicsMoveTo( goalOrigin , totalTime ,0, 0 )
-		wait totalTime * phaseTimeMulti
-	}
-
-}
-
-void function PortalCooldownThink( entity player, float travelTime )
-{
-	if( !IsValid( player ) )
-		return
-	string playerUID = player.GetUID()
-	file.inPortalCooldownPlayers.append( playerUID )
-	wait travelTime * 1.1 + PORTAL_DEPLOY_TIME
-	file.inPortalCooldownPlayers.fastremovebyvalue( playerUID )
-}
-
-vector function CalculateFaceToOrigin( vector startPos, vector endPos )
-{
-	vector posDiffer = endPos - startPos
-	vector moveAng = VectorToAngles( posDiffer )
-    return moveAng
-}
-*/
 #endif

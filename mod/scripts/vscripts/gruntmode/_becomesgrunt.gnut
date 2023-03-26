@@ -2,8 +2,8 @@ untyped
 
 global function BecomesGruntMode_Init
 
-global function RegisterGruntModePlayerClass
-global function IsGruntModeSpecialistClass // for score events in _gamemode_aitdm.nut
+global function GruntMode_RegisterPlayerClass
+global function GruntMode_IsSpecialistClass // for score events in gruntmode.gnut
 
 const array<string> GRUNT_CHATTERS = 
 [ 
@@ -35,7 +35,7 @@ struct
 {
 	table< string, bool > playerChatterTable // this is for making cooldowns between chatters, checking uids
 	table< entity, string > playerClassTable // this is for saving player's class
-	array<PlayerClassStruct> gruntModeClasses // this is for saving all valid classes
+	table< string, PlayerClassStruct > gruntModeClasses // this is for saving all valid classes
 } file
 
 void function BecomesGruntMode_Init()
@@ -558,51 +558,20 @@ void function DelayedFriendlyKilledChatter( entity player )
 void function BecomeGruntModePlayer( entity player )
 {
 	// pick a random class
-	PlayerClassStruct selectedClass = file.gruntModeClasses[ RandomInt( file.gruntModeClasses.len() ) ]
-	//PlayerClassStruct selectedClass = file.gruntModeClasses[ 12 ] // the beast kings
+	array<string> validClasses = GetGruntModeValidClasses()
+	string selectedClassName = validClasses[ RandomInt( validClasses.len() ) ]
+	PlayerClassStruct selectedClassStruct = file.gruntModeClasses[ selectedClassName ]
+	// debugging
+	//PlayerClassStruct selectedClassStruct = file.gruntModeClasses[ "Phase_Walker" ]
 
-	file.playerClassTable[ player ] = selectedClass.className
-	selectedClass.classLoadoutFunction( player ) // run loadout function
+	file.playerClassTable[ player ] = selectedClassStruct.className
+	selectedClassStruct.classLoadoutFunction( player ) // run loadout function
 }
 
 ///////////////////////////////////////
 ///// GRUNT RESPAWN FUNCTIONS END /////
 ///////////////////////////////////////
 
-
-
-///////////////////////////////////
-///// CLASS UTILITY FUNCTIONS /////
-///////////////////////////////////
-
-void function RegisterGruntModePlayerClass( string className, void functionref( entity ) classLoadoutFunction, bool isSpecialist )
-{
-	PlayerClassStruct curClass
-	curClass.className = className
-	curClass.classLoadoutFunction = classLoadoutFunction
-	curClass.isSpecialist = isSpecialist
-	file.gruntModeClasses.append( curClass ) // add this class to array
-}
-
-bool function IsGruntModeSpecialistClass( entity player )
-{
-	if ( !( player in file.playerClassTable ) )
-		return false
-	string className = file.playerClassTable[ player ]
-	// find player's class
-	foreach( PlayerClassStruct curClass in file.gruntModeClasses )
-	{
-		if ( curClass.className == className )
-			return curClass.isSpecialist // return this class's specialist setting
-	}
-
-	// no className found, return false
-	return false
-}
-
-///////////////////////////////////////
-///// CLASS UTILITY FUNCTIONS END /////
-///////////////////////////////////////
 
 
 //////////////////////////////////////////
@@ -624,9 +593,59 @@ void function InitGruntModeSpawnerSettings()
 	ExtraSpawner_SetCarePackageWeaponMods( "mp_weapon_pulse_lmg", [] )
 
 	AiDrone_SetDroneSpawnedByNPCRandomType( true ) // modified function in _ai_drone.nut, specialist grunts will spawn random drones
-	AiSoldier_EnablePilotEngageChatter( true ) // modified function in _ai_soldiers.gnut, npcs won't call out if they meet players(since we want to make players grunts)
+	AiSoldier_EnablePilotEngageChatter( false ) // modified function in _ai_soldiers.gnut, npcs won't call out if they meet players(since we want to make players grunts)
 }
 
 //////////////////////////////////////////////
 ///// EXTRASPAWNER SETTINGS FUNCTION END /////
 //////////////////////////////////////////////
+
+
+
+///////////////////////////////////
+///// CLASS UTILITY FUNCTIONS /////
+///////////////////////////////////
+
+// shared func
+void function GruntMode_RegisterPlayerClass( string className, void functionref( entity ) classLoadoutFunction, bool isSpecialist )
+{
+	if ( className in file.gruntModeClasses ) // already registered?
+	{
+		print( "[GRUNTMODE] " + className + " class has already been registered!" )
+		return
+	}
+	PlayerClassStruct newCLass
+	newCLass.className = className
+	newCLass.classLoadoutFunction = classLoadoutFunction
+	newCLass.isSpecialist = isSpecialist
+	file.gruntModeClasses[ className ] <- newCLass
+}
+
+// shared func
+bool function GruntMode_IsSpecialistClass( entity player )
+{
+	if ( !( player in file.playerClassTable ) )
+		return false
+	string className = file.playerClassTable[ player ]
+	if ( !( className in file.gruntModeClasses ) )
+		return false
+	// find player's class
+	PlayerClassStruct playerClass = file.gruntModeClasses[ className ]
+	return playerClass.isSpecialist
+}
+
+array<string> function GetGruntModeValidClasses()
+{
+	array<string> classes
+	foreach ( string className, PlayerClassStruct classStruct in file.gruntModeClasses )
+	{
+		//print( "[GRUNTMODE] found class: " + className )
+		classes.append( className )
+	}
+	return classes
+}
+
+
+///////////////////////////////////////
+///// CLASS UTILITY FUNCTIONS END /////
+///////////////////////////////////////
