@@ -258,14 +258,17 @@ var function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher( entity weapon, Wea
 {
 	// NPC can shoot the weapon at non-players, but when shooting at players it must be a titan
 	// nessie: add back this if we need
-	entity owner = weapon.GetWeaponOwner()
-	if ( IsValid( owner ) )
+	if ( weapon.HasMod( "extra_spawner_ai_weapon" ) ) // now specified for extra_spawner
 	{
-		entity enemy = owner.GetEnemy()
-		if ( IsValid( enemy ) )
+		entity owner = weapon.GetWeaponOwner()
+		if ( IsValid( owner ) )
 		{
-			if ( enemy.IsPlayer() && !enemy.IsTitan() )
-				return 0
+			entity enemy = owner.GetEnemy()
+			if ( IsValid( enemy ) )
+			{
+				if ( enemy.IsPlayer() && !enemy.IsTitan() )
+					return 0
+			}
 		}
 	}
 
