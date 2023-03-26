@@ -54,9 +54,9 @@ var function OnWeaponPrimaryAttack_TitanHover( entity weapon, WeaponPrimaryAttac
 	{
 		if( weapon.HasMod( JET_PACK_MOD ) ) // so player won't consume ammo
 		{
-#if SERVER
-			SendHudMessage(flyer, "喷气背包为被动技能\n二段跳后按下跳跃以使用", -1, -0.3, 255, 255, 100, 255, 0, 2, 0)
-#endif
+			#if SERVER
+				SendHudMessage(flyer, "喷气背包为被动技能\n跳跃耗尽后再次按下跳跃以使用", -1, -0.3, 255, 255, 100, 255, 0, 2, 0)
+			#endif
 			return 0
 		}
 
@@ -69,10 +69,10 @@ var function OnWeaponPrimaryAttack_TitanHover( entity weapon, WeaponPrimaryAttac
 	
 	if( IsValid( soul ) )
 	{
-#if SERVER
-		if( SoulHasPassive( soul, ePassives.PAS_NORTHSTAR_FLIGHTCORE ) )
-			hasPasFlightCore = true
-#endif
+		#if SERVER
+			if( SoulHasPassive( soul, ePassives.PAS_NORTHSTAR_FLIGHTCORE ) )
+				hasPasFlightCore = true
+		#endif
 		foreach( entity offhand in flyer.GetOffhandWeapons() )
 		{
 			if ( !IsValid( offhand ) )
