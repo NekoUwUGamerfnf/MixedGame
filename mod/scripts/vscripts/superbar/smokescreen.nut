@@ -354,7 +354,7 @@ void function TitanElectricSmoke_DamagedPlayerOrNPC( entity ent, var damageInfo 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
 	//if ( ent.GetTeam() == attacker.GetTeam() )
-	if ( ent.GetTeam() == attacker.GetTeam() && !IsFriendlyFireOn() ) // we added friendly fire, do a new check now!
+	if ( ent.GetTeam() == attacker.GetTeam() && !FriendlyFire_IsEnabled() || ent == attacker ) // we added friendly fire, do a new check now!
 	{
 		DamageInfo_SetDamage( damageInfo, 0 )
 		return

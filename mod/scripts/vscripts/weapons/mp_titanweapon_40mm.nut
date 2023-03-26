@@ -362,9 +362,9 @@ void function Tracker40mm_DamagedTarget( entity ent, var damageInfo )
 
 	// friendly fire conditon
 	// can't apply a mark to friendly players, deal additional damage
-	if( IsFriendlyFireOn() && ent.GetTeam() == attacker.GetTeam() && ent.GetArmorType() == ARMOR_TYPE_HEAVY )
+	if( FriendlyFire_IsEnabled() && ent.GetTeam() == attacker.GetTeam() && ent.GetArmorType() == ARMOR_TYPE_HEAVY )
 	{
-		float damageScale = 1.4
+		float damageScale = 1.0
 		//since tone can't even fire rockets it should be higher?
 		if( PlayerHasWeapon( attacker, "mp_titanweapon_tracker_rockets" ) )
 			damageScale = 1.6

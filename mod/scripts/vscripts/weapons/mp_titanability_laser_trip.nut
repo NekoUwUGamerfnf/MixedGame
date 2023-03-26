@@ -473,8 +473,24 @@ void function LaserPylonSetThink( entity pylon1, entity pylon2, int ownerTeam )
 
 	while ( true )
 	{
-		array<entity> enemies = GetPlayerArrayOfEnemies( ownerTeam )
-		enemies.extend( GetNPCArrayOfEnemies( ownerTeam ) )
+		// modified: add friendly fire support
+		//array<entity> enemies = GetPlayerArrayOfEnemies( ownerTeam )
+		//enemies.extend( GetNPCArrayOfEnemies( ownerTeam ) )
+		array<entity> enemies 
+		if ( FriendlyFire_IsEnabled() ) // friendlyfire condition
+		{
+			// attack all players and npcs
+			enemies.extend( GetPlayerArray() )
+			enemies.extend( GetNPCArray() )
+			entity owner = pylon2.GetOwner() // the pylon2 is main pylon! so we can get owner
+			if ( IsValid( owner ) )
+				enemies.removebyvalue( owner.GetTitan() ) // the owner will be titanSoul, so we get it's titan
+		}
+		else
+		{
+			enemies.extend( GetPlayerArrayOfEnemies( ownerTeam ) )
+			enemies.extend( GetNPCArrayOfEnemies( ownerTeam ) )
+		}
 
 		foreach ( enemy in enemies )
 		{

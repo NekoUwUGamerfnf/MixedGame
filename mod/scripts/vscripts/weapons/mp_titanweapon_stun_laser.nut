@@ -76,17 +76,10 @@ var function OnWeaponNPCPrimaryAttack_titanweapon_stun_laser( entity weapon, Wea
 
 void function StunLaser_DamagedTarget( entity target, var damageInfo )
 {
-	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	if ( !IsValid( inflictor ) )
-		return
-
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if( !IsValid( attacker ) )
 		return
 
-	//if ( attacker.GetTeam() == target.GetTeam() )
-	if ( attacker.GetTeam() == target.GetTeam() && !IsFriendlyFireOn() ) // we added friendly fire, do a new check now!
-		DamageInfo_SetDamage( damageInfo, 0 )
 	if ( attacker == target )
 	{
 		DamageInfo_SetDamage( damageInfo, 0 )
@@ -96,23 +89,32 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	entity weapon = DamageInfo_GetWeapon( damageInfo )
 	if( !IsValid( weapon ) )
 		return
-	if( weapon.GetWeaponClassName() != "mp_titanweapon_stun_laser" )
-		return
 	
 	// modded weapon
 	// archon's laser, only do damage
 	if ( weapon.HasMod( "archon_laser" ) )
 		return
 
-
+	// we added friendly fire, do a new check now!
+	bool hasEnergyTransfer = weapon.HasMod( "energy_transfer" ) || weapon.HasMod( "energy_field_energy_transfer" )
+	bool friendlyFireOn = FriendlyFire_IsEnabled()
+	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
 	// vanguard shield gain think
-	//if ( attacker.GetTeam() == target.GetTeam() ) // we added friendly fire, do a new check now!
-	if ( attacker.GetTeam() == target.GetTeam() && !IsFriendlyFireOn() ) 
+	//if ( attacker.GetTeam() == target.GetTeam() )
+	if ( ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) ) && hasEnergyTransfer ) // heal enemy and stun friendly if friendlyFire on
 	{
-		//DamageInfo_SetDamage( damageInfo, 0 ) //moved up
+		// triggered healing!
+		DamageInfo_SetDamage( damageInfo, 0 )
 		entity attackerSoul = attacker.GetTitanSoul()
+		// this is absolutely hardcoded
+		/*
+		entity weapon = attacker.GetOffhandWeapon( OFFHAND_LEFT )
+		if ( !IsValid( weapon ) )
+			return
 		bool hasEnergyTransfer = weapon.HasMod( "energy_transfer" ) || weapon.HasMod( "energy_field_energy_transfer" )
-		if ( target.IsTitan() && IsValid( attackerSoul ) && hasEnergyTransfer )
+		*/
+		//if ( target.IsTitan() && IsValid( attackerSoul ) && hasEnergyTransfer )
+		if ( target.IsTitan() && IsValid( attackerSoul ) )
 		{
 			entity soul = target.GetTitanSoul()
 			if ( IsValid( soul ) )
@@ -151,7 +153,7 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 			}
 		}
 	}
-	else if ( target.IsNPC() || target.IsPlayer() ) // we added friendly fire, do a new check now!
+	else if ( target.IsNPC() || target.IsPlayer() )
 	{
 		VanguardEnergySiphon_DamagedPlayerOrNPC( target, damageInfo )
 		int shieldRestoreAmount = target.GetArmorType() == ARMOR_TYPE_HEAVY ? 750 : 250

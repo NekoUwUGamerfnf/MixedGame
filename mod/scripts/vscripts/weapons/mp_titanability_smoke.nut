@@ -140,8 +140,9 @@ void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 		return
 
 	// friendly fire support
-	bool friendlyFireOn = GetCurrentPlaylistVarInt( "friendly_fire", 0 ) != 0
-	bool forceHeal = GetCurrentPlaylistVarInt( "monarch_force_heal", 0 ) != 0
+	bool friendlyFireOn = FriendlyFire_IsEnabled()
+	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
+	//if ( attacker.GetTeam() == target.GetTeam() )
 	if ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) || attacker == target )
 	{
 		if ( ( attacker == target && weapon.HasMod( "fd_vanguard_utility_1" ) ) || weapon.HasMod( "fd_vanguard_utility_2" ) )
@@ -172,6 +173,7 @@ void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 			}
 		}
 
+		//DamageInfo_SetDamage( damageInfo, 0 )
 		if ( ( attacker.GetTeam() == target.GetTeam() && !friendlyFireOn ) || forceHeal )
 			DamageInfo_SetDamage( damageInfo, 0 )
 		return
