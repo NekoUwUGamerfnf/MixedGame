@@ -18,7 +18,8 @@ global function ReaperMinionLauncherThink
 // so you can add nuke reapers without have to change their aisettings
 global function SuperSpectre_AddNukeDeath
 global function SuperSpectre_SetNukeDeathThreshold
-global function SuperSpectre_SetForcedKilledByTitans
+global function SuperSpectre_SetForcedKilledByTitans // other than this the reaper will be killed by titans, won't ever try to nuke
+global function SuperSpectre_SetSelfAsNukeAttacker // the nuke's attacker will always be the reaper
 //
 
 //==============================================================
@@ -50,6 +51,7 @@ struct
 	array<entity> forceNukeReapers
 	table<entity, int> reaperNukeDamageThreshold
 	table<entity, bool> reaperForcedKilledByTitans
+	table<entity, bool> reaperAsNukeAttacker
 	//
 } file
 
@@ -159,7 +161,7 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 		EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_explo_3p" )
 		npc.Gib( DamageInfo_GetDamageForce( damageInfo ) )
 		if ( giveBattery )
-			SpawnTitanBatteryOnDeath( npc, null ) // this has been modified in _titan_npc.gnut
+			SpawnTitanBatteryOnDeath( npc, null ) // this has been modified in _titan_npc.gnut, supports mp
 
 		return
 	}
@@ -189,10 +191,16 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 
 			if ( IsValid( npc ) )
 			{
-				thread SuperSpectreNukes( npc, attacker )
+				// modified over here...
+				//thread SuperSpectreNukes( npc, attacker )
+				if ( IsSelfAsNukeAttacker( npc ) ) // force use reaper itself as attacker
+					thread SuperSpectreNukes( npc, npc )
+				else // default
+					thread SuperSpectreNukes( npc, attacker )
+
 				if ( giveBattery )
 				{
-					SpawnTitanBatteryOnDeath( npc, null )
+					SpawnTitanBatteryOnDeath( npc, null ) // this has been modified in _titan_npc.gnut, supports mp
 				}
 			}
 		}
@@ -790,6 +798,13 @@ void function SuperSpectre_SetForcedKilledByTitans( entity ent, bool forcedKill 
 	file.reaperForcedKilledByTitans[ ent ] = forcedKill
 }
 
+void function SuperSpectre_SetSelfAsNukeAttacker( entity ent, bool asAttacker )
+{
+	if ( !( ent in file.reaperAsNukeAttacker ) )
+		file.reaperAsNukeAttacker[ ent ] <- false // default is use attacker from damageInfo
+	file.reaperAsNukeAttacker[ ent ] = asAttacker
+}
+
 // get modified settings
 int function GetNukeDeathThreshold( entity ent )
 {
@@ -803,5 +818,12 @@ bool function IsForcedKilledByTitans( entity ent )
 	if ( !( ent in file.reaperForcedKilledByTitans ) ) // not modified
 		return true // default is always force killed by titans
 	return file.reaperForcedKilledByTitans[ ent ]
+}
+
+bool function IsSelfAsNukeAttacker( entity ent )
+{
+	if ( !( ent in file.reaperAsNukeAttacker ) ) // not modified
+		return false // default is use attacker from damageInfo
+	return file.reaperAsNukeAttacker[ ent ]
 }
 //
