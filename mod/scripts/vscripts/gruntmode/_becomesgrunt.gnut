@@ -23,6 +23,8 @@ const array<string> GRUNT_CHATTERS =
 // npc damage settings!!!
 const float NPC_PILOT_DAMAGE_MULTIPILER = 2.5
 const float NPC_PROWLER_DAMAGE_MULTIPILER = 0.3
+const float NPC_SUPER_SPECTRE_DAMAGE_MULTIPILER = 0.7
+
 
 struct PlayerClassStruct
 {
@@ -105,11 +107,14 @@ void function BecomesGruntMode_Init()
 	AddSpawnCallback( "npc_dropship", DropshipConfig )
 	AddSpawnCallback( "npc_frag_drone", TickConfig )
 
-	// buff pilots
+	// ai damages
 	AddDamageByCallback( "npc_pilot_elite", BuffPilotDamage )
 	//MeleeSyncedNPC_AllowExecutingNPCPilot( true ) // hard to perform, but you can oneshot pilots with this
-	// nerf prowler
 	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, NerfProwlerMelee )
+	AddDamageByCallback( "npc_super_spectre", NerfReaperDamage )
+	
+	// ai deaths
+	//AddDeathCallback( "npc_super_spectre", ReaperDeath ) // can' handle
 }
 
 
@@ -236,6 +241,14 @@ void function ReaperConfig( entity soldier )
 	// friendly highlight
 	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
 	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
+
+	// even stronger
+	soldier.SetMaxHealth( 4000 ) // +500 more
+	soldier.SetHealth( 4000 )
+
+	// modified _ai_superspectre.gnut
+	SuperSpectre_AddNukeDeath( soldier ) // modified function, force this reaper to nuke on death without having to change aisettings
+	soldier.ai.shouldDropBattery = true // now supports mp. since they're very powerful, give some reward
 }
 
 void function TitanConfig( entity soldier )
@@ -260,8 +273,8 @@ void function GunshipConfig( entity soldier )
 	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
 	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
 	// lower health since they'll become noTarget
-	soldier.SetMaxHealth( 6000 )
-	soldier.SetHealth( 6000 )
+	soldier.SetMaxHealth( 5500 )
+	soldier.SetHealth( 5500 )
 
 	soldier.SetNoTarget( true ) // don't want other npcs targeting them
 }
@@ -327,9 +340,48 @@ void function NerfProwlerMelee( entity victim, var damageInfo )
 		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * NPC_PROWLER_DAMAGE_MULTIPILER )
 }
 
+void function NerfReaperDamage( entity victim, var damageInfo )
+{
+	if ( !victim.IsPlayer() || victim.IsTitan() ) // nerf the damage they dealt to humansized players
+		return
+
+	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE ) // they still dealing high melee damage
+		return
+
+	DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * NPC_SUPER_SPECTRE_DAMAGE_MULTIPILER )
+}
+
 ////////////////////////////////////
 ///// NPC DAMAGE FUNCTIONS END /////
 ////////////////////////////////////
+
+
+
+///////////////////////////////
+///// NPC DEATH FUNCTIONS /////
+///////////////////////////////
+
+void function ReaperDeath( entity soldier, var damageInfo )
+{
+	if ( !IsValid( soldier ) ) // destroyed?
+		return
+	
+	// ignite existing ticks
+	string squadName = expect string ( soldier.kv.squadname ) // mostly can't handle!!!
+	if ( squadName == "" ) // invalid squad
+		return
+	array<entity> ticks = GetNPCArrayBySquad( squadName )
+	ticks.removebyvalue( soldier )
+	foreach ( entity tick in ticks )
+	{
+		if ( IsAlive( tick ) )
+			tick.Die() // hopefully they'll explode
+	}
+}
+
+///////////////////////////////////
+///// NPC DEATH FUNCTIONS END /////
+///////////////////////////////////
 
 
 
