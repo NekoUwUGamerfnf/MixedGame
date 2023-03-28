@@ -589,27 +589,42 @@ void function SpawnTitanBatteryOnDeath( entity titan, var damageInfo )
 
 	int numBatt = 0
 
-	if ( titan.IsTitan() && titan.ai.bossTitanType == TITAN_MERC )
+	// modified to support mp
+	if ( IsSingleplayer() ) // sp, also vanilla behavior
 	{
-		numBatt = BATTERY_DROP_BOSS
+		if ( titan.IsTitan() && titan.ai.bossTitanType == TITAN_MERC )
+		{
+			numBatt = BATTERY_DROP_BOSS
+		}
+		else
+		{
+			if ( Flag( "PlayerDidSpawn" ) )
+			{
+				entity player = GetPlayerArray()[0]
+				entity playerTitan = GetTitanFromPlayer( player )
+
+				if ( IsValid( playerTitan ) &&
+						(
+							GetDoomedState( playerTitan ) ||
+							RandomDropBatteryBasedOnHealth( playerTitan )
+						)
+					)
+				{
+					numBatt = 1
+				}
+			}
+		}
 	}
 	else
 	{
-		if ( Flag( "PlayerDidSpawn" ) )
+		if ( titan.IsTitan() )
 		{
-			entity player = GetPlayerArray()[0]
-			entity playerTitan = GetTitanFromPlayer( player )
-
-			if ( IsValid( playerTitan ) &&
-					(
-						GetDoomedState( playerTitan ) ||
-				 		RandomDropBatteryBasedOnHealth( playerTitan )
-				 	)
-				)
-			{
-				numBatt = 1
-			}
+			entity soul = titan.GetTitanSoul()
+			if ( IsValid( soul ) )
+				numBatt = GetSoulBatteryCount( soul )
 		}
+		else
+			numBatt = 1 // mp always drop one batt on normal npcs
 	}
 
 	for ( int i=0; i<numBatt; i++ )

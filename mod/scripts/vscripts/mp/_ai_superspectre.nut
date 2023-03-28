@@ -15,7 +15,10 @@ global function Reaper_LaunchFragDrone_Think
 global function ReaperMinionLauncherThink
 
 // modified...
-global function SuperSpectre_AddNukeDeath // so you can add nuke reapers without have to change their aisettings
+// so you can add nuke reapers without have to change their aisettings
+global function SuperSpectre_AddNukeDeath
+global function SuperSpectre_SetNukeDeathThreshold
+global function SuperSpectre_SetForcedKilledByTitans
 //
 
 //==============================================================
@@ -43,7 +46,10 @@ struct
 	int activeMinions_GlobalArrayIdx = -1
 
 	// modified...
-	array<entity> forceNukeReapers // so you can add nuke reapers without have to change their aisettings
+	// so you can add nuke reapers without have to change their aisettings
+	array<entity> forceNukeReapers
+	table<entity, int> reaperNukeDamageThreshold
+	table<entity, bool> reaperForcedKilledByTitans
 	//
 } file
 
@@ -122,6 +128,7 @@ void function SuperSpectreNukes( entity npc, entity attacker )
 	npc.Gib( <0,0,100> )
 }
 
+const int SUPER_SPECTRE_NUKE_DEATH_THRESHOLD = 300 // make it a file const
 void function DoSuperSpectreDeath( entity npc, var damageInfo )
 {
 	// destroyed?
@@ -130,20 +137,29 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
-	const int SUPER_SPECTRE_NUKE_DEATH_THRESHOLD = 300
+	// extended
+	//const int SUPER_SPECTRE_NUKE_DEATH_THRESHOLD = 300
 
 	// modified, so you can have reapers dropping batteries in mp
 	//bool giveBattery = ( npc.ai.shouldDropBattery && IsSingleplayer() )
 	bool giveBattery = npc.ai.shouldDropBattery
 
-	if ( !ShouldNukeOnDeath( npc ) || !npc.IsOnGround() || !npc.IsInterruptable() || DamageInfo_GetDamage( damageInfo ) > SUPER_SPECTRE_NUKE_DEATH_THRESHOLD || ( IsValid( attacker ) && attacker.IsTitan() ) )
+	// modified nuke threshold
+	//if ( !ShouldNukeOnDeath( npc ) || !npc.IsOnGround() || !npc.IsInterruptable() || DamageInfo_GetDamage( damageInfo ) > SUPER_SPECTRE_NUKE_DEATH_THRESHOLD || ( IsValid( attacker ) && attacker.IsTitan() ) )
+	int damageThreshold = GetNukeDeathThreshold( npc )
+	bool forceKilledByTitan = IsForcedKilledByTitans( npc )
+	if ( !ShouldNukeOnDeath( npc ) || 
+		 !npc.IsOnGround() || 
+		 !npc.IsInterruptable() || 
+		 DamageInfo_GetDamage( damageInfo ) > damageThreshold ||
+		 ( IsValid( attacker ) && attacker.IsTitan() && forceKilledByTitan ) )
 	{
 		// just boom
 		vector origin = npc.GetWorldSpaceCenter()
 		EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_explo_3p" )
 		npc.Gib( DamageInfo_GetDamageForce( damageInfo ) )
 		if ( giveBattery )
-			SpawnTitanBatteryOnDeath( npc, null )
+			SpawnTitanBatteryOnDeath( npc, null ) // this has been modified in _titan_npc.gnut
 
 		return
 	}
@@ -753,9 +769,39 @@ bool function ShouldNukeOnDeath( entity ent )
 
 
 // modified...
+// settings, shared
 void function SuperSpectre_AddNukeDeath( entity ent )
 {
 	if ( !file.forceNukeReapers.contains( ent ) )
 		file.forceNukeReapers.append( ent )
+}
+
+void function SuperSpectre_SetNukeDeathThreshold( entity ent, int threshold )
+{
+	if ( !( ent in file.reaperNukeDamageThreshold ) )
+		file.reaperNukeDamageThreshold[ ent ] <- SUPER_SPECTRE_NUKE_DEATH_THRESHOLD // default value
+	file.reaperNukeDamageThreshold[ ent ] = threshold
+}
+
+void function SuperSpectre_SetForcedKilledByTitans( entity ent, bool forcedKill )
+{
+	if ( !( ent in file.reaperForcedKilledByTitans ) )
+		file.reaperForcedKilledByTitans[ ent ] <- true // default is always force killed by titans
+	file.reaperForcedKilledByTitans[ ent ] = forcedKill
+}
+
+// get modified settings
+int function GetNukeDeathThreshold( entity ent )
+{
+	if ( !( ent in file.reaperNukeDamageThreshold ) ) // not modified
+		return SUPER_SPECTRE_NUKE_DEATH_THRESHOLD // default value
+	return file.reaperNukeDamageThreshold[ ent ]
+}
+
+bool function IsForcedKilledByTitans( entity ent )
+{
+	if ( !( ent in file.reaperForcedKilledByTitans ) ) // not modified
+		return true // default is always force killed by titans
+	return file.reaperForcedKilledByTitans[ ent ]
 }
 //
