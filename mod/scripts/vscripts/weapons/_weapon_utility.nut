@@ -3068,12 +3068,19 @@ void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInf
 
 	bool friendlyFireOn = FriendlyFire_IsEnabled()
 	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
-	if( !IsValid( attacker ) )
+	if ( friendlyFireOn && attacker == ent ) // energy transfer hit owner in friendlyfire condition
 		return
-
 	// force heal check
 	bool hasEnergyTransfer = false
-	entity weapon = DamageInfo_GetWeapon( damageInfo )
+	entity weapon // can't use DamageInfo_GetWeapon( damageInfo ) since it can't handle radius damage caused by energy field!
+	foreach ( entity offhand in attacker.GetOffhandWeapons() )
+	{
+		if ( offhand.GetWeaponClassName() == "mp_titanweapon_stun_laser" ) // this is hardcoded!!!
+		{
+			weapon = offhand
+			break
+		}
+	}
 	if ( IsValid( weapon ) )
 		hasEnergyTransfer = weapon.HasMod( "energy_transfer" ) || weapon.HasMod( "energy_field_energy_transfer" )
 
