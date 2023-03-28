@@ -139,17 +139,22 @@ void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 	if ( !IsValid( weapon ) )
 		return
 
+	bool hasHealSmoke = weapon.HasMod( "fd_vanguard_utility_1" ) || weapon.HasMod( "fd_vanguard_utility_2" )
 	// friendly fire support
 	bool friendlyFireOn = FriendlyFire_IsEnabled()
 	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
 	//if ( attacker.GetTeam() == target.GetTeam() )
 	if ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) || attacker == target )
 	{
-		if ( ( attacker == target && weapon.HasMod( "fd_vanguard_utility_1" ) ) || weapon.HasMod( "fd_vanguard_utility_2" ) )
+		// reworked check
+		//if ( ( attacker == target && weapon.HasMod( "fd_vanguard_utility_1" ) ) || weapon.HasMod( "fd_vanguard_utility_2" ) )
+		if ( hasHealSmoke )
 		{
+			// healing condition
 			entity soul = target.GetTitanSoul()
 			if ( IsValid( soul ) )
 			{
+				DamageInfo_SetDamage( damageInfo, 0 )
 				int shieldRestoreAmount = 35
 				int actualShieldRestoreAmount = minint( soul.GetShieldHealthMax()-soul.GetShieldHealth(), shieldRestoreAmount )
 				soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
@@ -173,9 +178,8 @@ void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 			}
 		}
 
+		// default ff protection now handled by smokescreen.nut: TitanElectricSmoke_DamagedPlayerOrNPC()
 		//DamageInfo_SetDamage( damageInfo, 0 )
-		if ( ( attacker.GetTeam() == target.GetTeam() && !friendlyFireOn ) || forceHeal )
-			DamageInfo_SetDamage( damageInfo, 0 )
 		return
 	}
 }

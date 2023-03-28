@@ -101,7 +101,7 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
 	// vanguard shield gain think
 	//if ( attacker.GetTeam() == target.GetTeam() )
-	if ( ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) ) && hasEnergyTransfer ) // heal enemy and stun friendly if friendlyFire on
+	if ( ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) ) && hasEnergyTransfer )
 	{
 		// triggered healing!
 		DamageInfo_SetDamage( damageInfo, 0 )
