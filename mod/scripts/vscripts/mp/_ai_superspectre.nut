@@ -14,6 +14,10 @@ global function ForceTickLaunch
 global function Reaper_LaunchFragDrone_Think
 global function ReaperMinionLauncherThink
 
+// modified...
+global function SuperSpectre_AddNukeDeath // so you can add nuke reapers without have to change their aisettings
+//
+
 //==============================================================
 // AI Super Spectre
 //
@@ -37,6 +41,10 @@ const DEV_DEBUG_PRINTS						= false
 struct
 {
 	int activeMinions_GlobalArrayIdx = -1
+
+	// modified...
+	array<entity> forceNukeReapers // so you can add nuke reapers without have to change their aisettings
+	//
 } file
 
 function AiSuperspectre_Init()
@@ -124,7 +132,9 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 
 	const int SUPER_SPECTRE_NUKE_DEATH_THRESHOLD = 300
 
-	bool giveBattery = ( npc.ai.shouldDropBattery && IsSingleplayer() )
+	// modified, so you can have reapers dropping batteries in mp
+	//bool giveBattery = ( npc.ai.shouldDropBattery && IsSingleplayer() )
+	bool giveBattery = npc.ai.shouldDropBattery
 
 	if ( !ShouldNukeOnDeath( npc ) || !npc.IsOnGround() || !npc.IsInterruptable() || DamageInfo_GetDamage( damageInfo ) > SUPER_SPECTRE_NUKE_DEATH_THRESHOLD || ( IsValid( attacker ) && attacker.IsTitan() ) )
 	{
@@ -474,7 +484,8 @@ void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSetti
 
 			waitthread PlayAnim( reaper, "sspec_speclaunch_fire" )
 		}
-		WaitFrame() // whatever we do, a WaitFrame() is good to have!
+		print( "reaper try to spawn a minion..." )
+		//WaitFrame() // whatever we do, a WaitFrame() is good to have!
 	}
 
 	waitthread PlayAnim( reaper, "sspec_speclaunch_to_idle" )
@@ -731,8 +742,20 @@ function SuperSpectre_WarpFall( entity ai )
 
 bool function ShouldNukeOnDeath( entity ent )
 {
+	// modified, so you can add nuke reapers without have to change their aisettings
+	//if ( IsMultiplayer() )
+	//	return false
 	if ( IsMultiplayer() )
-		return false
+		return file.forceNukeReapers.contains( ent )
 
 	return ent.Dev_GetAISettingByKeyField( "nuke_on_death" ) == 1
 }
+
+
+// modified...
+void function SuperSpectre_AddNukeDeath( entity ent )
+{
+	if ( !file.forceNukeReapers.contains( ent ) )
+		file.forceNukeReapers.append( ent )
+}
+//
