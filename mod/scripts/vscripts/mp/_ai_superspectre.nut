@@ -20,6 +20,7 @@ global function SuperSpectre_AddNukeDeath
 global function SuperSpectre_SetNukeDeathThreshold
 global function SuperSpectre_SetForcedKilledByTitans // other than this the reaper will be killed by titans, won't ever try to nuke
 global function SuperSpectre_SetSelfAsNukeAttacker // the nuke's attacker will always be the reaper
+global function SuperSpectre_SetDropBatteryOnDeath
 //
 
 //==============================================================
@@ -52,6 +53,7 @@ struct
 	table<entity, int> reaperNukeDamageThreshold
 	table<entity, bool> reaperForcedKilledByTitans
 	table<entity, bool> reaperAsNukeAttacker
+	table<entity, bool> reaperDropBattOnDeath
 	//
 } file
 
@@ -143,8 +145,9 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 	//const int SUPER_SPECTRE_NUKE_DEATH_THRESHOLD = 300
 
 	// modified, so you can have reapers dropping batteries in mp
-	//bool giveBattery = ( npc.ai.shouldDropBattery && IsSingleplayer() )
-	bool giveBattery = npc.ai.shouldDropBattery
+	bool giveBattery = ( npc.ai.shouldDropBattery && IsSingleplayer() )
+	if ( IsMultiplayer() )
+		giveBattery = ShouldDropBatteryOnDeath( npc )
 
 	// modified nuke threshold
 	//if ( !ShouldNukeOnDeath( npc ) || !npc.IsOnGround() || !npc.IsInterruptable() || DamageInfo_GetDamage( damageInfo ) > SUPER_SPECTRE_NUKE_DEATH_THRESHOLD || ( IsValid( attacker ) && attacker.IsTitan() ) )
@@ -193,7 +196,7 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 			{
 				// modified over here...
 				//thread SuperSpectreNukes( npc, attacker )
-				if ( IsSelfAsNukeAttacker( npc ) ) // force use reaper itself as attacker
+				if ( ShouldUseSelfAsNukeAttacker( npc ) ) // force use reaper itself as attacker
 					thread SuperSpectreNukes( npc, npc )
 				else // default
 					thread SuperSpectreNukes( npc, attacker )
@@ -805,6 +808,13 @@ void function SuperSpectre_SetSelfAsNukeAttacker( entity ent, bool asAttacker )
 	file.reaperAsNukeAttacker[ ent ] = asAttacker
 }
 
+void function SuperSpectre_SetDropBatteryOnDeath( entity ent, bool dropBatt )
+{
+	if ( !( ent in file.reaperDropBattOnDeath ) )
+		file.reaperDropBattOnDeath[ ent ] <- false // default is not dropping battery, although npc.ai.shouldDropBattery is default to be true...
+	file.reaperDropBattOnDeath[ ent ] = dropBatt
+}
+
 // get modified settings
 int function GetNukeDeathThreshold( entity ent )
 {
@@ -820,10 +830,17 @@ bool function IsForcedKilledByTitans( entity ent )
 	return file.reaperForcedKilledByTitans[ ent ]
 }
 
-bool function IsSelfAsNukeAttacker( entity ent )
+bool function ShouldUseSelfAsNukeAttacker( entity ent )
 {
 	if ( !( ent in file.reaperAsNukeAttacker ) ) // not modified
 		return false // default is use attacker from damageInfo
 	return file.reaperAsNukeAttacker[ ent ]
+}
+
+bool function ShouldDropBatteryOnDeath( entity ent )
+{
+	if ( !( ent in file.reaperDropBattOnDeath ) )
+		return false // default is not dropping battery, although npc.ai.shouldDropBattery is default to be true...
+	return file.reaperDropBattOnDeath[ ent ]
 }
 //
