@@ -86,7 +86,16 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 		return
 	}
 
-	entity weapon = DamageInfo_GetWeapon( damageInfo )
+	entity weapon // can't use DamageInfo_GetWeapon( damageInfo ) since it can't handle radius damage caused by energy field!
+	foreach ( entity offhand in attacker.GetOffhandWeapons() )
+	{
+		if ( offhand.GetWeaponClassName() == "mp_titanweapon_stun_laser" ) // this is hardcoded!!!
+		{
+			weapon = offhand
+			break
+		}
+	}
+	//print( "current monarch weapon is: " + string( weapon ) )
 	if( !IsValid( weapon ) )
 		return
 	
