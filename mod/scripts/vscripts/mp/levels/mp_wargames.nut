@@ -22,6 +22,7 @@ void function CodeCallback_MapInit()
 	// dissolve effects
 	AddCallback_OnPlayerKilled( WargamesOnPlayerKilled )
 	AddCallback_OnNPCKilled( WargamesOnNPCKilled )
+	AddDeathCallback( "npc_pilot_elite", WargamesDissolveDeadEntity ) // onNpcKilled can't handle npc pilots
 	/* // these are pretty hardcoded, removed
 	AddDeathCallback( "player", WargamesDissolveDeadEntity )	
 	AddDeathCallback( "npc_soldier", WargamesDissolveDeadEntity )
@@ -54,7 +55,7 @@ void function WargamesOnPlayerKilled( entity deadEnt, entity attacker, var damag
 	if( Wargames_IsPlayerDissolveDisabled() ) // defined in custom_damage_effect.gnut
 		return
 
-	if ( deadEnt.IsTitan() )
+	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY )
 		return
 	
 	WargamesDissolveDeadEntity( deadEnt, damageInfo )
@@ -62,7 +63,7 @@ void function WargamesOnPlayerKilled( entity deadEnt, entity attacker, var damag
 
 void function WargamesOnNPCKilled( entity deadEnt, entity attacker, var damageInfo )
 {
-	if ( deadEnt.IsTitan() )
+	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY )
 		return
 	
 	WargamesDissolveDeadEntity( deadEnt, damageInfo )
