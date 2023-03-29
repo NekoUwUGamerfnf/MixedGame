@@ -4,16 +4,12 @@ global function OnWeaponTossPrep_ability_wraith_portal
 global function OnWeaponPrimaryAttack_ability_wraith_portal
 
 #if SERVER
-const float PORTAL_SPEED_BOOST_SEVERITY = 0.15
-
 const vector ROOFCHECK_HEIGHT = < 0,0,100 > // added pilot's height( 60 ), so actually it's 40 height check
 const float FIX_AMOUNT = 20
 const asset PHASE_REWIND_MODEL = $"models/fx/core_energy.mdl"
 
 // most of these are hardcoded, cannot easily change, fuck I cannot code it well
 const float PORTAL_TICKRATE = 0.1
-const float PORTAL_DURATION = 30 // should be a multipiler of PORTAL_FX_TICKRATE, could be PORTAL_DURATION + PORTAL_FX_TICKRATE * 2 in actrual
-const float PORTAL_MAX_DISTANCE = 4200 // was 3500, may should set higher since lastPos wasn't very accurate
 const float PORTAL_CANCEL_PERCENTAGE = 0.95 // lower than this will be consider as cancelling a portal placement
 //const float PORTAL_MIN_DISTANCE = 150 // using PORTAL_CANCEL_PERCENTAGE
 const float PORTAL_TRAVEL_DURATION_MAX = 2.0 // // should match PORTAL_MAX_DISTANCE, but don't know how to calculate now, don't change
@@ -26,8 +22,17 @@ const float PORTAL_DEPLOY_TIME = 1.2 // defensive fix
 const float PORTAL_COOLDOWN_TIME = 1.5
 const float PORTAL_FX_TICKRATE = 1.5
 
+// these can be modified
+const float PORTAL_DURATION = 30 // should be a multipiler of PORTAL_FX_TICKRATE, could be PORTAL_DURATION + PORTAL_FX_TICKRATE * 2 in actrual
+const float PORTAL_MAX_DISTANCE = 4200 // was 3500, may should set higher since lastPos wasn't very accurate
+// speed boost
+const float PORTAL_SPEED_BOOST_SEVERITY = 0.15
+const bool PORTAL_FORCE_HOLSTER = false
+
 // portal modifiers
 const float PORTAL_MAX_DISTANCE_GRUNT = 2800 // grunt mode specific: destroy portals on death, less distance
+const float PORTAL_SPEED_BOOST_SEVERITY_GRUNT = 0.25 // pretty fast
+const bool PORTAL_FORCE_HOLSTER_GRUNT = true
 
 const bool shouldDoWarpEffect = true // warp is so annoying! can turn it off if need( before I able to remove extra nodes )
 
@@ -160,6 +165,8 @@ void function PortalStart( entity player, entity weapon )
 	bool isInfiniteDistance = false
 	bool isInfiniteDuration = false
 	bool isGruntModeVer = false
+	float speedBoostSeverity = PORTAL_SPEED_BOOST_SEVERITY
+	bool forceHolster = PORTAL_FORCE_HOLSTER
 	if( IsValid( weapon ) )
 	{
 		weapon.AddMod( "portal_placing" ) // this will half the clipsize, make other methods unable to affect portal's ammo
@@ -167,8 +174,13 @@ void function PortalStart( entity player, entity weapon )
 			isInfiniteDistance = true
 		if( weapon.HasMod( "infinite_duration_portal" ) )
 			isInfiniteDuration = true
+		// gruntmode specific
 		if ( weapon.HasMod( "gm_phasewalker" ) )
+		{
 			isGruntModeVer = true
+			speedBoostSeverity = PORTAL_SPEED_BOOST_SEVERITY_GRUNT
+			forceHolster = PORTAL_FORCE_HOLSTER_GRUNT
+		}
 		//weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() / 2 )
 	}
 
@@ -179,8 +191,8 @@ void function PortalStart( entity player, entity weapon )
 	file.playerPlacingPortal[ playerUID ] = true
 
 	int statusEffect = -1
-	if( !isInfiniteDistance && !isGruntModeVer ) // infinite duration portal don't have a speed boost, also grunt mode version
-		statusEffect = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, PORTAL_SPEED_BOOST_SEVERITY )
+	if( !isInfiniteDistance ) // infinite duration portal don't have a speed boost
+		statusEffect = StatusEffect_AddEndless( player, eStatusEffect.speed_boost, speedBoostSeverity )
 	entity portalTrail = CreatePhaseShiftTrail( player )
 
 	EmitSoundOnEntityOnlyToPlayer( player, player, SHIFTER_START_SOUND_1P )
@@ -224,12 +236,21 @@ void function PortalStart( entity player, entity weapon )
 			if( !IsValid( weapon ) )
 				break
 			entity activeWeapon = player.GetActiveWeapon()
-			if( startTime + PORTAL_DEPLOY_TIME < Time() ) // defensive fix
+			if ( forceHolster ) // keep holstering?
 			{
-				if( IsValid( activeWeapon ) ) // defensive fix for sometimes disableWeapon
+				player.HolsterWeapon()
+				if ( player.IsInputCommandHeld( IN_ATTACK ) ) // place portal if player pressing attack
+					break
+			}
+			else // normal type
+			{
+				if( startTime + PORTAL_DEPLOY_TIME < Time() ) // defensive fix, wait for we end current fire anim
 				{
-					if( activeWeapon.HasMod( "wraith_portal" ) )
-						break
+					if( IsValid( activeWeapon ) ) // defensive fix for sometimes disableWeapon
+					{
+						if( activeWeapon.HasMod( "wraith_portal" ) )
+							break
+					}
 				}
 			}
 			if( player.GetVelocity() != < 0,0,0 > )
@@ -254,7 +275,10 @@ void function PortalStart( entity player, entity weapon )
 			float portalPercentage = float( int ( portalLeft / maxPortalLength * 10000 ) ) / 100 // leave 2 sorts
 			if( portalPercentage <= 0 )
 				portalPercentage = 0
-			SendHudMessage( player,"传送门距离剩余：" + string( portalPercentage ) + "%", -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
+			string holsterTypeSuffix = ""
+			if ( forceHolster )
+				holsterTypeSuffix = "\n按住开火以结束放置"
+			SendHudMessage( player,"传送门距离剩余：" + string( portalPercentage ) + "%" + holsterTypeSuffix, -1, 0.65, 255, 255, 100, 1, 0, 0.2, 0 )
 		}
 		else
 			break
@@ -272,6 +296,8 @@ void function PortalStart( entity player, entity weapon )
 			player.Signal( "PlacedPortal" ) // clean up indicator, don't do portal placement
 		else
 			PortalEnd( player, weapon, startPos, startAng, progressPoses, progressAngs, wasCrouchedArray, travelTime, portalLeft, isInfiniteDistance, isInfiniteDuration )
+		if ( forceHolster )
+			player.DeployWeapon() // recover weapon usage
 	}
 	if( IsValid( portalTrail ) )
 		EffectStop( portalTrail )
