@@ -70,7 +70,8 @@ void function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams
 		if( weapon.HasMod( "tripwire_launcher" ) )
 		{
 			#if SERVER
-			nade.proj.onlyAllowSmartPistolDamage = false
+				nade.proj.onlyAllowSmartPistolDamage = false // so player can destroy the grenade with bullets
+				nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_tripwire )
 			#endif
 		}
 		else if( weapon.HasMod( "magnetic_rollers" ) )
@@ -78,7 +79,7 @@ void function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams
 		else if( weapon.HasMod( "flesh_magnetic" ) )
 		{
 			#if SERVER
-			GiveProjectileFakeMagnetic( nade )
+				GiveProjectileFakeMagnetic( nade )
 			#endif
 		}
 		else

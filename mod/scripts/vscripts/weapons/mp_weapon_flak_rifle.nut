@@ -13,7 +13,7 @@ global const float PROJECTILE_SPEED_FLAK = 7500.0
 
 var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if( weapon.HasMod( "flak_rifle" ) )
+	if( weapon.HasMod( "flak_rifle" ) ) // flak rifle
 	{
 		weapon.EmitWeaponSound_1p3p( "Weapon_Sidewinder_Fire_1P", "Weapon_Sidewinder_Fire_3P" )
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
@@ -30,12 +30,13 @@ var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrima
 				#if SERVER
 					thread DelayedStartParticleSystem( missile )
 					EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )
+					missile.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_flak_rifle )
 					thread PROTO_FlakCannonMissiles( missile, PROJECTILE_SPEED_FLAK )
 				#endif
 			}
 		}
 	}
-	else
+	else // flatline
 	{
 		//entity weaponOwner = weapon.GetWeaponOwner()
 		//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
@@ -56,6 +57,7 @@ void function DelayedStartParticleSystem( entity missile )
 #endif
 
 #if SERVER
+// nowhere called this
 var function OnWeaponNpcPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	weapon.EmitWeaponSound( "Weapon_Sidewinder_Fire_3P" )

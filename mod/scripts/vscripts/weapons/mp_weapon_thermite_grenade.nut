@@ -23,7 +23,10 @@ var function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade( entity weapon
 	if( !IsValid( grenade ) )
 		return
 	if( weapon.HasMod( "meteor_grenade" ) )
+	{
 		grenade.SetModel( $"models/weapons/bullets/triple_threat_projectile.mdl" )
+		grenade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_meteor ) // better damageSource
+	}
 
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
@@ -66,7 +69,7 @@ void function OnProjectileCollision_weapon_thermite_grenade( entity projectile, 
 		OnProjectileCollision_Meteor( projectile, pos, normal, hitEnt, hitbox, isCritical )
 		projectile.GrenadeExplode( normal )
 		#if SERVER
-		//thread DelayedGrenadeExplode( projectile, THERMITE_TRAIL_SOUND_TIME )
+			//thread DelayedGrenadeExplode( projectile, THERMITE_TRAIL_SOUND_TIME )
 		#endif
 		return
 	}

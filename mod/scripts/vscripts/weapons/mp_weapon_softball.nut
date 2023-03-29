@@ -171,7 +171,8 @@ void function InitSoftballGrenade( entity nade, entity weapon, entity owner, ass
 	else if( weapon.HasMod( "stickybomb_launcher" ) )
 	{
 	#if SERVER
-		nade.proj.onlyAllowSmartPistolDamage = false
+		nade.proj.onlyAllowSmartPistolDamage = false // so player can disarm grenades
+		nade.ProjectileSetDamageSourceID( eDamageSourceId.sticky_explosive ) // better damageSource
 		thread DelayedAddStickyForPlayer( owner, nade )
 		thread PlayerStickyManagement( owner )
 	#endif
