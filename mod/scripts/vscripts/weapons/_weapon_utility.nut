@@ -221,7 +221,9 @@ function WeaponUtility_Init()
 		//AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_rocketeer_rocketstream, TitanRocketLauncher_DamagedPlayerOrNPC )
 		AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_smr, SMR_DamagedPlayerOrNPC )
 		AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_flak_rifle, PROTO_Flak_Rifle_DamagedPlayerOrNPC )
+		// handled by mp_titanweapon_stun_laser.nut: StunLaser_DamagedTarget()
 		//AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_stun_laser, VanguardEnergySiphon_DamagedPlayerOrNPC )
+		// handled by mp_weapon_impulse_grenade.gnut
 		//AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_grenade_emp, EMP_DamagedPlayerOrNPC )
 		AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_proximity_mine, EMP_DamagedPlayerOrNPC )
 		AddDamageCallbackSourceID( eDamageSourceId[ CHARGE_TOOL ], EMP_DamagedPlayerOrNPC )
@@ -3065,27 +3067,7 @@ void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInf
 	// we added friendly fire, do a new check now!
 	if( !IsValid( attacker ) ) 
 		return
-
-	bool friendlyFireOn = FriendlyFire_IsEnabled()
-	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
-	if ( friendlyFireOn && attacker == ent ) // energy transfer hit owner in friendlyfire condition
-		return
-	// force heal check
-	bool hasEnergyTransfer = false
-	entity weapon // can't use DamageInfo_GetWeapon( damageInfo ) since it can't handle radius damage caused by energy field!
-	foreach ( entity offhand in attacker.GetOffhandWeapons() )
-	{
-		if ( offhand.GetWeaponClassName() == "mp_titanweapon_stun_laser" ) // this is hardcoded!!!
-		{
-			weapon = offhand
-			break
-		}
-	}
-	if ( IsValid( weapon ) )
-		hasEnergyTransfer = weapon.HasMod( "energy_transfer" ) || weapon.HasMod( "energy_field_energy_transfer" )
-
-	if ( ( attacker.GetTeam() == ent.GetTeam() || ( friendlyFireOn && forceHeal ) ) && hasEnergyTransfer )
-		return	
+	// other checks left for function calls this to modify
 
 	Elecriticy_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE )
 }

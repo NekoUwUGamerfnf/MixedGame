@@ -108,14 +108,16 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	bool hasEnergyTransfer = weapon.HasMod( "energy_transfer" ) || weapon.HasMod( "energy_field_energy_transfer" )
 	bool friendlyFireOn = FriendlyFire_IsEnabled()
 	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
+	bool sameTeam = attacker.GetTeam() == target.GetTeam()
 	// vanguard shield gain think
+	// energy transfer
 	//if ( attacker.GetTeam() == target.GetTeam() )
-	if ( ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) ) && hasEnergyTransfer )
+	if ( ( sameTeam || ( friendlyFireOn && forceHeal ) ) && hasEnergyTransfer )
 	{
 		// triggered healing!
 		DamageInfo_SetDamage( damageInfo, 0 )
 		entity attackerSoul = attacker.GetTitanSoul()
-		// this is absolutely hardcoded
+		// this is absolutely hardcoded, removed
 		/*
 		entity weapon = attacker.GetOffhandWeapon( OFFHAND_LEFT )
 		if ( !IsValid( weapon ) )
@@ -162,9 +164,15 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 			}
 		}
 	}
-	else if ( target.IsNPC() || target.IsPlayer() )
+	// non energy transfer condition
+	else if ( target.IsNPC() || target.IsPlayer() ) 
 	{
-		VanguardEnergySiphon_DamagedPlayerOrNPC( target, damageInfo )
+		if ( sameTeam && !friendlyFireOn ) // normal condition: no friendlyFire, hits teammate
+		{
+			DamageInfo_SetDamage( damageInfo, 0 ) // don't do following checks
+			return
+		}
+		VanguardEnergySiphon_DamagedPlayerOrNPC( target, damageInfo ) // taken from _weapon_utility.nut. must handle it!
 		int shieldRestoreAmount = target.GetArmorType() == ARMOR_TYPE_HEAVY ? 750 : 250
 		entity soul = attacker.GetTitanSoul()
 		if ( IsValid( soul ) )
