@@ -20,6 +20,8 @@ void function CodeCallback_MapInit()
 	AddCallback_EntitiesDidLoad( AddEvacNodes )
 	
 	// dissolve effects
+	AddCallback_OnPlayerKilled( WargamesOnPlayerKilled )
+	AddCallback_OnNPCKilled( WargamesOnNPCKilled )
 	AddDeathCallback( "player", WargamesDissolveDeadEntity )	
 	AddDeathCallback( "npc_soldier", WargamesDissolveDeadEntity )
 	AddDeathCallback( "npc_spectre", WargamesDissolveDeadEntity )
@@ -45,10 +47,28 @@ void function AddEvacNodes()
 }	
 
 // dissolve effects
+void function WargamesOnPlayerKilled( entity deadEnt, entity attacker, var damageInfo )
+{
+	if( Wargames_IsPlayerDissolveDisabled() ) // defined in custom_damage_effect.gnut
+		return
+
+	if ( deadEnt.IsTitan() )
+		return
+	
+	WargamesDissolveDeadEntity( deadEnt, damageInfo )
+}
+
+void function WargamesOnNPCKilled( entity deadEnt, entity attacker, var damageInfo )
+{
+	if ( deadEnt.IsTitan() )
+		return
+	
+	WargamesDissolveDeadEntity( deadEnt, damageInfo )
+}
+
 void function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
 {
-	if( Wargames_IsPlayerDissolveDisabled() && deadEnt.IsPlayer() ) // defined in custom_damage_effect.gnut
-		return
+	
 	if ( deadEnt.IsPlayer() || GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
 	{
 		deadEnt.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 0 )
