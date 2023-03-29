@@ -55,6 +55,9 @@ void function DashCoreThink( entity weapon, float coreDuration )
 	if( !owner.IsTitan() )
 		return
 
+	table savedData = {}
+	savedData.aiSettings <- ""
+
 	if ( owner.IsPlayer() )
 	{
 		EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_1P" )
@@ -62,7 +65,13 @@ void function DashCoreThink( entity weapon, float coreDuration )
 		EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_3P" )
 	}
 	else // npc
+	{
 		EmitSoundOnEntity( owner, "Titan_Legion_Smart_Core_Activated_3P" )
+		savedData.aiSettings = owner.GetAISettingsName()
+		owner.SetAISettings( "npc_titan_stryder_rocketeer_dash_core" )
+		owner.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+		owner.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+	}
 
 	entity soul = owner.GetTitanSoul()
 	if ( owner.IsPlayer() )
@@ -83,7 +92,7 @@ void function DashCoreThink( entity weapon, float coreDuration )
 	}
 
 	OnThreadEnd(
-	function() : ( weapon, soul, owner )
+	function() : ( weapon, soul, owner, savedData )
 		{
 			if ( IsValid( owner ) )
 			{
@@ -96,6 +105,13 @@ void function DashCoreThink( entity weapon, float coreDuration )
 					ScreenFade( owner, 0, 0, 0, 0, 0.1, 0.1, FFADE_OUT | FFADE_PURGE )
 					owner.SetPowerRegenRateScale( 1.0 )
 		            owner.SetDodgePowerDelayScale( 1.0 )
+				}
+				else // npc
+				{
+					if ( savedData.aiSettings != "" )
+						owner.SetAISettings( expect string( savedData.aiSettings ) )
+					owner.DisableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+					owner.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, true )
 				}
 			}
 

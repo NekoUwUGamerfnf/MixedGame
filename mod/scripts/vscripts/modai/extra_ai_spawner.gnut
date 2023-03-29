@@ -68,6 +68,9 @@ struct
 	// npc weapons, should we add a struct to set up mods for them?
 	table< string, array<string> > npcMainWeaponsTable
 	table< string, array<string> > npcAntiTitanWeaponsTable
+	// npc titan settings
+	table<entity, string> titanEmbarkedAiSettings
+	table<entity, string> titanEmbarkedBehaviorSelector
 
 	// care package
 	array<entity> usedplayer = []
@@ -514,6 +517,71 @@ void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int team, int pi
 	}
 }
 
+// npc pilot embarking npc titans
+void function SetTitanEmbarkedAISettings( entity titan, string aiSet )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	if ( !( soul in file.titanEmbarkedAiSettings ) )
+		file.titanEmbarkedAiSettings[ soul ] <- ""
+	file.titanEmbarkedAiSettings[ soul ] = aiSet
+}
+
+void function SetTitanEmbarkedBehaviorSelector( entity titan, string behavior )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	if ( !( soul in file.titanEmbarkedBehaviorSelector ) )
+		file.titanEmbarkedBehaviorSelector[ soul ] <- ""
+	file.titanEmbarkedBehaviorSelector[ soul ] = behavior
+}
+
+void function ApplyAISettingsForNpcPilotEmbarking( entity titan )
+{
+	string newSettings = ""
+
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	if ( soul in file.titanEmbarkedAiSettings )
+		newSettings = file.titanEmbarkedAiSettings[ soul ]
+
+	if ( newSettings == "" ) // can't find a new aisetting
+		return
+
+	asset modelName = titan.GetModelName() // maybe they're prime titans or something, save them to prevent changing aiSettings mess things up
+	titan.SetAISettings( newSettings )
+	//print( "current aisettings is: " + newSettings )
+	titan.SetModel( modelName ) // recover model
+}
+
+void function ApplyBehaviorSelectorForNpcPilotEmbarking( entity titan )
+{
+	string newBehavior = "behavior_sp_auto_titan" // default is become smarter than mp titans
+
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	if ( soul in file.titanEmbarkedBehaviorSelector )
+		newBehavior = file.titanEmbarkedBehaviorSelector[ soul ]
+
+	if ( newBehavior == "" ) // can't find a new behavior, maybe missing while setting?
+	{
+		print( "[EXTRA_SPAWNER] Embarked aisetting is empty, resetting to behavior_sp_auto_titan" )
+		newBehavior = "behavior_sp_auto_titan" // reset to default
+	}
+
+	titan.SetBehaviorSelector( newBehavior )
+	//print( "current behavior is: " + newBehavior )
+	SetDefaultMPEnemyHighlight( titan ) // set up highlight after changing behavior
+}
+
 // utilities end
 
 // copied from _ai_gamemodes, make them compatible with more settings
@@ -582,60 +650,99 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team, bool standUp = true, void functionref( entity titan ) titanHandler = null )
 {
 	// should always keep up with max titans, best way is to use a table, < titanName, titanLoadoutFunction >, added by the callback ExtraSpawner_AddToRandomTitanList()
-	int randomindex = RandomInt( 7 )
+	int randomindex = RandomInt( 8 )
 	string setfile = ""
 	string aiset = ""
+	// after being embarked
+	string embarkedAiSet = ""
+	string embarkedBehavior = ""
 	string executionRef = "" // funny with MeleeSyncedNPC
 	string moddedTitanName = ""
 	switch( randomindex ) //randomindex, sometimes changed for test
 	{
 		case 0:
 			setfile = "titan_atlas_stickybomb"
-			aiset = "npc_titan_atlas_stickybomb"
+			aiset = "npc_titan_auto_atlas_stickybomb"
+			embarkedAiSet = "npc_titan_atlas_stickybomb"
+			embarkedBehavior = "behavior_titan"
 			executionRef = "execution_ion" // was "execution_random_0", but ion's prime execution is bugged( maybe because using laser core will trigger a scripted animation? try to fix but not work )
 			break
 		case 1:
 			setfile = "titan_ogre_meteor"
-			aiset = "npc_titan_ogre_meteor"
+			aiset = "npc_titan_auto_ogre_meteor"
+			embarkedAiSet = "npc_titan_ogre_meteor"
+			embarkedBehavior = "behavior_titan_ogre_meteor"
 			executionRef = "execution_scorch" // was "execution_random_1", now prime execution are splited for modded titans
 			break
 		case 2:
 			setfile = "titan_stryder_sniper"
-			aiset = "npc_titan_stryder_sniper"
+			aiset = "npc_titan_auto_stryder_sniper"
+			embarkedAiSet = "npc_titan_stryder_sniper"
+			embarkedBehavior = "behavior_titan_sniper"
 			executionRef = "execution_northstar" // was "execution_random_2", now prime execution are splited for modded titans
 			break
 		case 3:
 			setfile = "titan_stryder_leadwall"
-			aiset = "npc_titan_stryder_leadwall"
+			aiset = "npc_titan_auto_stryder_leadwall"
+			embarkedAiSet = "npc_titan_stryder_leadwall"
+			embarkedBehavior = "behavior_titan_shotgun"
 			executionRef = "execution_ronin" // was "execution_random_3", now prime execution are splited for modded titans
 			break
 		case 4:
 			setfile = "titan_atlas_tracker"
-			aiset = "npc_titan_atlas_tracker"
+			aiset = "npc_titan_auto_atlas_tracker"
+			embarkedAiSet = "npc_titan_atlas_tracker"
+			embarkedBehavior = "behavior_titan_long_range"
 			executionRef = "execution_tone" // was "execution_random_4", now prime execution are splited for modded titans
 			break
 		case 5:
 			setfile = "titan_ogre_minigun"
-			aiset = "npc_titan_ogre_minigun"
+			aiset = "npc_titan_auto_ogre_minigun"
+			embarkedAiSet = "npc_titan_ogre_minigun"
+			embarkedBehavior = "behavior_titan_ogre_minigun"
 			executionRef = "execution_legion" // was "execution_random_5", now prime execution are splited for modded titans
 			break
 		case 6:
 			setfile = "titan_atlas_vanguard"
-			aiset = "npc_titan_atlas_vanguard" 
+			aiset = "npc_titan_auto_atlas_vanguard" 
+			embarkedAiSet = "npc_titan_atlas_vanguard"
+			embarkedBehavior = "behavior_titan"
 			executionRef = "execution_vanguard" // was "execution_random_5", has been splited to sarah boss titan
 			break
 		// modded titans, should avoid them being able to be robbed
+		// hardcoded for now, should split into file.randomTitanList
 		case 7:
-			setfile = "titan_atlas_stickybomb"
-			aiset = "npc_titan_auto_atlas_ion_prime"
-			executionRef = "execution_ion" // ion's prime execution is bugged( maybe because using laser core will trigger a scripted animation? try to fix but not work )
-			moddedTitanName = "archon" // hardcoded for now, should split into file.randomTitanList
-			break
-		case 8:
 			setfile = "titan_stryder_sniper"
 			aiset = "npc_titan_auto_stryder_northstar_prime"
+			embarkedAiSet = "npc_titan_stryder_rocketeer"
+			embarkedBehavior = "behavior_titan_rocketeer"
+			executionRef = "execution_northstar_prime" // this one don't require weapons
+			moddedTitanName = "brute" // hardcoded for now
+			break
+		case 8:
+			setfile = "titan_ogre_meteor"
+			aiset = "npc_titan_auto_ogre_scorch_prime" // we change behavior in loadout function
+			embarkedAiSet = "npc_titan_ogre_fighter_berserker_core" // this should be handled by a new titan core
+			embarkedBehavior = "behavior_titan_melee_core" // this should be handled by a new titan core
+			executionRef = "execution_scorch_prime" // this one don't require weapons
+			moddedTitanName = "bison" // hardcoded for now
+			break
+		// disabled ones
+		case 9:
+			setfile = "titan_stryder_sniper"
+			aiset = "npc_titan_auto_stryder_northstar_prime"
+			embarkedAiSet = "npc_titan_stryder_rocketeer"
+			embarkedBehavior = "behavior_titan_rocketeer"
 			executionRef = "execution_northstar_prime"
 			moddedTitanName = "brute4" // hardcoded for now
+			break
+		case 10:
+			setfile = "titan_atlas_stickybomb"
+			aiset = "npc_titan_auto_atlas_ion_prime"
+			embarkedAiSet = "npc_titan_atlas_stickybomb"
+			embarkedBehavior = "behavior_titan"
+			executionRef = "execution_ion" // ion's prime execution is bugged( maybe because using laser core will trigger a scripted animation? try to fix but not work )
+			moddedTitanName = "archon"
 			break
 	} 
 	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
@@ -650,6 +757,14 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
 	DispatchSpawn( titan )
+	titan.kv.WeaponProficiency = eWeaponProficiency.AVERAGE // normal proficiency
+	titan.SetBehaviorSelector( "behavior_mp_auto_titan" ) // since we want to make them be like auto titans, always use this
+	SetDefaultMPEnemyHighlight( titan ) // set up highlight after changing behavior
+
+	if ( embarkedAiSet != "" )
+		SetTitanEmbarkedAISettings( titan, embarkedAiSet )
+	if ( embarkedBehavior != "" )
+		SetTitanEmbarkedBehaviorSelector( titan, embarkedBehavior )
 
 	// titan won't have a soul until they DispatchSpawn()
 	titan.GetTitanSoul().soul.titanLoadout.titanExecution = executionRef //"execution_vanguard_kit" // handle in melee_synced_titan to use random execution
@@ -677,39 +792,76 @@ void function BecomeModdedNPCTitan( entity titan, string moddedTitanName )
 {
 	switch( moddedTitanName )
 	{
-		case "archon":
+		case "brute":
 			TakeAllWeapons( titan )
 			//Defence
-			titan.GiveOffhandWeapon("mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "shock_shield"] )
-			//Tactical
-			titan.GiveOffhandWeapon("mp_titanability_laser_trip", OFFHAND_ANTIRODEO, ["tesla_node"] )
+			titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex"] )
+			// Utility
+			titan.GiveOffhandWeapon( "mp_titanability_hover", OFFHAND_ANTIRODEO )
 			//Offence
-			titan.GiveOffhandWeapon("mp_titanweapon_stun_laser", OFFHAND_ORDNANCE, ["charge_ball"] )
+			titan.GiveOffhandWeapon( "mp_titanweapon_shoulder_rockets", OFFHAND_ORDNANCE )
 			//Weapon
-			titan.GiveWeapon ("mp_titanweapon_sniper", ["arc_cannon", "archon_arc_cannon", "archon_arc_cannon_charge_sound"])
+			titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["brute_rocket"] )
 			//Titan Core
-			titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT, ["storm_core"] )
+			titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT )
 			//Melee
-			titan.GiveOffhandWeapon( "melee_titan_punch_ion", OFFHAND_MELEE )
+			titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
 
-			titan.SetTitle( "執政官" )
+			titan.SetTitle( "#NPC_TITAN_AUTO_STRYDER_ROCKET" )
+			break
+		case "bison":
+			TakeAllWeapons( titan )
+			//Defence
+			titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_bubble_shield", "molting_dome", "bison_dome"] )
+			//Tactical
+			titan.GiveOffhandWeapon( "mp_titanability_laser_trip", OFFHAND_ANTIRODEO )
+			//Offence
+			titan.GiveOffhandWeapon( "mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE, ["pas_northstar_cluster", "fd_twin_cluster"] )
+			//Titan Core
+			titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT ) // should have a new titan core for handling behaviors
+			//Melee
+			titan.GiveOffhandWeapon( "melee_titan_punch_fighter", OFFHAND_MELEE, ["berserker", "dash_punch", "bison_punch"] )
+			//titan.SetActiveWeaponByName( "melee_titan_punch_fighter" )
+
+			titan.SetBehaviorSelector( "behavior_titan_melee" ) // default behavior
+			titan.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+			titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+
+			titan.SetTitle( "#NPC_TITAN_OGRE_FIGHTER" )
 			break
 		case "brute4":
 			TakeAllWeapons( titan )
 			//Defence
-			titan.GiveOffhandWeapon("mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_bubble_shield"] )
+			titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_bubble_shield"] )
 			//Tactical
-			titan.GiveOffhandWeapon("mp_titanability_rocketeer_ammo_swap", OFFHAND_ANTIRODEO )
+			titan.GiveOffhandWeapon( "mp_titanability_rocketeer_ammo_swap", OFFHAND_ANTIRODEO )
 			//Offence
-			titan.GiveOffhandWeapon("mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["grenade_launcher"] )
+			titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["grenade_launcher"] )
 			//Weapon
-			titan.GiveWeapon ("mp_titanweapon_rocketeer_rocketstream", ["brute4_rocket_launcher"])
+			titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["brute4_rocket_launcher"])
 			//Titan Core
 			titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT, ["barrage_core"] )
 			//Melee
 			titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
 
-			titan.SetTitle( "野獸四號" )
+			titan.SetTitle( "#NPC_TITAN_AUTO_ATLAS_ROCKETEER" )
+			break
+		case "archon":
+			TakeAllWeapons( titan )
+			//Defence
+			titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "shock_shield"] )
+			//Tactical
+			titan.GiveOffhandWeapon( "mp_titanability_laser_trip", OFFHAND_ANTIRODEO, ["tesla_node"] )
+			//Offence
+			titan.GiveOffhandWeapon( "mp_titanweapon_stun_laser", OFFHAND_ORDNANCE, ["charge_ball"] )
+			//Weapon
+			titan.GiveWeapon ( "mp_titanweapon_sniper", ["arc_cannon", "archon_arc_cannon", "archon_arc_cannon_charge_sound"])
+			//Titan Core
+			titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT, ["storm_core"] )
+			//Melee
+			titan.GiveOffhandWeapon( "melee_titan_punch_ion", OFFHAND_MELEE )
+
+			titan.SetTitle( "#NPC_TITAN_AUTO_STRYDER_ARC" )
 			break
 	}
 }
@@ -773,7 +925,7 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_jack.mdl", "#PATCH_PILOT2" )
 
 	titan.SetTitle( "#NPC_BT_NAME" )
-	titan.SetBehaviorSelector( "behavior_sp_auto_titan" ) // become smarter, since pilot has control of it
+	titan.SetBehaviorSelector( "behavior_titan" ) // become smarter, since pilot has control of it
 	SetDefaultMPEnemyHighlight( titan ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan )
 
@@ -808,7 +960,7 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_ash.mdl", "#BOSSNAME_ASH" )
 
 	titan.SetTitle( "#BOSSNAME_ASH" )
-	titan.SetBehaviorSelector( "behavior_sp_auto_titan" ) // become smarter, since pilot has control of it
+	titan.SetBehaviorSelector( "behavior_titan_shotgun" ) // become smarter, since pilot has control of it
 	NPC_SetNuclearPayload( titan ) // imc titans do nuke
 	SetDefaultMPEnemyHighlight( titan ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan )
@@ -844,7 +996,7 @@ entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int t
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_blisk.mdl", "#BOSSNAME_BLISK" )
 
 	titan.SetTitle( "#BOSSNAME_BLISK" )
-	titan.SetBehaviorSelector( "behavior_sp_auto_titan" ) // become smarter, since pilot has control of it
+	titan.SetBehaviorSelector( "npc_titan_ogre_minigun" ) // become smarter, since pilot has control of it
 	NPC_SetNuclearPayload( titan ) // imc titans do nuke
 	SetDefaultMPEnemyHighlight( titan ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan )
@@ -883,7 +1035,7 @@ entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int 
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_sarah.mdl", "#FACTION_LEADER_NAME_SARAH" )
 
 	titan.SetTitle( "#FACTION_LEADER_NAME_SARAH" )
-	titan.SetBehaviorSelector( "behavior_sp_auto_titan" ) // become smarter, since pilot has control of it
+	titan.SetBehaviorSelector( "behavior_titan" ) // become smarter, since pilot has control of it
 	SetDefaultMPEnemyHighlight( titan ) // set up highlight after changing behavior
 	thread ExtraSpawner_TitanHandler( titan )
 
@@ -898,8 +1050,8 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1000, false, $"", "#NPC_PILOT" ) // can use a localized string since this pilot won't embark
 	
 	titan.SetTitle( "#NPC_PILOT" )
-	titan.SetBehaviorSelector( "behavior_sp_auto_titan" ) // become smarter, since pilot has control of it
-	SetDefaultMPEnemyHighlight( titan ) // set up highlight after changing behavior
+	ApplyAISettingsForNpcPilotEmbarking( titan )
+	ApplyBehaviorSelectorForNpcPilotEmbarking( titan )
 	thread ExtraSpawner_TitanHandler( titan ) // forced handler
 	return titan
 }
@@ -1248,8 +1400,10 @@ function OnNpcPilotBecomesTitan( pilot, titan )
 	expect entity( pilot )
 	expect entity( titan )
 
-	titan.SetBehaviorSelector( "behavior_sp_auto_titan" ) // become smarter, since pilot has control of it
-	SetDefaultMPEnemyHighlight( titan )
+	titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	ApplyAISettingsForNpcPilotEmbarking( titan )
+	ApplyBehaviorSelectorForNpcPilotEmbarking( titan ) // become smarter, since pilot has control of it
+
 	// kinda annoying to have a info target all around them.
 	//titan.SetAISettings( titan.GetAISettingsName() + "_bounty" ) // so they will show up a health bar, letting players know they're npc pilot controled
 	//Highlight_ClearEnemyHighlight( titan ) // this resets highlights in modified sh_highlights
@@ -1281,9 +1435,12 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		bool isEjecting = titanSoul.IsEjecting()
 		if( isEjecting )
 			thread NPCPilotEjectingAnimation( pilot )
-		else
-			titan.SetBehaviorSelector( "behavior_mp_auto_titan" ) // not ejecting, reset to normal behavior
-		SetDefaultMPEnemyHighlight( titan )
+		else // not ejecting, reset to normal behavior, no feature now..
+		{
+			titan.kv.WeaponProficiency = eWeaponProficiency.AVERAGE
+			titan.SetBehaviorSelector( "behavior_mp_auto_titan" )
+			SetDefaultMPEnemyHighlight( titan )
+		}
 
 		// kinda annoying to have a info target all around them.
 		//string aiSetFile = titan.GetAISettingsName()
