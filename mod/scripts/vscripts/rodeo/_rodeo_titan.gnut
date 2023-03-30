@@ -2124,18 +2124,20 @@ void function BatteryTrigger_ApplyBattery( entity trigger, entity player )
 
 		if ( batteryPack != null )
 		{
-			// reworked
-			//Rodeo_OnTouchBatteryPack( player, batteryPack )
-
-			entity ownerTitan = batteryPack.GetBossPlayer()
-			if( IsValid( ownerTitan ) && IsMultiplayer() )
-			{
-				if( player == ownerTitan ) // don't instant apply ripped battery to it's owner
-					return
-			}
-			// so that player can pick up battery without having to disembark, and in mp they can eat any batteries on ground even if they're at max health
-			if( !IsSingleplayer() || player.GetHealth() != player.GetMaxHealth() )
-				Rodeo_OnTouchBatteryPack_Internal( player, batteryPack, true )
+			#if MP // nessie modify
+				entity ownerTitan = batteryPack.GetBossPlayer()
+				if( IsValid( ownerTitan ) && IsMultiplayer() )
+				{
+					if( player == ownerTitan ) // don't instant apply ripped battery to it's owner
+						return
+				}
+				// so that player can pick up battery without having to disembark, and in mp they can eat any batteries on ground even if they're at max health
+				if( !IsSingleplayer() || player.GetHealth() != player.GetMaxHealth() )
+					Rodeo_OnTouchBatteryPack_Internal( player, batteryPack, true )
+			#else // vanilla behavior
+				// reworked
+				Rodeo_OnTouchBatteryPack( player, batteryPack )
+			#endif // MP
 		}
 	}
 }
@@ -2544,47 +2546,78 @@ void function Rodeo_OnTouchBatteryPack_Internal( entity player, entity batteryPa
 		return
 	}
 
-	// why they can pick up so many batteries after clear? trying to fix nessie
-	if( GetPlayerBatteryCount( player ) > PILOT_BATTERY_BUGGED_LIMIT )
-	{
-		while( GetPlayerBatteryCount( player ) > 0 )
+	#if MP // nessie modify
+		// why they can pick up so many batteries after clear? trying to fix nessie
+		if( GetPlayerBatteryCount( player ) > PILOT_BATTERY_BUGGED_LIMIT )
 		{
-			entity battery = Rodeo_TakeBatteryAwayFromPilot( player )
-			if( IsValid( battery ) )
-				battery.Destroy()
+			while( GetPlayerBatteryCount( player ) > 0 )
+			{
+				entity battery = Rodeo_TakeBatteryAwayFromPilot( player )
+				if( IsValid( battery ) )
+					battery.Destroy()
+			}
+			//SetPlayerBatteryCount( player, PILOT_BATTERY_BUGGED_LIMIT )
 		}
-		//SetPlayerBatteryCount( player, PILOT_BATTERY_BUGGED_LIMIT )
-	}
+	#endif // MP
 
 	if ( player.IsTitan() )
 	{
-		//Try Titans not being able to pick up battery
-		//if ( GetCurrentPlaylistVarInt( "rodeo_battery_disembark_to_pickup", 1 ) == 1 )
-		if ( !isPickup ) // modified for BatteryTrigger_ApplyBattery()
-		{
-			if ( currentTime - player.p.batteryLastTouchedNotificationTime > 5.0 )
+		#if MP // nessie modify
+			//Try Titans not being able to pick up battery
+			//if ( GetCurrentPlaylistVarInt( "rodeo_battery_disembark_to_pickup", 1 ) == 1 )
+			if ( !isPickup ) // modified for BatteryTrigger_ApplyBattery()
 			{
-				MessageToPlayer( player, eEventNotifications.Rodeo_DisembarkToPickUpBattery )
-				player.p.batteryLastTouchedNotificationTime  = currentTime
-
-			}
-		}
-		else
-		{
-			if ( IsSingleplayer() )
-			{
-				if ( player.GetHealth() >= player.GetMaxHealth() * BATTERY_PICKUP_IGNORE_FRAC && player.GetTitanSoul().GetShieldHealth() >= player.GetTitanSoul().GetShieldHealthMax() * BATTERY_PICKUP_IGNORE_FRAC )
+				if ( currentTime - player.p.batteryLastTouchedNotificationTime > 5.0 )
 				{
-					MessageToPlayer( player, eEventNotifications.BATT_HealthFull, batteryPack )
-					return
+					MessageToPlayer( player, eEventNotifications.Rodeo_DisembarkToPickUpBattery )
+					player.p.batteryLastTouchedNotificationTime  = currentTime
+
 				}
 			}
-			bool amped = IsAmpedBattery( batteryPack )
+			else
+			{
+				if ( IsSingleplayer() )
+				{
+					if ( player.GetHealth() >= player.GetMaxHealth() * BATTERY_PICKUP_IGNORE_FRAC && player.GetTitanSoul().GetShieldHealth() >= player.GetTitanSoul().GetShieldHealthMax() * BATTERY_PICKUP_IGNORE_FRAC )
+					{
+						MessageToPlayer( player, eEventNotifications.BATT_HealthFull, batteryPack )
+						return
+					}
+				}
+				bool amped = IsAmpedBattery( batteryPack )
 
-			Rodeo_ApplyBatteryToTitan( batteryPack, player, true ) // this is owner applying, modified!
-			MessagePlayerGivingBatteryToTitan( player, player, eEventNotifications.Rodeo_TitanPickedUpBattery, -1, amped )
-		}
-		return
+				Rodeo_ApplyBatteryToTitan( batteryPack, player, true ) // this is owner applying, modified!
+				MessagePlayerGivingBatteryToTitan( player, player, eEventNotifications.Rodeo_TitanPickedUpBattery, -1, amped )
+			}
+			return
+		#else // vanilla behavior
+			//Try Titans not being able to pick up battery
+			if ( GetCurrentPlaylistVarInt( "rodeo_battery_disembark_to_pickup", 1 ) == 1 )
+			{
+				if ( currentTime - player.p.batteryLastTouchedNotificationTime > 5.0 )
+				{
+					MessageToPlayer( player, eEventNotifications.Rodeo_DisembarkToPickUpBattery )
+					player.p.batteryLastTouchedNotificationTime  = currentTime
+
+				}
+			}
+			else
+			{
+				if ( IsSingleplayer() )
+				{
+					if ( player.GetHealth() >= player.GetMaxHealth() * BATTERY_PICKUP_IGNORE_FRAC && player.GetTitanSoul().GetShieldHealth() >= player.GetTitanSoul().GetShieldHealthMax() * BATTERY_PICKUP_IGNORE_FRAC )
+					{
+						MessageToPlayer( player, eEventNotifications.BATT_HealthFull, batteryPack )
+						return
+					}
+				}
+				bool amped = IsAmpedBattery( batteryPack )
+
+				Rodeo_ApplyBatteryToTitan( batteryPack, player )
+				MessagePlayerGivingBatteryToTitan( player, player, eEventNotifications.Rodeo_TitanPickedUpBattery, -1, amped )
+			}
+			return
+		#endif // MP
 	}
 	else
 	{
