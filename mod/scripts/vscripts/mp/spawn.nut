@@ -341,7 +341,7 @@ entity function FindSpawnPoint( entity player, bool isTitan, bool useStartSpawnp
 		
 	spawnpoint.s.lastUsedTime = Time()
 	//player.SetLastSpawnPoint( spawnpoint )
-	player.p.lastSpawnPoint = spawnpoint
+	player.p.lastSpawnPoint = spawnpoint // handled by DoRespawnPlayer(), but it's not enough
 		
 	return spawnpoint
 }

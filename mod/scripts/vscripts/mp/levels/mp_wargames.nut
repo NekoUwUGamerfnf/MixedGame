@@ -337,7 +337,7 @@ void function PlayerWatchesWargamesIntro( entity player )
 	int podAttachId = playerPod.LookupAttachment( "REF" )
 	player.SetOrigin( playerPod.GetAttachmentOrigin( podAttachId ) )
 	player.SetAngles( playerPod.GetAttachmentAngles( podAttachId ) )
-	player.RespawnPlayer( null )
+	DoRespawnPlayer( player, null )
 	player.SetParent( playerPod, "REF" )
 	player.ForceStand()
 	
