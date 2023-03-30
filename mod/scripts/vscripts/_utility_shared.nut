@@ -2844,11 +2844,11 @@ bool function HasBitMask( int bitsExisting, int bitsToCheck )
 	return bitsCommon == bitsToCheck
 }
 
-float function GetDeathCamLength( entity player )
+float function GetDeathCamLength( entity player, bool ignoreForced = false )
 {
 	// modified in _base_gametype_mp.gnut
 	#if SERVER && MP
-		if ( GetForcedDeathCamLength() > 0 )
+		if ( GetForcedDeathCamLength() > 0 && !ignoreForced )
 			return GetForcedDeathCamLength()
 	#endif
 
