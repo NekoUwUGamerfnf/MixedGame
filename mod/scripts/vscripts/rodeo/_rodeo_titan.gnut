@@ -54,9 +54,7 @@ global function Battery_StopFXAndHideIconForPlayer
 global function RemovePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 global function RestorePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 
-// classic rodeo
-// mp specific
-#if MP
+#if MP // classic rodeo
 global function ClassicRodeo_SetEnabled
 global function ClassicRodeo_IsEnabled
 
@@ -72,7 +70,7 @@ global function ClassicRodeo_IsPlayerRemovingBatteryPack
 global function ClassicRodeo_IsPlayerThrowingGrenadeInHatch
 #endif // MP
 
-// nessie modify
+#if MP // nessie modify
 // modified, this titan won't able to be remove battery, but player can still stay on it's back. basically for bt
 global function Rodeo_SetTitanRodeoSequenceEnabled
 
@@ -86,6 +84,7 @@ global function Rodeo_SetWorldBatteryMaxCount
 global function Rodeo_SetTitanPickupBatteryAllowed
 global function Rodeo_BatteryThiefHighlightEnabled
 global function Rodeo_SetTitanBatteryDropOnDeath
+#endif // MP
 
 #if DEV
 global function SetDebugRodeoPrint
@@ -919,6 +918,18 @@ function PlayerBeginsTitanRodeo( entity player, RodeoPackageStruct rodeoPackage,
 		}
 
 		soul.soul.batteryContainerBeingUsed = true //All rodeo points mark batteryContainer as being true, various exit points mark it as being false when they are done cleaning it up (e.g. playing the appropriate battery going up/down anims)
+
+		// nessie modify
+		if ( !sameTeam )
+		{
+			#if FACTION_DIALOGUE_ENABLED
+				//thread PlayRodeoFactionDialogueAfterDelay( player, 0.5 )
+				// modified here!!! check rodeo sequence validation
+				if ( Rodeo_IsTitanRodeoSequenceEnabled( rodeoTitan ) )
+					thread PlayRodeoFactionDialogueAfterDelay( player, 0.5 )
+			#endif
+			TitanVO_AlertTitansTargetingThisTitanOfRodeo( player, soul )
+		}
 	#else // vanilla behavior
 		if ( soul.GetShieldHealth() > 0.0 )   // This was not evaluating properly with 0 being an int, so make it a float which works
 			GiveFriendlyRodeoPlayerProtection( rodeoTitan )
@@ -936,18 +947,15 @@ function PlayerBeginsTitanRodeo( entity player, RodeoPackageStruct rodeoPackage,
 		}
 
 		soul.soul.batteryContainerBeingUsed = true //All rodeo points mark batteryContainer as being true, various exit points mark it as being false when they are done cleaning it up (e.g. playing the appropriate battery going up/down anims)
-	#endif // MP
 
-	if ( !sameTeam )
-	{
-		#if FACTION_DIALOGUE_ENABLED
-			//thread PlayRodeoFactionDialogueAfterDelay( player, 0.5 )
-			// modified here!!! check rodeo sequence validation
-			if ( Rodeo_IsTitanRodeoSequenceEnabled( rodeoTitan ) )
+		if ( !sameTeam )
+		{
+			#if FACTION_DIALOGUE_ENABLED
 				thread PlayRodeoFactionDialogueAfterDelay( player, 0.5 )
-		#endif
-		TitanVO_AlertTitansTargetingThisTitanOfRodeo( player, soul )
-	}
+			#endif
+			TitanVO_AlertTitansTargetingThisTitanOfRodeo( player, soul )
+		}
+	#endif // MP
 
 	waitthread PlayerClimbsIntoRodeoPosition( player, rodeoTitan, rodeoPackage, playerWasEjecting )
 	
@@ -1916,54 +1924,61 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 	batteryPack.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
 
 	// modified here...
-	if( hideIcon || file.alwaysHideBatteryIcons )
-	{
-		batteryPack.s.hideIcon <- true
-		batteryPack.Minimap_Hide( TEAM_MILITIA, null )
-		batteryPack.Minimap_Hide( TEAM_IMC, null )
-		if( IsFFAGame() ) // hide for ffa
+	#if MP
+		if( hideIcon || file.alwaysHideBatteryIcons )
 		{
-			for( int i = 0; i <= 30; i++ ) // ttf2 is up to 30 teams, hardcoded!
-				batteryPack.Minimap_Hide( i, null )
+			batteryPack.s.hideIcon <- true
+			batteryPack.Minimap_Hide( TEAM_MILITIA, null )
+			batteryPack.Minimap_Hide( TEAM_IMC, null )
+			if( IsFFAGame() ) // hide for ffa
+			{
+				for( int i = 0; i <= 30; i++ ) // ttf2 is up to 30 teams, hardcoded!
+					batteryPack.Minimap_Hide( i, null )
+			}
 		}
-	}
-	else // for nessie batteries
-	{
-		batteryPack.s.hideIcon <- false
+		else // for nessie batteries
+		{
+			batteryPack.s.hideIcon <- false
+			batteryPack.Minimap_SetClampToEdge( false )
+			batteryPack.Minimap_AlwaysShow( TEAM_MILITIA, null )
+			batteryPack.Minimap_AlwaysShow( TEAM_IMC, null )
+		}
+		if( file.shouldRandomBattery )
+			batteryPack.SetSkin( RandomInt(3) )
+		
+		array<entity> batteryArray = GetEntArrayByClass_Expensive( "item_titan_battery" )
+		// fix for nessie
+		if( batteryArray.len() > file.worldBatteryMaxCount )
+		{
+			for( int i = batteryArray.len() - 1; i > 0; i-- )
+			{
+				if( batteryArray[i].GetParent() ) // assuming this is a battery carried by players
+					continue
+				batteryArray[i].Destroy()
+				break
+			}
+			
+			/* // never destroy batteries that player already carring
+			foreach( entity player in GetPlayerArray() )
+			{
+				while( GetPlayerBatteryCount( player ) > 0 )
+				{
+					entity battery = Rodeo_TakeBatteryAwayFromPilot( player )
+					if( IsValid( battery ) )
+						battery.Destroy()
+				}
+				batteryArray[batteryArray.len()-1].Destroy()
+			}
+			*/
+		}
+	#else // vanilla behavior
 		batteryPack.Minimap_SetClampToEdge( false )
 		batteryPack.Minimap_AlwaysShow( TEAM_MILITIA, null )
 		batteryPack.Minimap_AlwaysShow( TEAM_IMC, null )
-	}
-	if( file.shouldRandomBattery )
-		batteryPack.SetSkin( RandomInt(3) )
+	#endif // MP
 
 	Battery_StartFX( batteryPack )
 
-	array<entity> batteryArray = GetEntArrayByClass_Expensive( "item_titan_battery" )
-	// fix for nessie
-	if( batteryArray.len() > file.worldBatteryMaxCount )
-	{
-		for( int i = batteryArray.len() - 1; i > 0; i-- )
-		{
-			if( batteryArray[i].GetParent() ) // assuming this is a battery carried by players
-				continue
-			batteryArray[i].Destroy()
-			break
-		}
-		
-		/* // never destroy batteries that player already carring
-		foreach( entity player in GetPlayerArray() )
-		{
-			while( GetPlayerBatteryCount( player ) > 0 )
-			{
-				entity battery = Rodeo_TakeBatteryAwayFromPilot( player )
-				if( IsValid( battery ) )
-					battery.Destroy()
-			}
-			batteryArray[batteryArray.len()-1].Destroy()
-		}
-		*/
-	}
 
 	if ( HAS_BATTERY_THIEF_ICON && batteryOwner != null )
 	{
@@ -2031,13 +2046,20 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 
 	//batteryPack.Highlight_SetInheritHighlight( true ) // moved up
 
-	//if ( IsSingleplayer() )
-	// so we can decide if battery can be picked up by titans
-	if( isPickup || file.titanPickUpBattery )
-	{
-		thread AttachTriggerToBattery( batteryPack )
-		Highlight_SetNeutralHighlight( batteryPack, "health_pickup" )
-	}
+	#if MP // nessie modify
+		// so we can decide if battery can be picked up by titans
+		if( isPickup || file.titanPickUpBattery )
+		{
+			thread AttachTriggerToBattery( batteryPack )
+			Highlight_SetNeutralHighlight( batteryPack, "health_pickup" )
+		}
+	#else // vanill behavior
+		if ( IsSingleplayer() )
+		{
+			thread AttachTriggerToBattery( batteryPack )
+			Highlight_SetNeutralHighlight( batteryPack, "health_pickup" )
+		}
+	#endif // MP
 
 	//thread MonitorBatteryVelocity( batteryPack )
 	return batteryPack
@@ -2157,28 +2179,33 @@ void function Rodeo_PilotPicksUpBattery( entity pilot, entity battery )
 {
 	Rodeo_PilotPicksUpBattery_Silent( pilot, battery )
 	EmitSoundOnEntityOnlyToPlayer( pilot, pilot, PILOT_PICKS_UP_BATTERY_SOUND )
-	// allows player throw battery in non-titan modes
-	if( Riff_TitanAvailability() == eTitanAvailability.Never && file.canThrowBattery )
-	{
-		AddPlayerHeldButtonEventCallback( pilot, IN_USE, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME )
-		//for controller players
-		AddPlayerHeldButtonEventCallback( pilot, IN_USE_AND_RELOAD, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME * 2 )
-	}
+	
+	#if MP // nessie modify
+		// allows player throw battery in non-titan modes
+		if( Riff_TitanAvailability() == eTitanAvailability.Never && file.canThrowBattery )
+		{
+			AddPlayerHeldButtonEventCallback( pilot, IN_USE, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME )
+			//for controller players
+			AddPlayerHeldButtonEventCallback( pilot, IN_USE_AND_RELOAD, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME * 2 )
+		}
+	#endif
 }
 
 entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 {
-	// allows player throw battery in non-titan modes
-	if( Riff_TitanAvailability() == eTitanAvailability.Never && file.canThrowBattery )
-	{
-		RemovePlayerHeldButtonEventCallback( pilot, IN_USE, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME )
-		//for controller players
-		RemovePlayerHeldButtonEventCallback( pilot, IN_USE_AND_RELOAD, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME * 2 )
-	}
+	#if MP // nessie modify
+		// allows player throw battery in non-titan modes
+		if( Riff_TitanAvailability() == eTitanAvailability.Never && file.canThrowBattery )
+		{
+			RemovePlayerHeldButtonEventCallback( pilot, IN_USE, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME )
+			//for controller players
+			RemovePlayerHeldButtonEventCallback( pilot, IN_USE_AND_RELOAD, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME * 2 )
+		}
 
-	// nessie defensive fix
-	if( GetPlayerBatteryCount( pilot ) == 0 )
-		return
+		// nessie defensive fix
+		if( GetPlayerBatteryCount( pilot ) == 0 )
+			return
+	#endif
 		
 	SetPlayerBatteryCount( pilot, GetPlayerBatteryCount( pilot ) - 1 )
 
@@ -2188,33 +2215,38 @@ entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 		Assert( IsValid( battery ) )
 		Assert( battery.GetParent() == pilot )
 
-		// nessie fix
-		if( !IsValid( battery ) )
-			return
+		#if MP // nessie modify
+			// nessie fix
+			if( !IsValid( battery ) )
+				return
+		#endif
+
 		SetBatteryOnBack( pilot, null ) //Defensive fix for 209362. Set it to null before doing any other actions on it which might cause execution to jump somewhere else. I think doing PutEntityInSafeSpot() might cause this?
 		
-		bool shouldHideIcon = false
-		if( "hideIcon" in battery.s ) // icon hide for battery
-		{
-			if( expect bool( battery.s.hideIcon ) )
-				shouldHideIcon = true
-		}
-
-		if( !shouldHideIcon )
-		{
-			battery.Minimap_AlwaysShow( TEAM_MILITIA, null )
-			battery.Minimap_AlwaysShow( TEAM_IMC, null )
-		}
-		else
-		{
-			battery.Minimap_Hide( TEAM_MILITIA, null )
-			battery.Minimap_Hide( TEAM_IMC, null )
-			if( IsFFAGame() ) // hide for ffa
+		#if MP // nessie modify
+			bool shouldHideIcon = false
+			if( "hideIcon" in battery.s ) // icon hide for battery
 			{
-				for( int i = 0; i <= 30; i++ ) // ttf2 is up to 30 teams
-					battery.Minimap_Hide( i, null )
+				if( expect bool( battery.s.hideIcon ) )
+					shouldHideIcon = true
 			}
-		}
+
+			if( !shouldHideIcon )
+			{
+				battery.Minimap_AlwaysShow( TEAM_MILITIA, null )
+				battery.Minimap_AlwaysShow( TEAM_IMC, null )
+			}
+			else
+			{
+				battery.Minimap_Hide( TEAM_MILITIA, null )
+				battery.Minimap_Hide( TEAM_IMC, null )
+				if( IsFFAGame() ) // hide for ffa
+				{
+					for( int i = 0; i <= 30; i++ ) // ttf2 is up to 30 teams
+						battery.Minimap_Hide( i, null )
+				}
+			}
+		#endif // MP
 
 		battery.s.touchEnabledTime = Time() + 0.3
 
@@ -2793,8 +2825,10 @@ void function TitanDropsBatteryOnDeath( entity titan, var damageInfo ) //Todo: M
 	if ( !titan.IsTitan() )
 		return
 
-	if ( !file.titanBatteryDropOnDeath )
-		return
+	#if MP // nessie modify
+		if ( !file.titanBatteryDropOnDeath )
+			return
+	#endif
 
 	entity battery = Rodeo_CreateBatteryPack()
 	vector titanOrigin = titan.GetOrigin()
@@ -3867,6 +3901,7 @@ void function ClassicRodeo_SetDeathBatteiesDropEnabled( bool enabled )
 #endif // MP
 
 
+#if MP // nessie modify
 //////////////////////////////
 ///// MODIFIED UTILITIES /////
 //////////////////////////////
@@ -3939,3 +3974,4 @@ void function Rodeo_SetTitanBatteryDropOnDeath( bool drop )
 {
 	file.titanBatteryDropOnDeath = drop
 }
+#endif // MP
