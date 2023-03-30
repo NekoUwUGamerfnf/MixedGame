@@ -34,31 +34,35 @@ var function OnWeaponPrimaryAttack_shifter_super( entity weapon, WeaponPrimaryAt
             warmupTime = SHIFTER_SUPER_WARMUP_TIME_FAST
         }
         #if SERVER
-//-205, 130
-        entity weaponOwner = weapon.GetWeaponOwner()
-        if( GAMETYPE == "ctf" )
-        {
-            if( weaponOwner.IsPhaseShifted() )
+            //-205, 130
+            entity weaponOwner = weapon.GetWeaponOwner()
+            if( GAMETYPE == "ctf" )
             {
-                TeleportPlayer(weapon, weaponOwner)
-                EmitSoundOnEntity( weaponOwner, SHIFTER_END_SOUND_3P )
-                PlayFXOnEntity( $"P_phase_shift_main", weaponOwner )
-                return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+                if( weaponOwner.IsPhaseShifted() )
+                {
+                    #if MP
+                        TeleportPlayer(weapon, weaponOwner)
+                        EmitSoundOnEntity( weaponOwner, SHIFTER_END_SOUND_3P )
+                        PlayFXOnEntity( $"P_phase_shift_main", weaponOwner )
+                    #endif
+                    return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+                }
             }
-        }
-        else
-        {
-            int phaseResult = PhaseShift( weaponOwner, 0, 0.2 )
-            if ( phaseResult )
+            else
             {
-                PlayerUsedOffhand( weaponOwner, weapon )
-                #if BATTLECHATTER_ENABLED && SERVER
-                    TryPlayWeaponBattleChatterLine( weaponOwner, weapon )
-                #endif
-                TeleportPlayer(weapon, weaponOwner)
-                return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+                int phaseResult = PhaseShift( weaponOwner, 0, 0.2 )
+                if ( phaseResult )
+                {
+                    PlayerUsedOffhand( weaponOwner, weapon )
+                    #if BATTLECHATTER_ENABLED
+                        TryPlayWeaponBattleChatterLine( weaponOwner, weapon )
+                    #endif
+                    #if MP
+                        TeleportPlayer(weapon, weaponOwner)
+                    #endif
+                    return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+                }
             }
-        }
         #endif
     
     }

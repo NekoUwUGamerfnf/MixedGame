@@ -568,28 +568,28 @@ bool function IsAlive( entity ent, bool ignoreHackedDeath = false )
 	if ( !ent.IsValidInternal() )
 		return false
 
-#if SERVER // extra check for hackedDeaths!
-	if( ent.IsPlayer() && HackedDeath_IsEnabled() )
-	{
-		if( !ignoreHackedDeath ) // for real killing players... they should ignore this check
+	#if SERVER && MP // extra check for hackedDeaths!
+		if( ent.IsPlayer() && HackedDeath_IsEnabled() )
 		{
-			if( "respawnCount" in ent.s ) // for sometimes npcs searching for players( maybe only ticks? )
+			if( !ignoreHackedDeath ) // for real killing players... they should ignore this check
 			{
-				if( expect int( ent.s.respawnCount ) > 0 ) // at least respawned once, or game will crash( player will respawn multiple times at connection )
+				if( "respawnCount" in ent.s ) // for sometimes npcs searching for players( maybe only ticks? )
 				{
-					if( GetGameState() > eGameState.Prematch ) // avoid intro forceDie crash
+					if( expect int( ent.s.respawnCount ) > 0 ) // at least respawned once, or game will crash( player will respawn multiple times at connection )
 					{
-						bool isHackedDeath = false // default is alive
-						if( "hackedDeath" in ent.s )
-							isHackedDeath = expect bool( ent.s.hackedDeath )
-						//print( "isHackedDeath state: " + string( isHackedDeath ) )
-						return !isHackedDeath
+						if( GetGameState() > eGameState.Prematch ) // avoid intro forceDie crash
+						{
+							bool isHackedDeath = false // default is alive
+							if( "hackedDeath" in ent.s )
+								isHackedDeath = expect bool( ent.s.hackedDeath )
+							//print( "isHackedDeath state: " + string( isHackedDeath ) )
+							return !isHackedDeath
+						}
 					}
 				}
 			}
 		}
-	}
-#endif
+	#endif
 
 	return ent.IsEntAlive()
 }
@@ -2846,10 +2846,11 @@ bool function HasBitMask( int bitsExisting, int bitsToCheck )
 
 float function GetDeathCamLength( entity player )
 {
-#if SERVER
-	if ( GetForcedDeathCamLength() > 0 ) // modified in _base_gametype_mp.gnut
-		return GetForcedDeathCamLength()
-#endif
+	// modified in _base_gametype_mp.gnut
+	#if SERVER && MP
+		if ( GetForcedDeathCamLength() > 0 )
+			return GetForcedDeathCamLength()
+	#endif
 
 	if ( !GamePlayingOrSuddenDeath() )
 		return DEATHCAM_TIME_SHORT

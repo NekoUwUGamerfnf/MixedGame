@@ -25,8 +25,8 @@ var function OnWeaponPrimaryAttack_titanability_phase_dash( entity weapon, Weapo
 
 				if( weapon.HasMod( "flipside" ) )
 				{
-					#if SERVER
-					TeleportPlayer(weapon, player)
+					#if SERVER && MP
+						TeleportPlayer(weapon, player)
 					#endif
 					return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 				}

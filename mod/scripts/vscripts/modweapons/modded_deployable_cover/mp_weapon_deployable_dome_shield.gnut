@@ -86,7 +86,7 @@ void function OnDeployableDomeShieldDeployed( entity projectile )
 void function DeployDomeShield( entity projectile, vector origin, vector angles )
 {
 	// shared function from nessie_funny.gnut
-	entity bubbleShield = CreateRainbowDomeShield( origin, angles, DEPLOYABLE_SHIELD_DURATION )
+	entity bubbleShield = CreateDeployableRainbowDome( origin, angles, DEPLOYABLE_SHIELD_DURATION )
 	thread BubbleShieldLifeTime( projectile, bubbleShield )
 }
 
@@ -96,6 +96,101 @@ void function BubbleShieldLifeTime( entity projectile, entity bubbleShield )
 
 	bubbleShield.WaitSignal( "OnDestroy" )
 	projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+}
+
+entity function CreateDeployableRainbowDome( vector origin, vector angles, float duration = -1, bool notSolid = false )
+{
+	entity bubbleShield = CreateEntity( "prop_dynamic" )
+	bubbleShield.SetValueForModelKey( $"models/fx/xo_shield.mdl" )
+	if ( !notSolid )
+		bubbleShield.kv.solid = SOLID_VPHYSICS
+    bubbleShield.kv.rendercolor = "81 130 151"
+    bubbleShield.kv.contents = (int(bubbleShield.kv.contents) | CONTENTS_NOGRAPPLE)
+	bubbleShield.SetOrigin( origin )
+	bubbleShield.SetAngles( angles )
+	bubbleShield.Hide()
+
+     // Blocks bullets, projectiles but not players and not AI
+	bubbleShield.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	bubbleShield.SetBlocksRadiusDamage( true )
+	DispatchSpawn( bubbleShield )
+    array<entity> bubbleShieldFXs
+	vector coloredFXOrigin = bubbleShield.GetOrigin()
+	table bubbleShieldDotS = expect table( bubbleShield.s )
+
+	//Create friendly and enemy colored particle systems
+	entity rainbowColoredFX = StartParticleEffectInWorld_ReturnEntity( BUBBLE_SHIELD_FX_PARTICLE_SYSTEM_INDEX, coloredFXOrigin, angles )
+	thread RainbowColorThink( rainbowColoredFX )
+	bubbleShieldFXs.append( rainbowColoredFX )
+
+    EmitSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
+    thread CleanupBubbleShield( bubbleShield, bubbleShieldFXs, duration )
+
+	return bubbleShield
+}
+
+void function RainbowColorThink( entity fx )
+{
+	fx.EndSignal( "OnDestroy" )
+
+	vector rgb = < 255, 0, 0 > // start with red
+	float segment = 25.5
+	while ( true )
+	{
+		WaitFrame()
+
+		// to < 255, 255, 0 >
+		if ( rgb.x == 255 && rgb.y < 255 && rgb.z == 0 )
+			rgb.y = min( 255, rgb.y + segment )
+		// to < 0, 255, 0 >
+		else if ( rgb.x > 0 && rgb.y == 255 && rgb.z == 0 )
+			rgb.x = max( 0, rgb.x - segment )
+		// to < 0, 255, 255 >
+		else if ( rgb.x == 0 && rgb.y == 255 && rgb.z < 255 )
+			rgb.z = min( 255, rgb.z + segment )
+		// to < 0, 0, 255 >
+		else if ( rgb.x == 0 && rgb.y > 0 && rgb.z == 255 )
+			rgb.y = max( 0, rgb.y - segment )
+		// to < 255, 0, 255 >
+		else if ( rgb.x < 255 && rgb.y == 0 && rgb.z == 255 )
+			rgb.x = min( 255, rgb.x + segment )
+		// to < 255, 0, 0 >, a whole loop done
+		else if ( rgb.x == 255 && rgb.y == 0 && rgb.z > 0 )
+			rgb.z = max( 0, rgb.z - segment )
+
+		//print( rgb )
+		EffectSetControlPointVector( fx, 1, rgb )
+	}
+}
+
+void function CleanupBubbleShield( entity bubbleShield, array<entity> bubbleShieldFXs, float fadeTime )
+{
+	bubbleShield.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function () : ( bubbleShield, bubbleShieldFXs )
+		{
+			if ( IsValid_ThisFrame( bubbleShield ) )
+			{
+				StopSoundOnEntity( bubbleShield, "BubbleShield_Sustain_Loop" )
+				EmitSoundOnEntity( bubbleShield, "BubbleShield_End" )
+				DestroyBubbleShield( bubbleShield )
+			}
+
+			foreach ( fx in bubbleShieldFXs )
+			{
+				if ( IsValid_ThisFrame( fx ) )
+				{
+					EffectStop( fx )
+				}
+			}
+		}
+	)
+
+	if ( fadeTime == -1 ) // default
+		WaitForever()
+	else if ( fadeTime > 0 )
+		wait fadeTime
 }
 
 /* // normal bubbles
