@@ -33,7 +33,7 @@ bool function CC_TrySwitchTeam( entity player, array<string> args )
 
   	if ( mapDisable )
     {
-    	Chat_ServerPrivateMessage( player, "当前地图", false ) // chathook has been fucked up
+    	Chat_ServerPrivateMessage( player, "当前地图不可切换队伍", false ) // chathook has been fucked up
 		return true
 	}
 	
@@ -69,13 +69,42 @@ bool function CC_TrySwitchTeam( entity player, array<string> args )
 
 void function CheckPlayerDisconnect( entity player )
 {
-	// general check
-  	if ( !CanChangeTeam() )
+	// since this player may not being destroyed, should do a new check here
+	bool playerStillValid = IsValid( player )
+	int team = -1
+	if ( playerStillValid )
+		team = player.GetTeam()
+	// Check if the gamemode or map are on the blacklist
+	bool gamemodeDisable = disabledGamemodes_Balance.contains(GAMETYPE) || IsFFAGame()
+	bool mapDisable = disabledMaps.contains(GetMapName())
+
+	// Blacklist guards
+  	if ( gamemodeDisable )
+    	return
+  
+  	if ( mapDisable )
+    	return
+	
+	if ( GetPlayerArray().len() == 1 )
+		return
+  
+	// Check if difference is smaller than 2 ( dont balance when it is 0 or 1 )
+	int imcTeamSize = GetPlayerArrayOfTeam( TEAM_IMC ).len()
+	int mltTeamSize = GetPlayerArrayOfTeam( TEAM_MILITIA ).len()
+	if ( playerStillValid ) // disconnecting player still valid
+	{
+		// do reduced teamsize
+		if ( team == TEAM_IMC )
+			imcTeamSize -= 1
+		if ( team == TEAM_MILITIA )
+			mltTeamSize -= 1
+	}
+	if( abs ( imcTeamSize - mltTeamSize ) <= BALANCE_ALLOWED_TEAM_DIFFERENCE )
 		return
 
-	int weakTeam = GetPlayerArrayOfTeam( TEAM_IMC ).len() > GetPlayerArrayOfTeam( TEAM_MILITIA ).len() ? TEAM_MILITIA : TEAM_IMC
+	int weakTeam = imcTeamSize > mltTeamSize ? TEAM_MILITIA : TEAM_IMC
 	foreach ( entity player in GetPlayerArrayOfTeam( GetOtherTeam( weakTeam ) ) )
-		Chat_ServerPrivateMessage( player, "队伍当前不平衡，可通过控制台输入switch切换队伍", false )
+		Chat_ServerPrivateMessage( player, "队伍当前不平衡，可通过控制台输入switch切换队伍。", false )
 }
 
 void function ShuffleTeams()
