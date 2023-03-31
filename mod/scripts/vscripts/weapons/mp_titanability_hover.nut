@@ -120,10 +120,22 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 	player.EndSignal( "TitanEjectionStarted" )
 
 	thread AirborneThink( player, soundInfo )
-	float airaccel
+
+	// modified to save settings
+	table savedStatus = {}
+	savedStatus.airSpeed <- 0.0
+	savedStatus.airAccel <- 0.0
+	savedStatus.gravity <- 0.0
+	savedStatus.groundFriction <- 0.0
+
 	if ( player.IsPlayer() )
 	{
-		airaccel = expect string(player.kv.airAcceleration).tofloat()
+		// modified to save settings
+		savedStatus.airSpeed = expect string( player.kv.airSpeed ).tofloat()
+		savedStatus.airAccel = expect string( player.kv.airAcceleration ).tofloat()
+		savedStatus.gravity = expect string( player.kv.gravity ).tofloat()
+		savedStatus.groundFriction = GetPlayerGroundFrictionScale( player )
+
 		player.Server_TurnDodgeDisabledOn()
 	    player.kv.airSpeed = horizVel
 	    player.kv.airAcceleration = 540
@@ -137,25 +149,31 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 
 	array<entity> activeFX
 
-	player.SetGroundFrictionScale( 0 )
+	// using custom utility!
+	//player.SetGroundFrictionScale( 0 )
+	SetPlayerGroundFrictionScale( player, 0.0 )
 
 	OnThreadEnd(
-		function() : ( activeFX, player, airaccel, soundInfo )
+		function() : ( activeFX, player, soundInfo, savedStatus )
 		{
 			if ( IsValid( player ) )
 			{
 				StopSoundOnEntity( player, soundInfo.hover_1p )
 				StopSoundOnEntity( player, soundInfo.hover_3p )
-				player.SetGroundFrictionScale( 1 )
+				// using custom utility!
+				//player.SetGroundFrictionScale( 1 )
+				SetPlayerGroundFrictionScale( player, float( savedStatus.groundFriction ) )
 				if ( player.IsPlayer() )
 				{
 					player.Server_TurnDodgeDisabledOff()
-					player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
+					// modified to save settings
+					//player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
 					//player.kv.airAcceleration = player.GetPlayerSettingsField( "airAcceleration" )
-					player.kv.airAcceleration = airaccel
-					if( IsPilot( player ) )
-						player.kv.gravity = 0.0
-					else
+					player.kv.airSpeed = savedStatus.airSpeed
+					player.kv.airAcceleration = savedStatus.airAccel
+					if ( IsPilot( player ) ) // pilot usage
+						player.kv.gravity = savedStatus.gravity
+					else // vanilla behavior
 						player.kv.gravity = player.GetPlayerSettingsField( "gravityScale" )
 					if ( player.IsOnGround() )
 					{
