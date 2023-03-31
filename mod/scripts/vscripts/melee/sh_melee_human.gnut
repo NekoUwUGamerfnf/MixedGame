@@ -16,6 +16,9 @@ function MeleeHumanShared_Init()
 	RegisterSignal( "MeleeDash" )
 	// to stop last jet fx
 	RegisterSignal( "MeleeJetFX" )
+	// to end last thread
+	RegisterSignal( "KickMeleeApplyingThink" )
+	RegisterSignal( "FakeGroundExecutionThink" )
 }
 
 function HumanUnsyncedMelee( entity player, bool movestunBlocked )
@@ -56,10 +59,13 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 	bool isDashMelee = meleeWeapon.HasMod( "apex_melee" ) || meleeWeapon.HasMod( "pushback_melee" )
 	bool doJetPackFX = meleeWeapon.HasMod( "jetpack_fx_melee" )
 
+// serverside only
 #if SERVER
-	bool applyKickDamage = meleeWeapon.HasMod( "fake_human_melee" ) && IsDoingMeleeKickEvent( player )
 	if( !( "applyKickDamage" in player.s ) )
 		player.s.applyKickDamage <- false
+
+	bool applyKickDamage = ( meleeWeapon.HasMod( "fake_human_melee" ) || meleeWeapon.HasMod( "fake_ground_execute" ) ) && IsDoingMeleeKickEvent( player )
+	bool doFakeGroundExecution = meleeWeapon.HasMod( "fake_ground_execute" )
 	if( applyKickDamage )
 		thread KickMeleeApplyingThink( player )
 #endif
@@ -93,6 +99,13 @@ function HumanUnsyncedMelee( entity player, bool movestunBlocked )
 */
 				if ( player.Lunge_SetTargetEntity( lungeTarget, true ) )
 				{
+					#if SERVER
+						if ( doFakeGroundExecution )
+						{
+							PlayerTryFakeGroundExecutionAttack( player, lungeTarget )
+						}
+					#endif
+
 					if ( lungeTarget.IsTitan() )
 					{
 						player.Lunge_EnableFlying()
@@ -651,6 +664,10 @@ void function HumanMeleeJetFX( entity player )
 		}
 	)
 
+	// clean up last
+	StopSoundOnEntity( player, "jumpjet_jump_body_3p" )
+	StopSoundOnEntity( player, "jumpjet_jump_end_3p" )
+	
 	EmitSoundOnEntity( player, "jumpjet_jump_body_3p" )
 
 	// enemy left vent fx
@@ -702,16 +719,25 @@ bool function IsDoingMeleeKickEvent( entity player )
 void function KickMeleeApplyingThink( entity player )
 {
 	player.EndSignal( "OnDestroy" )
+	player.Signal( "KickMeleeApplyingThink" )
+	player.EndSignal( "KickMeleeApplyingThink" )
+	player.EndSignal( "MeleeImpact" )
 	player.s.applyKickDamage = true
 
-	while( true )
-	{
-		if( !player.PlayerMelee_IsAttackActive() )
-			break
+	OnThreadEnd
+	(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				//print( "kick damagesource end" )
+				player.s.applyKickDamage = false
+			}
+		}
+	)
+
+	while( player.PlayerMelee_IsAttackActive() ) // wait until this attack ends
 		WaitFrame()
-	}
-	//print( "kick damagesource end" )
-	player.s.applyKickDamage = false
 }
 
 // pushback attack
@@ -932,5 +958,64 @@ bool function IsValidMeleeState( entity player )
 		return false
 
 	return true
+}
+
+// fake_ground_execute
+void function PlayerTryFakeGroundExecutionAttack( entity player, entity target )
+{
+	// states that overwrites ground execution animation
+	if ( !player.IsOnGround() )
+		return
+	if ( player.IsSprinting() || player.IsSliding() )
+		return
+	// crouch check!!
+	if ( player.IsCrouched() || player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) )
+		return
+	// messed up
+	if ( player.IsWallHanging() || player.IsWallRunning() )
+		return
+	// don't have attachment?
+	if ( target.LookupAttachment( "ORIGIN" ) <= 0 )
+		return
+	// spawn a fake grunt
+	entity fakeGrunt = CreateNPC( "npc_soldier", target.GetTeam(), target.GetOrigin(), target.GetAngles() )
+	fakeGrunt.kv.alwaysalert = 0
+	DispatchSpawn( fakeGrunt )
+	TakeAllWeapons( fakeGrunt )
+	fakeGrunt.SetPoseParametersSameAs( target ) // make them use the same pose and sequence as player's
+	fakeGrunt.SequenceTransitionFromEntity( target )
+	fakeGrunt.SetCanBeGroundExecuted( true )
+	fakeGrunt.SetParent( target, "ORIGIN" )
+	fakeGrunt.NotSolid()
+	fakeGrunt.Hide()
+	fakeGrunt.SetNoTarget( true )
+	fakeGrunt.EnableNPCFlag( NPC_IGNORE_ALL )
+
+	// make player do ground execution
+	player.Lunge_SetTargetEntity( fakeGrunt, true )
+	thread FakeGroundExecutionThink( player, fakeGrunt )
+}
+
+void function FakeGroundExecutionThink( entity player, entity fakeGrunt )
+{
+	player.EndSignal( "OnDestroy" )
+	player.Signal( "FakeGroundExecutionThink" )
+	player.EndSignal( "FakeGroundExecutionThink" )
+	player.EndSignal( "MeleeImpact" )
+	player.s.applyKickDamage = true
+
+	OnThreadEnd
+	(
+		function(): ( fakeGrunt )
+		{
+			if ( IsValid( fakeGrunt ) )
+				fakeGrunt.Destroy()
+		}
+	)
+
+	while( player.PlayerMelee_IsAttackActive() ) // wait until this attack ends
+		WaitFrame()
+	
+	player.s.applyKickDamage = false
 }
 #endif
