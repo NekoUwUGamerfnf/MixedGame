@@ -327,375 +327,6 @@ function HumanMeleeAttack_DoImpact( entity player, entity meleeWeapon, traceResu
 	}
 }
 
-// this requires _pilot_jumpjet_precache.gnut to precache the particles
-void function HumanMeleeJetFX( entity player )
-{
-	player.EndSignal( "OnDeath" )
-	player.Signal( "MeleeJetFX" )
-	player.EndSignal( "MeleeJetFX" )
-
-	array<entity> fx
-
-	OnThreadEnd(
-		function () : ( player, fx )
-		{
-			if ( IsValid( player ) )
-			{
-				StopSoundOnEntity( player, "jumpjet_jump_body_3p" )
-				EmitSoundOnEntity( player, "jumpjet_jump_end_3p" )
-			}
-			foreach ( entity effect in fx )
-			{
-				if ( !IsValid( effect ) )
-					continue
-
-				EffectStop( effect )
-			}
-		}
-	)
-
-	EmitSoundOnEntity( player, "jumpjet_jump_body_3p" )
-
-	// enemy left vent fx
-	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_left", false ) )
-	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_left", false ) )
-	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_ON", "vent_left", false ) )
-	// enemy right vent fx
-	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_right", false ) )
-	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_right", false ) )
-	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_ON", "vent_right", false ) )
-
-	// friendly left vent fx
-	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_DBL", "vent_left", true ) )
-	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_left", true ) )
-	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_ON", "vent_left", true ) )
-	// friendly right vent fx
-	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_DBL", "vent_right", true ) )
-	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_right", true ) )
-	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_ON", "vent_right", true ) )
-
-	wait 0.5 // even emptyhand's lunge time has only 0.5s
-}
-
-entity function CreateJetFxForPlayer( entity player, asset particle, string attachment, bool isFriendly )
-{
-	int particleID = GetParticleSystemIndex( particle )
-	int attachID = player.LookupAttachment( attachment )
-	if( attachID <= 0 ) // no attachment valid, don't play fx on this model
-		return null
-	entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleID, FX_PATTACH_POINT_FOLLOW, attachID )
-	fx.SetOwner( player )
-	SetTeam( fx, player.GetTeam() )
-	if( isFriendly ) // removed: player can see friendly fx( blue flames and trails )
-		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY // | ENTITY_VISIBLE_TO_OWNER // this might get annoying!
-	else
-		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
-
-	return fx
-}
-
-bool function IsDoingMeleeKickEvent( entity player )
-{
-	if( ( !player.IsOnGround() && !player.IsWallRunning() ) || player.IsWallHanging() )
-		return true
-	return false
-}
-
-void function KickMeleeApplyingThink( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-	player.s.applyKickDamage = true
-
-	while( true )
-	{
-		if( !player.PlayerMelee_IsAttackActive() )
-			break
-		WaitFrame()
-	}
-	//print( "kick damagesource end" )
-	player.s.applyKickDamage = false
-}
-
-void function HumanMeleeAttack_PushBackAttack( entity player, entity target, entity meleeWeapon, traceResult, bool applyKickDamage )
-{
-	vector angles = player.EyeAngles()
-	vector pushBackVelocity = AnglesToForward( angles ) * meleeWeapon.GetWeaponDamageForce()
-	vector damageOrigin = expect vector( traceResult.position )
-
-	bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" ) // fighter melee won't knockback player themselves
-
-	vector targetDirection = VectorToAngles( traceResult.position - traceResult.startPosition )
-
-	if( target.IsPlayer() || target.IsNPC() )
-	{
-		//Push enemy back first before doing damage to get rid of some dependencies
-		vector targetVelocity
-		//targetVelocity = target.GetVelocity()
-		//targetVelocity += pushBackVelocity 
-		targetVelocity = pushBackVelocity // always do knockback, ignore target's base velocity
-
-		// Put a floor on the targetVelocity: has to be at least 0.85 of the pushback velocity to be able to push back players far enough
-		// so that their slow melee attack doesn't still connect after being hit by a fast melee.
-		float clampRatio = 0.85
-		if ( ShouldClampTargetVelocity( targetVelocity, pushBackVelocity, clampRatio ) )
-			targetVelocity = pushBackVelocity * clampRatio
-		
-		if( target.IsOnGround() && targetVelocity.z <= 0 )
-			targetVelocity.z = -targetVelocity.z // in order to bounce players on ground
-
-		//targetVelocity.z += 100
-		float magicNumber = 205 // lowest velocity to push a pilot off ground?
-		if( targetVelocity.z <= magicNumber && targetVelocity.z >= 0 )
-			targetVelocity.z = magicNumber
-		else if( targetVelocity.z >= -magicNumber && targetVelocity.z <= 0 && target.IsOnGround() )
-			targetVelocity.z = magicNumber
-		//print( targetVelocity.z )
-		targetVelocity = ClampVerticalVelocity( targetVelocity, 550 ) // max velocity
-		
-		// enemyTitan.SetVelocity( targetVelocity )
-		PushEntWithVelocity( target, targetVelocity )
-	}
-
-	player.Signal( "MeleeImpact" ) // restore groundfriction to make knockbacks work
-	
-	//vector backVel = -0.5*pushBackVelocity + player.GetVelocity() // player receive less pushback, no need for now
-	vector backVel = -pushBackVelocity + player.GetVelocity() // player receive full pushback since we got ground frictions back
-	if ( !isFighterMelee ) // fighter melee will make player receive full self knockback
-		backVel.z = 20 // don't let player leave ground through this
-
-	if ( isFighterMelee ) // fighter melee visual and sound fix, for they're too fast and client is hard to control it
-	{
-		// PlayImpactFXTable() will always dispatch a "hit flesh" sound, should notice it
-		PlayImpactFXTable( damageOrigin, null, "melee_human", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
-	}
-
-	if( !IsHumanSized( target ) )
-	{
-		if ( IsValidMeleeState( player ) || isFighterMelee ) // fighter melee will always knock back players if they hit other objects
-		{
-			thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
-			PushEntWithVelocity( player, backVel )
-		}
-		return
-	}
-
-	// titan.SetVelocity( backVel )
-	
-	if ( !isFighterMelee ) // fighter melee won't knock back on hit
-	{
-		thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
-		PushEntWithVelocity( player, backVel )
-	}
-
-	if ( target.IsPlayer() && target.PlayerMelee_IsAttackActive() )
-	{
-		// counter enemy's attack, maybe no need, may mess up target's screen!
-		if ( isFighterMelee )
-			target.PlayerMelee_EndAttack()
-	}
-
-	int damageAmount = meleeWeapon.GetDamageAmountForArmorType( target.GetArmorType() );
-	local damageTable =
-	{
-		scriptType = meleeWeapon.GetWeaponDamageFlags()
-		forceKill = false
-		damageType = DMG_MELEE_ATTACK
-		damageSourceId = applyKickDamage ? eDamageSourceId.human_melee : GetMeleeDamageSourceIDForWeapon( meleeWeapon )
-		origin = damageOrigin
-	}
-
-	target.TakeDamage( damageAmount, player, player, damageTable )
-
-	//player.PlayerMelee_EndAttack() // so no more freezelook
-}
-
-// move limiter
-const float HUMAN_MELEE_IMPACT_MOVE_LIMITER_DURATION	= 0.3
-
-void function PushBackMeleeMoveLimiter( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "MeleeImpact" )
-	
-	int moveLockEffect = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 1.0 ) // 1.0 will lock player's movement
-	
-	table results = {}
-	results.interrupted <- false
-
-	OnThreadEnd(
-		function(): ( player, results, moveLockEffect )
-		{
-			if( IsValid( player ) )
-			{
-				StatusEffect_Stop( player, moveLockEffect )
-				/* // really no need to reset speed...
-				if ( results.interrupted ) // if player interrupted the knockback..
-				{
-					vector fixVel = player.GetVelocity()
-					// remove their horizonal speed from knockback
-					fixVel.x = 0
-					fixVel.y = 0
-					player.SetVelocity( fixVel )
-				}
-				*/
-			}
-		}
-	)
-	
-	wait HUMAN_MELEE_IMPACT_MOVE_LIMITER_DURATION
-	/* // really no need to reset speed...
-	float endTime = Time() + HUMAN_MELEE_IMPACT_MOVE_LIMITER_DURATION
-
-	while ( Time() < endTime )
-	{
-		if ( !IsValidMeleeState( player ) ) // player leave valid state!
-		{
-			results.interrupted = true // mark as being interrupted
-			return // end dash
-		}
-
-		WaitFrame()
-	}
-	*/
-	
-}
-
-// melee dash
-const float HUMAN_MELEE_DASH_DELAY					= 0.1 // 0.1s grace period
-const float HUMAN_MELEE_DASH_DURATION 				= 0.2
-const float HUMAN_MELEE_DASH_DURATION_NOT_MOVING	= 0.3 // if player is not moving, we last a bit longer
-const float HUMAN_MELEE_DASH_FORCE	 				= 275 // really should set this higher, since player will have to overcome friction
-// since we've added script ground friction, we can use custom friction scale now
-const float HUMAN_MELEE_DASH_FRICTION_SCALE			= 0.5
-
-void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
-{
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "MeleeImpact" )
-	player.Signal( "MeleeDash" )
-	player.EndSignal( "MeleeDash" )
-
-	wait HUMAN_MELEE_DASH_DELAY
-	if ( !IsValidMeleeState( player ) ) // not in valid state!
-		return
-	
-	table results = {}
-	results.startSpeed <- null
-	results.interrupted <- false
-	results.meleeImpact <- true
-	results.startFriction <- GetPlayerGroundFrictionScale( player )
-	SetPlayerGroundFrictionScale( player, HUMAN_MELEE_DASH_FRICTION_SCALE )
-
-	thread HumanMeleeJetFX( player ) // always play a fx if you try to dashMelee
-
-	OnThreadEnd
-	(
-		function(): ( player, results )
-		{
-			if ( results.startSpeed != null )
-			{
-				// if player have a melee impact or they're being interrupted, we reset speed to start speed
-				if ( !results.meleeImpact || results.interrupted )
-				{
-					vector fixVel = expect vector ( results.startSpeed )
-					fixVel.z = player.GetVelocity().z
-					player.SetVelocity( fixVel )
-				}
-			}
-		}
-	)
-
-	float duration = HUMAN_MELEE_DASH_DURATION
-	if ( GetVelocityForce( player.GetVelocity() ) == 0 ) // player has no horizonal speed!
-		duration = HUMAN_MELEE_DASH_DURATION_NOT_MOVING
-
-	float startTime = Time()
-	float endTime = startTime + duration
-	vector startSpeed = player.GetVelocity()
-	results.startSpeed <- startSpeed
-
-	bool firstLoop = true
-	while ( Time() < endTime )
-	{
-		if ( !firstLoop )
-			WaitFrame()
-		firstLoop = false
-
-		if ( !IsValidMeleeState( player ) ) // player leave valid state!
-		{
-			results.interrupted = true // mark as being interrupted
-			return // end dash
-		}
-
-		float speedScale = HUMAN_MELEE_DASH_FORCE
-		vector addSpeed = player.GetViewVector() * speedScale
-		addSpeed.z = 0 // don't add z speed
-		player.SetVelocity( startSpeed + addSpeed ) // keep this speed for a while
-	}
-
-	results.meleeImpact = false // if we reached here it means we're not interrupted by melee impact
-}
-
-float function GetVelocityForce( vector vel )
-{
-    return sqrt( vel.x * vel.x + vel.y * vel.y + vel.z * vel.z )
-}
-
-/* older version: reset ground friction
-void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
-{
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "MeleeImpact" )
-
-	float dashScale = 130 // was 110
-	//if( player.IsSprinting() )
-	//	dashScale = 130
-
-	WaitFrame()
-	if( !IsValidMeleeState( player ) )
-		return
-	
-	WaitFrame()
-
-	vector viewVector = player.GetViewVector() * dashScale
-	viewVector.z = 0
-	vector targetVelocity = player.GetVelocity() + viewVector
-	
-	table savedStatus = {}
-	savedStatus.groundFriction <- GetPlayerGroundFrictionScale( player )
-	// using custom utility!
-	//player.SetGroundFrictionScale( 0.0 )
-	SetPlayerGroundFrictionScale( player, 0.0 )
-
-	OnThreadEnd(
-		function(): ( player, savedStatus )
-		{
-			if( IsValid( player ) )
-			{
-				// using custom utility!
-				//player.SetGroundFrictionScale( 1.0 )
-				SetPlayerGroundFrictionScale( player, float( savedStatus.groundFriction ) )
-			}
-		}
-	)
-	
-	player.SetVelocity( targetVelocity )
-
-	wait 0.2
-}
-*/
-
-bool function IsValidMeleeState( entity player )
-{
-	if( !player.IsOnGround() || player.IsSliding() || player.IsWallRunning() || player.IsWallHanging() )
-		return false
-
-	return true
-}
-
 int function GetMeleeDamageSourceIDForWeapon( entity meleeWeapon )
 {
 	string weaponName = meleeWeapon.GetWeaponClassName()
@@ -712,7 +343,6 @@ int function GetDamageAmountForTarget( entity meleeWeapon, entity target )
 	// default
 	return meleeWeapon.GetDamageAmountForArmorType( target.GetArmorType() )
 }
-
 
 // HACK - testing linked slow mo melee
 void function PROTO_SlowMoMelee( entity player, entity currentEnemy, entity meleeWeapon )
@@ -987,3 +617,320 @@ void function PlayerTriesSyncedMelee_FallbackToHumanMeleeAttack( entity player, 
 */
 	}
 }
+
+
+
+//////////////////////////////
+///// MODIFIED FUNCTIONS /////
+//////////////////////////////
+#if SERVER
+// this requires _pilot_jumpjet_precache.gnut to precache the particles
+void function HumanMeleeJetFX( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.Signal( "MeleeJetFX" )
+	player.EndSignal( "MeleeJetFX" )
+
+	array<entity> fx
+
+	OnThreadEnd(
+		function () : ( player, fx )
+		{
+			if ( IsValid( player ) )
+			{
+				StopSoundOnEntity( player, "jumpjet_jump_body_3p" )
+				EmitSoundOnEntity( player, "jumpjet_jump_end_3p" )
+			}
+			foreach ( entity effect in fx )
+			{
+				if ( !IsValid( effect ) )
+					continue
+
+				EffectStop( effect )
+			}
+		}
+	)
+
+	EmitSoundOnEntity( player, "jumpjet_jump_body_3p" )
+
+	// enemy left vent fx
+	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_left", false ) )
+	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_left", false ) )
+	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_ON", "vent_left", false ) )
+	// enemy right vent fx
+	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_right", false ) )
+	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_right", false ) )
+	fx.append( CreateJetFxForPlayer( player, $"P_enemy_jump_jet_ON", "vent_right", false ) )
+
+	// friendly left vent fx
+	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_DBL", "vent_left", true ) )
+	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_left", true ) )
+	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_ON", "vent_left", true ) )
+	// friendly right vent fx
+	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_DBL", "vent_right", true ) )
+	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_right", true ) )
+	fx.append( CreateJetFxForPlayer( player, $"P_team_jump_jet_ON", "vent_right", true ) )
+
+	wait 0.5 // even emptyhand's lunge time has only 0.5s
+}
+
+entity function CreateJetFxForPlayer( entity player, asset particle, string attachment, bool isFriendly )
+{
+	int particleID = GetParticleSystemIndex( particle )
+	int attachID = player.LookupAttachment( attachment )
+	if( attachID <= 0 ) // no attachment valid, don't play fx on this model
+		return null
+	entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleID, FX_PATTACH_POINT_FOLLOW, attachID )
+	fx.SetOwner( player )
+	SetTeam( fx, player.GetTeam() )
+	if( isFriendly ) // removed: player can see friendly fx( blue flames and trails )
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY // | ENTITY_VISIBLE_TO_OWNER // this might get annoying!
+	else
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+
+	return fx
+}
+
+// kick attack
+bool function IsDoingMeleeKickEvent( entity player )
+{
+	if( ( !player.IsOnGround() && !player.IsWallRunning() ) || player.IsWallHanging() )
+		return true
+	return false
+}
+
+void function KickMeleeApplyingThink( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.s.applyKickDamage = true
+
+	while( true )
+	{
+		if( !player.PlayerMelee_IsAttackActive() )
+			break
+		WaitFrame()
+	}
+	//print( "kick damagesource end" )
+	player.s.applyKickDamage = false
+}
+
+// pushback attack
+const float HUMAN_MELEE_SELF_PUSH_SCALE = 0.6
+void function HumanMeleeAttack_PushBackAttack( entity player, entity target, entity meleeWeapon, traceResult, bool applyKickDamage )
+{
+	vector angles = player.EyeAngles()
+	vector pushBackVelocity = AnglesToForward( angles ) * meleeWeapon.GetWeaponDamageForce()
+	vector damageOrigin = expect vector( traceResult.position )
+
+	bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" ) // fighter melee won't knockback player themselves
+
+	vector targetDirection = VectorToAngles( traceResult.position - traceResult.startPosition )
+
+	if( target.IsPlayer() || target.IsNPC() )
+	{
+		//Push enemy back first before doing damage to get rid of some dependencies
+		vector targetVelocity
+		//targetVelocity = target.GetVelocity()
+		//targetVelocity += pushBackVelocity 
+		targetVelocity = pushBackVelocity // always do knockback, ignore target's base velocity
+
+		// Put a floor on the targetVelocity: has to be at least 0.85 of the pushback velocity to be able to push back players far enough
+		// so that their slow melee attack doesn't still connect after being hit by a fast melee.
+		float clampRatio = 0.85
+		if ( ShouldClampTargetVelocity( targetVelocity, pushBackVelocity, clampRatio ) )
+			targetVelocity = pushBackVelocity * clampRatio
+		
+		if( target.IsOnGround() && targetVelocity.z <= 0 )
+			targetVelocity.z = -targetVelocity.z // in order to bounce players on ground
+
+		//targetVelocity.z += 100
+		float magicNumber = 205 // lowest velocity to push a pilot off ground?
+		if( targetVelocity.z <= magicNumber && targetVelocity.z >= 0 )
+			targetVelocity.z = magicNumber
+		else if( targetVelocity.z >= -magicNumber && targetVelocity.z <= 0 && target.IsOnGround() )
+			targetVelocity.z = magicNumber
+		//print( targetVelocity.z )
+		targetVelocity = ClampVerticalVelocity( targetVelocity, 550 ) // max velocity
+		
+		// enemyTitan.SetVelocity( targetVelocity )
+		PushEntWithVelocity( target, targetVelocity )
+	}
+
+	player.Signal( "MeleeImpact" ) // restore groundfriction to make knockbacks work
+	
+	//vector backVel = -0.5*pushBackVelocity + player.GetVelocity() // player receive less pushback, no need for now
+	vector backVel = -pushBackVelocity + player.GetVelocity() // player receive full pushback since we got ground frictions back
+	if ( !isFighterMelee ) // fighter melee will make player receive full self knockback
+		backVel.z = 20 // don't let player leave ground through this
+	backVel *= HUMAN_MELEE_SELF_PUSH_SCALE // since we've added scripted ground friction, shouldn't have a high backVel
+
+	if ( isFighterMelee ) // fighter melee visual and sound fix, for they're too fast and client is hard to control it
+	{
+		// PlayImpactFXTable() will always dispatch a "hit flesh" sound, should notice it
+		PlayImpactFXTable( damageOrigin, null, "melee_human", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+	}
+
+	if( !IsHumanSized( target ) )
+	{
+		if ( IsValidMeleeState( player ) || isFighterMelee ) // fighter melee will always knock back players if they hit other objects
+		{
+			thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
+			PushEntWithVelocity( player, backVel )
+		}
+		return
+	}
+
+	// titan.SetVelocity( backVel )
+	
+	if ( !isFighterMelee ) // fighter melee won't knock back on hit
+	{
+		thread PushBackMeleeMoveLimiter( player ) // make player unable to react to knockbacks, especially for kunai and sword
+		PushEntWithVelocity( player, backVel )
+	}
+
+	if ( target.IsPlayer() && target.PlayerMelee_IsAttackActive() )
+	{
+		// counter enemy's attack, maybe no need, may mess up target's screen!
+		if ( isFighterMelee )
+			target.PlayerMelee_EndAttack()
+	}
+
+	int damageAmount = meleeWeapon.GetDamageAmountForArmorType( target.GetArmorType() );
+	local damageTable =
+	{
+		scriptType = meleeWeapon.GetWeaponDamageFlags()
+		forceKill = false
+		damageType = DMG_MELEE_ATTACK
+		damageSourceId = applyKickDamage ? eDamageSourceId.human_melee : GetMeleeDamageSourceIDForWeapon( meleeWeapon )
+		origin = damageOrigin
+	}
+
+	target.TakeDamage( damageAmount, player, player, damageTable )
+
+	//player.PlayerMelee_EndAttack() // so no more freezelook
+}
+
+// move limiter
+const float HUMAN_MELEE_IMPACT_MOVE_LIMITER_DURATION	= 0.3
+const float HUMAN_MELEE_IMPACT_FRICTION_SCALE			= 0.5
+void function PushBackMeleeMoveLimiter( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "MeleeImpact" )
+
+	// this can't make player unable to resist friction, they can still move!!
+	int moveLockEffect = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 1.0 ) // 1.0 will lock player's movement
+	
+	table results = {}
+	results.interrupted <- false
+	results.startFriction <- GetPlayerGroundFrictionScale( player )
+	//print( "current ground friction is: " + string( GetPlayerGroundFrictionScale( player ) ) )
+	SetPlayerGroundFrictionScale( player, HUMAN_MELEE_IMPACT_FRICTION_SCALE )
+
+	OnThreadEnd(
+		function(): ( player, results, moveLockEffect )
+		{
+			if( IsValid( player ) )
+			{
+				StatusEffect_Stop( player, moveLockEffect )
+				SetPlayerGroundFrictionScale( player, expect float( results.startFriction ) )
+			}
+		}
+	)
+	
+	wait HUMAN_MELEE_IMPACT_MOVE_LIMITER_DURATION
+}
+
+// melee dash
+const float HUMAN_MELEE_DASH_DELAY					= 0.1 // 0.1s grace period
+const float HUMAN_MELEE_DASH_DURATION 				= 0.2
+const float HUMAN_MELEE_DASH_DURATION_NOT_MOVING	= 0.3 // if player is not moving, we last a bit longer
+const float HUMAN_MELEE_DASH_FORCE	 				= 150 // really should set this higher, since player will have to overcome friction
+// since we've added script ground friction, we can use custom friction scale now
+const float HUMAN_MELEE_DASH_FRICTION_SCALE			= 0.0
+
+void function HumanMeleeAttack_DashThread( entity player, entity meleeWeapon )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "MeleeImpact" )
+	player.Signal( "MeleeDash" )
+	player.EndSignal( "MeleeDash" )
+
+	wait HUMAN_MELEE_DASH_DELAY
+	if ( !IsValidMeleeState( player ) ) // not in valid state!
+		return
+	
+	table results = {}
+	results.startSpeed <- null
+	results.interrupted <- false
+	results.meleeImpact <- true
+	results.startFriction <- GetPlayerGroundFrictionScale( player )
+
+	SetPlayerGroundFrictionScale( player, HUMAN_MELEE_DASH_FRICTION_SCALE )
+
+	thread HumanMeleeJetFX( player ) // always play a fx if you try to dashMelee
+
+	OnThreadEnd
+	(
+		function(): ( player, results )
+		{
+			if ( results.startSpeed != null )
+			{
+				// if player have a melee impact or they're being interrupted, we reset speed to start speed
+				if ( !results.meleeImpact || results.interrupted )
+				{
+					vector fixVel = expect vector ( results.startSpeed )
+					fixVel.z = player.GetVelocity().z
+					player.SetVelocity( fixVel )
+				}
+				SetPlayerGroundFrictionScale( player, expect float( results.startFriction ) )
+			}
+		}
+	)
+
+	float duration = HUMAN_MELEE_DASH_DURATION
+	if ( GetVelocityForce( player.GetVelocity() ) == 0 ) // player has no horizonal speed!
+		duration = HUMAN_MELEE_DASH_DURATION_NOT_MOVING
+
+	float startTime = Time()
+	float endTime = startTime + duration
+	vector startSpeed = player.GetVelocity()
+	results.startSpeed <- startSpeed
+
+	bool firstLoop = true
+	while ( Time() < endTime )
+	{
+		if ( !firstLoop )
+			WaitFrame()
+		firstLoop = false
+
+		if ( !IsValidMeleeState( player ) ) // player leave valid state!
+		{
+			results.interrupted = true // mark as being interrupted
+			return // end dash
+		}
+
+		float speedScale = HUMAN_MELEE_DASH_FORCE
+		vector addSpeed = player.GetViewVector() * speedScale
+		addSpeed.z = 0 // don't add z speed
+		player.SetVelocity( startSpeed + addSpeed ) // keep this speed for a while
+	}
+
+	results.meleeImpact = false // if we reached here it means we're not interrupted by melee impact
+}
+
+float function GetVelocityForce( vector vel )
+{
+    return sqrt( vel.x * vel.x + vel.y * vel.y + vel.z * vel.z )
+}
+
+bool function IsValidMeleeState( entity player )
+{
+	if( !player.IsOnGround() || player.IsSliding() || player.IsWallRunning() || player.IsWallHanging() )
+		return false
+
+	return true
+}
+#endif
