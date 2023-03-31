@@ -32,7 +32,7 @@ const int DEADLY_AREA_RADIUS_FFA = 800
 
 // modified: try to make spawnpoints near teammates and bit far from enemy
 const float FRIENDLY_SPAWN_RADIUS = 1000
-const float ENEMY_NOSPAWN_RADIUS = 1500 // most weapon's outer range, cause it less dangrous for player
+const float ENEMY_NOSPAWN_RADIUS = 2000 // most weapon's outer range, cause it less dangrous for player
 
 // modified: in ffa, try to spawn in fight areas, don't make players run across maps to have a fight
 const float FFA_NOSPAWN_RADIUS = 1000 // still don't too close to an enemy
@@ -731,9 +731,15 @@ void function RateSpawnpoints_SpawnZones( int checkClass, array<entity> spawnpoi
 
 		// modified over here
 		if ( HasEnemyNearSpawnPoint( team, spawn ) )
-			rating *= 0.0 // try not to spawn too close to enemy
+		{
+			if ( rating > 0 )
+				rating *= -0.6 // try not to spawn too close to enemy
+		}
 		else if ( HasFriendlyNearSpawnPoint( team, spawn ) )
-			rating *= 2.0 // and mostly spawn near a friendly
+		{
+			if ( rating > 0 )
+				rating = fabs ( rating * 2.0 ) // and mostly spawn near a friendly
+		}
 		
 		if ( rating != 0 )
 		{
