@@ -71,7 +71,6 @@ void function WargamesOnNPCKilled( entity deadEnt, entity attacker, var damageIn
 
 void function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
 {
-	
 	if ( deadEnt.IsPlayer() || GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
 	{
 		deadEnt.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 0 )
