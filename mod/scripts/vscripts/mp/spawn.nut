@@ -603,13 +603,13 @@ void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints
 		if ( currentRating != 0 ) // check this or server will calculate too much
 		{
 			float rating = spawnpoint.CalculateRating( checkClass, team, currentRating, currentRating + petTitanModifier )
-			print( "spawnpoint at " + spawnpoint.GetOrigin() + " has rating: " + rating )
+			//print( "spawnpoint at " + spawnpoint.GetOrigin() + " has rating: " + rating )
 			
-			if ( rating != 0.0 || currentRating != 0.0 )
-				print( "rating = " + rating + ", internal rating = " + currentRating )
+			//if ( rating != 0.0 || currentRating != 0.0 )
+				//print( "rating = " + rating + ", internal rating = " + currentRating )
 		}
-		else
-			print( "spawnpoint at " + spawnpoint.GetOrigin() + " has no rating" )
+		//else
+		//	print( "spawnpoint at " + spawnpoint.GetOrigin() + " has no rating" )
 	}
 }
 
@@ -723,10 +723,11 @@ void function RateSpawnpoints_SpawnZones( int checkClass, array<entity> spawnpoi
 		float rating = 0.0
 		float distance = Distance2D( spawn.GetOrigin(), spawnzone.GetOrigin() )
 		float radius = Distance2D( < 0, 0, 0 >, spawnzone.GetBoundingMaxs() )
+		//print( "spawnzone radius:" + string( radius ) )
 		if ( distance < radius )
 			rating = 100.0
 		else // max 35 rating if not in zone, rate by closest
-			rating = 35.0 * ( 1 - ( distance / radius ) )
+			rating = 35.0 * ( 1 - ( distance / 5000.0 ) )
 
 		// modified over here
 		if ( HasEnemyNearSpawnPoint( team, spawn ) )
@@ -737,10 +738,10 @@ void function RateSpawnpoints_SpawnZones( int checkClass, array<entity> spawnpoi
 		if ( rating != 0 )
 		{
 			float calcedRating = spawn.CalculateRating( checkClass, player.GetTeam(), rating, rating )
-			print( "spawnpoint at " + spawn.GetOrigin() + " has rating: " + calcedRating )
+			//print( "spawnpoint at " + spawn.GetOrigin() + " has rating: " + calcedRating )
 		}
-		else
-			print( "spawnpoint at " + spawn.GetOrigin() + " has no rating" )
+		//else
+			//print( "spawnpoint at " + spawn.GetOrigin() + " has no rating" )
 	}
 }
 
