@@ -11,7 +11,10 @@ const float JET_PACK_BURST_VELOCITY_VERTICAL = 300 // shouldn't set this very hi
 const float JET_PACK_BURST_VELOCITY_HORIZONAL = 320 // this can be bit higher
 const float JET_PACK_BURST_TO_LIFT_DELAY = 0.4 // basically no need to change this
 const float JET_PACK_LIFT_SPEED_VERTICAL = 300
-const float JET_PACK_LIFT_SPEED_HORIZONAL = 250 // actual behaviors not this high, so set higher.
+// reworked over here, using airSpeed for better behavior
+//const float JET_PACK_LIFT_SPEED_HORIZONAL = 250 // actual behaviors not this high, so set higher.
+const float JET_PACK_LIFT_SPEED_HORIZONAL = 250
+const float JET_PACK_LIFT_ACCELERATION_HORIZONAL = 600
 const float JET_PACK_GLIDE_GRAVITY_SCALE = 0.6
 const float JET_PACK_GLIDE_DURATION = 0.5
 
@@ -29,6 +32,7 @@ const float JET_PACK_BURST_VELOCITY_VERTICAL_GRUNT = 180 // shouldn't set this v
 const float JET_PACK_BURST_VELOCITY_HORIZONAL_GRUNT = 200 // this can be bit higher
 const float JET_PACK_LIFT_SPEED_VERTICAL_GRUNT = 150
 const float JET_PACK_LIFT_SPEED_HORIZONAL_GRUNT = 150 // actual behaviors not this high, so set higher.
+const float JET_PACK_LIFT_ACCELERATION_HORIZONAL_GRUNT = 350
 const int JET_PACK_AMMO_REDUCE_PER_BURST_GRUNT = 40 // higher so player won't have bad looping sound
 const int JET_PACK_AMMO_REDUCE_PER_TICK_GRUNT = 5
 
@@ -202,6 +206,11 @@ void function JetPackActivateThink( entity player, entity weapon )
         return
     }
 
+    table savedStatus = {}
+    savedStatus.airSpeed <- player.kv.airSpeed
+    savedStatus.airAccel <- player.kv.airAcceleration
+    //savedStatus.gravity <- player.kv.gravity // can't find a better way to store gravity
+
     player.Signal( "OnPrimaryAttack" ) // should signal this to end loadout grace period
     player.EndSignal( "OnDeath" )
     player.EndSignal( "OnDestroy" )
@@ -212,7 +221,7 @@ void function JetPackActivateThink( entity player, entity weapon )
     array<entity> fx
 
 	OnThreadEnd(
-		function () : ( player, fx )
+		function () : ( player, fx, savedStatus )
 		{
             if( IsValid( player ) )
             {
@@ -227,6 +236,12 @@ void function JetPackActivateThink( entity player, entity weapon )
                 thread JetPackGlideThink( player ) // do need a glide, or player will fall very fast
                 // annoying sound, no need to play
                 //thread JumpJetFreeFallSound( player )
+
+                // recover behavior
+                //print( "resetting airSpeed to" + string ( savedStatus.airSpeed ) )
+                //print( "resetting airAcceleration to " + string ( savedStatus.airAccel ) )
+                player.kv.airSpeed = savedStatus.airSpeed
+                player.kv.airAcceleration = savedStatus.airAccel
             }
 			foreach ( effect in fx )
 			{
@@ -275,6 +290,7 @@ void function JetPackActivateThink( entity player, entity weapon )
     float burstVelHorizonal = JET_PACK_BURST_VELOCITY_HORIZONAL
     float burstVelVertical = JET_PACK_BURST_VELOCITY_VERTICAL
     float liftVelHorizonal = JET_PACK_LIFT_SPEED_HORIZONAL
+    float liftAccelHorizonal = JET_PACK_LIFT_ACCELERATION_HORIZONAL
     float liftVelVertical = JET_PACK_LIFT_SPEED_VERTICAL
     // grunt speed
     if ( weapon.HasMod( "gm_flyer" ) )
@@ -282,9 +298,11 @@ void function JetPackActivateThink( entity player, entity weapon )
         burstVelHorizonal = JET_PACK_BURST_VELOCITY_HORIZONAL_GRUNT
         burstVelVertical = JET_PACK_BURST_VELOCITY_VERTICAL_GRUNT
         liftVelHorizonal = JET_PACK_LIFT_SPEED_HORIZONAL_GRUNT
+        liftAccelHorizonal = JET_PACK_LIFT_ACCELERATION_HORIZONAL_GRUNT
         liftVelVertical = JET_PACK_LIFT_SPEED_VERTICAL_GRUNT
     }
 
+    // start burst: forced velocity for a while
     player.kv.gravity = 0.0001
     vector burstVector = GetVectorFromInput( player ) * burstVelHorizonal
     burstVector.z = burstVelVertical
@@ -295,6 +313,10 @@ void function JetPackActivateThink( entity player, entity weapon )
     float startTime = Time()
     int soundRelapCount = 1
     wait JET_PACK_BURST_TO_LIFT_DELAY - 0.1 // minus a tick
+
+    // start lifting
+    player.kv.airSpeed = liftVelHorizonal
+    player.kv.airAcceleration = liftAccelHorizonal
     while( true )
     {
         if( !player.IsInputCommandHeld( IN_JUMP ) ) // if player released jump button, stop this
@@ -327,7 +349,7 @@ void function JetPackActivateThink( entity player, entity weapon )
         player.HolsterWeapon() // defensive fix
         player.Server_TurnOffhandWeaponsDisabledOn() // this can turn off offhand weapons
         player.kv.gravity = 0.0001 // defensive fix
-        vector liftVector = GetVectorFromInput( player ) * liftVelHorizonal
+        vector liftVector = player.GetVelocity() //GetVectorFromInput( player ) * liftVelHorizonal
         // hovering, more like valk's jecpack
         if( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) )
             liftVector.z = liftVelVertical * 0.5 // small amount to regret gravity, also make visual not that bad?
@@ -360,7 +382,7 @@ void function JetPackGlideThink( entity player )
         WaitFrame()
     }
     if( IsValid( player ) ) // don't reset gravity if triggered another "StartGlideThink"
-        player.kv.gravity = 0.0
+        player.kv.gravity = 0.0 // this is hardcoded!!!
 }
 
 void function JumpJetFreeFallSound( entity player )
