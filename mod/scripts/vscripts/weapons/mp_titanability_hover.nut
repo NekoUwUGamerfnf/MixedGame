@@ -162,7 +162,7 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 				StopSoundOnEntity( player, soundInfo.hover_3p )
 				// using custom utility!
 				//player.SetGroundFrictionScale( 1 )
-				SetPlayerGroundFrictionScale( player, float( savedStatus.groundFriction ) )
+				SetPlayerGroundFrictionScale( player, expect float( savedStatus.groundFriction ) )
 				if ( player.IsPlayer() )
 				{
 					player.Server_TurnDodgeDisabledOff()
