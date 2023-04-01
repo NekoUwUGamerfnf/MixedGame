@@ -395,7 +395,7 @@ entity function GetBestSpawnpoint( entity player, array<entity> spawnpoints )
 
 bool function IsSpawnpointValid( entity spawnpoint, int team )
 {
-	/* // was testing making ffa use normal points, but it doesn't seem work well
+	// was testing making ffa use normal points, don't do debug print if so! will delay the server
 	if ( !spawnpoint.HasKey( "ignoreGamemode" ) || ( spawnpoint.HasKey( "ignoreGamemode" ) && spawnpoint.kv.ignoreGamemode == "0" ) ) // used by script-spawned spawnpoints
 	{
 		if ( file.spawnpointGamemodeOverride != "" )
@@ -408,12 +408,16 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 		{
 			if ( IsFFAGame() )
 			{
-				string gamemodeKey = "gamemode_" + "tdm" // some map don't have enough ffa points, maybe this will be better
+				string gamemodeKey = "gamemode_tdm" // some map don't have enough ffa points, maybe this will be better
 				if ( spawnpoint.HasKey( gamemodeKey ) && (spawnpoint.kv[gamemodeKey] == "0" || spawnpoint.kv[gamemodeKey] == "") )
 				{
-					// printt( "Removing ent " + ent.GetClassName() + " with " + gamemodeKey + " = \"" + ent.kv[gamemodeKey] + "\" at " + ent.GetOrigin() )
-					spawnpoint.Destroy()
-					return false
+					gamemodeKey = "gamemode_ffa" // also save ffa spawnpoints
+					if ( spawnpoint.HasKey( gamemodeKey ) && (spawnpoint.kv[gamemodeKey] == "0" || spawnpoint.kv[gamemodeKey] == "") )
+					{
+						// printt( "Removing ent " + ent.GetClassName() + " with " + gamemodeKey + " = \"" + ent.kv[gamemodeKey] + "\" at " + ent.GetOrigin() )
+						spawnpoint.Destroy()
+						return false
+					}
 				}
 			}
 			else
@@ -423,7 +427,7 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 			}
 		}
 	}
-	*/
+	/*
 	if ( !spawnpoint.HasKey( "ignoreGamemode" ) || ( spawnpoint.HasKey( "ignoreGamemode" ) && spawnpoint.kv.ignoreGamemode == "0" ) ) // used by script-spawned spawnpoints
 	{
 		if ( file.spawnpointGamemodeOverride != "" )
@@ -438,6 +442,7 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 				return false
 		}
 	}
+	*/
 	
 	int compareTeam = spawnpoint.GetTeam()
 	if ( HasSwitchedSides() && ( compareTeam == TEAM_MILITIA || compareTeam == TEAM_IMC ) )
