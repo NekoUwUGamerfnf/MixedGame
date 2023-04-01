@@ -1,18 +1,24 @@
 untyped // almost everything is hardcoded in this file!
 
 global function TitanPick_Init
+global function TitanPick_Enabled_Init
 
+global function TitanPick_EnableWeaponDrops // main settings func
 global function TitanPick_SoulSetEnableWeaponDrop
 global function TitanPick_SoulSetEnableWeaponPick
 
-global function TitanPick_SoulSetWeaponDropTitanCharcterName
+global function TitanPick_SoulSetWeaponDropTitanCharacterName
+
+// for specific titan such as monarch, save it's upgrades
+global function TitanPick_SoulShouldSaveOffhandWeapons
 
 // registering new titan
 global function TitanPick_RegisterTitanWeaponDrop
 global function TitanPick_AddIllegalWeaponMod
 
+// shared with meleeSyncedTitan
+global function TitanPick_ShouldTitanDropWeapon
 global function TitanPick_TitanDropWeapon
-global function GiveDroppedTitanWeapon
 
 const string TITAN_DROPPED_WEAPON_SCRIPTNAME    = "titanPickWeaponDrop"
 const float TITAN_WEAPON_DROP_LIFETIME          = 60 // after this time the weapon drop will be destroyed
@@ -41,48 +47,87 @@ struct WeaponDropFunctions
     void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction 
 }
 
+// for specific titan such as monarch, save it's upgrades
+struct OffhandWeaponData
+{
+    string special = ""
+    array<string> specialMods = []
+    string ordnance = ""
+    array<string> ordnanceMods = []
+    string antiRodeo = ""
+    array<string> antiRodeoMods = []
+    string melee = ""
+    array<string> meleeMods = []
+    string core = ""
+    array<string> coreMods = []
+}
+
 struct
 {
+    bool enableWeaponDrops = false
+
     table<entity, bool> soulEnabledTitanDrop
     table<entity, bool> soulEnabledTitanPick
     table<entity, string> soulWeaponDropCharcterName // default classes registered in titan_replace.gnut
-    
+    table<entity, bool> soulSaveOffhandWeapons
+
     table<string, WeaponDropFunctions> registeredWeaponDrop
     table<entity, DroppedTitanWeapon> droppedWeaponPropsTable
+    table<entity, OffhandWeaponData> droppedOffhandsTable
     array<string> illegalWeaponMods
 } file
 
 void function TitanPick_Init() 
 {
-    AddCallback_OnPlayerKilled( OnTitanKilled )
-    AddCallback_OnNPCKilled( OnTitanKilled )
+    AddCallback_OnPlayerKilled( OnPlayerOrNPCKilled )
+    AddCallback_OnNPCKilled( OnPlayerOrNPCKilled )
 }
 
-void function OnTitanKilled( entity victim, entity attacker,var damageInfo )
+// main settings
+void function TitanPick_Enabled_Init()
 {
-    if( !victim.IsTitan() )
-        return
-    
+    TitanPick_EnableWeaponDrops( true )
+}
+
+void function TitanPick_EnableWeaponDrops( bool enable )
+{
+    file.enableWeaponDrops = enable
+}
+
+void function OnPlayerOrNPCKilled( entity victim, entity attacker,var damageInfo )
+{
     TryDropWeaponOnTitanKilled( victim )
 }
 
 void function TryDropWeaponOnTitanKilled( entity titan )
 {
-    entity soul = titan.GetTitanSoul()
-    //print( soul )
-    if ( !IsValid( soul ) )
+    if ( !TitanPick_ShouldTitanDropWeapon( titan ) )
         return
-    if ( soul in file.soulEnabledTitanDrop )
-    {
-        //print( "here" )
-        if ( !file.soulEnabledTitanDrop[ soul ] )
-            return
-    }
-
 
     // all checks passed
     // try to drop right under player( default origin and angles )
     TitanPick_TitanDropWeapon( titan )
+}
+
+// shared func
+bool function TitanPick_ShouldTitanDropWeapon( entity titan )
+{
+    // main check
+    if ( !file.enableWeaponDrops )
+        return false
+
+    if( !titan.IsTitan() )
+        return false
+
+    entity soul = titan.GetTitanSoul()
+    //print( soul )
+    if ( !IsValid( soul ) )
+        return false
+
+    if ( soul in file.soulEnabledTitanDrop )
+        return file.soulEnabledTitanDrop[ soul ]
+
+    return true // if checks reached here, we can drop it
 }
 
 // this will create a weapon drop based on a titan
@@ -190,7 +235,16 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     weaponStruct.loadoutFunction = curDropFuncs.loadoutFunction
 
     file.droppedWeaponPropsTable[ weaponProp ] <- weaponStruct
+    // for specific titans
+    if ( soul in file.soulSaveOffhandWeapons )
+	{
+        if ( file.soulSaveOffhandWeapons[ soul ] )
+            file.droppedOffhandsTable[ weaponProp ] <- GetTitanOffhandWeaponStruct( titan )
+    }
     thread TitanWeaponDropLifeTime( weaponProp )
+
+    // destroy current weapon
+    weapon.Destroy()
 
     return weaponProp
 }
@@ -225,6 +279,43 @@ array<string> function RemoveIllegalWeaponMods( array<string> mods )
     }
 
     return replaceArray
+}
+
+OffhandWeaponData function GetTitanOffhandWeaponStruct( entity titan )
+{
+    OffhandWeaponData titanOffhands
+    entity special = titan.GetOffhandWeapon( OFFHAND_SPECIAL )
+    entity ordnance = titan.GetOffhandWeapon( OFFHAND_ORDNANCE )
+    entity antiRodeo = titan.GetOffhandWeapon( OFFHAND_ANTIRODEO )
+    entity melee = titan.GetOffhandWeapon( OFFHAND_MELEE )
+    entity core = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+    if ( IsValid( special ) )
+    {
+        titanOffhands.special = special.GetWeaponClassName()
+        titanOffhands.specialMods = RemoveIllegalWeaponMods( special.GetMods() )
+    }
+    if ( IsValid( ordnance ) )
+    {
+        titanOffhands.ordnance = ordnance.GetWeaponClassName()
+        titanOffhands.ordnanceMods = RemoveIllegalWeaponMods( ordnance.GetMods() )
+    }
+    if ( IsValid( antiRodeo ) )
+    {
+        titanOffhands.antiRodeo = antiRodeo.GetWeaponClassName()
+        titanOffhands.antiRodeoMods = RemoveIllegalWeaponMods( antiRodeo.GetMods() )
+    }
+    if ( IsValid( melee ) )
+    {
+        titanOffhands.melee = melee.GetWeaponClassName()
+        titanOffhands.meleeMods = RemoveIllegalWeaponMods( melee.GetMods() )
+    }
+    if ( IsValid( core ) )
+    {
+        titanOffhands.core = core.GetWeaponClassName()
+        titanOffhands.coreMods = RemoveIllegalWeaponMods( core.GetMods() )
+    }
+
+    return titanOffhands
 }
 
 function GiveDroppedTitanWeapon( weaponmodel, player ) 
@@ -284,6 +375,35 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
     weaponProp.Destroy()
 }
 
+void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOffhands )
+{
+    if ( savedOffhands.special != "" )
+    {
+        titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
+        titan.GiveOffhandWeapon( savedOffhands.special, OFFHAND_SPECIAL, savedOffhands.specialMods )
+    }
+    if ( savedOffhands.ordnance != "" )
+    {
+        titan.TakeOffhandWeapon( OFFHAND_ORDNANCE )
+        titan.GiveOffhandWeapon( savedOffhands.ordnance, OFFHAND_ORDNANCE, savedOffhands.ordnanceMods )
+    }
+    if ( savedOffhands.antiRodeo != "" )
+    {
+        titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
+        titan.GiveOffhandWeapon( savedOffhands.antiRodeo, OFFHAND_ANTIRODEO, savedOffhands.antiRodeoMods )
+    }
+    if ( savedOffhands.melee != "" )
+    {
+        titan.TakeOffhandWeapon( OFFHAND_MELEE )
+        titan.GiveOffhandWeapon( savedOffhands.melee, OFFHAND_MELEE, savedOffhands.meleeMods )
+    }
+    if ( savedOffhands.core != "" )
+    {
+        titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
+        titan.GiveOffhandWeapon( savedOffhands.core, OFFHAND_EQUIPMENT, savedOffhands.coreMods )
+    }
+}
+
 // utility
 void function TitanPick_RegisterTitanWeaponDrop( string charaName, entity functionref( entity weapon, vector origin, vector angles ) weaponPropFunc, string functionref( entity weapon ) displayNameFunc, void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction  )
 {
@@ -327,10 +447,18 @@ void function TitanPick_SoulSetEnableWeaponPick( entity titanSoul, bool enable )
 	file.soulEnabledTitanPick[ titanSoul ] = enable
 }
 
-void function TitanPick_SoulSetWeaponDropTitanCharcterName( entity titanSoul, string charaName )
+void function TitanPick_SoulSetWeaponDropTitanCharacterName( entity titanSoul, string charaName )
 {
     charaName = charaName.tolower()
     if ( !( titanSoul in file.soulWeaponDropCharcterName ) )
 		file.soulWeaponDropCharcterName[ titanSoul ] <- "" // default value
 	file.soulWeaponDropCharcterName[ titanSoul ] = charaName
+}
+
+// for specific titans
+void function TitanPick_SoulShouldSaveOffhandWeapons( entity titanSoul, bool save )
+{
+    if ( !( titanSoul in file.soulSaveOffhandWeapons ) )
+		file.soulSaveOffhandWeapons[ titanSoul ] <- false // default value
+	file.soulSaveOffhandWeapons[ titanSoul ] = save
 }
