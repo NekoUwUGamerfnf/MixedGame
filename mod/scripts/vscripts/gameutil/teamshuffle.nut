@@ -5,7 +5,12 @@ array<string> disabledGamemodes_Balance = ["private_match"]
 array<string> disabledMaps = ["mp_lobby"]
 
 const int BALANCE_ALLOWED_TEAM_DIFFERENCE = 1
-bool hasShuffled = false
+const bool BALANCE_ON_DEATH = false
+
+struct
+{
+	bool hasShuffled = false
+} file
 
 void function TeamShuffle_Init()
 {
@@ -14,7 +19,8 @@ void function TeamShuffle_Init()
 	// viper battle compatible
 	//if( !(GAMETYPE == "tdm" && GetMapName() == "mp_forwardbase_kodai") )
 	//	AddCallback_OnPlayerKilled( CheckTeamBalance )
-	AddCallback_OnPlayerKilled( CheckTeamBalance )
+	if ( BALANCE_ON_DEATH )
+		AddCallback_OnPlayerKilled( CheckTeamBalance )
 	AddClientCommandCallback( "switch", CC_TrySwitchTeam )
 }
 
@@ -128,7 +134,7 @@ void function ShuffleTeams()
 
 void function TeamShuffleThink()
 {
-	if( hasShuffled )
+	if( file.hasShuffled )
 		return
 	// Check if the gamemode or map are on the blacklist
 	bool gamemodeDisable = disabledGamemodes_Shuffle.contains(GAMETYPE) || IsFFAGame();
@@ -166,7 +172,7 @@ void function TeamShuffleThink()
     // 
     	SetTeam( player, team )
 	}
-	hasShuffled = true
+	file.hasShuffled = true
 }
 
 void function FixShuffle( float delay = 0 )
