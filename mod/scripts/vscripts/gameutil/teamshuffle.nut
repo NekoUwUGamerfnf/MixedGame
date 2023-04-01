@@ -5,7 +5,7 @@ array<string> disabledGamemodes_Balance = ["private_match"]
 array<string> disabledMaps = ["mp_lobby"]
 
 const int BALANCE_ALLOWED_TEAM_DIFFERENCE = 1
-const bool BALANCE_ON_DEATH = false
+const bool BALANCE_ON_DEATH = true
 
 struct
 {
