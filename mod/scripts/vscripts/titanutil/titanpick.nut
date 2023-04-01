@@ -368,6 +368,12 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
     table<int,float> cooldowns = GetWeaponCooldownsForTitanLoadoutSwitch( player )
     // give offhands
     replacementWeapon.loadoutFunction( player, true, false )
+    // apply offhand mods if saved
+    if ( weaponProp in file.droppedOffhandsTable )
+    {
+        ApplySavedOffhandWeapons( player, file.droppedOffhandsTable[ weaponProp ] )
+        delete file.droppedOffhandsTable[ weaponProp ]
+    }
     // apply cooldown
     SetWeaponCooldownsForTitanLoadoutSwitch( player, cooldowns )
 
