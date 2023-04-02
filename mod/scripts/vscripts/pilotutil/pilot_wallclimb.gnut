@@ -1,8 +1,9 @@
 // TODO: add controllder input check
 global function Pilot_WallClimb_Init
 
-const float GRUNT_WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not facing a wall
-const float WALLCLIMB_GRACE_PERIOD_TIME = 0.3 // if you press left or right within this time you won't be kick off wall
+const bool WALLCLIMB_ALLOW_VERTICAL_INPUT = false // client will mostly desync, don't allow this
+const float WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not facing a wall
+const float WALLCLIMB_GRACE_PERIOD_TIME = 0.5 // if you press left or right within this time you won't be kick off wall
 
 struct
 {
@@ -74,7 +75,7 @@ void function PilotWallClimbThink( entity player )
 	) 
 	{
 		hasWallClimb = true
-		angleLimit = GRUNT_WALLCLIMB_ANGLE_LIMIT
+		angleLimit = WALLCLIMB_ANGLE_LIMIT
 	}
 
 	if ( !hasWallClimb )
@@ -82,6 +83,7 @@ void function PilotWallClimbThink( entity player )
 
 	bool isClimbingWall
 	vector wallAngles
+	vector lastTickVel
 	while( true )
 	{
 		if ( isClimbingWall && !player.IsWallRunning() ) // considering player has left the wall?
@@ -89,6 +91,7 @@ void function PilotWallClimbThink( entity player )
 			player.Signal( "PilotStopWallClimb" )
 			isClimbingWall = false
 		}
+		lastTickVel = player.GetVelocity()
 
 		WaitFrame() // always wait first
 
@@ -99,7 +102,15 @@ void function PilotWallClimbThink( entity player )
 		if ( player.IsWallRunning() )
 		{
 			if ( !isClimbingWall ) // new wall climbing
-				wallAngles = TracePlayerWallAngles( player )
+			{
+				vector ornull currentAngs = TracePlayerWallAngles( player, lastTickVel )
+				if ( currentAngs == null ) // can't trace!
+				{
+					thread KickPlayerOffWall( player )
+					continue
+				}
+				wallAngles = expect vector ( currentAngs )
+			}
 
 			// comparing yaw is enough
 			float wallAnglesYaw = wallAngles.y
@@ -108,14 +119,18 @@ void function PilotWallClimbThink( entity player )
 			float eyeAnglesYaw = VectorToAngles( player.GetViewVector() ).y
 
 			float angDiffer = fabs( fabs( wallAnglesYaw - eyeAnglesYaw ) - 180 ) // formatting the differ
-	
+			print( angDiffer )
+
 			// try to move on the wall( can't handle controller for now )
-			if ( file.playerWallRunBeinTime[player] + WALLCLIMB_GRACE_PERIOD_TIME < Time() ) // has climbed long enough
+			if ( !WALLCLIMB_ALLOW_VERTICAL_INPUT )
 			{
-				if ( player.IsInputCommandHeld( IN_MOVELEFT ) || player.IsInputCommandHeld( IN_MOVERIGHT ) )
+				if ( file.playerWallRunBeinTime[player] + WALLCLIMB_GRACE_PERIOD_TIME < Time() ) // has climbed long enough
 				{
-					thread KickPlayerOffWall( player ) // knock player off
-					continue
+					if ( player.IsInputCommandHeld( IN_MOVELEFT ) || player.IsInputCommandHeld( IN_MOVERIGHT ) )
+					{
+						thread KickPlayerOffWall( player ) // knock player off
+						continue
+					}
 				}
 			}
 
@@ -131,17 +146,26 @@ void function PilotWallClimbThink( entity player )
 	}
 }
 
-vector function TracePlayerWallAngles( entity player )
+vector ornull function TracePlayerWallAngles( entity player, vector lastTickVel )
 {
-	vector startPos = player.EyePosition()
-	int attachID = player.LookupAttachment( "CHESTFOCUS" )
-	if ( attachID > 0 )
-		startPos = player.GetAttachmentOrigin( attachID )
+	vector startPos = player.GetOrigin()
+	//vector startPos = player.EyePosition()
+	//int attachID = player.LookupAttachment( "CHESTFOCUS" )
+	//if ( attachID > 0 )
+	//	startPos = player.GetAttachmentOrigin( attachID )
 
 	// comparing yaw is enough
-	vector viewVec = player.GetViewVector()
-	viewVec = AnglesToForward( < 0, VectorToAngles( viewVec ).y, 0 > ) * 50
-	vector endPos = startPos + viewVec // get player's viewing wall
+	
+	vector directionForward = GetPlayerInputDirection( player ) // default is use player's input
+	vector moveAngs = VectorToAngles( lastTickVel )
+	//print( "moveAngs: " + string( moveAngs ) )
+	if ( moveAngs.y != 0 ) // if moveAngs valid, use it instead
+		directionForward = AnglesToForward( < 0, moveAngs.y, 0 > )
+	vector endPos = startPos + directionForward * 100 // get player's viewing wall
+
+	//vector moveAngs = VectorToAngles( lastTickVel )
+	//vector traceVec = AnglesToForward( < 0, VectorToAngles( lastTickVel ).y, 0 > ) * 50
+	//vector endPos = startPos + traceVec // get player's viewing wall
 
 	TraceResults traceResult = TraceLine( 
 											startPos, 
@@ -151,12 +175,47 @@ vector function TracePlayerWallAngles( entity player )
 											TRACE_COLLISION_GROUP_NONE 
 										)
 
+	// can't trace anything?
+	if ( !IsValid( traceResult.hitEnt ) )
+		return null
+
 	// get the wall's normal
 	vector normal = traceResult.surfaceNormal
 	// get the wall's angle
 	vector wallAngles = VectorToAngles( normal )
 
+	// lerp player's view
+	//player.PlayerCone_FromAnim()
+	player.PlayerCone_SetMinYaw( -45 )
+	player.PlayerCone_SetMaxYaw( 45 )
+	player.PlayerCone_SetMinPitch( 0 )
+	player.PlayerCone_SetMaxPitch( 0 )
+	
+	vector playerAngs = player.EyeAngles()
+	playerAngs.y = wallAngles.y - 180
+	player.SetAngles( playerAngs )
+
 	return wallAngles
+}
+
+vector function GetPlayerInputDirection( entity player )
+{
+	vector playerAngles = player.EyeAngles()
+	playerAngles.x = 0
+	playerAngles.z = 0
+	vector forward = AnglesToForward( playerAngles )
+	vector right = AnglesToRight( playerAngles )
+
+	float xAxis = player.GetInputAxisRight()
+	float yAxis = player.GetInputAxisForward()
+	vector directionVec = Vector(0,0,0)
+	directionVec += right * xAxis
+	directionVec += forward * yAxis
+
+	vector directionAngles = VectorToAngles( directionVec )
+	vector directionForward = AnglesToForward( directionAngles )
+
+	return directionForward
 }
 
 void function KickPlayerOffWall( entity player )
