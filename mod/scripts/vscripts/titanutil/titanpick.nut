@@ -88,6 +88,9 @@ void function TitanPick_Init()
 {
     AddCallback_OnPlayerKilled( OnPlayerOrNPCKilled )
     AddCallback_OnNPCKilled( OnPlayerOrNPCKilled )
+
+    // for updating rui
+    RegisterSignal( "UpdateCockpitRUI" )
 }
 
 // main settings
@@ -430,6 +433,8 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
     weaponProp.Destroy()
 
     // successfully applies weapons
+    // try update cockpit rui visibility
+    thread UpdateCockpitRUIVisbilityForWeaponSwitch( player )
 }
 
 void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOffhands )
@@ -490,6 +495,19 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
 			titan.SetHealth( min( curHealth, newMaxHealth ) )
         }
     }
+}
+
+void function UpdateCockpitRUIVisbilityForWeaponSwitch( entity player )
+{
+    player.Signal( "UpdateCockpitRUI" )
+    player.EndSignal( "UpdateCockpitRUI" )
+    player.EndSignal( "OnDestroy" )
+    if ( !HasCinematicFlag( player, CE_FLAG_TITAN_3P_CAM ) )
+        AddCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+
+    wait 0.5
+    if ( HasCinematicFlag( player, CE_FLAG_TITAN_3P_CAM ) )
+        RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
 }
 
 // utility
