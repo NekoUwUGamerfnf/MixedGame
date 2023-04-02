@@ -9,10 +9,12 @@ global function TitanPick_SoulSetEnableWeaponPick
 
 global function TitanPick_SoulSetWeaponDropTitanCharacterName
 
+// for specific titan such as monarch, save it's upgrades
+global function TitanPick_SoulShouldSaveOffhandWeapons
+
 // registering new titan
 global function TitanPick_RegisterTitanWeaponDrop
 global function TitanPick_AddIllegalWeaponMod
-global function TitanPick_AddChangablePassive
 
 // shared with meleeSyncedTitan
 global function TitanPick_ShouldTitanDropWeapon
@@ -59,8 +61,7 @@ struct OffhandWeaponData
     string core = ""
     array<string> coreMods = []
     
-    table<int, bool> passives // should clone from soul.passives
-    int upgradeCount = 0 // monarch specific
+    array<int> passives
 }
 
 struct
@@ -70,13 +71,12 @@ struct
     table<entity, bool> soulEnabledTitanDrop
     table<entity, bool> soulEnabledTitanPick
     table<entity, string> soulWeaponDropCharcterName // default classes registered in titan_replace.gnut
+    table<entity, bool> soulSaveOffhandWeapons
 
     table<string, WeaponDropFunctions> registeredWeaponDrop
     table<entity, DroppedTitanWeapon> droppedWeaponPropsTable
     table<entity, OffhandWeaponData> droppedOffhandsTable
-
     array<string> illegalWeaponMods
-    array<int> changablePassives
 } file
 
 void function TitanPick_Init() 
@@ -237,8 +237,12 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     weaponStruct.loadoutFunction = curDropFuncs.loadoutFunction
 
     file.droppedWeaponPropsTable[ weaponProp ] <- weaponStruct
-    file.droppedOffhandsTable[ weaponProp ] <- GetTitanOffhandWeaponStruct( titan )
-
+    // for specific titans
+    if ( soul in file.soulSaveOffhandWeapons )
+	{
+        if ( file.soulSaveOffhandWeapons[ soul ] )
+            file.droppedOffhandsTable[ weaponProp ] <- GetTitanOffhandWeaponStruct( titan )
+    }
     thread TitanWeaponDropLifeTime( weaponProp )
 
     // destroy current weapon
@@ -313,25 +317,6 @@ OffhandWeaponData function GetTitanOffhandWeaponStruct( entity titan )
         titanOffhands.coreMods = RemoveIllegalWeaponMods( core.GetMods() )
     }
 
-    entity soul = titan.GetTitanSoul()
-    if ( IsValid( soul ) )
-    {
-        foreach ( passive, enabled in soul.passives )
-        {
-            expect int( passive )
-            expect bool( enabled )
-            if ( file.changablePassives.contains( passive ) )
-            {
-                titanOffhands.passives[ passive ] <- enabled // add to table
-                soul.passives[ passive ] = false // disable existing passive!
-                if ( titan.IsPlayer() )
-                    titan.RemovePassive( passive )
-            }
-        }
-
-        titanOffhands.upgradeCount = soul.GetTitanSoulNetInt( "upgradeCount" )
-    }
-
     return titanOffhands
 }
 
@@ -382,28 +367,20 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
     weapon.SetSkin( replacementWeapon.weaponSkin )
     weapon.SetCamo( replacementWeapon.weaponCamo )
 
-    // reset behaviors
-    entity soul = player.GetTitanSoul()
-    soul.SetPreventCrits( false ) // enable in loadout functions
-    player.SetTitanDisembarkEnabled( true ) // do need to set up this since some weapon or titancore will disable it
-    entity smokeWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
-    if ( IsValid( smokeWeapon ) ) // take off maelstorm, will be given by loadout funcs
-    {
-        array<string> mods = smokeWeapon.GetMods()
-        mods.removebyvalue( "maelstrom" )
-        smokeWeapon.SetMods( mods )
-    }
     // save cooldown
     table<int,float> cooldowns = GetWeaponCooldownsForTitanLoadoutSwitch( player )
-    // apply offhands
-    ApplySavedOffhandWeapons( player, file.droppedOffhandsTable[ weaponProp ] )
-    // setup specific mechanics
+    // give offhands
     replacementWeapon.loadoutFunction( player, true, false )
+    // apply offhand mods if saved
+    if ( weaponProp in file.droppedOffhandsTable )
+    {
+        ApplySavedOffhandWeapons( player, file.droppedOffhandsTable[ weaponProp ] )
+        delete file.droppedOffhandsTable[ weaponProp ]
+    }
     // apply cooldown
     SetWeaponCooldownsForTitanLoadoutSwitch( player, cooldowns )
 
     delete file.droppedWeaponPropsTable[ weaponProp ]
-    delete file.droppedOffhandsTable[ weaponProp ]
     weaponProp.Destroy()
 
     // successfully applies weapons
@@ -436,19 +413,6 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
         titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
         titan.GiveOffhandWeapon( savedOffhands.core, OFFHAND_EQUIPMENT, savedOffhands.coreMods )
     }
-
-    entity soul = titan.GetTitanSoul()
-    if ( IsValid( soul ) )
-    {
-        foreach ( passive, enabled in savedOffhands.passives )
-        {
-            soul.passives[ passive ] = enabled // apply passives
-            if ( enabled )
-                titan.GivePassive( passive )
-        }
-
-        soul.SetTitanSoulNetInt( "upgradeCount", savedOffhands.upgradeCount )
-    }
 }
 
 // utility
@@ -479,13 +443,6 @@ void function TitanPick_AddIllegalWeaponMod( string mod )
         file.illegalWeaponMods.append( mod )
 }
 
-// passive settings
-void function TitanPick_AddChangablePassive( int passives )
-{
-    if ( !file.changablePassives.contains( passives ) )
-        file.changablePassives.append( passives )
-}
-
 // soul settings...
 void function TitanPick_SoulSetEnableWeaponDrop( entity titanSoul, bool enable )
 {
@@ -507,4 +464,12 @@ void function TitanPick_SoulSetWeaponDropTitanCharacterName( entity titanSoul, s
     if ( !( titanSoul in file.soulWeaponDropCharcterName ) )
 		file.soulWeaponDropCharcterName[ titanSoul ] <- "" // default value
 	file.soulWeaponDropCharcterName[ titanSoul ] = charaName
+}
+
+// for specific titans
+void function TitanPick_SoulShouldSaveOffhandWeapons( entity titanSoul, bool save )
+{
+    if ( !( titanSoul in file.soulSaveOffhandWeapons ) )
+		file.soulSaveOffhandWeapons[ titanSoul ] <- false // default value
+	file.soulSaveOffhandWeapons[ titanSoul ] = save
 }

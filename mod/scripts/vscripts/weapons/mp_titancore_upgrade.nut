@@ -30,8 +30,12 @@ var function OnWeaponNpcPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryA
 
 var function OnWeaponPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
 	if( weapon.HasMod( "shield_core" ) )
 		return OnAbilityStart_Shield_Core( weapon, attackParams )
+	//
+
+	// vanilla behavior
 	if ( !CheckCoreAvailable( weapon ) )
 		return false
 
