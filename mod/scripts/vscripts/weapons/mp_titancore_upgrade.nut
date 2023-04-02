@@ -283,11 +283,9 @@ var function OnWeaponPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryAtta
 
 		soul.SetTitanSoulNetInt( "upgradeCount", currentUpgradeCount + 1 )
 		// anti-crash
-		if( owner.GetModelName() == $"models/titans/medium/titan_medium_vanguard.mdl" )
-		{
-			int statesIndex = owner.FindBodyGroup( "states" )
+		int statesIndex = owner.FindBodyGroup( "states" )
+		if ( statesIndex > 0 )
 			owner.SetBodygroup( statesIndex, 1 )
-		}
 	#endif
 
 	#if CLIENT

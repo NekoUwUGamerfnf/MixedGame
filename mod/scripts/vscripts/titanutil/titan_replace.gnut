@@ -1345,6 +1345,7 @@ void function TitanReplace_BecomeMonarch( entity titan, bool isPickup = false, b
                 SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
                 return
             }
+
 			if( !isSpawning )
 			{
             	SendHudMessage( player, "更换至 帝王 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
@@ -1409,8 +1410,18 @@ void function TitanReplace_BecomeMonarch( entity titan, bool isPickup = false, b
 			// switch to monarch loadout
 			if ( isPickup )
 			{
+				int upgradeCount = soul.GetTitanSoulNetInt( "upgradeCount" )
+				// bodygroup
+				if ( upgradeCount >= 1 ) // upgraded
+				{
+					int statesIndex = titan.FindBodyGroup( "states" )
+					if ( statesIndex > 0 )
+						titan.SetBodygroup( statesIndex, 1 )
+				}
+
 				//Passives
-				if ( soul.GetTitanSoulNetInt( "upgradeCount" ) >= 2 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 ) )
+				// maelstrom
+				if ( upgradeCount >= 2 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 ) )
 				{
 					entity smokeWeapon = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
 					if ( IsValid( smokeWeapon ) )
@@ -1420,8 +1431,25 @@ void function TitanReplace_BecomeMonarch( entity titan, bool isPickup = false, b
 						smokeWeapon.SetMods( mods )
 					}
 				}
-				if ( soul.GetTitanSoulNetInt( "upgradeCount" ) >= 3 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 ) )
+				// superior chassis
+				if ( upgradeCount >= 3 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 ) )
+				{
+					if ( !GetDoomedState( titan ) )
+					{
+						int currentHealth = titan.GetHealth()
+						array<string> settingMods = titan.GetPlayerSettingsMods()
+						settingMods.append( "core_health_upgrade" )
+						titan.SetPlayerSettingsWithMods( titan.GetPlayerSettings(), settingMods )
+						int maxHealth = titan.GetMaxHealth()
+						titan.SetHealth( min( currentHealth, maxHealth ) )
+
+						//Hacky Hack - Append core_health_upgrade to setFileMods so that we have a way to check that this upgrade is active.
+						soul.soul.titanLoadout.setFileMods.append( "core_health_upgrade" )
+					}
+					
+					// here goes a problem: a monarch with superior chassis cannot update it's health bar if it switch to another final upgrade with same upgradeCount
 					soul.SetPreventCrits( true )
+				}
 
 				//Executions
 				if ( GetSoulTitanSubClass( soul ) == "atlas" ) // atlas titan
@@ -1844,6 +1872,10 @@ void function RegisterIonTitanPick()
 	TitanPick_AddChangablePassive( ePassives.PAS_ION_LASERCANNON )
 	TitanPick_AddChangablePassive( ePassives.PAS_ION_WEAPON )
 	TitanPick_AddChangablePassive( ePassives.PAS_ION_WEAPON_ADS )
+
+	// classmods
+	TitanPick_AddChangableClassMod( "fd_energy_regen" )
+	TitanPick_AddChangableClassMod( "fd_energy_max" )
 }
 
 entity function IonWeaponWeaponPropFunc( entity weapon, vector origin, vector angles )
@@ -2075,11 +2107,11 @@ string function RoninWeaponDisplayNameFunc( entity weapon )
 		displayName += "【彈跳彈藥】"
 	else if ( ordnanceMods.contains( "pas_ronin_arcwave" ) )
 		displayName += "【雷暴】"
-	else if ( SoulHasPassive( soul, ePassives.PAS_RONIN_AUTOSHIFT ) || antiRodeo.contains( "pas_ronin_autoshift" ) )
+	else if ( SoulHasPassive( soul, ePassives.PAS_RONIN_AUTOSHIFT ) || antiRodeoMods.contains( "pas_ronin_autoshift" ) )
 		displayName += "【瞬間反應】"
 	else if ( SoulHasPassive( soul, ePassives.PAS_RONIN_SWORDCORE ) || coreMods.contains( "pas_ronin_swordcore" ) )
 		displayName += "【高地戰士】"
-	else if ( antiRodeo.contains( "pas_ronin_phase" ) )
+	else if ( antiRodeoMods.contains( "pas_ronin_phase" ) )
 		displayName += "【時間異常】"
 
 	return displayName
@@ -2197,7 +2229,7 @@ string function StryderWeaponDisplayNameFunc( entity weapon )
 // scorch
 void function RegisterScorchTitanPick()
 {
-	TitanPick_RegisterTitanWeaponDrop( "scorch", ScorchWeaponWeaponPropFunc, ScorchWeaponDisplayNameFunc, TitanReplace_BecomeScorch )
+	TitanPick_RegisterTitanWeaponDrop( "scorch", ScorchWeaponWeaponPropFunc, ScorchWeaponDisplayNameFunc, TitanReplace_BecomeScorch, SwitchOffScorchLoadout )
 
 	// passives
 	TitanPick_AddChangablePassive( ePassives.PAS_SCORCH_FIREWALL )
@@ -2264,6 +2296,16 @@ string function ScorchWeaponDisplayNameFunc( entity weapon )
 		displayName += "【一片焦土】"
 
 	return displayName
+}
+
+void function SwitchOffScorchLoadout( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		if ( SoulHasPassive( soul, ePassives.PAS_SCORCH_SELFDMG ) )
+			soul.SetPreventCrits( false ) // clean up
+	}
 }
 
 // legion
@@ -2397,7 +2439,7 @@ string function OgreWeaponDisplayNameFunc( entity weapon )
 // monarch, not sure if it's named "vanguard"
 void function RegisterMonarchTitanPick()
 {
-	TitanPick_RegisterTitanWeaponDrop( "vanguard", MonarchWeaponWeaponPropFunc, MonarchWeaponDisplayNameFunc, TitanReplace_BecomeMonarch )
+	TitanPick_RegisterTitanWeaponDrop( "vanguard", MonarchWeaponWeaponPropFunc, MonarchWeaponDisplayNameFunc, TitanReplace_BecomeMonarch, SwitchOffMonarchLoadout )
 
 	// passives
 	TitanPick_AddChangablePassive( ePassives.PAS_VANGUARD_COREMETER )
@@ -2415,6 +2457,9 @@ void function RegisterMonarchTitanPick()
 	TitanPick_AddChangablePassive( ePassives.PAS_VANGUARD_CORE7 )
 	TitanPick_AddChangablePassive( ePassives.PAS_VANGUARD_CORE8 )
 	TitanPick_AddChangablePassive( ePassives.PAS_VANGUARD_CORE9 )
+
+	// classmods
+	//TitanPick_AddChangableClassMod( "core_health_upgrade" ) // should be handled by switchoff funcs
 }
 
 entity function MonarchWeaponWeaponPropFunc( entity weapon, vector origin, vector angles )
@@ -2510,6 +2555,51 @@ string function MonarchWeaponDisplayNameFunc( entity weapon )
 		displayName += "】" // end
 
 	return displayName
+}
+
+void function SwitchOffMonarchLoadout( entity titan )
+{
+	// bodygroup
+	int statesIndex = titan.FindBodyGroup( "states" )
+	if ( statesIndex > 0 )
+		titan.SetBodygroup( statesIndex, 0 )
+
+	// maelstrom
+    entity smokeWeapon = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
+    if ( IsValid( smokeWeapon ) ) // take off maelstrom, will be given by loadout funcs
+    {
+        array<string> mods = smokeWeapon.GetMods()
+        mods.removebyvalue( "maelstrom" )
+        smokeWeapon.SetMods( mods )
+    }
+
+    // superior chassis
+    entity soul = titan.GetTitanSoul()
+    if ( IsValid( soul ) )
+    {
+        if ( titan.IsPlayer() )
+        {
+            array<string> settingMods = titan.GetPlayerSettingsMods()
+            if ( settingMods.contains( "core_health_upgrade" ) ) // monarch upgrade
+			{
+				if ( !GetDoomedState( titan ) )
+				{
+					array<string> classMods = titan.GetPlayerSettingsMods()
+					classMods.removebyvalue( "core_health_upgrade" ) // remove existing classmod
+					// update health and class
+					int curHealth = titan.GetHealth()
+					titan.SetPlayerSettingsWithMods( titan.GetPlayerSettings(), classMods )
+					int newMaxHealth = titan.GetMaxHealth()
+					titan.SetHealth( min( curHealth, newMaxHealth ) )
+
+					soul.soul.titanLoadout.setFileMods.removebyvalue( "core_health_upgrade" ) // remove from setFileMods
+				}
+
+				// here goes a problem: a monarch with superior chassis cannot update it's health bar if it switch to another final upgrade with same upgradeCount
+				soul.SetPreventCrits( false ) // clean up
+			}
+        }
+    }
 }
 
 // archon

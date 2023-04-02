@@ -13,6 +13,7 @@ global function TitanPick_SoulSetWeaponDropTitanCharacterName
 global function TitanPick_RegisterTitanWeaponDrop
 global function TitanPick_AddIllegalWeaponMod
 global function TitanPick_AddChangablePassive
+global function TitanPick_AddChangableClassMod
 
 // shared with meleeSyncedTitan
 global function TitanPick_ShouldTitanDropWeapon
@@ -43,6 +44,8 @@ struct WeaponDropFunctions
 
     // keep same as DroppedTitanWeapon does
     void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction 
+
+    void functionref( entity titan ) switchOffFunc = null // can be null
 }
 
 // for specific titan such as monarch, save it's upgrades
@@ -59,8 +62,9 @@ struct OffhandWeaponData
     string core = ""
     array<string> coreMods = []
     
-    table<int, bool> passives // should clone from soul.passives
+    table<int, bool> passives = {} // should clone from soul.passives
     int upgradeCount = 0 // monarch specific
+    array<string> classMods = [] // requires modified titan_base.txt
 }
 
 struct
@@ -77,6 +81,7 @@ struct
 
     array<string> illegalWeaponMods
     array<int> changablePassives
+    array<string> changableClassMods // requires modified titan_base.txt
 } file
 
 void function TitanPick_Init() 
@@ -237,6 +242,10 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     weaponStruct.loadoutFunction = curDropFuncs.loadoutFunction
 
     file.droppedWeaponPropsTable[ weaponProp ] <- weaponStruct
+
+    // run switchoff callbacks before passives being taken off
+    if ( curDropFuncs.switchOffFunc != null )
+        curDropFuncs.switchOffFunc( titan )
     file.droppedOffhandsTable[ weaponProp ] <- GetTitanOffhandWeaponStruct( titan )
 
     thread TitanWeaponDropLifeTime( weaponProp )
@@ -329,7 +338,29 @@ OffhandWeaponData function GetTitanOffhandWeaponStruct( entity titan )
             }
         }
 
+        // monarch upgrades
         titanOffhands.upgradeCount = soul.GetTitanSoulNetInt( "upgradeCount" )
+
+        // classmods
+        if ( titan.IsPlayer() && IsAlive( titan ) )
+        {
+            array<string> classMods = titan.GetPlayerSettingsMods()
+            foreach ( string mod in classMods )
+            {
+                if ( file.changableClassMods.contains( mod ) )
+                {
+                    //print( "found classmod: " + mod + ", removing" )
+                    titanOffhands.classMods.append( mod ) // add to array
+                    classMods.removebyvalue( mod ) // remove existing classmod
+                    soul.soul.titanLoadout.setFileMods.removebyvalue( mod ) // remove from setFileMods
+                }
+            }
+            // update health and class
+            int curHealth = titan.GetHealth()
+            titan.SetPlayerSettingsWithMods( titan.GetPlayerSettings(), classMods )
+            int newMaxHealth = titan.GetMaxHealth()
+			titan.SetHealth( min( curHealth, newMaxHealth ) )
+        }
     }
 
     return titanOffhands
@@ -383,16 +414,8 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
     weapon.SetCamo( replacementWeapon.weaponCamo )
 
     // reset behaviors
-    entity soul = player.GetTitanSoul()
-    soul.SetPreventCrits( false ) // enable in loadout functions
     player.SetTitanDisembarkEnabled( true ) // do need to set up this since some weapon or titancore will disable it
-    entity smokeWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
-    if ( IsValid( smokeWeapon ) ) // take off maelstorm, will be given by loadout funcs
-    {
-        array<string> mods = smokeWeapon.GetMods()
-        mods.removebyvalue( "maelstrom" )
-        smokeWeapon.SetMods( mods )
-    }
+
     // save cooldown
     table<int,float> cooldowns = GetWeaponCooldownsForTitanLoadoutSwitch( player )
     // apply offhands
@@ -447,12 +470,30 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
                 titan.GivePassive( passive )
         }
 
+        // monarch upgrades
         soul.SetTitanSoulNetInt( "upgradeCount", savedOffhands.upgradeCount )
+
+        // classmods
+        if ( titan.IsPlayer() && IsAlive( titan ) && savedOffhands.classMods.len() > 0 )
+        {
+            array<string> classMods = titan.GetPlayerSettingsMods()
+            foreach ( string mod in savedOffhands.classMods )
+            {
+                //print( "found classmod: " + mod + ", applying" )
+                classMods.append( mod )
+                soul.soul.titanLoadout.setFileMods.append( mod )
+            }
+            // update health and class
+            int curHealth = titan.GetHealth()
+            titan.SetPlayerSettingsWithMods( titan.GetPlayerSettings(), classMods )
+            int newMaxHealth = titan.GetMaxHealth()
+			titan.SetHealth( min( curHealth, newMaxHealth ) )
+        }
     }
 }
 
 // utility
-void function TitanPick_RegisterTitanWeaponDrop( string charaName, entity functionref( entity weapon, vector origin, vector angles ) weaponPropFunc, string functionref( entity weapon ) displayNameFunc, void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction  )
+void function TitanPick_RegisterTitanWeaponDrop( string charaName, entity functionref( entity weapon, vector origin, vector angles ) weaponPropFunc, string functionref( entity weapon ) displayNameFunc, void functionref( entity titan, bool isPickup = false, bool isSpawning = false ) loadoutFunction, void functionref( entity titan ) switchOffFunc = null )
 {
     charaName = charaName.tolower() // always use tolower()
 
@@ -466,24 +507,30 @@ void function TitanPick_RegisterTitanWeaponDrop( string charaName, entity functi
     dropFuncsStruct.weaponPropFunc = weaponPropFunc
     dropFuncsStruct.displayNameFunc = displayNameFunc
     dropFuncsStruct.loadoutFunction = loadoutFunction
+    if ( switchOffFunc != null )
+        dropFuncsStruct.switchOffFunc = switchOffFunc
 
     file.registeredWeaponDrop[ charaName ] <- dropFuncsStruct
 
     print( "[TITAN PICK] registered " + charaName )
 }
 
-// weapon mod settings
+// filter settings
 void function TitanPick_AddIllegalWeaponMod( string mod )
 {
     if ( !file.illegalWeaponMods.contains( mod ) )
         file.illegalWeaponMods.append( mod )
 }
 
-// passive settings
 void function TitanPick_AddChangablePassive( int passives )
 {
     if ( !file.changablePassives.contains( passives ) )
         file.changablePassives.append( passives )
+}
+void function TitanPick_AddChangableClassMod( string classMod )
+{
+    if ( !file.changableClassMods.contains( classMod ) )
+        file.changableClassMods.append( classMod )
 }
 
 // soul settings...
