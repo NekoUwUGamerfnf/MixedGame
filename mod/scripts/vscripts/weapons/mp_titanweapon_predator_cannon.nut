@@ -138,20 +138,25 @@ var function OnWeaponPrimaryAttack_titanweapon_predator_cannon( entity weapon, W
 	if ( hasLongRangePowerShot || hasCloseRangePowerShot )
 	{
 #if SERVER
-		if( owner.GetModelName() == $"models/titans/heavy/titan_heavy_deadbolt.mdl" ||
-		owner.GetModelName() == $"models/titans/heavy/titan_heavy_legion_prime.mdl"
-		)
+		// for titan pick: only ogre titans has such animations
+		entity soul = owner.GetTitanSoul()
+		if ( IsValid( soul ) )
 		{
-			if ( owner.IsPlayer() && IsMultiplayer() )
+			string titanType = GetSoulTitanSubClass( soul )
+			if ( titanType == "ogre" )
 			{
-				owner.Anim_PlayGesture( "ACT_SCRIPT_CUSTOM_ATTACK2", 0.2, 0.2, -1.0 )
-			}
-			else if ( owner.IsNPC() )
-			{
-				string anim = "ACT_RANGE_ATTACK1_SINGLE"
-				if ( owner.IsCrouching() )
-					anim = "ACT_RANGE_ATTACK1_LOW_SINGLE"
-				owner.Anim_ScriptedPlayActivityByName( anim, true, 0.0 )
+				//if ( owner.IsPlayer() && IsMultiplayer() )
+				if ( owner.IsPlayer() )
+				{
+					owner.Anim_PlayGesture( "ACT_SCRIPT_CUSTOM_ATTACK2", 0.2, 0.2, -1.0 )
+				}
+				else if ( owner.IsNPC() )
+				{
+					string anim = "ACT_RANGE_ATTACK1_SINGLE"
+					if ( owner.IsCrouching() )
+						anim = "ACT_RANGE_ATTACK1_LOW_SINGLE"
+					owner.Anim_ScriptedPlayActivityByName( anim, true, 0.0 )
+				}
 			}
 		}
 #endif

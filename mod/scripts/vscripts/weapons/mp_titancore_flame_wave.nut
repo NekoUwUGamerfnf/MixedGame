@@ -80,6 +80,9 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 		if ( owner.IsPlayer() )
 			owner.SetTitanDisembarkEnabled( true )
 		OnAbilityChargeEnd_TitanCore( weapon )
+		
+		// anim fix for titanpick
+		TEMP_FlameWaveAnimFix( owner )
 	#endif // #if SERVER
 }
 
@@ -290,5 +293,22 @@ void function ZeroDamageAndClearInflictorArray( entity ent, var damageInfo )
 		entity inflictor = DamageInfo_GetInflictor( damageInfo )
 		if ( inflictor.e.damagedEntities.contains( ent ) )
 			inflictor.e.damagedEntities.fastremovebyvalue( ent )
+}
+#endif
+
+// modified functions
+#if SERVER
+void function TEMP_FlameWaveAnimFix( entity player )
+{
+	// for titan pick: only ogre titans has such animations
+	entity soul = player.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	string titanType = GetSoulTitanSubClass( soul )
+	if ( titanType == "ogre" ) // ogres can recover from animation, no need to fix
+		return
+
+	player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, 0.1 ) // temp fix
+	// fadein, fadeout, blendtime
 }
 #endif

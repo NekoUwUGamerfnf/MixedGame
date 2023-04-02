@@ -94,6 +94,12 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 	#if CLIENT
 		ClientScreenShake( 8.0, 10.0, 1.0, Vector( 0.0, 0.0, 0.0 ) )
 	#endif
+
+	#if SERVER
+		// anim fix for titanpick
+		thread TEMP_FlameWallAnimFix( weaponOwner )
+	#endif
+
 	return weapon.GetWeaponInfoFileKeyField( "ammo_min_to_fire" )
 }
 
@@ -247,5 +253,26 @@ void function FlameWall_DamagedTarget( entity ent, var damageInfo )
 			UpdateScorchHotStreakCoreMeter( attacker, DamageInfo_GetDamage( damageInfo ) )
 	}
 }
+#endif
 
+// modified functions
+#if SERVER
+void function TEMP_FlameWallAnimFix( entity player )
+{
+	// for titan pick: only ogre titans has such animations
+	entity soul = player.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	string titanType = GetSoulTitanSubClass( soul )
+	if ( titanType == "ogre" ) // ogres can recover from animation, no need to fix
+		return
+
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+    player.EndSignal( "DisembarkingTitan" )
+
+	wait 0.5 // give anim a little time
+	player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, 0.1 ) // temp fix
+	// fadein, fadeout, blendtime
+}
 #endif

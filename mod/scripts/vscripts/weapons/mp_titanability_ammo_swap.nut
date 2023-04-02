@@ -170,11 +170,13 @@ void function ToggleAmmoMods( entity weapon, entity primaryWeapon, entity weapon
 		weaponOwner.Weapon_StartCustomActivity( attackerAnim1p, false )
 		#if SERVER
 		weaponOwner.SetMeleeDisabled()
-		if( weaponOwner.GetModelName() == $"models/titans/heavy/titan_heavy_deadbolt.mdl" ||
-		weaponOwner.GetModelName() == $"models/titans/heavy/titan_heavy_legion_prime.mdl"
-		)
+		// for titan pick: only ogre titans has such animations
+		entity soul = weaponOwner.GetTitanSoul()
+		if ( IsValid( soul ) )
 		{
-			if ( IsMultiplayer() )
+			string titanType = GetSoulTitanSubClass( soul )
+			//if ( IsMultiplayer() )
+			if ( titanType == "ogre" )
 			{
 				string anim3p = "ACT_SCRIPT_CUSTOM_ATTACK"
 				weaponOwner.Anim_PlayGesture( anim3p, 0.2, 0.2, -1.0 )

@@ -69,13 +69,10 @@ void function OnAbilityChargeEnd_StormWave( entity weapon )
 			owner.SetTitanDisembarkEnabled( true )
 		OnAbilityChargeEnd_TitanCore( weapon )
 
-		if ( owner == null )
-			return
-
 		if ( owner.IsPlayer() )
 		{
 			owner.Server_TurnOffhandWeaponsDisabledOff() // may need a little fix for animation
-			thread TEMP_StormWaveAnimFix( owner )
+			TEMP_StormWaveAnimFix( owner )
 		}
 
 		if ( owner.IsNPC() && IsAlive( owner ) )
@@ -116,16 +113,15 @@ var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPr
 #if SERVER
 void function TEMP_StormWaveAnimFix( entity player )
 {
-	asset modelName = player.GetModelName()
+	// for titan pick: only ogre titans has such animations
+	entity soul = player.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	string titanType = GetSoulTitanSubClass( soul )
+	if ( titanType == "ogre" ) // ogres can recover from animation, no need to fix
+		return
+
 	player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, 0.1 ) // temp fix
 	// fadein, fadeout, blendtime
-	/*
-	wait 0.1
-	if( IsValid( player ) )
-	{
-		player.SetModel( modelName )
-		player.Anim_Stop()
-	}
-	*/
 }
 #endif
