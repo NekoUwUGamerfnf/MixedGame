@@ -276,9 +276,11 @@ var function OnWeaponPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryAtta
 				Remote_CallFunction_Replay( owner, "ServerCallback_PlayTitanConversation", conversationID )
 			}
 		}
+
+		soul.SetTitanSoulNetInt( "upgradeCount", currentUpgradeCount + 1 )
+		// anti-crash
 		if( owner.GetModelName() == $"models/titans/medium/titan_medium_vanguard.mdl" )
 		{
-			soul.SetTitanSoulNetInt( "upgradeCount", currentUpgradeCount + 1 )
 			int statesIndex = owner.FindBodyGroup( "states" )
 			owner.SetBodygroup( statesIndex, 1 )
 		}
