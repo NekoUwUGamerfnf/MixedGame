@@ -71,9 +71,12 @@ var function OnWeaponPrimaryAttack_DoNothing( entity weapon, WeaponPrimaryAttack
 
 bool function OnCoreCharge_Shift_Core( entity weapon )
 {
+	// modded weapon
 	if( weapon.HasMod( "dash_core" ) )
 		return OnCoreCharge_Dash_Core( weapon )
+	//
 
+	// vanilla behavior
 	if ( !OnAbilityCharge_TitanCore( weapon ) )
 		return false
 
@@ -109,9 +112,12 @@ bool function OnCoreCharge_Shift_Core( entity weapon )
 
 void function OnCoreChargeEnd_Shift_Core( entity weapon )
 {
+	// modded weapon
 	if( weapon.HasMod( "dash_core" ) )
 		return OnCoreChargeEnd_Dash_Core( weapon )
-		
+	//
+
+	// vanilla behavior	
 	#if SERVER
 	entity owner = weapon.GetWeaponOwner()
 	OnAbilityChargeEnd_TitanCore( weapon )
@@ -139,8 +145,12 @@ void function RestoreWeapon( entity owner, entity weapon )
 
 var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
 	if( weapon.HasMod( "dash_core" ) )
 		return OnAbilityStart_Dash_Core( weapon, attackParams )
+	//
+
+	// vanilla behavior
 	OnAbilityStart_TitanCore( weapon )
 
 	entity owner = weapon.GetWeaponOwner()
@@ -187,13 +197,21 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 			titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged_SP" )
 		}
 		
-		if ( owner.IsPlayer() )
-			owner.HolsterWeapon() // to have deploy animation
+		// pullout animation, respawn messed this up, but makes sword core has less startup
+		if ( weapon.HasMod( "sword_animation_fix" ) )
+		{
+			if ( owner.IsPlayer() )
+				owner.HolsterWeapon() // to have deploy animation
+		}
 
 		titan.SetActiveWeaponByName( "melee_titan_sword" )
 		
-		if ( owner.IsPlayer() )
-			owner.DeployWeapon() // to have deploy animation
+		// pullout animation
+		if ( weapon.HasMod( "sword_animation_fix" ) )
+		{
+			if ( owner.IsPlayer() )
+				owner.DeployWeapon() // to have deploy animation
+		}
 		
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( false )
