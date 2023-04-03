@@ -3,7 +3,7 @@ global function Pilot_WallClimb_Init
 
 const bool WALLCLIMB_ALLOW_VERTICAL_INPUT = false // client will mostly desync, don't allow this
 const float WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not facing a wall
-const float WALLCLIMB_GRACE_PERIOD_TIME = 0.3 // if you press left or right within this time you won't be kick off wall
+const float WALLCLIMB_GRACE_PERIOD_TIME = 0.4 // if you're not facing wall at start, press left or right within this time won't be kick off wall
 
 struct
 {
@@ -84,12 +84,14 @@ void function PilotWallClimbThink( entity player )
 	bool isClimbingWall
 	vector wallAngles
 	vector lastTickVel
+	bool facingWallAtStart
 	while( true )
 	{
 		if ( isClimbingWall && !player.IsWallRunning() ) // considering player has left the wall?
 		{
 			player.Signal( "PilotStopWallClimb" )
 			isClimbingWall = false
+			facingWallAtStart = false
 		}
 		lastTickVel = player.GetVelocity()
 
@@ -103,6 +105,8 @@ void function PilotWallClimbThink( entity player )
 		{
 			if ( !isClimbingWall ) // new wall climbing
 			{
+				float eyeAnglesYawBeforeTrace = VectorToAngles( player.GetViewVector() ).y
+
 				vector ornull currentAngs = TracePlayerWallAngles( player, lastTickVel )
 				if ( currentAngs == null ) // can't trace!
 				{
@@ -110,6 +114,11 @@ void function PilotWallClimbThink( entity player )
 					continue
 				}
 				wallAngles = expect vector ( currentAngs )
+				
+				facingWallAtStart = fabs( fabs( wallAngles.y - eyeAnglesYawBeforeTrace ) - 180 ) <= angleLimit
+				//print( "wallAngles.y: " + string( wallAngles.y ) )
+				//print( "eyeAnglesYawBeforeTrace : " + string( eyeAnglesYawBeforeTrace ) )
+				//print( fabs( fabs( wallAngles.y - eyeAnglesYawBeforeTrace ) - 180 ) )
 			}
 
 			// comparing yaw is enough
@@ -124,7 +133,8 @@ void function PilotWallClimbThink( entity player )
 			// try to move on the wall( can't handle controller for now )
 			if ( !WALLCLIMB_ALLOW_VERTICAL_INPUT )
 			{
-				if ( file.playerWallRunBeinTime[player] + WALLCLIMB_GRACE_PERIOD_TIME < Time() ) // has climbed long enough
+				//print( "facingWallAtStart: " + string( facingWallAtStart ) )
+				if ( file.playerWallRunBeinTime[player] + WALLCLIMB_GRACE_PERIOD_TIME < Time() || facingWallAtStart ) // if we're not facing wall at the start of climbing, give some grace period
 				{
 					if ( player.IsInputCommandHeld( IN_MOVELEFT ) || player.IsInputCommandHeld( IN_MOVERIGHT ) )
 					{
@@ -163,10 +173,10 @@ vector ornull function TracePlayerWallAngles( entity player, vector lastTickVel 
 	//int attachID = player.LookupAttachment( "CHESTFOCUS" )
 	//if ( attachID > 0 )
 	//	startPos = player.GetAttachmentOrigin( attachID )
-
-	// comparing yaw is enough
 	
 	vector directionForward = GetPlayerInputDirection( player ) // default is use player's input
+	directionForward = AnglesToForward( < 0, VectorToAngles( directionForward ).y, 0 > ) // comparing yaw is enough
+	//print( VectorToAngles( directionForward ) )
 	vector moveAngs = VectorToAngles( lastTickVel )
 	//print( "moveAngs: " + string( moveAngs ) )
 	if ( moveAngs.y != 0 ) // if moveAngs valid, use it instead
@@ -218,6 +228,10 @@ vector function GetPlayerInputDirection( entity player )
 
 	float xAxis = player.GetInputAxisRight()
 	float yAxis = player.GetInputAxisForward()
+	xAxis = GraphCapped( xAxis, -1.0, 1.0, -0.4, 0.4 )
+	yAxis = GraphCapped( yAxis, -1.0, 1.0, 1.0, 0.75 ) //Cap it so you don't actually let the players jump forwards
+	//print( "xAxis: " + string( xAxis ) )
+	//print( "yAxis: " + string( xAxis ) )
 	vector directionVec = Vector(0,0,0)
 	directionVec += right * xAxis
 	directionVec += forward * yAxis
