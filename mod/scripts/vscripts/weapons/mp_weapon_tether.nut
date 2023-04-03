@@ -280,11 +280,15 @@ void function ProximityTetherThink( entity projectile, entity owner, bool isExpl
 		array<entity> enemyTitans = GetNPCArrayEx( "npc_titan", TEAM_ANY, team, projectile.GetOrigin(), 450 )
 		enemyTitans.extend( GetNPCArrayEx( "npc_super_spectre", TEAM_ANY, team, projectile.GetOrigin(), 450 ) )
 		array<entity> enemyPlayers = GetPlayerArrayOfEnemies_Alive( team )
+		// friendlyFire condition
+		bool searchForFriendly = FriendlyFire_IsEnabled() && FriendlyFIre_ShouldTripWireSearchForFriendly()
+		if ( searchForFriendly )
+			enemyPlayers.extend( GetPlayerArrayOfTeam_Alive( team ) )
 
 		vector projectilePos = projectile.GetOrigin()
 		foreach ( player in enemyPlayers )
 		{
-			if ( !player.IsTitan() && !canTetherPilot )
+			if ( !player.IsTitan() && !canTetherPilot ) // pilot tether
 				continue
 
 			vector playerPos = player.GetOrigin()
@@ -303,8 +307,9 @@ void function ProximityTetherThink( entity projectile, entity owner, bool isExpl
 			if ( traceResult.hitEnt != titan )
 				continue
 
-			if ( !IsEnemyTeam( titan.GetTeam(), team ) )
-				continue;
+			// friendlyFire condition
+			if ( !IsEnemyTeam( titan.GetTeam(), team ) && !searchForFriendly )
+				continue
 
 			entity tetherEndEntForPlayer = CreateExpensiveScriptMover()
 			tetherEndEntForPlayer.SetModel( TETHER_1P_MODEL )

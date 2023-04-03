@@ -477,7 +477,7 @@ void function LaserPylonSetThink( entity pylon1, entity pylon2, int ownerTeam )
 		//array<entity> enemies = GetPlayerArrayOfEnemies( ownerTeam )
 		//enemies.extend( GetNPCArrayOfEnemies( ownerTeam ) )
 		array<entity> enemies 
-		if ( FriendlyFire_IsEnabled() ) // friendlyfire condition
+		if ( FriendlyFire_IsEnabled() && FriendlyFIre_ShouldTripWireSearchForFriendly() ) // friendlyfire condition
 		{
 			// attack all players and npcs
 			enemies.extend( GetPlayerArray() )
