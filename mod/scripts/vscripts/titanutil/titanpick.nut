@@ -371,7 +371,7 @@ void function GiveSavedMonarchPassives( entity titan )
     table<int, bool> corePassives = file.soulMonarchCorePassives[ soul ]
     foreach ( int passive, bool enabled in corePassives )
     {
-        print( PassiveEnumFromBitfield( passive ) + " has been set to: " + string( enabled ) )
+        //print( PassiveEnumFromBitfield( passive ) + " has been set to: " + string( enabled ) )
         soul.passives[ passive ] = enabled // apply passives
         if ( enabled && titan.IsPlayer() )
             titan.GivePassive( passive )
@@ -606,8 +606,8 @@ bool function ShouldTitanPassUpgradesForPickUp( entity titan, entity weaponProp 
         return false
     
     entity loadoutOwnerSoul = file.soulLoadoutOwnerSoul[ soul ]
-    print( "loadoutOwnerSoul is: " + string( loadoutOwnerSoul ) )
-    print( "checking titanSoul is: " + string( soul ) )
+    //print( "loadoutOwnerSoul is: " + string( loadoutOwnerSoul ) )
+    //print( "checking titanSoul is: " + string( soul ) )
     if ( !IsValid( loadoutOwnerSoul ) || loadoutOwnerSoul != soul )
         return false
     // all checks passed
