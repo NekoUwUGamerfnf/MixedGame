@@ -1,10 +1,12 @@
-untyped // almost everything is hardcoded in this file!
+// monarch hack really should be in callbacks such as AddCallback_TitanPickApplySavedOffhands()
+untyped
 
 global function TitanPick_Init
 
 // main settings func
 global function TitanPick_Enabled_Init
 global function TitanPick_EnableWeaponDrops
+global function TitanPick_MonarchUpgradeAfterDrop
 
 // utilities
 global function TitanPick_SoulSetEnableWeaponDrop
@@ -22,27 +24,56 @@ global function TitanPick_AddChangableClassMod
 global function TitanPick_ShouldTitanDropWeapon
 global function TitanPick_TitanDropWeapon
 
-const string TITAN_DROPPED_WEAPON_SCRIPTNAME    = "titanPickWeaponDrop"
+
 const float TITAN_WEAPON_DROP_LIFETIME          = 60 // after this time the weapon drop will be destroyed
+
+// consts that no need to change
+const string TITAN_DROPPED_WEAPON_SCRIPTNAME    = "titanPickWeaponDrop"
 const vector DEFAULT_DROP_ORIGIN                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
 const vector DEFAULT_DROP_ANGLES                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
 
-// consts that no need to change
 const float PLAYER_PICKUP_COOLDOWN              = 0.2 // for we use this 0.2s to update core icon
 const float PLAYER_RUI_UPDATE_DURATION          = 0.5 // use cinematic flag to update rui
-// monarch specific, harcoded
-table<int, string> MONARCH_CORE_PASSIVE_NAME =
-{
-    [ ePassives.PAS_VANGUARD_CORE1 ]        = "pas_vanguard_core1",
-    [ ePassives.PAS_VANGUARD_CORE2 ]        = "pas_vanguard_core2",
-    [ ePassives.PAS_VANGUARD_CORE3 ]        = "pas_vanguard_core3",
-    [ ePassives.PAS_VANGUARD_CORE4 ]        = "pas_vanguard_core4",
-    [ ePassives.PAS_VANGUARD_CORE5 ]        = "pas_vanguard_core5",
-    [ ePassives.PAS_VANGUARD_CORE6 ]        = "pas_vanguard_core6",
-    [ ePassives.PAS_VANGUARD_CORE7 ]        = "pas_vanguard_core7",
-    [ ePassives.PAS_VANGUARD_CORE8 ]        = "pas_vanguard_core8",
-    [ ePassives.PAS_VANGUARD_CORE9 ]        = "pas_vanguard_core9",
-}
+
+// monarch hack
+array<int> MONARCH_PASSIVES = 
+[
+    ePassives.PAS_VANGUARD_COREMETER,
+    ePassives.PAS_VANGUARD_SHIELD,
+    ePassives.PAS_VANGUARD_REARM,
+    ePassives.PAS_VANGUARD_DOOM,
+]
+array<int> MONARCH_CORE_PASSIVES = 
+[
+    ePassives.PAS_VANGUARD_CORE1,
+    ePassives.PAS_VANGUARD_CORE2,
+    ePassives.PAS_VANGUARD_CORE3,
+    ePassives.PAS_VANGUARD_CORE4,
+    ePassives.PAS_VANGUARD_CORE5,
+    ePassives.PAS_VANGUARD_CORE6,
+    ePassives.PAS_VANGUARD_CORE7,
+    ePassives.PAS_VANGUARD_CORE8,
+    ePassives.PAS_VANGUARD_CORE9,
+]
+array<int> MONARCH_FIRST_UPGRADE_PASSIVES = 
+[
+    ePassives.PAS_VANGUARD_CORE1,
+    ePassives.PAS_VANGUARD_CORE2,
+    ePassives.PAS_VANGUARD_CORE3,
+]
+array<int> MONARCH_SECOND_UPGRADE_PASSIVES = 
+[
+    ePassives.PAS_VANGUARD_CORE4,
+    ePassives.PAS_VANGUARD_CORE5,
+    ePassives.PAS_VANGUARD_CORE6,
+]
+array<int> MONARCH_FINAL_UPGRADE_PASSIVES = 
+[
+    ePassives.PAS_VANGUARD_CORE7,
+    ePassives.PAS_VANGUARD_CORE8,
+    ePassives.PAS_VANGUARD_CORE9,
+]
+//
 
 struct DroppedTitanWeapon
 {
@@ -84,12 +115,13 @@ struct OffhandWeaponData
     
     table<int, bool> passives = {} // should clone from soul.passives
     array<string> classMods = [] // requires modified titan_base.txt
-    int upgradeCount = 0 // monarch specific
+    int upgradeCount = 0 // monarch hack
 }
 
 struct
 {
     bool enableWeaponDrops = false
+    bool upgradeAllowedAfterDrop = false // monarch hack: if TitanPick_MonarchUpgradeAfterDrop() turns off, only owner monarch can upgrade their offhands
 
     table<entity, float> playerPickupAllowedTime // for updating core icon
 
@@ -100,6 +132,12 @@ struct
     table<string, WeaponDropFunctions> registeredWeaponDrop
     table<entity, DroppedTitanWeapon> droppedWeaponPropsTable
     table<entity, OffhandWeaponData> droppedOffhandsTable
+    table<entity, entity> soulLoadoutOwnerSoul // for saving holding loadout's owner
+    table<entity, entity> droppedWeaponOwnerSoul
+
+    // monarch hack
+    table< entity, table<int, bool> > soulMonarchCorePassives
+    table< entity, table<int, bool> > droppedMonarchCorePassives
 
     array<string> illegalWeaponMods
     array<int> changablePassives
@@ -108,6 +146,7 @@ struct
 
 void function TitanPick_Init() 
 {
+    AddSoulInitFunc( OnTitanSoulInit )
     AddCallback_OnClientConnected( OnClientConnected )
     AddCallback_OnPlayerKilled( OnPlayerOrNPCKilled )
     AddCallback_OnNPCKilled( OnPlayerOrNPCKilled )
@@ -127,7 +166,30 @@ void function TitanPick_EnableWeaponDrops( bool enable )
     file.enableWeaponDrops = enable
 }
 
+void function TitanPick_MonarchUpgradeAfterDrop( bool enable )
+{
+    file.upgradeAllowedAfterDrop = enable
+}
+
 // init
+void function OnTitanSoulInit( entity soul )
+{
+    if ( !( soul in file.soulLoadoutOwnerSoul ) )
+        file.soulLoadoutOwnerSoul[ soul ] <- soul // default: the soul itself as owner
+    if ( !( soul in file.soulMonarchCorePassives ) )
+    {
+        file.soulMonarchCorePassives[ soul ] <- {}
+        thread DelayedInitSoulMornachPassives( soul )
+    }
+}
+
+void function DelayedInitSoulMornachPassives( entity soul )
+{
+    soul.EndSignal( "OnDestroy" )
+    WaitFrame() // wait for loadout being given
+    file.soulMonarchCorePassives[ soul ] = GetMonarchCorePassivesTable( soul )
+}
+
 void function OnClientConnected( entity player )
 {
     file.playerPickupAllowedTime[ player ] <- 0.0
@@ -170,7 +232,7 @@ bool function TitanPick_ShouldTitanDropWeapon( entity titan )
 }
 
 // this will create a weapon drop based on a titan
-entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFAULT_DROP_ORIGIN, vector dropangle = DEFAULT_DROP_ANGLES, bool snapToGround = true ) 
+entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFAULT_DROP_ORIGIN, vector dropangle = DEFAULT_DROP_ANGLES, bool droppedByPickup = false, bool snapToGround = true ) 
 {
     // get charaName from this titan
     entity soul = titan.GetTitanSoul()
@@ -244,12 +306,24 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     WeaponDropFunctions curDropFuncs
     curDropFuncs = file.registeredWeaponDrop[ charaName ] // get this titan's dropFuncs
 
-    string displayName = curDropFuncs.displayNameFunc( weapon ) // this one is dropped by a titan, has weapon entity valid
-
     int skin = weapon.GetSkin()
     int camo = weapon.GetCamo()
     entity weaponProp = curDropFuncs.weaponPropFunc( weapon, droppoint, dropangle ) //CreatePropDynamic( modelname, droppoint, dropangle, SOLID_VPHYSICS )
     
+    // loadout owner
+    if ( !droppedByPickup ) // dropped by titan death
+    {
+        file.droppedWeaponOwnerSoul[ weaponProp ] <- soul
+        file.droppedMonarchCorePassives[ weaponProp ] <- GetMonarchCorePassivesTable( titan )
+    }
+    else // dropped by weapon switching
+    {
+        file.droppedWeaponOwnerSoul[ weaponProp ] <- file.soulLoadoutOwnerSoul[ soul ]
+        file.droppedMonarchCorePassives[ weaponProp ] <- file.soulMonarchCorePassives[ soul ]
+    }
+
+    string displayName = curDropFuncs.displayNameFunc( weapon ) // this one is dropped by a titan, has weapon entity valid
+
     if ( displayName == "" || !IsValid( weaponProp ) )
         return
 
@@ -288,10 +362,26 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     return weaponProp
 }
 
+void function GiveSavedMonarchPassives( entity titan )
+{
+    entity soul = titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return
+
+    table<int, bool> corePassives = file.soulMonarchCorePassives[ soul ]
+    foreach ( int passive, bool enabled in corePassives )
+    {
+        print( PassiveEnumFromBitfield( passive ) + " has been set to: " + string( enabled ) )
+        soul.passives[ passive ] = enabled // apply passives
+        if ( enabled && titan.IsPlayer() )
+            titan.GivePassive( passive )
+    }
+}
+
 void function TitanWeaponDropLifeTime( entity weaponProp )
 {
     weaponProp.EndSignal( "OnDestroy" )
-    wait 60 // life time
+    wait TITAN_WEAPON_DROP_LIFETIME // life time
     if ( IsValid( weaponProp ) )
     {
         delete file.droppedWeaponPropsTable[ weaponProp ]
@@ -427,11 +517,40 @@ function PickupDroppedTitanWeapon( weaponProp, player )
 		SendHudMessage( player, "核心启动期间不可更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
 		return
 	}
-    
+
+    entity newLoadoutOwner = file.droppedWeaponOwnerSoul[ weaponProp ]
+    // monarch hack
+    table<int, bool> newMonarchCorePassives = file.droppedMonarchCorePassives[ weaponProp ]
     // drop current weapon
-	entity newWeaponProp = TitanPick_TitanDropWeapon( player, weaponProp.GetOrigin(), weaponProp.GetAngles(), false )
+	entity newWeaponProp = TitanPick_TitanDropWeapon( player, weaponProp.GetOrigin(), weaponProp.GetAngles(), true, false )
+    // transfer owner
+    file.soulLoadoutOwnerSoul[ soul ] = newLoadoutOwner
+    // transfer passives table
+    file.soulMonarchCorePassives[ soul ] = newMonarchCorePassives
     // replace loadout
     ReplaceTitanWeapon( player, weaponProp )
+}
+
+// monarch hack
+table<int, bool> function GetMonarchCorePassivesTable( entity titan )
+{
+    table<int, bool> corePassives
+    entity soul = IsSoul( titan ) ? titan : titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return corePassives
+    
+    foreach ( passive, enabled in soul.passives )
+    {
+        expect int( passive )
+        expect bool( enabled )
+        if ( MONARCH_CORE_PASSIVES.contains( passive ) )
+        {
+            //print( "passive: " + PassiveEnumFromBitfield( passive ) + " has been saved: " + string( enabled ) )
+            corePassives[ passive ] <- enabled // add to table
+        }
+    }
+
+    return corePassives
 }
 
 void function ReplaceTitanWeapon( entity player, entity weaponProp ) 
@@ -453,10 +572,13 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
     // reset behaviors
     player.SetTitanDisembarkEnabled( true ) // do need to set up this since some weapon or titancore will disable it
 
+    // monarch hack: after being pick up, cannot upgrade anymore
+    bool passUpgrades = ShouldTitanPassUpgradesForPickUp( player, weaponProp )
+
     // save cooldown
     table<int,float> cooldowns = GetWeaponCooldownsForTitanLoadoutSwitch( player )
     // apply offhands
-    ApplySavedOffhandWeapons( player, file.droppedOffhandsTable[ weaponProp ] )
+    ApplySavedOffhandWeapons( player, file.droppedOffhandsTable[ weaponProp ], passUpgrades )
     // setup specific mechanics
     replacementWeapon.loadoutFunction( player, true, false )
     // apply cooldown
@@ -474,7 +596,25 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
     thread UpdateCockpitRUIVisbilityForLoadoutSwitch( player )
 }
 
-void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOffhands )
+bool function ShouldTitanPassUpgradesForPickUp( entity titan, entity weaponProp )
+{
+    if ( file.upgradeAllowedAfterDrop )
+        return true
+
+    entity soul = titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return false
+    
+    entity loadoutOwnerSoul = file.soulLoadoutOwnerSoul[ soul ]
+    print( "loadoutOwnerSoul is: " + string( loadoutOwnerSoul ) )
+    print( "checking titanSoul is: " + string( soul ) )
+    if ( !IsValid( loadoutOwnerSoul ) || loadoutOwnerSoul != soul )
+        return false
+    // all checks passed
+    return true
+}
+
+void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOffhands, bool passUpgrades = false )
 {
     if ( savedOffhands.special != "" )
     {
@@ -532,40 +672,92 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
 
         // monarch upgrades
         soul.SetTitanSoulNetInt( "upgradeCount", savedOffhands.upgradeCount )
-            
+        //print( "new upgradeCount: "+ string( savedOffhands.upgradeCount ) )
+        //print( "passUpgrades: " + string( passUpgrades ) )
+
         if ( titan.IsPlayer() || IsPetTitan( titan ) )
         {
             entity player = titan.IsPlayer() ? titan : GetPetTitanOwner( titan )
-            // upgrade core icon
-            string passive4 = GetMonarchFirstUpgradeName( titan )
-            string passive5 = GetMonarchSecondUpgradeName( titan )
-            string passive6 = GetMonarchFinalUpgradeName( titan )
-            if ( passive4 != "" )
-                player.SetPersistentVar( "activeTitanLoadout.passive4", passive4 )
-            if ( passive5 != "" )
-                player.SetPersistentVar( "activeTitanLoadout.passive5", passive5 )
-            if ( passive6 != "" )
-                player.SetPersistentVar( "activeTitanLoadout.passive6", passive6 )
-            //print( "passive4 is: " + passive4 )
-            //print( "passive5 is: " + passive5 )
-            //print( "passive6 is: " + passive6 )
+            if ( passUpgrades )
+            {
+                GiveSavedMonarchPassives( titan )
+                // upgrade core icon
+                string passive4 = GetMonarchFirstUpgradeName( titan )
+                string passive5 = GetMonarchSecondUpgradeName( titan )
+                string passive6 = GetMonarchFinalUpgradeName( titan )
+                if ( passive4 != "" )
+                    player.SetPersistentVar( "activeTitanLoadout.passive4", passive4 )
+                if ( passive5 != "" )
+                    player.SetPersistentVar( "activeTitanLoadout.passive5", passive5 )
+                if ( passive6 != "" )
+                    player.SetPersistentVar( "activeTitanLoadout.passive6", passive6 )
+                //print( "passive4 is: " + passive4 )
+                //print( "passive5 is: " + passive5 )
+                //print( "passive6 is: " + passive6 )
+            }
+            else // can't upgrade
+            {
+                // hack check for maelstrom and superior chassis
+                int upgradeCount = savedOffhands.upgradeCount
+                bool hasMaelStrom = upgradeCount >= 2 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 )
+                bool hasSuperiorChassis = upgradeCount >= 3 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 )
+                
+                TakeAllMonarchCorePassives( titan ) // take off passives
+                // restore special core upgrades
+                if ( hasMaelStrom )
+                {
+                    soul.passives[ ePassives.PAS_VANGUARD_CORE5 ] = true
+                    player.GivePassive( ePassives.PAS_VANGUARD_CORE5 )
+                }
+                if ( hasSuperiorChassis )
+                {
+                    soul.passives[ ePassives.PAS_VANGUARD_CORE8 ] = true
+                    player.GivePassive( ePassives.PAS_VANGUARD_CORE8 )
+                }
+
+                // use passive's icon instead, for notifying player that they cannot upgrade
+                string replaceIcon = GetMonarchPassiveName( titan )
+                player.SetPersistentVar( "activeTitanLoadout.passive4", replaceIcon )
+                player.SetPersistentVar( "activeTitanLoadout.passive5", replaceIcon )
+                player.SetPersistentVar( "activeTitanLoadout.passive6", replaceIcon )
+            }
         }
     }
 }
 
 // monarch upgrades, hardcoded
-void function GiveSavedMonarchPassives( entity titan, table<int, bool> corePassives )
+void function TakeAllMonarchCorePassives( entity titan )
 {
     entity soul = titan.GetTitanSoul()
     if ( !IsValid( soul ) )
         return
 
-    foreach ( int passive, bool enabled in corePassives )
+    foreach ( passive, enabled in soul.passives )
     {
-        soul.passives[ passive ] = enabled // apply passives
-        if ( enabled && titan.IsPlayer() )
-            titan.GivePassive( passive )
+        expect int( passive )
+        expect bool( enabled )
+        if ( MONARCH_CORE_PASSIVES.contains( passive ) )
+        {
+            //print( PassiveEnumFromBitfield( passive ) + " has been disabled" )
+            soul.passives[ passive ] = false // disable existing passive!
+            if ( titan.IsPlayer() )
+                titan.RemovePassive( passive )
+        }
     }
+}
+
+string function GetMonarchPassiveName( entity titan )
+{
+    entity soul = titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return "pas_bubbleshield" // have to return a value
+
+    foreach ( int passive in MONARCH_PASSIVES )
+    {
+        if ( SoulHasPassive( soul, passive ) )
+            return PassiveEnumFromBitfield( passive )
+    }
+    return "pas_bubbleshield" // have to return a value
 }
 
 string function GetMonarchFirstUpgradeName( entity titan )
@@ -574,12 +766,11 @@ string function GetMonarchFirstUpgradeName( entity titan )
     if ( !IsValid( soul ) )
         return ""
 
-    if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE1 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE1 ]
-    else if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE2 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE2 ]
-    else if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE3 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE3 ]
+    foreach ( int passive in MONARCH_FIRST_UPGRADE_PASSIVES )
+    {
+        if ( SoulHasPassive( soul, passive ) )
+            return PassiveEnumFromBitfield( passive )
+    }
 
     return ""
 }
@@ -590,12 +781,11 @@ string function GetMonarchSecondUpgradeName( entity titan )
     if ( !IsValid( soul ) )
         return ""
 
-    if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE4 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE4 ]
-    else if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE5 ]
-    else if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE6 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE6 ]
+    foreach ( int passive in MONARCH_SECOND_UPGRADE_PASSIVES )
+    {
+        if ( SoulHasPassive( soul, passive ) )
+            return PassiveEnumFromBitfield( passive )
+    }
 
     return ""
 }
@@ -606,12 +796,11 @@ string function GetMonarchFinalUpgradeName( entity titan )
     if ( !IsValid( soul ) )
         return ""
 
-    if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE7 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE7 ]
-    else if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE8 ]
-    else if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE9 ) )
-        return MONARCH_CORE_PASSIVE_NAME[ ePassives.PAS_VANGUARD_CORE9 ]
+    foreach ( int passive in MONARCH_FINAL_UPGRADE_PASSIVES )
+    {
+        if ( SoulHasPassive( soul, passive ) )
+            return PassiveEnumFromBitfield( passive )
+    }
 
     return ""
 }
