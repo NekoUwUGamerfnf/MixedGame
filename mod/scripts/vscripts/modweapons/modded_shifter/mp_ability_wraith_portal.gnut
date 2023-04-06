@@ -48,7 +48,7 @@ struct PortalStruct
 	vector goalPos
 	vector goalAng
 	float travelTime
-	string ownerUID
+	entity owner
 	bool canPortalOwner
 	PortalData savedVecs
 	bool infiniteDistance
@@ -57,9 +57,9 @@ struct PortalStruct
 
 struct
 {
-    table<string, bool> playerPlacingPortal = {}
+    table<entity, bool> playerPlacingPortal = {}
     table<entity, PortalStruct> portalGoalTable = {}
-    array<string> inPortalCooldownPlayers = []
+    array<entity> inPortalCooldownPlayers = []
 } file
 #endif
 
@@ -73,6 +73,7 @@ void function MpAbilityWraithPortal_Init()
     #if SERVER
 	PrecacheModel( PHASE_REWIND_MODEL )
     RegisterSignal( "PlacedPortal" )
+	RegisterSignal( "SetInPortalCooldown" )
 	AddCallback_OnClientConnected( OnClientConnected )
     #endif
 }
@@ -89,7 +90,7 @@ void function OnWeaponTossPrep_ability_wraith_portal( entity weapon, WeaponTossP
 		#if SERVER
 		if( weapon.GetWeaponPrimaryClipCount() == weapon.GetWeaponPrimaryClipCountMax() )
 			SendHudMessage( weaponOwner, "正在架设传送门", -1, 0.65, 255, 255, 100, 1, 0, 3, 0 )
-		else if( !file.playerPlacingPortal[weaponOwner.GetUID()] )
+		else if( !file.playerPlacingPortal[weaponOwner] )
 		{
 			SendHudMessage( weaponOwner, "需要完全充满以架设传送门", -1, 0.65, 255, 255, 100, 1, 0, 3, 0 )
 			weaponOwner.HolsterWeapon()
@@ -97,7 +98,7 @@ void function OnWeaponTossPrep_ability_wraith_portal( entity weapon, WeaponTossP
 		}
 		//if( !(weaponOwner.GetUID() in file.playerPlacingPortal) )
 		//	StatusEffect_AddTimed( weapon.GetWeaponOwner(), eStatusEffect.move_slow, WRAITH_SEVERITY_SLOWMOVE, PORTAL_DEPLOY_TIME, 0 )
-		//else if( !file.playerPlacingPortal[ weaponOwner.GetUID() ] )
+		//else if( !file.playerPlacingPortal[ weaponOwner ] )
 		//	StatusEffect_AddTimed( weapon.GetWeaponOwner(), eStatusEffect.move_slow, WRAITH_SEVERITY_SLOWMOVE, PORTAL_DEPLOY_TIME, 0 )
 		#endif
 	}
@@ -108,16 +109,15 @@ var function OnWeaponPrimaryAttack_ability_wraith_portal( entity weapon, WeaponP
     #if SERVER
     int ammoMax = weapon.GetWeaponPrimaryClipCountMax()
 	entity player = weapon.GetWeaponOwner()
-    string playerUID = player.GetUID()
 
     if (weapon.GetWeaponPrimaryClipCount() == ammoMax ) //first charge
     { 
         thread PortalStart( player, weapon )
         return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
     }
-    else if(weapon.GetWeaponPrimaryClipCount() == ammoMax / 2 && playerUID in file.playerPlacingPortal ) //second charge
+    else if(weapon.GetWeaponPrimaryClipCount() == ammoMax / 2 && player in file.playerPlacingPortal ) //second charge
     {
-        if( file.playerPlacingPortal[ playerUID ] )
+        if( file.playerPlacingPortal[ player ] )
         {
             //player.Signal( "PlacedPortal" )
             return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
@@ -128,7 +128,7 @@ var function OnWeaponPrimaryAttack_ability_wraith_portal( entity weapon, WeaponP
             weapon.SetWeaponPrimaryClipCount( ammoMax )
         }
     }
-    else if( !(playerUID in file.playerPlacingPortal) )
+    else if( !(player in file.playerPlacingPortal) )
     {
         SendHudMessage( player, "未能正常启动，已回复充能", -1,0.65,255,255,100,1,0,4,0 )
         weapon.SetWeaponPrimaryClipCount( ammoMax )
@@ -146,7 +146,7 @@ var function OnWeaponPrimaryAttack_ability_wraith_portal( entity weapon, WeaponP
 #if SERVER
 void function OnClientConnected( entity player )
 {
-	file.playerPlacingPortal[player.GetUID()] <- false
+	file.playerPlacingPortal[player] <- false
 }
 
 entity function CreatePhaseShiftTrail( entity player )
@@ -187,8 +187,7 @@ void function PortalStart( entity player, entity weapon )
 	// should set up down here
 	thread PortalStartPointIndicator( player, weapon )
 	
-	string playerUID = player.GetUID()
-	file.playerPlacingPortal[ playerUID ] = true
+	file.playerPlacingPortal[ player ] = true
 
 	int statusEffect = -1
 	if( !isInfiniteDistance ) // infinite duration portal don't have a speed boost
@@ -285,7 +284,7 @@ void function PortalStart( entity player, entity weapon )
 	}
 
 
-	thread DelayedClearTable( playerUID )
+	thread DelayedClearTable( player )
 	if( IsValid( player ) )
 	{
 		StatusEffect_Stop( player, statusEffect )
@@ -432,7 +431,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	startStruct.goalPos = endPos
 	startStruct.goalAng = endAng
 	startStruct.travelTime = travelTime
-	startStruct.ownerUID = player.GetUID()
+	startStruct.owner = player
 	startStruct.canPortalOwner = false
 	startStruct.savedVecs.progPoses = progressPoses // reverse while phasing back, see below
 	startStruct.savedVecs.progAngs = progressAngs
@@ -446,7 +445,7 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	endStruct.goalPos = startPos
 	endStruct.goalAng = startAng
 	endStruct.travelTime = travelTime
-	endStruct.ownerUID = player.GetUID()
+	endStruct.owner = player
 	endStruct.canPortalOwner = false
 	endStruct.savedVecs.progPoses = progressPoses
 	endStruct.savedVecs.progAngs = progressAngs
@@ -477,10 +476,16 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 
 	array<entity> startTrigTouchingEnts = startTrig.GetTouchingEntities()
 	foreach ( entity ent in startTrigTouchingEnts )
+	{
+		//print( "startTrig touching entity: " + string( ent ) )
 		OnPortalTriggerEnter( startTrig, ent )
+	}
 	array<entity> endTrigTouhcingEnts = endTrig.GetTouchingEntities()
 	foreach ( entity ent in endTrigTouhcingEnts )
+	{
+		//print( "endTrig touching entity: " + string( ent ) )
 		OnPortalTriggerEnter( endTrig, ent )
+	}
 
 	// owner cooldown
 	thread DelayedMakeOwnerAbleToPortal( startTrig )
@@ -569,7 +574,7 @@ void function PortalTravelThink( entity trigger, entity player )
 	vector goalOrigin = file.portalGoalTable[ trigger ].goalPos
 	vector goalAngles = file.portalGoalTable[ trigger ].goalAng
 	float travelTime = file.portalGoalTable[ trigger ].travelTime
-	string ownerUID = file.portalGoalTable[ trigger ].ownerUID
+	entity owner = file.portalGoalTable[ trigger ].owner
 	bool canPortalOwner = file.portalGoalTable[ trigger ].canPortalOwner
 	array<vector> progressPoses = file.portalGoalTable[ trigger ].savedVecs.progPoses
 	array<vector> progressAngs = file.portalGoalTable[ trigger ].savedVecs.progAngs
@@ -592,23 +597,23 @@ void function PortalTravelThink( entity trigger, entity player )
 	}
 	float totalTime = travelTime
 	float phaseTimeMulti = 1.1
-	if( player.GetUID() == ownerUID && !canPortalOwner )
+	if( player == owner && !canPortalOwner )
 	{
 		return
 	}
-	if( file.inPortalCooldownPlayers.contains( player.GetUID() ) )
+	if( file.inPortalCooldownPlayers.contains( player ) )
 	{
 		//print( "[PORTAL] Someone is in cooldown so cannot portal!" )
 		return
 	}
-	if( player.GetUID() in file.playerPlacingPortal )
+	if( player in file.playerPlacingPortal )
 	{
-		if( file.playerPlacingPortal[ player.GetUID() ] )
+		if( file.playerPlacingPortal[ player ] )
 		{
 			return
 		}
 	}
-	if( !file.inPortalCooldownPlayers.contains( player.GetUID() ) )
+	if( !file.inPortalCooldownPlayers.contains( player ) )
 	{
 		// CancelPhaseShift() version
 		//if( shouldDoWarpEffect )
@@ -744,7 +749,7 @@ void function PortalTravelThink( entity trigger, entity player )
 		wait fixedTimePerSigment + 0.1
 		//player.Signal( "StopPhaseShift" )
 
-		thread PortalCooldownThink( player ) // we successfully teleported, make player in cooldown
+		thread PortalCooldownThink( player, trigger ) // we successfully teleported, make player in cooldown
 	}
 	else
 	{
@@ -781,14 +786,28 @@ void function TravelEndForceCrouch( entity player )
 		player.UnforceCrouch()
 }
 
-void function PortalCooldownThink( entity player )
+void function PortalCooldownThink( entity player, entity trigTeleFrom = null )
 {
-	if( !IsValid( player ) )
-		return
-	string playerUID = player.GetUID()
-	file.inPortalCooldownPlayers.append( playerUID )
+	player.Signal( "SetInPortalCooldown" )
+	player.EndSignal( "SetInPortalCooldown" )
+	file.inPortalCooldownPlayers.append( player )
 	wait PORTAL_COOLDOWN_TIME
-	file.inPortalCooldownPlayers.fastremovebyvalue( playerUID )
+	file.inPortalCooldownPlayers.removebyvalue( player )
+
+	// do have a trigger teleport from? this won't work idk why
+	//print( "trigTeleFrom: " + string( trigTeleFrom ) )
+	if ( IsValid( trigTeleFrom ) && IsValid( player ) )
+	{
+		// teleport back if cooldown ends
+		trigTeleFrom.SearchForNewTouchingEntity() // trigger.GetTouchingEntities() will not return entities already in the trigger unless this is called
+		array<entity> trigTouchingEnts = trigTeleFrom.GetTouchingEntities()
+		foreach ( entity ent in trigTouchingEnts )
+		{
+			//print( "trigTeleFrom touching ent: " + string( ent ) )
+			if ( ent == player )
+				OnPortalTriggerEnter( trigTeleFrom, ent )
+		}
+	}
 }
 
 void function DelayedMakeOwnerAbleToPortal( entity trigger ) // defensive fix
@@ -803,7 +822,7 @@ void function DelayedMakeOwnerAbleToPortal( entity trigger ) // defensive fix
 		array<entity> trigTouchingEnts = trigger.GetTouchingEntities()
 		foreach ( entity ent in trigTouchingEnts )
 		{
-			if ( ent.IsPlayer() && ent.GetUID() == file.portalGoalTable[ trigger ].ownerUID )
+			if ( ent == file.portalGoalTable[ trigger ].owner )
 				OnPortalTriggerEnter( trigger, ent )
 		}
 	}
@@ -824,10 +843,10 @@ void function DelayedDiscardAmmo( entity weapon )
 		weapon.SetWeaponPrimaryClipCount( 0 )
 }
 
-void function DelayedClearTable( string playerUID )
+void function DelayedClearTable( entity player )
 {
 	wait PORTAL_DEPLOY_TIME
-	file.playerPlacingPortal[ playerUID ] = false
+	file.playerPlacingPortal[ player ] = false
 }
 
 vector function CalculateFaceToOrigin( vector startPos, vector endPos )
