@@ -20,7 +20,10 @@ struct JumpPadStruct
 struct
 {
     array<JumpPadStruct> placedJumpPads
-    table< entity, bool > playerInJumpPadCooldown
+
+	// management
+    //table< entity, bool > playerInJumpPadCooldown
+	table< entity, bool > playerInJumpPad
 } file
 
 void function MpAbilityJumpPad_Init()
@@ -44,6 +47,9 @@ void function MpAbilityJumpPad_Init()
     // triple jump
     RegisterSignal( "JumpPadGainTripleJump" )
     RegisterSignal( "JumpPadTripleJumpThinkStart" )
+	
+	// cooldown
+	RegisterSignal( "JumpPadCooldown" )
 
     AddCallback_OnClientConnected( JumpPadInitilaize )
 #endif
@@ -111,11 +117,15 @@ void function OnJumpPadPlanted( entity projectile )
 void function JumpPadInitilaize( entity player )
 {
     // defined in mp_ability_heal.nut
-    file.playerInJumpPadCooldown[player] <- false
+    //file.playerInJumpPadCooldown[player] <- false
+	file.playerInJumpPad[player] <- false
 }
 
+/* // now using file.playerInJumpPad
 void function SetPlayerInJumpPadCooldown( entity player, float cooldown )
 {
+	player.Signal( "JumpPadCooldown" )
+	player.EndSignal( "JumpPadCooldown" )
     file.playerInJumpPadCooldown[player] = true
     wait cooldown
     if( IsValid( player ) )
@@ -126,6 +136,7 @@ bool function IsPlayerInJumpPadCooldown( entity player )
 {
     return file.playerInJumpPadCooldown[player]
 }
+*/
 
 // utilities
 void function DeployJumpPad( entity projectile, vector origin, vector angles )
@@ -169,6 +180,7 @@ void function JumpPadThink( entity projectile, entity tower )
 	trigger.SetOrigin( tower.GetOrigin() )
 	SetTeam( trigger, tower.GetTeam() )
 	DispatchSpawn( trigger )
+	trigger.SetParent( projectile ) // bind together
 
 	trigger.EndSignal( "OnDestroy" )
 
@@ -186,6 +198,15 @@ void function JumpPadThink( entity projectile, entity tower )
 		}
 	)
 
+	trigger.SetEnterCallback( JumpPadTriggerEnter )
+	trigger.SetLeaveCallback( JumpPadTriggerLeave )
+
+	// search for entities on spawn
+	array<entity> trigTouchingEnts = trigger.GetTouchingEntities()
+	foreach ( entity ent in trigTouchingEnts )
+		JumpPadTriggerEnter( trigger, ent )
+
+	/* // now using setEnterCallback()
 	while( true )
 	{
 		array<entity> touchingEnts = trigger.GetTouchingEntities()
@@ -198,23 +219,45 @@ void function JumpPadThink( entity projectile, entity tower )
 
 		WaitFrame()
 	}
+	*/
+
+	WaitForever() // jump pad duration handled by CleanupJumpPad()
 }
 
-void function GiveJumpPadEffect( entity trigger, entity player )
+void function JumpPadTriggerEnter( entity trigger, entity ent )
 {
-	if( !IsValid( player ) )
+	if( !IsAlive( ent ) )
 		return
-	if( !player.IsPlayer() )
+	if( !ent.IsPlayer() )
 		return
-	if( player.IsPhaseShifted() )
+	if( ent.IsPhaseShifted() )
 		return
-	if( player.GetParent() != null )
+	if( ent.GetParent() != null )
 		return
-	if( player.IsTitan() )
+	if( ent.IsTitan() )
 		return
-	if( IsPlayerInJumpPadCooldown( player ) )
+	//if( IsPlayerInJumpPadCooldown( player ) )
+	//	return
+	if ( file.playerInJumpPad[ ent ] ) // already in jumppad?
+		return
+	
+	// all checks passed
+	file.playerInJumpPad[ ent ] = true
+	GiveJumpPadEffect( ent )
+}
+
+void function JumpPadTriggerLeave( entity trigger, entity ent )
+{
+	if( !ent.IsPlayer() )
 		return
 
+	// this only marks player as left jump pad
+	if ( file.playerInJumpPad[ ent ] )
+		file.playerInJumpPad[ ent ] = false
+}
+
+void function GiveJumpPadEffect( entity player )
+{
 	StopSoundOnEntity( player, "Boost_Card_SentryTurret_Deployed_3P" ) // prevent sound stacking
 	for( int i = 0; i < 5; i++ )
 		EmitSoundOnEntity( player, "Boost_Card_SentryTurret_Deployed_3P" )
@@ -230,7 +273,7 @@ void function GiveJumpPadEffect( entity trigger, entity player )
 	player.TouchGround() // regen doublejump
 
 	thread JumpPadFlying( player ) // signal sender
-	thread JumpPadCooldownThink( player )
+	//thread JumpPadCooldownThink( player ) // now using file.playerInJumpPad
 	thread JumpPadTrailThink( player )
 	thread JumpPadTripleJumpThink( player )
 }
@@ -375,10 +418,12 @@ entity function CreateJumpPadJetFxForPlayer( entity player, asset particle, stri
 	return fx
 }
 
+/* // now using file.playerInJumpPad
 void function JumpPadCooldownThink( entity player )
 {
 	SetPlayerInJumpPadCooldown( player, 1.0 ) // hardcoded now
 }
+*/
 
 void function DestroyJumpPadOnOwnerDeath( entity projectile, entity owner )
 {
