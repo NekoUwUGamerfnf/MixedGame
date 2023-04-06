@@ -19,7 +19,6 @@ global function SetTimeoutWinnerDecisionFunc
 global function SetTimeoutWinnerDecisionReason
 global function AddTeamScore
 global function GetWinningTeamWithFFASupport
-global function IsSwitchSidesBased_NorthStar // HACK!
 
 global function GameState_GetTimeLimitOverride
 global function IsRoundBasedGameOver
@@ -28,6 +27,7 @@ global function GiveTitanToPlayer
 global function GetTimeLimit_ForGameMode
 
 // i want my game to have these!
+global function IsSwitchSidesBased_NorthStar // HACK!
 global function SetWaitingForPlayersMaxDuration // so you don't have to wait so freaking long
 
 global function SetPickLoadoutEnabled
