@@ -3,13 +3,21 @@ global function Sv_EarnMeterMP_Init
 global function EarnMeterMP_SetTitanLoadout
 global function EarnMeterMP_SetPassiveMeterGainEnabled
 global function EarnMeterMP_SetBoostByRef
+
+// modified settings...
 global function EarnMeterMP_SetPassiveGainProgessEnable
 
-struct {
+const float EARNMETER_FRAC_PER_LEVEL 	= 0.01
+const int EARNMETER_MAX_LEVELS			= 4 // max frac is 0.04, hardcoded for now
+
+struct 
+{
 	array<string> catchedUpUIDs
 
 	float playingStartTime
 	bool passiveMeterGainEnabled = true
+
+	// modified settings...
 	float passiveMeterGainInterval = 5.0
 	bool passiveGainProgressEnabled = true // like vanilla
 	float progressFrac
@@ -33,6 +41,7 @@ void function EarnMeterMP_SetTitanLoadout( entity player )
 		PlayerEarnMeter_SetGoal( player, PlayerEarnMeter_GetReward( player ) )
 }
 
+// modified settings...
 void function EarnMeterMP_SetPassiveMeterGainEnabled( bool enabled )
 {
 	file.passiveMeterGainEnabled = enabled
@@ -42,6 +51,7 @@ void function EarnMeterMP_SetPassiveGainProgessEnable( bool enabled )
 {
 	file.passiveGainProgressEnabled = enabled
 }
+//
 
 void function SetupPlayerEarnMeter( entity player )
 {
@@ -61,7 +71,7 @@ void function DelayedCatchUpEarnMeter( entity player )
 	WaitFrame()
 	if( IsValid( player ) && !file.catchedUpUIDs.contains( player.GetUID() ) )
 	{
-		PlayerEarnMeter_AddOwnedFrac( player, ( ( Time() - file.playingStartTime ) / file.passiveMeterGainInterval ) * 0.01 )
+		PlayerEarnMeter_AddOwnedFrac( player, ( ( Time() - file.playingStartTime ) / file.passiveMeterGainInterval ) * EARNMETER_FRAC_PER_LEVEL )
 		file.catchedUpUIDs.append( player.GetUID() ) // for northstar, only catch up earnmeters once
 	}
 }
@@ -84,8 +94,8 @@ void function OnPlaying()
 
 	SetCallback_EarnMeterGoalEarned( EarnMeterMP_TitanEarned )
 
-	// WIP
-	//thread EarnMeterMP_ProgessFracCalculate()
+	// progress earnmeter frac
+	thread EarnMeterMP_ProgessFracCalculate()
 }
 
 void function OnPlayerRespawned( entity player )
@@ -118,8 +128,8 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 	int lastEarnMeterMode = PlayerEarnMeter_GetMode( player )
 	float lastPassiveGainTime = Time()
 
-	// If titan avaliable and we're nearly reach it
-	thread TryTitanSoonAnnouncement( player )
+	// on respawn: If titan avaliable and we're nearly reach it, do a dialogue
+	TryTitanSoonAnnouncement( player )
 
 	OnThreadEnd(
 		function() : ( player, pilotReward, pilotRewardFrac )
@@ -194,15 +204,12 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 			if ( Time() - lastPassiveGainTime >= file.passiveMeterGainInterval && file.passiveMeterGainEnabled ) // this might be 5.0
 			{
 				lastPassiveGainTime = Time()
-				// WIP
-				//if( file.passiveGainProgressEnabled )
-				//	PlayerEarnMeter_AddOwnedFrac( player, file.progressFrac )
-				//else
-					PlayerEarnMeter_AddOwnedFrac( player, 0.01 )
+				// progress frac
+				if( file.passiveGainProgressEnabled )
+					PlayerEarnMeter_AddOwnedFrac( player, file.progressFrac )
+				else
+					PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_FRAC_PER_LEVEL )
 			}
-
-			// If titan avaliable and we're nearly reach it
-			thread TryTitanSoonAnnouncement( player )
 		}
 
 		WaitFrame()
@@ -211,11 +218,14 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 
 void function TryTitanSoonAnnouncement( entity player )
 {
-	wait 0.2
+	//WaitFrame() // required for sometimes player try "RespawnAsTitan()", was fixed inside it
 	if( !IsValid( player ) )
 		return
 	if( ShouldDoTitanSoonAnnouncement( player ) )
+	{
+		//print( "doing titan soon announcement" )
 		PlayFactionDialogueToPlayer( "mp_titanSoon", player )
+	}
 }
 
 bool function ShouldDoTitanSoonAnnouncement( entity player )
@@ -229,6 +239,7 @@ bool function ShouldDoTitanSoonAnnouncement( entity player )
 		GetGameState() == eGameState.Playing
 	  )
 		return true
+
 	return false
 }
 
@@ -254,10 +265,11 @@ void function EarnMeterMP_TitanEarned( entity player )
 {
 	if ( EarnMeterMP_IsTitanEarnGametype() )
 	{
-		if( !player.IsTitan() && !IsValid( player.GetPetTitan() ) ) // sometimes trigger this when "Respawn As Titan", should do a check.
+		if( !player.IsTitan() && !IsValid( player.GetPetTitan() ) && !IsTitanAvailable( player ) ) // sometimes trigger this when "Respawn As Titan", should do a check.
+		{
 			SetTitanAvailable( player )
-		thread DelayedCheckTitanReady( player ) // defensive fix
-		//Remote_CallFunction_Replay( player, "ServerCallback_TitanReadyMessage" ) // broken for some reason
+			Remote_CallFunction_Replay( player, "ServerCallback_TitanReadyMessage" ) // broken for some reason
+		}
 	}
 	else
 	{
@@ -268,20 +280,6 @@ void function EarnMeterMP_TitanEarned( entity player )
 
 		if ( PlayerEarnMeter_GetRewardFrac( player ) != 0 )
 			PlayerEarnMeter_EnableReward( player )
-	}
-}
-
-void function DelayedCheckTitanReady( entity player )
-{
-	wait 0.2 // respawn as titan might did a WaitFrame(), so we also wait here
-	if( IsValid( player ) )
-	{
-		if( 
-			!player.IsTitan() && 
-			!IsValid( player.GetPetTitan() ) && 
-			GetGameState() == eGameState.Playing
-		  )
-			PlayFactionDialogueToPlayer( "mp_titanReady", player )
 	}
 }
 
@@ -306,36 +304,50 @@ void function EarnMeterMP_SetBoostByRef( entity player, string boostRef )
 		PlayerEarnMeter_SetGoal( player, earnobject )
 }
 
-// progressFrac calculate, currently not support FFA
-/* WIP
+// progressFrac calculate, no support for roundbased mode
 void function EarnMeterMP_ProgessFracCalculate()
 {
-	if( IsFFAGame() )
+	if ( IsRoundBased() )
 		return
 
-	int totalScore = GameMode_GetScoreLimit( GAMETYPE )
-	if( IsRoundBased() )
-		totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
-
-	float totalTime = float( GameMode_GetTimeLimit( GAMETYPE ) * 60 )
-	if( IsRoundBased() )
-		totalTime = GameMode_GetRoundTimeLimit( GAMETYPE ) * 60
-	if( IsSwitchSidesBased_NorthStar() )
-		totalTime *= 0.5
-
-	file.progressFrac = 0.01 // base value, reset every round
+	file.progressFrac = EARNMETER_FRAC_PER_LEVEL // base value, reset every round
 	// progressFrac calculate, WIP
-	while( GetGameState() == eGameState.Playing() )
+	while( GetGameState() == eGameState.Playing )
 	{
-		int winningTeam = GetWinningTeam()
-		if( IsFFAGame() )
-			winningTeam = GetWinningTeamWithFFASupport()
+		float startTime = file.playingStartTime
+		// could cache these, but what if we update it midgame?
+		float endTime = expect float( GetServerVar( "gameEndTime" ) )
+		if( IsSwitchSidesBased_NorthStar() )
+			endTime /= 2
+		float totalTime = endTime - startTime
+		float timePerLevel = totalTime / EARNMETER_MAX_LEVELS
 		
+		int totalScore = GameMode_GetScoreLimit( GAMETYPE )
+		if( IsRoundBased() )
+			totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
+		int scorePerLevel = totalScore / EARNMETER_MAX_LEVELS
+
+		int winningTeam = GetWinningTeamWithFFASupport() // GetWinningTeam() won't be set up if match hasn't end yet
+		if ( winningTeam < TEAM_UNASSIGNED ) // no valid winner
+			winningTeam = TEAM_UNASSIGNED
+
+		int highestScore = GameRules_GetTeamScore( winningTeam )
+		//print( "winningTeam: " + string( winningTeam ) )
+		//print( "highestScore: " + string( highestScore ) )
+
 		// base frac based on gameTime
-		progressFrac = ( ( Time() - file.playingStartTime ) / file.passiveMeterGainInterval ) * 0.01
+		float timeElapsed = Time() - startTime
+		//print( "timeElapsed: " + string( timeElapsed ) )
+		//print( "timePerLevel: " + string( timePerLevel ) )
+		int timeLevel = int( timeElapsed / timePerLevel )
 		// calculate again based on team scores
-		progressFrac = ( ( Time() - file.playingStartTime ) / file.passiveMeterGainInterval ) * 0.01
+		int scoreLevel = highestScore / scorePerLevel
+
+		// get max level
+		int gainLevel = int( max( timeLevel, scoreLevel ) ) + 1
+
+		file.progressFrac = EARNMETER_FRAC_PER_LEVEL * gainLevel
+		//print( "progressFrac: " + string( file.progressFrac ) )
 		WaitFrame()
 	}
 }
-*/
