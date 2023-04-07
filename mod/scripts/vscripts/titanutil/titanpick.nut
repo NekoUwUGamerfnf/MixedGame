@@ -32,7 +32,7 @@ const string TITAN_DROPPED_WEAPON_SCRIPTNAME    = "titanPickWeaponDrop"
 const vector DEFAULT_DROP_ORIGIN                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
 const vector DEFAULT_DROP_ANGLES                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
 
-const float PLAYER_PICKUP_COOLDOWN              = 0.3 // for we use this 0.2s to update core icon
+const float PLAYER_PICKUP_COOLDOWN              = 0.5 // for we use this 0.2s to update core icon
 const float PLAYER_RUI_UPDATE_DURATION          = 0.5 // use cinematic flag to update rui
 
 // monarch hack
@@ -311,6 +311,11 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     int camo = weapon.GetCamo()
     entity weaponProp = curDropFuncs.weaponPropFunc( weapon, droppoint, dropangle ) //CreatePropDynamic( modelname, droppoint, dropangle, SOLID_VPHYSICS )
     
+    if ( !IsValid( weaponProp ) ) // weird crash
+    {
+        //print( "weaponProp invalid!" )
+        return
+    }
     // loadout owner
     if ( !droppedByPickup ) // dropped by titan death
     {
@@ -398,12 +403,6 @@ array<string> function RemoveIllegalWeaponMods( array<string> mods )
     {
         if ( file.illegalWeaponMods.contains( mod ) ) // skip illegal mod
             continue
-        /*
-        if( mod == "Smart_Core" ||
-            mod == "rocketeer_ammo_swap" ||
-            mod == "LongRangeAmmo" )
-            continue
-        */
 
         replaceArray.append( mod )
     }
@@ -495,6 +494,7 @@ function PickupDroppedTitanWeapon( weaponProp, player )
     expect entity( player )
     expect entity( weaponProp )
 
+    //print( "RUNNING PickupDroppedTitanWeapon()" )
     if ( !IsValid( weaponProp ) )
         return
     
@@ -593,7 +593,7 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
 
     // successfully applies weapons
     // try update cockpit rui visibility
-    thread UpdateCoreIconForLoadoutSwitch( player )
+    UpdateCoreIconForLoadoutSwitch( player )
     thread UpdateCockpitRUIVisbilityForLoadoutSwitch( player )
 }
 
@@ -628,6 +628,7 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
         titan.TakeOffhandWeapon( OFFHAND_MELEE )
     if ( savedOffhands.core != "" )
         titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
+    print( "savedOffhands.core: " + savedOffhands.core )
 
     // applying saved weapons goes here, to prevent crashes when switch to a titan with same weapon in different slot
     if ( savedOffhands.special != "" )
@@ -640,6 +641,7 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
         titan.GiveOffhandWeapon( savedOffhands.melee, OFFHAND_MELEE, savedOffhands.meleeMods )
     if ( savedOffhands.core != "" )
         titan.GiveOffhandWeapon( savedOffhands.core, OFFHAND_EQUIPMENT, savedOffhands.coreMods )
+    print( titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ) )
 
     entity soul = titan.GetTitanSoul()
     if ( IsValid( soul ) )
@@ -805,19 +807,6 @@ string function GetMonarchFinalUpgradeName( entity titan )
 }
 
 // rui updating
-void function UpdateCoreIconForLoadoutSwitch( entity player )
-{
-    player.Signal( "UpdateCoreIcon" )
-    player.EndSignal( "UpdateCoreIcon" )
-    player.EndSignal( "OnDestroy" )
-    player.EndSignal( "OnDeath" )
-    file.playerPickupAllowedTime[ player ] = Time() + PLAYER_PICKUP_COOLDOWN // add a grace period for we update core icon
-    WaitFrame() // so we can have core weapon equiped
-    entity soul = player.GetTitanSoul()
-    if ( IsValid( soul ) )
-        SoulTitanCore_SetExpireTime( soul, Time() + 0.15 ) // this will make core state become active, after that client will update icon
-}
-
 void function UpdateCockpitRUIVisbilityForLoadoutSwitch( entity player )
 {
     player.Signal( "UpdateCockpitRUI" )
@@ -829,6 +818,17 @@ void function UpdateCockpitRUIVisbilityForLoadoutSwitch( entity player )
     wait PLAYER_RUI_UPDATE_DURATION
     if ( HasCinematicFlag( player, CE_FLAG_TITAN_3P_CAM ) )
         RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+}
+
+void function UpdateCoreIconForLoadoutSwitch( entity player )
+{
+    file.playerPickupAllowedTime[ player ] = Time() + PLAYER_PICKUP_COOLDOWN // add a grace period for we update core icon
+    entity soul = player.GetTitanSoul()
+    if ( IsValid( soul ) )
+    {
+        if ( IsValid( player.GetOffhandWeapon( OFFHAND_EQUIPMENT ) ) ) // anti crash... why?
+            SoulTitanCore_SetExpireTime( soul, Time() + 0.2 ) // this will make core state become active, after that client will update icon
+    }
 }
 
 // utility
