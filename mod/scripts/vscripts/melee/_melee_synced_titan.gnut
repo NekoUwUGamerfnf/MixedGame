@@ -256,9 +256,8 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 	}
 	//#endif
 
-	// modified: use "rider_rodeo_over" as a event we drop weapon
-	if ( TitanPick_ShouldTitanDropWeapon( target ) )
-		AddAnimEvent( target, "rider_rodeo_over", TitanPick_TitanDropWeapon )
+	// modified: if function reaches here it must means titan being executed, we delay 1 frame and drop their weapon
+	ExecutedTitanDropWeapon( target )
 	//
 
 	waitthread func( action, attacker, target )
@@ -1097,6 +1096,9 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 				{
 					ClearPlayerAnimViewEntity( target )
 					DeployAndEnableWeapons( target )
+					// "spectator" class may messes this. should hide player
+					if ( !IsAlive( target ) )
+						target.Hide()
 				}
 				else
 					EnableWeapons( target, [] )
@@ -1810,9 +1812,53 @@ void function Rocket_Pod( entity guy, string tag, entity victim )
  		guy.GiveOffhandWeapon( oldOffhandWeapon.GetWeaponClassName(), 0, oldOffhandWeapon.GetMods() )
 }
 
+
 ////////////////////
 ///// MODIFIED /////
 ////////////////////
+void function ExecutedTitanDropWeapon( entity titan )
+{
+	thread ExecutedTitanDropWeapon_Threaded( titan )
+}
+
+void function ExecutedTitanDropWeapon_Threaded( entity titan )
+{
+	//print( "Titan dropped weapon on being executed" )
+	if ( !TitanPick_ShouldTitanDropWeapon( titan ) )
+		return
+
+	// create weaponProp here, to prevent messed up by AE_DROP_WEAPON
+	entity weaponProp = TitanPick_TitanDropWeapon( titan )
+	weaponProp.NotSolid() // prevent it mess up execution
+	weaponProp.Hide()
+	weaponProp.UnsetUsable()
+
+	OnThreadEnd
+	(
+		function(): ( weaponProp )
+		{
+			if ( IsValid( weaponProp ) )
+			{
+				weaponProp.Solid()
+				weaponProp.Show()
+				weaponProp.SetUsable()
+			}
+		}
+	)
+
+	// hide existing weapons since we want players know that they've been dropped
+	//array<entity> weapons = titan.GetMainWeapons()
+	//foreach ( weapon in weapons )
+	//	weapon.kv.visibilityFlags = ENTITY_VISIBLE_TO_NOBODY
+
+	// don't drop weapon again for this soul
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+		TitanPick_SoulSetEnableWeaponDrop( soul, false )
+	
+	WaitSignal( titan, "OnDeath", "OnDestroy" ) // wait for titan death, then we can make weapon prop solid
+}
+
 void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
 {
 	file.titanExecutionNotInvulnerable = notInvulnerable

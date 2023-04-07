@@ -32,7 +32,7 @@ const string TITAN_DROPPED_WEAPON_SCRIPTNAME    = "titanPickWeaponDrop"
 const vector DEFAULT_DROP_ORIGIN                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
 const vector DEFAULT_DROP_ANGLES                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
 
-const float PLAYER_PICKUP_COOLDOWN              = 0.2 // for we use this 0.2s to update core icon
+const float PLAYER_PICKUP_COOLDOWN              = 0.3 // for we use this 0.2s to update core icon
 const float PLAYER_RUI_UPDATE_DURATION          = 0.5 // use cinematic flag to update rui
 
 // monarch hack
@@ -152,6 +152,7 @@ void function TitanPick_Init()
     AddCallback_OnNPCKilled( OnPlayerOrNPCKilled )
 
     // for updating rui
+    RegisterSignal( "UpdateCoreIcon" )
     RegisterSignal( "UpdateCockpitRUI" )
 }
 
@@ -356,7 +357,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
 
     thread TitanWeaponDropLifeTime( weaponProp )
 
-    // destroy current weapon.. don't do it! will cause npc with other smart ammo offhand to get another main weapon, might crash!
+    // destroy current weapon.. may cause mod titan with other smart ammo offhand to get another main weapon on disembarking, cause crash!
     //weapon.Destroy()
 
     return weaponProp
@@ -592,7 +593,7 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
 
     // successfully applies weapons
     // try update cockpit rui visibility
-    UpdateCoreIconForLoadoutSwitch( player )
+    thread UpdateCoreIconForLoadoutSwitch( player )
     thread UpdateCockpitRUIVisbilityForLoadoutSwitch( player )
 }
 
@@ -806,10 +807,15 @@ string function GetMonarchFinalUpgradeName( entity titan )
 // rui updating
 void function UpdateCoreIconForLoadoutSwitch( entity player )
 {
-    file.playerPickupAllowedTime[ player ] = Time() + 0.2 // add a grace period for we update core icon
+    player.Signal( "UpdateCoreIcon" )
+    player.EndSignal( "UpdateCoreIcon" )
+    player.EndSignal( "OnDestroy" )
+    player.EndSignal( "OnDeath" )
+    file.playerPickupAllowedTime[ player ] = Time() + PLAYER_PICKUP_COOLDOWN // add a grace period for we update core icon
+    WaitFrame() // so we can have core weapon equiped
     entity soul = player.GetTitanSoul()
     if ( IsValid( soul ) )
-        SoulTitanCore_SetExpireTime( soul, Time() + 0.2 ) // this will make core state become active, after that client will update icon
+        SoulTitanCore_SetExpireTime( soul, Time() + 0.15 ) // this will make core state become active, after that client will update icon
 }
 
 void function UpdateCockpitRUIVisbilityForLoadoutSwitch( entity player )
