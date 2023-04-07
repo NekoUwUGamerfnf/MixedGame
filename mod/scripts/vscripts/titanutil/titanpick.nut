@@ -356,8 +356,8 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
 
     thread TitanWeaponDropLifeTime( weaponProp )
 
-    // destroy current weapon
-    weapon.Destroy()
+    // destroy current weapon.. don't do it! will cause npc with other smart ammo offhand to get another main weapon, might crash!
+    //weapon.Destroy()
 
     return weaponProp
 }
