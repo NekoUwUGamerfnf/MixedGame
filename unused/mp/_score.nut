@@ -69,11 +69,10 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	if ( pointValueOverride != -1 )
 		event.pointValue = pointValueOverride 
 	
-	float earnScale = targetPlayer.IsTitan() ? 0.0 : 1.0 // titan shouldn't get any earn value
-	float ownScale = targetPlayer.IsTitan() ? event.coreMeterScalar : 1.0
+	float scale = targetPlayer.IsTitan() ? event.coreMeterScalar : 1.0
 	
-	float earnValue = event.earnMeterEarnValue * earnScale
-	float ownValue = event.earnMeterOwnValue * ownScale
+	float earnValue = event.earnMeterEarnValue * scale
+	float ownValue = event.earnMeterOwnValue * scale
 	
 	PlayerEarnMeter_AddEarnedAndOwned( targetPlayer, earnValue, ownValue ) //( targetPlayer, earnValue * scale, ownValue * scale ) // seriously? this causes a value*scale^2
 	
@@ -83,7 +82,7 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	
 	if ( targetPlayer.IsTitan() )
 	{
-		//earnValue *= titanScaleVar // titan shouldn't get any earn value
+		earnValue *= titanScaleVar
 		ownValue *= titanScaleVar
 	}
 	else
@@ -278,16 +277,42 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 		AddPlayerScore( attacker, scoreEvent ) // no callsign event
 	}
 
-	// titan damage history stores in titanSoul, but if they killed by termination it's gonna transfer to victim themselves
-	bool killedByTermination = DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.titan_execution
-	entity damageHistorySaver = killedByTermination ? victim : victim.GetTitanSoul()
-	if ( IsValid( damageHistorySaver ) )
+	/* // using a new check
+	if ( attacker.IsTitan() )
 	{
-		//print( "damageHistorySaver valid! " + string( damageHistorySaver ) )
-		table<int, bool> alreadyAssisted
-		foreach( DamageHistoryStruct attackerInfo in damageHistorySaver.e.recentDamageHistory )
+		if( victim.GetBossPlayer() || victim.IsPlayer() ) // to confirm this is a pet titan or player titan
 		{
-			//print( "attackerInfo.attacker: " + string( attackerInfo.attacker ) )
+			AddPlayerScore( attacker, "TitanKillTitan", attacker ) // this will show the "Titan Kill" callsign event
+			if( GetShouldPlayFactionDialogue() )
+				KilledPlayerTitanDialogue( attacker, victim )
+		}
+		else
+		{
+			AddPlayerScore( attacker, "TitanKillTitan" ) // no callsign event
+		}
+	}
+	else
+	{
+		if( victim.GetBossPlayer() || victim.IsPlayer() )
+		{
+			AddPlayerScore( attacker, "KillTitan", attacker ) // this will show the "Titan Kill" callsign event
+			if( GetShouldPlayFactionDialogue() )
+				KilledPlayerTitanDialogue( attacker, victim )
+		}
+		else
+		{
+			AddPlayerScore( attacker, "KillTitan" )
+		}
+	}
+	*/
+
+	// titan damage history stores in titansoul
+	entity soul = victim.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		table<int, bool> alreadyAssisted
+		foreach( DamageHistoryStruct attackerInfo in soul.e.recentDamageHistory )
+		{
 			if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == victim )
 				continue
 				
@@ -326,6 +351,25 @@ void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, flo
 void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in this case means modes with both pilots and titans
 {
 	thread SetupEarnMeterValuesForMixedModes_Threaded() // needs thread or "PilotEmilinate" won't behave up correctly
+	
+	/*
+	// todo needs earn/overdrive values
+	// player-controlled stuff
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 ) // unsure
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35 ) // this actually just doesn't have overdrive in vanilla even
+	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35 )
+	
+	// ai
+	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.02, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.0, 0.1, 0.5 )
+	*/
 }
 
 void function SetupEarnMeterValuesForMixedModes_Threaded()
@@ -336,15 +380,13 @@ void function SetupEarnMeterValuesForMixedModes_Threaded()
 	// player-controlled stuff
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.33 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.02, 0.05, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 ) // unsure
-	ScoreEvent_SetEarnMeterValues( "TitanAssist", 0.0, 0.10 )
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35 ) // this actually just doesn't have overdrive in vanilla even
-	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35 )
 	
@@ -377,6 +419,33 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 		PlayFactionDialogueToPlayer( file.killedTitanDialogues[titanCharacterName], attacker )
 	else // play a default one
 		PlayFactionDialogueToPlayer( "kc_pilotkilltitan", attacker )
+
+	/* // not hardcoded anymore!
+	switch( titanCharacterName )
+	{
+		case "ion":
+			PlayFactionDialogueToPlayer( "kc_pilotkillIon", attacker )
+			return
+		case "tone":
+			PlayFactionDialogueToPlayer( "kc_pilotkillTone", attacker )
+			return
+		case "legion":
+			PlayFactionDialogueToPlayer( "kc_pilotkillLegion", attacker )
+			return
+		case "scorch":
+			PlayFactionDialogueToPlayer( "kc_pilotkillScorch", attacker )
+			return
+		case "ronin":
+			PlayFactionDialogueToPlayer( "kc_pilotkillRonin", attacker )
+			return
+		case "northstar":
+			PlayFactionDialogueToPlayer( "kc_pilotkillNorthstar", attacker )
+			return
+		default:
+			PlayFactionDialogueToPlayer( "kc_pilotkilltitan", attacker )
+			return
+	}
+	*/
 }
 
 // nessy modify
