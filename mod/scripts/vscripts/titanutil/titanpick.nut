@@ -628,7 +628,6 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
         titan.TakeOffhandWeapon( OFFHAND_MELEE )
     if ( savedOffhands.core != "" )
         titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
-    print( "savedOffhands.core: " + savedOffhands.core )
 
     // applying saved weapons goes here, to prevent crashes when switch to a titan with same weapon in different slot
     if ( savedOffhands.special != "" )
@@ -641,7 +640,6 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
         titan.GiveOffhandWeapon( savedOffhands.melee, OFFHAND_MELEE, savedOffhands.meleeMods )
     if ( savedOffhands.core != "" )
         titan.GiveOffhandWeapon( savedOffhands.core, OFFHAND_EQUIPMENT, savedOffhands.coreMods )
-    print( titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ) )
 
     entity soul = titan.GetTitanSoul()
     if ( IsValid( soul ) )
@@ -807,6 +805,17 @@ string function GetMonarchFinalUpgradeName( entity titan )
 }
 
 // rui updating
+void function UpdateCoreIconForLoadoutSwitch( entity player )
+{
+    file.playerPickupAllowedTime[ player ] = Time() + PLAYER_PICKUP_COOLDOWN // add a grace period for we update core icon
+    entity soul = player.GetTitanSoul()
+    if ( IsValid( soul ) )
+    {
+        if ( IsValid( player.GetOffhandWeapon( OFFHAND_EQUIPMENT ) ) ) // anti crash... why?
+            SoulTitanCore_SetExpireTime( soul, Time() + 0.15 ) // this will make core state become active, after that client will update icon
+    }
+}
+
 void function UpdateCockpitRUIVisbilityForLoadoutSwitch( entity player )
 {
     player.Signal( "UpdateCockpitRUI" )
@@ -818,17 +827,6 @@ void function UpdateCockpitRUIVisbilityForLoadoutSwitch( entity player )
     wait PLAYER_RUI_UPDATE_DURATION
     if ( HasCinematicFlag( player, CE_FLAG_TITAN_3P_CAM ) )
         RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
-}
-
-void function UpdateCoreIconForLoadoutSwitch( entity player )
-{
-    file.playerPickupAllowedTime[ player ] = Time() + PLAYER_PICKUP_COOLDOWN // add a grace period for we update core icon
-    entity soul = player.GetTitanSoul()
-    if ( IsValid( soul ) )
-    {
-        if ( IsValid( player.GetOffhandWeapon( OFFHAND_EQUIPMENT ) ) ) // anti crash... why?
-            SoulTitanCore_SetExpireTime( soul, Time() + 0.2 ) // this will make core state become active, after that client will update icon
-    }
 }
 
 // utility
