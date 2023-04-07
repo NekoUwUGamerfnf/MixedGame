@@ -57,7 +57,7 @@ void function InitPlayerForScoreEvents( entity player )
 
 // idk why forth arg is a string, maybe it should be a var type?
 //void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string noideawhatthisis = "", int pointValueOverride = -1 )
-void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1 )
+void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string displayTypeOverride = "", int pointValueOverride = -1 )
 {
 	ScoreEvent event = GetScoreEvent( scoreEventName )
 	
@@ -94,10 +94,7 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 		ownValue *= pilotScaleVar
 	}
 	
-	
-	if ( displayTypeOverride != null )
-		event.displayType = int( displayTypeOverride )
-	else // default
+	if ( displayTypeOverride != "noCenter" ) // default
 		event.displayType = event.displayType | eEventDisplayType.CENTER // eEventDisplayType.CENTER is required for client to show earnvalue on screen
 	// messed up "ownValue" and "earnValue"
 	//Remote_CallFunction_NonReplay( targetPlayer, "ServerCallback_ScoreEvent", event.eventId, event.pointValue, event.displayType, associatedHandle, ownValue, earnValue )
@@ -248,11 +245,11 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 void function ScoreEvent_TitanDoomed( entity titan, entity attacker, var damageInfo )
 {
 	// will this handle npc titans with no owners well? i have literally no idea
-	// these two shouldn't add a associated ent, or it will show a center notification on screen
+	// these two shouldn't add eEventDisplayType.CENTER, now hardcoded by "noCenter" param
 	if ( titan.IsNPC() )
-		AddPlayerScore( attacker, "DoomAutoTitan", titan, "" )
+		AddPlayerScore( attacker, "DoomAutoTitan", titan, "noCenter" )
 	else
-		AddPlayerScore( attacker, "DoomTitan", titan, "" )
+		AddPlayerScore( attacker, "DoomTitan", titan, "noCenter" )
 }
 
 void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damageInfo )
