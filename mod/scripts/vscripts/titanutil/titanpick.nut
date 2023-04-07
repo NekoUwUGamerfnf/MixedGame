@@ -616,31 +616,29 @@ bool function ShouldTitanPassUpgradesForPickUp( entity titan, entity weaponProp 
 
 void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOffhands, bool passUpgrades = false )
 {
+    // taking weapons done first
     if ( savedOffhands.special != "" )
-    {
         titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
-        titan.GiveOffhandWeapon( savedOffhands.special, OFFHAND_SPECIAL, savedOffhands.specialMods )
-    }
     if ( savedOffhands.ordnance != "" )
-    {
         titan.TakeOffhandWeapon( OFFHAND_ORDNANCE )
-        titan.GiveOffhandWeapon( savedOffhands.ordnance, OFFHAND_ORDNANCE, savedOffhands.ordnanceMods )
-    }
     if ( savedOffhands.antiRodeo != "" )
-    {
         titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
-        titan.GiveOffhandWeapon( savedOffhands.antiRodeo, OFFHAND_ANTIRODEO, savedOffhands.antiRodeoMods )
-    }
     if ( savedOffhands.melee != "" )
-    {
         titan.TakeOffhandWeapon( OFFHAND_MELEE )
-        titan.GiveOffhandWeapon( savedOffhands.melee, OFFHAND_MELEE, savedOffhands.meleeMods )
-    }
     if ( savedOffhands.core != "" )
-    {
         titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
+
+    // applying saved weapons goes here, to prevent crashes when switch to a titan with same weapon in different slot
+    if ( savedOffhands.special != "" )
+        titan.GiveOffhandWeapon( savedOffhands.special, OFFHAND_SPECIAL, savedOffhands.specialMods )
+    if ( savedOffhands.ordnance != "" )
+        titan.GiveOffhandWeapon( savedOffhands.ordnance, OFFHAND_ORDNANCE, savedOffhands.ordnanceMods )
+    if ( savedOffhands.antiRodeo != "" )
+        titan.GiveOffhandWeapon( savedOffhands.antiRodeo, OFFHAND_ANTIRODEO, savedOffhands.antiRodeoMods )
+    if ( savedOffhands.melee != "" )
+        titan.GiveOffhandWeapon( savedOffhands.melee, OFFHAND_MELEE, savedOffhands.meleeMods )
+    if ( savedOffhands.core != "" )
         titan.GiveOffhandWeapon( savedOffhands.core, OFFHAND_EQUIPMENT, savedOffhands.coreMods )
-    }
 
     entity soul = titan.GetTitanSoul()
     if ( IsValid( soul ) )
