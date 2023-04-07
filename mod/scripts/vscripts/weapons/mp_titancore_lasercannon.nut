@@ -142,13 +142,10 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 
 	weapon.w.laserWorldModel.Anim_Play( "charge_seq" )
 
-	if ( player.IsNPC() )
+	if ( player.IsNPC() && !player.ContextAction_IsActive() ) // check for npc executions to work!
 	{
-		if( !player.ContextAction_IsActive() ) // check for npc executions to work!(not work though)
-		{
-			player.SetVelocity( <0,0,0> )
-			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.0 )
-		}
+		player.SetVelocity( <0,0,0> )
+		player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.0 )
 	}
 #endif // #if SERVER
 
@@ -185,10 +182,8 @@ void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 	if ( player.IsPlayer() )
 		player.Server_TurnOffhandWeaponsDisabledOff()
 
-	if ( player.IsNPC() && IsAlive( player ) )
-	{
+	if ( player.IsNPC() && IsAlive( player ) && !player.ContextAction_IsActive() ) // check for npc executions to work!
 		player.Anim_Stop()
-	}
 	#endif
 }
 
@@ -230,7 +225,7 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 		EmitSoundOnEntity( player, "Titan_Core_Laser_FireBeam_3P" )
 	}
 
-	if ( player.IsNPC() )
+	if ( player.IsNPC() && !player.ContextAction_IsActive() ) // check for npc executions to work!
 	{
 		player.SetVelocity( <0,0,0> )
 		player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK", true, 0.1 )
@@ -277,7 +272,7 @@ void function OnAbilityEnd_LaserCannon( entity weapon )
 		EmitSoundOnEntity( player, "Titan_Core_Laser_FireStop_3P" )
 	}
 
-	if ( player.IsNPC() && IsAlive( player ) )
+	if ( player.IsNPC() && !player.ContextAction_IsActive() ) // check for npc executions to work!
 	{
 		player.SetVelocity( <0,0,0> )
 		player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.0 )
