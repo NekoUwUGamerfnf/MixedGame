@@ -1823,11 +1823,18 @@ void function ExecutedTitanDropWeapon( entity titan )
 
 void function ExecutedTitanDropWeapon_Threaded( entity titan )
 {
-	//print( "Titan dropped weapon on being executed" )
-	if ( !TitanPick_ShouldTitanDropWeapon( titan ) )
+	if ( titan.GetMainWeapons().len() == 0 )
 		return
 
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" ) // if titan won't drop weapon on being executed, will be handled by OnTitanKilled()
+	
+	table results = {}
+	results.droppedWeapon <- false
+
 	// create weaponProp here, to prevent messed up by AE_DROP_WEAPON, hide it for now
+	if ( !TitanPick_ShouldTitanDropWeapon( titan ) )
+		return
 	entity weaponProp = TitanPick_TitanDropWeapon( titan )
 	weaponProp.NotSolid() // prevent it mess up execution
 	weaponProp.Hide()
@@ -1835,10 +1842,15 @@ void function ExecutedTitanDropWeapon_Threaded( entity titan )
 
 	OnThreadEnd
 	(
-		function(): ( weaponProp )
+		function(): ( weaponProp, results )
 		{
 			if ( IsValid( weaponProp ) )
 			{
+				if ( results.droppedWeapon ) // dropped another weapon in this func?
+				{
+					weaponProp.Destroy()
+					return
+				}
 				// show weaponProp again
 				weaponProp.Solid()
 				weaponProp.Show()
@@ -1847,19 +1859,55 @@ void function ExecutedTitanDropWeapon_Threaded( entity titan )
 		}
 	)
 
-	// hide existing weapons since we want players know that they've been dropped
-	//array<entity> weapons = titan.GetMainWeapons()
-	//foreach ( weapon in weapons )
-	//	weapon.kv.visibilityFlags = ENTITY_VISIBLE_TO_NOBODY
+	entity weaponToDrop = titan.GetMainWeapons()[0]
+	string name = weaponToDrop.GetWeaponClassName()
+	array<string> mods = weaponToDrop.GetMods()
+	int skin = weaponToDrop.GetSkin()
+	int camo = weaponToDrop.GetCamo()
+	int ammoLeft = 0
+	try { ammoLeft = weaponToDrop.GetWeaponPrimaryClipCount() }
+    catch(ex) {}
+
+	// manually handle AE_DROP_WEAPON, wait for this weapon being dropped, then create a new one and drop it
+	while ( TitanHasWeaponEntity( titan, weaponToDrop ) )
+		WaitFrame()
+
+	if ( !TitanPick_ShouldTitanDropWeapon( titan ) )
+		return
+
+	print( "Titan dropped weapon for being executed" )
+	// temp give a weapon
+	foreach ( entity weapon in titan.GetMainWeapons() )
+		titan.TakeWeapon( weapon.GetWeaponClassName() )
+	entity newWeapon = titan.GiveWeapon( name, mods )
+	newWeapon.SetSkin( skin )
+	newWeapon.SetCamo( camo )
+	try { newWeapon.SetWeaponPrimaryClipCount( ammoLeft ) }
+	catch(ex1) {}
+
+	TitanPick_TitanDropWeapon( titan ) // drop this weapon
+	results.droppedWeapon = true // mark as we dropped weapon!
+	newWeapon.Destroy()
 
 	// don't drop weapon again for this soul
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 		TitanPick_SoulSetEnableWeaponDrop( soul, false )
-	
-	WaitSignal( titan, "OnDeath", "OnDestroy" ) // wait for titan death, then we can make weapon prop solid
 }
 
+bool function TitanHasWeaponEntity( entity titan, entity weapon )
+{
+	foreach ( entity holdingWeapon in titan.GetMainWeapons() )
+	{
+		print( "holdingWeapon: " + string( holdingWeapon ) )
+		print( "weapon: " + string( weapon ) )
+		if ( holdingWeapon == weapon )
+			return true
+	}
+	return false
+}
+
+//
 void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
 {
 	file.titanExecutionNotInvulnerable = notInvulnerable
