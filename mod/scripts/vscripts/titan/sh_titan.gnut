@@ -16,6 +16,9 @@ global function TemporarilyNonSolidPlayer
 	global function EnableTitanExit
 	global function DisableTitanExit
 	global function TitanSkipsDeathOnEject
+
+	// modified!!
+	global function TitanEject_SetSoulUseNPCPilotAsNukeAttacker
 #endif
 
 global const TITAN_EJECT_SCREECH	= "titan_eject_screech"
@@ -38,6 +41,9 @@ global enum eCockpitState
 struct
 {
 	float titanVOEjectNotifyDist = 2000 * 2000
+
+	// modified!!!!
+	table<entity, bool> soulUseNPCPilotAsNukeAttacker
 } file
 
 
@@ -320,6 +326,7 @@ backIdle
 const TITAN_PLAYEREJECT_DELAY = 0.4
 const TITAN_PLAYEREJECT_DURATION = 0.8 // long enough foranimation
 const MAX_EJECT_LATENCY_COMPENSATION = 0.4
+
 // modified
 const float NPC_PILOT_EJECTING_DELAY = 5.0
 
@@ -361,10 +368,8 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		e.player = ejectTitan
 
 	#if NPC_TITAN_PILOT_PROTOTYPE
-	if ( TitanHasNpcPilot( ejectTitan ) )
-	{
-		ejectTitanHasNpcPilot = true
-	}
+		if ( TitanHasNpcPilot( ejectTitan ) )
+			ejectTitanHasNpcPilot = true
 	#endif
 
 	e.nukeFX <- []
@@ -429,6 +434,7 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		while( ejectTitan.Anim_IsActive() )
 			WaitFrame() // wait till some animation end
 	}
+	//
 
 	ejectTitan.Signal( "TitanEjectionStarted" )
 	//ejectTitan.EndSignal( "OnDeath" ) // moved up
@@ -536,12 +542,15 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 	}
 	else
 	{
-		titanEjectAnimPlayer = "at_MP_eject_stand_start"
-		titanEjectAnimTitan = "at_MP_eject_stand_end"
-		
 		// this seems messed up for npcTitans, since their stance aren't set properly
-		//titanEjectAnimPlayer = "at_MP_eject_crouch_idle"
-		//titanEjectAnimTitan = "at_MP_eject_crouch_start"
+		titanEjectAnimPlayer = "at_MP_eject_crouch_idle"
+		titanEjectAnimTitan = "at_MP_eject_crouch_start"
+		// modified
+		if ( ejectTitanHasNpcPilot )
+		{
+			titanEjectAnimPlayer = "at_MP_eject_stand_start"
+			titanEjectAnimTitan = "at_MP_eject_stand_end"
+		}
 	}
 
 	float ejectDuration // = TITAN_PLAYEREJECT_DURATION
@@ -659,8 +668,8 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 	}
 
 	#if NPC_TITAN_PILOT_PROTOTYPE
-	if ( ejectTitanHasNpcPilot )
-		e.npcPilot = NpcTitanBecomesPilot( ejectTitan )
+		if ( ejectTitanHasNpcPilot )
+			e.npcPilot = NpcTitanBecomesPilot( ejectTitan )
 	#endif
 
 	vector titanOrigin = titan.GetOrigin()
@@ -761,13 +770,20 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 	}
 	else if ( ejectTitanHasNpcPilot && IsAlive( expect entity( e.npcPilot ) ) )
 	{
-		//speed *= 0.6//magic number
+		//speed *= 0.6 //magic number, too slow so removed it
 		vector velocity = < 0, 0, speed > //straight up
 		e.npcPilot.SetOrigin( titan.GetOrigin() + Vector(0,0,300) )
 		e.npcPilot.SetAngles( titan.GetAngles() )
 		// don't really have such animation
 		//e.npcPilot.Anim_ScriptedPlay( "running_jump_F_float" )
 		e.npcPilot.SetVelocity( velocity )
+
+		// modified here: use npc pilot as nuke attacker
+		if ( soul in file.soulUseNPCPilotAsNukeAttacker )
+		{
+			if ( file.soulUseNPCPilotAsNukeAttacker[ soul ] )
+				e.overrideAttacker = e.npcPilot
+		}
 	}
 
 	if ( IsValid( e.player ) )
@@ -1322,4 +1338,17 @@ asset function GetTitanArmBadge( entity soul )
 	#endif
 }
 
+#endif
+
+
+// modified!!!
+#if SERVER
+void function TitanEject_SetSoulUseNPCPilotAsNukeAttacker( entity soul, bool setAs )
+{
+	if ( !IsValid( soul ) )
+		return
+	if ( !( soul in file.soulUseNPCPilotAsNukeAttacker ) )
+		file.soulUseNPCPilotAsNukeAttacker[ soul ] <- false // default value
+	file.soulUseNPCPilotAsNukeAttacker[ soul ] = setAs
+}
 #endif
