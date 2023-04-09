@@ -409,28 +409,21 @@ bool function ShouldDoomTitan( entity ent, var damageInfo )
 
 bool function HandleKillshot( entity ent, var damageInfo, TitanDamage titanDamage )
 {
-	/* // handling in normal scripts below!
+	/* // handling in normal checks below!
 	#if NPC_TITAN_PILOT_PROTOTYPE
-	if ( TitanHasNpcPilot( ent ) ) //an npc titan that was dropped by an npc human
-	{
-		if( "readyForEjecting" in ent.s )
-		{ // titan already marked for ejecting?
-			if( expect bool( ent.s.readyForEjecting ) )
-				return false
-		}
-		float damage = DamageInfo_GetDamage( damageInfo )
-		int health = ent.GetHealth()
-
-		if ( health - damage <= 0 )
+		if ( TitanHasNpcPilot( ent ) ) //an npc titan that was dropped by an npc human
 		{
-			// doing a different ejecting for npc pilots
-			//DamageInfo_SetDamage( damageInfo, 0 )
-			ent.s.readyForEjecting <- true
-			thread TitanEjectPlayer( ent )
-		}
+			float damage = DamageInfo_GetDamage( damageInfo )
+			int health = ent.GetHealth()
 
-		return true
-	}
+			if ( health - damage <= 0 )
+			{
+				DamageInfo_SetDamage( damageInfo, 0 )
+				thread TitanEjectPlayer( ent )
+			}
+
+			return
+		}
 	#endif
 	*/
 
@@ -466,10 +459,12 @@ bool function HandleKillshot( entity ent, var damageInfo, TitanDamage titanDamag
 				}
 			}
 			
+			// modified: npc pilots condition
 			#if NPC_TITAN_PILOT_PROTOTYPE
-			if ( TitanHasNpcPilot( ent ) ) //an npc titan that was dropped by an npc human
-				thread TitanEjectPlayer( ent )
+				if ( TitanHasNpcPilot( ent ) ) //an npc titan that was dropped by an npc human
+					thread NpcPilotEjectingThink( ent )
 			#endif
+			//
 
 			thread DoomedHealthThink( titanSoul, damageInfo )
 
@@ -1116,6 +1111,33 @@ void function Titan_MonarchCleanup( entity soul, var damageInfo )
 		return
 
 	titan.SetBodygroup( statesIndex, 2 )
+}
+
+
+// modded function
+const float NPC_PILOT_EJECTING_DELAY = 5.0
+
+void function NpcPilotEjectingThink( entity titan )
+{
+	if( !TitanHasNpcPilot( titan ) )
+		return
+	
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	wait NPC_PILOT_EJECTING_DELAY
+		
+	while( titan.Anim_IsActive() )
+		WaitFrame() // wait till some animation end
+	
+	if( 
+		titan.ContextAction_IsActive() || 
+		titan.ContextAction_IsMeleeExecution() || 
+		titan.ContextAction_IsMeleeExecutionTarget()
+	) // executions, just return
+		return
+
+	thread TitanEjectPlayer( titan )
 }
 
 // modded titan doomed state
