@@ -1,3 +1,4 @@
+// this file has become a stub, using mp_titancore_dash_core_fixed.nut
 
 global function Dash_Core_Init
 
@@ -14,7 +15,7 @@ void function Dash_Core_Init()
 
 }
 
-/* Using dash_core_fixed.nut
+/*
 
 bool function OnCoreCharge_Dash_Core( entity weapon )
 {

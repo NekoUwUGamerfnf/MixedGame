@@ -39,8 +39,6 @@ void function SwordCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 		{
 			if( offhand.HasMod( "pas_ronin_sword_core" ) )
 				hasPasSwordCore = true
-			if( offhand.HasMod( "dash_core" ) )
-				return
 		}
 	}
 	if( SoulHasPassive( soul, ePassives.PAS_RONIN_SWORDCORE ) )
@@ -72,8 +70,10 @@ var function OnWeaponPrimaryAttack_DoNothing( entity weapon, WeaponPrimaryAttack
 bool function OnCoreCharge_Shift_Core( entity weapon )
 {
 	// modded weapon
-	if( weapon.HasMod( "dash_core" ) )
+	if ( weapon.HasMod( "dash_core" ) )
 		return OnCoreCharge_Dash_Core( weapon )
+	if ( weapon.HasMod( "berserker_core" ) )
+		return OnCoreCharge_Berserker_Core( weapon )
 	//
 
 	// vanilla behavior
@@ -113,8 +113,10 @@ bool function OnCoreCharge_Shift_Core( entity weapon )
 void function OnCoreChargeEnd_Shift_Core( entity weapon )
 {
 	// modded weapon
-	if( weapon.HasMod( "dash_core" ) )
+	if ( weapon.HasMod( "dash_core" ) )
 		return OnCoreChargeEnd_Dash_Core( weapon )
+	if ( weapon.HasMod( "berserker_core" ) )
+		return OnCoreChargeEnd_Berserker_Core( weapon )
 	//
 
 	// vanilla behavior	
@@ -146,8 +148,10 @@ void function RestoreWeapon( entity owner, entity weapon )
 var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// modded weapon
-	if( weapon.HasMod( "dash_core" ) )
+	if ( weapon.HasMod( "dash_core" ) )
 		return OnAbilityStart_Dash_Core( weapon, attackParams )
+	if ( weapon.HasMod( "berserker_core" ) )
+		return OnAbilityStart_Berserker_Core( weapon, attackParams )
 	//
 
 	// vanilla behavior
@@ -198,7 +202,7 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		}
 		
 		// pullout animation, respawn messed this up, but makes sword core has less startup
-		if ( weapon.HasMod( "sword_animation_fix" ) )
+		if ( weapon.HasMod( "deploy_animation_fix" ) )
 		{
 			if ( owner.IsPlayer() )
 				owner.HolsterWeapon() // to have deploy animation
@@ -207,7 +211,7 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		titan.SetActiveWeaponByName( "melee_titan_sword" )
 		
 		// pullout animation
-		if ( weapon.HasMod( "sword_animation_fix" ) )
+		if ( weapon.HasMod( "deploy_animation_fix" ) )
 		{
 			if ( owner.IsPlayer() )
 				owner.DeployWeapon() // to have deploy animation

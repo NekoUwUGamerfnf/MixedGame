@@ -1,8 +1,14 @@
+global function Dash_Core_Fixed_Init
 
 global function OnCoreCharge_Dash_Core
 global function OnCoreChargeEnd_Dash_Core
 
 global function OnAbilityStart_Dash_Core
+
+void function Dash_Core_Fixed_Init()
+{
+
+}
 
 bool function OnCoreCharge_Dash_Core( entity weapon )
 {
@@ -32,10 +38,18 @@ var function OnAbilityStart_Dash_Core( entity weapon, WeaponPrimaryAttackParams 
         return 0
     entity soul = owner.GetTitanSoul()
     #if SERVER
-    float duration = weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
-    thread DashCoreThink( weapon, duration )
+		float duration = weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
+		thread DashCoreThink( weapon, duration )
 
-    OnAbilityStart_TitanCore( weapon )
+		OnAbilityStart_TitanCore( weapon )
+		// since this dash core is a mod of mp_titancore_shift_core, we take off PAS_SHIFT_CORE given by OnAbilityStart_TitanCore()
+		if ( IsValid( soul ) )
+			TakePassive( soul, ePassives.PAS_SHIFT_CORE )
+		if ( owner.IsPlayer() )
+		{
+			//TakePassive( owner, ePassives.PAS_FUSION_CORE ) // player also get a PAS_FUSION_CORE from script
+			TakePassive( owner, ePassives.PAS_SHIFT_CORE )
+		}
     #endif
 
 	return 1
