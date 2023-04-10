@@ -16,6 +16,7 @@ global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 global function GetMVPPlayer
 global function AddTitanKilledDialogueEvent
 global function ScoreEvent_ForceUsePilotEliminateEvent
+global function ScoreEvent_DisableCallSignEvent
 
 struct 
 {
@@ -24,8 +25,10 @@ struct
 	// nessie modify
 	table<string, string> killedTitanDialogues
 
-	bool forceAddEliminateScore = false
 	IntFromEntityCompare mvpCompareFunc = null
+	
+	bool forceAddEliminateScore = false
+	bool disableCallSignEvent = false
 } file
 
 void function Score_Init()
@@ -92,6 +95,13 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	{
 		earnValue *= pilotScaleVar
 		ownValue *= pilotScaleVar
+	}
+
+	// nessie modify
+	if ( file.disableCallSignEvent )
+	{
+		if ( event.displayType & eEventDisplayType.CALLINGCARD )
+			event.displayType = event.displayType & ~eEventDisplayType.CALLINGCARD
 	}
 	
 	if ( displayTypeOverride != "noCenter" ) // default
@@ -433,4 +443,9 @@ void function AddTitanKilledDialogueEvent( string titanName, string dialogueName
 void function ScoreEvent_ForceUsePilotEliminateEvent( bool force )
 {
 	file.forceAddEliminateScore = force
+}
+
+void function ScoreEvent_DisableCallSignEvent( bool disable )
+{
+	file.disableCallSignEvent = disable
 }
