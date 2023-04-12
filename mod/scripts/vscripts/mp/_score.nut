@@ -384,7 +384,10 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 
 	if( !IsValid( titan ) )
 		return
-	string titanCharacterName = GetTitanCharacterName( titan )
+	string titanCharacterName = ""
+	// may have modded titan that can't use GetTitanCharacterName()
+	try { titanCharacterName = GetTitanCharacterName( titan ) }
+	catch(ex) {}
 
 	if( titanCharacterName in file.killedTitanDialogues ) // have this titan's dialogue
 		PlayFactionDialogueToPlayer( file.killedTitanDialogues[titanCharacterName], attacker )

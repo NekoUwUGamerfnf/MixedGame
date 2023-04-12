@@ -248,7 +248,11 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     if ( !IsValid( weapon ) )
         return
     
-    string charaName = GetTitanCharacterName( titan ) // default character name
+    string charaName = ""
+    // may have modded titan that can't use GetTitanCharacterName(), like npc bison
+	try { charaName = GetTitanCharacterName( titan ) } // default character name
+	catch(ex) {}
+
     //print( "charaName " + charaName )
     if ( soul in file.soulWeaponDropCharcterName ) // soul has another character name
         charaName = file.soulWeaponDropCharcterName[ soul ]
@@ -346,7 +350,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     weaponStruct.weaponAmmo = 0
     // since chargeWeapons usually no need to save chargeFraction but tone's "burst loader" will be recognize as chargeWeapons, use a try-catch is better
     try { weaponStruct.weaponAmmo = weapon.GetWeaponPrimaryClipCount() }
-    catch(ex) {}
+    catch(ex1) {}
     
     weaponStruct.weaponSkin = skin
     weaponStruct.weaponCamo = camo
