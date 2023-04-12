@@ -127,7 +127,9 @@ void function SuperSpectreNukes( entity npc, entity attacker )
 	EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_nukedestruct_explo_3p" )
 	PlayFX( $"P_sup_spectre_death_nuke", origin, npc.GetAngles() )
 
-	thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker )
+	// modified: if reaper use itself as nuke attacker we must give inflictor a team, or it will hurt teammate on last explosion(reaper being destroyed)
+	//thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker )
+	thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker, ShouldUseSelfAsNukeAttacker( npc ) )
 	WaitFrame() // so effect has time to grow and cover the swap to gibs
 	npc.Gib( <0,0,100> )
 }
@@ -226,10 +228,17 @@ entity function CreateExplosionInflictor( vector origin )
 	return inflictor
 }
 
-void function SuperSpectreNukeDamage( int team, vector origin, entity attacker )
+// modified: if reaper use itself as nuke attacker we must give inflictor a team, or it will hurt teammate on last explosion(reaper being destroyed)
+//void function SuperSpectreNukeDamage( int team, vector origin, entity attacker )
+void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, bool inflictorTeam = false )
 {
 	// all damage must have an inflictor currently
 	entity inflictor = CreateExplosionInflictor( origin )
+
+	// modified
+	if ( inflictorTeam )
+		SetTeam( inflictor, team )
+	//
 
 	OnThreadEnd(
 		function() : ( inflictor )
