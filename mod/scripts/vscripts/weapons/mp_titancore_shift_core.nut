@@ -9,6 +9,22 @@ global function OnCoreCharge_Shift_Core
 global function OnCoreChargeEnd_Shift_Core
 global function OnAbilityStart_Shift_Core
 
+// modified: weapon store system, so we can use sword core with no melee_titan_sword
+#if SERVER
+struct ShiftCoreSavedMelee
+{
+	string meleeName
+	array<string> meleeMods
+}
+
+struct
+{
+	table<entity, ShiftCoreSavedMelee> soulShiftCoreSavedMelee
+	table<entity, string> npcShiftCoreSavedAiSet
+} file
+#endif
+//
+
 void function Shift_Core_Init()
 {
 	RegisterSignal( "RestoreWeapon" )
@@ -165,12 +181,15 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 	if ( !IsValid( owner ) )
 		return
 
+	/* // modified: weapon store system, so we can use sword core with no melee_titan_sword
 	entity offhandWeapon = owner.GetOffhandWeapon( OFFHAND_MELEE )
+
 	if ( !IsValid( offhandWeapon ) )
 		return 0
 
 	if ( offhandWeapon.GetWeaponClassName() != "melee_titan_sword" )
 		return 0
+	*/
 
 #if SERVER
 	if ( owner.IsPlayer() )
@@ -181,13 +200,38 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		GivePassive( owner, ePassives.PAS_SHIFT_CORE )
 	}
 
-	entity soul = owner.GetTitanSoul()
+	entity soul = owner.GetTitanSoul() // moved up
+
+	// modified: weapon store system, so we can use sword core with no melee_titan_sword
+	entity meleeWeapon = owner.GetOffhandWeapon( OFFHAND_MELEE )
+	if ( IsValid( meleeWeapon ) )
+	{
+		// if we're not having sword, save current melee weapon and give melee_titan_sword
+		if ( meleeWeapon.GetWeaponClassName() != "melee_titan_sword" )
+		{
+			ShiftCoreSavedMelee meleeStruct
+			meleeStruct.meleeName = meleeWeapon.GetWeaponClassName()
+			meleeStruct.meleeMods = meleeWeapon.GetMods()
+			file.soulShiftCoreSavedMelee[ soul ] <- meleeStruct
+			owner.TakeOffhandWeapon( OFFHAND_MELEE )
+
+			// prime sword check
+			TitanLoadoutDef loadout = soul.soul.titanLoadout
+			array<string> mods = []
+			if ( loadout.isPrime == "titan_is_prime" )
+				mods.append( "modelset_prime" )
+			owner.GiveOffhandWeapon( "melee_titan_sword", OFFHAND_MELEE, mods )
+		}
+	}
+	//
+
 	if ( soul != null )
 	{
 		entity titan = soul.GetTitan()
 
 		if ( titan.IsNPC() )
 		{
+			file.npcShiftCoreSavedAiSet[ titan ] <- titan.GetAISettingsName() // save aiset
 			titan.SetAISettings( "npc_titan_stryder_leadwall_shift_core" )
 			titan.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
 			titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
@@ -217,6 +261,7 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 				owner.DeployWeapon() // to have deploy animation
 		}
 		
+		// reworked here: supporting multiple main weapon titans
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( false )
 		//entity mainWeapon = titan.GetMainWeapons()[0]
@@ -324,10 +369,20 @@ void function RestorePlayerWeapons( entity player )
 				meleeWeapon.RemoveMod( "super_charged_SP" )
 			}
 		}
+
+		// modified: weapon store system, so we can use sword core with no melee_titan_sword
+		if ( soul in file.soulShiftCoreSavedMelee ) // do saved another melee?
+		{
+			titan.TakeOffhandWeapon( OFFHAND_MELEE ) // take of sword
+			// restore melee
+			ShiftCoreSavedMelee savedMelee = file.soulShiftCoreSavedMelee[ soul ]
+			titan.GiveOffhandWeapon( savedMelee.meleeName, OFFHAND_MELEE, savedMelee.meleeMods )
+			delete file.soulShiftCoreSavedMelee[ soul ]
+		}
 		
+		// reworked here: supporting multiple main weapon titans
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( true )
-			
 		//array<entity> mainWeapons = titan.GetMainWeapons()
 		//if ( mainWeapons.len() > 0 )
 		//{
@@ -338,6 +393,13 @@ void function RestorePlayerWeapons( entity player )
 		if ( titan.IsNPC() )
 		{
 			string settings = GetSpawnAISettings( titan )
+			// modified: use saved aiset
+			if ( titan in file.npcShiftCoreSavedAiSet )
+			{
+				settings = file.npcShiftCoreSavedAiSet[ titan ]
+				delete file.npcShiftCoreSavedAiSet[ titan ]
+			}
+			//
 			if ( settings != "" )
 				titan.SetAISettings( settings )
 

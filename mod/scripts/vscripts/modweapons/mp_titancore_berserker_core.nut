@@ -14,7 +14,7 @@ struct BerserkerCoreSavedMelee
 struct
 {
 	table<entity, BerserkerCoreSavedMelee> soulBerserkerCoreSavedMelee
-	table<entity, string> npcBerserkerSavedAiSet
+	table<entity, string> npcBerserkerCoreSavedAiSet
 } file
 #endif
 
@@ -139,7 +139,7 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 
 		if ( titan.IsNPC() )
 		{
-			file.npcBerserkerSavedAiSet[ titan ] <- titan.GetAISettingsName() // default value
+			file.npcBerserkerCoreSavedAiSet[ titan ] <- titan.GetAISettingsName() // save aiset
 			titan.SetAISettings( "npc_titan_ogre_fighter_berserker_core" )
 			titan.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
 			titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
@@ -284,10 +284,10 @@ void function RestorePlayerWeapons( entity player )
 		if ( titan.IsNPC() )
 		{
 			string settings = GetSpawnAISettings( titan )
-			if ( titan in file.npcBerserkerSavedAiSet )
+			if ( titan in file.npcBerserkerCoreSavedAiSet )
 			{
-				settings = file.npcBerserkerSavedAiSet[ titan ]
-				delete file.npcBerserkerSavedAiSet[ titan ]
+				settings = file.npcBerserkerCoreSavedAiSet[ titan ]
+				delete file.npcBerserkerCoreSavedAiSet[ titan ]
 			}
 			if ( settings != "" )
 				titan.SetAISettings( settings )
