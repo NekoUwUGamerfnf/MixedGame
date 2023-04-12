@@ -21,6 +21,7 @@ global function SuperSpectre_SetNukeDeathThreshold
 global function SuperSpectre_SetForcedKilledByTitans // other than this the reaper will be killed by titans, won't ever try to nuke
 global function SuperSpectre_SetSelfAsNukeAttacker // the nuke's attacker will always be the reaper
 global function SuperSpectre_SetDropBatteryOnDeath
+global function SuperSpectre_SetNukeExplosionCountAndDuration
 //
 
 //==============================================================
@@ -43,6 +44,13 @@ const SPAWN_PROJECTILE_AIR_TIME				= 3.0    	// How long the spawn project will 
 const SPECTRE_EXPLOSION_DMG_MULTIPLIER		= 1.2 		// +20%
 const DEV_DEBUG_PRINTS						= false
 
+// modified!!!
+struct ReaperNukeDamage
+{
+	int count = 8
+	float duration = 1.0
+}
+
 struct
 {
 	int activeMinions_GlobalArrayIdx = -1
@@ -54,6 +62,7 @@ struct
 	table<entity, bool> reaperForcedKilledByTitans
 	table<entity, bool> reaperAsNukeAttacker
 	table<entity, bool> reaperDropBattOnDeath
+	table<entity, ReaperNukeDamage> reaperNukeDamageOverrides
 	//
 } file
 
@@ -127,9 +136,9 @@ void function SuperSpectreNukes( entity npc, entity attacker )
 	EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_nukedestruct_explo_3p" )
 	PlayFX( $"P_sup_spectre_death_nuke", origin, npc.GetAngles() )
 
-	// modified: if reaper use itself as nuke attacker we must give inflictor a team, or it will hurt teammate on last explosion(reaper being destroyed)
+	// modified: can get more infomation from reaper itself, pass it to SuperSpectreNukeDamage()
 	//thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker )
-	thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker, ShouldUseSelfAsNukeAttacker( npc ) )
+	thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker, npc )
 	WaitFrame() // so effect has time to grow and cover the swap to gibs
 	npc.Gib( <0,0,100> )
 }
@@ -228,17 +237,12 @@ entity function CreateExplosionInflictor( vector origin )
 	return inflictor
 }
 
-// modified: if reaper use itself as nuke attacker we must give inflictor a team, or it will hurt teammate on last explosion(reaper being destroyed)
+// modified: can get more infomation from reaper itself, pass it to SuperSpectreNukeDamage()
 //void function SuperSpectreNukeDamage( int team, vector origin, entity attacker )
-void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, bool inflictorTeam = false )
+void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, entity reaper = null )
 {
 	// all damage must have an inflictor currently
 	entity inflictor = CreateExplosionInflictor( origin )
-
-	// modified
-	if ( inflictorTeam )
-		SetTeam( inflictor, team )
-	//
 
 	OnThreadEnd(
 		function() : ( inflictor )
@@ -249,7 +253,21 @@ void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, 
 	)
 
 	int explosions 				= 8
-	float time 					= 1.0
+	float duration 				= 1.0 // won't use if no damage overrides
+	//float time 					= 1.0
+	bool hasDamageOverride		= false
+
+	// nuke damage overrides
+	if ( IsValid( reaper ) )
+	{
+		if ( ReaperHasNukeDamageOverride( reaper ) )
+		{
+			hasDamageOverride = true
+			ReaperNukeDamage nukeStruct = GetReaperNukeDamageOverride( reaper )
+			explosions = nukeStruct.count
+			duration = nukeStruct.duration
+		}
+	}
 
 	for ( int i = 0; i < explosions; i++ )
 	{
@@ -266,7 +284,12 @@ void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, 
 			inflictor,							// inflictor
 			0 )									// dist from attacker
 
-		wait RandomFloatRange( 0.01, 0.21 )
+		// modified to have constant explosion interval
+		//wait RandomFloatRange( 0.01, 0.21 )
+		if ( hasDamageOverride )
+			wait duration / explosions
+		else
+			wait RandomFloatRange( 0.01, 0.21 )
 	}
 }
 
@@ -825,6 +848,17 @@ void function SuperSpectre_SetDropBatteryOnDeath( entity ent, bool dropBatt )
 	file.reaperDropBattOnDeath[ ent ] = dropBatt
 }
 
+void function SuperSpectre_SetNukeExplosionCountAndDuration( entity ent, int count, float duration )
+{
+	ReaperNukeDamage nukeStruct
+	if ( !( ent in file.reaperNukeDamageOverrides ) )
+		file.reaperNukeDamageOverrides[ ent ] <- nukeStruct // default
+	
+	nukeStruct.count = count
+	nukeStruct.duration = duration
+	file.reaperNukeDamageOverrides[ ent ] = nukeStruct
+}
+
 // get modified settings
 int function GetNukeDeathThreshold( entity ent )
 {
@@ -852,5 +886,20 @@ bool function ShouldDropBatteryOnDeath( entity ent )
 	if ( !( ent in file.reaperDropBattOnDeath ) )
 		return false // default is not dropping battery, although npc.ai.shouldDropBattery is default to be true...
 	return file.reaperDropBattOnDeath[ ent ]
+}
+
+bool function ReaperHasNukeDamageOverride( entity ent )
+{
+	if ( !( ent in file.reaperNukeDamageOverrides ) )
+		return false // default is no overrides
+	return true
+}
+
+ReaperNukeDamage function GetReaperNukeDamageOverride( entity ent )
+{
+	ReaperNukeDamage defaultStruct
+	if ( !( ent in file.reaperNukeDamageOverrides ) )
+		return defaultStruct
+	return file.reaperNukeDamageOverrides[ ent ]
 }
 //
