@@ -104,7 +104,7 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 	if ( IsValid( soul ) )
 	{
 		TakePassive( soul, ePassives.PAS_SHIFT_CORE )
-		GivePassive( soul, ePassives.PAS_BERSERKER ) // we can't give through weapon, so give the soul manually
+		GivePassive( soul, ePassives.PAS_BERSERKER ) // soul can't be given passive through CoreBegin(), so give manually
 	}
 	if ( owner.IsPlayer() )
 	{
@@ -261,7 +261,7 @@ void function RestorePlayerWeapons( entity player )
 
 		// restore passive
 		TakePassive( soul, ePassives.PAS_BERSERKER )
-		
+
 		// restore melee
 		titan.TakeOffhandWeapon( OFFHAND_MELEE )
 		if ( soul in file.soulBerserkerCoreSavedMelee )
