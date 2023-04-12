@@ -15,6 +15,8 @@ const TITAN_SWORD_KNOCKBACK_SCALE_SP = 300.0
 
 // modified over here
 #if SERVER // functions
+global function TitanMelee_CanScriptedExecution // modified and shared to use in _melee_synced_npc.gnut
+
 // settings with weapon mods!!!
 global function TitanMelee_AddDashPunchSpeedMod // modded dash punch
 global function TitanMelee_AddDashPunchCooldownMod // modded dash punch
@@ -49,6 +51,8 @@ const TITAN_DASH_PUNCH_SPEEDSCALE = 475
 const TITAN_DASH_PUNCH_SPEEDSCALE_STRYDER = 500
 const TITAN_DASH_PUNCH_SPEEDSCALE_OGRE = 387.5
 const TITAN_DASH_PUNCH_COOLDOWN = 1.5 // keep lower than dash_punch_seq's melee_attack_animtime(1.73s)
+// dash punch with sequence
+const TITAN_DASH_PUNCH_SEQ_KNOCKBACK_SCALE = 610.0
 
 // fighter melee, hardcoded
 const float TITAN_FIGHTER_PUNCH_KNOCKBACK_SCALE = 355.0
@@ -66,7 +70,7 @@ function MeleeTitanShared_Init()
 		RegisterSignal( "DashMeleeStart" )
 		//TitanMelee_AddExecutionDisabledMod( TITAN_DASH_PUNCH_MOD_NAME, true ) // execution is not allowed for dash punches
 		TitanMelee_AddCounterImmuneMod( "dash_punch_seq", true ) // dash punch with sequence cannot be countered
-		TitanMelee_AddKnockBackScaleMod( "dash_punch_seq", 600.0 ) // dash punch with sequence deals more knock back
+		TitanMelee_AddKnockBackScaleMod( "dash_punch_seq", TITAN_DASH_PUNCH_SEQ_KNOCKBACK_SCALE ) // dash punch with sequence deals more knock back
 	#endif
 }
 
@@ -714,6 +718,7 @@ function ShouldMeleeDamage( ent )
 function AttemptScriptedExecution( entity player, entity target )
 {
 	Assert( IsServer() )
+
 	if ( !CodeCallback_IsValidMeleeExecutionTarget( player, target ) )
 		return
 
@@ -754,7 +759,6 @@ function AttemptScriptedExecution( entity player, entity target )
 
 	thread PlayerTriesSyncedMelee( player, target )
 }
-
 
 // modified( and hardcoded ) functions
 bool function IsNinja( entity titan )
@@ -835,8 +839,50 @@ bool function IsStryder( entity titan )
 	return false
 }
 
-// modified settings func
 #if SERVER
+// modified and shared to use in _melee_synced_npc.gnut, must keep up with AttemptScriptedExecution()
+bool function TitanMelee_CanScriptedExecution( entity player, entity target )
+{
+	if ( player.IsPlayer() ) // npc executions compatible
+	{
+		if ( !CodeCallback_IsValidMeleeExecutionTarget( player, target ) )
+			return false
+	}
+
+	if ( target.IsTitan() )
+	{
+		if ( Time() == target.GetTitanSoul().doomedTime )
+			return false
+
+		// modifiers
+		if ( !MeleeSyncedTitan_SoulCanBeExecuted( target.GetTitanSoul() ) ) // shared function from _melee_synced_titan.gnut
+			return false
+		//
+	}
+
+	// modifiers
+	entity meleeWeapon = player.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{
+		array<string> mods = meleeWeapon.GetMods()
+		foreach ( string mod, bool disable in file.executionDisabledMods )
+		{
+			if ( mods.contains( mod ) )
+			{
+				if ( disable )
+					return false
+				else
+					break
+			}
+		}
+	}
+	//
+
+	return true
+}
+
+
+// modified settings func
 void function TitanMelee_AddDashPunchSpeedMod( string mod, float speed )
 {
 	if ( !( mod in file.dashPunchSpeedMods ) )
