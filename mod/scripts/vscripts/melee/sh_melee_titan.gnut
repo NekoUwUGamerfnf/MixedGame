@@ -16,6 +16,7 @@ const TITAN_SWORD_KNOCKBACK_SCALE_SP = 300.0
 #if SERVER // functions
 // settings with weapon mods!!!
 global function TitanMelee_AddDashPunchSpeedMod // modded dash punch
+global function TitanMelee_AddDashPunchCooldownMod // modded dash punch
 global function TitanMelee_AddCounterImmuneMod // add some counter immune melee weapon
 global function TitanMelee_AddCounterDisabledMod // add some melee weapon that can't counter attack
 global function TitanMelee_AddKnockBackScaleMod // knock back scale
@@ -25,12 +26,17 @@ global function TitanMelee_AddExecutionDisabledMod // cannot execute with these 
 
 struct
 {
+	// dash punch
 	table<string, float> dashPunchSpeedMods
+	table<string, float> dashPunchCooldownMods
+	// melee counter
 	table<string, bool> counterImmuneMods
 	table<string, bool> counterDisabledMods
+	// melee hit
 	table<string, float> knockBackScaleMods
 	table<string, float> hitConfirmationScaleMod
 	table<string, int> damageSourceIdMods
+	// executions
 	table<string, bool> executionDisabledMods
 } file
 #endif
@@ -41,7 +47,7 @@ const TITAN_DASH_PUNCH_DURATION = 1.0
 const TITAN_DASH_PUNCH_SPEEDSCALE = 475
 const TITAN_DASH_PUNCH_SPEEDSCALE_STRYDER = 500
 const TITAN_DASH_PUNCH_SPEEDSCALE_OGRE = 387.5
-const TITAN_DASH_PUNCH_COOLDOWN = 2.0
+const TITAN_DASH_PUNCH_COOLDOWN = 1.5 // keep lower than dash_punch_seq's melee_attack_animtime(1.73s)
 
 // fighter melee, hardcoded
 const float TITAN_FIGHTER_PUNCH_KNOCKBACK_SCALE = 355.0
@@ -88,13 +94,26 @@ function TitanUnsyncedMelee( entity player )
 	// modified to make dash punch work
 	if( meleeWeapon.HasMod( TITAN_DASH_PUNCH_MOD_NAME ) )
 	{
-		if( Time() - player.s.startDashMeleeTime > TITAN_DASH_PUNCH_COOLDOWN )
+		array<string> mods = meleeWeapon.GetMods()
+		
+		// default
+		float dashCooldown = TITAN_DASH_PUNCH_COOLDOWN
+		// modifier
+		foreach ( string mod, float cooldown in file.dashPunchCooldownMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				dashCooldown = cooldown
+				break
+			}
+		}
+
+		if( Time() - player.s.startDashMeleeTime >= dashCooldown )
 		{
 			float speedscale = TITAN_DASH_PUNCH_SPEEDSCALE // atlas, default
 			float duration = TITAN_DASH_PUNCH_DURATION
 
 			// modifier settings
-			array<string> mods = meleeWeapon.GetMods()
 			bool foundModifier = false
 			foreach ( string mod, float speed in file.dashPunchSpeedMods )
 			{
@@ -184,19 +203,26 @@ void function PlayerDashMelee( entity meleeWeapon, entity player, float speedsca
 		return
 	player.Signal( "DashMeleeStart" )
 	player.s.startDashMeleeTime = Time()
+	
 	meleeWeapon.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "DisembarkingTitan" )
 	player.EndSignal( "DashMeleeStart" )
 
-	float startTime = Time()
-	while( startTime + duration > Time() )
+	float endTime = Time() + duration
+	float lastDodgePower = player.GetDodgePower()
+
+	while( Time() <= endTime )
 	{
 		vector viewvector = player.GetViewVector() * speedscale
 		viewvector.z = player.GetVelocity().z
 		player.SetVelocity( viewvector )
 		wait 0.1
+		// at least let the dash last 1 frame, or it will seem weird
+		if ( player.GetDodgePower() < lastDodgePower ) // consider this means player dodged, cancel the dash melee
+			return
+		lastDodgePower = player.GetDodgePower()
 	}
 }
 #endif // SERVER
@@ -800,6 +826,13 @@ void function TitanMelee_AddDashPunchSpeedMod( string mod, float speed )
 	if ( !( mod in file.dashPunchSpeedMods ) )
 		file.dashPunchSpeedMods[ mod ] <- TITAN_DASH_PUNCH_SPEEDSCALE // default value
 	file.dashPunchSpeedMods[ mod ] = speed
+}
+
+void function TitanMelee_AddDashPunchCooldownMod( string mod, float cooldown )
+{
+	if ( !( mod in file.dashPunchCooldownMods ) )
+		file.dashPunchCooldownMods[ mod ] <- TITAN_DASH_PUNCH_SPEEDSCALE // default value
+	file.dashPunchCooldownMods[ mod ] = cooldown
 }
 
 void function TitanMelee_AddCounterImmuneMod( string mod, bool immune )

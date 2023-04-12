@@ -43,6 +43,8 @@ var function OnAbilityStart_Dash_Core( entity weapon, WeaponPrimaryAttackParams 
 
 		OnAbilityStart_TitanCore( weapon )
 		// since this dash core is a mod of mp_titancore_shift_core, we take off PAS_SHIFT_CORE given by OnAbilityStart_TitanCore()
+		// warn that dodge power needs PAS_SHIFT_CORE to display yellow bar, so we cannot simply remove this. using TitanHasSuperChargedSword() to handle behaviors
+		/*
 		if ( IsValid( soul ) )
 			TakePassive( soul, ePassives.PAS_SHIFT_CORE )
 		if ( owner.IsPlayer() )
@@ -50,6 +52,7 @@ var function OnAbilityStart_Dash_Core( entity weapon, WeaponPrimaryAttackParams 
 			//TakePassive( owner, ePassives.PAS_FUSION_CORE ) // player also get a PAS_FUSION_CORE from script
 			TakePassive( owner, ePassives.PAS_SHIFT_CORE )
 		}
+		*/
     #endif
 
 	return 1
