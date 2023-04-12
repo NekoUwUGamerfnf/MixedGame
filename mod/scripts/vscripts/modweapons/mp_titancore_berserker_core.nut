@@ -102,7 +102,10 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 #if SERVER
 	// since this core is a mod of mp_titancore_shift_core, we take off PAS_SHIFT_CORE given by OnAbilityStart_TitanCore()
 	if ( IsValid( soul ) )
+	{
 		TakePassive( soul, ePassives.PAS_SHIFT_CORE )
+		GivePassive( soul, ePassives.PAS_BERSERKER ) // we can't give through weapon, so give the soul manually
+	}
 	if ( owner.IsPlayer() )
 	{
 		//TakePassive( owner, ePassives.PAS_FUSION_CORE ) // player also get a PAS_FUSION_CORE from script
@@ -256,6 +259,9 @@ void function RestorePlayerWeapons( entity player )
 	{
 		entity titan = soul.GetTitan()
 
+		// restore passive
+		TakePassive( soul, ePassives.PAS_BERSERKER )
+		
 		// restore melee
 		titan.TakeOffhandWeapon( OFFHAND_MELEE )
 		if ( soul in file.soulBerserkerCoreSavedMelee )
