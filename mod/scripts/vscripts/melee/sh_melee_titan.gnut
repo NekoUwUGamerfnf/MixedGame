@@ -12,17 +12,18 @@ const TITAN_SWORD_KNOCKBACK_SCALE_MP = 400.0
 const TITAN_SWORD_KNOCKBACK_SCALE_MP_SWORD_CORE = 100.0
 const TITAN_SWORD_KNOCKBACK_SCALE_SP = 300.0
 
-
 // modified over here
 #if SERVER // functions
 global function TitanMelee_CanScriptedExecution // modified and shared to use in _melee_synced_npc.gnut
 
 // settings with weapon mods!!!
-global function TitanMelee_AddDashPunchSpeedMod // modded dash punch
+global function TitanMelee_AddDashPunchSpeedScaleMod // modded dash punch
+global function TitanMelee_AddDashPunchDurationMod // modded dash punch
 global function TitanMelee_AddDashPunchCooldownMod // modded dash punch
 global function TitanMelee_AddCounterImmuneMod // add some counter immune melee weapon
 global function TitanMelee_AddCounterDisabledMod // add some melee weapon that can't counter attack
 global function TitanMelee_AddKnockBackScaleMod // knock back scale
+global function TitanMelee_AddForceLiftScaleMod // lift force
 global function TitanMelee_AddHitConfirmationScaleMod // screen shake scale
 global function TitanMelee_AddDamageSourceIdMod // modified damageSourceId
 global function TitanMelee_AddExecutionDisabledMod // cannot execute with these weapons
@@ -30,13 +31,15 @@ global function TitanMelee_AddExecutionDisabledMod // cannot execute with these 
 struct
 {
 	// dash punch
-	table<string, float> dashPunchSpeedMods
+	table<string, float> dashPunchSpeedScaleMods
+	table<string, float> dashPunchDurationMods
 	table<string, float> dashPunchCooldownMods
 	// melee counter
 	table<string, bool> counterImmuneMods
 	table<string, bool> counterDisabledMods
 	// melee hit
 	table<string, float> knockBackScaleMods
+	table<string, float> forceLiftScaleMods
 	table<string, float> hitConfirmationScaleMod
 	table<string, int> damageSourceIdMods
 	// executions
@@ -44,15 +47,13 @@ struct
 } file
 #endif
 
-// dash punch
+// dash punch, basic stats, can be modified through settings funcs
 const TITAN_DASH_PUNCH_MOD_NAME = "dash_punch"
 const TITAN_DASH_PUNCH_DURATION = 1.0
-const TITAN_DASH_PUNCH_SPEEDSCALE = 475
-const TITAN_DASH_PUNCH_SPEEDSCALE_STRYDER = 500
-const TITAN_DASH_PUNCH_SPEEDSCALE_OGRE = 387.5
-const TITAN_DASH_PUNCH_COOLDOWN = 1.5 // keep lower than dash_punch_seq's melee_attack_animtime(1.73s)
-// dash punch with sequence
-const TITAN_DASH_PUNCH_SEQ_KNOCKBACK_SCALE = 610.0
+const TITAN_DASH_PUNCH_SPEED = 475
+const TITAN_DASH_PUNCH_SPEED_STRYDER = 500
+const TITAN_DASH_PUNCH_SPEED_OGRE = 395.5
+const TITAN_DASH_PUNCH_COOLDOWN = 1.0
 
 // fighter melee, hardcoded
 const float TITAN_FIGHTER_PUNCH_KNOCKBACK_SCALE = 355.0
@@ -69,8 +70,6 @@ function MeleeTitanShared_Init()
 	#if SERVER
 		RegisterSignal( "DashMeleeStart" )
 		//TitanMelee_AddExecutionDisabledMod( TITAN_DASH_PUNCH_MOD_NAME, true ) // execution is not allowed for dash punches
-		TitanMelee_AddCounterImmuneMod( "dash_punch_seq", true ) // dash punch with sequence cannot be countered
-		TitanMelee_AddKnockBackScaleMod( "dash_punch_seq", TITAN_DASH_PUNCH_SEQ_KNOCKBACK_SCALE ) // dash punch with sequence deals more knock back
 	#endif
 }
 
@@ -117,33 +116,38 @@ function TitanUnsyncedMelee( entity player )
 
 		if( Time() - player.s.startDashMeleeTime >= dashCooldown )
 		{
-			float speedscale = TITAN_DASH_PUNCH_SPEEDSCALE // atlas, default
-			float duration = TITAN_DASH_PUNCH_DURATION
+			float dashSpeed = TITAN_DASH_PUNCH_SPEED // atlas, default
+			float dashDuration = TITAN_DASH_PUNCH_DURATION
 
+			if( IsStryder( player ) )
+				dashSpeed = TITAN_DASH_PUNCH_SPEED_STRYDER
+			if( IsOgre( player ) )
+				dashSpeed = TITAN_DASH_PUNCH_SPEED_OGRE
+
+			// stimmed titan
+			if( StatusEffect_Get( player, eStatusEffect.stim_visual_effect ) > 0.0 )
+				dashSpeed *= 1 + StatusEffect_Get( player, eStatusEffect.speed_boost )
 			// modifier settings
-			bool foundModifier = false
-			foreach ( string mod, float speed in file.dashPunchSpeedMods )
+			foreach ( string mod, float scale in file.dashPunchSpeedScaleMods )
 			{
 				if ( mods.contains( mod ) ) // has modifier!
 				{
-					speedscale = speed
-					foundModifier = true
+					dashSpeed *= scale
 					break
 				}
 			}
-			// default
-			if ( !foundModifier ) 
+			foreach ( string mod, float duration in file.dashPunchDurationMods )
 			{
-				if( IsStryder( player ) )
-					speedscale = TITAN_DASH_PUNCH_SPEEDSCALE_STRYDER
-				if( IsOgre( player ) )
-					speedscale = TITAN_DASH_PUNCH_SPEEDSCALE_OGRE
+				if ( mods.contains( mod ) ) // has modifier!
+				{
+					dashDuration = duration
+					break
+				}
 			}
-			// stimmed titan
-			if( StatusEffect_Get( player, eStatusEffect.stim_visual_effect ) > 0.0 )
-				speedscale *= 1 + StatusEffect_Get( player, eStatusEffect.speed_boost )
+			
+			//
 			thread MeleeJetFX( player )
-			thread PlayerDashMelee( meleeWeapon, player, speedscale, duration )
+			thread PlayerDashMelee( meleeWeapon, player, dashSpeed, dashDuration )
 		}
 	}
 #endif
@@ -200,7 +204,7 @@ entity function CreateJetFxForDashPunch( entity player, asset particle, string a
 	return fx
 }
 
-void function PlayerDashMelee( entity meleeWeapon, entity player, float speedscale = TITAN_DASH_PUNCH_SPEEDSCALE, float duration = TITAN_DASH_PUNCH_DURATION )
+void function PlayerDashMelee( entity meleeWeapon, entity player, float speedscale = TITAN_DASH_PUNCH_SPEED, float duration = TITAN_DASH_PUNCH_DURATION )
 {
 	if( !IsValid( meleeWeapon ) )
 		return
@@ -528,6 +532,20 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		}
 		//
 
+		// pushback modifier
+		array<string> mods = meleeWeapon.GetMods()
+		// knock back
+		foreach ( string mod, float scale in file.knockBackScaleMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				pushBackScale = scale
+				break
+			}
+		}
+		//
+		
+
 		vector angles = titan.EyeAngles()
 		vector pushBackVelocity = AnglesToForward( angles ) * pushBackScale
 
@@ -555,21 +573,38 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		targetVelocity += Vector( 0,0,100 )
 		targetVelocity = ClampVerticalVelocity( targetVelocity, TITAN_MELEE_MAX_VERTICAL_PUSHBACK )
 
+		// modifiers
+		float liftScale = 0
 		// fighter melee: try knock target off ground
 		if ( isFighterMelee )
 		{
+			//targetVelocity.z += 100
+			liftScale = FIGHTER_PUNCH_VERTICAL_LIFT
+			if ( IsOgre( enemyTitan ) )
+				liftScale = FIGHTER_PUNCH_VERTICAL_LIFT_OGRE // ogre is harder to knock off ground
+		}
+
+		// forced lift
+		foreach ( string mod, float scale in file.forceLiftScaleMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				liftScale = scale
+				break
+			}
+		}
+
+		if ( liftScale > 0 )
+		{
 			if ( enemyTitan.IsOnGround() && targetVelocity.z <= 0 )
 				targetVelocity.z = -targetVelocity.z // in order to bounce players on ground
-
-			//targetVelocity.z += 100
-			float magicNumber = FIGHTER_PUNCH_VERTICAL_LIFT
-			if ( IsOgre( enemyTitan ) )
-				magicNumber = FIGHTER_PUNCH_VERTICAL_LIFT_OGRE // ogre is harder to knock off ground
-			if ( targetVelocity.z <= magicNumber && targetVelocity.z >= 0 )
-				targetVelocity.z = magicNumber
-			else if ( targetVelocity.z >= -magicNumber && targetVelocity.z <= 0 && enemyTitan.IsOnGround() )
-				targetVelocity.z = magicNumber
+				
+			if ( targetVelocity.z <= liftScale && targetVelocity.z >= 0 )
+				targetVelocity.z = liftScale
+			else if ( targetVelocity.z >= -liftScale && targetVelocity.z <= 0 && enemyTitan.IsOnGround() )
+				targetVelocity.z = liftScale
 		}
+		//
 
 		// enemyTitan.SetVelocity( targetVelocity )
 		PushEntWithVelocity( enemyTitan, targetVelocity )
@@ -883,17 +918,24 @@ bool function TitanMelee_CanScriptedExecution( entity player, entity target )
 
 
 // modified settings func
-void function TitanMelee_AddDashPunchSpeedMod( string mod, float speed )
+void function TitanMelee_AddDashPunchSpeedScaleMod( string mod, float speed )
 {
-	if ( !( mod in file.dashPunchSpeedMods ) )
-		file.dashPunchSpeedMods[ mod ] <- TITAN_DASH_PUNCH_SPEEDSCALE // default value
-	file.dashPunchSpeedMods[ mod ] = speed
+	if ( !( mod in file.dashPunchSpeedScaleMods ) )
+		file.dashPunchSpeedScaleMods[ mod ] <- TITAN_DASH_PUNCH_SPEED // default value
+	file.dashPunchSpeedScaleMods[ mod ] = speed
+}
+
+void function TitanMelee_AddDashPunchDurationMod( string mod, float duration )
+{
+	if ( !( mod in file.dashPunchDurationMods ) )
+		file.dashPunchDurationMods[ mod ] <- TITAN_DASH_PUNCH_DURATION // default value
+	file.dashPunchDurationMods[ mod ] = duration
 }
 
 void function TitanMelee_AddDashPunchCooldownMod( string mod, float cooldown )
 {
 	if ( !( mod in file.dashPunchCooldownMods ) )
-		file.dashPunchCooldownMods[ mod ] <- TITAN_DASH_PUNCH_SPEEDSCALE // default value
+		file.dashPunchCooldownMods[ mod ] <- 1.0 // default value
 	file.dashPunchCooldownMods[ mod ] = cooldown
 }
 
@@ -916,6 +958,13 @@ void function TitanMelee_AddKnockBackScaleMod( string mod, float scale ) // knoc
 	if ( !( mod in file.knockBackScaleMods ) )
 		file.knockBackScaleMods[ mod ] <- TITAN_SWORD_KNOCKBACK_SCALE_MP // default value
 	file.knockBackScaleMods[ mod ] = scale
+}
+
+void function TitanMelee_AddForceLiftScaleMod( string mod, float scale ) // lift force
+{
+	if ( !( mod in file.forceLiftScaleMods ) )
+		file.forceLiftScaleMods[ mod ] <- 0 // default value
+	file.forceLiftScaleMods[ mod ] = scale
 }
 
 void function TitanMelee_AddHitConfirmationScaleMod( string mod, float scale ) // screen shake scale
