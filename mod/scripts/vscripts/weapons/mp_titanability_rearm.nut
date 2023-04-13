@@ -1,5 +1,8 @@
 //TODO: FIX REARM WHILE FIRING SALVO ROCKETS
 
+// modified callbacks
+global function OnWeaponChargeBegin_titanability_rearm
+
 global function OnWeaponPrimaryAttack_titanability_rearm
 global function OnWeaponAttemptOffhandSwitch_titanability_rearm
 
@@ -7,12 +10,112 @@ global function OnWeaponAttemptOffhandSwitch_titanability_rearm
 global function OnWeaponNPCPrimaryAttack_titanability_rearm
 #endif
 
+// modified callbacks
+bool function OnWeaponChargeBegin_titanability_rearm( entity weapon )
+{
+	entity weaponOwner = weapon.GetWeaponOwner()
+
+	if ( !weaponOwner.IsPlayer() )
+		return true
+	// basic checks handled by OnWeaponAttemptOffhandSwitch_titanability_rearm()
+	// respawn hardcode... these runs on client so have to check OFFHAND_LEFT on charge begin, or it will crash if weapon not using clip
+#if SERVER
+	entity ordnance = weaponOwner.GetOffhandWeapon( OFFHAND_RIGHT )
+	if ( IsValid( ordnance ) )
+	{
+		try { ordnance.SetWeaponPrimaryClipCount( ordnance.GetWeaponPrimaryClipCount() ) }
+		catch ( ex ) // once reaches here means defensive is not a clip weapon
+		{ 
+			//print( "ordnance can't use ammo clip!" )
+			thread DelayedFakeRearmPlayer( weaponOwner, weapon )
+			return true
+		}
+	}
+	entity defensive = weaponOwner.GetOffhandWeapon( OFFHAND_LEFT )
+	if ( IsValid( defensive ) )
+	{
+		try { defensive.SetWeaponPrimaryClipCount( defensive.GetWeaponPrimaryClipCount() ) }
+		catch ( ex ) // once reaches here means defensive is not a clip weapon
+		{ 
+			//print( "defensive can't use ammo clip!" )
+			thread DelayedFakeRearmPlayer( weaponOwner, weapon )
+			return true
+		} 
+	}
+#endif
+	return true
+}
+
+#if SERVER
+void function DelayedFakeRearmPlayer( entity player, entity rearmWeapon )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	rearmWeapon.EndSignal( "OnDestroy" )
+
+	OnThreadEnd
+	(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				player.EnableWeaponViewModel()
+				player.Server_TurnOffhandWeaponsDisabledOff()
+			}
+		}
+	)
+
+	float rearmDuration = rearmWeapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
+	float endTime = Time() + rearmDuration
+	// holster weapon until we can do rearm
+	while ( Time() < endTime )
+	{
+		player.DisableWeaponViewModel()
+		player.Server_TurnOffhandWeaponsDisabledOn()
+		WaitFrame() // may get a bit longer rearm since script is 10fps
+	}
+
+	PlayerUsedOffhand( player, rearmWeapon )
+	RearmOwner( player )
+	rearmWeapon.SetWeaponPrimaryClipCountAbsolute( 0 )
+}
+#endif
+// end
+
 var function OnWeaponPrimaryAttack_titanability_rearm( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	entity weaponOwner = weapon.GetWeaponOwner()
 	if ( weaponOwner.IsPlayer() )
 		PlayerUsedOffhand( weaponOwner, weapon )
 
+	/* // respawn hardcode... these runs on client so have to check OFFHAND_LEFT on charge begin, or it will crash if weapon not using clip
+	entity ordnance = weaponOwner.GetOffhandWeapon( OFFHAND_RIGHT )
+	if ( IsValid( ordnance ) )
+	{
+		ordnance.SetWeaponPrimaryClipCount( ordnance.GetWeaponPrimaryClipCountMax() )
+		#if SERVER
+		if ( ordnance.IsChargeWeapon() )
+			ordnance.SetWeaponChargeFractionForced( 0 )
+		#endif
+	}
+	entity defensive = weaponOwner.GetOffhandWeapon( OFFHAND_LEFT )
+	if ( IsValid( defensive ) )
+		defensive.SetWeaponPrimaryClipCount( defensive.GetWeaponPrimaryClipCountMax() )
+
+#if SERVER
+	if ( weaponOwner.IsPlayer() && weaponOwner.IsTitan() )//weapon.HasMod( "rapid_rearm" ) &&  )
+		weaponOwner.Server_SetDodgePower( 100.0 )
+#endif
+	*/
+
+	RearmOwner( weaponOwner )
+	
+	weapon.SetWeaponPrimaryClipCount( 0 )//used to skip the fire animation
+	return 0
+}
+
+void function RearmOwner( entity weaponOwner )
+{
 	// restore ammo
 	foreach( entity offhandweapon in weaponOwner.GetOffhandWeapons() )
 	{
@@ -25,9 +128,9 @@ var function OnWeaponPrimaryAttack_titanability_rearm( entity weapon, WeaponPrim
 				switch ( GetWeaponInfoFileKeyField_Global( offhandweapon.GetWeaponClassName(), "cooldown_type" ) )
 				{
 					case "grapple":
-					#if SERVER
-						weaponOwner.SetSuitGrapplePower( 100.0 )
-					#endif
+						#if SERVER
+							weaponOwner.SetSuitGrapplePower( 100.0 )
+						#endif
 						continue
 
 					case "ammo":
@@ -43,9 +146,9 @@ var function OnWeaponPrimaryAttack_titanability_rearm( entity weapon, WeaponPrim
 					case "chargeFrac":
 					case "charged_shot":
 					case "vortex_drain":
-					#if SERVER
-						offhandweapon.SetWeaponChargeFractionForced( 0 )
-					#endif
+						#if SERVER
+							offhandweapon.SetWeaponChargeFractionForced( 0 )
+						#endif
 						continue
 
 					default:
@@ -60,8 +163,6 @@ var function OnWeaponPrimaryAttack_titanability_rearm( entity weapon, WeaponPrim
 	if ( weaponOwner.IsPlayer() && weaponOwner.IsTitan() )//weapon.HasMod( "rapid_rearm" ) &&  )
 		weaponOwner.Server_SetDodgePower( 100.0 )
 #endif
-	weapon.SetWeaponPrimaryClipCount( 0 )//used to skip the fire animation
-	return 0
 }
 
 #if SERVER
@@ -73,7 +174,6 @@ var function OnWeaponNPCPrimaryAttack_titanability_rearm( entity weapon, WeaponP
 
 bool function OnWeaponAttemptOffhandSwitch_titanability_rearm( entity weapon )
 {
-
 	bool allowSwitch = true
 	entity weaponOwner = weapon.GetWeaponOwner()
 
