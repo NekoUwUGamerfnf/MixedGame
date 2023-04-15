@@ -2,6 +2,7 @@ global function DeployableTurrentWeapon_Init
 global function OnWeaponPrimaryAttack_turretweapon
 global function OnWeaponActivate_turretweapon
 global function OnWeaponDeactivate_turretweapon
+// modified callback
 global function OnWeaponAttemptOffhandSwitch_turretweapon
 
 #if SERVER
@@ -15,8 +16,6 @@ const float DEPLOYABLE_TURRET_PLACEMENT_RANGE_MIN = 40
 const vector DEPLOYABLE_TURRET_MINS = < -30, -30, 0 >
 const vector DEPLOYABLE_TURRET_MAXS = < 30, 30, 60 >
 const vector DEPLOYABLE_TURRET_PLACEMENT_TRACE_OFFSET = < 0, 0, 128 >
-
-const float PERSONAL_TURRET_LIFETIME = 15
 
 const string DEPLOYABLE_TURRET_DEFAULT_AISETTING_AP = "npc_turret_sentry_burn_card_ap"
 const string DEPLOYABLE_TURRET_DEFAULT_AISETTING_AT = "npc_turret_sentry_burn_card_at"
@@ -143,105 +142,76 @@ void function OnWeaponDeactivate_turretweapon( entity weapon )
 	#endif
 }
 
+// modified callback
 bool function OnWeaponAttemptOffhandSwitch_turretweapon( entity weapon )
 {
-	if( weapon.HasMod( "personal_turret" ) )
-	{
-		int ammoPerShot = weapon.GetAmmoPerShot()
-		int currAmmo = weapon.GetWeaponPrimaryClipCount()
-		if ( currAmmo < ammoPerShot )
-			return false
-	}
-	else
-		return OnWeaponAttemptOffhandSwitch_burncardweapon( weapon )
-	return true
+	// modded weapons
+	if ( weapon.HasMod( "personal_turret" ) )
+		return OnWeaponAttemptOffhandSwitch_personal_turret( weapon )
+	//
+
+	// likely vanilla behavior
+	return OnWeaponAttemptOffhandSwitch_burncardweapon( weapon )
 }
 
 var function OnWeaponPrimaryAttack_turretweapon( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapons
+	if( weapon.HasMod( "personal_turret" ) )
+		return OnWeaponPrimaryAttack_personal_turret( weapon, attackParams )
+	//
+
+	// vanilla behavior
 	entity ownerPlayer = weapon.GetWeaponOwner()
 	Assert( ownerPlayer.IsPlayer() )
 
-	if( weapon.HasMod( "personal_turret" ) )
-	{
-		#if SERVER
-		string turretType = "npc_turret_sentry"
-		string turretAiSettings = "npc_turret_sentry_burn_card_ap"
-		string turretWeapon = ""
-		int turretHealth = 100
-		float turretModelScale = 0.5
-		if( weapon.HasMod( "personal_plasma_turret" ) )
-		{
-			turretAiSettings = "npc_turret_sentry_burn_card_at"
-			turretHealth = 200
-		}
-		if( weapon.HasMod( "personal_mega_turret" ) )
-		{
-			turretType = "npc_turret_mega"
-			turretAiSettings = "npc_turret_mega_attrition"
-			turretHealth = 500
-			turretModelScale = 0.1
-		}
-		thread SpawnTurretTimed( ownerPlayer, PERSONAL_TURRET_LIFETIME, turretModelScale, turretHealth, turretType, turretAiSettings, turretWeapon )
-		thread StopCooldownWhileActice( weapon, PERSONAL_TURRET_LIFETIME )
-		ownerPlayer.SetActiveWeaponByName( ownerPlayer.GetMainWeapons()[0].GetWeaponClassName() )
-		EmitSoundOnEntity( ownerPlayer, "Boost_Card_SentryTurret_Deployed_3P" )
-		SendHudMessage( ownerPlayer, "已创建个人炮台", -1, -0.35, 255, 255, 100, 255, 0, 5, 0 )
-		//weapon.SetNextAttackAllowedTime( Time() + 35 )
-		weapon.SetWeaponPrimaryClipCountAbsolute( 0 )
-		#endif
-	}
-
 	// TODO: find a way to use DeployableTurret_GetAISettingsForPlayer_* .. can't do this now because the concept isn't networked
+	asset turretModel
+	if( weapon.HasMod( "burnmeter_at_turret_weapon" ) )
+		turretModel =  Dev_GetAISettingAssetByKeyField_Global( DEPLOYABLE_TURRET_DEFAULT_AISETTING_AT, "DefaultModelName" )
 	else
+		turretModel =  Dev_GetAISettingAssetByKeyField_Global( DEPLOYABLE_TURRET_DEFAULT_AISETTING_AP, "DefaultModelName" )
+
+	if ( !(turretModel.tolower() in file.turretPoseData) )
 	{
-		asset turretModel
-		if( weapon.HasMod( "burnmeter_at_turret_weapon" ) )
-			turretModel =  Dev_GetAISettingAssetByKeyField_Global( DEPLOYABLE_TURRET_DEFAULT_AISETTING_AT, "DefaultModelName" )
-		else
-			turretModel =  Dev_GetAISettingAssetByKeyField_Global( DEPLOYABLE_TURRET_DEFAULT_AISETTING_AP, "DefaultModelName" )
-
-		if ( !(turretModel.tolower() in file.turretPoseData) )
-		{
-			InitTurretPoseDataForModel( turretModel )
-		}
-
-		entity turretProxy = CreateDeployableTurretProxy( turretModel )
-		SentryTurretPlacementInfo placementInfo = GetDeployableTurretPlacementInfo( ownerPlayer, turretProxy )
-		turretProxy.Destroy()
-
-		if ( !placementInfo.success )
-			return 0
-		if ( weapon.HasMod( "burn_card_weapon_mod" ) )
-		{
-			if ( !TryUsingBurnCardWeaponInCriticalSection( weapon, ownerPlayer ))
-				return 0
-		}
-
-		#if SERVER
-			entity turret = DeployTurret( ownerPlayer, placementInfo.origin, placementInfo.angles, weapon, placementInfo )
-			turret.kv.AccuracyMultiplier = DEPLOYABLE_TURRET_ACCURACY_MULTIPLIER
-			DispatchSpawn( turret )
-
-			if ( turret.Dev_GetAISettingByKeyField( "cleanup_between_rounds" ) == null || turret.Dev_GetAISettingByKeyField( "cleanup_between_rounds" ) == 1 )
-				thread TrapDestroyOnRoundEnd( ownerPlayer, turret )
-
-			turret.e.burnReward = weapon.e.burnReward
-			thread KillTurretAfterDelay( turret ) //Needs to be after dispatch spawn
-			thread TrackTurretDeath( ownerPlayer, turret )
-
-			AddTurretSpawnProtection( turret )
-
-			turret.Anim_Play( "deploy" )
-
-			TurretPoseData turretPoseData = file.turretPoseData[turretModel.tolower()]
-			for ( int footIndex = 0; footIndex < turretPoseData.turretFootAttachIds.len(); footIndex++ )
-			{
-				float poseOffset = placementInfo.poseParamOffsets[footIndex]
-				turret.SetPoseParameter( turretPoseData.turretLegPoseIds[footIndex], poseOffset )
-			}
-		#endif
+		InitTurretPoseDataForModel( turretModel )
 	}
+
+	entity turretProxy = CreateDeployableTurretProxy( turretModel )
+	SentryTurretPlacementInfo placementInfo = GetDeployableTurretPlacementInfo( ownerPlayer, turretProxy )
+	turretProxy.Destroy()
+
+	if ( !placementInfo.success )
+		return 0
+	if ( weapon.HasMod( "burn_card_weapon_mod" ) )
+	{
+		if ( !TryUsingBurnCardWeaponInCriticalSection( weapon, ownerPlayer ))
+			return 0
+	}
+
+	#if SERVER
+		entity turret = DeployTurret( ownerPlayer, placementInfo.origin, placementInfo.angles, weapon, placementInfo )
+		turret.kv.AccuracyMultiplier = DEPLOYABLE_TURRET_ACCURACY_MULTIPLIER
+		DispatchSpawn( turret )
+
+		if ( turret.Dev_GetAISettingByKeyField( "cleanup_between_rounds" ) == null || turret.Dev_GetAISettingByKeyField( "cleanup_between_rounds" ) == 1 )
+			thread TrapDestroyOnRoundEnd( ownerPlayer, turret )
+
+		turret.e.burnReward = weapon.e.burnReward
+		thread KillTurretAfterDelay( turret ) //Needs to be after dispatch spawn
+		thread TrackTurretDeath( ownerPlayer, turret )
+
+		AddTurretSpawnProtection( turret )
+
+		turret.Anim_Play( "deploy" )
+
+		TurretPoseData turretPoseData = file.turretPoseData[turretModel.tolower()]
+		for ( int footIndex = 0; footIndex < turretPoseData.turretFootAttachIds.len(); footIndex++ )
+		{
+			float poseOffset = placementInfo.poseParamOffsets[footIndex]
+			turret.SetPoseParameter( turretPoseData.turretLegPoseIds[footIndex], poseOffset )
+		}
+	#endif
 }
 
 #if SERVER
@@ -640,15 +610,5 @@ void function DeployableTurretPlacement( entity player, asset turretModel )
 
 		WaitFrame()
 	}
-}
-#endif
-
-#if SERVER
-void function StopCooldownWhileActice( entity offhand, float duration )
-{
-	offhand.AddMod( "no_regen" )
-	wait duration
-	if( IsValid( offhand ) )
-		offhand.RemoveMod( "no_regen" )
 }
 #endif
