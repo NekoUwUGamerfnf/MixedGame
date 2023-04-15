@@ -26,8 +26,15 @@ global function CreateWeaponDrop
 
 global function NukeIncomingEffectForPlayer
 
+global function CreateRocketTurret
+
+global function CreateRemoteTurret
+
 void function Nessie_Funny_Functions_Init()
 {
+	// precaching
+	PrecacheModel( ROCKET_TURRET_MODEL )
+	// signals
     RegisterSignal( "StartRGBHighlight" )
 	RegisterSignal( "EndRGBHighlight" )
     RegisterSignal( "StartSBTitle" )
@@ -51,8 +58,13 @@ void function Nessie_Funny_Functions_Init()
 	//AddClientCommandCallback( "mirage_decoy", CC_SpawnMirageDecoy )
 	//AddClientCommandCallback( "special", CC_GiveSpecialLoadout )
 	//AddClientCommandCallback( "spawnweapon", CC_SpawnWeapon )
+	AddClientCommandCallback( "rocketturret", CC_CreateRocketTurret )
+	AddClientCommandCallback( "remoterocket", CC_CreateRocketRemoteTurret )
+	AddClientCommandCallback( "remoteplasma", CC_CreatePlasmaRemoteTurret )
+	AddClientCommandCallback( "remotesentry", CC_CreateSentryRemoteTurret )
 }
 
+// client commands
 bool function CC_SpawnRainbowDome( entity player, array<string> args )
 {
 	if ( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
@@ -121,6 +133,53 @@ bool function CC_SpawnWeapon( entity player, array<string> args )
 	CreateWeaponDrop( origin, < 0, 0, 0 >, "mp_weapon_smart_pistol" )
 	return true
 }
+
+bool function CC_CreateRocketTurret( entity player, array<string> args )
+{
+	int team = player.GetTeam()
+	vector origin = GetPlayerCrosshairOrigin( player ) - < 0, 0, 20 >
+	vector angles = < 0, ClampAngle( player.EyeAngles().y - 180 ), 0 >
+
+	CreateRocketTurret( team, origin, angles )
+	return true
+}
+
+bool function CC_CreateRocketRemoteTurret( entity player, array<string> args )
+{
+	vector origin = GetPlayerCrosshairOrigin( player ) - < 0, 0, 20 >
+	vector angles = < 0, player.EyeAngles().y, 0 >
+	
+	vector panelAngles = < 0, ClampAngle( player.EyeAngles().y - 180 ), 0 >
+	vector panelOrigin = origin + AnglesToForward( panelAngles ) * 100 - < 0, 0, 10 > // 100 units closer to player
+
+	CreateRemoteTurret( origin, angles, panelOrigin, panelAngles, ROCKET_TURRET_MODEL, "mp_turretweapon_blaster" )
+	return true
+}
+
+bool function CC_CreatePlasmaRemoteTurret( entity player, array<string> args )
+{
+	vector origin = GetPlayerCrosshairOrigin( player ) - < 0, 0, 20 >
+	vector angles = < 0, player.EyeAngles().y, 0 >
+	
+	vector panelAngles = < 0, ClampAngle( player.EyeAngles().y - 180 ), 0 >
+	vector panelOrigin = origin + AnglesToForward( panelAngles ) * 100 - < 0, 0, 10 > // 100 units closer to player
+
+	CreateRemoteTurret( origin, angles, panelOrigin, panelAngles, PLASMA_TURRET_MODEL, "mp_turretweapon_plasma" )
+	return true
+}
+
+bool function CC_CreateSentryRemoteTurret( entity player, array<string> args )
+{
+	vector origin = GetPlayerCrosshairOrigin( player ) - < 0, 0, 20 >
+	vector angles = < 0, player.EyeAngles().y, 0 >
+	
+	vector panelAngles = < 0, ClampAngle( player.EyeAngles().y - 180 ), 0 > 
+	vector panelOrigin = origin + AnglesToForward( panelAngles ) * 100 - < 0, 0, 10 > // 100 units closer to player
+
+	CreateRemoteTurret( origin, angles, panelOrigin, panelAngles, HITSCAN_TURRET_MODEL, "mp_turretweapon_sentry" )
+	return true
+}
+//
 
 void function RGB_Hightlight( entity ent, bool showToAll = false, bool alwaysShow = false )
 {
@@ -767,4 +826,59 @@ void function DelayedDoNukeSound( entity player, float timeBeforeNuke )
 	Remote_CallFunction_NonReplay( player, "ServerCallback_ResetMapSettings" )
 	EmitSoundOnEntityOnlyToPlayer( player, player, "titan_nuclear_death_explode" )
 	wait 10
+}
+
+// turrets
+entity function CreateRocketTurret( int team, vector origin, vector angles )
+{
+	entity turret = CreateNPC( "npc_turret_sentry", team, origin, angles )
+	turret.StartDeployed()
+	SetSpawnOption_AISettings( turret, "npc_turret_sentry_plasma" )
+	SetSpawnOption_Weapon( turret, "mp_turretweapon_blaster" )
+	DispatchSpawn( turret )
+	turret.SetTitle( "#WPN_BLASTER_TURRET" )
+	turret.SetModel( ROCKET_TURRET_MODEL )
+	//turret.TakeActiveWeapon()
+	//turret.GiveWeapon( "mp_turretweapon_blaster" )
+	//turret.SetActiveWeaponByName( "mp_turretweapon_blaster" )
+
+	return turret
+}
+
+/* // turret settings
+	"droppod_fireteam_turret"
+	"PROTO_at_turret"		// have special pov
+	"redeye_turret"
+	"redeye_turret_ai"
+	"sat_strike_turret"		// cannot change direction
+	"turret_imc_lrg"
+*/
+
+/* // turret models
+	SENTRY_TURRET_MODEL and PLASMA_TURRET_MODEL(same)
+	ROCKET_TURRET_MODEL
+	HITSCAN_TURRET_MODEL
+*/
+
+entity function CreateRemoteTurret( vector origin, vector angles, vector panelOrigin, vector panelAngles, asset turretModel, string turretWeapon )
+{
+	RemoteTurretSettings info
+
+	info.turretOrigin = origin
+	info.turretAngles = angles
+	info.panelOrigin = panelOrigin
+	info.panelAngles = panelAngles
+
+	info.turretSettingsName		= "PROTO_at_turret"
+	info.weaponName				= turretWeapon
+	info.turretModel			= turretModel
+	info.panelModel				= CONTROL_PANEL_MODEL
+
+	info.viewClampEnabled		= true
+	info.viewClampRangeYaw		= 120
+	info.viewClampRangePitch	= 120
+	info.viewStartPitch			= 0
+
+	entity turret = CreateRemoteTurretAndControlPanel( info )
+	return turret
 }

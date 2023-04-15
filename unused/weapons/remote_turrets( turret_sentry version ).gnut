@@ -13,13 +13,16 @@ const asset REMOTE_TURRET_ON_FIRE			= $"P_sup_spec_dam_vent_1"
 const asset REMOTE_TURRET_AIM_FX_FRIENDLY = $"P_wpn_lasercannon_aim_short_blue"
 const asset REMOTE_TURRET_AIM_FX_ENEMY = $"P_wpn_lasercannon_aim_short"
 
-//#if SERVER
+#if SERVER
 struct
 {
 	array<entity> turretInfos
 	var turretAmmo
+
+	// modified
+	table<entity, ServerRemoteTurretStruct> remoteTurretTable
 } file
-//#endif // #if SERVER
+#endif // #if SERVER
 
 
 const string SPAWNINFO_CLASSNAME_TURRET = "info_remoteturret_turret"
@@ -148,11 +151,12 @@ function TurretPanelActivateThread( panel, player, oldUsableValue )
 
 	vector originalLocalAngles = player.GetLocalAngles()
 
-	RemoteTurretSettings info = expect RemoteTurretSettings( turret.remoteturret.settings )
+	//RemoteTurretSettings info = expect RemoteTurretSettings( turret.remoteturret.settings )
+	RemoteTurretSettings info = expect RemoteTurretSettings( file.remoteTurretTable[turret].settings )
 
 	vector turretAngles = turret.GetAngles()
 
-	turret.SetDriver( player )
+	//turret.SetDriver( player )
 	player.p.controllingTurret = true
 	SetTeam( turret, player.GetTeam() )
 	turret.SetBossPlayer( player )
@@ -173,7 +177,8 @@ function TurretPanelActivateThread( panel, player, oldUsableValue )
 
 	ScreenFade( player, 0, 0, 0, 255, 0.3, 0.3, (FFADE_IN | FFADE_PURGE) )
 	float frac = float( turret.GetHealth() ) / float( turret.GetMaxHealth() )
-	turret.remoteturret.statusEffectID = StatusEffect_AddEndless( player, eStatusEffect.emp, 1.0-frac )
+	//turret.remoteturret.statusEffectID = StatusEffect_AddEndless( player, eStatusEffect.emp, 1.0-frac )
+	file.remoteTurretTable[turret].statusEffectID = StatusEffect_AddEndless( player, eStatusEffect.emp, 1.0-frac )
 
 	// Panel should already have been marked in-use:
 	Assert( player == panel.GetBossPlayer() )
@@ -200,11 +205,18 @@ function TurretPanelActivateThread( panel, player, oldUsableValue )
 				if ( info.viewClampEnabled )
 					ViewConeFree( player )
 				player.SetLocalAngles( originalLocalAngles )
+
+				// modified to make this work
+				player.MovementEnable()
+				player.Solid()
+				player.Show()
+				player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), player.GetPlayerSettingsMods() )
+				RetrievePilotWeapons( player )
 		 	}
 
 		 	if ( IsValid( turret ) )
 		 	{
-				turret.ClearDriver()
+				//turret.ClearDriver()
 				SetTeam( turret, TEAM_UNASSIGNED )
 				turret.SetTitle( "" )
 				turret.ClearBossPlayer()
@@ -212,7 +224,8 @@ function TurretPanelActivateThread( panel, player, oldUsableValue )
 				if ( IsValid( player ) )
 				{
 					ScreenFade( player, 0, 0, 0, 255, 2, 0.2, (FFADE_IN | FFADE_PURGE) )
-					StatusEffect_Stop( player, turret.remoteturret.statusEffectID )
+					//StatusEffect_Stop( player, turret.remoteturret.statusEffectID )
+					StatusEffect_Stop( player, file.remoteTurretTable[turret].statusEffectID )
 				}
 		 	}
 
@@ -229,12 +242,21 @@ function TurretPanelActivateThread( panel, player, oldUsableValue )
 
 	player.SnapEyeAngles( centerViewAngles )
 
+	// hide player
+	player.MovementDisable()
+	player.NotSolid()
+	player.Hide()
+	player.StopPhysics()
+	player.SetOrigin( turret.GetOrigin() )
+	player.DisableWeaponViewModel()
+
 	wait 0.3
 
 	foreach( int button in TURRET_CANCEL_BUTTONS )
 		AddButtonPressedPlayerInputCallback( player, button, DisembarkButtonCallback )
 
-	WaitForever()
+	//WaitForever()
+	waitthread PlayerDrivesRemoteTurret( player, turret )
 }
 
 entity function CreateRemoteTurretAndControlPanel( RemoteTurretSettings info )
@@ -246,14 +268,22 @@ entity function CreateRemoteTurretAndControlPanel( RemoteTurretSettings info )
 	if ( info.panelModel != PANEL_MODEL )
 		Warning( "For remote turret panel at " + info.panelOrigin + ", script is overriding specified model '" + info.panelModel + "' with '" + PANEL_MODEL + "'" )
 #endif // #if DEV
-	
-	entity turret = CreateTurretEnt( info.turretOrigin, info.turretAngles, null, info.turretModel, info.turretSettingsName )
 
+	// modified to make it work
+	entity turret = CreateNPC( info.turretSettingsName, TEAM_UNASSIGNED, info.turretOrigin, info.turretAngles ) // CreateTurretEnt( info.turretOrigin, info.turretAngles, null, info.turretModel, info.turretSettingsName )
 	Assert( turret.GetMainWeapons().len() == 0 )
+	
+	turret.StartDeployed()
+	DispatchSpawn( turret )
+	turret.SetModel( info.turretModel )
+	ServerRemoteTurretStruct turretStruct
+	file.remoteTurretTable[turret] <- turretStruct
+	
 	entity weapon = turret.GiveWeapon( info.weaponName )
 	printt( "GIVE TURRET ", info.weaponName )
 	Assert( IsValid( weapon ) )
-	turret.remoteturret.settings = info
+	//turret.remoteturret.settings = info
+	turretStruct.settings = info
 
 	turret.SetTakeDamageType( DAMAGE_EVENTS_ONLY )
 	turret.SetHealth( REMOTE_TURRET_HEALTH )
@@ -270,7 +300,8 @@ entity function CreateRemoteTurretAndControlPanel( RemoteTurretSettings info )
 	panel.Solid()
 	panel.SetOwner( turret )
 
-	turret.remoteturret.controlPanel = panel
+	//turret.remoteturret.controlPanel = panel
+	turretStruct.controlPanel = panel
 
 	#if R1_VGUI_MINIMAP
 		turret.Minimap_SetDefaultMaterial( GetMinimapMaterial( "turret_neutral" ) )
@@ -310,7 +341,8 @@ void function TestTurretCreate( entity player )
 
 void function Turret_OnDamage( entity turret, var damageInfo )
 {
-	if ( turret.GetDriver() == null )
+	//if ( turret.GetDriver() == null )
+	if ( turret.GetBossPlayer() == null )
 		return
 	if ( turret.GetHealth() <= 1 )
 		return
@@ -325,9 +357,11 @@ void function Turret_OnDamage( entity turret, var damageInfo )
 	if ( attacker.IsPlayer() )
 		attacker.NotifyDidDamage( turret, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
 
-	StatusEffect_Stop( turret.GetDriver(), turret.remoteturret.statusEffectID )
+	//StatusEffect_Stop( turret.GetDriver(), turret.remoteturret.statusEffectID )
+	StatusEffect_Stop( turret.GetBossPlayer(), file.remoteTurretTable[turret].statusEffectID )
 	float frac = float( turret.GetHealth() ) / float( turret.GetMaxHealth() )
-	turret.remoteturret.statusEffectID = StatusEffect_AddEndless( turret.GetDriver(), eStatusEffect.emp, 1.0-frac )
+	//turret.remoteturret.statusEffectID = StatusEffect_AddEndless( turret.GetDriver(), eStatusEffect.emp, 1.0-frac )
+	file.remoteTurretTable[turret].statusEffectID = StatusEffect_AddEndless( turret.GetBossPlayer(), eStatusEffect.emp, 1.0-frac )
 
 	if ( turret.GetHealth() <= 1 )
 	{
@@ -344,7 +378,8 @@ void function Turret_PowerDown( entity turret, asset effect, float downTime )
 	turret.EndSignal( "OnDestroy" )
 	turret.Signal( "RemoteTurretShutdownRequest" )
 
-	turret.remoteturret.controlPanel.UnsetUsable()
+	//turret.remoteturret.controlPanel.UnsetUsable()
+	file.remoteTurretTable[turret].controlPanel.UnsetUsable()
 
 	string tag = "REF"
 	entity fx
@@ -358,10 +393,12 @@ void function Turret_PowerDown( entity turret, asset effect, float downTime )
 	fxArray.append( fx )
 
 	fxId = GetParticleSystemIndex( effect )
-	fx = StartParticleEffectOnEntity_ReturnEntity( turret.remoteturret.controlPanel, fxId, FX_PATTACH_ABSORIGIN_FOLLOW, turret.remoteturret.controlPanel.LookupAttachment( "PANEL_SCREEN_MIDDLE" ) )
+	//fx = StartParticleEffectOnEntity_ReturnEntity( turret.remoteturret.controlPanel, fxId, FX_PATTACH_ABSORIGIN_FOLLOW, turret.remoteturret.controlPanel.LookupAttachment( "PANEL_SCREEN_MIDDLE" ) )
+	fx = StartParticleEffectOnEntity_ReturnEntity( file.remoteTurretTable[turret].controlPanel, fxId, FX_PATTACH_ABSORIGIN_FOLLOW, turret.remoteturret.controlPanel.LookupAttachment( "PANEL_SCREEN_MIDDLE" ) )
 	fxArray.append( fx )
 
-	entity panel = turret.remoteturret.controlPanel
+	//entity panel = turret.remoteturret.controlPanel
+	entity panel = file.remoteTurretTable[turret].controlPanel
 	panel.SetScriptPropFlags( SPF_CUSTOM_SCRIPT_1 | SPF_CUSTOM_SCRIPT_2 )
 	int panelEHandle = panel.GetEncodedEHandle()
 	array<entity> players = GetPlayerArray()
@@ -381,10 +418,13 @@ void function Turret_PowerDown( entity turret, asset effect, float downTime )
 				}
 			}
 
-			if ( IsValid( turret ) && IsValid( turret.remoteturret.controlPanel ) )
+			//if ( IsValid( turret ) && IsValid( turret.remoteturret.controlPanel ) )
+			if ( IsValid( turret ) && IsValid( file.remoteTurretTable[turret].controlPanel ) )
 			{
-				RemoteTurretSettings info = expect RemoteTurretSettings( turret.remoteturret.settings )
-				turret.remoteturret.controlPanel.Destroy()
+				//RemoteTurretSettings info = expect RemoteTurretSettings( turret.remoteturret.settings )
+				//turret.remoteturret.controlPanel.Destroy()
+				RemoteTurretSettings info = expect RemoteTurretSettings( file.remoteTurretTable[turret].settings )
+				file.remoteTurretTable[turret].controlPanel.Destroy()
 				turret.Destroy()
 				CreateRemoteTurretAndControlPanel( info )
 			}
@@ -394,5 +434,16 @@ void function Turret_PowerDown( entity turret, asset effect, float downTime )
 	wait downTime
 }
 
+// modified to make this work
+void function PlayerDrivesRemoteTurret( entity player, entity turret )
+{
+	StorePilotWeapons( player )
+
+	string weapon = expect RemoteTurretSettings( file.remoteTurretTable[turret].settings ).weaponName
+	player.GiveWeapon( weapon )
+	player.EnableWeaponViewModel()
+
+	WaitForever()
+}
 #endif // #if SERVER
 
