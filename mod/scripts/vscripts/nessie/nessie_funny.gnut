@@ -62,6 +62,7 @@ void function Nessie_Funny_Functions_Init()
 	AddClientCommandCallback( "remoterocket", CC_CreateRocketRemoteTurret )
 	AddClientCommandCallback( "remoteplasma", CC_CreatePlasmaRemoteTurret )
 	AddClientCommandCallback( "remotesentry", CC_CreateSentryRemoteTurret )
+	AddClientCommandCallback( "freeaircontrol", CC_FreeAirControl )
 }
 
 // client commands
@@ -178,6 +179,71 @@ bool function CC_CreateSentryRemoteTurret( entity player, array<string> args )
 
 	CreateRemoteTurret( origin, angles, panelOrigin, panelAngles, HITSCAN_TURRET_MODEL, "mp_turretweapon_sentry" )
 	return true
+}
+
+bool function CC_FreeAirControl( entity player, array<string> args )
+{
+	thread GiveFreeAirControlLifeLong( player )
+	return true
+}
+
+void function GiveFreeAirControlLifeLong( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+
+	array<string> classMods = player.GetPlayerSettingsMods()
+	classMods.append( "disable_doublejump" )
+	player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), classMods )
+
+	while ( true )
+	{
+		player.SetGroundFrictionScale( 0.0 )
+		player.kv.gravity = 0.0001
+
+		vector angles = player.EyeAngles()
+		angles.z = 0
+		angles.x = 0
+		angles.y = ClampAngle( angles.y - 90 )
+		vector moveVel = GetVectorFromInput( player ) * 40 //AnglesToForward( angles ) * 40
+		if ( player.IsInputCommandHeld( IN_JUMP ) )
+		{
+			moveVel.z = 40
+			if ( player.IsOnGround() )
+				moveVel.z = 230 // at least 230 vertical force required to lift a standing player
+		}
+		if ( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) )
+			moveVel.z = -40
+		player.SetVelocity( player.GetVelocity() + moveVel )
+		WaitFrame()
+	}
+}
+
+vector function GetVectorFromInput( entity player )
+{
+	vector angles = player.EyeAngles()
+	float xAxis = player.GetInputAxisRight()
+	float yAxis = player.GetInputAxisForward()
+	vector directionForward = GetDirectionFromInput( angles, xAxis, yAxis )
+
+	return directionForward
+}
+
+vector function GetDirectionFromInput( vector playerAngles, float xAxis, float yAxis )
+{
+	playerAngles.x = 0
+	playerAngles.z = 0
+	vector forward = AnglesToForward( playerAngles )
+	vector right = AnglesToRight( playerAngles )
+
+	vector directionVec = Vector(0,0,0)
+	directionVec += right * xAxis
+	directionVec += forward * yAxis
+
+	vector directionAngles = VectorToAngles( directionVec )
+	vector directionForward = AnglesToForward( directionAngles )
+
+	return directionForward
 }
 //
 
