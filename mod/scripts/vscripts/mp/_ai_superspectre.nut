@@ -22,6 +22,7 @@ global function SuperSpectre_SetForcedKilledByTitans // other than this the reap
 global function SuperSpectre_SetSelfAsNukeAttacker // the nuke's attacker will always be the reaper
 global function SuperSpectre_SetDropBatteryOnDeath
 global function SuperSpectre_SetNukeExplosionCountAndDuration
+global function SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath // ticks will go explode if their owner reaper nuke or gibbed
 //
 
 //==============================================================
@@ -63,6 +64,7 @@ struct
 	table<entity, bool> reaperAsNukeAttacker
 	table<entity, bool> reaperDropBattOnDeath
 	table<entity, ReaperNukeDamage> reaperNukeDamageOverrides
+	table<entity, bool> reaperMinionExplodeOwnerDeath
 	//
 } file
 
@@ -159,6 +161,23 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 	bool giveBattery = ( npc.ai.shouldDropBattery && IsSingleplayer() )
 	if ( IsMultiplayer() )
 		giveBattery = ShouldDropBatteryOnDeath( npc )
+	
+	// modified, minion management
+	//print( "ShouldDetonateMinionsOnDeath(): " + string( ShouldDetonateMinionsOnDeath( npc ) ) )
+	if ( ShouldDetonateMinionsOnDeath( npc ) )
+	{
+		if ( npc.ai.activeMinionEntArrayID > 0 )
+		{
+			foreach ( entity ent in GetScriptManagedEntArray( npc.ai.activeMinionEntArrayID ) )
+			{
+				if ( IsValid( ent ) && ent.IsNPC() && ent.ai.fragDroneArmed ) // they may doing a deploy animation or is still a nade, which handled by WaitForFragDroneDeployThenDetonate()
+				{
+					//print( "Signaling SuicideSpectreExploding on " + string( minion ) )
+					ent.Signal( "SuicideSpectreExploding" )
+				}
+			}
+		}
+	}
 
 	// modified nuke threshold
 	//if ( !ShouldNukeOnDeath( npc ) || !npc.IsOnGround() || !npc.IsInterruptable() || DamageInfo_GetDamage( damageInfo ) > SUPER_SPECTRE_NUKE_DEATH_THRESHOLD || ( IsValid( attacker ) && attacker.IsTitan() ) )
@@ -379,13 +398,13 @@ function SuperSpectreThink( entity npc )
 			entity owner
 			if ( IsValid( npc ) )
 				owner = npc
-
+			
 			foreach ( minion in GetScriptManagedEntArray( activeMinions_EntArrayID ) )
 			{
 				// Self destruct the suicide spectres if applicable
 				if ( minion.GetClassName() != "npc_frag_drone" )
 					continue
-
+				
 				if ( minion.ai.suicideSpectreExplodingAttacker == null )
 					minion.TakeDamage( minion.GetHealth(), owner, owner, { scriptType = DF_DOOMED_HEALTH_LOSS, damageSourceId = eDamageSourceId.mp_weapon_super_spectre } )
 			}
@@ -667,14 +686,27 @@ void function LaunchSpawnerProjectile( entity npc, vector targetOrigin, int acti
 	float armTime = SPAWN_PROJECTILE_AIR_TIME + RandomFloatRange( 1.0, 2.5 )
 	entity nade = weapon.FireWeaponGrenade( launchPos, vel, <200,0,0>, armTime, damageTypes.dissolve, damageTypes.explosive, PROJECTILE_NOT_PREDICTED, true, true )
 
+	// modified for better models, hardcoded for now
+	if ( droneSettings != "npc_frag_drone" ) // not sp ticks?
+		nade.SetModel( $"models/weapons/sentry_frag/sentry_frag_proj.mdl" ) // should use sentry frag drone model
+	//
+
 	AddToScriptManagedEntArray( activeMinions_EntArrayID, nade )
 	AddToScriptManagedEntArray( file.activeMinions_GlobalArrayIdx, nade )
 
 	nade.SetOwner( npc )
 	nade.EndSignal( "OnDestroy" )
 
-	OnThreadEnd(
-	function() : ( nade, team, activeMinions_EntArrayID, squadname, droneSettings )
+	// modified, minion management
+	table results = {}
+	results.detonateMinion <- ShouldDetonateMinionsOnDeath( npc )
+	//
+
+	OnThreadEnd
+	(
+		// modified, minion management
+		//function() : ( nade, team, activeMinions_EntArrayID, squadname, droneSettings )
+		function() : ( nade, team, activeMinions_EntArrayID, squadname, droneSettings, npc, results )
 		{
 			vector origin = nade.GetOrigin()
 			vector angles = nade.GetAngles()
@@ -686,13 +718,17 @@ void function LaunchSpawnerProjectile( entity npc, vector targetOrigin, int acti
 			entity drone = CreateFragDroneCan( team, expect vector( clampedPos ), < 0, angles.y, 0 > )
 			SetSpawnOption_SquadName( drone, squadname )
 			if ( droneSettings != "" )
-			{
+			{ 
 				SetSpawnOption_AISettings( drone, droneSettings )
 			}
 			drone.kv.spawnflags = SF_NPC_ALLOW_SPAWN_SOLID // clamped to navmesh no need to check solid
 			DispatchSpawn( drone )
 
-			thread FragDroneDeplyAnimation( drone )
+			// modified minion management. if reaper died and we should detonate it's minion...
+			if ( !IsAlive( npc ) && results.detonateMinion )
+				thread WaitForFragDroneDeployThenDetonate( drone )
+			else // vanilla behavior
+				thread FragDroneDeplyAnimation( drone )
 
 			AddToScriptManagedEntArray( activeMinions_EntArrayID, drone )
 			AddToScriptManagedEntArray( file.activeMinions_GlobalArrayIdx, drone )
@@ -859,6 +895,13 @@ void function SuperSpectre_SetNukeExplosionCountAndDuration( entity ent, int cou
 	file.reaperNukeDamageOverrides[ ent ] = nukeStruct
 }
 
+void function SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath( entity ent, bool explode )
+{
+	if ( !( ent in file.reaperMinionExplodeOwnerDeath ) )
+		file.reaperMinionExplodeOwnerDeath[ ent ] <- false // default is don't detonate tick on owner death
+	file.reaperMinionExplodeOwnerDeath[ ent ] = explode
+}
+
 // get modified settings
 int function GetNukeDeathThreshold( entity ent )
 {
@@ -901,5 +944,18 @@ ReaperNukeDamage function GetReaperNukeDamageOverride( entity ent )
 	if ( !( ent in file.reaperNukeDamageOverrides ) )
 		return defaultStruct
 	return file.reaperNukeDamageOverrides[ ent ]
+}
+
+bool function ShouldDetonateMinionsOnDeath( entity ent )
+{
+	if ( !( ent in file.reaperMinionExplodeOwnerDeath ) ) // not modified
+		return false // default is don't detonate tick on owner death
+	return file.reaperMinionExplodeOwnerDeath[ ent ]
+}
+
+void function WaitForFragDroneDeployThenDetonate( entity drone )
+{
+	waitthread FragDroneDeplyAnimation( drone )
+	drone.Signal( "SuicideSpectreExploding" )
 }
 //
