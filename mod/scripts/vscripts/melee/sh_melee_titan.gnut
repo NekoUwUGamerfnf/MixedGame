@@ -15,6 +15,7 @@ const TITAN_SWORD_KNOCKBACK_SCALE_SP = 300.0
 // modified over here
 #if SERVER // functions
 global function TitanMelee_CanScriptedExecution // modified and shared to use in _melee_synced_npc.gnut
+global function TitanMelee_GetMeleeDamageSourceIDForWeapon // modified and shared to use in extra_ai_spawner.gnut, idk why respawn have to hardcode this
 
 // settings with weapon mods!!!
 global function TitanMelee_AddDashPunchSpeedScaleMod // modded dash punch
@@ -66,8 +67,12 @@ const float FIGHTER_PUNCH_VERTICAL_LIFT_OGRE = 405.0
 
 function MeleeTitanShared_Init()
 {
-	// modified for dash melee
 	#if SERVER
+		// vanilla behavior turns to mods
+		TitanMelee_AddDamageSourceIdMod( "super_charged", eDamageSourceId.mp_titancore_shift_core )
+		TitanMelee_AddDamageSourceIdMod( "super_charged_SP", eDamageSourceId.mp_titancore_shift_core )
+
+		// modified for dash melee
 		RegisterSignal( "DashMeleeStart" )
 		//TitanMelee_AddExecutionDisabledMod( TITAN_DASH_PUNCH_MOD_NAME, true ) // execution is not allowed for dash punches
 	#endif
@@ -453,21 +458,12 @@ function TitanAttackHumanSized( entity titan, entity meleeWeapon, entity hitEnt,
 			hitEnt.s.silentDeath <- true
 	}
 
-	int damageSource = GetMeleeDamageSourceIDForWeapon( meleeWeapon )
-	bool hasShiftCore = TitanHasSuperChargedSword( titan ) //IsNinja( titan )
-	if ( hasShiftCore )
-		damageSource = eDamageSourceId.mp_titancore_shift_core
-	// modifier
-	array<string> mods = meleeWeapon.GetMods()
-	foreach ( string mod, int damageSourceId in file.damageSourceIdMods )
-	{
-		if ( mods.contains( mod ) ) // has modifier!
-		{
-			damageSource = damageSourceId
-			break
-		}
-	}
-	//
+	int damageSource = TitanMelee_GetMeleeDamageSourceIDForWeapon( meleeWeapon ) //GetMeleeDamageSourceIDForWeapon( meleeWeapon )
+	// using the modified function TitanMelee_GetMeleeDamageSourceIDForWeapon()
+	//bool hasShiftCore = TitanHasSuperChargedSword( titan ) //IsNinja( titan )
+	//if ( hasShiftCore )
+	//	damageSource = eDamageSourceId.mp_titancore_shift_core
+
 	int damageAmount = meleeWeapon.GetDamageAmountForArmorType( hitEnt.GetArmorType() );
 	hitEnt.SetVelocity( hitEnt.GetVelocity() + pushBackVelocity )
 	hitEnt.TakeDamage( damageAmount, titan, titan, { scriptType = damageFlags, damageType = DMG_MELEE_ATTACK, damageSourceId = damageSource, origin = damageOrigin, force = pushBackVelocity } )
@@ -662,25 +658,14 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		scriptType = meleeWeapon.GetWeaponDamageFlags()
 		forceKill = false
 		damageType = DMG_MELEE_ATTACK
-		damageSourceId = GetMeleeDamageSourceIDForWeapon( meleeWeapon )
+		damageSourceId = TitanMelee_GetMeleeDamageSourceIDForWeapon( meleeWeapon ) //GetMeleeDamageSourceIDForWeapon( meleeWeapon )
 		origin = damageOrigin
 	}
 
+	// using the modified function TitanMelee_GetMeleeDamageSourceIDForWeapon()
 	// THIS IS STARTING TO GET UNWIELDY
-	if ( hasShiftCore )
-		damageTable.damageSourceId = eDamageSourceId.mp_titancore_shift_core
-
-	// modifier
-	array<string> mods = meleeWeapon.GetMods()
-	foreach ( string mod, int damageSourceId in file.damageSourceIdMods )
-	{
-		if ( mods.contains( mod ) ) // has modifier!
-		{
-			damageTable.damageSourceId = damageSourceId
-			break
-		}
-	}
-	//
+	//if ( hasShiftCore )
+	//	damageTable.damageSourceId = eDamageSourceId.mp_titancore_shift_core
 
 	enemyTitan.TakeDamage( damageAmount, titan, titan, damageTable )
 	
@@ -705,25 +690,14 @@ function TitanAttackDefault( entity titan, entity meleeWeapon, entity targetEnt,
 		scriptType = meleeWeapon.GetWeaponDamageFlags()
 		forceKill = false
 		damageType = DMG_MELEE_ATTACK
-		damageSourceId = GetMeleeDamageSourceIDForWeapon( meleeWeapon )
+		damageSourceId = TitanMelee_GetMeleeDamageSourceIDForWeapon( meleeWeapon ) //GetMeleeDamageSourceIDForWeapon( meleeWeapon )
 		origin = damageOrigin
 	}
 
-	bool hasShiftCore = TitanHasSuperChargedSword( titan ) //IsNinja( titan )
-	if ( hasShiftCore )
-		damageTable.damageSourceId = eDamageSourceId.mp_titancore_shift_core
-	
-	// modifier
-	array<string> mods = meleeWeapon.GetMods()
-	foreach ( string mod, int damageSourceId in file.damageSourceIdMods )
-	{
-		if ( mods.contains( mod ) ) // has modifier!
-		{
-			damageTable.damageSourceId = damageSourceId
-			break
-		}
-	}
-	//
+	// using the modified function TitanMelee_GetMeleeDamageSourceIDForWeapon()
+	//bool hasShiftCore = TitanHasSuperChargedSword( titan ) //IsNinja( titan )
+	//if ( hasShiftCore )
+	//	damageTable.damageSourceId = eDamageSourceId.mp_titancore_shift_core
 
 	targetEnt.TakeDamage( damageAmount, titan, titan, damageTable )
 #endif // #if SERVER
@@ -891,6 +865,28 @@ bool function TitanMelee_CanScriptedExecution( entity player, entity target )
 	//
 
 	return true
+}
+
+// modified to share this func
+int function TitanMelee_GetMeleeDamageSourceIDForWeapon( entity meleeWeapon )
+{
+	// default
+	string weaponName = meleeWeapon.GetWeaponClassName()
+	int result = eDamageSourceId[weaponName]
+
+	// modifier
+	array<string> mods = meleeWeapon.GetMods()
+	foreach ( string mod, int damageSourceId in file.damageSourceIdMods )
+	{
+		if ( mods.contains( mod ) ) // has modifier!
+		{
+			result = damageSourceId
+			break
+		}
+	}
+	//
+
+	return result
 }
 
 
