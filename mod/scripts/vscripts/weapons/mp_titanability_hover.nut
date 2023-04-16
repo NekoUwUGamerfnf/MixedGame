@@ -55,7 +55,7 @@ var function OnWeaponPrimaryAttack_TitanHover( entity weapon, WeaponPrimaryAttac
 		if( weapon.HasMod( JET_PACK_MOD ) ) // so player won't consume ammo
 		{
 			#if SERVER
-				SendHudMessage(flyer, "喷气背包为被动技能\n跳跃耗尽后再次按下跳跃以使用", -1, -0.3, 255, 255, 100, 255, 0, 2, 0)
+				SendHudMessage(flyer, "Jet pack behaves as Passive Ability\nPress JUMP after leaving ground to activate", -1, -0.3, 255, 255, 100, 255, 0, 2, 0)
 			#endif
 			return 0
 		}
