@@ -30,8 +30,8 @@ global function RunToAndPlayAnimGravity
 global function RunToAndPlayAnimGravityForced
 
 // modified!!! for some invalid model animations
-global function TrackHackedAnimationEnd
-global function GetBestModelNameForHackedAnim
+global function GetBestModelNameForErrorAnim
+global function TrackErrorAnimationEnd
 
 function Anim_Init()
 {
@@ -40,7 +40,7 @@ function Anim_Init()
 	RegisterSignal( "ScriptAnimStop" )
 	RegisterSignal( "AnimEventKill" )
 	// oh no
-	RegisterSignal( "HackedAnimStart" )
+	RegisterSignal( "ErrorAnimStart" )
 
 	AddGlobalAnimEvent( "enable_weapon", GlobalAnimEvent_EnableWeapon )
 	AddGlobalAnimEvent( "disable_weapon", GlobalAnimEvent_DisableWeapon	)
@@ -477,6 +477,7 @@ function __PlayAnim( guy, animation_name, reference = null, optionalTag = null, 
 	}
 	catch( ex ) // an error in try-catch will crash the game, should notice it
 	{
+		print( ex )
 		if ( !( "modelChangedForErrorAnim" in guy.s ) )
 			guy.s.modelChangedForErrorAnim <- false
 		if ( guy.s.modelChangedForErrorAnim ) // already doing a wrong animation?
@@ -486,19 +487,20 @@ function __PlayAnim( guy, animation_name, reference = null, optionalTag = null, 
 			return
 		}
 
-		asset modelName = GetBestModelNameForHackedAnim( guy )
+		asset modelName = GetBestModelNameForErrorAnim( guy )
 		asset orgModel = guy.GetModelName()
 		guy.SetModel( modelName )
 		print( "Model animation error int __PlayAnim()! Resetting to " + string( modelName ) )
 		guy.s.modelChangedForErrorAnim = true
 		thread __PlayAnim( guy, animation_name, reference, optionalTag, blendTime )
 		print( "this animation is: " + animation_name )
-		thread TrackHackedAnimationEnd( guy, orgModel )
+		thread TrackErrorAnimationEnd( guy, orgModel )
 	}
 
 }
 
-asset function GetBestModelNameForHackedAnim( entity guy )
+// ANIMATIOIN ERROR HANDLER!
+asset function GetBestModelNameForErrorAnim( entity guy )
 {
 	asset modelName = $"models/humans/pilots/pilot_medium_geist_m.mdl" // default
 	if( guy.IsMechanical() )
@@ -513,13 +515,13 @@ asset function GetBestModelNameForHackedAnim( entity guy )
 	return modelName
 }
 
-void function TrackHackedAnimationEnd( guy, asset orgModel )
+void function TrackErrorAnimationEnd( guy, asset orgModel )
 {
 	expect entity( guy )
 	if( !IsValid( guy ) )
 		return
 
-	guy.Signal( "HackedAnimStart" )
+	guy.Signal( "ErrorAnimStart" )
 	guy.EndSignal( "OnDestroy" )
 	guy.EndSignal( "OnAnimationInterrupted" )
 	guy.EndSignal( "OnAnimationDone" )
@@ -529,7 +531,8 @@ void function TrackHackedAnimationEnd( guy, asset orgModel )
 		{
 			if( IsValid( guy ) )
 			{
-				guy.s.modelChangedForErrorAnim = false // clean up
+				if ( "modelChangedForErrorAnim" in guy.s )
+					guy.s.modelChangedForErrorAnim = false // clean up
 				if( guy.IsTitan() && guy.IsPlayer() )
 				{
 					thread TrackPlayerBecomePilot( guy, orgModel )
@@ -537,8 +540,8 @@ void function TrackHackedAnimationEnd( guy, asset orgModel )
 				}
 				else if( !guy.IsTitan() )
 				{
-					guy.SetModel( orgModel )
-					//print( "Hacked animation end! resetting model to " + string( orgModel ) )
+					thread DelayedResetGuyModel( guy, orgModel ) // give 1 frame grace period, so it won't mess up most animations
+					print( "Error animation end! resetting model to " + string( orgModel ) )
 				}
 			}
 		}
@@ -549,10 +552,10 @@ void function TrackHackedAnimationEnd( guy, asset orgModel )
 
 void function TrackPlayerBecomePilot( entity player, asset orgModel )
 {
-	//print( "Hacked player has become titan, waiting for leaving.." )
+	//print( "Error player has become titan, waiting for leaving.." )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "HackedAnimStart" )
+	player.EndSignal( "ErrorAnimStart" )
 	
 	table result =  WaitSignal( player, "DisembarkingTitan", "TitanEjectionStarted" )
 	if( result.signal == "TitanEjectionStarted" )
@@ -566,12 +569,21 @@ void function TrackPlayerBecomePilot( entity player, asset orgModel )
 		player.EndSignal( "OnAnimationInterrupted" )
 		player.WaitSignal( "OnAnimationDone" )
 	}
+	WaitFrame() // give 1 frame grace period, so it won't mess up most animations
 	if( IsAlive( player ) )
 	{
 		player.SetModel( orgModel )
 		//print( "Leaving titan! resetting model to " + string( orgModel ) )
 	}
 }
+
+void function DelayedResetGuyModel( entity guy, asset orgModel )
+{
+	WaitFrame() // give 1 frame grace period, so it won't mess up most animations
+	if ( IsAlive( guy ) )
+		guy.SetModel( orgModel )
+}
+//
 
 function TeleportToAnimStart( _guy, animation_name, reference, optionalTag = null, smooth = false )
 {
@@ -1080,6 +1092,7 @@ function CalcSequenceBlendTime( FirstPersonSequenceStruct sequence, entity playe
 	}
 	catch( ex )
 	{
+		print( ex )
 		if ( !( "modelChangedForErrorAnim" in player.s ) )
 			player.s.modelChangedForErrorAnim <- false
 		if ( player.s.modelChangedForErrorAnim ) // already doing a wrong animation?
@@ -1089,11 +1102,11 @@ function CalcSequenceBlendTime( FirstPersonSequenceStruct sequence, entity playe
 			return
 		}
 
-		asset modelName = GetBestModelNameForHackedAnim( player )
+		asset modelName = GetBestModelNameForErrorAnim( player )
 		asset orgModel = player.GetModelName()
 		player.SetModel( modelName )
 		print( "Model animation error in CalcSequenceBlendTime()! resetting to " + string( modelName ) )
-		thread TrackHackedAnimationEnd( player, orgModel )
+		thread TrackErrorAnimationEnd( player, orgModel )
 
 		CalcSequenceBlendTime( sequence, player, ent )
 	}
