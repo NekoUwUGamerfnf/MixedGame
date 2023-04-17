@@ -14,6 +14,8 @@ https://github.com/Dinorush/Brute4
 
 I made them compatible with my own scripts! Thanks to their support!
 
+spawn_mod.nut is from cat_or_not: https://github.com/catornot
+
 **This repository has something inspired by:**
 
 https://github.com/uniboi/HoloSprays
