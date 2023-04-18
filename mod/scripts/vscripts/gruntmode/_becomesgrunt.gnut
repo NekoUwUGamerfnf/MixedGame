@@ -5,26 +5,10 @@ global function BecomesGruntMode_Init
 global function GruntMode_RegisterPlayerClass
 global function GruntMode_IsSpecialistClass // for score events in gruntmode.gnut
 
-const array<string> GRUNT_CHATTERS = 
-[ 
-	"diag_sp_intro_WD104_24_01_mcor_grunt1",
-	"diag_sp_intro_WD103_02_01_mcor_grunt2",
-	"diag_sp_intro_WD104_26_01_mcor_grunt3",
-	"diag_sp_intro_WD104_25_01_mcor_grunt2",
-	"diag_sp_intro_WD104_29_01_mcor_grunt6"
-]
-//"diag_sp_intro_WD103_02_01_mcor_grunt2" Backup! Backup!
-//"diag_sp_intro_WD104_26_01_mcor_grunt3" We can't stay here, move, move!
-//"diag_sp_ReaperTown_BM103_01a_01_mcor_grunt2" Look, a pilot! now they're doing our favor
-//"diag_sp_intro_WD104_24_01_mcor_grunt1" They're trying to corner us!
-//"diag_sp_intro_WD104_25_01_mcor_grunt2" We can't let them turn us down, we need to move!
-//"diag_sp_intro_WD104_29_01_mcor_grunt6" Do we have any pilots in the area?
-
 // npc damage settings!!!
 const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.5
 const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.3
 const float NPC_SUPER_SPECTRE_ROCKET_DAMAGE_MULTIPLIER = 0.6
-
 
 struct PlayerClassStruct
 {
@@ -35,9 +19,10 @@ struct PlayerClassStruct
 
 struct
 {
-	table< string, bool > playerChatterTable // this is for making cooldowns between chatters, checking uids
-	table< entity, string > playerClassTable // this is for saving player's class
-	table< string, PlayerClassStruct > gruntModeClasses // this is for saving all valid classes
+	table<entity, float> playerNextChatterAllowedTime // this is for making cooldowns between chatters, checking uids
+	table<entity, float> playerNextDamageChatterAllowedTime // specified for damaging targets
+	table<entity, string> playerClassTable // this is for saving player's class
+	table<string, PlayerClassStruct> gruntModeClasses // this is for saving all valid classes
 } file
 
 void function BecomesGruntMode_Init()
@@ -78,7 +63,7 @@ void function BecomesGruntMode_Init()
 	MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs( true ) // pilot models don't have syncedMeleeData, so let them use mp executions
 	// rodeo
 	Rodeo_BatteryThiefHighlightEnabled( false ) // you don't have to worry about the highlight
-	/*
+	/* // classic rodeo
 	ClassicRodeo_SetEnabled( true )
 	ClassicRodeo_AllowContinouslyRemoveBattery( true ) // so you can rip battery all day long!
 	ClassicRodeo_SetBatteryRemovalDamageAmped( true ) // rodeo will deal large damage to titans
@@ -98,6 +83,9 @@ void function BecomesGruntMode_Init()
 	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
 	AddCallback_OnPlayerKilled( OnPlayerKilled )
 	AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
+
+	// player damage chatter
+	AddDamageByCallback( "player", OnPlayerDealDamage )
 
 	// ai configs
 	AddSpawnCallback( "npc_soldier", GruntConfig )
@@ -119,10 +107,25 @@ void function BecomesGruntMode_Init()
 	//MeleeSyncedNPC_AllowExecutingNPCPilot( true ) // hard to perform, but you can oneshot pilots with this
 	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, NerfProwlerMelee )
 	AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_super_spectre, NerfReaperRocket )
-	
-	// ai deaths
-	//AddDeathCallback( "npc_super_spectre", ReaperDeath ) // can' handle
 }
+
+
+///////////////////////////////////
+///// PLAYER DAMAGE FUNCTIONS /////
+///////////////////////////////////
+
+void function OnPlayerDealDamage( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+
+	if ( IsValid( attacker ) )
+		TryPlayerGruntChatterOnEnt( attacker, victim, true ) // damage chatter style
+}
+
+///////////////////////////////////////
+///// PLAYER DAMAGE FUNCTIONS END /////
+///////////////////////////////////////
+
 
 
 ////////////////////////////////
@@ -152,22 +155,30 @@ void function GruntModeHighlight( entity ent )
 	}
 }
 
+// hardcoded here
+const array<string> GRUNTMODE_SPECIALIST_GRUNTS =
+[
+	"npc_soldier_shield_captain",
+	"npc_soldier_pve_specialist",
+	"npc_soldier_sidearm"
+]
 void function GruntConfig( entity soldier )
 {
 	// friendly highlight
 	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
 	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
 
+	// hardcoded here
 	string aiSetName = soldier.GetAISettingsName()
-	// normal grunts, specialist grunt health handled by spawn function
-	if ( aiSetName != "npc_soldier_shield_captain" && aiSetName != "npc_soldier_pve_specialist" )
+	bool isSpecialistGrunt = GRUNTMODE_SPECIALIST_GRUNTS.contains( aiSetName )
+	if ( !isSpecialistGrunt ) // normal grunts
 	{
 		soldier.SetMaxHealth( 80 )
 		soldier.SetHealth( 80 )
 		// hide name if they're not specialist
 		thread TryHideNameLifeLong( soldier ) // grunts may spawn from dropship, they'll still show name, so do a loop
 	}
-	else // specialist
+	else // specialist grunts, health handled by spawn function
 		soldier.SetTitle( GetMilitiaTitle() ) // funny in _ai_soldiers.gnut
 
 	Melee_SetHumanSizedDoClassicExecution( soldier, true ) // grunts uses classic neck snap
@@ -250,8 +261,8 @@ void function ReaperConfig( entity soldier )
 	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
 
 	// even stronger
-	soldier.SetMaxHealth( 5500 )
-	soldier.SetHealth( 5500 )
+	soldier.SetMaxHealth( 5000 ) // was 5500, we have 2 reapers now...
+	soldier.SetHealth( 5000 )
 }
 
 void function TitanConfig( entity soldier )
@@ -360,37 +371,16 @@ void function NerfReaperRocket( entity victim, var damageInfo )
 	DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * NPC_SUPER_SPECTRE_ROCKET_DAMAGE_MULTIPLIER )
 }
 
+void function StartKillerOutline( entity victim, entity attacker )
+{
+	// may mess up highlights( client won't clean up npc's DeathRecapHighlight if player didn't entered killcam )
+	//if( attacker.IsNPC() || attacker.IsPlayer() )
+	//	Highlight_SetDeathRecapHighlight( attacker, "killer_outline" )
+}
+
 ////////////////////////////////////
 ///// NPC DAMAGE FUNCTIONS END /////
 ////////////////////////////////////
-
-
-
-///////////////////////////////
-///// NPC DEATH FUNCTIONS /////
-///////////////////////////////
-
-void function ReaperDeath( entity soldier, var damageInfo )
-{
-	if ( !IsValid( soldier ) ) // destroyed?
-		return
-	
-	// ignite existing ticks
-	string squadName = expect string ( soldier.kv.squadname ) // mostly can't handle!!!
-	if ( squadName == "" ) // invalid squad
-		return
-	array<entity> ticks = GetNPCArrayBySquad( squadName )
-	ticks.removebyvalue( soldier )
-	foreach ( entity tick in ticks )
-	{
-		if ( IsAlive( tick ) )
-			tick.Die() // hopefully they'll explode
-	}
-}
-
-///////////////////////////////////
-///// NPC DEATH FUNCTIONS END /////
-///////////////////////////////////
 
 
 
@@ -400,7 +390,8 @@ void function ReaperDeath( entity soldier, var damageInfo )
 
 void function OnClientConnected( entity player )
 {
-	file.playerChatterTable[player.GetUID()] <- false
+	file.playerNextChatterAllowedTime[ player ] <- 0.0
+	file.playerNextDamageChatterAllowedTime[ player ] <- 0.0
 	file.playerClassTable[ player ] <- "" // empty class
 	AddPlayerHeldButtonEventCallback( player, IN_USE, CallbackFuncCornerUs, 0.5 ) // was 0.3
 	AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, CallbackFuncCornerUs, 0.5 ) // controller support
@@ -475,18 +466,32 @@ void function CallbackFuncCornerUs( entity player )
 	thread CornerUsChatterThink( player )
 }
 
+const array<string> GRUNT_CHATTERS = 
+[ 
+	"diag_sp_intro_WD104_24_01_mcor_grunt1",
+	"diag_sp_intro_WD103_02_01_mcor_grunt2",
+	"diag_sp_intro_WD104_26_01_mcor_grunt3",
+	"diag_sp_intro_WD104_25_01_mcor_grunt2",
+	"diag_sp_intro_WD104_29_01_mcor_grunt6"
+]
+//"diag_sp_intro_WD103_02_01_mcor_grunt2" Backup! Backup!
+//"diag_sp_intro_WD104_26_01_mcor_grunt3" We can't stay here, move, move!
+//"diag_sp_ReaperTown_BM103_01a_01_mcor_grunt2" Look, a pilot! now they're doing our favor
+//"diag_sp_intro_WD104_24_01_mcor_grunt1" They're trying to corner us!
+//"diag_sp_intro_WD104_25_01_mcor_grunt2" We can't let them turn us down, we need to move!
+//"diag_sp_intro_WD104_29_01_mcor_grunt6" Do we have any pilots in the area?
+
 void function CornerUsChatterThink( entity player )
 {
-	string uid = player.GetUID()
-	if( file.playerChatterTable[uid] )
+	if( !CanPlayerUseGruntChatter( player ) )
 		return
 	if( !IsAlive( player ) )
 		return
 	//print( "Setting Chatter Unusable" )
 	string curChatter = GRUNT_CHATTERS[ RandomInt( GRUNT_CHATTERS.len() ) ]
 	EmitSoundOnEntity( player, curChatter )
-	thread DelayedRestoreBattleChatter( uid, 3 )
-	//print( "Reset Chatter Usage" )
+
+	SetGruntBattleChatterCooldown( player, 3 )
 }
 
 void function CallbackFuncSpotEnemy( entity player )
@@ -496,9 +501,6 @@ void function CallbackFuncSpotEnemy( entity player )
 
 void function SpotEnemyChatterThink( entity player )
 {
-	string uid = player.GetUID()
-	if( file.playerChatterTable[uid] )
-		return
 	if( !IsAlive( player ) )
 		return
 	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * 65535, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
@@ -514,55 +516,100 @@ void function SpotEnemyChatterThink( entity player )
 	}
 	if( traceResult.hitEnt.GetTeam() == player.GetTeam() )
 		return
-	array<string> chatterClasses = [ "npc_spectre", "npc_stalker", "npc_prowler", "npc_pilot_elite", "npc_titan" ]
-	string className = traceResult.hitEnt.GetClassName()
+	
 	//print( "hitEnt's classname: " + className )
-	if( !chatterClasses.contains( className ) )
-		return
-	switch( className )
+	TryPlayerGruntChatterOnEnt( player, traceResult.hitEnt )
+}
+
+// hardcoded enemy chatter
+const array<string> GRUNT_ENEMY_CHATTER_CLASSES =
+[
+	"player",
+	"npc_soldier",
+	"npc_spectre", 
+	"npc_stalker", 
+	"npc_prowler", 
+	"npc_pilot_elite", 
+	"npc_super_spectre",
+	"npc_titan"
+]
+
+bool function TryPlayerGruntChatterOnEnt( entity player, entity ent, bool damageChatter = false )
+{
+	if ( !IsAlive( player ) )
+		return false
+	if ( !CanPlayerUseGruntChatter( player, damageChatter ) )
+		return false
+
+	string className = ent.GetClassName()
+	//print( "chatter target's classname: " + className )
+
+	if ( !GRUNT_ENEMY_CHATTER_CLASSES.contains( className ) )
+		return false
+	
+	float chatterCooldown = 0.0
+	switch ( className )
 	{
+		case "player":
+		case "npc_soldier":
+			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_spotenemypilot" )
+			chatterCooldown = 3
+			break
 		case "npc_spectre":
 			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_reactSpectreEnemyMid_0" + string( RandomIntRange( 1, 3 ) ) )
-			thread DelayedRestoreBattleChatter( uid, 3 )
+			chatterCooldown = 3
 			break
 		case "npc_stalker":
 			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagingStalker_0" + string( RandomIntRange( 1, 2 ) ) )
-			thread DelayedRestoreBattleChatter( uid, 3 )
+			chatterCooldown = 3
 			break
 		case "npc_prowler":
 			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagingProwler_0" + string( RandomIntRange( 1, 2 ) ) )
-			thread DelayedRestoreBattleChatter( uid, 3 )
+			chatterCooldown = 3
 			break
 		case "npc_pilot_elite":
 			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagepilotenemy_0" + string( RandomIntRange( 1, 7 ) ) )
-			thread DelayedRestoreBattleChatter( uid, 3 )
-			break
-		case "npc_titan":
-			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_enemytitanspotcall_0" + string( RandomIntRange( 1, 2 ) ) )
-			thread DelayedRestoreBattleChatter( uid, 5 )
+			chatterCooldown = 3
 			break
 		case "npc_super_spectre":
 			if( CoinFlip() )
 				EmitSoundOnEntity( player, "diag_sp_ReaperTown_BM102_15_01_mcor_grunt3" )
 			else
 				EmitSoundOnEntity( player, "diag_sp_ReaperTown_BM102_16_01_mcor_grunt2" )
-			thread DelayedRestoreBattleChatter( uid, 3 )
+			chatterCooldown = 3
+			break
+		case "npc_titan":
+			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_enemytitanspotcall_0" + string( RandomIntRange( 1, 2 ) ) )
+			chatterCooldown = 5
 			break
 	}
+
+	if ( chatterCooldown > 0 )
+	{
+		if ( damageChatter )
+			chatterCooldown = 30 // don't want to make damage chatter annoying
+
+		SetGruntBattleChatterCooldown( player, chatterCooldown, damageChatter )
+	}
+
+	return true
 }
 
-void function DelayedRestoreBattleChatter( string uid, float delay )
+bool function CanPlayerUseGruntChatter( entity player, bool damageChatter = false )
 {
-	file.playerChatterTable[uid] = true
-	wait delay
-	file.playerChatterTable[uid] = false
+	bool nextChatterAllow = Time() >= file.playerNextChatterAllowedTime[ player ]
+	bool nextDamageChatterAllow = Time() >= file.playerNextDamageChatterAllowedTime[ player ]
+	if ( damageChatter )
+		return nextChatterAllow && nextDamageChatterAllow
+	return nextChatterAllow
 }
 
-void function StartKillerOutline( entity victim, entity attacker )
+void function SetGruntBattleChatterCooldown( entity player, float delay, bool damageChatter = false )
 {
-	// may mess up highlights( client won't clean up npc's DeathRecapHighlight if player didn't entered killcam )
-	//if( attacker.IsNPC() || attacker.IsPlayer() )
-	//	Highlight_SetDeathRecapHighlight( attacker, "killer_outline" )
+	if ( damageChatter )
+		file.playerNextDamageChatterAllowedTime[ player ] = Time() + delay
+
+	file.playerNextChatterAllowedTime[ player ] = Time() + delay
 }
 
 void function PlayEnemyKilledChatter( entity victim, entity attacker )
@@ -573,15 +620,15 @@ void function PlayEnemyKilledChatter( entity victim, entity attacker )
 
 void function DelayedEnemyKilledChatter( entity player )
 {
-	string uid = player.GetUID()
-	if( file.playerChatterTable[uid] )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	wait RandomFloatRange( 0.5, 0.8 )
+	if( !CanPlayerUseGruntChatter( player ) )
 		return
-	wait RandomFloatRange( 0.3, 0.5 )
-	if( IsAlive( player ) )
-	{
-		EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_killenemygrunt_0" + string( RandomIntRange( 1, 2 ) ) )
-	}
-	thread DelayedRestoreBattleChatter( uid, 3 )
+
+	EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_killenemygrunt_0" + string( RandomIntRange( 1, 2 ) ) )
+
+	SetGruntBattleChatterCooldown( player, 3 )
 }
 
 void function PlayFriendlyKilledChatter( entity victim, entity attacker )
@@ -600,23 +647,22 @@ void function PlayFriendlyKilledChatter( entity victim, entity attacker )
 
 void function DelayedFriendlyKilledChatter( entity player )
 {
-	string uid = player.GetUID()
-	if( file.playerChatterTable[uid] )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	wait RandomFloatRange( 0.5, 0.8 )
+
+	if( !CanPlayerUseGruntChatter( player ) )
 		return
-	wait RandomFloatRange( 0.3, 0.5 )
-	if( IsAlive( player ) )
+	array<entity> nearbyAllies = GetPlayerArrayEx( "any", player.GetTeam(), TEAM_ANY, player.GetOrigin(), 250 )
+	if( nearbyAllies.len() == 0 )
 	{
-		array<entity> nearbyAllies = GetPlayerArrayEx( "any", player.GetTeam(), TEAM_ANY, player.GetOrigin(), 250 )
-		if( nearbyAllies.len() == 0 )
-		{
-			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_squaddeplete" )
-			thread DelayedRestoreBattleChatter( uid, 5 )
-		}
-		else
-		{
-			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_allygruntdown" )
-			thread DelayedRestoreBattleChatter( uid, 3 )
-		}
+		EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_squaddeplete" )
+		SetGruntBattleChatterCooldown( player, 5 )
+	}
+	else
+	{
+		EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_allygruntdown" )
+		SetGruntBattleChatterCooldown( player, 3 )
 	}
 }
 
@@ -655,10 +701,13 @@ void function BecomeGruntModePlayer( entity player )
 
 void function InitGruntModeSpawnerSettings()
 {
+	ExtraSpawner_SetNPCWeapons( "npc_soldier", ["mp_weapon_rspn101", "mp_weapon_lmg", "mp_weapon_shotgun", "mp_weapon_r97", "mp_weapon_dmr"] )
+	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_rocket_launcher", "mp_weapon_mgl"] )
+	ExtraSpawner_SetNPCWeapons( "npc_spectre", ["mp_weapon_mastiff", "mp_weapon_doubletake", "mp_weapon_hemlok_smg", "mp_weapon_hemlok"] )
+	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_spectre", ["mp_weapon_arc_launcher", "mp_weapon_defender"] )
+
 	ExtraSpawner_SetNPCWeapons( "npc_pilot_elite", ["mp_weapon_rspn101_og", "mp_weapon_r97", "mp_weapon_car", "mp_weapon_alternator_smg", "mp_weapon_vinson"] )
 	ExtraSpawner_SetNPCWeapons( "npc_stalker", ["mp_weapon_softball", "mp_weapon_smr"] ) // stalkers can't shoot "mp_weapon_pulse_lmg"
-	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", [ "mp_weapon_rocket_launcher", "mp_weapon_mgl" ] )
-	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_spectre", [ "mp_weapon_arc_launcher", "mp_weapon_defender" ] )
 
 	ExtraSpawner_SetCarePackageWeapons( ["mp_weapon_epg", "mp_weapon_smr", "mp_weapon_softball", "mp_weapon_pulse_lmg"] )
 
