@@ -53,9 +53,16 @@ void function SpawnPlayerInDropPod( entity player, vector targetOrigin, vector a
 	if ( !IsValid( player ) )
 		return
 
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
 	svGlobal.levelEnt.EndSignal( "CleanUpEntitiesForRoundEnd" )
 
+	table results = {}
+	results.droppodLanded <- false
+	results.playerLanded <- false // since player's landing will sometimes delay 1 frame(eg. first spawn), have to use another var
+
 	entity pod = CreateDropPod( targetOrigin, angles )
+	pod.EndSignal( "OnDestroy" )
 	file.droppods.append( pod )
 
 	// add a indicator
@@ -80,49 +87,79 @@ void function SpawnPlayerInDropPod( entity player, vector targetOrigin, vector a
 	vector podloaction = pod.GetOrigin() + Vector( 0, 0, 2200 ) // was 3000, maybe higher than boomtown's roof
 	camera.SetLocalOrigin( podloaction )
 	camera.SetAngles( < 90, angles.y, 0 > )
+
+	// all entity creations done, ready to clean up
+	OnThreadEnd
+	(
+		function(): ( results, player, pod, camera, indicator )
+		{
+			if ( IsValid( player ) )
+			{
+				if ( !results.playerLanded ) // thread end but player not landed yet? maybe they died
+				{
+					// clean up these
+					player.ClearParent()
+					player.ClearViewEntity()
+					player.UnfreezeControlsOnServer()
+					DeployAndEnableWeapons( player )
+				}
+			}
+
+			if ( IsValid( pod ) )
+			{
+				if ( !results.droppodLanded ) // pod not landing but player died or something?
+					CleanupRespawnDroppod( pod ) // clean it immediately
+			}
+
+			if ( IsValid( camera ) )
+				camera.Destroy()
+
+			if ( IsValid( indicator ) ) // remove indicator
+				EffectStop( indicator )
+		}
+	)
 	
+	HolsterAndDisableWeapons( player ) // holster weapon so they won't have weapon deploy sound out
 	DoRespawnPlayer( player, null )
 
-	if( IsValid( pod ) )
-	{
-		player.SetOrigin( pod.GetOrigin() )
-		player.SetAngles( pod.GetAngles() )
-		player.SetParent( pod ) // don't use ( pod, "ATTACH", true ), which will cause visual issue while disembarking
-	}
+	// attach pod and camera
+	player.SetOrigin( pod.GetOrigin() )
+	player.SetAngles( pod.GetAngles() )
+	player.SetParent( pod ) // don't use ( pod, "ATTACH", true ), which will cause visual issue while disembarking
 
-	if( IsValid( player ) )
-	{
-		player.FreezeControlsOnServer()
-		AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
-		player.SetViewEntity( camera, true )
-	}
+	player.FreezeControlsOnServer()
+	//AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+	player.SetViewEntity( camera, true )
 	
 	// wait for this
 	LaunchAnimDropPod( pod, "pod_testpath", targetOrigin, angles )
 
-	if ( IsValid( pod ) && destructionTime != -1 )
+	results.droppodLanded = true // mark landing as true
+	if ( destructionTime != -1 )
 		thread DelayedCleanUpDroppod( pod, destructionTime ) // start droppod cleanup here
 	
-	if ( IsValid( indicator ) ) // remove indicator
-		EffectStop( indicator )
-	
 	//WaitFrame()
-	if( IsValid( player ) && GetGameState() < eGameState.Postmatch )
+	if( GetGameState() < eGameState.Postmatch )
 	{
 		player.ClearParent()
 		player.ClearViewEntity()
-		if ( GetGameState() > eGameState.Prematch ) // make compatible with intros
-			player.UnfreezeControlsOnServer() // otherwise we unfreeze player in intro
 		if ( player.s.respawnCount == 1 ) // hack for first respawn, or player will facing the pod for some reason
-		{
 			WaitFrame()
-			if ( !IsValid( player ) ) // since we've delayed 1 frame, should check this
-				return
-		}
+
+		if ( GetGameState() > eGameState.Prematch ) // make compatiblility with intros
+			player.UnfreezeControlsOnServer() // otherwise we unfreeze player in intro
+
 		player.Signal( "PlayerDroppodImpact" )
-		RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+		//RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
 		FindNearestSafeSpotAndPutEntity( player, 1 ) // defensive fix
 		player.SetAngles( angles ) // always facing the spawnpoint
+
+		// give loadout again so they'll have weapon deploy animations
+		StorePilotWeapons( player )
+		RetrievePilotWeapons( player )
+		DeployAndEnableWeapons( player )
+
+		results.playerLanded = true // mark as player landed
 	}
 }
 
@@ -132,6 +169,11 @@ void function DelayedCleanUpDroppod( entity pod, float destructionTime )
 	if ( destructionTime > 0 )
 		wait destructionTime
 
+	CleanupRespawnDroppod( pod )
+}
+
+void function CleanupRespawnDroppod( entity pod )
+{
 	// basically same as CleanupFireteamPod()
 	EmitSoundAtPosition( TEAM_UNASSIGNED, pod.GetOrigin(), "droppod_dissolve" )
 	pod.NotSolid() // so it won't block player's movement
