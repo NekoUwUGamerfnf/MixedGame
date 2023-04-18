@@ -7,7 +7,8 @@ const int SQUADS_PER_TEAM_MORE_PLAYERS = 4 // maybe do reduced squad if we have 
 const int REAPERS_PER_TEAM = 2 // was 2, reduced reaper spawn since we're using tick spawner reapers
 
 const int MARVINS_PER_TEAM = 0
-const int PROWLERS_PER_TEAM = 4
+const int PROWLERS_PER_TEAM = 0
+const int PROWLER_SQUADS_PER_TEAM = 1 // prowler squad: 2 cqb prowler with 3 small prowlers
 const int PILOTS_PER_TEAM = 3
 
 const int TITANS_PER_TEAM = 0
@@ -32,6 +33,7 @@ const int GRUNT_SCORE_AMOUNT = 1
 const int SPECTRE_SCORE_AMOUNT = 2
 const int STALKER_SCORE_AMOUNT = 2
 const int PROWLER_SCORE_AMOUNT = 2
+const int SMALL_PROWLER_SCORE_AMOUNT = 1
 const int REAPER_SCORE_AMOUNT = 5
 const int DRONE_SCORE_AMOUNT = 0
 const int TITAN_SCORE_AMOUNT = 10
@@ -220,7 +222,13 @@ void function ForceAddScoreForPlayerOrNPCKill( entity victim, var damageInfo )
 		scoreToAdd = MARVIN_SCORE_AMOUNT
 
 	if ( className == "npc_prowler" )
-		scoreToAdd = PROWLER_SCORE_AMOUNT
+	{
+		// hardcoded here: if it's a small prowler we add less score
+		if ( float( victim.kv.modelscale ) < 1.0 )
+			scoreToAdd = SMALL_PROWLER_SCORE_AMOUNT
+		else
+			scoreToAdd = PROWLER_SCORE_AMOUNT
+	}
 
 	if ( className == "npc_spectre" )
 		scoreToAdd = SPECTRE_SCORE_AMOUNT
@@ -279,8 +287,7 @@ void function SpawnIntroBatch( int team )
 		{
 			array< entity > points = SpawnPoints_GetDropPod()
 			entity node = points[ GetSpawnPointIndex( points, team ) ]
-			// 25% chance of spawning a shield captain
-			string leaderSet = RandomInt( 4 ) == 0 ? "npc_soldier_shield_captain" : "npc_soldier_pve_specialist"
+			string leaderSet = GetGruntModeSpecialistGruntLeader()
 			//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
 			thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", leaderSet, 250, SquadHandler )
 		}
@@ -306,6 +313,21 @@ void function SpawnIntroBatch( int team )
 	thread Spawner( team )
 	thread SpawnerExtend( team )
 	thread SpawnerWeapons( team )
+}
+
+string function GetGruntModeSpecialistGruntLeader()
+{
+	// 20% chance of spawning a shield captain
+	bool spawnShieldCaptain = RandomInt( 5 ) == 0
+	string leaderSet = "npc_soldier_pve_specialist"
+	if ( spawnShieldCaptain )
+		leaderSet = "npc_soldier_shield_captain"
+	else if ( CoinFlip() ) // otherwise we have 50% chance of spawning a sniper grunt
+		leaderSet = "npc_soldier_sidearm"
+	
+	//print( "leaderAiSet: " + leaderSet )
+
+	return leaderSet
 }
 
 // Populates the match
@@ -355,8 +377,7 @@ void function Spawner( int team )
 				array< entity > points = SpawnPoints_GetDropPod()
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
-				// 25% chance of spawning a shield captain
-				string leaderSet = RandomInt( 4 ) == 0 ? "npc_soldier_shield_captain" : "npc_soldier_pve_specialist"
+				string leaderSet = GetGruntModeSpecialistGruntLeader()
 				// add health depending on what npc it spawning with
 				int leaderHealth = 200 + ( 60 * file.podEntities[ index ].find( ent ) )
 				//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
@@ -483,6 +504,19 @@ void function SpawnerExtend( int team )
 				//thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent )
 				thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, ent, NPCHandler )
 				
+			}
+		}
+
+		// PROWLER SQUADS
+		if ( file.prowlers[ index ] )
+		{
+			//print( "prowlerCount: " + string( prowlerCount ) )
+			array< entity > points = SpawnPoints_GetDropPod()
+			if ( prowlerCount < PROWLER_SQUADS_PER_TEAM * 4 - 2 )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				//print( "RUNNING ExtraSpawner_SpawnProwlerSquadDropPod()" )
+				thread ExtraSpawner_SpawnProwlerSquadDropPod( node.GetOrigin(), node.GetAngles(), team, SquadHandler )
 			}
 		}
 	}
@@ -633,8 +667,7 @@ void function SquadHandler( array<entity> guys )
 		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 		
 		// show on enemy radar
-		foreach ( player in players )
-			guy.Minimap_AlwaysShow( 0, player )
+		AddMinimapForHumanSized( guy )
 	}
 	
 	// Every 5 - 15 secs change AssaultPoint
@@ -671,6 +704,14 @@ void function SquadHandler( array<entity> guys )
 		}
 		wait RandomFloatRange(5.0,15.0)
 	}
+}
+
+void function AddMinimapForHumanSized( entity guy )
+{
+	guy.Minimap_AlwaysShow( TEAM_IMC, null )
+	guy.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	guy.Minimap_SetHeightTracking( true )
+	guy.Minimap_SetCustomState( eMinimapObject_npc.AI_TDM_AI )
 }
 
 // handle a single npc
@@ -918,8 +959,13 @@ void function CleanupBoredNPCThread( entity guy )
 			// detonate all frag drones they owned
 			foreach ( entity ent in GetScriptManagedEntArray( guy.ai.activeMinionEntArrayID ) )
 			{
-				if ( IsValid( ent ) && ent.IsNPC() && ent.ai.fragDroneArmed ) // they may doing a deploy animation or is still a nade, which handled by WaitForFragDroneDeployThenDetonate()
-					ent.Signal( "SuicideSpectreExploding" )
+				if ( IsValid( ent ) ) 
+				{
+					if ( ent.IsNPC() && ent.ai.fragDroneArmed ) // minion may doing a deploy animation, which handled by WaitForFragDroneDeployThenDetonate()
+						ent.Signal( "SuicideSpectreExploding" )
+					else if ( ent.GetClassName() == "grenade" ) // minion still a grenade
+						ent.Destroy()
+				}
 			}
 		}
 	}
