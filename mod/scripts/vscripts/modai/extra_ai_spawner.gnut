@@ -8,6 +8,7 @@ global function ExtraSpawner_SpawnDropPod
 // normal spawn
 global function ExtraSpawner_SpawnNPCInDropPod
 global function ExtraSpawner_SpawnSpecialistGruntDropPod
+global function ExtraSpawner_SpawnProwlerSquadDropPod
 global function ExtraSpawner_SpawnTitanRandom
 global function ExtraSpawner_SpawnTitanBT
 global function ExtraSpawner_SpawnGunShip
@@ -131,6 +132,8 @@ void function ExtraAISpawner_Init()
 	AddDamageCallbackSourceID( eDamageSourceId.auto_titan_melee, ApplyNormalMeleeIdToNPCTitan )
 	// npc pilot score event, better be added by gamemodes
 	//AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
+	// npc prowler: scale damage depend on model scale
+	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, ProwlerMeleeDamageModifier )
 
 	// for debugging
 	//MeleeSyncedNPC_EnableAll_Init()
@@ -1216,7 +1219,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 	spawnNpc.EndSignal( "OnDestroy" )
 	DispatchSpawn( spawnNpc ) // never delayed dispatchSpawn()
 
-    InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
+    InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
 	spawnNpc.SetParent( pod, "ATTACH", true )
 
 	if ( npcHandler != null )
@@ -1231,7 +1234,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 	
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	
-	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
+	InitFireteamDropPod( pod )
 	
 	for ( int i = 0; i < 4 ;i++ )
 	{
@@ -1320,6 +1323,47 @@ entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int t
 	return npc
 }
 
+void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int team, void functionref( array<entity> guys ) squadHandler = null )
+{
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
+	
+	entity pod = CreateDropPod( pos, <0,0,0> )
+	
+	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
+	
+	for ( int i = 0; i < 5 ;i++ )
+	{
+		// 3 small prowlers and 2 normal prowlers
+		entity npc = CreateNPC( "npc_prowler", team, pos, <0,0,0> )
+
+		float prowlerScale = RandomFloatRange( 0.5, 0.7 )
+		if ( i >= 2 ) // small prowlers
+			npc.kv.modelscale = prowlerScale
+
+		DispatchSpawn( npc )
+
+		if ( i < 2 ) // normal prowlers
+			npc.SetBehaviorSelector( "behavior_prowler_cqb" ) // better behavior
+		else // small prowlers, scale health
+		{
+			npc.SetMaxHealth( npc.GetMaxHealth() * prowlerScale )
+			npc.SetHealth( npc.GetMaxHealth() )
+		}
+
+		SetSquad( npc, squadName )
+		
+		npc.SetParent( pod, "ATTACH", true )
+		guys.append( npc )
+	}
+	
+	// The order here is different so we can show on minimap while were still falling
+	if ( squadHandler != null )
+		thread squadHandler( guys )
+		
+	waitthread LaunchDropPodThenActivate( pod, guys, pos, rot, false )
+}
+
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 {
 	entity gunship = CreateNPC("npc_gunship", team, pos, rot )
@@ -1362,7 +1406,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
 	// attach to a droppod
 	entity pod = CreateDropPod( pos, <0,0,0> )
-	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolve
+	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
 	pilot.SetParent( pod, "ATTACH", true )
 	thread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
@@ -1738,6 +1782,18 @@ void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
 	DamageInfo_SetDamageSourceIdentifier( damageInfo, damageSource )
 }
 
+void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( !IsValid( attacker ) )
+        return
+	if( !attacker.IsNPC() )
+		return
+	
+	float damageScale = float( attacker.kv.modelscale )
+	DamageInfo_ScaleDamage( damageInfo, damageScale )
+}
+
 // modified, since WT_ANTITITAN won't work in r2, hardcoded
 const array<string> ANTI_TITAN_WEAPONS =
 [
@@ -1817,8 +1873,7 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 	
 	array<entity> players = GetPlayerArrayOfEnemies( pilot.GetTeam() )
 	// show on enemy radar
-	foreach ( player in players )
-		pilot.Minimap_AlwaysShow( 0, player )
+	AddMinimapForNPCPilot( pilot )
 	
 	// Every 5 - 15 secs change AssaultPoint
 	while ( true )
@@ -1839,6 +1894,15 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 		pilot.AssaultPoint( point )
 	}
 
+}
+
+void function AddMinimapForNPCPilot( entity guy )
+{
+	guy.Minimap_SetAlignUpright( true ) // always show
+	guy.Minimap_AlwaysShow( TEAM_IMC, null )
+	guy.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	guy.Minimap_SetHeightTracking( true )
+	guy.Minimap_SetCustomState( eMinimapObject_npc.AI_TDM_AI )
 }
 
 void function ExtraSpawner_TitanHandler( entity titan )
