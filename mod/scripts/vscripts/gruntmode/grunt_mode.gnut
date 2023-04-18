@@ -7,7 +7,8 @@ const int SQUADS_PER_TEAM_MORE_PLAYERS = 4 // maybe do reduced squad if we have 
 const int REAPERS_PER_TEAM = 2 // was 2, reduced reaper spawn since we're using tick spawner reapers
 
 const int MARVINS_PER_TEAM = 0
-const int PROWLERS_PER_TEAM = 4
+const int PROWLERS_PER_TEAM = 0
+const int PROWLER_SQUADS_PER_TEAM = 2 // prowler squad: 2 cqb prowler with 3 small prowlers
 const int PILOTS_PER_TEAM = 3
 
 const int TITANS_PER_TEAM = 0
@@ -279,8 +280,7 @@ void function SpawnIntroBatch( int team )
 		{
 			array< entity > points = SpawnPoints_GetDropPod()
 			entity node = points[ GetSpawnPointIndex( points, team ) ]
-			// 25% chance of spawning a shield captain
-			string leaderSet = RandomInt( 4 ) == 0 ? "npc_soldier_shield_captain" : "npc_soldier_pve_specialist"
+			string leaderSet = GetGruntModeSpecialistGruntLeader()
 			//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
 			thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", leaderSet, 250, SquadHandler )
 		}
@@ -306,6 +306,21 @@ void function SpawnIntroBatch( int team )
 	thread Spawner( team )
 	thread SpawnerExtend( team )
 	thread SpawnerWeapons( team )
+}
+
+string function GetGruntModeSpecialistGruntLeader()
+{
+	// 20% chance of spawning a shield captain
+	bool spawnShieldCaptain = RandomInt( 5 ) == 0
+	string leaderSet = "npc_soldier_pve_specialist"
+	if ( spawnShieldCaptain )
+		leaderSet = "npc_soldier_shield_captain"
+	else if ( CoinFlip() ) // otherwise we have 50% chance of spawning a sniper grunt
+		leaderSet = "npc_soldier_sidearm"
+	
+	//print( "leaderAiSet: " + leaderSet )
+
+	return leaderSet
 }
 
 // Populates the match
@@ -355,8 +370,7 @@ void function Spawner( int team )
 				array< entity > points = SpawnPoints_GetDropPod()
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
-				// 25% chance of spawning a shield captain
-				string leaderSet = RandomInt( 4 ) == 0 ? "npc_soldier_shield_captain" : "npc_soldier_pve_specialist"
+				string leaderSet = GetGruntModeSpecialistGruntLeader()
 				// add health depending on what npc it spawning with
 				int leaderHealth = 200 + ( 60 * file.podEntities[ index ].find( ent ) )
 				//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
@@ -921,8 +935,13 @@ void function CleanupBoredNPCThread( entity guy )
 			// detonate all frag drones they owned
 			foreach ( entity ent in GetScriptManagedEntArray( guy.ai.activeMinionEntArrayID ) )
 			{
-				if ( IsValid( ent ) && ent.IsNPC() && ent.ai.fragDroneArmed ) // they may doing a deploy animation or is still a nade, which handled by WaitForFragDroneDeployThenDetonate()
-					ent.Signal( "SuicideSpectreExploding" )
+				if ( IsValid( ent ) ) 
+				{
+					if ( ent.IsNPC() && ent.ai.fragDroneArmed ) // minion may doing a deploy animation, which handled by WaitForFragDroneDeployThenDetonate()
+						ent.Signal( "SuicideSpectreExploding" )
+					else if ( ent.GetClassName() == "grenade" ) // minion still a grenade
+						ent.Destroy()
+				}
 			}
 		}
 	}
