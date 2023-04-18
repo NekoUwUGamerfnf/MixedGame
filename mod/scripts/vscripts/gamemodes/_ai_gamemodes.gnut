@@ -112,7 +112,7 @@ void function AiGameModes_SpawnDropPod( vector pos, vector rot, int team, string
 const float REAPER_WARPFALL_DELAY = 4.7 // same as fd does
 void function AiGameModes_SpawnReaper( vector pos, vector rot, int team, string aiSettings = "", void functionref( entity reaper ) reaperHandler = null )
 {
-	thread Reaper_Spawnpoint( pos, team, REAPER_WARPFALL_DELAY + 1.2 ) // reaper takes ~1.2s to warpfall
+	thread HotDrop_Spawnpoint( pos, team, REAPER_WARPFALL_DELAY + 1.2 ) // reaper takes ~1.2s to warpfall
 
 	wait REAPER_WARPFALL_DELAY
 	entity reaper = CreateSuperSpectre( team, pos, rot )
@@ -139,14 +139,14 @@ void function AiGameModes_SpawnReaper( vector pos, vector rot, int team, string 
 }
 
 // copied from cl_replacement_titan_hud.gnut
-void function Reaper_Spawnpoint( vector origin, int team, float impactTime, bool hasFriendlyWarning = false )
+void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, bool hasFriendlyWarning = false )
 {
 	array<entity> targetEffects = []
 	vector surfaceNormal = < 0, 0, 1 >
 
 	int index = GetParticleSystemIndex( $"P_ar_titan_droppoint" )
 
-	if( hasFriendlyWarning )
+	if( hasFriendlyWarning || FriendlyFire_IsEnabled() ) // also warn friendly players, if we enabled friendly fire...
 	{
 		entity effectFriendly = StartParticleEffectInWorld_ReturnEntity( index, origin, surfaceNormal )
 		SetTeam( effectFriendly, team )
@@ -163,6 +163,9 @@ void function Reaper_Spawnpoint( vector origin, int team, float impactTime, bool
 	effectEnemy.DisableHibernation() // prevent it from fading out
 	targetEffects.append( effectEnemy )
 
+	// so npcs will mostly avoid them
+	AI_CreateDangerousArea_Static( effectEnemy, null, TITANFALL_OUTER_RADIUS, TEAM_INVALID, true, true, origin )
+
 	wait impactTime
 
 	foreach( entity targetEffect in targetEffects )
@@ -173,11 +176,15 @@ void function Reaper_Spawnpoint( vector origin, int team, float impactTime, bool
 }
 
 // including aisettings stuff specifically for at bounty titans
+const float TITANFALL_WARNING_DURATION = 5.0
 void function AiGameModes_SpawnTitan( vector pos, vector rot, int team, string setFile, string aiSettings = "", void functionref( entity titan ) titanHandler = null )
 {
 	entity titan = CreateNPCTitan( setFile, TEAM_BOTH, pos, rot )
 	SetSpawnOption_Titanfall( titan )
 	SetSpawnOption_Warpfall( titan )
+
+	// modified: do a hotdrop spawnpoint warning
+	thread HotDrop_Spawnpoint( pos, team, TITANFALL_WARNING_DURATION )
 	
 	if ( aiSettings != "" )
 		SetSpawnOption_AISettings( titan, aiSettings )
