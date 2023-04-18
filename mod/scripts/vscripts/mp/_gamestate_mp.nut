@@ -211,9 +211,7 @@ void function PickLoadoutFadeToBlack()
 	while ( GetGameState() == eGameState.PickLoadout )
 	{
 		foreach ( entity player in GetPlayerArray() )
-		{
-			ScreenFadeToBlackForever( player, 0.1 )
-		}
+			ScreenFadeToBlackForever( player, 0.0 )
 		WaitFrame()
 	}
 }
@@ -230,6 +228,10 @@ void function GameStateEnter_Prematch()
 	
 	if ( !GetClassicMPMode() && !ClassicMP_ShouldTryIntroAndEpilogueWithoutClassicMP() )
 		thread StartGameWithoutClassicMP()
+	
+	// have to recover from the screen fade caused by pickLoadout
+	foreach ( entity player in GetPlayerArray() )
+		ScreenFadeFromBlack( player, 3.0, 1.0 ) 
 }
 
 void function StartGameWithoutClassicMP()

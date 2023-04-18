@@ -37,27 +37,55 @@ struct DropShipSequenceDate
 	string firstPersonJumpOutSound // Unfortunately first person anims play for everybody, not just the person who the anim is played upon, so script needs to play the sound as opposed to a qc entry
 }
 
-struct {
+struct 
+{
+	array<entity> validDropshipSpawns
 	array<DropShipSequenceDate> dropShipSequenceDateList
 
 	// these used to be IntroDropship[2]s but i wanted to be able to use array.getrandom so they have to be actual arrays
 	array<IntroDropship> militiaDropships
 	array<IntroDropship> imcDropships
 	
+	// for respawning from droppod
+	table<entity, bool> playerSpawnFromDropship
+
 	float introStartTime
 } file
 
 
 void function ClassicMP_GruntModeIntro_Setup()
 {
-	SetPickLoadoutEnabled( true ) // required to make client play warpjump sound
-	SetPickLoadoutDuration( 4.0 ) // enough time for playing the sound, don't want to make player wait too long
+	InitValidDropshipSpawns()
 	InitIntroDropshipSequenceData()
 	AddCallback_OnClientConnected( DropshipIntro_OnClientConnected )	
 	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
 	AddCallback_GameStateEnter( eGameState.Playing, OnGameStart )
 }
 
+void function InitValidDropshipSpawns()
+{
+	array<entity> dropshipSpawns = GetEntArrayByClass_Expensive( "info_spawnpoint_dropship_start" )
+	foreach ( entity dropshipSpawn in dropshipSpawns )
+	{
+		if ( GameModeRemove( dropshipSpawn ) ) // this is hardcoded, should modify it
+			continue
+		/* // should never, never use GetSpawnpointGamemodeOverride() on dropship spawns
+		if ( dropshipSpawn.HasKey( "gamemode_" + GetSpawnpointGamemodeOverride() ) )
+		{
+			if ( dropshipSpawn.kv[ "gamemode_" + GetSpawnpointGamemodeOverride() ] == "0" )
+				continue
+		}
+		*/
+		
+		file.validDropshipSpawns.append( dropshipSpawn )
+	}
+
+	if ( file.validDropshipSpawns.len() == 4 ) // only setup pickLoadout if there do have proper dropship spawns
+	{
+		SetPickLoadoutEnabled( true ) // required to make client play warpjump sound
+		SetPickLoadoutDuration( 4.0 ) // enough time for playing the sound, don't want to make player wait too long
+	}
+}
 
 void function InitIntroDropshipSequenceData()
 {
@@ -142,6 +170,7 @@ void function InitIntroDropshipSequenceData()
 
 void function DropshipIntro_OnClientConnected( entity player )
 {
+	file.playerSpawnFromDropship[ player ] <- false
 	if ( GetGameState() == eGameState.Prematch )
 	{
 		if ( file.introStartTime + SPAWN_IN_DROPPOD_TIME < Time() ) // very late joiner, just spawn them onto ground like valinilla
@@ -155,16 +184,33 @@ void function OnGameStart()
 {
 	foreach ( entity player in GetPlayerArray() )
 	{
+		if ( file.playerSpawnFromDropship[ player ] ) // this player mark as spawn from dropship?
+			continue
+		
+		// otherwise they spawning from droppod
 		if ( !IsValid( player.GetParent() ) ) // not respawning from droppod
-			player.UnfreezeControlsOnServer() // give mobility
+			player.UnfreezeControlsOnServer() // give mobility, if they're respawning from droppod they'll be handled by it's function
+		
+		// do gamemode announcement
+		thread WaitForPlayerDisembarksDroppod( player )
 	}
+}
+
+void function WaitForPlayerDisembarksDroppod( entity player )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	
+	while ( IsValid( player.GetParent() ) )
+		WaitFrame()
+	TryGameModeAnnouncement( player )
 }
 
 void function OnPrematchStart()
 {
 	ClassicMP_OnIntroStarted()
 
-	print( "starting faster dropship intro!" )
+	print( "starting gruntmode intro!" )
 	file.introStartTime = Time()
 	
 	// make 2 empty dropship structs per team
@@ -172,23 +218,23 @@ void function OnPrematchStart()
 	file.militiaDropships.clear()
 	file.imcDropships.clear()
 	
-	array<entity> validDropshipSpawns
-	array<entity> dropshipSpawns = GetEntArrayByClass_Expensive( "info_spawnpoint_dropship_start" )
-	foreach ( entity dropshipSpawn in dropshipSpawns )
+	// if dropship spawns are not good for this mode, just spawn players in droppod
+	if ( file.validDropshipSpawns.len() != 4 )
 	{
-		if ( dropshipSpawn.HasKey( "gamemode_" + GetSpawnpointGamemodeOverride() ) )
-			if ( dropshipSpawn.kv[ "gamemode_" + GetSpawnpointGamemodeOverride() ] == "0" )
-				continue
-		
-		validDropshipSpawns.append( dropshipSpawn )
+		foreach ( entity player in GetPlayerArray() )
+		{
+			if ( !IsPrivateMatchSpectator( player ) )
+				SpawnFromDroppod( player, 15 ) // longer lifetime for intro droppods
+			else
+				RespawnPrivateMatchSpectator( player )
+		}
+
+		thread EndIntroWhenFinished()
+		return
 	}
 	
-	// if no dropship spawns for this mode, just allow any dropship spawns
-	if ( validDropshipSpawns.len() < 2 )
-		validDropshipSpawns = dropshipSpawns
-	
 	// spawn dropships
-	foreach ( entity dropshipSpawn in validDropshipSpawns )
+	foreach ( entity dropshipSpawn in file.validDropshipSpawns )
 	{
 		// todo: possibly make this only spawn dropships if we've got enough players to need them
 		int createTeam = HasSwitchedSides() ? GetOtherTeam( dropshipSpawn.GetTeam() ) : dropshipSpawn.GetTeam() 
@@ -204,18 +250,19 @@ void function OnPrematchStart()
 		teamDropships[ teamDropships.len() - 1 ].dropship = dropship
 		
 		AddAnimEvent( dropship, "dropship_warpout", WarpoutEffect )
-		dropship.SetValueForModelKey( $"models/vehicle/crow_dropship/crow_dropship_hero.mdl" )
-		dropship.SetModel( $"models/vehicle/crow_dropship/crow_dropship_hero.mdl" ) 
+		// as respawn's settings, IMC team goes default
+		dropship.SetValueForModelKey( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" )
+		dropship.SetModel( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" ) 
 		
 		DispatchSpawn( dropship )
 		
 		// have to do this after dispatch otherwise it won't work for some reason
 		// weirdly enough, tf2 actually does use different dropships for imc and militia, despite these concepts not really being a thing for players in tf2
 		// probably was just missed by devs, but keeping it in for accuracy
-		if ( dropshipSpawn.GetTeam() == TEAM_IMC )
-			dropship.SetModel( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" )
-		else
+		if ( dropshipSpawn.GetTeam() == TEAM_MILITIA )
 			dropship.SetModel( $"models/vehicle/crow_dropship/crow_dropship_hero.mdl" )
+		else // as respawn's settings, IMC team goes default
+			dropship.SetModel( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" )
 		
 		thread PlayAnim( dropship, "dropship_classic_mp_flyin" )
 		// hardcoded for now
@@ -246,6 +293,8 @@ void function SpawnPlayerIntoDropship( entity player )
 	if ( IsAlive( player ) )
 		player.Die() // kill them so we don't have any issues respawning them later
 	
+	file.playerSpawnFromDropship[ player ] = true // mark this player as spawning from dropship
+
 	table results = {}
 	results.isJumping <- false
 	
@@ -268,7 +317,7 @@ void function SpawnPlayerIntoDropship( entity player )
 		}
 	})
 	
-	//WaitFrame() // don't know why WaitFrame() here
+	WaitFrame() // do a waitFrame() for other respawn functions set up
 
 	player.EndSignal( "OnDeath" )
 	
@@ -310,10 +359,10 @@ void function SpawnPlayerIntoDropship( entity player )
 	
 	// hide hud and fade screen out from black
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
-	ScreenFadeFromBlack( player, 3.0, 1.0 )
+	//ScreenFadeFromBlack( player, 3.0, 1.0 ) // handled by gamestateEnter_Prematch in gamestate_mp
 	// faction leaders are done clientside, spawn them here
     // default intro is 15s, I want to make it a 5s, so make factionleader's animations etc be 10s faster
-	float timeDiff = DROPSHIP_INTRO_LENGTH - DROPSHIP_INTRO_LENGTH_SHORTER // get differ
+	float timeDiff = DROPSHIP_INTRO_LENGTH - DROPSHIP_INTRO_LENGTH_SHORTER - 0.1 // get differ, add 0.1s fix
 	// actually don't spawn a commander could be better
 	//Remote_CallFunction_NonReplay( player, "ServerCallback_SpawnFactionCommanderInDropship", playerDropship.dropship.GetEncodedEHandle(), file.introStartTime )
 
@@ -377,9 +426,14 @@ void function PlayerJumpsFromDropship( entity player )
 			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
 
             if ( IsAlive( player ) ) // not resetting through death
-            {
+			{
+				// give loadout again so they'll have weapon deploy animations
+				StorePilotWeapons( player )
+				RetrievePilotWeapons( player )
                 //player.kv.gravity = savedKeyValues.gravity // restore gravity
-            }
+			}
+			else
+				player.Anim_Stop() // stop sequence for dead players
 		}
 	})
 		
