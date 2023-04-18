@@ -21,14 +21,13 @@ struct
 {
 	table<entity, float> playerNextChatterAllowedTime // this is for making cooldowns between chatters, checking uids
 	table<entity, float> playerNextDamageChatterAllowedTime // specified for damaging targets
+	table<entity, string> playerLastChatterName // we stop the chatter sound on death
 	table<entity, string> playerClassTable // this is for saving player's class
 	table<string, PlayerClassStruct> gruntModeClasses // this is for saving all valid classes
 } file
 
 void function BecomesGruntMode_Init()
 {
-	PrecacheModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
-
 	SetLoadoutGracePeriodEnabled( false ) // no loadout switch allowed!
 	PlayerEarnMeter_SetEnabled( false ) // disable earnmeter
 
@@ -51,6 +50,7 @@ void function BecomesGruntMode_Init()
 	//Highlight_HideDefaultEnemyHighlight( true ) // this will hide enemy's highlights
 	Highlight_SetCustomHighlightFunction( GruntModeHighlight )
 	// death effects
+	SetDeathHintsEnabled( false ) // no need to do death hints since player never gonna become titan
 	SetDeathCamLengthForced( 0.5 ) // don't want to display a long death cam, player.SetPlayerSettings( "spectator" ) has been fixed
 	//SetPlayerDeathFlashHidden( true ) // actually not hidden, just fade from black, but looks better
 	//SetKillcamsEnabled( false ) // disable replay, no need since we've made a delayed replay system
@@ -82,7 +82,9 @@ void function BecomesGruntMode_Init()
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
 	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
 	AddCallback_OnPlayerKilled( OnPlayerKilled )
+	AddCallback_OnNPCKilled( OnNPCKilled )
 	AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
+	AddCallback_GameStateEnter( eGameState.Playing, OnGamePlaying )
 
 	// player damage chatter
 	AddDamageByCallback( "player", OnPlayerDealDamage )
@@ -119,7 +121,7 @@ void function OnPlayerDealDamage( entity victim, var damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
 	if ( IsValid( attacker ) )
-		TryPlayerGruntChatterOnEnt( attacker, victim, true ) // damage chatter style
+		TryGruntBattleChatterOnEnt( attacker, victim, true ) // damage chatter style
 }
 
 ///////////////////////////////////////
@@ -394,8 +396,11 @@ void function StartKillerOutline( entity victim, entity attacker )
 void function OnClientConnected( entity player )
 {
 	// init
+	// grunt chatter
 	file.playerNextChatterAllowedTime[ player ] <- 0.0
 	file.playerNextDamageChatterAllowedTime[ player ] <- 0.0
+	file.playerLastChatterName[ player ] <- ""
+	// grunt classes
 	file.playerClassTable[ player ] <- "" // empty class
 
 	AddPlayerHeldButtonEventCallback( player, IN_USE, CallbackFuncCornerUs, 0.5 ) // was 0.3
@@ -433,14 +438,22 @@ void function DisableBoostBar( entity player )
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
 	StartKillerOutline( victim, attacker )
-	PlayEnemyKilledChatter( victim, attacker )
-	PlayFriendlyKilledChatter( victim, attacker )
-	//file.playerClassTable[ victim ] = "" // reset class, will break IsGruntModeSpecialistClass()
+	PlayEnemyPlayerKilledChatter( victim, attacker )
+	PlayFriendlyPlayerKilledChatter( victim, attacker )
+	TryPlayTitanKilledChatter( victim, attacker )
+}
+
+void function OnNPCKilled( entity victim, entity attacker, var damageInfo )
+{
+	TryPlayTitanKilledChatter( victim, attacker )
 }
 
 void function OnGamePrematch()
 {
 	InitGruntModeSpawnerSettings() // care package settings or something...
+
+	foreach ( entity player in GetPlayerArray() )
+		file.playerNextChatterAllowedTime[ player ] = Time() + 15.0 // try to avoid call out deaths caused by teamshuffle
 
 	// only tempfix has checked their validity before clean up
 	/* // no need to clean up since spawnpoint has been fixed, or player will be able to shoot outside map
@@ -457,6 +470,12 @@ void function OnGamePrematch()
 	*/
 }
 
+void function OnGamePlaying()
+{
+	foreach ( entity player in GetPlayerArray() )
+		file.playerNextChatterAllowedTime[ player ] = Time() + 8.0 // little delay before we can play first chatter
+}
+
 //////////////////////////////////
 ///// CALLBACK FUNCTIONS END /////
 //////////////////////////////////
@@ -469,10 +488,10 @@ void function OnGamePrematch()
 
 void function CallbackFuncCornerUs( entity player )
 {
-	thread CornerUsChatterThink( player )
+	GenericGruntChatter( player )
 }
 
-const array<string> GRUNT_CHATTERS = 
+const array<string> GENERIC_GRUNT_CHATTERS = 
 [ 
 	"diag_sp_intro_WD104_24_01_mcor_grunt1",
 	"diag_sp_intro_WD103_02_01_mcor_grunt2",
@@ -487,17 +506,12 @@ const array<string> GRUNT_CHATTERS =
 //"diag_sp_intro_WD104_25_01_mcor_grunt2" We can't let them turn us down, we need to move!
 //"diag_sp_intro_WD104_29_01_mcor_grunt6" Do we have any pilots in the area?
 
-void function CornerUsChatterThink( entity player )
+void function GenericGruntChatter( entity player )
 {
-	if( !CanPlayerUseGruntChatter( player ) )
+	if ( player.IsMechanical() ) // spectre don't have generic chatters
 		return
-	if( !IsAlive( player ) )
-		return
-	//print( "Setting Chatter Unusable" )
-	string curChatter = GRUNT_CHATTERS[ RandomInt( GRUNT_CHATTERS.len() ) ]
-	EmitSoundOnEntity( player, curChatter )
-
-	SetGruntBattleChatterCooldown( player, 3 )
+	string curChatter = GENERIC_GRUNT_CHATTERS[ RandomInt( GENERIC_GRUNT_CHATTERS.len() ) ]
+	TryPlayerGruntChatter( player, curChatter, 3 )
 }
 
 void function CallbackFuncSpotEnemy( entity player )
@@ -507,8 +521,6 @@ void function CallbackFuncSpotEnemy( entity player )
 
 void function SpotEnemyChatterThink( entity player )
 {
-	if( !IsAlive( player ) )
-		return
 	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * 65535, player, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
 	if( !IsValid( traceResult.hitEnt ) )
 	{
@@ -524,14 +536,14 @@ void function SpotEnemyChatterThink( entity player )
 		return
 	
 	//print( "hitEnt's classname: " + className )
-	TryPlayerGruntChatterOnEnt( player, traceResult.hitEnt )
+	TryGruntBattleChatterOnEnt( player, traceResult.hitEnt )
 }
 
 // hardcoded enemy chatter
 const array<string> GRUNT_ENEMY_CHATTER_CLASSES =
 [
-	//"player",
-	//"npc_soldier", // cannot find proper chatter for now
+	"player",
+	"npc_soldier",
 	"npc_spectre", 
 	"npc_stalker", 
 	"npc_prowler", 
@@ -540,69 +552,113 @@ const array<string> GRUNT_ENEMY_CHATTER_CLASSES =
 	"npc_titan"
 ]
 
-bool function TryPlayerGruntChatterOnEnt( entity player, entity ent, bool damageChatter = false )
-{
-	if ( !IsAlive( player ) )
-		return false
-	if ( !CanPlayerUseGruntChatter( player, damageChatter ) )
-		return false
+// have to hardcode dialogues from "bc_generalCombat"
+const array<string> ENEMY_GRUNT_CHATTERS =
+[
+	"diag_sp_corkscrew_SE131_21_01_mcor_grunt1",
+	"diag_sp_corkscrew_SE131_12_01_mcor_grunt1",
+]
 
+// have to hardcode dialogues from "bc_reactEnemyReaper"
+const array<string> ENEMY_REAPER_CHATTERS =
+[
+	"diag_sp_ReaperTown_BM102_16_01_mcor_grunt2",
+	"diag_sp_ReaperTown_BM102_16_01_mcor_grunt2"
+]
+
+
+bool function TryGruntBattleChatterOnEnt( entity player, entity ent, bool damageChatter = false )
+{
 	string className = ent.GetClassName()
 	//print( "chatter target's classname: " + className )
 
 	if ( !GRUNT_ENEMY_CHATTER_CLASSES.contains( className ) )
 		return false
 	
+	// player specifics
+	if ( ent.IsPlayer() ) // victim player
+	{
+		if ( ent.IsMechanical() )
+			className = "npc_spectre"
+	}
+
+	string gruntChatter = ""
+	string spectreChatter = "diag_imc_spectre_gs_engagepilotenemy_01_1" // spectre only has a few chatters
 	float chatterCooldown = 0.0
+
 	switch ( className )
 	{
 		case "player":
 		case "npc_soldier":
-			//EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_spotenemypilot" )
+			gruntChatter = ENEMY_GRUNT_CHATTERS[ RandomInt( ENEMY_GRUNT_CHATTERS.len() ) ]
 			chatterCooldown = 3
 			break
 		case "npc_spectre":
-			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_reactSpectreEnemyMid_0" + string( RandomIntRange( 1, 3 ) ) )
+			gruntChatter = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_reactSpectreEnemyMid_0" + string( RandomIntRange( 1, 3 ) )
 			chatterCooldown = 3
 			break
 		case "npc_stalker":
-			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagingStalker_0" + string( RandomIntRange( 1, 2 ) ) )
+			gruntChatter = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagingStalker_0" + string( RandomIntRange( 1, 2 ) )
 			chatterCooldown = 3
 			break
 		case "npc_prowler":
-			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagingProwler_0" + string( RandomIntRange( 1, 2 ) ) )
+			gruntChatter = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagingProwler_0" + string( RandomIntRange( 1, 2 ) )
 			chatterCooldown = 3
 			break
 		case "npc_pilot_elite":
-			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagepilotenemy_0" + string( RandomIntRange( 1, 7 ) ) )
+			gruntChatter = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_engagepilotenemy_0" + string( RandomIntRange( 1, 7 ) )
 			chatterCooldown = 3
 			break
 		case "npc_super_spectre":
-			if( CoinFlip() )
-				EmitSoundOnEntity( player, "diag_sp_ReaperTown_BM102_15_01_mcor_grunt3" )
-			else
-				EmitSoundOnEntity( player, "diag_sp_ReaperTown_BM102_16_01_mcor_grunt2" )
+			gruntChatter = ENEMY_REAPER_CHATTERS[ RandomInt( ENEMY_REAPER_CHATTERS.len() ) ]
+			spectreChatter = "diag_imc_spectre_gs_spotclosetitancall_01"
 			chatterCooldown = 3
 			break
 		case "npc_titan":
-			EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_enemytitanspotcall_0" + string( RandomIntRange( 1, 2 ) ) )
+			gruntChatter = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_enemytitanspotcall_0" + string( RandomIntRange( 1, 2 ) )
+			spectreChatter = "diag_imc_spectre_gs_spotclosetitancall_01"
 			chatterCooldown = 5
 			break
 	}
 
-	if ( chatterCooldown > 0 )
-	{
-		if ( damageChatter )
-			chatterCooldown = 30 // don't want to make damage chatter annoying
+	if ( gruntChatter == "" ) // cannot find any chatter
+		return false
+	
+	if ( player.IsMechanical() && spectreChatter == "" ) // mechanical player should use spectre call
+		return false
 
-		SetGruntBattleChatterCooldown( player, chatterCooldown, damageChatter )
+	if ( damageChatter )
+		chatterCooldown = 30 // don't want to make damage chatter annoying
+
+	string chatterSound = player.IsMechanical() ? spectreChatter : gruntChatter
+	return TryPlayerGruntChatter( player, chatterSound, chatterCooldown, damageChatter )
+}
+
+bool function TryPlayerGruntChatter( entity player, string soundName, float cooldown, bool damageChatter = false )
+{
+	if ( !CanPlayerUseGruntChatter( player, damageChatter ) )
+		return false
+
+	EmitSoundOnEntity( player, soundName )
+
+	// store last chatter
+	file.playerLastChatterName[ player ] = soundName
+	// chatter cooldown
+	if ( damageChatter )
+	{
+		file.playerNextDamageChatterAllowedTime[ player ] = Time() + cooldown
+		return true
 	}
 
+	file.playerNextChatterAllowedTime[ player ] = Time() + cooldown
 	return true
 }
 
 bool function CanPlayerUseGruntChatter( entity player, bool damageChatter = false )
 {
+	if ( !IsAlive( player ) )
+		return false
+
 	bool nextChatterAllow = Time() >= file.playerNextChatterAllowedTime[ player ]
 	bool nextDamageChatterAllow = Time() >= file.playerNextDamageChatterAllowedTime[ player ]
 	if ( damageChatter )
@@ -610,40 +666,37 @@ bool function CanPlayerUseGruntChatter( entity player, bool damageChatter = fals
 	return nextChatterAllow
 }
 
-void function SetGruntBattleChatterCooldown( entity player, float delay, bool damageChatter = false )
+void function PlayEnemyPlayerKilledChatter( entity victim, entity attacker )
 {
-	if ( damageChatter )
+	if ( victim.IsPlayer() )
 	{
-		file.playerNextDamageChatterAllowedTime[ player ] = Time() + delay
-		return
+		// stop victim's existing chatter
+		StopSoundOnEntity( victim, file.playerLastChatterName[ victim ] )
+
+		if ( attacker.IsPlayer() )
+			thread DelayedEnemyKilledChatter( attacker )
 	}
-
-	file.playerNextChatterAllowedTime[ player ] = Time() + delay
-}
-
-void function PlayEnemyKilledChatter( entity victim, entity attacker )
-{
-	if( victim.IsPlayer() && attacker.IsPlayer() )
-		thread DelayedEnemyKilledChatter( attacker )
 }
 
 void function DelayedEnemyKilledChatter( entity player )
 {
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
+
 	wait RandomFloatRange( 0.5, 0.8 )
-	if( !CanPlayerUseGruntChatter( player ) )
-		return
 
-	EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_killenemygrunt_0" + string( RandomIntRange( 1, 2 ) ) )
-
-	SetGruntBattleChatterCooldown( player, 3 )
+	string chatterSound = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_killenemygrunt_0" + string( RandomIntRange( 1, 2 ) )
+	if ( player.IsMechanical() ) // spectre chatter
+		chatterSound = "diag_imc_spectre_gs_killenemypilot_01_1"
+	TryPlayerGruntChatter( player, chatterSound, 3 )
 }
 
-void function PlayFriendlyKilledChatter( entity victim, entity attacker )
+const float GRUNT_NEARBY_ALLY_SEARCH_RADIUS = 350
+
+void function PlayFriendlyPlayerKilledChatter( entity victim, entity attacker )
 {
 	int team = victim.GetTeam()
-	array<entity> nearbyAllies = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, victim.GetOrigin(), 250 )
+	array<entity> nearbyAllies = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, victim.GetOrigin(), GRUNT_NEARBY_ALLY_SEARCH_RADIUS )
 	foreach( entity player in nearbyAllies )
 	{
 		if( IsValid( player ) )
@@ -658,21 +711,40 @@ void function DelayedFriendlyKilledChatter( entity player )
 {
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
+
 	wait RandomFloatRange( 0.5, 0.8 )
 
-	if( !CanPlayerUseGruntChatter( player ) )
-		return
-	array<entity> nearbyAllies = GetPlayerArrayEx( "any", player.GetTeam(), TEAM_ANY, player.GetOrigin(), 250 )
-	if( nearbyAllies.len() == 0 )
+	array<entity> nearbyAllies = GetPlayerArrayEx( "any", player.GetTeam(), TEAM_ANY, player.GetOrigin(), GRUNT_NEARBY_ALLY_SEARCH_RADIUS )
+	if( nearbyAllies.len() == 0 ) // no other allys around
 	{
-		EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_squaddeplete" )
-		SetGruntBattleChatterCooldown( player, 5 )
+		string chatterSound = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_squaddeplete"
+		if ( player.IsMechanical() ) // spectre chatter
+			chatterSound = "diag_imc_spectre_gs_squaddeplete_01_1"
+		TryPlayerGruntChatter( player, chatterSound, 5 )
 	}
 	else
 	{
-		EmitSoundOnEntity( player, "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_allygruntdown" )
-		SetGruntBattleChatterCooldown( player, 3 )
+		string chatterSound = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_allygruntdown"
+		if ( player.IsMechanical() ) // spectre chatter
+			chatterSound = "diag_imc_spectre_gs_allygrundown_05_1"
+		TryPlayerGruntChatter( player, chatterSound, 3 )
 	}
+}
+
+bool function TryPlayTitanKilledChatter( entity victim, entity attacker )
+{
+	if ( !attacker.IsPlayer() )
+		return false
+
+	if ( !victim.IsTitan() )
+		return false
+
+	string chatterSound = "diag_imc_grunt" + string( RandomIntRange( 1, 6 ) ) + "_bc_gruntkillstitan"
+	if ( CoinFlip() ) // this dialogue has a "_01" suffix
+		chatterSound += "_01"
+	if ( attacker.IsMechanical() ) // spectre chatter
+		chatterSound = "diag_imc_spectre_gs_gruntkillstitan_02_1"
+	return TryPlayerGruntChatter( attacker, chatterSound, 5 )
 }
 
 ///////////////////////////////////////
