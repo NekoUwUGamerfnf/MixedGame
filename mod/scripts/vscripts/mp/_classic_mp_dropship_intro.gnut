@@ -37,6 +37,7 @@ struct DropShipSequenceDate
 
 struct 
 {
+	array<entity> validDropshipSpawns
 	array<DropShipSequenceDate> dropShipSequenceDateList
 
 	// these used to be IntroDropship[2]s but i wanted to be able to use array.getrandom so they have to be actual arrays
@@ -49,11 +50,35 @@ struct
 
 void function ClassicMP_DefaultDropshipIntro_Setup()
 {
-	SetPickLoadoutEnabled( true ) // required to make client play warpjump sound
-	SetPickLoadoutDuration( 8.0 ) // for dropship intro, we only need set pick loadout duration to fit warpjump sound
+	InitValidDropshipSpawns()
 	InitIntroDropshipSequenceData()
 	AddCallback_OnClientConnected( DropshipIntro_OnClientConnected )	
 	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
+}
+
+void function InitValidDropshipSpawns()
+{
+	array<entity> dropshipSpawns = GetEntArrayByClass_Expensive( "info_spawnpoint_dropship_start" )
+	foreach ( entity dropshipSpawn in dropshipSpawns )
+	{
+		if ( GameModeRemove( dropshipSpawn ) ) // this is hardcoded, should modify it
+			continue
+		/* // should never, never use GetSpawnpointGamemodeOverride() on dropship spawns
+		if ( dropshipSpawn.HasKey( "gamemode_" + GetSpawnpointGamemodeOverride() ) )
+		{
+			if ( dropshipSpawn.kv[ "gamemode_" + GetSpawnpointGamemodeOverride() ] == "0" )
+				continue
+		}
+		*/
+		
+		file.validDropshipSpawns.append( dropshipSpawn )
+	}
+
+	if ( file.validDropshipSpawns.len() == 4 ) // only setup pickLoadout if there do have proper dropship spawns
+	{
+		SetPickLoadoutEnabled( true ) // required to make client play warpjump sound
+		SetPickLoadoutDuration( 8.0 ) // for dropship intro, we only need set pick loadout duration to fit warpjump sound
+	}
 }
 
 void function InitIntroDropshipSequenceData()
@@ -160,23 +185,23 @@ void function OnPrematchStart()
 	file.militiaDropships.clear()
 	file.imcDropships.clear()
 	
-	array<entity> validDropshipSpawns
-	array<entity> dropshipSpawns = GetEntArrayByClass_Expensive( "info_spawnpoint_dropship_start" )
-	foreach ( entity dropshipSpawn in dropshipSpawns )
+	// if dropship spawns are not good for this mode, just spawn players on ground
+	if ( file.validDropshipSpawns.len() != 4 )
 	{
-		if ( dropshipSpawn.HasKey( "gamemode_" + GetSpawnpointGamemodeOverride() ) )
-			if ( dropshipSpawn.kv[ "gamemode_" + GetSpawnpointGamemodeOverride() ] == "0" )
-				continue
-		
-		validDropshipSpawns.append( dropshipSpawn )
+		foreach ( entity player in GetPlayerArray() )
+		{
+			if ( !IsPrivateMatchSpectator( player ) )
+				thread SpawnPlayerOnGround( player )
+			else
+				RespawnPrivateMatchSpectator( player )
+		}
+
+		thread EndIntroWhenFinished()
+		return
 	}
 	
-	// if no dropship spawns for this mode, just allow any dropship spawns
-	if ( validDropshipSpawns.len() < 2 )
-		validDropshipSpawns = dropshipSpawns
-	
 	// spawn dropships
-	foreach ( entity dropshipSpawn in validDropshipSpawns )
+	foreach ( entity dropshipSpawn in file.validDropshipSpawns )
 	{
 		// todo: possibly make this only spawn dropships if we've got enough players to need them
 		int createTeam = HasSwitchedSides() ? GetOtherTeam( dropshipSpawn.GetTeam() ) : dropshipSpawn.GetTeam() 
@@ -192,18 +217,19 @@ void function OnPrematchStart()
 		teamDropships[ teamDropships.len() - 1 ].dropship = dropship
 		
 		AddAnimEvent( dropship, "dropship_warpout", WarpoutEffect )
-		dropship.SetValueForModelKey( $"models/vehicle/crow_dropship/crow_dropship_hero.mdl" )
-		dropship.SetModel( $"models/vehicle/crow_dropship/crow_dropship_hero.mdl" ) 
+		// as respawn's settings, IMC team goes default
+		dropship.SetValueForModelKey( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" )
+		dropship.SetModel( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" ) 
 		
 		DispatchSpawn( dropship )
 		
 		// have to do this after dispatch otherwise it won't work for some reason
 		// weirdly enough, tf2 actually does use different dropships for imc and militia, despite these concepts not really being a thing for players in tf2
 		// probably was just missed by devs, but keeping it in for accuracy
-		if ( dropshipSpawn.GetTeam() == TEAM_IMC )
-			dropship.SetModel( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" )
-		else
+		if ( dropshipSpawn.GetTeam() == TEAM_MILITIA )
 			dropship.SetModel( $"models/vehicle/crow_dropship/crow_dropship_hero.mdl" )
+		else // as respawn's settings, IMC team goes default
+			dropship.SetModel( $"models/vehicle/goblin_dropship/goblin_dropship_hero.mdl" )
 		
 		thread PlayAnim( dropship, "dropship_classic_mp_flyin" )
 	}
@@ -221,7 +247,7 @@ void function OnPrematchStart()
 
 void function EndIntroWhenFinished()
 {
-	wait 15.0
+	wait DROPSHIP_INTRO_LENGTH
 	ClassicMP_OnIntroFinished()
 }
 
@@ -235,7 +261,7 @@ void function SpawnPlayerOnGround( entity player )
 	RespawnAsPilot( player )
 	player.FreezeControlsOnServer()
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
-	ScreenFadeFromBlack( player, 3.0, 1.0 )
+	//ScreenFadeFromBlack( player, 3.0, 1.0 ) // handled by gamestateEnter_Prematch in gamestate_mp
 
 	waitthread WaitForIntroOver( player ) // wait for intro over
 
@@ -323,7 +349,7 @@ void function SpawnPlayerIntoDropship( entity player )
 	
 	// hide hud and fade screen out from black
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
-	ScreenFadeFromBlack( player, 3.0, 1.0 )
+	//ScreenFadeFromBlack( player, 3.0, 1.0 ) // handled by gamestateEnter_Prematch in gamestate_mp
 	// faction leaders are done clientside, spawn them here
 	Remote_CallFunction_NonReplay( player, "ServerCallback_SpawnFactionCommanderInDropship", playerDropship.dropship.GetEncodedEHandle(), file.introStartTime )
 
@@ -381,6 +407,15 @@ void function PlayerJumpsFromDropship( entity player )
 			player.EnableWeaponViewModel()
 			DeployAndEnableWeapons(player)
 			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
+			
+			if ( IsAlive( player ) ) // not resetting through death
+			{
+				// give loadout again so they'll have weapon deploy animations
+				StorePilotWeapons( player )
+				RetrievePilotWeapons( player )
+			}
+			if ( !IsAlive( player ) )
+				player.Anim_Stop() // stop sequence for dead players
 		}
 	})
 		
