@@ -117,11 +117,14 @@ void function PilotWallClimbThink( entity player )
 	bool groundTouched = true
 	while( true )
 	{
+		bool thisFrameOffTheWall = false
 		if ( isClimbingWall && !player.IsWallRunning() ) // considering player has left the wall?
 		{
 			player.Signal( "PilotStopWallClimb" )
 			isClimbingWall = false
 			facingWallAtStart = false
+
+			thisFrameOffTheWall = true
 		}
 
 		bool inGroundMovement = player.IsOnGround() && !player.IsTraversing() && !player.IsWallRunning() && !player.IsWallHanging()
@@ -145,15 +148,27 @@ void function PilotWallClimbThink( entity player )
 		{
 			// classmods management checks
 			// only check these if player is not climbing a wall, also avoid changing model breaks animations
+			bool animActive = player.IsTraversing() || IsValid( player.GetParent() ) || player.Anim_IsActive()
 			//print( "isClimbingWall: " + string( isClimbingWall ) )
 			//print( "groundTouched: " + string( groundTouched ) )
-			if ( !isClimbingWall && groundTouched && !player.IsTraversing() && !IsValid( player.GetParent() ) && !player.Anim_IsActive() && !offhandOut )
+
+			// they won't be able to climb again until they back to ground, unlike apex they can climb the same wall infinitely
+			// I don't know how do I write things to prevent player from climbing different angled walls
+			if ( thisFrameOffTheWall && !animActive )
+			{
+				StoredPlayerSettingsStruct storedStruct = StorePlayerSettings( player )
+				storedStruct.settingsMods.append( "disable_wallrun" )
+				RetrievePlayerSettings( player, storedStruct )
+				continue
+			}
+
+			if ( !isClimbingWall && groundTouched && !animActive && !offhandOut )
 			{
 				float eyeAnglesYawBeforeTrace = VectorToAngles( player.GetViewVector() ).y
 				vector ornull currentAngs = TracePlayerWallAngles( player, lastTickVel )
 				
 				bool canWallrun = !player.GetPlayerSettingsMods().contains( "disable_wallrun" )
-				if ( !canWallrun ) // player has been taken wallrun ability
+				if ( !canWallrun ) // player has been taken wallrun ability, and they haven't climbed wall since last landing
 				{
 					if ( currentAngs == null ) // can't trace!
 						continue
@@ -267,7 +282,7 @@ void function PilotWallClimbThink( entity player )
 			// match the classmods update behavior: never allow wallclimb when offhand is out
 			if ( WALLCLIMB_CLASSMODS_UPDATE && offhandOut )
 			{
-				thread KickPlayerOffWall( player )
+				thread KickPlayerOffWall( player ) // this will also update classmods
 				continue
 			}
 
@@ -346,6 +361,8 @@ void function RetrievePlayerSettings( entity player, StoredPlayerSettingsStruct 
 	player.SetShieldHealth( storedStruct.shield )
 	
 	asset newModel = player.GetModelName()
+	//print( "newModel: " + string( newModel ) )
+	//print( "savedModel: " + string( storedStruct.modelName ) )
 	if ( newModel != storedStruct.modelName ) // only update model if we changed
 	{
 		player.SetModel( storedStruct.modelName ) // still gets some trouble when changing models
