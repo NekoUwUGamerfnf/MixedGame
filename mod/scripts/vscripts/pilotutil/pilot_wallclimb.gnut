@@ -1,13 +1,35 @@
+untyped
 // TODO: add controllder input check
 global function Pilot_WallClimb_Init
 
 const bool WALLCLIMB_ALLOW_VERTICAL_INPUT = false // client will mostly desync, don't allow this
 const float WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not facing a wall
 const float WALLCLIMB_GRACE_PERIOD_TIME = 0.3 // if you're not facing wall at start, press left or right within this time won't be kick off wall
+const bool WALLCLIMB_CLASSMODS_UPDATE = true // may not good if using this... but player will feel better contolling their characters
+
+struct StoredPlayerSettingsStruct
+{
+	string settings
+	array<string> settingsMods
+	array<string> standMods
+	array<string> crouchMods
+	
+	// following settings done after changing class
+	asset modelName
+	int skinIndex
+	int camoIndex
+	int headBodyGroupId
+	int headStateId
+	int maxHealth
+	int health
+	int maxShield
+	int shield
+}
 
 struct
 {
 	table<entity, float> playerWallRunBeinTime
+	table<entity, bool> playerClassChangeThroughWallClimb // if player do changed class because of this script, we don't loop over again
 } file
 
 void function Pilot_WallClimb_Init()
@@ -29,7 +51,10 @@ void function Pilot_WallClimb_Init()
 
 void function OnClientConnected( entity player )
 {
+	// init
 	file.playerWallRunBeinTime[player] <- 0.0
+	file.playerClassChangeThroughWallClimb[ player ] <- false
+
 	AddPlayerMovementEventCallback( player, ePlayerMovementEvents.BEGIN_WALLRUN, UpdatePlayerWallRunBeginTime )
 }
 
@@ -58,20 +83,24 @@ void function PilotWallClimbThink( entity player )
 	// only run for living players( dead players will also change class to "spectator", prevent it )
 	if ( !IsAlive( player ) )
 		return
+	// only run if player is not changing classmods through this file
+	if ( file.playerClassChangeThroughWallClimb[ player ] )
+		return
 
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
 	player.Signal( "PilotWallClimbThink" )
 	player.EndSignal( "PilotWallClimbThink" )
 
-	// check wallclimb mod, ttf2 don't have other ways to modify classmods than change class so this is enough
+	// check wallclimb mod, ttf2 don't have other ways to modify classmods than changing class so this is enough
 	bool hasWallClimb = false
 	float angleLimit
 	array<string> classMods = player.GetPlayerSettingsMods()
-	// grunt mode climber
-	if ( classMods.contains( "only_wallclimb" ) ||
-		 classMods.contains( "normal_wallclimb" ) ||
-		 classMods.contains( "amped_wallclimb" )
+	// grunt mode climber, should be a array to store them
+	if ( 
+		classMods.contains( "only_wallclimb" ) ||
+		classMods.contains( "normal_wallclimb" ) ||
+		classMods.contains( "amped_wallclimb" )
 	) 
 	{
 		hasWallClimb = true
@@ -81,10 +110,11 @@ void function PilotWallClimbThink( entity player )
 	if ( !hasWallClimb )
 		return
 
-	bool isClimbingWall
+	bool isClimbingWall = false
 	vector wallAngles
 	vector lastTickVel
-	bool facingWallAtStart
+	bool facingWallAtStart = false
+	bool groundTouched = true
 	while( true )
 	{
 		if ( isClimbingWall && !player.IsWallRunning() ) // considering player has left the wall?
@@ -93,9 +123,78 @@ void function PilotWallClimbThink( entity player )
 			isClimbingWall = false
 			facingWallAtStart = false
 		}
+		bool inGroundMovement = player.IsOnGround() && !player.IsTraversing() && !player.IsWallRunning() && !player.IsWallHanging()
+		if ( !groundTouched && inGroundMovement )
+			groundTouched = true
+
 		lastTickVel = player.GetVelocity()
 
 		WaitFrame() // always wait first
+
+		StopJumpJetSounds( player )
+		StopPlayerWoundedSound( player ) // since we keep updating their playersettings, try this
+		
+		 // may not good if using this... but player will feel better contolling their characters
+		if ( WALLCLIMB_CLASSMODS_UPDATE )
+		{
+			// classmods management checks
+			// only check these if player is not climbing a wall, also avoid changing model breaks animations
+			//print( "isClimbingWall: " + string( isClimbingWall ) )
+			//print( "groundTouched: " + string( groundTouched ) )
+			entity activeWeapon = player.GetActiveWeapon()
+			bool offhandOut = false
+			if ( IsValid( activeWeapon ) )
+				offhandOut = activeWeapon.IsWeaponOffhand()
+			if ( !isClimbingWall && groundTouched && !player.IsTraversing() && !IsValid( player.GetParent() ) && !player.Anim_IsActive() && !offhandOut )
+			{
+				float eyeAnglesYawBeforeTrace = VectorToAngles( player.GetViewVector() ).y
+				vector ornull currentAngs = TracePlayerWallAngles( player, lastTickVel )
+				
+				bool canWallrun = !player.GetPlayerSettingsMods().contains( "disable_wallrun" )
+				if ( !canWallrun ) // player has been taken wallrun ability
+				{
+					if ( currentAngs == null ) // can't trace!
+						continue
+
+					wallAngles = expect vector( currentAngs )
+					bool canWallClimb = fabs( fabs( wallAngles.y - eyeAnglesYawBeforeTrace ) - 180 ) <= angleLimit
+
+					if ( !canWallClimb ) // player still not facing a wall
+						continue
+
+					// checks done, should restore player's wallrun ability
+					StoredPlayerSettingsStruct storedStruct = StorePlayerSettings( player )
+					storedStruct.settingsMods.removebyvalue( "disable_wallrun" )
+					RetrievePlayerSettings( player, storedStruct )
+					//print( "wallrun ability restored!" )
+				}
+				else // player still don't have the "disable_wallrun" classmod
+				{
+					bool takeWallrunAbility = false
+					if ( currentAngs == null ) // can't trace!
+						takeWallrunAbility = true
+					if ( currentAngs != null ) // we have traced wallangs
+					{
+						wallAngles = expect vector( currentAngs )
+						bool canWallClimb = fabs( fabs( wallAngles.y - eyeAnglesYawBeforeTrace ) - 180 ) <= angleLimit
+
+						if ( !canWallClimb ) // player still not facing a wall
+							takeWallrunAbility = true
+					}
+
+					if ( takeWallrunAbility )
+					{
+						// checks done, should take player's wallrun ability
+						StoredPlayerSettingsStruct storedStruct = StorePlayerSettings( player )
+						storedStruct.settingsMods.append( "disable_wallrun" )
+						RetrievePlayerSettings( player, storedStruct )
+						//print( "wallrun ability taken!" )
+						//continue // player can never do wallrun if so, but continue here breaks the auto kick-off
+					}
+				}
+			}
+		}
+		//
 
 		if ( player.IsWallHanging() ) // allow player to do wallhang
 			continue
@@ -107,13 +206,13 @@ void function PilotWallClimbThink( entity player )
 			{
 				float eyeAnglesYawBeforeTrace = VectorToAngles( player.GetViewVector() ).y
 
-				vector ornull currentAngs = TracePlayerWallAngles( player, lastTickVel )
+				vector ornull currentAngs = TracePlayerWallAngles( player, lastTickVel, true )
 				if ( currentAngs == null ) // can't trace!
 				{
 					thread KickPlayerOffWall( player )
 					continue
 				}
-				wallAngles = expect vector ( currentAngs )
+				wallAngles = expect vector( currentAngs )
 				
 				facingWallAtStart = fabs( fabs( wallAngles.y - eyeAnglesYawBeforeTrace ) - 180 ) <= angleLimit
 				//print( "wallAngles.y: " + string( wallAngles.y ) )
@@ -161,14 +260,99 @@ void function PilotWallClimbThink( entity player )
 			{
 				player.Signal( "PilotStartWallClimb" )
 				isClimbingWall = true // mark as start climbing
+				groundTouched = false // mark as player still not touched ground
 			}
 		}
 	}
 }
 
-vector ornull function TracePlayerWallAngles( entity player, vector lastTickVel )
+void function StopJumpJetSounds( entity player )
+{
+	StopSoundOnEntity( player, "jumpjet_jump_body_1p" )
+	StopSoundOnEntity( player, "jumpjet_jump_body_3p" )
+	StopSoundOnEntity( player, "jumpjet_jump_body_3p_enemy" )
+	StopSoundOnEntity( player, "jumpjet_wallrun_body_1p" )
+	StopSoundOnEntity( player, "jumpjet_wallrun_body_3p" )
+	StopSoundOnEntity( player, "jumpjet_wallrun_body_3p_enemy" )
+}
+
+void function StopPlayerWoundedSound( entity player )
+{
+	StopSoundOnEntity( player, "pilot_critical_breath_loop_1p" )
+	StopSoundOnEntity( player, "pilot_critical_drone_loop_1p" )
+	StopSoundOnEntity( player, "pilot_wounded_loop_1p" )
+	StopSoundOnEntity( player, "player_death_begin" ) // this will make dying sounds better
+}
+
+StoredPlayerSettingsStruct function StorePlayerSettings( entity player )
+{
+	StoredPlayerSettingsStruct storedStruct
+	storedStruct.settings			= player.GetPlayerSettings()
+	storedStruct.settingsMods		= player.GetPlayerSettingsMods()
+	// these two are untyped, should check it
+	array standMods = player.GetPlayerModsForPos( PLAYERPOSE_STANDING )
+	foreach ( mod in standMods )
+		storedStruct.standMods.append( string( mod ) )
+	array crouchMods = player.GetPlayerModsForPos( PLAYERPOSE_CROUCHING )
+	foreach ( mod in crouchMods )
+		storedStruct.crouchMods.append( string( mod ) )
+
+	storedStruct.modelName			= player.GetModelName()
+	// head
+	int stateIndex = -1
+    int bodyGroupIndex = player.FindBodyGroup( "removableHead" )
+	if ( bodyGroupIndex == -1 ) // don't have a removableHead
+		bodyGroupIndex = player.FindBodyGroup( "head" )
+	if ( bodyGroupIndex > -1 )
+		stateIndex = player.GetBodyGroupState( bodyGroupIndex )
+	storedStruct.headBodyGroupId	= bodyGroupIndex
+	storedStruct.headStateId		= stateIndex
+
+	storedStruct.skinIndex			= player.GetSkin()
+	storedStruct.camoIndex			= player.GetCamo()
+	storedStruct.maxHealth			= player.GetMaxHealth()
+	storedStruct.health				= player.GetHealth()
+	storedStruct.maxShield			= player.GetShieldHealthMax()
+	storedStruct.shield				= player.GetShieldHealth()
+
+	return storedStruct
+}
+
+void function RetrievePlayerSettings( entity player, StoredPlayerSettingsStruct storedStruct )
+{
+	file.playerClassChangeThroughWallClimb[ player ] = true // mark as this player changing settings through this file, we won't run things in PilotWallClimbThink()
+	
+	player.SetPlayerSettingsWithMods( storedStruct.settings, storedStruct.settingsMods )
+	player.SetPlayerSettingPosMods( PLAYERPOSE_STANDING, storedStruct.standMods )
+	player.SetPlayerSettingPosMods( PLAYERPOSE_CROUCHING, storedStruct.crouchMods )
+
+	player.SetMaxHealth( storedStruct.maxHealth )
+	player.SetHealth( storedStruct.health )
+	player.SetShieldHealthMax( storedStruct.maxShield )
+	player.SetShieldHealth( storedStruct.shield )
+	
+	asset newModel = player.GetModelName()
+	if ( newModel != storedStruct.modelName ) // only update model if we changed
+	{
+		player.SetModel( storedStruct.modelName ) // still gets some trouble when changing models
+		player.Anim_StopGesture( 0.0 )
+		player.SetPoseParametersSameAs( player )
+		player.SequenceTransitionFromEntity( player )
+	}
+    if ( storedStruct.headStateId >= 0 ) // update head
+		player.SetBodygroup( storedStruct.headBodyGroupId, storedStruct.headStateId )
+
+	player.SetSkin( storedStruct.skinIndex )
+	player.SetCamo( storedStruct.camoIndex )
+
+	file.playerClassChangeThroughWallClimb[ player ] = false
+}
+
+vector ornull function TracePlayerWallAngles( entity player, vector lastTickVel, bool lerpView = false )
 {
 	vector startPos = player.GetOrigin()
+	if ( !lerpView )
+		startPos = player.EyePosition()
 	//vector startPos = player.EyePosition()
 	//int attachID = player.LookupAttachment( "CHESTFOCUS" )
 	//if ( attachID > 0 )
@@ -181,7 +365,8 @@ vector ornull function TracePlayerWallAngles( entity player, vector lastTickVel 
 	//print( "moveAngs: " + string( moveAngs ) )
 	if ( moveAngs.y != 0 ) // if moveAngs valid, use it instead
 		directionForward = AnglesToForward( < 0, moveAngs.y, 0 > )
-	vector endPos = startPos + directionForward * 100 // get player's viewing wall
+	float traceDist = 64
+	vector endPos = startPos + directionForward * traceDist // get player's viewing wall
 
 	//vector moveAngs = VectorToAngles( lastTickVel )
 	//vector traceVec = AnglesToForward( < 0, VectorToAngles( lastTickVel ).y, 0 > ) * 50
@@ -198,22 +383,34 @@ vector ornull function TracePlayerWallAngles( entity player, vector lastTickVel 
 	// can't trace anything?
 	if ( !IsValid( traceResult.hitEnt ) )
 		return null
+	
+	// hitent is not a world entity?
+	if ( traceResult.hitEnt.IsPlayer() || traceResult.hitEnt.IsNPC() )
+		return null
 
 	// get the wall's normal
 	vector normal = traceResult.surfaceNormal
 	// get the wall's angle
 	vector wallAngles = VectorToAngles( normal )
 
-	// lerp player's view
-	//player.PlayerCone_FromAnim()
-	player.PlayerCone_SetMinYaw( -45 )
-	player.PlayerCone_SetMaxYaw( 45 )
-	player.PlayerCone_SetMinPitch( 0 )
-	player.PlayerCone_SetMaxPitch( 0 )
-	
-	vector playerAngs = player.EyeAngles()
-	playerAngs.y = wallAngles.y - 180
-	player.SetAngles( playerAngs )
+	if ( lerpView )
+	{
+		// lerp player's view
+		//player.PlayerCone_FromAnim()
+		player.PlayerCone_SetMinYaw( -45 )
+		player.PlayerCone_SetMaxYaw( 45 )
+		//player.PlayerCone_SetMinPitch( 0 )
+		//player.PlayerCone_SetMaxPitch( 0 )
+		
+		vector playerAngs = player.EyeAngles()
+		playerAngs.y = wallAngles.y - 180
+		player.SetAngles( playerAngs )
+
+		// restore viewcone
+		player.PlayerCone_SetMinYaw( -179 )
+		player.PlayerCone_SetMaxYaw( 181 )
+		player.PlayerCone_Disable()
+	}
 
 	return wallAngles
 }
