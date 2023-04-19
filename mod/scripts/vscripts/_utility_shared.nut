@@ -87,6 +87,13 @@ void function Utility_Shared_Init()
 
 	#document( "IsAlive", "Returns true if the given ent is not null, and is alive." )
 	#document( "ArrayWithin", "Remove ents from array that are out of range" )
+
+	// modified!!! making replay less hardcoded
+	#if SERVER
+	// default two
+	AddReplayDisabledDamageSourceId( eDamageSourceId.human_execution )
+	AddReplayDisabledDamageSourceId( eDamageSourceId.titan_execution )
+	#endif
 }
 
 #if DEV
@@ -401,6 +408,11 @@ void function WaitForever()
 }
 
 #if SERVER
+// modified!!!! making it less hardcoded
+struct
+{
+	array<int> disabledDamageSourceIds
+} shouldDoReplay
 
 bool function ShouldDoReplay( entity player, entity attacker, float replayTime, int methodOfDeath )
 {
@@ -416,6 +428,12 @@ bool function ShouldDoReplay( entity player, entity attacker, float replayTime, 
 		return false
 	}
 
+	if ( shouldDoReplay.disabledDamageSourceIds.contains( methodOfDeath ) )
+	{
+		print( "ShouldDoReplay(): Not doing a replay because the player died from specified damage: " + DamageSourceIDToString( methodOfDeath ) + ".\n" );
+		return false
+	}
+	/* // modified!!!! making it less hardcoded
 	switch( methodOfDeath )
 	{
 		case eDamageSourceId.human_execution:
@@ -425,6 +443,7 @@ bool function ShouldDoReplay( entity player, entity attacker, float replayTime, 
 			return false
 		}
 	}
+	*/
 
 	if ( level.nv.replayDisabled )
 	{
@@ -452,6 +471,26 @@ bool function ShouldDoReplay( entity player, entity attacker, float replayTime, 
 
 	return AttackerShouldTriggerReplay( attacker )
 }
+
+// modified!!!! making it less hardcoded
+void function AddReplayDisabledDamageSourceId( int damageSourceId )
+{
+	if ( !shouldDoReplay.disabledDamageSourceIds.contains( damageSourceId ) )
+	{
+		print( "ShouldDoReplay(): Adding replay disabled damageSourceId: " + string( damageSourceId ) + ".\n"  )
+		shouldDoReplay.disabledDamageSourceIds.append( damageSourceId )
+	}
+}
+
+void function RemoveReplayDisabledDamageSourceId( int damageSourceId )
+{
+	if ( shouldDoReplay.disabledDamageSourceIds.contains( damageSourceId ) )
+	{
+		print( "ShouldDoReplay(): Removing replay disabled damageSourceId: " + string( damageSourceId ) + ".\n"  )
+		shouldDoReplay.disabledDamageSourceIds.removebyvalue( damageSourceId )
+	}
+}
+//
 
 // Don't let things like killbrushes show replays
 bool function AttackerShouldTriggerReplay( entity attacker )
