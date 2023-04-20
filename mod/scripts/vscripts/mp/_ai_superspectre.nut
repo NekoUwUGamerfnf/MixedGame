@@ -170,10 +170,15 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 		{
 			foreach ( entity ent in GetScriptManagedEntArray( npc.ai.activeMinionEntArrayID ) )
 			{
-				if ( IsValid( ent ) && ent.IsNPC() && ent.ai.fragDroneArmed ) // they may doing a deploy animation or is still a nade, which handled by WaitForFragDroneDeployThenDetonate()
+				if ( IsValid( ent ) && ent.IsNPC() ) // they may doing a deploy animation or is still a nade, which handled by WaitForFragDroneDeployThenDetonate()
 				{
-					//print( "Signaling SuicideSpectreExploding on " + string( minion ) )
-					ent.Signal( "SuicideSpectreExploding" )
+					if ( ent.ai.fragDroneArmed )
+					{
+						//print( "Signaling SuicideSpectreExploding on " + string( minion ) )
+						ent.Signal( "SuicideSpectreExploding" )
+					}
+					else
+						thread WaitForFragDroneArmThenDetonate( ent )
 				}
 			}
 		}
@@ -955,7 +960,16 @@ bool function ShouldDetonateMinionsOnDeath( entity ent )
 
 void function WaitForFragDroneDeployThenDetonate( entity drone )
 {
+	drone.EndSignal( "OnDestroy" )
 	waitthread FragDroneDeplyAnimation( drone )
+	drone.Signal( "SuicideSpectreExploding" )
+}
+
+void function WaitForFragDroneArmThenDetonate( entity drone )
+{
+	drone.EndSignal( "OnDestroy" )
+	while ( !drone.ai.fragDroneArmed )
+		WaitFrame()
 	drone.Signal( "SuicideSpectreExploding" )
 }
 //
