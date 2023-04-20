@@ -117,14 +117,27 @@ void function PilotWallClimbThink( entity player )
 	bool groundTouched = true
 	while( true )
 	{
-		bool thisFrameOffTheWall = false
+		bool lastFrameOffTheWall = false
+		bool lastFrameAnimActive = player.IsTraversing() || IsValid( player.GetParent() ) || player.Anim_IsActive()
 		if ( isClimbingWall && !player.IsWallRunning() ) // considering player has left the wall?
 		{
 			player.Signal( "PilotStopWallClimb" )
 			isClimbingWall = false
 			facingWallAtStart = false
 
-			thisFrameOffTheWall = true
+			lastFrameOffTheWall = true
+		}
+
+		// classmods management checks
+		if ( WALLCLIMB_CLASSMODS_UPDATE )
+		{
+			// they won't be able to climb again until they back to ground, unlike apex they can climb the same wall infinitely
+			// I don't know how do I write things to prevent player from climbing different angled walls
+			if ( lastFrameOffTheWall && !lastFrameAnimActive )
+			{
+				DisablePlayerWallrun_ChangingClassMods( player )
+				continue
+			}
 		}
 
 		bool inGroundMovement = player.IsOnGround() && !player.IsTraversing() && !player.IsWallRunning() && !player.IsWallHanging()
@@ -147,28 +160,18 @@ void function PilotWallClimbThink( entity player )
 		if ( WALLCLIMB_CLASSMODS_UPDATE )
 		{
 			// classmods management checks
-			// only check these if player is not climbing a wall, also avoid changing model breaks animations
-			bool animActive = player.IsTraversing() || IsValid( player.GetParent() ) || player.Anim_IsActive()
+			// only check try changing classmods if player is not climbing a wall, also avoid changing model breaks animations
+			// update for this frame
+			bool thisFrameAnimActive = player.IsTraversing() || IsValid( player.GetParent() ) || player.Anim_IsActive()
 			//print( "isClimbingWall: " + string( isClimbingWall ) )
 			//print( "groundTouched: " + string( groundTouched ) )
-
-			// they won't be able to climb again until they back to ground, unlike apex they can climb the same wall infinitely
-			// I don't know how do I write things to prevent player from climbing different angled walls
-			if ( thisFrameOffTheWall && !animActive )
-			{
-				StoredPlayerSettingsStruct storedStruct = StorePlayerSettings( player )
-				storedStruct.settingsMods.append( "disable_wallrun" )
-				RetrievePlayerSettings( player, storedStruct )
-				continue
-			}
-
-			if ( !isClimbingWall && groundTouched && !animActive && !offhandOut )
+			if ( !isClimbingWall && groundTouched && !thisFrameAnimActive && !offhandOut )
 			{
 				float eyeAnglesYawBeforeTrace = VectorToAngles( player.GetViewVector() ).y
 				vector ornull currentAngs = TracePlayerWallAngles( player, lastTickVel )
 				
 				bool canWallrun = !player.GetPlayerSettingsMods().contains( "disable_wallrun" )
-				if ( !canWallrun ) // player has been taken wallrun ability, and they haven't climbed wall since last landing
+				if ( !canWallrun && !player.IsOnGround() ) // player has been taken wallrun ability, and they're off ground for a climbing attempt
 				{
 					if ( currentAngs == null ) // can't trace!
 						continue
@@ -180,9 +183,7 @@ void function PilotWallClimbThink( entity player )
 						continue
 
 					// checks done, should restore player's wallrun ability
-					StoredPlayerSettingsStruct storedStruct = StorePlayerSettings( player )
-					storedStruct.settingsMods.removebyvalue( "disable_wallrun" )
-					RetrievePlayerSettings( player, storedStruct )
+					EnablePlayerWallrun_ChangingClassMods( player )
 					//print( "wallrun ability restored!" )
 				}
 				else // player still don't have the "disable_wallrun" classmod
@@ -202,9 +203,7 @@ void function PilotWallClimbThink( entity player )
 					if ( takeWallrunAbility )
 					{
 						// checks done, should take player's wallrun ability
-						StoredPlayerSettingsStruct storedStruct = StorePlayerSettings( player )
-						storedStruct.settingsMods.append( "disable_wallrun" )
-						RetrievePlayerSettings( player, storedStruct )
+						DisablePlayerWallrun_ChangingClassMods( player )
 						//print( "wallrun ability taken!" )
 						//continue // player can never do wallrun if so, but continue here breaks the auto kick-off
 					}
@@ -311,6 +310,20 @@ void function StopPlayerWoundedSound( entity player )
 	StopSoundOnEntity( player, "pilot_critical_breath_loop_1p" )
 	StopSoundOnEntity( player, "pilot_critical_drone_loop_1p" )
 	StopSoundOnEntity( player, "pilot_wounded_loop_1p" )
+}
+
+void function EnablePlayerWallrun_ChangingClassMods( entity player )
+{
+	StoredPlayerSettingsStruct storedStruct = StorePlayerSettings( player )
+	storedStruct.settingsMods.removebyvalue( "disable_wallrun" )
+	RetrievePlayerSettings( player, storedStruct )
+}
+
+void function DisablePlayerWallrun_ChangingClassMods( entity player )
+{
+	StoredPlayerSettingsStruct storedStruct = StorePlayerSettings( player )
+	storedStruct.settingsMods.append( "disable_wallrun" )
+	RetrievePlayerSettings( player, storedStruct )
 }
 
 StoredPlayerSettingsStruct function StorePlayerSettings( entity player )
