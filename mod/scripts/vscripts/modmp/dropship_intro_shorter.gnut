@@ -5,7 +5,7 @@ const int MAX_DROPSHIP_PLAYERS = 4
 
 
 global const float DROPSHIP_INTRO_LENGTH_SHORTER = 6.0 // 10s shorter than normal intro
-const float SPAWN_ON_GROUND_TIME = 2.0 // taken from sequence
+const float SPAWN_ON_GROUND_TIME = 1.0 // taken from sequence
 
 struct IntroDropship
 {
@@ -207,7 +207,7 @@ void function OnPrematchStart()
 	foreach ( entity dropshipSpawn in file.validDropshipSpawns )
 	{
 		// todo: possibly make this only spawn dropships if we've got enough players to need them
-		int createTeam = HasSwitchedSides() ? GetOtherTeam( dropshipSpawn.GetTeam() ) : dropshipSpawn.GetTeam() 
+		int createTeam = ( IsSwitchSidesBased() && HasSwitchedSides() == 1 ) ? GetOtherTeam( dropshipSpawn.GetTeam() ) : dropshipSpawn.GetTeam() 
 		array<IntroDropship> teamDropships = createTeam == TEAM_MILITIA ? file.militiaDropships : file.imcDropships
 		
 		if ( teamDropships.len() >= 2 )
@@ -215,7 +215,8 @@ void function OnPrematchStart()
 
 		// create entity
 		entity dropship = CreateDropship( createTeam, dropshipSpawn.GetOrigin(), dropshipSpawn.GetAngles() )
-		
+		SetSpawnOption_AISettings( dropship, "npc_dropship_hero" ) // proper aisettings
+
 		teamDropships.append( clone emptyDropship )
 		teamDropships[ teamDropships.len() - 1 ].dropship = dropship
 		
@@ -338,6 +339,10 @@ void function SpawnPlayerIntoDropship( entity player )
 				break
 			}
 		}
+		// fix over here: if player have found a dropship to seat in, should break the foreach()
+		// otherwise one player will take up both dropships, making other players seating in random dropships
+		if ( IsValid( playerDropship.dropship ) )
+			break
 	}
 					
 	if ( playerDropship.dropship == null )
@@ -407,29 +412,36 @@ void function PlayerJumpsFromDropship( entity player )
 	table savedKeyValues = {}
     savedKeyValues.gravity <- int( player.kv.gravity )
 
-	OnThreadEnd( function() : ( player, moveLockEffect, savedKeyValues )
-	{
-		if ( IsValid( player ) )
+	OnThreadEnd
+	( 
+		function() : ( player, moveLockEffect, savedKeyValues )
 		{
-			// defensive fix, restore movements
-			StatusEffect_Stop( player, moveLockEffect )
-			// show weapon viewmodel and hud and let them move again
-			player.MovementEnable()
-			player.EnableWeaponViewModel()
-			player.Server_TurnOffhandWeaponsDisabledOff()
-			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
-
-            if ( IsAlive( player ) ) // not resetting through death
+			if ( IsValid( player ) )
 			{
-				// give loadout again so they'll have weapon deploy animations
-				StorePilotWeapons( player )
-				RetrievePilotWeapons( player )
-                //player.kv.gravity = savedKeyValues.gravity // restore gravity
+				// defensive fix, restore movements
+				StatusEffect_Stop( player, moveLockEffect )
+				// show weapon viewmodel and hud and let them move again
+				player.MovementEnable()
+				player.EnableWeaponViewModel()
+				player.Server_TurnOffhandWeaponsDisabledOff()
+				RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
+
+				if ( IsAlive( player ) ) // not resetting through death
+				{
+					//player.kv.gravity = savedKeyValues.gravity // restore gravity
+					if ( Loadouts_CanGivePilotLoadout( player ) ) // to fit vanilla: give loadout upon touched ground, so they'll have weapon's first deploy animation
+						Loadouts_TryGivePilotLoadout( player )
+					else // fix for northstar: we may disabled loadout grade period, should update their weapon to make first deploy animation show up
+					{
+						StorePilotWeapons( player )
+						RetrievePilotWeapons( player )
+					}
+				}
+				else
+					player.Anim_Stop() // stop sequence for dead players
 			}
-			else
-				player.Anim_Stop() // stop sequence for dead players
 		}
-	})
+	)
 		
 	// wait for intro timer to be fully done
 	wait ( file.introStartTime + DROPSHIP_INTRO_LENGTH_SHORTER ) - Time()
@@ -438,10 +450,35 @@ void function PlayerJumpsFromDropship( entity player )
 	// wait for player to hit the ground
 	wait 0.1 // assume players will never actually hit ground before this
 	player.ConsumeDoubleJump() // disable double jump
-	player.SetVelocity( < 0, 0, -200 > ) // better visual for match the jumping sequence
+	player.SetVelocity( < 0, 0, -200 > ) // better visual for matching the jumping sequence
 
 	while ( !player.IsOnGround() && !player.IsWallRunning() && !player.IsWallHanging() ) // todo this needs tweaking
+	{
+		if ( IsPlayerNearGround( player ) ) // we remove the movelock when player getting close to ground, so they won't feel dizzy upon first move
+			StatusEffect_Stop( player, moveLockEffect )
+
 		WaitFrame()
+	}
 
 	TryGameModeAnnouncement( player )
+}
+
+bool function IsPlayerNearGround( entity player, float checkHeight = 128 )
+{
+	array<entity> ignoreEnts
+	// always ignore all npcs and players, try to hit onto ground
+	ignoreEnts.extend( GetPlayerArray() )
+	ignoreEnts.extend( GetNPCArray() )
+
+	vector traceStart = player.GetOrigin()
+	vector traceEnd = traceStart - < 0, 0, checkHeight >
+
+	TraceResults downTrace = TraceLine( traceStart, traceEnd, ignoreEnts, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+	entity hitEnt = downTrace.hitEnt
+	if ( !IsValid( hitEnt ) ) // we cannot trace any entity
+		return false
+	if ( !hitEnt.IsWorld() ) // we're not traced onto ground
+		return false
+
+	return true
 }

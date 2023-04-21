@@ -13,10 +13,11 @@ global function ScoreEvent_SetupEarnMeterValuesForMixedModes
 global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 
 // nessie modify
-global function GetMVPPlayer
+global function GetMvpPlayer
 global function AddTitanKilledDialogueEvent
 global function ScoreEvent_ForceUsePilotEliminateEvent
 global function ScoreEvent_DisableCallSignEvent
+global function ScoreEvent_EnableComebackEvent
 
 struct 
 {
@@ -29,6 +30,7 @@ struct
 	
 	bool forceAddEliminateScore = false
 	bool disableCallSignEvent = false
+	bool comebackEvent = false
 } file
 
 void function Score_Init()
@@ -56,6 +58,11 @@ void function InitPlayerForScoreEvents( entity player )
 	player.s.currentKillstreak <- 0
 	player.s.lastKillTime <- 0.0
 	player.s.currentTimedKillstreak <- 0
+
+	// npc killstreak
+	player.s.lastNPCKillTime <- 0.0
+	player.s.currentMayhemNPCKillstreak <- 0
+	player.s.currentOnslaughtNPCKillstreak <- 0
 }
 
 // idk why forth arg is a string, maybe it should be a var type?
@@ -133,6 +140,10 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	victim.s.currentKillstreak = 0
 	victim.s.lastKillTime = 0.0
 	victim.s.currentTimedKillstreak = 0
+	// npc killstreaks
+	victim.s.lastNPCKillTime = 0.0
+	victim.s.currentMayhemNPCKillstreak = 0
+	victim.s.currentOnslaughtNPCKillstreak = 0
 	
 	victim.p.numberOfDeathsSinceLastKill++ // this is reset on kill
 	victim.p.lastDeathTime = Time()
@@ -154,7 +165,6 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	if ( !attacker.IsPlayer() )
 		return
 
-	attacker.p.numberOfDeathsSinceLastKill = 0 // since they got a kill, remove the comeback trigger
 	// pilot kill
 	if( IsPilotEliminationBased() || IsTitanEliminationBased() )
 	{
@@ -168,7 +178,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		AddPlayerScore( attacker, "KillPilot", victim )
 
 	// mvp kill
-	if( GetMVPPlayer( victim.GetTeam() ) == victim )
+	if( GetMvpPlayer( victim.GetTeam() ) == victim )
 		AddPlayerScore( attacker, "KilledMVP", victim )
 	
 	// headshot
@@ -206,12 +216,13 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		attacker.p.seekingRevenge = false
 	}
 
-	// comeback
-	if ( attacker.p.numberOfDeathsSinceLastKill >= COMEBACK_DEATHS_REQUIREMENT )
+	// comeback, doesn't exist in vanilla so make it a setting
+	if ( file.comebackEvent )
 	{
-		AddPlayerScore( attacker, "Comeback", attacker )
-		attacker.p.numberOfDeathsSinceLastKill = 0
+		if ( attacker.p.numberOfDeathsSinceLastKill >= COMEBACK_DEATHS_REQUIREMENT )
+			AddPlayerScore( attacker, "Comeback", victim )
 	}
+	attacker.p.numberOfDeathsSinceLastKill = 0 // since they got a kill, remove the comeback trigger
 	
 	// untimed killstreaks
 	attacker.s.currentKillstreak++
@@ -324,6 +335,26 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 		AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), victim )
 	}
 	catch ( ex ) {}
+
+	// mayhem and onslaught, doesn't add any score but vanilla has this event
+	// mayhem killstreak broke
+	if ( attacker.s.lastNPCKillTime > Time() + MAYHEM_REQUIREMENT_TIME )
+		attacker.s.currentMayhemNPCKillstreak = 0
+	// onslaught killstreak broke
+	if ( attacker.s.lastNPCKillTime > Time() + ONSLAUGHT_REQUIREMENT_TIME )
+		attacker.s.currentOnslaughtNPCKillstreak = 0
+	
+	// update last killed time
+	attacker.s.lastNPCKillTime = Time()
+
+	// mayhem
+	attacker.s.currentMayhemNPCKillstreak++
+	if ( attacker.s.currentMayhemNPCKillstreak == MAYHEM_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "Mayhem" )
+	// onslaught
+	attacker.s.currentOnslaughtNPCKillstreak++
+	if ( attacker.s.currentOnslaughtNPCKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "Onslaught" )
 }
 
 
@@ -338,7 +369,7 @@ void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, flo
 
 void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in this case means modes with both pilots and titans
 {
-	thread SetupEarnMeterValuesForMixedModes_Threaded() // needs thread or "PilotEmilinate" won't behave up correctly
+	thread SetupEarnMeterValuesForMixedModes_Threaded() // needs thread or "PilotEmilinate" won't be set up correctly
 }
 
 void function SetupEarnMeterValuesForMixedModes_Threaded()
@@ -396,7 +427,7 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 }
 
 // nessy modify
-entity function GetMVPPlayer( int team = 0 )
+entity function GetMvpPlayer( int team = 0 )
 {
 	if( IsFFAGame() )
 		team = 0 // 0 means sorting all players( good for ffa ), if use a teamNumber it will sort a certain team
@@ -408,33 +439,8 @@ entity function GetMVPPlayer( int team = 0 )
 		return sortedPlayer[0] // mvp
 	}
 
-	// respawn hardcoded some functions in _utility_shared, guess I will use it!
-	IntFromEntityCompare compareFunc = CompareKills // default comparing kills
-
-	switch( GAMETYPE )
-	{
-		case "ps":
-		case "tdm":
-		case "ttdm": // ttdm in northstar still using pilotKills for check
-			break // still using CompareKills
-		case "lts":
-			compareFunc = CompareLTS
-			break
-		case "cp":
-			compareFunc = CompareCP
-			break
-		case "ctf":
-			compareFunc = CompareCTF
-			break
-		case "speedball":
-			compareFunc = CompareSpeedball
-			break
-		case "mfd":
-			compareFunc = CompareMFD
-			break
-	}
-
-	sortedPlayer = GetSortedPlayers( compareFunc, team )
+	// default one
+	sortedPlayer = GetSortedPlayers( GameMode_GetScoreCompareFunc( GAMETYPE ), team )
 	return sortedPlayer[0] // mvp
 }
 
@@ -451,4 +457,9 @@ void function ScoreEvent_ForceUsePilotEliminateEvent( bool force )
 void function ScoreEvent_DisableCallSignEvent( bool disable )
 {
 	file.disableCallSignEvent = disable
+}
+
+void function ScoreEvent_EnableComebackEvent( bool enable )
+{
+	file.comebackEvent = enable
 }
