@@ -348,19 +348,13 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 	attacker.s.lastNPCKillTime = Time()
 
 	// mayhem
-	if ( attacker.s.lastNPCKillTime <= Time() + MAYHEM_REQUIREMENT_TIME )
-	{
-		attacker.s.currentMayhemNPCKillstreak++
-		if ( attacker.s.currentMayhemNPCKillstreak == MAYHEM_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "Mayhem" )
-	}
+	attacker.s.currentMayhemNPCKillstreak++
+	if ( attacker.s.currentMayhemNPCKillstreak == MAYHEM_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "Mayhem" )
 	// onslaught
-	if ( attacker.s.lastNPCKillTime <= Time() + ONSLAUGHT_REQUIREMENT_TIME )
-	{
-		attacker.s.currentOnslaughtNPCKillstreak++
-		if ( attacker.s.currentOnslaughtNPCKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "Onslaught" )
-	}
+	attacker.s.currentOnslaughtNPCKillstreak++
+	if ( attacker.s.currentOnslaughtNPCKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "Onslaught" )
 }
 
 
