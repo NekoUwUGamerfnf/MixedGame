@@ -17,6 +17,7 @@ global function GetMvpPlayer
 global function AddTitanKilledDialogueEvent
 global function ScoreEvent_ForceUsePilotEliminateEvent
 global function ScoreEvent_DisableCallSignEvent
+global function ScoreEvent_AddHeadShotMedalDisabledDamageSourceId // basically for eDamageSourceId.bleedout
 global function ScoreEvent_EnableComebackEvent
 
 struct 
@@ -30,6 +31,7 @@ struct
 	
 	bool forceAddEliminateScore = false
 	bool disableCallSignEvent = false
+	array<int> headShotMedalDisabledDamageSource
 	bool comebackEvent = false
 } file
 
@@ -177,18 +179,18 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	else
 		AddPlayerScore( attacker, "KillPilot", victim )
 
-	// mvp kill
-	if( GetMvpPlayer( victim.GetTeam() ) == victim )
+	// mvp kill, triggers when there're more than one player in a team
+	if( GetPlayerArrayOfTeam( victim.GetTeam() ).len() > 1 && GetMvpPlayer( victim.GetTeam() ) == victim )
 		AddPlayerScore( attacker, "KilledMVP", victim )
 	
+	int methodOfDeath = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	// headshot
 	//if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
 	//	AddPlayerScore( attacker, "Headshot", victim )
-	// modified to handle bleedout damage redirect and dialogue
+	// modified to handle specific damages
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
 	{
-		// if the victim is killed by redirected damage, we don't do headshot medal event and dialogue
-		if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) != eDamageSourceId.bleedout )
+		if ( file.headShotMedalDisabledDamageSource.contains( methodOfDeath ) )
 		{
 			AddPlayerScore( attacker, "Headshot", victim )
 			PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
@@ -196,7 +198,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	}
 
 	// special method of killing dialogues	
-	if( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == damagedef_titan_step )
+	if( methodOfDeath == damagedef_titan_step )
 		PlayFactionDialogueToPlayer( "kc_hitandrun", attacker )
 
 	// first strike
@@ -338,10 +340,10 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 
 	// mayhem and onslaught, doesn't add any score but vanilla has this event
 	// mayhem killstreak broke
-	if ( attacker.s.lastNPCKillTime > Time() + MAYHEM_REQUIREMENT_TIME )
+	if ( attacker.s.lastNPCKillTime < Time() - MAYHEM_REQUIREMENT_TIME )
 		attacker.s.currentMayhemNPCKillstreak = 0
 	// onslaught killstreak broke
-	if ( attacker.s.lastNPCKillTime > Time() + ONSLAUGHT_REQUIREMENT_TIME )
+	if ( attacker.s.lastNPCKillTime < Time() - ONSLAUGHT_REQUIREMENT_TIME )
 		attacker.s.currentOnslaughtNPCKillstreak = 0
 	
 	// update last killed time
@@ -356,8 +358,6 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 	if ( attacker.s.currentOnslaughtNPCKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
 		AddPlayerScore( attacker, "Onslaught" )
 }
-
-
 
 void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, float owned, float coreScale = 1.0 )
 {
@@ -457,6 +457,14 @@ void function ScoreEvent_ForceUsePilotEliminateEvent( bool force )
 void function ScoreEvent_DisableCallSignEvent( bool disable )
 {
 	file.disableCallSignEvent = disable
+}
+
+void function ScoreEvent_AddHeadShotMedalDisabledDamageSourceId( int damageSourceId )
+{
+	if ( file.headShotMedalDisabledDamageSource.contains( damageSourceId ) )
+		return
+
+	file.headShotMedalDisabledDamageSource.append( damageSourceId )
 }
 
 void function ScoreEvent_EnableComebackEvent( bool enable )
