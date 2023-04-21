@@ -180,7 +180,10 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		AddPlayerScore( attacker, "KillPilot", victim )
 
 	// mvp kill, triggers when there're more than one player in a team
-	if( GetPlayerArrayOfTeam( victim.GetTeam() ).len() > 1 && GetMvpPlayer( victim.GetTeam() ) == victim )
+	bool enoughPlayerForMVP = GetPlayerArrayOfTeam( victim.GetTeam() ).len() > 1
+	if ( IsFFAGame() ) // for ffa, we check if there're more than 2 players in total
+		enoughPlayerForMVP = GetPlayerArray().len() > 2
+	if ( enoughPlayerForMVP && GetMvpPlayer( victim.GetTeam() ) == victim )
 		AddPlayerScore( attacker, "KilledMVP", victim )
 	
 	int methodOfDeath = DamageInfo_GetDamageSourceIdentifier( damageInfo )
