@@ -78,8 +78,8 @@ void function RateSpawnpoints_CTF( int checkClass, array<entity> spawnpoints, in
 bool function VerifyCTFSpawnpoint( entity spawnpoint, int team )
 {
 	// ensure spawnpoints aren't too close to enemy base
-	
-	if ( HasSwitchedSides() )
+
+	if ( IsSwitchSidesBased() && HasSwitchedSides() == 1 )
 		team = GetOtherTeam( team )
 	
 	array<entity> startSpawns = SpawnPoints_GetPilotStart( team )
@@ -148,7 +148,7 @@ void function CreateFlags()
 		// on some maps flags are on the opposite side from what they should be
 		// likely this is because respawn uses distance checks from spawns to check this in official
 		// but i don't like doing that so just using a list of maps to swap them on lol
-		bool switchedSides = HasSwitchedSides() == 1
+		bool switchedSides = IsSwitchSidesBased() && HasSwitchedSides() == 1
 
 		// i dont know why this works and whatever we had before didn't, but yeah
 		bool shouldSwap = switchedSides 

@@ -82,8 +82,8 @@ void function PIN_GameStart()
 	// called from InitGameState
 	//FlagInit( "ReadyToStartMatch" )
 	
-	// In vanilla the level.nv.switchSides only inited when gamemode is actually using switch sides, or the function IsSwitchSidesBased() from _utility_shared.nut won't work!
-	SetServerVar( "switchedSides", 0 ) 
+	// In vanilla the level.nv.switchSides only inited when gamemode is actually using switch sides, or the function IsSwitchSidesBased() from _utility_shared.nut will always return a "true"!
+	//SetServerVar( "switchedSides", 0 ) // handled by SetSwitchSidesBased()
 	SetServerVar( "winningTeam", -1 )
 		
 	AddCallback_GameStateEnter( eGameState.WaitingForCustomStart, GameStateEnter_WaitingForCustomStart )
@@ -1036,6 +1036,12 @@ void function SetShouldUsePickLoadoutScreen( bool shouldUse )
 void function SetSwitchSidesBased( bool switchSides )
 {
 	file.switchSidesBased = switchSides
+
+	// In vanilla the level.nv.switchSides only inited when gamemode is actually using switch sides, or the function IsSwitchSidesBased() from _utility_shared.nut will always return a "true"!
+	if ( switchSides )
+		SetServerVar( "switchedSides", 0 )
+	else
+		SetServerVar( "switchedSides", null )
 }
 
 void function SetSuddenDeathBased( bool suddenDeathBased )

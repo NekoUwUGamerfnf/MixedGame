@@ -161,7 +161,7 @@ void function removePlayerFromCapperArray_threaded(array<entity> capperArray,ent
 
 void function RateSpawnpoints_CP( int checkClass, array<entity> spawnpoints, int team, entity player )
 {
-	if ( HasSwitchedSides() )
+	if ( IsSwitchSidesBased() && HasSwitchedSides() == 1 )
 		team = GetOtherTeam( team )
 
 	// check hardpoints, determine which ones we own

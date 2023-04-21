@@ -290,7 +290,7 @@ void function InitRatings( entity player, int team )
 entity function FindSpawnPoint( entity player, bool isTitan, bool useStartSpawnpoint )
 {
 	int team = player.GetTeam()
-	if ( HasSwitchedSides() )
+	if ( ( IsSwitchSidesBased() && HasSwitchedSides() == 1 ) )
 		team = GetOtherTeam( team )
 
 	array<entity> spawnpoints
@@ -445,7 +445,7 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 	*/
 	
 	int compareTeam = spawnpoint.GetTeam()
-	if ( HasSwitchedSides() && ( compareTeam == TEAM_MILITIA || compareTeam == TEAM_IMC ) )
+	if ( ( IsSwitchSidesBased() && HasSwitchedSides() == 1 ) && ( compareTeam == TEAM_MILITIA || compareTeam == TEAM_IMC ) )
 		compareTeam = GetOtherTeam( compareTeam )
 		
 	foreach ( bool functionref( entity, int ) customValidationRule in file.customSpawnpointValidationRules )
@@ -763,7 +763,7 @@ entity function DecideSpawnZone_Generic( array<entity> spawnzones, int team )
 	
 	// get average team startspawn positions
 	int spawnCompareTeam = team
-	if ( HasSwitchedSides() )
+	if ( ( IsSwitchSidesBased() && HasSwitchedSides() == 1 ) )
 		spawnCompareTeam = GetOtherTeam( team )
 	
 	array<entity> startSpawns = SpawnPoints_GetPilotStart( spawnCompareTeam )
@@ -913,7 +913,7 @@ entity function DecideSpawnZone_CTF( array<entity> spawnzones, int team )
 	
 	// get average team startspawn positions
 	int spawnCompareTeam = team
-	if ( HasSwitchedSides() )
+	if ( ( IsSwitchSidesBased() && HasSwitchedSides() == 1 ) )
 		spawnCompareTeam = GetOtherTeam( team )
 	
 	array<entity> startSpawns = SpawnPoints_GetPilotStart( spawnCompareTeam )
