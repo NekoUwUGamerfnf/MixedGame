@@ -13,7 +13,7 @@ global function ScoreEvent_SetupEarnMeterValuesForMixedModes
 global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 
 // nessie modify
-global function GetMVPPlayer
+global function GetMvpPlayer
 global function AddTitanKilledDialogueEvent
 global function ScoreEvent_ForceUsePilotEliminateEvent
 global function ScoreEvent_DisableCallSignEvent
@@ -178,7 +178,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		AddPlayerScore( attacker, "KillPilot", victim )
 
 	// mvp kill
-	if( GetMVPPlayer( victim.GetTeam() ) == victim )
+	if( GetMvpPlayer( victim.GetTeam() ) == victim )
 		AddPlayerScore( attacker, "KilledMVP", victim )
 	
 	// headshot
@@ -427,7 +427,7 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 }
 
 // nessy modify
-entity function GetMVPPlayer( int team = 0 )
+entity function GetMvpPlayer( int team = 0 )
 {
 	if( IsFFAGame() )
 		team = 0 // 0 means sorting all players( good for ffa ), if use a teamNumber it will sort a certain team
@@ -439,33 +439,8 @@ entity function GetMVPPlayer( int team = 0 )
 		return sortedPlayer[0] // mvp
 	}
 
-	// respawn hardcoded some functions in _utility_shared, guess I will use it!
-	IntFromEntityCompare compareFunc = CompareKills // default comparing kills
-
-	switch( GAMETYPE )
-	{
-		case "ps":
-		case "tdm":
-		case "ttdm": // ttdm in northstar still using pilotKills for check
-			break // still using CompareKills
-		case "lts":
-			compareFunc = CompareLTS
-			break
-		case "cp":
-			compareFunc = CompareCP
-			break
-		case "ctf":
-			compareFunc = CompareCTF
-			break
-		case "speedball":
-			compareFunc = CompareSpeedball
-			break
-		case "mfd":
-			compareFunc = CompareMFD
-			break
-	}
-
-	sortedPlayer = GetSortedPlayers( compareFunc, team )
+	// default one
+	sortedPlayer = GetSortedPlayers( GameMode_GetScoreCompareFunc( GAMETYPE ), team )
 	return sortedPlayer[0] // mvp
 }
 
