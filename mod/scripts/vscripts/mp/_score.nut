@@ -352,14 +352,18 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 	// update last killed time
 	attacker.s.lastNPCKillTime = Time()
 
-	// mayhem
-	attacker.s.currentMayhemNPCKillstreak++
-	if ( attacker.s.currentMayhemNPCKillstreak == MAYHEM_REQUIREMENT_KILLS )
-		AddPlayerScore( attacker, "Mayhem" )
-	// onslaught
-	attacker.s.currentOnslaughtNPCKillstreak++
-	if ( attacker.s.currentOnslaughtNPCKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
-		AddPlayerScore( attacker, "Onslaught" )
+	// they only count on killing grunts(humansized npcs)
+	if ( IsHumanSized( victim ) )
+	{
+		// mayhem
+		attacker.s.currentMayhemNPCKillstreak++
+		if ( attacker.s.currentMayhemNPCKillstreak == MAYHEM_REQUIREMENT_KILLS )
+			AddPlayerScore( attacker, "Mayhem" )
+		// onslaught
+		attacker.s.currentOnslaughtNPCKillstreak++
+		if ( attacker.s.currentOnslaughtNPCKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
+			AddPlayerScore( attacker, "Onslaught" )
+	}
 }
 
 void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, float owned, float coreScale = 1.0 )
