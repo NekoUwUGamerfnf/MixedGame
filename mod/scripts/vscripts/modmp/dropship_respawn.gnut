@@ -1,6 +1,10 @@
 
 global function RespawnShip_Init
 
+// grunt mode needs this?
+global function CreateWaitingRespawnShip
+global function RespawnInWaitingRespawnShip
+
 global function RespawnInDropShip
 global function SetDropshipRespawnPointsOverride
 
@@ -16,10 +20,12 @@ struct RespawnShipStruct
 {
 	int dropshipState
 	array<entity> playersInDropship
+	bool waitingShip
 }
 
 struct
 {
+	table< int, array<entity> > teamWaitingRespawnShips
 	array<entity> availableRespawnShips
 	table < entity, RespawnShipStruct > respawnShipTable
 
@@ -73,9 +79,38 @@ void function SetDropshipRespawnPointsOverride( array<entity> spawnPoints )
 	file.respawnShipSpawns = spawnPoints
 }
 
+void function CreateWaitingRespawnShip( int team )
+{
+	if ( !( team in file.teamWaitingRespawnShips ) )
+		file.teamWaitingRespawnShips[ team ] <- []
+	entity newShip = CreateRespawnShip( team )
+	newShip.Hide()
+	file.teamWaitingRespawnShips[ team ].append( newShip )
+	thread TrackWaitingRespawnShipLifeTime( newShip )
+}
+
+void function TrackWaitingRespawnShipLifeTime( entity newShip )
+{
+
+}
+
+// return a bool so you can decide other respawn methods
+bool function RespawnInWaitingRespawnShip( entity player )
+{
+	int team = player.GetTeam()
+	array<entity> waitingDropships
+	if ( !( team in file.teamWaitingRespawnShips ) )
+		return false
+	waitingDropships = file.teamWaitingRespawnShips[ team ]
+	bool respawnAsTitan = Riff_SpawnAsTitan() == 1 || expect bool( player.GetPersistentVar( "spawnAsTitan" ) )
+	if ( respawnAsTitan )
+		return false
+	return false
+}
+
 void function RespawnInDropShip( entity player )
 {
-	if( GetZiplineDropshipSpawns().len() <= 0 )
+	if( file.respawnShipSpawns.len() <= 0 )
 		return
     print( "triggered dropshipspawn" )
 
@@ -83,8 +118,11 @@ void function RespawnInDropShip( entity player )
 	//    return
 	if( GetGameState() != eGameState.Playing )
 		return
-	if( player.IsTitan() )
+	bool respawnAsTitan = Riff_SpawnAsTitan() == 1 || expect bool(  player.GetPersistentVar( "spawnAsTitan" ) )
+	if ( respawnAsTitan )
 		return
+	//if( player.IsTitan() )
+	//	return
 	player.SetInvulnerable()
 
     bool shouldCreateNewShip = false
@@ -170,6 +208,7 @@ void function TrackPlayerLifeStat( entity player, entity dropship )
         {
             if( IsValid( player ) )
             {
+				player.ClearParent()
                 player.Anim_Stop()
 				player.ClearInvulnerable()
                 curShipStruct.playersInDropship.removebyvalue( player )
@@ -322,18 +361,18 @@ string function RespawnShipGetAnimation()
 
 	switch( GetMapName() )
 	{
-	case "mp_homestead":
-		return "dropship_coop_respawn_homestead"
-	case "mp_lagoon":
-		return "dropship_coop_respawn_lagoon"
-	case "mp_overlook":
-		return "dropship_coop_respawn_overlook"
-	case "mp_outpost":
-		return "dropship_coop_respawn_outpost"
-	case "mp_wargames":
-		return "dropship_coop_respawn_wargames"
-	case "mp_digsite":
-		return "dropship_coop_respawn_digsite"
+		case "mp_homestead":
+			return "dropship_coop_respawn_homestead"
+		case "mp_lagoon":
+			return "dropship_coop_respawn_lagoon"
+		case "mp_overlook":
+			return "dropship_coop_respawn_overlook"
+		case "mp_outpost":
+			return "dropship_coop_respawn_outpost"
+		case "mp_wargames":
+			return "dropship_coop_respawn_wargames"
+		case "mp_digsite":
+			return "dropship_coop_respawn_digsite"
 	}
 	return "dropship_coop_respawn"
 }
