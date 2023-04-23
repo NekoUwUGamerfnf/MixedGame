@@ -689,7 +689,7 @@ void function LaunchSpawnerProjectile( entity npc, vector targetOrigin, int acti
 
 //	DebugDrawLine( npc.GetOrigin() + <3,3,3>, launchPos + <3,3,3>, 255, 0, 0, true, 5.0 )
 	float armTime = SPAWN_PROJECTILE_AIR_TIME + RandomFloatRange( 1.0, 2.5 )
-	vector angularVelocity = Vector( 100, 100, RandomFloatRange( 1200, 2200 ) ) // was <200,0,0>
+	vector angularVelocity = < 200, 0, 0 >
 	entity nade = weapon.FireWeaponGrenade( launchPos, vel, angularVelocity, armTime, damageTypes.dissolve, damageTypes.explosive, PROJECTILE_NOT_PREDICTED, true, true )
 
 	// modified for better models, hardcoded for now
