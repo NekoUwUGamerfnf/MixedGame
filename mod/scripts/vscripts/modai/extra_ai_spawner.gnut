@@ -765,21 +765,21 @@ void function ReplaceWeapon( entity guy, string weapon, array<string> mods )
 	guy.SetActiveWeaponByName( weapon )
 }
 
-void function LaunchDropPodThenActivate( entity pod, array<entity> npcs, vector pos, vector rot, bool doDeployAnims = true )
+// npc minimap and spawn checks
+void function AddMinimapForNPC( entity guy, bool isHumanSized )
 {
-	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+	if ( !IsAlive( guy ) )
+		return
+	
+	// map
+	guy.Minimap_AlwaysShow( TEAM_IMC, null )
+	guy.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	foreach ( entity player in GetPlayerArray() )
+		guy.Minimap_AlwaysShow( 0, player )
+	guy.Minimap_SetHeightTracking( true )
 
-	if ( doDeployAnims )
-		ActivateFireteamDropPod( pod, npcs )
-	else
-	{
-		thread DropPodActiveThink( pod )
-		foreach ( entity npc in npcs )
-		{
-			if ( IsAlive( npc ) )
-				npc.ClearParent()
-		}
-	}
+	if ( isHumanSized )
+		guy.Minimap_SetCustomState( eMinimapObject_npc.AI_TDM_AI )
 }
 
 // so you can set up a titan without have to make a npc pilot embarking it
@@ -920,16 +920,19 @@ void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, int 
 
 void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, string content /*( ͡° ͜ʖ ͡°)*/, void functionref( array<entity> guys ) squadHandler = null )
 {
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
-	array<entity> guys
-	
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	
 	InitFireteamDropPod( pod )
 	
+	// wait for launch
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
 	for ( int i = 0; i < 4 ;i++ )
 	{
 		entity npc = CreateNPC( content, team, pos, <0,0,0> )
+
 		DispatchSpawn( npc )
 		SetSquad( npc, squadName )
 		
@@ -940,14 +943,11 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 		npc.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		guys.append( npc )
 	}
-	
-	// The order here is different so we can show on minimap while were still falling
+
+	ActivateFireteamDropPod( pod, guys )
+
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-		
-	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
-	
-	ActivateFireteamDropPod( pod, guys )
 }
 
 entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team, bool standUp = true, void functionref( entity titan ) titanHandler = null )
@@ -1220,31 +1220,48 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 	return titan
 }
 
-void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, string content, void functionref( entity guy ) npcHandler = null )
+void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, string content, int amount, void functionref( array<entity> guys ) squadHandler = null )
 {
 	entity pod = CreateDropPod( pos, <0,0,0> )
+	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
+	
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
-    entity spawnNpc = CreateNPC( content, team, pos, rot )
-	spawnNpc.EndSignal( "OnDestroy" )
-	DispatchSpawn( spawnNpc ) // never delayed dispatchSpawn()
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
+	for ( int i = 0; i < amount; i++ )
+	{
+		entity spawnNpc = CreateNPC( content, team, pos, rot )
 
-    InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
-	spawnNpc.SetParent( pod, "ATTACH", true )
+		DispatchSpawn( spawnNpc ) // never delay dispatchSpawn()
+		SetSquad( spawnNpc, squadName )
 
-	if ( npcHandler != null )
-		thread npcHandler( spawnNpc )
-	waitthread LaunchDropPodThenActivate( pod, [spawnNpc], pos, rot, false )
+		spawnNpc.SetParent( pod, "ATTACH", true )
+		guys.append( spawnNpc )
+	}
+
+	// if npcs spawned from here, we assume they don't have deploy animations, just clear parent for them
+	thread DropPodActiveThink( pod )
+	foreach ( entity guy in guys )
+	{
+		if ( IsAlive( guy ) )
+			guy.ClearParent()
+	}
+
+	if ( squadHandler != null )
+		thread squadHandler( guys )
 }
 
 void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, int team, string content, string leaderAiSet = "npc_soldier_pve_specialist", int leaderHealth = 350, void functionref( array<entity> guys ) squadHandler = null )
 {
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
-	array<entity> guys
-	
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	
 	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
-	
+
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
 	for ( int i = 0; i < 4 ;i++ )
 	{
 		entity npc
@@ -1269,12 +1286,11 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		npc.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		guys.append( npc )
 	}
-	
-	// The order here is different so we can show on minimap while were still falling
+		
+	ActivateFireteamDropPod( pod, guys )
+
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-		
-	waitthread LaunchDropPodThenActivate( pod, guys, pos, rot )
 }
 
 entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int team, string aiSet = "npc_soldier_pve_specialist", int maxHealth = 350 )
@@ -1341,13 +1357,14 @@ entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int t
 
 void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int team, void functionref( array<entity> guys ) squadHandler = null )
 {
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
-	array<entity> guys
-	
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	
 	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
-	
+
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
 	for ( int i = 0; i < 5 ;i++ )
 	{
 		// 3 small prowlers and 2 normal prowlers
@@ -1373,11 +1390,16 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 		guys.append( npc )
 	}
 	
-	// The order here is different so we can show on minimap while were still falling
+	// if npcs spawned from here, we assume they don't have deploy animations, just clear parent for them
+	thread DropPodActiveThink( pod )
+	foreach ( entity guy in guys )
+	{
+		if ( IsAlive( guy ) )
+			guy.ClearParent()
+	}
+	
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-		
-	waitthread LaunchDropPodThenActivate( pod, guys, pos, rot, false )
 }
 
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
@@ -1473,7 +1495,8 @@ void function ExtraSpawner_NpcPilotRunsToEmbarkTitan( entity pilot, entity titan
 
 	pilot.SetNoTarget( true )
 	pilot.Anim_Stop()
-	pilot.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE )
+	// want they move faster to their titans
+	pilot.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE | NPCMF_FOLLOW_SAFE_PATHS )
 	pilot.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	pilot.DisableArrivalOnce( true )
 	bool canMoveAndShoot = pilot.GetCapabilityFlag( bits_CAP_MOVE_SHOOT )
@@ -1486,7 +1509,7 @@ void function ExtraSpawner_NpcPilotRunsToEmbarkTitan( entity pilot, entity titan
 				return
 
 			pilot.SetNoTarget( false )
-			pilot.EnableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE )
+			pilot.EnableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE | NPCMF_FOLLOW_SAFE_PATHS )
 			pilot.DisableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 			pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, canMoveAndShoot )
 		}
@@ -1525,12 +1548,6 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.SetTitle( "Pilot" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
 
 	ExtraSpawner_SetUpNPCWeapons( pilot )
-	// now using a better setup func
-	//ReplaceWeapon( pilot, file.pilotMainWeapons[ RandomInt( file.pilotMainWeapons.len() ) ], [] ) //["npc_elite_weapon"]
-	//pilot.GiveWeapon( file.pilotAntiTitanWeapons[ RandomInt( file.pilotAntiTitanWeapons.len() ) ] ) // maybe don't do this?
-	// want pilots move faster to their titans
-	//pilot.EnableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
-	//pilot.DisableNPCMoveFlag( NPCMF_FOLLOW_SAFE_PATHS | NPCMF_INDOOR_ACTIVITY_OVERRIDE )
 
 	return pilot
 }
@@ -1539,7 +1556,7 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot )
 {
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_FLEE ) // hardcoded!
 	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
-	pilot.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // they can shoot very nice
+	pilot.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot perfectly
 	pilot.SetEnemyChangeCallback( OnEnemyChanged_NPCPilotTrySwitchWeapon ) // maybe not a good idea since pilot models don't have "ACT_SWITCH_WEAPON"
 
 	AddEntityCallback_OnDamaged( pilot, NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
@@ -1888,8 +1905,8 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 	}
 	
 	array<entity> players = GetPlayerArrayOfEnemies( pilot.GetTeam() )
-	// show on enemy radar
-	AddMinimapForNPCPilot( pilot )
+	// show on enemy radar, unfortunatelly cl_minimap won't track npc_pilot_elite
+	AddMinimapForNPC( pilot, true )
 	
 	// Every 5 - 15 secs change AssaultPoint
 	while ( true )
@@ -1912,15 +1929,6 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 
 }
 
-void function AddMinimapForNPCPilot( entity guy )
-{
-	guy.Minimap_SetAlignUpright( true ) // always show
-	guy.Minimap_AlwaysShow( TEAM_IMC, null )
-	guy.Minimap_AlwaysShow( TEAM_MILITIA, null )
-	guy.Minimap_SetHeightTracking( true )
-	guy.Minimap_SetCustomState( eMinimapObject_npc.AI_TDM_AI )
-}
-
 void function ExtraSpawner_TitanHandler( entity titan )
 {
 	// First AssaultPoint
@@ -1936,8 +1944,7 @@ void function ExtraSpawner_TitanHandler( entity titan )
 	
 	array<entity> players = GetPlayerArrayOfEnemies( titan.GetTeam() )
 	// show on enemy radar
-	foreach ( player in players )
-		titan.Minimap_AlwaysShow( 0, player )
+	AddMinimapForNPC( titan, false )
 	
 	// Every 5 - 15 secs change AssaultPoint
 	while ( true )
@@ -2172,8 +2179,8 @@ void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType
 void function ExtraSpawner_ReaperHandler( entity reaper )
 {
 	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
-	foreach ( player in players )
-		reaper.Minimap_AlwaysShow( 0, player )
+	// show on enmey radar
+	AddMinimapForNPC( reaper, false )
 	
 	reaper.AssaultSetGoalRadius( 500 )
 	
