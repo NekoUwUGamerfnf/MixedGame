@@ -5,6 +5,23 @@ global function BecomesGruntMode_Init
 global function GruntMode_RegisterPlayerClass
 global function GruntMode_IsSpecialistClass // for score events in gruntmode.gnut
 
+// player damage protection against titans
+const float PLAYER_DAMAGE_PROTECTION_COOLDOWN = 25.0
+const float PLAYER_DAMAGE_PROTECTION_DURATION = 1.2
+// triggering protection without have to being attacked by titans
+array<int> PLAYER_DAMAGE_PROTECTION_SPECIFICS =
+[
+	damagedef_reaper_nuke,
+]
+// no protection against stepping on, crash damages and melee damages
+array<int> PLAYER_DAMAGE_PROTECTION_BLACKLISTS =
+[
+	damagedef_reaper_fall,
+	damagedef_titan_step,
+	damagedef_titan_fall,
+	eDamageSourceId.auto_titan_melee
+]
+
 // npc damage settings!!!
 const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.5
 const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.3
@@ -24,6 +41,8 @@ struct
 	table<entity, string> playerLastChatterName // we stop the chatter sound on death
 	table<entity, string> playerClassTable // this is for saving player's class
 	table<string, PlayerClassStruct> gruntModeClasses // this is for saving all valid classes
+	table<entity, float> playerDamageProtectionEndTime // want to make player feel better encountering titans
+	table<entity, float> playerNextDamageProtectionAllowedTime
 } file
 
 void function BecomesGruntMode_Init()
@@ -89,6 +108,8 @@ void function BecomesGruntMode_Init()
 
 	// player damage chatter
 	AddDamageByCallback( "player", OnPlayerDealDamage )
+	// player damage protection
+	AddDamageFinalCallback( "player", OnPlayerFinalDamaged )
 
 	// ai configs
 	RegisterSignal( "StopTryHideName" )
@@ -124,6 +145,43 @@ void function OnPlayerDealDamage( entity victim, var damageInfo )
 
 	if ( IsValid( attacker ) )
 		TryGruntBattleChatterOnEnt( attacker, victim, true ) // damage chatter style
+}
+
+// want to give player some protection against titan damages, so they won't feel very bad upon encountering titans
+void function OnPlayerFinalDamaged( entity player, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+
+	if ( attacker.IsPlayer() )
+		return
+
+	int methodOfDamage = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	if ( PLAYER_DAMAGE_PROTECTION_BLACKLISTS.contains( methodOfDamage ) )
+		return
+
+	if ( !PLAYER_DAMAGE_PROTECTION_SPECIFICS.contains( methodOfDamage ) && !attacker.IsTitan() )
+		return
+
+	TryGivePlayerDamageProtection( player, damageInfo )
+}
+
+void function TryGivePlayerDamageProtection( entity player, var damageInfo )
+{
+	if ( file.playerDamageProtectionEndTime[ player ] < Time() ) // not in protection
+	{
+		if ( Time() < file.playerNextDamageProtectionAllowedTime[ player ] ) // still in cooldown
+			return // just return
+		
+		// set player in protection
+		file.playerDamageProtectionEndTime[ player ] = Time() + PLAYER_DAMAGE_PROTECTION_DURATION
+		file.playerNextDamageProtectionAllowedTime[ player ] = Time() + PLAYER_DAMAGE_PROTECTION_COOLDOWN
+	}
+
+	// player in protection, never kill them
+	//print( "player protected!" )
+	DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 )
 }
 
 ///////////////////////////////////////
@@ -429,6 +487,9 @@ void function OnClientConnected( entity player )
 	file.playerLastChatterName[ player ] <- ""
 	// grunt classes
 	file.playerClassTable[ player ] <- "" // empty class
+	// damage protection
+	file.playerDamageProtectionEndTime[ player ] <- 0.0
+	file.playerNextDamageProtectionAllowedTime[ player ] <- 0.0
 
 	AddPlayerHeldButtonEventCallback( player, IN_USE, CallbackFuncCornerUs, 0.5 ) // was 0.3
 	AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, CallbackFuncCornerUs, 0.5 ) // controller support
@@ -727,6 +788,8 @@ void function PlayEnemyPlayerKilledChatter( entity victim, entity attacker )
 		// stop victim's existing chatter
 		if ( file.playerLastChatterName[ victim ] != "" )
 			StopSoundOnEntity( victim, file.playerLastChatterName[ victim ] )
+		// restore next protection
+		file.playerNextDamageProtectionAllowedTime[ victim ] = Time()
 
 		if ( attacker.IsPlayer() )
 			thread DelayedEnemyKilledChatter( attacker )
