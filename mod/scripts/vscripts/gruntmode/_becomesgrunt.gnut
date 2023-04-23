@@ -6,6 +6,7 @@ global function GruntMode_RegisterPlayerClass
 global function GruntMode_IsSpecialistClass // for score events in gruntmode.gnut
 
 // player damage protection against titans
+const float PLAYER_DAMAGE_PROTECTION_MIN_HEALTH_FRAC = 0.5
 const float PLAYER_DAMAGE_PROTECTION_COOLDOWN = 25.0
 const float PLAYER_DAMAGE_PROTECTION_DURATION = 1.2
 // triggering protection without have to being attacked by titans
@@ -13,7 +14,7 @@ array<int> PLAYER_DAMAGE_PROTECTION_SPECIFICS =
 [
 	damagedef_reaper_nuke,
 ]
-// no protection against stepping on, crash damages and melee damages
+// no protection against stepping on, crash damages and melee damages(also checking DF_MELEE in function)
 array<int> PLAYER_DAMAGE_PROTECTION_BLACKLISTS =
 [
 	damagedef_reaper_fall,
@@ -25,7 +26,7 @@ array<int> PLAYER_DAMAGE_PROTECTION_BLACKLISTS =
 // npc damage settings!!!
 const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.5
 const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.3
-const float NPC_SUPER_SPECTRE_ROCKET_DAMAGE_MULTIPLIER = 0.6
+const float NPC_SUPER_SPECTRE_ROCKET_DAMAGE_MULTIPLIER = 0.4
 
 struct PlayerClassStruct
 {
@@ -158,7 +159,8 @@ void function OnPlayerFinalDamaged( entity player, var damageInfo )
 		return
 
 	int methodOfDamage = DamageInfo_GetDamageSourceIdentifier( damageInfo )
-	if ( PLAYER_DAMAGE_PROTECTION_BLACKLISTS.contains( methodOfDamage ) )
+	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+	if ( PLAYER_DAMAGE_PROTECTION_BLACKLISTS.contains( methodOfDamage ) || damageType & DF_MELEE )
 		return
 
 	if ( !PLAYER_DAMAGE_PROTECTION_SPECIFICS.contains( methodOfDamage ) && !attacker.IsTitan() )
@@ -167,12 +169,14 @@ void function OnPlayerFinalDamaged( entity player, var damageInfo )
 	TryGivePlayerDamageProtection( player, damageInfo )
 }
 
-void function TryGivePlayerDamageProtection( entity player, var damageInfo )
+bool function TryGivePlayerDamageProtection( entity player, var damageInfo )
 {
 	if ( file.playerDamageProtectionEndTime[ player ] < Time() ) // not in protection
 	{
+		if ( GetHealthFrac( player ) < PLAYER_DAMAGE_PROTECTION_MIN_HEALTH_FRAC ) // no enough health to trigger protection
+			return false
 		if ( Time() < file.playerNextDamageProtectionAllowedTime[ player ] ) // still in cooldown
-			return // just return
+			return false // just return
 		
 		// set player in protection
 		file.playerDamageProtectionEndTime[ player ] = Time() + PLAYER_DAMAGE_PROTECTION_DURATION
@@ -182,6 +186,7 @@ void function TryGivePlayerDamageProtection( entity player, var damageInfo )
 	// player in protection, never kill them
 	//print( "player protected!" )
 	DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 )
+	return true
 }
 
 ///////////////////////////////////////
