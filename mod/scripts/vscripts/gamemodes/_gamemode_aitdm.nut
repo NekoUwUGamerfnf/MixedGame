@@ -75,13 +75,15 @@ void function GamemodeAITdm_Init()
 		
 		if ( GetCurrentPlaylistVarInt( "aitdm_archer_grunts", 0 ) == 0 )
 		{
-			AiGameModes_SetGruntWeapons( [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
-			AiGameModes_SetSpectreWeapons( [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
+			AiGameModes_SetNPCWeapons( "npc_soldier", [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
+			AiGameModes_SetNPCWeapons( "npc_spectre", [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
+			AiGameModes_SetNPCWeapons( "npc_stalker", [ "mp_weapon_hemlok_smg", "mp_weapon_lstar", "mp_weapon_mastiff" ] )
 		}
 		else
 		{
-			AiGameModes_SetGruntWeapons( [ "mp_weapon_rocket_launcher" ] )
-			AiGameModes_SetSpectreWeapons( [ "mp_weapon_rocket_launcher" ] )
+			AiGameModes_SetNPCWeapons( "npc_soldier", [ "mp_weapon_rocket_launcher" ] )
+			AiGameModes_SetNPCWeapons( "npc_spectre", [ "mp_weapon_rocket_launcher" ] )
+			AiGameModes_SetNPCWeapons( "npc_stalker", [ "mp_weapon_rocket_launcher" ] )
 		}
 		
 		ScoreEvent_SetupEarnMeterValuesForMixedModes()
@@ -143,11 +145,15 @@ void function OnPlayerConnected( entity player )
 void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
 {
 	// Basic checks
-	if ( !( victim != attacker && attacker.IsPlayer() || attacker.IsTitan() && attacker.GetBossPlayer() != null && GetGameState() == eGameState.Playing ) )
+	if ( victim == attacker || !( attacker.IsPlayer() || attacker.IsTitan() ) || GetGameState() != eGameState.Playing )
 		return
 	
 	// Hacked spectre filter
 	if ( victim.GetOwner() == attacker )
+		return
+	
+	// NPC titans without an owner player will not count towards any team's score
+	if ( attacker.IsNPC() && attacker.IsTitan() && !IsValid( GetPetTitanOwner( attacker ) ) )
 		return
 	
 	// Split score so we can check if we are over the score max
@@ -423,30 +429,47 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 // AI can also flee deeper into their zone suggesting someone spent way too much time on this
 void function SquadHandler( array<entity> guys )
 {
+	int team = guys[0].GetTeam()
+	// show the squad enemy radar
+	array<entity> players = GetPlayerArrayOfEnemies( team )
+	foreach ( entity guy in guys )
+	{
+		if ( IsAlive( guy ) )
+		{
+			foreach ( player in players )
+				guy.Minimap_AlwaysShow( 0, player )
+		}
+	}
+
 	// Not all maps have assaultpoints / have weird assault points ( looking at you ac )
 	// So we use enemies with a large radius
-	array< entity > points = GetNPCArrayOfEnemies( guys[0].GetTeam() )
-	
-	if ( points.len()  == 0 )
+	while ( GetNPCArrayOfEnemies( team ).len() == 0 ) // if we can't find any enemy npcs, keep waiting
+		WaitFrame()
+
+	// our waiting is end, check if any soldiers left
+	bool squadAlive = false
+	foreach ( entity guy in guys )
+	{
+		if ( IsAlive( guy ) )
+			squadAlive = true
+		else
+			guys.removebyvalue( guy )
+	}
+	if ( !squadAlive )
 		return
+
+	array<entity> points = GetNPCArrayOfEnemies( team )
 	
 	vector point
 	point = points[ RandomInt( points.len() ) ].GetOrigin()
 	
-	array<entity> players = GetPlayerArrayOfEnemies( guys[0].GetTeam() )
-	
-	// Setup AI
+	// Setup AI, first assault point
 	foreach ( guy in guys )
 	{
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		guy.AssaultPoint( point )
 		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
-		
-		// show on enemy radar
-		foreach ( player in players )
-			guy.Minimap_AlwaysShow( 0, player )
-		
-		
+
 		//thread AITdm_CleanupBoredNPCThread( guy )
 	}
 	
@@ -464,16 +487,21 @@ void function SquadHandler( array<entity> guys )
 			// Stop func if our squad has been killed off
 			if ( guys.len() == 0 )
 				return
-			
-			// Get point and send guy to it
-			points = GetNPCArrayOfEnemies( guy.GetTeam() )
-			if ( points.len() == 0 )
-				continue
-				
-			point = points[ RandomInt( points.len() ) ].GetOrigin()
-			
-			guy.AssaultPoint( point )
 		}
+
+		// Get point and send our whole squad to it
+		points = GetNPCArrayOfEnemies( team )
+		if ( points.len() == 0 ) // can't find any points here
+			continue
+			
+		point = points[ RandomInt( points.len() ) ].GetOrigin()
+		
+		foreach ( guy in guys )
+		{
+			if ( IsAlive( guy ) )
+				guy.AssaultPoint( point )
+		}
+
 		wait RandomFloatRange(5.0,15.0)
 	}
 }
