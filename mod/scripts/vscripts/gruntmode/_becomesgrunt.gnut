@@ -91,6 +91,7 @@ void function BecomesGruntMode_Init()
 	AddDamageByCallback( "player", OnPlayerDealDamage )
 
 	// ai configs
+	RegisterSignal( "StopTryHideName" )
 	AddSpawnCallback( "npc_soldier", GruntConfig )
 	AddSpawnCallback( "npc_pilot_elite", PilotConfig )
 	AddSpawnCallback( "npc_marvin", MarvinConfig )
@@ -179,30 +180,48 @@ void function GruntConfig( entity soldier )
 		soldier.SetMaxHealth( 80 )
 		soldier.SetHealth( 80 )
 		// hide name if they're not specialist
-		thread TryHideNameLifeLong( soldier ) // grunts may spawn from dropship, they'll still show name, so do a loop
+		thread TryHideName( soldier ) // grunts may spawn from dropship, they'll still show name, so do a loop
 	}
-	else // specialist grunts, health handled by spawn function
-		thread DelayedChangeTitleForSpecialistGrunt( soldier ) // they may get a title from spawn function, we wait a frame before changing again
+	
+	thread GruntTitleThink( soldier ) // specialist grunts may spawn from dropship, do a think here
 
 	Melee_SetHumanSizedDoClassicExecution( soldier, true ) // grunts uses classic neck snap
 }
 
-void function TryHideNameLifeLong( entity guy )
+void function TryHideName( entity soldier )
 {
-	guy.EndSignal( "OnDestroy" )
-	guy.EndSignal( "OnDeath" )
-	while ( true )
+	soldier.EndSignal( "OnDestroy" )
+	soldier.EndSignal( "OnDeath" )
+	soldier.EndSignal( "StopTryHideName" ) // may signaled by GruntTitleThink()
+
+	float endTime = Time() + 10
+	while ( Time() <= endTime )
 	{
-		guy.SetNameVisibleToEnemy( false )
+		soldier.SetNameVisibleToEnemy( false )
 		WaitFrame()
 	}
 }
 
-void function DelayedChangeTitleForSpecialistGrunt( entity soldier )
+void function GruntTitleThink( entity soldier )
 {
-	WaitFrame()
-	if ( IsAlive( soldier ) )
+	soldier.EndSignal( "OnDestroy" )
+	soldier.EndSignal( "OnDeath" )
+
+	float endTime = Time() + 5
+	while ( Time() <= endTime )
+	{
+		WaitFrame()
+		string aiSetName = soldier.GetAISettingsName()
+		bool isSpecialistGrunt = GRUNTMODE_SPECIALIST_GRUNTS.contains( aiSetName )
+		if ( !isSpecialistGrunt )
+			continue
+		WaitFrame() // they may get a title from spawn function, we wait a frame before changing again
 		soldier.SetTitle( GetMilitiaTitle() ) // funny in _ai_soldiers.gnut
+		// try to show name and end TryHideName() thread
+		soldier.Signal( "StopTryHideName" )
+		soldier.SetNameVisibleToEnemy( true )
+		return
+	}
 }
 
 void function PilotConfig( entity soldier )
@@ -250,7 +269,7 @@ void function SpectreConfig( entity soldier )
 	soldier.SetMaxHealth( 190 )
 	soldier.SetHealth( 190 )
 
-	soldier.SetNameVisibleToEnemy( false )
+	thread TryHideName( soldier ) // spectres may spawn from dropship
 
 	DisableLeeching( soldier ) // grunts can't leech
 }
@@ -264,7 +283,7 @@ void function StalkerConfig( entity soldier )
 	soldier.SetMaxHealth( 280 )
 	soldier.SetHealth( 280 )
 
-	soldier.SetNameVisibleToEnemy( false )
+	thread TryHideName( soldier ) // stalkers may spawn from dropship
 }
 
 void function ReaperConfig( entity soldier )
@@ -843,7 +862,8 @@ void function InitGruntModeSpawnerSettings()
 	ExtraSpawner_SetCarePackageWeaponMods( "mp_weapon_softball", [] ) // was ["extended_ammo"]
 	ExtraSpawner_SetCarePackageWeaponMods( "mp_weapon_pulse_lmg", [] )
 
-	AiDrone_SetDroneSpawnedByNPCRandomType( true ) // modified function in _ai_drone.nut, specialist grunts will spawn random drones
+	//AiDrone_SetDroneSpawnedByNPCRandomType( true ) // modified function in _ai_drone.nut, specialist grunts will spawn random drones
+	AiDrone_SetDroneSpawnedByNPCForceDie( true ) // modified function in _ai_drone.nut, drones spawned by npcs will be destroyed right after it's owner's death
 	AiSoldier_EnablePilotEngageChatter( false ) // modified function in _ai_soldiers.gnut, npcs won't call out if they meet players(since we want to make players grunts)
 }
 

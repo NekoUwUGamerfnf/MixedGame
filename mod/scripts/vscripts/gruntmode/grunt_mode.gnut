@@ -14,7 +14,7 @@ const int PILOTS_PER_TEAM = 3
 const int TITANS_PER_TEAM = 0
 const int GUNSHIPS_PER_TEAM = 0 // was 2, removed until I figure out how to make gunships attacking
 
-const float AIRDROP_INTERNAL = 40.0 // fixed! ->// time for each air drops, current hardcoded( for airdrops now dissolves only after certain time )
+const float AIRDROP_INTERVAL = 40.0 // fixed! ->// time for each air drops, current hardcoded( for airdrops now dissolves only after certain time )
 
 // escalator
 const int LEVEL_SPECTRES = 50
@@ -279,40 +279,65 @@ void function ForceAddScoreForPlayerOrNPCKill( entity victim, var damageInfo )
 
 void function SpawnIntroBatch( int team )
 {
+	thread SpawnerWeapons( team )
+
 	// intro spawn
+	string introSpawnClass = "npc_soldier"
 	for ( int i = 0; i < SQUADS_PER_TEAM; i++ )
 	{
 		wait 5 // wait 5s per spawn, or player will have model issue since there're too many entities
-		if ( RandomInt( 4 ) > 0 ) // 75% chance of spawning a specialist squad(??
+		if ( ShouldSpawnSpecialistSquad() )
 		{
-			array< entity > points = SpawnPoints_GetDropPod()
-			entity node = points[ GetSpawnPointIndex( points, team ) ]
+			array< entity > points = GetZiplineDropshipSpawns()
 			string leaderSet = GetGruntModeSpecialistGruntLeader()
+			int leaderHealth = GetSpecialistLeaderHealth( team, leaderSet )
+
+			if ( ShouldSpawnDropship() )
+			{
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, leaderSet, leaderHealth, SquadHandler )
+				continue
+			}
+			
+			points = SpawnPoints_GetDropPod()
+			entity node = points[ GetSpawnPointIndex( points, team ) ]
 			//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
-			thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", leaderSet, 250, SquadHandler )
+			thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, leaderSet, leaderHealth, SquadHandler )
 		}
 		else
 		{
 			array< entity > points = GetZiplineDropshipSpawns()
 
-			// Prefer dropship when spawning grunts
-			if ( points.len() / 4 > 0 ) // must have more than 4 points
+			if ( ShouldSpawnDropship() )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
+				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, SquadHandler )
 				continue
 			}
 
 			points = SpawnPoints_GetDropPod()
 			entity node = points[ GetSpawnPointIndex( points, team ) ]
-			thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", SquadHandler )
+			thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, SquadHandler )
 		}
 	}
 
-
+	wait 5
 	thread Spawner( team )
 	thread SpawnerExtend( team )
-	thread SpawnerWeapons( team )
+}
+
+bool function ShouldSpawnSpecialistSquad()
+{
+	return RandomInt( 3 ) > 0 // 66% chance of spawning a specialist squad(??
+}
+
+bool function ShouldSpawnDropship()
+{
+	array<entity> points = GetZiplineDropshipSpawns()
+	if ( points.len() <= 4 ) // must have more than 4 points
+		return false
+
+	return RandomInt( 3 ) == 0 // 33% chance of choose to spawn a dropship
 }
 
 string function GetGruntModeSpecialistGruntLeader()
@@ -328,6 +353,12 @@ string function GetGruntModeSpecialistGruntLeader()
 	//print( "leaderAiSet: " + leaderSet )
 
 	return leaderSet
+}
+
+int function GetSpecialistLeaderHealth( int team, string otherSpawnWith )
+{
+	int index = team == TEAM_MILITIA ? 0 : 1
+	return 200 + ( 60 * file.podEntities[ index ].find( otherSpawnWith ) )
 }
 
 // Populates the match
@@ -372,16 +403,25 @@ void function Spawner( int team )
 			maxSquads = SQUADS_PER_TEAM_MORE_PLAYERS // do reduced minions count
 		if ( count < maxSquads * 4 - 2 )
 		{
-			if ( RandomInt( 3 ) > 0 ) // 66% chance of spawning a specialist squad(??
+			if ( ShouldSpawnSpecialistSquad() )
 			{
-				array< entity > points = SpawnPoints_GetDropPod()
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				array< entity > points = GetZiplineDropshipSpawns()
+				
 				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
 				string leaderSet = GetGruntModeSpecialistGruntLeader()
 				// add health depending on what npc it spawning with
-				int leaderHealth = 200 + ( 60 * file.podEntities[ index ].find( ent ) )
+				int leaderHealth = GetSpecialistLeaderHealth( team, ent )
 				//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
 				//print( "leaderHealth is: " + string( leaderHealth ) )
+				if ( ShouldSpawnDropship() )
+				{
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", 4, leaderSet, leaderHealth, SquadHandler )
+					continue
+				}
+				
+				points = SpawnPoints_GetDropPod()
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, ent, leaderSet, leaderHealth, SquadHandler )
 				wait 5 // they'll spawn upon droppod touch ground, wait 5s
 			}
@@ -391,11 +431,10 @@ void function Spawner( int team )
 
 				array< entity > points = GetZiplineDropshipSpawns()
 
-				// Prefer dropship when spawning grunts
-				if ( ent == "npc_soldier" && points.len() / 4 > 0 ) // must have more than 4 points
+				if ( ShouldSpawnDropship() )
 				{
 					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
+					thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, 4, SquadHandler )
 					wait 5 // dropship may take some time to really spawn a squad
 					continue
 				}
@@ -533,10 +572,11 @@ void function SpawnerExtend( int team )
 void function SpawnerWeapons( int team )
 {
 	//svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+	wait 10 // initial wait
 
 	while( GetGameState() == eGameState.Playing )
 	{
-		wait AIRDROP_INTERNAL
+		wait AIRDROP_INTERVAL
 
 		foreach( entity player in GetPlayerArrayOfTeam( team ) )
 		{
@@ -547,7 +587,7 @@ void function SpawnerWeapons( int team )
 
 		entity node = points[ GetSpawnPointIndex( points, team ) ]
 		//waitthread SpawnReaperDorpsWeapons( node.GetOrigin(), node.GetAngles(), WEAPONS, MODS )
-		ExtraSpawner_SpawnCarePackageToGetWeapons( node.GetOrigin(), node.GetAngles(), AIRDROP_INTERNAL - 10 ) // carepackages will take 10s to drop
+		ExtraSpawner_SpawnCarePackageToGetWeapons( node.GetOrigin(), node.GetAngles(), AIRDROP_INTERVAL - 10 ) // carepackages will take 10s to drop
 	}
 }
 
@@ -641,6 +681,12 @@ bool function ReachedPlayerCheckAmount()
 // AI can also flee deeper into their zone suggesting someone spent way too much time on this
 void function SquadHandler( array<entity> guys )
 {
+	foreach ( entity guy in guys )
+	{
+		// add map
+		AddMinimapForNPC( guy, true )
+	}
+
 	// Not all maps have assaultpoints / have weird assault points ( looking at you ac )
 	// So we use enemies with a large radius
 	int team = guys[0].GetTeam()
@@ -664,8 +710,6 @@ void function SquadHandler( array<entity> guys )
 	vector point
 	point = points[ RandomInt( points.len() ) ].GetOrigin()
 	
-	array<entity> players = GetPlayerArrayOfEnemies( team )
-	
 	// Setup AI
 	foreach ( guy in guys )
 	{
@@ -678,9 +722,6 @@ void function SquadHandler( array<entity> guys )
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		guy.AssaultPoint( point )
 		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
-
-		// add map
-		AddMinimapForNPC( guy, true )
 	}
 	
 	// Every 5 - 15 secs change AssaultPoint
