@@ -763,6 +763,65 @@ void function ExtraSpawner_SetUpNPCWeapons( entity npc )
 	
 	foreach ( entity weapon in npc.GetMainWeapons() )
 		weapon.AddMod( "extra_spawner_ai_weapon" ) // shared mod, if a weapon's keyvalue has this mod, we'll use it
+
+	// also make them use heavy armor weapon
+	npc.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon )
+}
+
+// modified, since WT_ANTITITAN won't work in r2, hardcoded
+const array<string> ANTI_TITAN_WEAPONS =
+[
+	"mp_weapon_defender",
+	"mp_weapon_rocket_launcher",
+	"mp_weapon_arc_launcher", // can't be used by npcs if vanilla
+	"mp_weapon_mgl"
+]
+
+void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
+{
+	entity enemy = guy.GetEnemy()
+	if ( !IsAlive( enemy ) )
+		return
+
+	array<entity> weapons = guy.GetMainWeapons()
+
+	// do we have a weapon to switch to?
+	if ( weapons.len() < 2 )
+		return
+
+	entity activeWeapon = guy.GetActiveWeapon()
+	bool isHeavyArmorTarget = enemy.GetArmorType() == ARMOR_TYPE_HEAVY
+
+	string weaponToChange = ""
+	if( isHeavyArmorTarget )
+	{
+		// first try to find an appropriate weapon
+		foreach ( entity weapon in weapons )
+		{
+			string className = weapon.GetWeaponClassName()
+			bool isAntiTitan = ANTI_TITAN_WEAPONS.contains( className )
+			if( isAntiTitan )
+				weaponToChange = className
+		}
+	}
+	else // light unit, switch off anti-titans
+	{
+		foreach ( entity weapon in weapons )
+		{
+			string className = weapon.GetWeaponClassName()
+			bool isPrimary = !ANTI_TITAN_WEAPONS.contains( className )
+			if( isPrimary )
+				weaponToChange = className
+		}
+	}
+
+	if ( IsValid( activeWeapon ) )
+	{
+		if ( activeWeapon.GetWeaponClassName() == weaponToChange ) // already holding this weapon
+			return
+	}
+	
+	guy.SetActiveWeaponByName( weaponToChange )
 }
 
 // npc minimap and spawn checks
@@ -893,11 +952,11 @@ void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, int 
 	string squadName = MakeSquadName( team, UniqueString( "" ) )
 
 	CallinData drop
-	drop.origin 		= pos
-	drop.yaw 			  = rot.y
-	drop.dist 			= 768
-	drop.team 			= team
-	drop.squadname 	= squadName
+	drop.origin			= pos
+	drop.yaw			= rot.y
+	drop.dist			= 768
+	drop.team			= team
+	drop.squadname		= squadName
 	SetDropTableSpawnFuncs( drop, CreateSoldier, count )
 	SetCallinStyle( drop, eDropStyle.ZIPLINE_NPC )
   
@@ -1553,13 +1612,12 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot )
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_FLEE ) // hardcoded!
 	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
 	pilot.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot perfectly
-	pilot.SetEnemyChangeCallback( OnEnemyChanged_NPCPilotTrySwitchWeapon ) // maybe not a good idea since pilot models don't have "ACT_SWITCH_WEAPON"
+
+	// disabled SelectSchedule_SwitchWeapon in their behavior, since pilot model not included "pete_agent.mdl", no animations for switching to pistols
+	pilot.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon ) 
 
 	AddEntityCallback_OnDamaged( pilot, NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
 	SetDefaultMPEnemyHighlight( pilot )
-	// extra spawner specific
-	foreach ( entity weapon in pilot.GetMainWeapons() )
-		weapon.AddMod( "extra_spawner_ai_weapon" ) // shared mod, if a weapon's keyvalue has this mod, we'll use it
 }
 
 void function PilotSpawnProtection( entity pilot, entity titan, float duration )
@@ -1821,67 +1879,6 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 	
 	float damageScale = float( attacker.kv.modelscale )
 	DamageInfo_ScaleDamage( damageInfo, damageScale )
-}
-
-// modified, since WT_ANTITITAN won't work in r2, hardcoded
-const array<string> ANTI_TITAN_WEAPONS =
-[
-	"mp_weapon_defender",
-	"mp_weapon_rocket_launcher",
-	"mp_weapon_arc_launcher", // can't be used by npcs if vanilla
-	"mp_weapon_mgl"
-]
-
-void function OnEnemyChanged_NPCPilotTrySwitchWeapon( entity pilot )
-{
-	entity enemy = pilot.GetEnemy()
-	if ( !IsAlive( enemy ) )
-		return
-
-	array<entity> weapons = pilot.GetMainWeapons()
-
-	// do we have a weapon to switch to?
-	if ( weapons.len() < 2 )
-		return
-
-	entity activeWeapon = pilot.GetActiveWeapon()
-	bool isHeavyArmorTarget = enemy.GetArmorType() == ARMOR_TYPE_HEAVY
-
-	string weaponToChange = ""
-	if( isHeavyArmorTarget )
-	{
-		// first try to find an appropriate weapon
-		foreach ( entity weapon in weapons )
-		{
-			string className = weapon.GetWeaponClassName()
-			bool isAntiTitan = ANTI_TITAN_WEAPONS.contains( className )
-			if( isAntiTitan )
-				weaponToChange = className
-		}
-	}
-	else // light unit, switch off anti-titans
-	{
-		foreach ( entity weapon in weapons )
-		{
-			string className = weapon.GetWeaponClassName()
-			bool isPrimary = !ANTI_TITAN_WEAPONS.contains( className )
-			if( isPrimary )
-				weaponToChange = className
-		}
-	}
-
-	//print( "pilot is ready to change to: " + weaponToChange )
-	if ( IsValid( activeWeapon ) )
-	{
-		if ( activeWeapon.GetWeaponClassName() == weaponToChange ) // already holding this weapon
-			return
-	}
-	
-	//print( "pilot changing weapon..." )
-	pilot.SetActiveWeaponByName( weaponToChange )
-	// don't know why sometimes they have ACT_SWITCH_WEAPON missing, maybe because SelectSchedule_SwitchWeapon?
-	DisableWeapons( pilot, [] )
-	EnableWeapons( pilot, [] )
 }
 
 void function ExtraSpawner_PilotHandler( entity pilot )
