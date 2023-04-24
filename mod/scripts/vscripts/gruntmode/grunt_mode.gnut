@@ -2,7 +2,7 @@ untyped
 global function Modded_Gamemode_GruntMode_Init
 
 // npc counts
-const int SQUADS_PER_TEAM = 6
+const int SQUADS_PER_TEAM = 5
 //const int SQUADS_PER_TEAM_MORE_PLAYERS = 3 // maybe do reduced squad if we have more players and reached higher level
 const int SQUADS_PER_TEAM_HIGH_LEVEL = 3 // maybe do reduced squad if we have reached higher level
 const int REAPERS_PER_TEAM = 2 // was 2, reduced reaper spawn since we're using tick spawner reapers
@@ -278,6 +278,78 @@ void function ForceAddScoreForPlayerOrNPCKill( entity victim, var damageInfo )
 
 //------------------------------------------------------
 
+// CHECK FUNCTIONS
+
+bool function ShouldSpawnSpecialistSquad()
+{
+	return RandomInt( 3 ) > 0 // 66% chance of spawning a specialist squad(??
+}
+
+bool function ShouldSpawnDropship()
+{
+	array<entity> points = GetZiplineDropshipSpawns()
+	if ( points.len() <= 4 ) // must have more than 4 points
+		return false
+
+	return RandomInt( 3 ) == 0 // 33% chance of choose to spawn a dropship
+}
+
+string function GetGruntModeSpecialistGruntLeader()
+{
+	// 20% chance of spawning a shield captain
+	bool spawnShieldCaptain = RandomInt( 5 ) == 0
+	string leaderSet = "npc_soldier_pve_specialist"
+	if ( spawnShieldCaptain )
+		leaderSet = "npc_soldier_shield_captain"
+	else if ( CoinFlip() ) // otherwise we have 50% chance of spawning a sniper grunt
+		leaderSet = "npc_soldier_sidearm"
+	
+	//print( "leaderAiSet: " + leaderSet )
+
+	return leaderSet
+}
+
+int function GetSpecialistLeaderHealth( int team, string otherSpawnWith )
+{
+	int index = team == TEAM_MILITIA ? 0 : 1
+	return 200 + ( 60 * file.podEntities[ index ].find( otherSpawnWith ) )
+}
+
+bool function ShouldSpawnBossTitan()
+{
+	return RandomInt( 3 ) == 0 // boss titans has 33% chance to spawn
+}
+
+entity functionref( vector origin, vector angles, int team ) function GetBossTitanSpawnFunc()
+{
+	switch ( RandomInt( 4 ) )
+	{
+		case 0:
+			return ExtraSpawner_SpawnBTWithCooper
+			break
+		case 1:
+			return ExtraSpawner_SpawnRoninWithAsh
+			break
+		case 2:
+			return ExtraSpawner_SpawnLegionWithBlisk
+			break
+		case 3:
+			return ExtraSpawner_SpawnMonarchWithSarah
+			break
+	}
+}
+
+bool function ReachedPlayerCheckAmount()
+{
+	int maxPlayers = GetCurrentPlaylistVarInt( "max_players", 16 )
+	if ( float ( GetPlayerArray().len() ) >= float ( maxPlayers ) * 0.6 )
+		return true
+	return false
+}
+
+//
+
+
 void function SpawnIntroBatch( int team )
 {
 	thread SpawnerWeapons( team )
@@ -327,41 +399,6 @@ void function SpawnIntroBatch( int team )
 	thread SpawnerExtend( team )
 }
 
-bool function ShouldSpawnSpecialistSquad()
-{
-	return RandomInt( 3 ) > 0 // 66% chance of spawning a specialist squad(??
-}
-
-bool function ShouldSpawnDropship()
-{
-	array<entity> points = GetZiplineDropshipSpawns()
-	if ( points.len() <= 4 ) // must have more than 4 points
-		return false
-
-	return RandomInt( 3 ) == 0 // 33% chance of choose to spawn a dropship
-}
-
-string function GetGruntModeSpecialistGruntLeader()
-{
-	// 20% chance of spawning a shield captain
-	bool spawnShieldCaptain = RandomInt( 5 ) == 0
-	string leaderSet = "npc_soldier_pve_specialist"
-	if ( spawnShieldCaptain )
-		leaderSet = "npc_soldier_shield_captain"
-	else if ( CoinFlip() ) // otherwise we have 50% chance of spawning a sniper grunt
-		leaderSet = "npc_soldier_sidearm"
-	
-	//print( "leaderAiSet: " + leaderSet )
-
-	return leaderSet
-}
-
-int function GetSpecialistLeaderHealth( int team, string otherSpawnWith )
-{
-	int index = team == TEAM_MILITIA ? 0 : 1
-	return 200 + ( 60 * file.podEntities[ index ].find( otherSpawnWith ) )
-}
-
 // Populates the match
 void function Spawner( int team )
 {
@@ -394,7 +431,7 @@ void function Spawner( int team )
 				if ( CoinFlip() ) // 50% change of spawning sp ticks, 50% chance spawning mp ticks
 					tickSettings = "npc_frag_drone_throwable"
 				thread ExtraSpawner_SpawnReaperCanLaunchTicks( node.GetOrigin(), node.GetAngles(), team, reaperSettings, tickSettings )
-				wait 6 // wait 6 for each reaper spawn. should always keep highter than REAPER_WARPFALL_DELAY (current is 4.7)
+				wait 8 // wait 8 for each reaper spawn. should always keep highter than REAPER_WARPFALL_DELAY (current is 4.7)
 			}
 		}
 
@@ -420,6 +457,7 @@ void function Spawner( int team )
 				{
 					entity node = points[ GetSpawnPointIndex( points, team ) ]
 					thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", 4, leaderSet, leaderHealth, SquadHandler )
+					wait 6 // dropship may take some time to really spawn a squad
 					continue
 				}
 				
@@ -438,7 +476,7 @@ void function Spawner( int team )
 				{
 					entity node = points[ GetSpawnPointIndex( points, team ) ]
 					thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, 4, SquadHandler )
-					wait 5 // dropship may take some time to really spawn a squad
+					wait 6 // dropship may take some time to really spawn a squad
 					continue
 				}
 
@@ -487,7 +525,7 @@ void function SpawnerExtend( int team )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				thread ExtraSpawner_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team, true, TitanHandler )
-				wait 6 // wait 6s on succesful titan spawn
+				wait 8 // wait 8s on succesful titan spawn
 			}
 		}
 
@@ -501,28 +539,12 @@ void function SpawnerExtend( int team )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				//entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team, TitanHandler )
-				if ( RandomInt( 3 ) == 0 ) // boss titans has 33% chance to spawn
-				{
-					switch ( RandomInt( 4 ) )
-					{
-						case 0:
-							thread ExtraSpawner_SpawnBTWithCooper( node.GetOrigin(), node.GetAngles(), team )
-							break
-						case 1:
-							thread ExtraSpawner_SpawnRoninWithAsh( node.GetOrigin(), node.GetAngles(), team )
-							break
-						case 2:
-							thread ExtraSpawner_SpawnLegionWithBlisk( node.GetOrigin(), node.GetAngles(), team )
-							break
-						case 3:
-							thread ExtraSpawner_SpawnMonarchWithSarah( node.GetOrigin(), node.GetAngles(), team )
-							break
-					}
-				}
+				if ( ShouldSpawnBossTitan() ) 
+					thread GetBossTitanSpawnFunc()( node.GetOrigin(), node.GetAngles(), team )
 				else
 					thread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
 
-				wait 6 // wait 6 for each titan spawn. should always keep highter than SpawnPilotCanEmbark()'s titan spawn delay(current is 3)
+				wait 8 // wait 8 for each titan spawn. should always keep highter than SpawnPilotCanEmbark()'s titan spawn delay(current is 3)
 			}
 		}
 
@@ -667,14 +689,6 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 	}
 
 	return RandomInt( points.len() )
-}
-
-bool function ReachedPlayerCheckAmount()
-{
-	int maxPlayers = GetCurrentPlaylistVarInt( "max_players", 16 )
-	if ( float ( GetPlayerArray().len() ) >= float ( maxPlayers ) * 0.6 )
-		return true
-	return false
 }
 
 //------------------------------------------------------
