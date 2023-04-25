@@ -194,6 +194,8 @@ void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, va
 		AddPlayerScore( attacker, eventName ) // we add scoreEvent here, since basic score events has been overwrited by sh_gamemode_at.nut
 		// update score difference
 		AddTeamScore( attacker.GetTeam(), scoreVal )
+		// add to scoreboard
+		attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, scoreVal )
 	}
 
 	// bonus stealing check
@@ -242,6 +244,8 @@ bool function AT_TryStealPlayerBonusPoints( entity attacker, entity victim, var 
 	
 	// update score difference
 	AddTeamScore( attacker.GetTeam(), minScoreCanSteal )
+	// add to scoreboard
+	attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, minScoreCanSteal )
 
 	// victim stolen popup
 	Remote_CallFunction_NonReplay( 
@@ -266,7 +270,6 @@ bool function AT_TryStealPlayerBonusPoints( entity attacker, entity victim, var 
 void function AT_AddPlayerBonusPoints( entity player, int amount )
 {
 	// add to scoreboard
-	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, amount )
 	player.AddToPlayerGameStat( PGS_SCORE, amount )
 	AT_SetPlayerBonusPoints( player, player.GetPlayerNetInt( "AT_bonusPoints" ) + ( player.GetPlayerNetInt( "AT_bonusPoints256" ) * 256 ) + amount )
 }
@@ -325,6 +328,8 @@ void function AT_AddPlayerBonusPointsForBossDamaged( entity player, entity victi
 	AT_AddPlayerBonusPoints( player, amount )
 	// update score difference
 	AddTeamScore( player.GetTeam(), amount )
+	// add to scoreboard
+	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, amount )
 
 	// send servercallback for damaging
 	int bossEHandle = victim.GetEncodedEHandle()
