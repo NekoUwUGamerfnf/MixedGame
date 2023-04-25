@@ -10,7 +10,7 @@ const int AT_BANK_UPLOAD_RADIUS = 256
 // wave settings
 // general
 const int AT_BOUNTY_TEAM = TEAM_BOTH // they can be attacked by both teams
-const float FIRST_WAVE_START_DELAY = 9.0 // time before first wave starts, after intro end
+const float FIRST_WAVE_START_DELAY = 10.0 // time before first wave starts, after intro end
 const float WAVE_STATE_TRANSITION_TIME = 5.0 // time between each wave and bank opening/closing
 
 // bounty boss titans
