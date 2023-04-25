@@ -751,6 +751,7 @@ void function AT_BankActiveThink( entity bank )
 				// disable bank usage
 				bank.UnsetUsable()
 				thread PlayAnim( bank, "mh_active_2_inactive" )
+				FadeOutSoundOnEntity( bank, "Mobile_Hardpoint_Idle", 0.5 )
 				// hide on minimap
 				bank.Minimap_Hide( TEAM_IMC, null )
 				bank.Minimap_Hide( TEAM_MILITIA, null )
@@ -762,6 +763,7 @@ void function AT_BankActiveThink( entity bank )
 	bank.SetUsable()
 	bank.SetUsePrompts( "#AT_USE_BANK", "#AT_USE_BANK_PC" )
 	thread PlayAnim( bank, "mh_inactive_2_active" )
+	EmitSoundOnEntity( bank, "Mobile_Hardpoint_Idle" )
 
 	// show minimap icon for bank
 	bank.Minimap_AlwaysShow( TEAM_IMC, null )
