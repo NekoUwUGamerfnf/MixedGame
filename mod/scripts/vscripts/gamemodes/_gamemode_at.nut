@@ -36,14 +36,17 @@ const array<string> VALID_BOUNTY_TITAN_SETTINGS = // titans spawn in second half
 // alot of the remote functions also take parameters that aren't used, i'm not gonna populate these and just use default values for now instead
 // however, if you do want to mess with this stuff, almost all the remote functions for this stuff are still present in cl_gamemode_at, and should work fine with minimal fuckery in my experience
 
-struct {
+struct 
+{
 	array<entity> campsToRegisterOnEntitiesDidLoad
 
 	array<entity> banks 
 	array<AT_WaveOrigin> camps
 	
-	table<entity, int> bossTitanRewards
+	table<entity, bool> titanIsBountyBoss
+	table<entity, int> bountyTitanRewards
 	table<entity, bool> playerBankUploading
+	table< entity, table<entity, int> > playerSavedBountyDamage
 } file
 
 void function GamemodeAt_Init()
@@ -57,13 +60,13 @@ void function GamemodeAt_Init()
 	RegisterSignal( "ATBankClosed" )
 
 	AddCallback_GameStateEnter( eGameState.Playing, RunATGame )
-	
 	AddCallback_OnClientConnected( InitialiseATPlayer )
 
 	AddSpawnCallbackEditorClass( "info_target", "info_attrition_bank", CreateATBank )
 	AddSpawnCallbackEditorClass( "info_target", "info_attrition_camp", CreateATCamp )
 	AddCallback_EntitiesDidLoad( CreateATCamps_Delayed )
 
+	AddDamageFinalCallback( "npc_titan", OnNPCTitanFinalDamaged )
 	AddCallback_OnPlayerKilled( AT_PlayerOrNPCKilledScoreEvent )
 	AddCallback_OnNPCKilled( AT_PlayerOrNPCKilledScoreEvent )
 }
@@ -78,13 +81,21 @@ void function RateSpawnpoints_AT( int checkclass, array<entity> spawnpoints, int
 void function InitialiseATPlayer( entity player )
 {
 	Remote_CallFunction_NonReplay( player, "ServerCallback_AT_OnPlayerConnected" )
+	player.SetPlayerNetInt( "AT_bonusPointMult", 1 ) // for damage score popups
 	file.playerBankUploading[ player ] <- false
+	file.playerSavedBountyDamage[ player ] <- {}
 }
 
 void function CreateATBank( entity spawnpoint )
 {
 	entity bank = CreatePropScript( spawnpoint.GetModelName(), spawnpoint.GetOrigin(), spawnpoint.GetAngles(), SOLID_VPHYSICS )
 	bank.SetScriptName( "AT_Bank" )
+	// init minimap icon, we show them when active
+	bank.Minimap_SetCustomState( eMinimapObject_prop_script.AT_BANK )
+	bank.Minimap_SetAlignUpright( true )
+	bank.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
+	bank.Minimap_Hide( TEAM_IMC, null )
+	bank.Minimap_Hide( TEAM_MILITIA, null )
 	
 	// create tracker ent
 	// we don't need to store these at all, client just needs to get them
@@ -144,8 +155,12 @@ void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, va
 		return
 	if ( attacker == victim )
 		return
+	if ( victim.IsTitan() && GetPetTitanOwner( victim ) == attacker )
+		return
 	
 	string eventName = GetAttritionScoreEventName( victim.GetClassName() )
+	if ( victim.IsTitan() ) // titan specific
+		eventName = GetAttritionScoreEventNameFromAI( victim )
 	if ( eventName == "" ) // no valid scoreEvent
 		return
 	int scoreVal = ScoreEvent_GetPointValue( GetScoreEvent( eventName ) )
@@ -201,6 +216,8 @@ bool function AT_TryStealPlayerBonusPoints( entity robber, entity victim, var da
 // bonus points, players earn from killing
 void function AT_AddPlayerBonusPoints( entity player, int amount )
 {
+	// add to scoreboard
+	player.AddToPlayerGameStat( PGS_SCORE, amount )
 	AT_SetPlayerBonusPoints( player, player.GetPlayerNetInt( "AT_bonusPoints" ) + ( player.GetPlayerNetInt( "AT_bonusPoints256" ) * 256 ) + amount )
 }
 
@@ -224,6 +241,25 @@ void function AT_SetPlayerBonusPoints( entity player, int amount )
 	player.SetPlayerNetInt( "AT_bonusPoints", amount - stacks * 256 )
 }
 
+// total points, the value player actually uploaded to team score
+void function AT_AddPlayerTotalPoints( entity player, int amount )
+{
+	// update score difference, using this means player has upload the points to game score
+	AddTeamScore( player.GetTeam(), amount )
+	// add to scoreboard
+	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, amount )
+	AT_SetPlayerTotalPoints( player, player.GetPlayerNetInt( "AT_totalPoints" ) + ( player.GetPlayerNetInt( "AT_totalPoints256" ) * 256 ) + amount )
+}
+
+void function AT_SetPlayerTotalPoints( entity player, int amount )
+{
+	// split into stacks of 256 where necessary
+	int stacks = amount / 256 // automatically rounds down because int division
+
+	player.SetPlayerNetInt( "AT_totalPoints256", stacks )
+	player.SetPlayerNetInt( "AT_totalPoints", amount - stacks * 256 )
+}
+
 // earn points, seems not used
 void function AT_AddPlayerEarnedPoints( entity player, int amount )
 {
@@ -239,39 +275,21 @@ void function AT_SetPlayerEarnedPoints( entity player, int amount )
 	player.SetPlayerNetInt( "AT_earnedPoints", amount - stacks * 256 )
 }
 
-// total points, the value player actually uploaded to team score
-void function AT_AddPlayerTotalPoints( entity player, int amount )
-{
-	// update score difference, using this means player has upload the points to game score
-	AddTeamScore( player.GetTeam(), amount )
-	AT_SetPlayerTotalPoints( player, player.GetPlayerNetInt( "AT_totalPoints" ) + ( player.GetPlayerNetInt( "AT_totalPoints256" ) * 256 ) + amount )
-}
-
-void function AT_SetPlayerTotalPoints( entity player, int amount )
-{
-	// split into stacks of 256 where necessary
-	int stacks = amount / 256 // automatically rounds down because int division
-
-	player.SetPlayerNetInt( "AT_totalPoints256", stacks )
-	player.SetPlayerNetInt( "AT_totalPoints", amount - stacks * 256 )
-}
-
 // damaging bounty
 void function AT_AddPlayerBonusPointsForBossDamaged( entity player, entity victim, int amount, var damageInfo )
 {
 	AT_AddPlayerBonusPoints( player, amount )
 
 	// send servercallback for damaging
-	int damageSource = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	int bossEHandle = victim.GetEncodedEHandle()
 	vector damageOrigin = DamageInfo_GetDamagePosition( damageInfo )
 
 	Remote_CallFunction_Replay( 
 		player, 
 		"ServerCallback_AT_BossDamageScorePopup",
-		// basically damage table as parameters
-		damageSource,
-		amount,
+		// popup halfed
+		amount / 2,
+		amount / 2,
 		bossEHandle,
 		damageOrigin.x,
 		damageOrigin.y,
@@ -285,17 +303,16 @@ void function AT_AddPlayerBonusPointsForEntityKilled( entity player, int amount,
 
 	// send servercallback for damaging
 	int attackerEHandle = player.GetEncodedEHandle()
-	int damageSource = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	vector damageOrigin = DamageInfo_GetDamagePosition( damageInfo )
 	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
 	
 	Remote_CallFunction_Replay( 
 		player, 
 		"ServerCallback_AT_ShowATScorePopup",
-		// basically damage table as parameters
 		attackerEHandle,
-		damageSource,
+		// only damage score
 		amount,
+		0,
 		damageOrigin.x,
 		damageOrigin.y,
 		damageOrigin.z,
@@ -648,7 +665,7 @@ void function AT_BankActiveThink( entity bank )
 	bank.SetUsePrompts( "#AT_USE_BANK", "#AT_USE_BANK_PC" )
 	thread PlayAnim( bank, "mh_inactive_2_active" )
 
-	// add minimap icon for bank
+	// show minimap icon for bank
 	bank.Minimap_AlwaysShow( TEAM_IMC, null )
 	bank.Minimap_AlwaysShow( TEAM_MILITIA, null )
 	bank.Minimap_SetCustomState( eMinimapObject_prop_script.AT_BANK )
@@ -697,17 +714,28 @@ void function PlayerUploadingBonus( entity bank, entity player )
 			if ( IsValid( player ) )
 			{
 				file.playerBankUploading[ player ] = false
-				player.SetPlayerNetBool( "AT_playerUploading", false )
 				// clean up looping sound
 				StopSoundOnEntity( player, "HUD_MP_BountyHunt_BankBonusPts_Ticker_Loop_1P" )
 				StopSoundOnEntity( player, "HUD_MP_BountyHunt_BankBonusPts_Ticker_Loop_3P" )
+
+				// do medal event
+				AddPlayerScore( player, "AttritionCashedBonus" )
+				// do server callback
 				Remote_CallFunction_NonReplay( 
 					player, 
 					"ServerCallback_AT_FinishDeposit",
 					expect int( results.depositedPoints )
 				)
 
-				if ( !IsAlive( player ) ) // player killed while uploading
+				player.SetPlayerNetBool( "AT_playerUploading", false )
+
+				if ( IsAlive( player ) ) // player still alive
+				{
+					// emit uploading successful sound
+					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_1P" )
+					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_3P" )
+				}
+				else // player killed while uploading
 				{
 					// emit uploading failed sound
 					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Unsuccessful_1P" )
@@ -730,18 +758,12 @@ void function PlayerUploadingBonus( entity bank, entity player )
 	{
 		int bonusToUpload = int( min( AT_BANK_UPLOAD_RATE, AT_GetPlayerBonusPoints( player ) ) )
 		if ( bonusToUpload == 0 ) // no bonus left
-		{
-			// emit uploading successful sound
-			EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_1P" )
-			EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_3P" )
-			// do medal event
-			AddPlayerScore( player, "AttritionCashedBonus" )
 			return
-		}
 
 		AT_AddPlayerBonusPoints( player, -bonusToUpload )
 		// add to total points
 		AT_AddPlayerTotalPoints( player, bonusToUpload )
+
 		results.depositedPoints += bonusToUpload
 		WaitFrame()
 	}
@@ -833,10 +855,15 @@ void function AT_ForceAssaultAroundSpawn( entity guy )
 	guy.EndSignal( "OnDeath" )
 
 	vector spawnPos = guy.GetOrigin()
+	// goal radius check
+	float goalRadius = CAMP_SPAWNS_SEARCH_RADIUS / 2
+	float guyGoalRadius = guy.GetMinGoalRadius()
+	if ( guyGoalRadius > goalRadius ) // this npc cannot use forced goal radius?
+		goalRadius = guyGoalRadius
 	while( true )
 	{
 		guy.AssaultPoint( spawnPos )
-		guy.AssaultSetGoalRadius( CAMP_SPAWNS_SEARCH_RADIUS / 2 )
+		guy.AssaultSetGoalRadius( goalRadius )
 		guy.AssaultSetFightRadius( 0 )
 
 		wait RandomFloatRange( 10, 15 ) // make randomness
@@ -975,9 +1002,9 @@ void function AT_HandleBossTitanSpawn( entity titan, int campId, int bountyID, i
 	titan.Minimap_AlwaysShow( TEAM_MILITIA, null )
 	thread BountyBossHighlightThink( titan )
 
-	// set up titan-specific death/damage callbacks
-	file.bossTitanRewards[ titan ] <- ATTRITION_SCORE_BOSS_DAMAGE
-	AddEntityCallback_OnDamaged( titan, OnBountyTitanDamaged )
+	// set up titan-specific death callbacks, mark it as bounty boss for finalDamageCallbacks to work
+	file.titanIsBountyBoss[ titan ] <- true
+	file.bountyTitanRewards[ titan ] <- ATTRITION_SCORE_BOSS_DAMAGE
 	AddEntityCallback_OnKilled( titan, OnBountyTitanKilled )
 	
 	titan.GetTitanSoul().soul.skipDoomState = true
@@ -1001,6 +1028,12 @@ void function BountyBossHighlightThink( entity titan )
 	}
 }
 
+void function OnNPCTitanFinalDamaged( entity titan, var damageInfo )
+{
+	if ( titan in file.titanIsBountyBoss )
+		OnBountyTitanDamaged( titan, damageInfo )
+}
+
 // Tracked entities will require their own "wallet"
 // for titans it should be used for rounding error compenstation
 // for infantry it sould be used to store money if the npc kills a player
@@ -1013,16 +1046,34 @@ void function OnBountyTitanDamaged( entity titan, var damageInfo )
 	if ( !attacker.IsPlayer() )
 	{
 		attacker = GetBountyBossDamageOwner( attacker, titan )
-		if ( !IsValid( attacker ) )
+		if ( !IsValid( attacker ) || !attacker.IsPlayer() )
 			return
 	}
 
-	int rewardLeft = file.bossTitanRewards[ titan ]
-	int reward = int( ATTRITION_SCORE_BOSS_DAMAGE * DamageInfo_GetDamage( damageInfo ) / titan.GetMaxHealth() )
+	int healthSegment = titan.GetMaxHealth() / 100
+
+	// sometimes damage is not enough to add 1 point, we save the damage for player's next attack
+	if ( !( titan in file.playerSavedBountyDamage[ attacker ] ) )
+		file.playerSavedBountyDamage[ attacker ][ titan ] <- 0
+
+	file.playerSavedBountyDamage[ attacker ][ titan ] += int( DamageInfo_GetDamage( damageInfo ) )
+	if ( file.playerSavedBountyDamage[ attacker ][ titan ] < healthSegment )
+		return // they can't earn reward from this shot
+	
+	int damageSegment = file.playerSavedBountyDamage[ attacker ][ titan ] / healthSegment
+	int savedDamageLeft = file.playerSavedBountyDamage[ attacker ][ titan ] % healthSegment
+	file.playerSavedBountyDamage[ attacker ][ titan ] = savedDamageLeft
+	//print( "damageSegment: " + string( damageSegment ) )
+	//print( "playerSavedBountyDamage: " + string( file.playerSavedBountyDamage[ attacker ][ titan ] ) )
+
+	float damageFrac = float( damageSegment ) / 100
+	int rewardLeft = file.bountyTitanRewards[ titan ]
+	int reward = int( ATTRITION_SCORE_BOSS_DAMAGE * damageFrac )
+	//print( "reward: " + string( reward ) )
 	//printt ( titan.GetMaxHealth(), DamageInfo_GetDamage( damageInfo ) )
 	if ( reward >= rewardLeft ) // overloaded shot?
 		reward = rewardLeft
-	file.bossTitanRewards[ titan ] -= reward
+	file.bountyTitanRewards[ titan ] -= reward
 	
 	if ( reward > 0 )
 		AT_AddPlayerBonusPointsForBossDamaged( attacker, titan, reward, damageInfo )
@@ -1037,14 +1088,17 @@ void function OnBountyTitanKilled( entity titan, var damageInfo )
 	if ( !attacker.IsPlayer() )
 	{
 		attacker = GetBountyBossDamageOwner( attacker, titan )
-		if ( !IsValid( attacker ) )
+		if ( !IsValid( attacker ) || !attacker.IsPlayer() )
 			return
 	}
 	
+	if ( titan in file.playerSavedBountyDamage[ attacker ] )
+		delete file.playerSavedBountyDamage[ attacker ][ titan ]
+	
 	// add all remaining reward to attacker
 	// bounty killed bonus handled by AT_PlayerOrNPCKilledScoreEvent()
-	int rewardLeft = file.bossTitanRewards[ titan ]
-	delete file.bossTitanRewards[ titan ]
+	int rewardLeft = file.bountyTitanRewards[ titan ]
+	delete file.bountyTitanRewards[ titan ]
 	if ( rewardLeft > 0 )
 		AT_AddPlayerBonusPointsForBossDamaged( attacker, titan, rewardLeft, damageInfo )
 
