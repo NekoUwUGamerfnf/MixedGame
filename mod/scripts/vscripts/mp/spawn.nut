@@ -687,7 +687,7 @@ entity function CreateTeamSpawnZoneEntity( entity spawnzone, int team )
 {
 	entity minimapObj = CreatePropScript( $"models/dev/empty_model.mdl", spawnzone.GetOrigin() )
 	SetTeam( minimapObj, team )	
-	minimapObj.Minimap_SetObjectScale( 100.0 / Distance2D( < 0, 0, 0 >, spawnzone.GetBoundingMaxs() ) )
+	minimapObj.Minimap_SetObjectScale( Distance2D( < 0, 0, 0 >, spawnzone.GetBoundingMaxs() ) / 20000.0 ) // proper icon on map
 	minimapObj.Minimap_SetAlignUpright( true )
 	minimapObj.Minimap_AlwaysShow( TEAM_IMC, null )
 	minimapObj.Minimap_AlwaysShow( TEAM_MILITIA, null )
