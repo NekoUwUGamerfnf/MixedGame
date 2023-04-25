@@ -89,6 +89,42 @@ void function InitialiseATPlayer( entity player )
 	player.SetPlayerNetInt( "AT_bonusPointMult", 1 ) // for damage score popups
 	file.playerBankUploading[ player ] <- false
 	file.playerSavedBountyDamage[ player ] <- {}
+	thread AT_PlayerTitleThink( player )
+}
+
+void function AT_PlayerTitleThink( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		if ( GetGameState() == eGameState.Playing )
+			player.SetTitle( "$" + string( AT_GetPlayerBonusPoints( player ) ) )
+		else if ( GetGameState() >= eGameState.WinnerDetermined )
+		{
+			if ( player.IsTitan() )
+				player.SetTitle( GetTitanPlayerTitle( player ) )
+			else
+				player.SetTitle( "" )
+			return
+		}
+
+		WaitFrame()
+	}
+}
+
+string function GetTitanPlayerTitle( entity player )
+{
+	entity soul = player.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return ""
+	string settings = GetSoulPlayerSettings( soul )
+	var title = GetPlayerSettingsFieldForClassName( settings, "printname" )
+
+	if ( title == null )
+		return ""
+	
+	return expect string( title )
 }
 
 void function CreateATBank( entity spawnpoint )
@@ -796,6 +832,9 @@ void function PlayerUploadingBonus( entity bank, entity player )
 		}
 	)
 
+	// this will move point value position
+	Remote_CallFunction_NonReplay( player, "ServerCallback_AT_ShowRespawnBonusLoss" )
+
 	// uploading start sound
 	EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_Start_1P" )
 	EmitSoundOnEntityExceptToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_Start_3P" )
@@ -803,8 +842,6 @@ void function PlayerUploadingBonus( entity bank, entity player )
 	EmitSoundOnEntityExceptToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Ticker_Loop_3P" )
 
 	player.SetPlayerNetBool( "AT_playerUploading", true )
-	// this will move point value position
-	Remote_CallFunction_NonReplay( player, "ServerCallback_AT_ShowRespawnBonusLoss" )
 	//AT_AddPlayerEarnedPoints( player,  ) // earned points when uploading, don't know how to use it now
 	// uploading bonus
 	while ( Distance( player.GetOrigin(), bank.GetOrigin() ) <= AT_BANK_UPLOAD_RADIUS )
@@ -871,6 +908,9 @@ void function AT_SpawnDroppodSquad( int campId, string aiType, int scriptManager
 		spawnpoint = file.camps[ campId ].ent
 	else
 		spawnpoint = file.camps[ campId ].dropPodSpawnPoints.getrandom()
+	// anti-crash
+	if ( !IsValid( spawnpoint ) )
+		spawnpoint = file.camps[ campId ].ent
 	
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -911,7 +951,7 @@ void function AT_ForceAssaultAroundSpawn( entity guy )
 
 	vector spawnPos = guy.GetOrigin()
 	// goal radius check
-	float goalRadius = CAMP_SPAWNS_SEARCH_RADIUS / 2
+	float goalRadius = CAMP_SPAWNS_SEARCH_RADIUS
 	float guyGoalRadius = guy.GetMinGoalRadius()
 	if ( guyGoalRadius > goalRadius ) // this npc cannot use forced goal radius?
 		goalRadius = guyGoalRadius
@@ -919,7 +959,7 @@ void function AT_ForceAssaultAroundSpawn( entity guy )
 	{
 		guy.AssaultPoint( spawnPos )
 		guy.AssaultSetGoalRadius( goalRadius )
-		guy.AssaultSetFightRadius( 0 )
+		guy.AssaultSetFightRadius( goalRadius / 2 )
 
 		wait RandomFloatRange( 10, 15 ) // make randomness
 	}
@@ -959,6 +999,9 @@ void function AT_SpawnReaper( int campId, int scriptManagerId )
 		spawnpoint = file.camps[ campId ].ent
 	else
 		spawnpoint = file.camps[ campId ].titanSpawnPoints.getrandom()
+	// anti-crash
+	if ( !IsValid( spawnpoint ) )
+		spawnpoint = file.camps[ campId ].ent
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1020,6 +1063,9 @@ void function AT_SpawnBountyTitan( int campId, int scriptManagerId )
 		spawnpoint = file.camps[ campId ].ent
 	else
 		spawnpoint = file.camps[ campId ].titanSpawnPoints.getrandom()
+	// anti-crash
+	if ( !IsValid( spawnpoint ) )
+		spawnpoint = file.camps[ campId ].ent
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
