@@ -336,7 +336,7 @@ void function RunATGame_Threaded()
 		wait WAVE_STATE_TRANSITION_TIME
 	
 		// cap to number of real waves
-		int waveId = ( waveCount / 2 ) 
+		int waveId = ( waveCount - 1 ) / 2
 		// last wave is clearly unfinished so don't use, just cap to last actually used one
 		if ( waveId >= GetWaveDataSize() - 1 )
 		{
@@ -860,7 +860,7 @@ void function AT_ReaperEvent( int campId, AT_SpawnData data )
 
 		int npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
 		//print( "npcOnFieldCount: " + string( npcOnFieldCount ) )
-		while ( npcOnFieldCount > totalAllowedOnField - 4 ) // wait until we have less npcs than allowed count
+		while ( npcOnFieldCount > totalAllowedOnField ) // wait until we have less npcs than allowed count
 		{
 			WaitFrame()
 			npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
@@ -919,7 +919,7 @@ void function AT_BountyTitanEvent( int campId, AT_SpawnData data )
 
 		int npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
 		//print( "npcOnFieldCount: " + string( npcOnFieldCount ) )
-		while ( npcOnFieldCount > totalAllowedOnField - 4 ) // wait until we have less npcs than allowed count
+		while ( npcOnFieldCount > totalAllowedOnField ) // wait until we have less npcs than allowed count
 		{
 			WaitFrame()
 			npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
@@ -1084,9 +1084,13 @@ void function AT_TrackNPCLifeTime( entity guy, int campId, string aiType )
 string function GetNPCNetVarName( string className, int campId )
 {
 	string npcId = string( GetAiTypeInt( className ) + 1 )
-	if ( npcId == "-1" ) // cannot find this ai support!
-		return ""
 	string campLetter = GetCampLetter( campId )
+	if ( npcId == "0" ) // cannot find this ai support!
+	{
+		if ( className == "npc_super_spectre" ) // stupid, reapers are not handled by GetAiTypeInt(), but it must be 4
+			return "4" + campLetter + "campCount"
+		return ""
+	}
 	return npcId + campLetter + "campCount"
 }
 
