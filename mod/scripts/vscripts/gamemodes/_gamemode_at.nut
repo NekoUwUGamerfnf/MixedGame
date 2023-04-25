@@ -59,7 +59,12 @@ void function GamemodeAt_Init()
 	// bank
 	RegisterSignal( "ATBankClosed" )
 
-	AddCallback_GameStateEnter( eGameState.Playing, RunATGame )
+	AiGameModes_SetNPCWeapons( "npc_soldier", [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
+	AiGameModes_SetNPCWeapons( "npc_spectre", [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
+	AiGameModes_SetNPCWeapons( "npc_stalker", [ "mp_weapon_hemlok_smg", "mp_weapon_lstar", "mp_weapon_mastiff" ] )
+
+	AddCallback_GameStateEnter( eGameState.Playing, AT_GameLoop )
+	AddCallback_GameStateEnter( eGameState.Prematch, AT_ScoreEventsValueSetUp )
 	AddCallback_OnClientConnected( InitialiseATPlayer )
 
 	AddSpawnCallbackEditorClass( "info_target", "info_attrition_bank", CreateATBank )
@@ -149,6 +154,18 @@ void function CreateATCamps_Delayed()
 }
 
 // scoring funcs
+void function AT_ScoreEventsValueSetUp()
+{
+	// combat
+	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.20, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.20, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.2, 0.2, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.2, 0.2, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.2, 0.2, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.10, 0.10, 0.5 )
+}
+
 void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, var damageInfo )
 {
 	if ( !IsValid( attacker ) || !attacker.IsPlayer() )
@@ -165,43 +182,60 @@ void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, va
 		return
 	int scoreVal = ScoreEvent_GetPointValue( GetScoreEvent( eventName ) )
 
-	AT_AddPlayerBonusPointsForEntityKilled( attacker, scoreVal, damageInfo )
-	AddPlayerScore( attacker, eventName ) // we add scoreEvent here, since basic score events has been overwrited by sh_gamemode_at.nut
+	// pet titan check
+	if ( victim.IsTitan() && IsValid( GetPetTitanOwner( victim ) ) )
+		scoreVal = ATTRITION_SCORE_TITAN_MIN
+
+	// killed npc
+	if ( !victim.IsPlayer() )
+	{
+		AT_AddPlayerBonusPointsForEntityKilled( attacker, scoreVal, damageInfo )
+		AddPlayerScore( attacker, eventName, victim ) // we add scoreEvent here, since basic score events has been overwrited by sh_gamemode_at.nut
+	}
 
 	// bonus stealing check
 	if ( victim.IsPlayer() )
 		AT_TryStealPlayerBonusPoints( attacker, victim, damageInfo )
 }
 
-bool function AT_TryStealPlayerBonusPoints( entity robber, entity victim, var damageInfo )
+bool function AT_TryStealPlayerBonusPoints( entity attacker, entity victim, var damageInfo )
 {
 	if ( !victim.IsPlayer() )
 		return false
 	
 	int victimBonus = AT_GetPlayerBonusPoints( victim )
-	if ( victimBonus <= ATTRITION_SCORE_PILOT_MIN ) // no enough bonus to steal
-		return false
+	int minScoreCanSteal = ATTRITION_SCORE_PILOT_MIN
+	if ( victim.IsTitan() )
+		minScoreCanSteal = ATTRITION_SCORE_TITAN_MIN
 
-	int bonusToSteal = AT_GetPlayerBonusPointsStealFrom( robber, victim )
-	// steal bonus
-	AT_AddPlayerBonusPoints( victim, -bonusToSteal )
-	AT_AddPlayerBonusPoints( robber, bonusToSteal )
-	AddPlayerScore( robber, "AttritionBonusStolen" )
+	int bonusToSteal = victimBonus / 2
+	int attackerScore = bonusToSteal
+	bool realStealBonus = true
+	if ( bonusToSteal <= minScoreCanSteal ) // no enough bonus to steal
+	{
+		attackerScore = minScoreCanSteal // give attacker min bonus
+		realStealBonus = false // we don't do attacker steal events below, just half victim's bonus
+	}
 
 	// servercallback
 	int victimEHandle = victim.GetEncodedEHandle()
 	vector damageOrigin = DamageInfo_GetDamagePosition( damageInfo )
-
-	Remote_CallFunction_NonReplay( 
-		robber, 
-		"ServerCallback_AT_PlayerKillScorePopup",
-		// basically damage table as parameters
-		bonusToSteal,
-		victimEHandle,
-		damageOrigin.x,
-		damageOrigin.y,
-		damageOrigin.z
-	)
+	// only do attacker events if victim has enough bonus to steal
+	if ( realStealBonus )
+	{
+		Remote_CallFunction_NonReplay( 
+			attacker, 
+			"ServerCallback_AT_PlayerKillScorePopup",
+			// basically damage table as parameters
+			bonusToSteal,
+			victimEHandle,
+			damageOrigin.x,
+			damageOrigin.y,
+			damageOrigin.z
+		)
+	}
+	else // otherwise we do a normal entity killed scoreEvent
+		AT_AddPlayerBonusPointsForEntityKilled( attacker, attackerScore, damageInfo )
 
 	// victim stolen popup
 	Remote_CallFunction_NonReplay( 
@@ -209,8 +243,17 @@ bool function AT_TryStealPlayerBonusPoints( entity robber, entity victim, var da
 		"ServerCallback_AT_ShowStolenBonus",
 		bonusToSteal
 	)
+
+	// steal bonus
+	AT_AddPlayerBonusPoints( victim, -bonusToSteal )
+	// only do attacker events if victim has enough bonus to steal
+	if ( realStealBonus )
+	{
+		AT_AddPlayerBonusPoints( attacker, bonusToSteal )
+		AddPlayerScore( attacker, "AttritionBonusStolen" )
+	}
 	
-	return true
+	return realStealBonus
 }
 
 // bonus points, players earn from killing
@@ -219,12 +262,6 @@ void function AT_AddPlayerBonusPoints( entity player, int amount )
 	// add to scoreboard
 	player.AddToPlayerGameStat( PGS_SCORE, amount )
 	AT_SetPlayerBonusPoints( player, player.GetPlayerNetInt( "AT_bonusPoints" ) + ( player.GetPlayerNetInt( "AT_bonusPoints256" ) * 256 ) + amount )
-}
-
-int function AT_GetPlayerBonusPointsStealFrom( entity robber, entity victim )
-{
-	// match client-side checks in ServerCallback_AT_PlayerKillScorePopup() 
-	return victim.GetPlayerNetInt( "AT_bonusPoints256" ) * robber.GetPlayerNetInt( "AT_bonusPointMult" )
 }
 
 int function AT_GetPlayerBonusPoints( entity player )
@@ -322,12 +359,12 @@ void function AT_AddPlayerBonusPointsForEntityKilled( entity player, int amount,
 
 // run gamestate
 
-void function RunATGame()
+void function AT_GameLoop()
 {
-	thread RunATGame_Threaded()
+	thread AT_GameLoop_Threaded()
 }
 
-void function RunATGame_Threaded()
+void function AT_GameLoop_Threaded()
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 	
@@ -787,6 +824,8 @@ int function GetScriptManagedNPCArrayLength_Alive( int scriptManagerId )
 
 void function AT_DroppodSquadEvent( int campId, AT_SpawnData data )
 {
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+
 	// get ent and create a script managed array for current event
 	string ent = data.aitype
 	int eventManager = CreateScriptManagedEntArray()
@@ -874,6 +913,8 @@ void function AT_ForceAssaultAroundSpawn( entity guy )
 
 void function AT_ReaperEvent( int campId, AT_SpawnData data )
 {
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+
 	// create a script managed array for current event
 	int eventManager = CreateScriptManagedEntArray()
 	
@@ -933,6 +974,8 @@ void function AT_HandleReaperSpawn( entity reaper, int campId, int scriptManager
 
 void function AT_BountyTitanEvent( int campId, AT_SpawnData data )
 {
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+
 	// create a script managed array for current event
 	int eventManager = CreateScriptManagedEntArray()
 	
