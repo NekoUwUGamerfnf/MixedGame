@@ -192,7 +192,7 @@ bool function AT_TryStealPlayerBonusPoints( entity robber, entity victim, var da
 	int victimEHandle = victim.GetEncodedEHandle()
 	vector damageOrigin = DamageInfo_GetDamagePosition( damageInfo )
 
-	Remote_CallFunction_Replay( 
+	Remote_CallFunction_NonReplay( 
 		robber, 
 		"ServerCallback_AT_PlayerKillScorePopup",
 		// basically damage table as parameters
@@ -204,7 +204,7 @@ bool function AT_TryStealPlayerBonusPoints( entity robber, entity victim, var da
 	)
 
 	// victim stolen popup
-	Remote_CallFunction_Replay( 
+	Remote_CallFunction_NonReplay( 
 		victim, 
 		"ServerCallback_AT_ShowStolenBonus",
 		bonusToSteal
@@ -284,7 +284,7 @@ void function AT_AddPlayerBonusPointsForBossDamaged( entity player, entity victi
 	int bossEHandle = victim.GetEncodedEHandle()
 	vector damageOrigin = DamageInfo_GetDamagePosition( damageInfo )
 
-	Remote_CallFunction_Replay( 
+	Remote_CallFunction_NonReplay( 
 		player, 
 		"ServerCallback_AT_BossDamageScorePopup",
 		// popup halfed
@@ -306,7 +306,7 @@ void function AT_AddPlayerBonusPointsForEntityKilled( entity player, int amount,
 	vector damageOrigin = DamageInfo_GetDamagePosition( damageInfo )
 	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
 	
-	Remote_CallFunction_Replay( 
+	Remote_CallFunction_NonReplay( 
 		player, 
 		"ServerCallback_AT_ShowATScorePopup",
 		attackerEHandle,
@@ -752,6 +752,8 @@ void function PlayerUploadingBonus( entity bank, entity player )
 	EmitSoundOnEntityExceptToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Ticker_Loop_3P" )
 
 	player.SetPlayerNetBool( "AT_playerUploading", true )
+	// this will move point value position
+	Remote_CallFunction_NonReplay( player, "ServerCallback_AT_ShowRespawnBonusLoss" )
 	//AT_AddPlayerEarnedPoints( player,  ) // earned points when uploading, don't know how to use it now
 	// uploading bonus
 	while ( Distance( player.GetOrigin(), bank.GetOrigin() ) <= AT_BANK_UPLOAD_RADIUS )
