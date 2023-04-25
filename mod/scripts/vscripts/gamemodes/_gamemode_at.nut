@@ -263,6 +263,7 @@ void function AT_AddPlayerBonusPoints( entity player, int amount )
 	// update score difference
 	AddTeamScore( player.GetTeam(), amount )
 	// add to scoreboard
+	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, amount )
 	player.AddToPlayerGameStat( PGS_SCORE, amount )
 	AT_SetPlayerBonusPoints( player, player.GetPlayerNetInt( "AT_bonusPoints" ) + ( player.GetPlayerNetInt( "AT_bonusPoints256" ) * 256 ) + amount )
 }
