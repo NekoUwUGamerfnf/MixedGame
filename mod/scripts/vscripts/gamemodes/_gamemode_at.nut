@@ -43,8 +43,7 @@ struct {
 	array<AT_WaveOrigin> camps
 	
 	table<entity, int> bossTitanRewards
-
-	table< int, table<string, int> > trackedCampNPCSpawns
+	table<entity, bool> playerBankUploading
 } file
 
 void function GamemodeAt_Init()
@@ -56,7 +55,6 @@ void function GamemodeAt_Init()
 	RegisterSignal( "ATAllCampsClean" )
 	// bank
 	RegisterSignal( "ATBankClosed" )
-	RegisterSignal( "PlayerBankUploading" )
 
 	AddCallback_GameStateEnter( eGameState.Playing, RunATGame )
 	
@@ -80,6 +78,7 @@ void function RateSpawnpoints_AT( int checkclass, array<entity> spawnpoints, int
 void function InitialiseATPlayer( entity player )
 {
 	Remote_CallFunction_NonReplay( player, "ServerCallback_AT_OnPlayerConnected" )
+	file.playerBankUploading[ player ] <- false
 }
 
 void function CreateATBank( entity spawnpoint )
@@ -92,6 +91,9 @@ void function CreateATBank( entity spawnpoint )
 	DispatchSpawn( GetAvailableBankTracker( bank ) )
 	
 	thread PlayAnim( bank, "mh_inactive_idle" )
+	// add usecallback to it and unset usable
+	AddCallback_OnUseEntity( bank, OnPlayerUseBank )
+	bank.UnsetUsable()
 	
 	file.banks.append( bank )
 }
@@ -222,7 +224,7 @@ void function AT_SetPlayerBonusPoints( entity player, int amount )
 	player.SetPlayerNetInt( "AT_bonusPoints", amount - stacks * 256 )
 }
 
-// earn points, the value when player uploading points
+// earn points, seems not used
 void function AT_AddPlayerEarnedPoints( entity player, int amount )
 {
 	AT_SetPlayerBonusPoints( player, player.GetPlayerNetInt( "AT_earnedPoints" ) + ( player.GetPlayerNetInt( "AT_earnedPoints256" ) * 256 ) + amount )
@@ -644,11 +646,6 @@ void function AT_BankActiveThink( entity bank )
 	// make bank usable
 	bank.SetUsable()
 	bank.SetUsePrompts( "#AT_USE_BANK", "#AT_USE_BANK_PC" )
-	if ( !( "bankInited" in bank.s ) ) // only needs add 1 callback
-	{
-		AddCallback_OnUseEntity( bank, OnPlayerUseBank )
-		bank.s.bankInited <- true
-	}
 	thread PlayAnim( bank, "mh_inactive_2_active" )
 
 	// add minimap icon for bank
@@ -680,21 +677,35 @@ void function PlayerUploadingBonus( entity bank, entity player )
 {
 	bank.EndSignal( "OnDestroy" )
 	bank.EndSignal( "ATBankClosed" )
-	player.Signal( "PlayerBankUploading" )
-	player.EndSignal( "PlayerBankUploading" )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
 
+	if ( file.playerBankUploading[ player ] )
+		return
+	// mark as player uploading, so they can't use the bank multiple times
+	file.playerBankUploading[ player ] = true
+
+	table results =
+	{
+		depositedPoints = 0
+	}
+
 	OnThreadEnd
 	(
-		function(): ( player )
+		function(): ( player, results )
 		{
 			if ( IsValid( player ) )
 			{
+				file.playerBankUploading[ player ] = false
 				player.SetPlayerNetBool( "AT_playerUploading", false )
 				// clean up looping sound
 				StopSoundOnEntity( player, "HUD_MP_BountyHunt_BankBonusPts_Ticker_Loop_1P" )
 				StopSoundOnEntity( player, "HUD_MP_BountyHunt_BankBonusPts_Ticker_Loop_3P" )
+				Remote_CallFunction_NonReplay( 
+					player, 
+					"ServerCallback_AT_FinishDeposit",
+					expect int( results.depositedPoints )
+				)
 
 				if ( !IsAlive( player ) ) // player killed while uploading
 				{
@@ -731,6 +742,7 @@ void function PlayerUploadingBonus( entity bank, entity player )
 		AT_AddPlayerBonusPoints( player, -bonusToUpload )
 		// add to total points
 		AT_AddPlayerTotalPoints( player, bonusToUpload )
+		results.depositedPoints += bonusToUpload
 		WaitFrame()
 	}
 }
