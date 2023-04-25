@@ -160,9 +160,9 @@ void function AT_ScoreEventsValueSetUp()
 	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.20, 0.10 )
 	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.10 )
 	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.20, 0.10 )
-	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.2, 0.2, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.2, 0.2, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.2, 0.2, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.10, 0.10, 0.5 )
 }
 
@@ -181,6 +181,7 @@ void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, va
 	if ( eventName == "" ) // no valid scoreEvent
 		return
 	int scoreVal = ScoreEvent_GetPointValue( GetScoreEvent( eventName ) )
+	//print( "eventName: " + eventName )
 
 	// pet titan check
 	if ( victim.IsTitan() && IsValid( GetPetTitanOwner( victim ) ) )
