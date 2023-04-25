@@ -10,7 +10,6 @@ const int AT_BANK_UPLOAD_RADIUS = 256
 // wave settings
 // general
 const int AT_BOUNTY_TEAM = TEAM_BOTH // they can be attacked by both teams
-const float CAMP_SPAWNS_SEARCH_RADIUS = 1200.0
 const float FIRST_WAVE_START_DELAY = 9.0 // time before first wave starts, after intro end
 const float WAVE_STATE_TRANSITION_TIME = 5.0 // time between each wave and bank opening/closing
 
@@ -174,12 +173,21 @@ void function CreateATCamps_Delayed()
 		
 		// get droppod spawns
 		foreach ( entity spawnpoint in SpawnPoints_GetDropPod() )
-			if ( Distance( camp.GetOrigin(), spawnpoint.GetOrigin() ) < CAMP_SPAWNS_SEARCH_RADIUS )
+		{
+			vector campPos = camp.GetOrigin()
+			vector spawnPos = spawnpoint.GetOrigin()
+			if ( Distance( campPos, spawnPos ) < campStruct.radius && fabs( campPos.z - spawnPos.z ) < campStruct.height )
 				campStruct.dropPodSpawnPoints.append( spawnpoint )
+		}
 		
+		// get titan spawns
 		foreach ( entity spawnpoint in SpawnPoints_GetTitan() )
-			if ( Distance( camp.GetOrigin(), spawnpoint.GetOrigin() ) < CAMP_SPAWNS_SEARCH_RADIUS )
+		{
+			vector campPos = camp.GetOrigin()
+			vector spawnPos = spawnpoint.GetOrigin()
+			if ( Distance( campPos, spawnPos ) < campStruct.radius && fabs( campPos.z - spawnPos.z ) < campStruct.height )
 				campStruct.titanSpawnPoints.append( spawnpoint )
+		}
 	
 		// todo: turret spawns someday maybe
 	
@@ -577,7 +585,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 			string campEntVarName = "camp" + string( campId + 1 ) + "Ent"
 			bool waveNotActive = GetGlobalNetBool( "preBankPhase" ) || GetGlobalNetBool( "banksOpen" )
 			if ( !IsValid( GetGlobalNetEnt( campEntVarName ) ) && !waveNotActive )
-				SetGlobalNetEnt( campEntVarName, CreateCampTracker( file.camps[campId], campId ) )
+				SetGlobalNetEnt( campEntVarName, CreateCampTracker( file.camps[ campId ], campId ) )
 			
 			foreach ( AT_SpawnData data in curSpawnData )
 			{
@@ -662,6 +670,9 @@ void function CampProgressThink( int campId, int totalNPCsToSpawn )
 // camp
 entity function CreateCampTracker( AT_WaveOrigin campData, int campId )
 {
+	// store data
+	float campRadius = campData.radius
+	float campHeight = campData.height
 	// add a minimap icon
 	entity mapIconEnt = CreateEntity( "prop_script" )
 	DispatchSpawn( mapIconEnt )
@@ -689,13 +700,13 @@ entity function CreateCampTracker( AT_WaveOrigin campData, int campId )
 	mapIconEnt.Minimap_SetCustomState( campMinimapState )
 	mapIconEnt.Minimap_SetAlignUpright( true )
 	mapIconEnt.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
-	mapIconEnt.Minimap_SetObjectScale( CAMP_SPAWNS_SEARCH_RADIUS / 16000.0 ) // proper icon on the map
+	mapIconEnt.Minimap_SetObjectScale( campRadius / 16000.0 ) // proper icon on the map
 
 	// attach a location tracker
 	entity tracker = GetAvailableLocationTracker()
 	tracker.SetOwner( mapIconEnt ) // needs a owner to show up
 	tracker.SetOrigin( campData.origin )
-	SetLocationTrackerRadius( tracker, CAMP_SPAWNS_SEARCH_RADIUS )
+	SetLocationTrackerRadius( tracker, campRadius )
 	SetLocationTrackerID( tracker, campId )
 	DispatchSpawn( tracker )
 
@@ -936,7 +947,8 @@ void function AT_HandleSquadSpawn( array<entity> guys, int campId, string aiType
 		guy.DisableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE ) // no patrol and investigate allowed, avoid them running around
 
 		// at least don't let them running around
-		thread AT_ForceAssaultAroundSpawn( guy )
+		float radius = file.camps[ campId ].radius
+		thread AT_ForceAssaultAroundSpawn( guy, radius )
 
 		// tracking lifetime
 		AddToScriptManagedEntArray( scriptManagerId, guy )
@@ -944,14 +956,14 @@ void function AT_HandleSquadSpawn( array<entity> guys, int campId, string aiType
 	}
 }
 
-void function AT_ForceAssaultAroundSpawn( entity guy )
+void function AT_ForceAssaultAroundSpawn( entity guy, float maxRadius = 1200.0 )
 {
 	guy.EndSignal( "OnDestroy" )
 	guy.EndSignal( "OnDeath" )
 
 	vector spawnPos = guy.GetOrigin()
 	// goal radius check
-	float goalRadius = CAMP_SPAWNS_SEARCH_RADIUS
+	float goalRadius = maxRadius
 	float guyGoalRadius = guy.GetMinGoalRadius()
 	if ( guyGoalRadius > goalRadius ) // this npc cannot use forced goal radius?
 		goalRadius = guyGoalRadius
@@ -1026,7 +1038,8 @@ void function AT_HandleReaperSpawn( entity reaper, int campId, int scriptManager
 	thread AT_TrackNPCLifeTime( reaper, campId, "npc_super_spectre" )
 
 	// at least don't let them running around
-	thread AT_ForceAssaultAroundSpawn( reaper )
+	float radius = file.camps[ campId ].radius
+	thread AT_ForceAssaultAroundSpawn( reaper, radius )
 }
 
 void function AT_BountyTitanEvent( int campId, AT_SpawnData data )
