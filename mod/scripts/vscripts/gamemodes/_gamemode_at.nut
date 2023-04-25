@@ -585,7 +585,7 @@ entity function CreateCampTracker( AT_WaveOrigin campData, int campId )
 	mapIconEnt.Minimap_SetCustomState( campMinimapState )
 	mapIconEnt.Minimap_SetAlignUpright( true )
 	mapIconEnt.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
-	mapIconEnt.Minimap_SetObjectScale( CAMP_SPAWNS_SEARCH_RADIUS / 18000.0 ) // proper icon on the map
+	mapIconEnt.Minimap_SetObjectScale( CAMP_SPAWNS_SEARCH_RADIUS / 16000.0 ) // proper icon on the map
 
 	// attach a location tracker
 	entity tracker = GetAvailableLocationTracker()
@@ -818,9 +818,28 @@ void function AT_HandleSquadSpawn( array<entity> guys, int campId, string aiType
 		guy.EnableNPCFlag( NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		guy.DisableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE ) // no patrol and investigate allowed, avoid them running around
 
+		// at least don't let them running around
+		thread AT_ForceAssaultAroundSpawn( guy )
+
 		// tracking lifetime
 		AddToScriptManagedEntArray( scriptManagerId, guy )
 		thread AT_TrackNPCLifeTime( guy, campId, aiType )
+	}
+}
+
+void function AT_ForceAssaultAroundSpawn( entity guy )
+{
+	guy.EndSignal( "OnDestroy" )
+	guy.EndSignal( "OnDeath" )
+
+	vector spawnPos = guy.GetOrigin()
+	while( true )
+	{
+		guy.AssaultPoint( spawnPos )
+		guy.AssaultSetGoalRadius( CAMP_SPAWNS_SEARCH_RADIUS / 2 )
+		guy.AssaultSetFightRadius( 0 )
+
+		wait RandomFloatRange( 10, 15 ) // make randomness
 	}
 }
 
@@ -878,6 +897,9 @@ void function AT_HandleReaperSpawn( entity reaper, int campId, int scriptManager
 	// tracking lifetime
 	AddToScriptManagedEntArray( scriptManagerId, reaper )
 	thread AT_TrackNPCLifeTime( reaper, campId, "npc_super_spectre" )
+
+	// at least don't let them running around
+	thread AT_ForceAssaultAroundSpawn( reaper )
 }
 
 void function AT_BountyTitanEvent( int campId, AT_SpawnData data )
