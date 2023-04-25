@@ -143,8 +143,8 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 	weapon.w.laserWorldModel.Anim_Play( "charge_seq" )
 
 	// check for npc executions to work!
-	PrintFunc()
-	print( "!player.Anim_IsActive(): " + string( !player.Anim_IsActive() ) )
+	//PrintFunc()
+	//print( "!player.Anim_IsActive(): " + string( !player.Anim_IsActive() ) )
 	if ( player.IsNPC() && !player.Anim_IsActive() )
 	{
 		player.SetVelocity( <0,0,0> )
