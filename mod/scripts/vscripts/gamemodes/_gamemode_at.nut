@@ -761,13 +761,14 @@ void function CampProgressThink( int campId, int totalNPCsToSpawn )
 entity function CreateCampTracker( AT_WaveOrigin campData, int campId )
 {
 	// store data
+	vector campOrigin = campData.origin
 	float campRadius = campData.radius
 	float campHeight = campData.height
 	// add a minimap icon
 	entity mapIconEnt = CreateEntity( "prop_script" )
 	DispatchSpawn( mapIconEnt )
 
-	mapIconEnt.SetOrigin( campData.origin )
+	mapIconEnt.SetOrigin( campOrigin )
 	mapIconEnt.DisableHibernation()
 	SetTeam( mapIconEnt, AT_BOUNTY_TEAM )
 	mapIconEnt.Minimap_AlwaysShow( TEAM_IMC, null )
@@ -795,7 +796,7 @@ entity function CreateCampTracker( AT_WaveOrigin campData, int campId )
 	// attach a location tracker
 	entity tracker = GetAvailableLocationTracker()
 	tracker.SetOwner( mapIconEnt ) // needs a owner to show up
-	tracker.SetOrigin( campData.origin )
+	tracker.SetOrigin( campOrigin )
 	SetLocationTrackerRadius( tracker, campRadius )
 	SetLocationTrackerID( tracker, campId )
 	DispatchSpawn( tracker )
@@ -882,13 +883,14 @@ function OnPlayerUseBank( bank, player )
 
 void function PlayerUploadingBonus( entity bank, entity player )
 {
+	if ( file.playerBankUploading[ player ] )
+		return
+
 	bank.EndSignal( "OnDestroy" )
 	bank.EndSignal( "ATBankClosed" )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
 
-	if ( file.playerBankUploading[ player ] )
-		return
 	// mark as player uploading, so they can't use the bank multiple times
 	file.playerBankUploading[ player ] = true
 
