@@ -741,16 +741,23 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 	else
 		campSpawnData = wave.spawnDataArrays
 	
-	bool useOneCamp = waveId == 0 || waveId >= GetWaveDataSize() - 1 // first and final wave uses only 1 camp
-	int totalCampUse = useOneCamp ? 1 : 2
-	//print( "totalCampUse: " + string( totalCampUse ) )
-
-	for ( int campId = 0; campId < totalCampUse; campId++ )
+	// un-finished final wave support
+	if ( ENABLE_AT_FINAL_WAVE )
 	{
-		array<AT_SpawnData> curSpawnData = campSpawnData[ campId ]
-		int spawnId = campId
-		if ( useOneCamp ) // if we only used 1 camp, pick a random position
-			spawnId = RandomInt( campSpawnData.len() )
+		if ( waveId >= GetWaveDataSize() - 1 )
+			waveId = 0 // we use phase1 camp spawn
+	}
+
+	array<AT_WaveOrigin> campsToUse
+	foreach ( AT_WaveOrigin campStruct in file.camps )
+	{
+		if ( campStruct.phaseAllowed[ waveId ] )
+			campsToUse.append( campStruct )
+	} 
+
+	foreach ( int spawnId, AT_WaveOrigin curCampData in campsToUse )
+	{
+		array<AT_SpawnData> curSpawnData = campSpawnData[ spawnId ]
 
 		int totalNPCsToSpawn = 0
 		// initialise pending spawns and get total npcs
@@ -758,7 +765,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 		{
 			spawnData.pendingSpawns = spawnData.totalToSpawn
 			// add to network variables
-			string npcNetVar = GetNPCNetVarName( spawnData.aitype, campId )
+			string npcNetVar = GetNPCNetVarName( spawnData.aitype, spawnId )
 			SetGlobalNetInt( npcNetVar, spawnData.totalToSpawn )
 			//print( "Setting " + npcNetVar + " to " + string( GetGlobalNetInt( npcNetVar ) ) )
 
@@ -769,10 +776,10 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 		if ( !isBossWave ) 
 		{
 			// camp Ent, boss wave will use boss themselves as campEnt
-			string campEntVarName = "camp" + string( campId + 1 ) + "Ent"
+			string campEntVarName = "camp" + string( spawnId + 1 ) + "Ent"
 			bool waveNotActive = GetGlobalNetBool( "preBankPhase" ) || GetGlobalNetBool( "banksOpen" )
 			if ( !IsValid( GetGlobalNetEnt( campEntVarName ) ) && !waveNotActive )
-				SetGlobalNetEnt( campEntVarName, CreateCampTracker( file.camps[ spawnId ], campId ) )
+				SetGlobalNetEnt( campEntVarName, CreateCampTracker( curCampData, spawnId ) )
 			
 			array<AT_SpawnData> minionSquadDatas
 			foreach ( AT_SpawnData data in curSpawnData )
@@ -785,11 +792,11 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 						if ( !USE_TOTAL_ALLOWED_ON_FIELD_CHECK )
 							minionSquadDatas.append( data )
 						else
-							thread AT_DroppodSquadEvent_Single( campId, spawnId, data )
+							thread AT_DroppodSquadEvent_Single( curCampData, spawnId, data )
 						break
 					
 					case "npc_super_spectre":
-						thread AT_ReaperEvent( campId, spawnId, data )
+						thread AT_ReaperEvent( curCampData, spawnId, data )
 						break
 				}
 			}
@@ -798,11 +805,11 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 			if ( !USE_TOTAL_ALLOWED_ON_FIELD_CHECK )
 			{
 				if ( minionSquadDatas.len() > 0 )
-					thread AT_DroppodSquadEvent( campId, spawnId, minionSquadDatas )
+					thread AT_DroppodSquadEvent( curCampData, spawnId, minionSquadDatas )
 			}
 
 			// use campProgressThink for handling wave state
-			thread CampProgressThink( campId, totalNPCsToSpawn )
+			thread CampProgressThink( spawnId, totalNPCsToSpawn )
 		}
 		else // bosswave spawn
 		{
@@ -811,7 +818,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 				switch ( data.aitype )
 				{
 					case "npc_titan":
-						thread AT_BountyTitanEvent( campId, spawnId, data )
+						thread AT_BountyTitanEvent( curCampData, spawnId, data )
 						break
 				}
 			}
@@ -819,11 +826,11 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 	}
 }
 
-void function CampProgressThink( int campId, int totalNPCsToSpawn )
+void function CampProgressThink( int spawnId, int totalNPCsToSpawn )
 {
-	string campLetter = GetCampLetter( campId )
+	string campLetter = GetCampLetter( spawnId )
 	string campProgressName = campLetter + "campProgress"
-	string campEntVarName = "camp" + string( campId + 1 ) + "Ent"
+	string campEntVarName = "camp" + string( spawnId + 1 ) + "Ent"
 
 	// initial wait
 	SetGlobalNetFloat( campProgressName, 1.0 )
@@ -866,7 +873,7 @@ void function CampProgressThink( int campId, int totalNPCsToSpawn )
 
 // entity funcs
 // camp
-entity function CreateCampTracker( AT_WaveOrigin campData, int campId )
+entity function CreateCampTracker( AT_WaveOrigin campData, int spawnId )
 {
 	// store data
 	vector campOrigin = campData.origin
@@ -884,7 +891,7 @@ entity function CreateCampTracker( AT_WaveOrigin campData, int campId )
 
 	// hardcoded
 	int campMinimapState
-	switch ( campId )
+	switch ( spawnId )
 	{
 		case 0:
 			campMinimapState = eMinimapObject_prop_script.AT_DROPZONE_A
@@ -906,7 +913,7 @@ entity function CreateCampTracker( AT_WaveOrigin campData, int campId )
 	tracker.SetOwner( mapIconEnt ) // needs a owner to show up
 	tracker.SetOrigin( campOrigin )
 	SetLocationTrackerRadius( tracker, campRadius )
-	SetLocationTrackerID( tracker, campId )
+	SetLocationTrackerID( tracker, spawnId )
 	DispatchSpawn( tracker )
 
 	thread TrackWaveEndForCampInfo( tracker, mapIconEnt )
@@ -1114,7 +1121,7 @@ int function GetScriptManagedNPCArrayLength_Alive( int scriptManagerId )
 	return npcsAlive
 }
 
-void function AT_DroppodSquadEvent( int campId, int spawnId, array<AT_SpawnData> minionDatas )
+void function AT_DroppodSquadEvent( AT_WaveOrigin campData, int spawnId, array<AT_SpawnData> minionDatas )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 	// create a script managed array for all handled minions
@@ -1126,7 +1133,7 @@ void function AT_DroppodSquadEvent( int campId, int spawnId, array<AT_SpawnData>
 		foreach ( AT_SpawnData data in minionDatas )
 		{
 			string ent = data.aitype
-			waitthread AT_SpawnDroppodSquad( campId, spawnId, ent, eventManager )
+			waitthread AT_SpawnDroppodSquad( campData, spawnId, ent, eventManager )
 			data.pendingSpawns -= SQUAD_SIZE
 			if ( data.pendingSpawns <= 0 ) // current spawn data has reached max spawn amount
 				minionDatas.removebyvalue( data ) // remove this data
@@ -1147,7 +1154,7 @@ void function AT_DroppodSquadEvent( int campId, int spawnId, array<AT_SpawnData>
 }
 
 // for USE_TOTAL_ALLOWED_ON_FIELD_CHECK, handles a single spawndata
-void function AT_DroppodSquadEvent_Single( int campId, int spawnId, AT_SpawnData data )
+void function AT_DroppodSquadEvent_Single( AT_WaveOrigin campData, int spawnId, AT_SpawnData data )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
@@ -1158,7 +1165,7 @@ void function AT_DroppodSquadEvent_Single( int campId, int spawnId, AT_SpawnData
 	// start spawner
 	while ( true )
 	{
-		waitthread AT_SpawnDroppodSquad( campId, spawnId, ent, eventManager )
+		waitthread AT_SpawnDroppodSquad( campData, spawnId, ent, eventManager )
 		data.pendingSpawns -= SQUAD_SIZE
 		if ( data.pendingSpawns <= 0 ) // we have reached max npcs
 			return // stop any spawning functions
@@ -1173,16 +1180,13 @@ void function AT_DroppodSquadEvent_Single( int campId, int spawnId, AT_SpawnData
 	}
 }
 
-void function AT_SpawnDroppodSquad( int campId, int spawnId, string aiType, int scriptManagerId )
+void function AT_SpawnDroppodSquad( AT_WaveOrigin campData, int spawnId, string aiType, int scriptManagerId )
 {
 	entity spawnpoint
-	if ( file.camps[ spawnId ].dropPodSpawnPoints.len() == 0 )
-		spawnpoint = file.camps[ spawnId ].ent
+	if ( campData.dropPodSpawnPoints.len() == 0 )
+		spawnpoint = campData.ent
 	else
-		spawnpoint = file.camps[ spawnId ].dropPodSpawnPoints.getrandom()
-	// anti-crash
-	if ( !IsValid( spawnpoint ) )
-		spawnpoint = file.camps[ spawnId ].ent
+		spawnpoint = campData.dropPodSpawnPoints.getrandom()
 	
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1193,14 +1197,14 @@ void function AT_SpawnDroppodSquad( int campId, int spawnId, string aiType, int 
 		AT_BOUNTY_TEAM, 
 		aiType, 
 		// squad handler
-		void function( array<entity> guys ) : ( campId, spawnId, aiType, scriptManagerId ) 
+		void function( array<entity> guys ) : ( campData, spawnId, aiType, scriptManagerId ) 
 		{
-			AT_HandleSquadSpawn( guys, campId, spawnId, aiType, scriptManagerId )
+			AT_HandleSquadSpawn( guys, campData, spawnId, aiType, scriptManagerId )
 		}
 	)
 }
 
-void function AT_HandleSquadSpawn( array<entity> guys, int campId, int spawnId, string aiType, int scriptManagerId )
+void function AT_HandleSquadSpawn( array<entity> guys, AT_WaveOrigin campData, int spawnId, string aiType, int scriptManagerId )
 {
 	foreach ( entity guy in guys )
 	{
@@ -1209,28 +1213,27 @@ void function AT_HandleSquadSpawn( array<entity> guys, int campId, int spawnId, 
 
 		// tracking lifetime
 		AddToScriptManagedEntArray( scriptManagerId, guy )
-		thread AT_TrackNPCLifeTime( guy, campId, aiType )
+		thread AT_TrackNPCLifeTime( guy, spawnId, aiType )
 
 		// at least don't let them running around
-		float radius = file.camps[ spawnId ].radius
-		thread AT_ForceAssaultAroundSpawn( guy, radius )
+		thread AT_ForceAssaultAroundCamp( guy, campData )
 	}
 }
 
-void function AT_ForceAssaultAroundSpawn( entity guy, float maxRadius = 1200.0 )
+void function AT_ForceAssaultAroundCamp( entity guy, AT_WaveOrigin campData )
 {
 	guy.EndSignal( "OnDestroy" )
 	guy.EndSignal( "OnDeath" )
 
-	vector spawnPos = guy.GetOrigin()
-	// goal radius check
-	float goalRadius = maxRadius / 4
+	// goal check
+	vector goalPos = campData.origin
+	float goalRadius = campData.radius
 	float guyGoalRadius = guy.GetMinGoalRadius()
 	if ( guyGoalRadius > goalRadius ) // this npc cannot use forced goal radius?
 		goalRadius = guyGoalRadius
 	while( true )
 	{
-		guy.AssaultPoint( spawnPos )
+		guy.AssaultPoint( goalPos )
 		guy.AssaultSetGoalRadius( goalRadius )
 		guy.AssaultSetFightRadius( goalRadius / 2 )
 
@@ -1238,7 +1241,7 @@ void function AT_ForceAssaultAroundSpawn( entity guy, float maxRadius = 1200.0 )
 	}
 }
 
-void function AT_ReaperEvent( int campId, int spawnId, AT_SpawnData data )
+void function AT_ReaperEvent( AT_WaveOrigin campData, int spawnId, AT_SpawnData data )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
@@ -1250,7 +1253,7 @@ void function AT_ReaperEvent( int campId, int spawnId, AT_SpawnData data )
 		totalAllowedOnField = data.totalAllowedOnField
 	while ( true )
 	{
-		waitthread AT_SpawnReaper( campId, spawnId, eventManager )
+		waitthread AT_SpawnReaper( campData, spawnId, eventManager )
 		data.pendingSpawns -= 1
 		if ( data.pendingSpawns <= 0 ) // we have reached max npcs
 			return // stop any spawning functions
@@ -1265,16 +1268,13 @@ void function AT_ReaperEvent( int campId, int spawnId, AT_SpawnData data )
 	}
 }
 
-void function AT_SpawnReaper( int campId, int spawnId, int scriptManagerId )
+void function AT_SpawnReaper( AT_WaveOrigin campData, int spawnId, int scriptManagerId )
 {
 	entity spawnpoint
-	if ( file.camps[ spawnId ].dropPodSpawnPoints.len() == 0 )
-		spawnpoint = file.camps[ spawnId ].ent
+	if ( campData.titanSpawnPoints.len() == 0 )
+		spawnpoint = campData.ent
 	else
-		spawnpoint = file.camps[ spawnId ].titanSpawnPoints.getrandom()
-	// anti-crash
-	if ( !IsValid( spawnpoint ) )
-		spawnpoint = file.camps[ spawnId ].ent
+		spawnpoint = campData.titanSpawnPoints.getrandom()
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1285,25 +1285,24 @@ void function AT_SpawnReaper( int campId, int spawnId, int scriptManagerId )
 		AT_BOUNTY_TEAM, 
 		"npc_super_spectre_aitdm", 
 		// reaper handler
-		void function( entity reaper ) : ( campId, spawnId, scriptManagerId ) 
+		void function( entity reaper ) : ( campData, spawnId, scriptManagerId ) 
 		{
-			AT_HandleReaperSpawn( reaper, campId, spawnId, scriptManagerId )
+			AT_HandleReaperSpawn( reaper, campData, spawnId, scriptManagerId )
 		}
 	)
 }
 
-void function AT_HandleReaperSpawn( entity reaper, int campId, int spawnId, int scriptManagerId )
+void function AT_HandleReaperSpawn( entity reaper, AT_WaveOrigin campData, int spawnId, int scriptManagerId )
 {
 	// tracking lifetime
 	AddToScriptManagedEntArray( scriptManagerId, reaper )
-	thread AT_TrackNPCLifeTime( reaper, campId, "npc_super_spectre" )
+	thread AT_TrackNPCLifeTime( reaper, spawnId, "npc_super_spectre" )
 
 	// at least don't let them running around
-	float radius = file.camps[ spawnId ].radius
-	thread AT_ForceAssaultAroundSpawn( reaper, radius )
+	thread AT_ForceAssaultAroundCamp( reaper, campData )
 }
 
-void function AT_BountyTitanEvent( int campId, int spawnId, AT_SpawnData data )
+void function AT_BountyTitanEvent( AT_WaveOrigin campData, int spawnId, AT_SpawnData data )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
@@ -1315,7 +1314,7 @@ void function AT_BountyTitanEvent( int campId, int spawnId, AT_SpawnData data )
 		totalAllowedOnField = data.totalAllowedOnField
 	while ( true )
 	{
-		waitthread AT_SpawnBountyTitan( campId, spawnId, eventManager )
+		waitthread AT_SpawnBountyTitan( campData, spawnId, eventManager )
 		data.pendingSpawns -= 1
 		if ( data.pendingSpawns <= 0 ) // we have reached max npcs
 			return // stop any spawning functions
@@ -1330,16 +1329,13 @@ void function AT_BountyTitanEvent( int campId, int spawnId, AT_SpawnData data )
 	}
 }
 
-void function AT_SpawnBountyTitan( int campId, int spawnId, int scriptManagerId )
+void function AT_SpawnBountyTitan( AT_WaveOrigin campData, int spawnId, int scriptManagerId )
 {
 	entity spawnpoint
-	if ( file.camps[ spawnId ].dropPodSpawnPoints.len() == 0 )
-		spawnpoint = file.camps[ spawnId ].ent
+	if ( campData.titanSpawnPoints.len() == 0 )
+		spawnpoint = campData.ent
 	else
-		spawnpoint = file.camps[ spawnId ].titanSpawnPoints.getrandom()
-	// anti-crash
-	if ( !IsValid( spawnpoint ) )
-		spawnpoint = file.camps[ spawnId ].ent
+		spawnpoint = campData.titanSpawnPoints.getrandom()
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1362,17 +1358,17 @@ void function AT_SpawnBountyTitan( int campId, int spawnId, int scriptManagerId 
 		titanClass, 
 		aisettings,
 		// titan handler 
-		void function( entity titan ) : ( campId, spawnId, bountyID, scriptManagerId ) 
+		void function( entity titan ) : ( campData, spawnId, bountyID, scriptManagerId ) 
 		{
-			AT_HandleBossTitanSpawn( titan, campId, spawnId, bountyID, scriptManagerId )
+			AT_HandleBossTitanSpawn( titan, campData, spawnId, bountyID, scriptManagerId )
 		} 
 	)
 }
 
-void function AT_HandleBossTitanSpawn( entity titan, int campId, int spawnId, int bountyID, int scriptManagerId )
+void function AT_HandleBossTitanSpawn( entity titan, AT_WaveOrigin campData, int spawnId, int bountyID, int scriptManagerId )
 {
 	// set the bounty to be campEnt, for client tracking
-	SetGlobalNetEnt( "camp" + string( campId + 1 ) + "Ent", titan )
+	SetGlobalNetEnt( "camp" + string( spawnId + 1 ) + "Ent", titan )
 	// set up health
 	titan.SetMaxHealth( titan.GetMaxHealth() * BOUNTY_TITAN_HEALTH_MULTIPLIER )
 	titan.SetHealth( titan.GetMaxHealth() )
@@ -1517,20 +1513,20 @@ entity function GetBountyBossDamageOwner( entity attacker, entity titan )
 	return GetLatestAssistingPlayerInfo( titan ).player
 }
 
-void function AT_TrackNPCLifeTime( entity guy, int campId, string aiType )
+void function AT_TrackNPCLifeTime( entity guy, int spawnId, string aiType )
 {
 	guy.WaitSignal( "OnDeath", "OnDestroy" )
 
-	string npcNetVar = GetNPCNetVarName( aiType, campId )
+	string npcNetVar = GetNPCNetVarName( aiType, spawnId )
 	SetGlobalNetInt( npcNetVar, GetGlobalNetInt( npcNetVar ) - 1 )
 }
 
 
 // network var
-string function GetNPCNetVarName( string className, int campId )
+string function GetNPCNetVarName( string className, int spawnId )
 {
 	string npcId = string( GetAiTypeInt( className ) + 1 )
-	string campLetter = GetCampLetter( campId )
+	string campLetter = GetCampLetter( spawnId )
 	if ( npcId == "0" ) // cannot find this ai support!
 	{
 		if ( className == "npc_super_spectre" ) // stupid, reapers are not handled by GetAiTypeInt(), but it must be 4
@@ -1540,7 +1536,7 @@ string function GetNPCNetVarName( string className, int campId )
 	return npcId + campLetter + "campCount"
 }
 
-string function GetCampLetter( int campId )
+string function GetCampLetter( int spawnId )
 {
-	return campId == 0 ? "A" : "B"
+	return spawnId == 0 ? "A" : "B"
 }
