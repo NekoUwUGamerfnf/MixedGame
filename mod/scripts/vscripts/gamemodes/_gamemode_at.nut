@@ -6,6 +6,7 @@ global function RateSpawnpoints_AT
 const float AT_BANK_OPENING_DURATION = 45.0
 const int AT_BANK_UPLOAD_RATE = 10 // uploads 10$ per tick(0.1s)
 const int AT_BANK_UPLOAD_RADIUS = 256
+const float AT_BANK_FORCE_CLOSE_DELAY = 4.0 // if nobody holding bonus, we end banking phase after this delay
 
 // wave settings
 // general
@@ -703,7 +704,7 @@ void function AT_GameLoop_Threaded()
 		{
 			if ( !AnyPlayerHasBonus() ) // all players have deposited their bonus
 			{
-				wait min( endTime - Time(), WAVE_STATE_TRANSITION_TIME ) // wait 5s or less, we break the banking phase immediately
+				wait min( endTime - Time(), AT_BANK_FORCE_CLOSE_DELAY ) // wait 5s or less, we break the banking phase immediately
 				if ( !AnyPlayerHasBonus() ) // defensive fix, still nobody having bonus after wait
 					break
 			}
