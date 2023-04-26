@@ -282,7 +282,7 @@ void function CreateATCamps_Delayed()
 		{
 			vector campPos = camp.GetOrigin()
 			vector spawnPos = spawnpoint.GetOrigin()
-			if ( Distance( campPos, spawnPos ) < campStruct.radius && fabs( campPos.z - spawnPos.z ) < campStruct.height )
+			if ( Distance( campPos, spawnPos ) < campStruct.radius )
 				campStruct.dropPodSpawnPoints.append( spawnpoint )
 		}
 		
@@ -291,7 +291,7 @@ void function CreateATCamps_Delayed()
 		{
 			vector campPos = camp.GetOrigin()
 			vector spawnPos = spawnpoint.GetOrigin()
-			if ( Distance( campPos, spawnPos ) < campStruct.radius && fabs( campPos.z - spawnPos.z ) < campStruct.height )
+			if ( Distance( campPos, spawnPos ) < campStruct.radius )
 				campStruct.titanSpawnPoints.append( spawnpoint )
 		}
 	
