@@ -354,10 +354,8 @@ void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, va
 		}
 		AT_AddPlayerBonusPointsForEntityKilled( attacker, scoreVal, damageInfo, bonusFromNPC )
 		AddPlayerScore( attacker, eventName ) // we add scoreEvent here, since basic score events has been overwrited by sh_gamemode_at.nut
-		// update score difference
-		AddTeamScore( attacker.GetTeam(), scoreVal )
-		// add to scoreboard
-		attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, scoreVal )
+		// update score difference and scoreboard
+		AT_AddToPlayerTeamScore( attacker, scoreVal )
 	}
 
 	// bonus stealing check
@@ -435,10 +433,8 @@ bool function AT_PlayerTryStealBonusPoints( entity attacker, entity victim, var 
 	else // otherwise we do a normal entity killed scoreEvent
 		AT_AddPlayerBonusPointsForEntityKilled( attacker, attackerScore, damageInfo )
 	
-	// update score difference
-	AddTeamScore( attacker.GetTeam(), minScoreCanSteal )
-	// add to scoreboard
-	attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, minScoreCanSteal )
+	// update score difference and scoreboard
+	AT_AddToPlayerTeamScore( attacker, minScoreCanSteal )
 
 	// steal bonus
 	// only do attacker events if victim has enough bonus to steal
@@ -461,6 +457,15 @@ void function AT_PlayerBonusLoss( entity player, int bonusLoss )
 		"ServerCallback_AT_ShowStolenBonus",
 		bonusLoss
 	)
+}
+
+// team score meter
+void function AT_AddToPlayerTeamScore( entity player, int amount )
+{
+	// update score difference
+	AddTeamScore( player.GetTeam(), amount )
+	// add to scoreboard
+	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, amount )
 }
 
 // bonus points, players earn from killing
@@ -489,9 +494,7 @@ void function AT_SetPlayerBonusPoints( entity player, int amount )
 void function AT_AddPlayerTotalPoints( entity player, int amount )
 {
 	// update score difference, using this means player has upload the points to game score
-	AddTeamScore( player.GetTeam(), amount )
-	// add to scoreboard
-	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, amount )
+	AT_AddToPlayerTeamScore( player, amount )
 	AT_SetPlayerTotalPoints( player, player.GetPlayerNetInt( "AT_totalPoints" ) + ( player.GetPlayerNetInt( "AT_totalPoints256" ) * 256 ) + amount )
 }
 
@@ -523,10 +526,8 @@ void function AT_SetPlayerEarnedPoints( entity player, int amount )
 void function AT_AddPlayerBonusPointsForBossDamaged( entity player, entity victim, int amount, var damageInfo )
 {
 	AT_AddPlayerBonusPoints( player, amount )
-	// update score difference
-	AddTeamScore( player.GetTeam(), amount )
-	// add to scoreboard
-	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, amount )
+	// update score difference and scoreboard
+	AT_AddToPlayerTeamScore( player, amount )
 
 	// send servercallback for damaging
 	int bossEHandle = victim.GetEncodedEHandle()
