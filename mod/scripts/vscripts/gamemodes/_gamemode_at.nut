@@ -731,7 +731,7 @@ void function CampProgressThink( int campId, int totalNPCsToSpawn )
 		{
 			string netVarName = string( i + 1 ) + campLetter + "campCount"
 			int netVarValue = GetGlobalNetInt( netVarName )
-			if ( netVarValue >= 0 ) // network vars starts from 0
+			if ( netVarValue >= 0 ) // uninitialized network var starts from -1, avoid checking them
 				npcsLeft += netVarValue
 		}
 		//print( "npcsLeft: " + string( npcsLeft ) )
