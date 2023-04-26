@@ -302,7 +302,7 @@ void function AT_ScoreEventsValueSetUp()
 {
 	// combat
 	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.20, 0.10 )
-	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.15, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.20, 0.10 )
 	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.02, 0.02, 0.5 )
