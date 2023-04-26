@@ -699,8 +699,9 @@ void function AT_GameLoop_Threaded()
 		{
 			if ( !AnyPlayerHasBonus() ) // all players have deposited their bonus
 			{
-				wait min( endTime - Time(), WAVE_STATE_TRANSITION_TIME ) // wait 5s or less, we break the wait immediately
-				break
+				wait min( endTime - Time(), WAVE_STATE_TRANSITION_TIME ) // wait 5s or less, we break the banking phase immediately
+				if ( !AnyPlayerHasBonus() ) // defensive fix, still nobody having bonus after wait
+					break
 			}
 			WaitFrame()
 		}
