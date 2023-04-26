@@ -1405,10 +1405,6 @@ void function OnNPCTitanFinalDamaged( entity titan, var damageInfo )
 // for infantry it sould be used to store money if the npc kills a player
 void function OnBountyTitanDamaged( entity titan, var damageInfo )
 {
-	// defensive fix for pilot attacking titans
-	if ( !ScriptCallback_ShouldEntTakeDamage( titan, damageInfo ) )
-		return
-
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsValid( attacker ) ) // delayed by projectile shots
 		return
@@ -1420,7 +1416,16 @@ void function OnBountyTitanDamaged( entity titan, var damageInfo )
 			return
 	}
 
-	int healthSegment = titan.GetMaxHealth() / 100
+	// respawn FUCKED UP pilot weapon against titan's damage calculation, have to copy-paste this check from Titan_NPCTookDamage()
+	if ( HeavyArmorCriticalHitRequired( damageInfo ) && 
+		 CritWeaponInDamageInfo( damageInfo ) && 
+		 !IsCriticalHit( attacker, titan, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageType( damageInfo ) ) && 
+		 IsValid( attacker ) && 
+		 !attacker.IsTitan() )
+		return
+
+	int scoreSegment = ATTRITION_SCORE_BOSS_DAMAGE / 2 // at least get 2 points per shot, prevent being too annoying
+	int healthSegment = titan.GetMaxHealth() / scoreSegment
 
 	// sometimes damage is not enough to add 1 point, we save the damage for player's next attack
 	if ( !( titan in file.playerSavedBountyDamage[ attacker ] ) )
@@ -1436,7 +1441,7 @@ void function OnBountyTitanDamaged( entity titan, var damageInfo )
 	//print( "damageSegment: " + string( damageSegment ) )
 	//print( "playerSavedBountyDamage: " + string( file.playerSavedBountyDamage[ attacker ][ titan ] ) )
 
-	float damageFrac = float( damageSegment ) / 100
+	float damageFrac = float( damageSegment ) / scoreSegment
 	int rewardLeft = file.bountyTitanRewards[ titan ]
 	int reward = int( ATTRITION_SCORE_BOSS_DAMAGE * damageFrac )
 	//print( "reward: " + string( reward ) )
@@ -1461,13 +1466,6 @@ void function OnBountyTitanKilled( entity titan, var damageInfo )
 		if ( !IsValid( attacker ) || !attacker.IsPlayer() )
 			return
 	}
-	
-	// remove this bounty's damage saver
-	foreach ( entity player in GetPlayerArray() )
-	{
-		if ( titan in file.playerSavedBountyDamage[ player ] )
-			delete file.playerSavedBountyDamage[ player ][ titan ]
-	}
 
 	// add all remaining reward to attacker
 	// bounty killed bonus handled by AT_PlayerOrNPCKilledScoreEvent()
@@ -1475,6 +1473,13 @@ void function OnBountyTitanKilled( entity titan, var damageInfo )
 	delete file.bountyTitanRewards[ titan ]
 	if ( rewardLeft > 0 )
 		AT_AddPlayerBonusPointsForBossDamaged( attacker, titan, rewardLeft, damageInfo )
+
+	// remove this bounty's damage saver
+	foreach ( entity player in GetPlayerArray() )
+	{
+		if ( titan in file.playerSavedBountyDamage[ player ] )
+			delete file.playerSavedBountyDamage[ player ][ titan ]
+	}
 
 	// faction dialogue
 	int team = attacker.GetTeam()
