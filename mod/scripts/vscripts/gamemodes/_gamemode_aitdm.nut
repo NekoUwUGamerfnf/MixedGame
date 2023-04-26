@@ -325,7 +325,7 @@ void function Spawner_Threaded( int team )
 		// REAPERS
 		if ( file.reapers[ index ] )
 		{
-			array< entity > points = SpawnPoints_GetDropPod()
+			array< entity > points = SpawnPoints_GetTitan()
 			if ( reaperCount < file.reapersPerTeam )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
