@@ -89,6 +89,7 @@ void function InitialiseATPlayer( entity player )
 	file.playerBankUploading[ player ] <- false
 	file.playerSavedBountyDamage[ player ] <- {}
 	thread AT_PlayerTitleThink( player )
+	thread AT_PlayerObjectiveThink( player )
 }
 
 void function AT_PlayerTitleThink( entity player )
@@ -124,6 +125,94 @@ string function GetTitanPlayerTitle( entity player )
 		return ""
 	
 	return expect string( title )
+}
+
+const int OBJECTIVE_EMPTY = -1 // remove objective
+const int OBJECTIVE_KILL_DZ = 104 // #AT_OBJECTIVE_KILL_DZ
+const int OBJECTIVE_KILL_DZ_MULTI = 105 // #AT_OBJECTIVE_KILL_DZ_MULTI
+const int OBJECTIVE_KILL_BOSS = 106 // #AT_OBJECTIVE_KILL_BOSS
+const int OBJECTIVE_KILL_BOSS_MULTI = 107 // s#AT_OBJECTIVE_KILL_BOSS_MULTI
+const int OBJECTIVE_BANK_OPEN = 109 // #AT_BANK_OPEN_OBJECTIVE
+
+void function AT_PlayerObjectiveThink( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	int curObjective = OBJECTIVE_EMPTY
+	while ( true )
+	{
+		WaitFrame()
+		// game entered other state
+		if ( GetGameState() >= eGameState.WinnerDetermined )
+		{
+			player.SetPlayerNetInt( "gameInfoStatusText", OBJECTIVE_EMPTY )
+			return
+		}
+
+		int nextObjective = OBJECTIVE_EMPTY
+
+		if ( !IsAlive( player ) ) // don't show objetive for dying players
+			nextObjective = OBJECTIVE_EMPTY
+		else // player still alive
+		{
+			// banking check
+			if ( GetGlobalNetBool( "banksOpen" ) )
+				nextObjective = OBJECTIVE_BANK_OPEN
+			else if ( GetGlobalNetBool( "preBankPhase" ) )
+				nextObjective = OBJECTIVE_EMPTY
+			else // combat
+			{
+				int dropZoneActiveCount = 0
+				int bossAliveCount = 0
+				array<entity> campEnts
+				campEnts.append( GetGlobalNetEnt( "camp1Ent" ) )
+				campEnts.append( GetGlobalNetEnt( "camp2Ent" ) )
+				foreach ( entity ent in campEnts )
+				{
+					if ( IsValid( ent ) )
+					{
+						if ( ent.IsTitan() )
+							bossAliveCount += 1
+						else
+							dropZoneActiveCount += 1
+					}
+				}
+				switch( dropZoneActiveCount )
+				{
+					case 0:
+						break
+					case 1:
+						nextObjective = OBJECTIVE_KILL_DZ
+						break
+					case 2:
+						nextObjective = OBJECTIVE_KILL_DZ_MULTI
+						break
+				}
+				switch( bossAliveCount )
+				{
+					case 0:
+						break
+					case 1:
+						nextObjective = OBJECTIVE_KILL_BOSS
+						break
+					case 2:
+						nextObjective = OBJECTIVE_KILL_BOSS_MULTI
+						break
+				}
+
+				// cannot find any combat objective
+				if ( dropZoneActiveCount == 0 && bossAliveCount == 0 )
+					nextObjective = OBJECTIVE_EMPTY
+			}
+		}
+
+		// set up objective, try not to overloop too much
+		if ( curObjective != nextObjective )
+		{
+			player.SetPlayerNetInt( "gameInfoStatusText", nextObjective )
+			curObjective = nextObjective
+		}
+	}
 }
 
 void function CreateATBank( entity spawnpoint )
