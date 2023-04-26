@@ -242,7 +242,9 @@ void function CreateATBank( entity spawnpoint )
 	thread PlayAnim( bank, "mh_inactive_idle" )
 	// add usecallback to it and unset usable
 	AddCallback_OnUseEntity( bank, OnPlayerUseBank )
-	bank.UnsetUsable()
+	// make bank always usable for we can update it's use prompts, but we'll do nothing if "banksOpen" turns off.
+	bank.SetUsable()
+	bank.SetUsePrompts( "#AT_USE_BANK_CLOSED", "#AT_USE_BANK_CLOSED" )
 	
 	file.banks.append( bank )
 }
@@ -937,8 +939,9 @@ void function AT_BankActiveThink( entity bank )
 			if ( IsValid( bank ) )
 			{
 				bank.Signal( "ATBankClosed" )
-				// disable bank usage
-				bank.UnsetUsable()
+				// update use prompt
+				bank.SetUsePrompts( "#AT_USE_BANK_CLOSED", "#AT_USE_BANK_CLOSED" )
+
 				thread PlayAnim( bank, "mh_active_2_inactive" )
 				FadeOutSoundOnEntity( bank, "Mobile_Hardpoint_Idle", 0.5 )
 				// hide on minimap
@@ -948,9 +951,9 @@ void function AT_BankActiveThink( entity bank )
 		}
 	)
 
-	// make bank usable
-	bank.SetUsable()
+	// update use prompt
 	bank.SetUsePrompts( "#AT_USE_BANK", "#AT_USE_BANK_PC" )
+
 	thread PlayAnim( bank, "mh_inactive_2_active" )
 	EmitSoundOnEntity( bank, "Mobile_Hardpoint_Idle" )
 
@@ -966,6 +969,10 @@ void function AT_BankActiveThink( entity bank )
 
 function OnPlayerUseBank( bank, player )
 {
+	// we do nothing if bank is closed, but we need to make them always usable for showing prompts
+	if ( !GetGlobalNetBool( "banksOpen" ) )
+		return
+		
 	expect entity( bank )
 	expect entity( player )
 
