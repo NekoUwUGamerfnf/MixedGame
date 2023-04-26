@@ -32,7 +32,6 @@ const array<string> VALID_BOUNTY_TITAN_SETTINGS = // titans spawn in second half
 ]
 
 // extra
-const bool ENABLE_AT_FINAL_WAVE = false // final wave is not finished, but I've added support for it. it contains 3 reapers as first half, 1 titan as second half
 const bool USE_TOTAL_ALLOWED_ON_FIELD_CHECK = false // respawn didn't use the "totalAllowedOnField" for npc spawning, they only allow 1 squad to be on field for each type of npc. enabling this might cause too much npcs spawning and crash the game
 
 // IMPLEMENTATION NOTES:
@@ -608,10 +607,8 @@ void function AT_GameLoop_Threaded()
 	
 		// cap to number of real waves
 		int waveId = ( waveCount - 1 ) / 2
-		// cap to third wave. final wave is not finished, but I've added support for it
+		// cap to third wave. final wave is not finished
 		int waveCapAmount = 2
-		if ( ENABLE_AT_FINAL_WAVE )
-			waveCapAmount = 1
 		if ( waveId >= GetWaveDataSize() - waveCapAmount )
 			waveId = GetWaveDataSize() - waveCapAmount
 
@@ -740,13 +737,6 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 		campSpawnData = wave.bossSpawnData
 	else
 		campSpawnData = wave.spawnDataArrays
-	
-	// un-finished final wave support
-	if ( ENABLE_AT_FINAL_WAVE )
-	{
-		if ( waveId >= GetWaveDataSize() - 1 )
-			waveId = 0 // we use phase1 camp spawn
-	}
 
 	array<AT_WaveOrigin> campsToUse
 	foreach ( AT_WaveOrigin campStruct in file.camps )
