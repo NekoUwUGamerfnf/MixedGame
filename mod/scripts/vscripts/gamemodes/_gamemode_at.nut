@@ -972,7 +972,7 @@ function OnPlayerUseBank( bank, player )
 	// we do nothing if bank is closed, but we need to make them always usable for showing prompts
 	if ( !GetGlobalNetBool( "banksOpen" ) )
 		return
-		
+
 	expect entity( bank )
 	expect entity( player )
 
@@ -1042,17 +1042,20 @@ void function PlayerUploadingBonus( entity bank, entity player )
 				{
 					// emit uploading successful sound
 					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_1P" )
-					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_3P" )
+					EmitSoundOnEntityExceptToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_3P" )
 				}
 				else // player killed or left the bank radius
 				{
 					// emit uploading failed sound
 					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Unsuccessful_1P" )
-					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Unsuccessful_3P" )
+					EmitSoundOnEntityExceptToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Unsuccessful_3P" )
 				}
 			}
 		}
 	)
+
+	// this will move point value position next to crosshair
+	Remote_CallFunction_NonReplay( player, "ServerCallback_AT_ShowRespawnBonusLoss" )
 
 	// uploading start sound
 	EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_Start_1P" )
@@ -1065,7 +1068,7 @@ void function PlayerUploadingBonus( entity bank, entity player )
 	// uploading bonus
 	while ( Distance( player.GetOrigin(), bank.GetOrigin() ) <= AT_BANK_UPLOAD_RADIUS )
 	{
-		// this will move point value position next to crosshair
+		// keep moving point value position
 		Remote_CallFunction_NonReplay( player, "ServerCallback_AT_ShowRespawnBonusLoss" )
 
 		int bonusToUpload = int( min( AT_BANK_UPLOAD_RATE, AT_GetPlayerBonusPoints( player ) ) )
@@ -1402,6 +1405,10 @@ void function OnNPCTitanFinalDamaged( entity titan, var damageInfo )
 // for infantry it sould be used to store money if the npc kills a player
 void function OnBountyTitanDamaged( entity titan, var damageInfo )
 {
+	// defensive fix for pilot attacking titans
+	if ( !ScriptCallback_ShouldEntTakeDamage( titan, damageInfo ) )
+		return
+
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsValid( attacker ) ) // delayed by projectile shots
 		return
