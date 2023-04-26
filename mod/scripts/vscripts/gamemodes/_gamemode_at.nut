@@ -27,7 +27,8 @@ const array<string> VALID_BOUNTY_TITAN_SETTINGS = // titans spawn in second half
 	"npc_titan_atlas_vanguard_bounty"
 ]
 
-
+// extra
+const bool ENABLE_AT_FINAL_WAVE = false // final wave is not finished, but I've added support for it. it contains 3 reapers as first half, 1 titan as second half
 
 // IMPLEMENTATION NOTES:
 // bounty hunt is a mode that was clearly pretty heavily developed, and had alot of scrapped concepts (i.e. most wanted player bounties, turret bounties, collectable blackbox objectives)
@@ -540,12 +541,12 @@ void function AT_GameLoop_Threaded()
 	
 		// cap to number of real waves
 		int waveId = ( waveCount - 1 ) / 2
-		// last wave is clearly unfinished so don't use, just cap to last actually used one
-		if ( waveId >= GetWaveDataSize() - 1 )
-		{
-			waveId = GetWaveDataSize() - 2	
-			waveCount = waveId * 2
-		}
+		// cap to third wave. final wave is not finished, but I've added support for it
+		int waveCapAmount = 2
+		if ( ENABLE_AT_FINAL_WAVE )
+			waveCapAmount = 1
+		if ( waveId >= GetWaveDataSize() - waveCapAmount )
+			waveId = GetWaveDataSize() - waveCapAmount
 
 		// new wave dialogue
 		bool waveChanged = lastWaveId != waveId
@@ -649,15 +650,15 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 	else
 		campSpawnData = wave.spawnDataArrays
 	
-
-	int totalCampUse = waveId == 0 ? 1 : 2  //campSpawnData.len() // don't know how to get this
+	bool useOneCamp = waveId == 0 || waveId >= GetWaveDataSize() - 1 // first and final wave uses only 1 camp
+	int totalCampUse = useOneCamp ? 1 : 2
 	//print( "totalCampUse: " + string( totalCampUse ) )
 
 	for ( int campId = 0; campId < totalCampUse; campId++ )
 	{
 		array<AT_SpawnData> curSpawnData = campSpawnData[ campId ]
 		int spawnId = campId
-		if ( totalCampUse == 1 ) // if we only used 1 camp, pick a random position
+		if ( useOneCamp ) // if we only used 1 camp, pick a random position
 			spawnId = RandomInt( campSpawnData.len() )
 
 		int totalNPCsToSpawn = 0
@@ -689,11 +690,11 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 					case "npc_soldier":
 					case "npc_spectre":
 					case "npc_stalker":
-						thread AT_DroppodSquadEvent( spawnId, data )
+						thread AT_DroppodSquadEvent( campId, spawnId, data )
 						break
 					
 					case "npc_super_spectre":
-						thread AT_ReaperEvent( spawnId, data )
+						thread AT_ReaperEvent( campId, spawnId, data )
 						break
 				}
 			}
@@ -708,7 +709,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 				switch ( data.aitype )
 				{
 					case "npc_titan":
-						thread AT_BountyTitanEvent( spawnId, data )
+						thread AT_BountyTitanEvent( campId, spawnId, data )
 						break
 				}
 			}
@@ -994,7 +995,7 @@ int function GetScriptManagedNPCArrayLength_Alive( int scriptManagerId )
 	return npcsAlive
 }
 
-void function AT_DroppodSquadEvent( int campId, AT_SpawnData data )
+void function AT_DroppodSquadEvent( int campId, int spawnId, AT_SpawnData data )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
@@ -1007,7 +1008,7 @@ void function AT_DroppodSquadEvent( int campId, AT_SpawnData data )
 	int totalAllowedOnField = data.totalAllowedOnField
 	while ( true )
 	{
-		waitthread AT_SpawnDroppodSquad( campId, ent, eventManager )
+		waitthread AT_SpawnDroppodSquad( campId, spawnId, ent, eventManager )
 		spawnedNPCs += 4
 		if ( spawnedNPCs >= totalNPCsToSpawn ) // we have reached max npcs
 			return // stop any spawning functions
@@ -1022,16 +1023,16 @@ void function AT_DroppodSquadEvent( int campId, AT_SpawnData data )
 	}
 }
 
-void function AT_SpawnDroppodSquad( int campId, string aiType, int scriptManagerId )
+void function AT_SpawnDroppodSquad( int campId, int spawnId, string aiType, int scriptManagerId )
 {
 	entity spawnpoint
-	if ( file.camps[ campId ].dropPodSpawnPoints.len() == 0 )
-		spawnpoint = file.camps[ campId ].ent
+	if ( file.camps[ spawnId ].dropPodSpawnPoints.len() == 0 )
+		spawnpoint = file.camps[ spawnId ].ent
 	else
-		spawnpoint = file.camps[ campId ].dropPodSpawnPoints.getrandom()
+		spawnpoint = file.camps[ spawnId ].dropPodSpawnPoints.getrandom()
 	// anti-crash
 	if ( !IsValid( spawnpoint ) )
-		spawnpoint = file.camps[ campId ].ent
+		spawnpoint = file.camps[ spawnId ].ent
 	
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1042,14 +1043,14 @@ void function AT_SpawnDroppodSquad( int campId, string aiType, int scriptManager
 		AT_BOUNTY_TEAM, 
 		aiType, 
 		// squad handler
-		void function( array<entity> guys ) : ( campId, aiType, scriptManagerId ) 
+		void function( array<entity> guys ) : ( campId, spawnId, aiType, scriptManagerId ) 
 		{
-			AT_HandleSquadSpawn( guys, campId, aiType, scriptManagerId )
+			AT_HandleSquadSpawn( guys, campId, spawnId, aiType, scriptManagerId )
 		}
 	)
 }
 
-void function AT_HandleSquadSpawn( array<entity> guys, int campId, string aiType, int scriptManagerId )
+void function AT_HandleSquadSpawn( array<entity> guys, int campId, int spawnId, string aiType, int scriptManagerId )
 {
 	foreach ( entity guy in guys )
 	{
@@ -1061,7 +1062,7 @@ void function AT_HandleSquadSpawn( array<entity> guys, int campId, string aiType
 		thread AT_TrackNPCLifeTime( guy, campId, aiType )
 
 		// at least don't let them running around
-		float radius = file.camps[ campId ].radius
+		float radius = file.camps[ spawnId ].radius
 		thread AT_ForceAssaultAroundSpawn( guy, radius )
 	}
 }
@@ -1087,7 +1088,7 @@ void function AT_ForceAssaultAroundSpawn( entity guy, float maxRadius = 1200.0 )
 	}
 }
 
-void function AT_ReaperEvent( int campId, AT_SpawnData data )
+void function AT_ReaperEvent( int campId, int spawnId, AT_SpawnData data )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
@@ -1099,7 +1100,7 @@ void function AT_ReaperEvent( int campId, AT_SpawnData data )
 	int totalAllowedOnField = data.totalAllowedOnField
 	while ( true )
 	{
-		waitthread AT_SpawnReaper( campId, eventManager )
+		waitthread AT_SpawnReaper( campId, spawnId, eventManager )
 		spawnedNPCs += 1
 		if ( spawnedNPCs >= totalNPCsToSpawn ) // we have reached max npcs
 			return // stop any spawning functions
@@ -1114,16 +1115,16 @@ void function AT_ReaperEvent( int campId, AT_SpawnData data )
 	}
 }
 
-void function AT_SpawnReaper( int campId, int scriptManagerId )
+void function AT_SpawnReaper( int campId, int spawnId, int scriptManagerId )
 {
 	entity spawnpoint
-	if ( file.camps[ campId ].dropPodSpawnPoints.len() == 0 )
-		spawnpoint = file.camps[ campId ].ent
+	if ( file.camps[ spawnId ].dropPodSpawnPoints.len() == 0 )
+		spawnpoint = file.camps[ spawnId ].ent
 	else
-		spawnpoint = file.camps[ campId ].titanSpawnPoints.getrandom()
+		spawnpoint = file.camps[ spawnId ].titanSpawnPoints.getrandom()
 	// anti-crash
 	if ( !IsValid( spawnpoint ) )
-		spawnpoint = file.camps[ campId ].ent
+		spawnpoint = file.camps[ spawnId ].ent
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1134,25 +1135,25 @@ void function AT_SpawnReaper( int campId, int scriptManagerId )
 		AT_BOUNTY_TEAM, 
 		"npc_super_spectre_aitdm", 
 		// reaper handler
-		void function( entity reaper ) : ( campId, scriptManagerId ) 
+		void function( entity reaper ) : ( campId, spawnId, scriptManagerId ) 
 		{
-			AT_HandleReaperSpawn( reaper, campId, scriptManagerId )
+			AT_HandleReaperSpawn( reaper, campId, spawnId, scriptManagerId )
 		}
 	)
 }
 
-void function AT_HandleReaperSpawn( entity reaper, int campId, int scriptManagerId )
+void function AT_HandleReaperSpawn( entity reaper, int campId, int spawnId, int scriptManagerId )
 {
 	// tracking lifetime
 	AddToScriptManagedEntArray( scriptManagerId, reaper )
 	thread AT_TrackNPCLifeTime( reaper, campId, "npc_super_spectre" )
 
 	// at least don't let them running around
-	float radius = file.camps[ campId ].radius
+	float radius = file.camps[ spawnId ].radius
 	thread AT_ForceAssaultAroundSpawn( reaper, radius )
 }
 
-void function AT_BountyTitanEvent( int campId, AT_SpawnData data )
+void function AT_BountyTitanEvent( int campId, int spawnId, AT_SpawnData data )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
@@ -1164,7 +1165,7 @@ void function AT_BountyTitanEvent( int campId, AT_SpawnData data )
 	int totalAllowedOnField = data.totalAllowedOnField
 	while ( true )
 	{
-		waitthread AT_SpawnBountyTitan( campId, eventManager )
+		waitthread AT_SpawnBountyTitan( campId, spawnId, eventManager )
 		spawnedNPCs += 1
 		if ( spawnedNPCs >= totalNPCsToSpawn ) // we have reached max npcs
 			return // stop any spawning functions
@@ -1179,16 +1180,16 @@ void function AT_BountyTitanEvent( int campId, AT_SpawnData data )
 	}
 }
 
-void function AT_SpawnBountyTitan( int campId, int scriptManagerId )
+void function AT_SpawnBountyTitan( int campId, int spawnId, int scriptManagerId )
 {
 	entity spawnpoint
-	if ( file.camps[ campId ].dropPodSpawnPoints.len() == 0 )
-		spawnpoint = file.camps[ campId ].ent
+	if ( file.camps[ spawnId ].dropPodSpawnPoints.len() == 0 )
+		spawnpoint = file.camps[ spawnId ].ent
 	else
-		spawnpoint = file.camps[ campId ].titanSpawnPoints.getrandom()
+		spawnpoint = file.camps[ spawnId ].titanSpawnPoints.getrandom()
 	// anti-crash
 	if ( !IsValid( spawnpoint ) )
-		spawnpoint = file.camps[ campId ].ent
+		spawnpoint = file.camps[ spawnId ].ent
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1211,14 +1212,14 @@ void function AT_SpawnBountyTitan( int campId, int scriptManagerId )
 		titanClass, 
 		aisettings,
 		// titan handler 
-		void function( entity titan ) : ( campId, bountyID, scriptManagerId ) 
+		void function( entity titan ) : ( campId, spawnId, bountyID, scriptManagerId ) 
 		{
-			AT_HandleBossTitanSpawn( titan, campId, bountyID, scriptManagerId )
+			AT_HandleBossTitanSpawn( titan, campId, spawnId, bountyID, scriptManagerId )
 		} 
 	)
 }
 
-void function AT_HandleBossTitanSpawn( entity titan, int campId, int bountyID, int scriptManagerId )
+void function AT_HandleBossTitanSpawn( entity titan, int campId, int spawnId, int bountyID, int scriptManagerId )
 {
 	// set the bounty to be campEnt, for client tracking
 	SetGlobalNetEnt( "camp" + string( campId + 1 ) + "Ent", titan )
@@ -1241,7 +1242,7 @@ void function AT_HandleBossTitanSpawn( entity titan, int campId, int bountyID, i
 
 	// tracking lifetime
 	AddToScriptManagedEntArray( scriptManagerId, titan )
-	thread AT_TrackNPCLifeTime( titan, campId, "npc_titan" )
+	thread AT_TrackNPCLifeTime( titan, spawnId, "npc_titan" )
 }
 
 void function BountyBossHighlightThink( entity titan )
@@ -1320,9 +1321,13 @@ void function OnBountyTitanKilled( entity titan, var damageInfo )
 			return
 	}
 	
-	if ( titan in file.playerSavedBountyDamage[ attacker ] )
-		delete file.playerSavedBountyDamage[ attacker ][ titan ]
-	
+	// remove this bounty's damage saver
+	foreach ( entity player in GetPlayerArray() )
+	{
+		if ( titan in file.playerSavedBountyDamage[ player ] )
+			delete file.playerSavedBountyDamage[ player ][ titan ]
+	}
+
 	// add all remaining reward to attacker
 	// bounty killed bonus handled by AT_PlayerOrNPCKilledScoreEvent()
 	int rewardLeft = file.bountyTitanRewards[ titan ]
@@ -1362,7 +1367,7 @@ void function AT_TrackNPCLifeTime( entity guy, int campId, string aiType )
 }
 
 
-// camp functions
+// network var
 string function GetNPCNetVarName( string className, int campId )
 {
 	string npcId = string( GetAiTypeInt( className ) + 1 )
