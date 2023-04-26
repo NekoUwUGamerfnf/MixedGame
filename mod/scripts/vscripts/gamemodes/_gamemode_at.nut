@@ -46,6 +46,7 @@ struct
 	table<entity, int> bountyTitanRewards
 	table<entity, bool> playerBankUploading
 	table< entity, table<entity, int> > playerSavedBountyDamage
+	table<entity, float> playerHudMessageAllowedTime
 } file
 
 void function GamemodeAt_Init()
@@ -88,6 +89,7 @@ void function InitialiseATPlayer( entity player )
 	player.SetPlayerNetInt( "AT_bonusPointMult", 1 ) // for damage score popups
 	file.playerBankUploading[ player ] <- false
 	file.playerSavedBountyDamage[ player ] <- {}
+	file.playerHudMessageAllowedTime[ player ] <- 0.0
 	thread AT_PlayerTitleThink( player )
 	thread AT_PlayerObjectiveThink( player )
 }
@@ -877,11 +879,22 @@ function OnPlayerUseBank( bank, player )
 	// no bonus!
 	if ( AT_GetPlayerBonusPoints( player ) == 0 )
 	{
-		SendHudMessage( player, "#AT_USE_BANK_NO_BONUS_HINT", -1, 0.4, 255, 255, 255, 255, 0.5, 1.0, 0.5 )
+		TrySendHudMessageToPlayer( player, "#AT_USE_BANK_NO_BONUS_HINT" )
 		return
 	}
 
 	thread PlayerUploadingBonus( bank, player )
+}
+
+const float PLAYER_HUD_MESSAGE_COOLDOWN = 2.5
+
+bool function TrySendHudMessageToPlayer( entity player, string message )
+{
+	if ( Time() < file.playerHudMessageAllowedTime[ player ] )
+		return false
+	SendHudMessage( player, message, -1, 0.4, 255, 255, 255, 255, 0.5, 1.0, 0.5 )
+	file.playerHudMessageAllowedTime[ player ] = Time() + PLAYER_HUD_MESSAGE_COOLDOWN
+	return true
 }
 
 void function PlayerUploadingBonus( entity bank, entity player )
