@@ -455,7 +455,7 @@ void function AT_GameLoop_Threaded()
 			waveId = GetWaveDataSize() - 2	
 			waveCount = waveId * 2
 		}
-		
+
 		// new wave dialogue
 		bool waveChanged = lastWaveId != waveId
 		if ( waveChanged )
@@ -949,13 +949,13 @@ void function AT_HandleSquadSpawn( array<entity> guys, int campId, string aiType
 		guy.EnableNPCFlag( NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		guy.DisableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE ) // no patrol and investigate allowed, avoid them running around
 
-		// at least don't let them running around
-		float radius = file.camps[ campId ].radius
-		thread AT_ForceAssaultAroundSpawn( guy, radius )
-
 		// tracking lifetime
 		AddToScriptManagedEntArray( scriptManagerId, guy )
 		thread AT_TrackNPCLifeTime( guy, campId, aiType )
+
+		// at least don't let them running around
+		float radius = file.camps[ campId ].radius
+		thread AT_ForceAssaultAroundSpawn( guy, radius )
 	}
 }
 
