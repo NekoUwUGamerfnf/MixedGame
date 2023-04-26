@@ -1334,7 +1334,7 @@ void function OnBountyTitanKilled( entity titan, var damageInfo )
 	int team = attacker.GetTeam()
 	PlayFactionDialogueToPlayer( "bh_playerKilledBounty", attacker )
 	PlayFactionDialogueToTeamExceptPlayer( "bh_bountyClaimedByFriendly", team, attacker )
-	PlayFactionDialogueToTeam( "bh_bountyClaimedByFriendly", GetOtherTeam( team ) )
+	PlayFactionDialogueToTeam( "bh_bountyClaimedByEnemy", GetOtherTeam( team ) )
 }
 
 entity function GetBountyBossDamageOwner( entity attacker, entity titan )
