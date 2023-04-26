@@ -739,29 +739,78 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 	else
 		campSpawnData = wave.spawnDataArrays
 
-	array<AT_WaveOrigin> campsToUse
+	array<AT_WaveOrigin> allCampsToUse
 	foreach ( AT_WaveOrigin campStruct in file.camps )
 	{
 		if ( campStruct.phaseAllowed[ waveId ] )
-			campsToUse.append( campStruct )
+			allCampsToUse.append( campStruct )
 	}
 
 	// HACK: don't know why respawn did multiple phase3 camps on explanet and rise, have to do a check
 	int campsMaxUse = waveId == 0 ? 1 : 2 // first wave always use 1 camp
-	if ( campsToUse.len() > campsMaxUse ) // overloaded camps!
+	if ( allCampsToUse.len() > campsMaxUse ) // overloaded camps!
 	{
-		// randomly pick
-		array<AT_WaveOrigin> pickedCamps
-		for ( int i = 0; i < campsMaxUse; i++ )
+		while ( true )
 		{
-			AT_WaveOrigin randomCamp = campsToUse[ RandomInt( campsToUse.len() ) ]
-			pickedCamps.append( randomCamp )
-			campsToUse.removebyvalue( randomCamp )
-		}
-		campsToUse = pickedCamps
-	}
+			WaitFrame()
+			// randomly pick
+			array<AT_WaveOrigin> pickedCamps
+			array<AT_WaveOrigin> tempCampsArray = clone allCampsToUse
+			for ( int i = 0; i < campsMaxUse; i++ )
+			{
+				AT_WaveOrigin randomCamp = tempCampsArray[ RandomInt( tempCampsArray.len() ) ]
+				pickedCamps.append( randomCamp )
+				tempCampsArray.removebyvalue( randomCamp )
+			}
+			tempCampsArray = pickedCamps
 
-	foreach ( int spawnId, AT_WaveOrigin curCampData in campsToUse )
+			bool campsCollide = false
+			if ( campsMaxUse > 1 ) // multiple camps!
+			{
+				// check collision
+				array<vector> campOrigin
+				array<float> campRadius
+				foreach ( int i, AT_WaveOrigin campStruct in tempCampsArray )
+				{
+					vector curCampOrg = campStruct.origin
+					float curCampRad = campStruct.radius
+					campOrigin.append( curCampOrg )
+					campRadius.append( curCampRad )
+					if ( i == 0 ) // first camp in array
+						continue
+					
+					for ( int j = 0; j < campOrigin.len(); j++ )
+					{
+						vector otherCampOrg = campOrigin[ j ]
+						float otherCampRad = campRadius[ j ]
+						if ( otherCampOrg == curCampOrg && otherCampRad == curCampRad ) // same camp
+							continue
+						float campDist = Distance( curCampOrg, otherCampOrg )
+						float idealDist = curCampRad + otherCampRad
+						//print( "campDist:" + string( campDist ) )
+						//print( "idealDist: " + string( idealDist ) )
+						if ( campDist < idealDist ) // do collide with each other
+						{
+							campsCollide = true
+							break
+						}
+					}
+					if ( campsCollide )
+						break
+				}
+			}
+
+			//print( "campsCollide: " + string( campsCollide ) )
+			if ( !campsCollide )
+			{
+				allCampsToUse = tempCampsArray
+				break // reached here, we break the loop
+			}
+		}
+	}
+	// HACK end
+
+	foreach ( int spawnId, AT_WaveOrigin curCampData in allCampsToUse )
 	{
 		array<AT_SpawnData> curSpawnData = campSpawnData[ spawnId ]
 
