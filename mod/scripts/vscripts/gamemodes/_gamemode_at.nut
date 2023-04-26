@@ -226,8 +226,14 @@ void function AT_PlayerObjectiveThink( entity player )
 
 void function CreateATBank( entity spawnpoint )
 {
-	entity bank = CreatePropScript( spawnpoint.GetModelName(), spawnpoint.GetOrigin(), spawnpoint.GetAngles(), SOLID_VPHYSICS )
-	bank.SetScriptName( "AT_Bank" )
+	entity bank = CreateEntity( "prop_script" )
+	bank.SetScriptName( "AT_Bank" ) // don't know how to make client able to track it
+	bank.SetOrigin( spawnpoint.GetOrigin() )
+	bank.SetAngles( spawnpoint.GetAngles() )
+	DispatchSpawn( bank )
+	bank.kv.solid = SOLID_VPHYSICS
+	bank.SetModel( spawnpoint.GetModelName() )
+
 	// init minimap icon, we show them when active
 	bank.Minimap_SetCustomState( eMinimapObject_prop_script.AT_BANK )
 	bank.Minimap_SetAlignUpright( true )
@@ -302,7 +308,7 @@ void function AT_ScoreEventsValueSetUp()
 {
 	// combat
 	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.20, 0.10 )
-	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.15, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.10 )
 	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.20, 0.10 )
 	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.02, 0.02, 0.5 )
@@ -493,7 +499,7 @@ void function AT_SetPlayerBonusPoints( entity player, int amount )
 // total points, the value player actually uploaded to team score
 void function AT_AddPlayerTotalPoints( entity player, int amount )
 {
-	// update score difference, using this means player has upload the points to game score
+	// update score difference and scoreboard, calling this function meaning player has deposited their bonus to team score
 	AT_AddToPlayerTeamScore( player, amount )
 	AT_SetPlayerTotalPoints( player, player.GetPlayerNetInt( "AT_totalPoints" ) + ( player.GetPlayerNetInt( "AT_totalPoints256" ) * 256 ) + amount )
 }
@@ -942,7 +948,10 @@ void function AT_BankActiveThink( entity bank )
 			{
 				bank.Signal( "ATBankClosed" )
 				// update use prompt
-				bank.SetUsePrompts( "#AT_USE_BANK_CLOSED", "#AT_USE_BANK_CLOSED" )
+				if ( GetGameState() != eGameState.Playing ) // game has ended!
+					bank.UnsetUsable() // disable prompt
+				else
+					bank.SetUsePrompts( "#AT_USE_BANK_CLOSED", "#AT_USE_BANK_CLOSED" )
 
 				thread PlayAnim( bank, "mh_active_2_inactive" )
 				FadeOutSoundOnEntity( bank, "Mobile_Hardpoint_Idle", 0.5 )
@@ -954,6 +963,7 @@ void function AT_BankActiveThink( entity bank )
 	)
 
 	// update use prompt
+	bank.SetUsable() // disable prompt
 	bank.SetUsePrompts( "#AT_USE_BANK", "#AT_USE_BANK_PC" )
 
 	thread PlayAnim( bank, "mh_inactive_2_active" )
@@ -1080,6 +1090,7 @@ void function PlayerUploadingBonus( entity bank, entity player )
 			return
 		}
 
+		// remove bonus points
 		AT_AddPlayerBonusPoints( player, -bonusToUpload )
 		// add to total points
 		AT_AddPlayerTotalPoints( player, bonusToUpload )
@@ -1213,7 +1224,7 @@ void function AT_ForceAssaultAroundSpawn( entity guy, float maxRadius = 1200.0 )
 
 	vector spawnPos = guy.GetOrigin()
 	// goal radius check
-	float goalRadius = maxRadius / 2
+	float goalRadius = maxRadius / 4
 	float guyGoalRadius = guy.GetMinGoalRadius()
 	if ( guyGoalRadius > goalRadius ) // this npc cannot use forced goal radius?
 		goalRadius = guyGoalRadius
@@ -1426,8 +1437,8 @@ void function OnBountyTitanDamaged( entity titan, var damageInfo )
 		 !attacker.IsTitan() )
 		return
 
-	int scoreSegment = ATTRITION_SCORE_BOSS_DAMAGE / 2 // at least get 2 points per shot, prevent being too annoying
-	int healthSegment = titan.GetMaxHealth() / scoreSegment
+	int rewardSegment = ATTRITION_SCORE_BOSS_DAMAGE
+	int healthSegment = titan.GetMaxHealth() / rewardSegment
 
 	// sometimes damage is not enough to add 1 point, we save the damage for player's next attack
 	if ( !( titan in file.playerSavedBountyDamage[ attacker ] ) )
@@ -1443,7 +1454,7 @@ void function OnBountyTitanDamaged( entity titan, var damageInfo )
 	//print( "damageSegment: " + string( damageSegment ) )
 	//print( "playerSavedBountyDamage: " + string( file.playerSavedBountyDamage[ attacker ][ titan ] ) )
 
-	float damageFrac = float( damageSegment ) / scoreSegment
+	float damageFrac = float( damageSegment ) / rewardSegment
 	int rewardLeft = file.bountyTitanRewards[ titan ]
 	int reward = int( ATTRITION_SCORE_BOSS_DAMAGE * damageFrac )
 	//print( "reward: " + string( reward ) )
