@@ -12,6 +12,10 @@ const int AT_BANK_UPLOAD_RADIUS = 256
 const int AT_BOUNTY_TEAM = TEAM_BOTH // they can be attacked by both teams
 const float FIRST_WAVE_START_DELAY = 10.0 // time before first wave starts, after intro end
 const float WAVE_STATE_TRANSITION_TIME = 5.0 // time between each wave and bank opening/closing
+const float WAVE_END_ANNOUNCEMENT_DELAY = 1.0 // extra wait before announcing wave cleaned
+
+// droppod squad
+const int DROPPOD_SQUADS_ALLOWED_ON_FIELD = 4 // default is 4 droppod squads on field, won't use if USE_TOTAL_ALLOWED_ON_FIELD_CHECK turns on
 
 // bounty boss titans
 const float BOUNTY_TITAN_CHECK_DELAY = 10.0 // wait for bounty titans landing before we start checking their life state
@@ -29,6 +33,7 @@ const array<string> VALID_BOUNTY_TITAN_SETTINGS = // titans spawn in second half
 
 // extra
 const bool ENABLE_AT_FINAL_WAVE = false // final wave is not finished, but I've added support for it. it contains 3 reapers as first half, 1 titan as second half
+const bool USE_TOTAL_ALLOWED_ON_FIELD_CHECK = false // respawn didn't use the "totalAllowedOnField" for npc spawning, they only allow 1 squad to be on field for each type of npc. enabling this might cause too much npcs spawning and crash the game
 
 // IMPLEMENTATION NOTES:
 // bounty hunt is a mode that was clearly pretty heavily developed, and had alot of scrapped concepts (i.e. most wanted player bounties, turret bounties, collectable blackbox objectives)
@@ -45,6 +50,7 @@ struct
 	
 	table<entity, bool> titanIsBountyBoss
 	table<entity, int> bountyTitanRewards
+	table<entity, int> npcStolenBonus
 	table<entity, bool> playerBankUploading
 	table< entity, table<entity, int> > playerSavedBountyDamage
 	table<entity, float> playerHudMessageAllowedTime
@@ -304,12 +310,24 @@ void function AT_ScoreEventsValueSetUp()
 
 void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, var damageInfo )
 {
-	if ( !IsValid( attacker ) || !attacker.IsPlayer() )
+	if ( !IsValid( attacker ) ) // kill maybe delayed by projectile shots
 		return
-	if ( attacker == victim )
+	if ( attacker == victim ) // self damage
+	{
+		if ( victim.IsPlayer() )
+			AT_PlayerBonusLoss( victim, AT_GetPlayerBonusPoints( victim ) / 2 ) // lose half of bonus
 		return
-	if ( victim.IsTitan() && GetPetTitanOwner( victim ) == attacker )
+	}
+	if ( victim.IsTitan() && GetPetTitanOwner( victim ) == attacker ) // titan ejecting without taking damage
 		return
+	if ( !attacker.IsPlayer() ) // npc killing
+	{
+		if ( attacker.IsTitan() && IsValid( GetPetTitanOwner( attacker ) ) ) // is a pet titan?
+			attacker = GetPetTitanOwner( attacker ) // re-assign attacker
+		else // non-owner npcs, mostly bounty grunts or titans
+			AT_NPCTryStealBonusPoints( attacker, victim ) // npc will steal the bonus from player
+		return
+	}
 	
 	string eventName = GetAttritionScoreEventName( victim.GetClassName() )
 	if ( victim.IsTitan() ) // titan specific
@@ -324,9 +342,15 @@ void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, va
 		scoreVal = ATTRITION_SCORE_TITAN_MIN
 
 	// killed npc
-	if ( !victim.IsPlayer() )
+	if ( victim.IsNPC() )
 	{
-		AT_AddPlayerBonusPointsForEntityKilled( attacker, scoreVal, damageInfo )
+		int bonusFromNPC = 0
+		if ( victim in file.npcStolenBonus ) // this npc might carrying bonus from other players
+		{
+			bonusFromNPC = file.npcStolenBonus[ victim ]
+			delete file.npcStolenBonus[ victim ]
+		}
+		AT_AddPlayerBonusPointsForEntityKilled( attacker, scoreVal, damageInfo, bonusFromNPC )
 		AddPlayerScore( attacker, eventName ) // we add scoreEvent here, since basic score events has been overwrited by sh_gamemode_at.nut
 		// update score difference
 		AddTeamScore( attacker.GetTeam(), scoreVal )
@@ -336,11 +360,43 @@ void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, va
 
 	// bonus stealing check
 	if ( victim.IsPlayer() )
-		AT_TryStealPlayerBonusPoints( attacker, victim, damageInfo )
+		AT_PlayerTryStealBonusPoints( attacker, victim, damageInfo )
 }
 
-bool function AT_TryStealPlayerBonusPoints( entity attacker, entity victim, var damageInfo )
+bool function AT_NPCTryStealBonusPoints( entity attacker, entity victim )
 {
+	// basic checks
+	if ( !attacker.IsNPC() )
+		return false
+	if ( !victim.IsPlayer() )
+		return false
+	
+	int victimBonus = AT_GetPlayerBonusPoints( victim )
+	int bonusToSteal = victimBonus / 2 // npc always steal half the bonus from player, no extra bonus for killing the player
+	if ( bonusToSteal == 0 ) // player has no bonus!
+		return false
+
+	if ( !( attacker in file.npcStolenBonus ) ) // init
+		file.npcStolenBonus[ attacker ] <- 0
+	file.npcStolenBonus[ attacker ] += bonusToSteal
+	AT_PlayerBonusLoss( victim, bonusToSteal ) // tell victim of bonus stolen
+
+	if ( !( attacker in file.titanIsBountyBoss ) ) // if attacker npc is not a bounty titan, we make them highlighted
+		NPCBountyStolenHighlight( attacker )
+
+	return true
+}
+
+void function NPCBountyStolenHighlight( entity npc )
+{
+	Highlight_SetEnemyHighlight( npc, "enemy_boss_bounty" )
+}
+
+bool function AT_PlayerTryStealBonusPoints( entity attacker, entity victim, var damageInfo )
+{
+	// basic checks
+	if ( !attacker.IsPlayer() )
+		return false
 	if ( !victim.IsPlayer() )
 		return false
 	
@@ -367,7 +423,6 @@ bool function AT_TryStealPlayerBonusPoints( entity attacker, entity victim, var 
 		Remote_CallFunction_NonReplay( 
 			attacker, 
 			"ServerCallback_AT_PlayerKillScorePopup",
-			// basically damage table as parameters
 			bonusToSteal,
 			victimEHandle,
 			damageOrigin.x,
@@ -383,23 +438,27 @@ bool function AT_TryStealPlayerBonusPoints( entity attacker, entity victim, var 
 	// add to scoreboard
 	attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, minScoreCanSteal )
 
-	// victim stolen popup
-	Remote_CallFunction_NonReplay( 
-		victim, 
-		"ServerCallback_AT_ShowStolenBonus",
-		bonusToSteal
-	)
-
 	// steal bonus
-	AT_AddPlayerBonusPoints( victim, -bonusToSteal )
 	// only do attacker events if victim has enough bonus to steal
 	if ( realStealBonus )
 	{
 		AT_AddPlayerBonusPoints( attacker, bonusToSteal )
 		AddPlayerScore( attacker, "AttritionBonusStolen" )
 	}
+	// tell victim of bonus stolen
+	AT_PlayerBonusLoss( victim, bonusToSteal )
 	
 	return realStealBonus
+}
+
+void function AT_PlayerBonusLoss( entity player, int bonusLoss )
+{
+	AT_AddPlayerBonusPoints( player, -bonusLoss )
+	Remote_CallFunction_NonReplay( 
+		player, 
+		"ServerCallback_AT_ShowStolenBonus",
+		bonusLoss
+	)
 }
 
 // bonus points, players earn from killing
@@ -475,8 +534,8 @@ void function AT_AddPlayerBonusPointsForBossDamaged( entity player, entity victi
 		player, 
 		"ServerCallback_AT_BossDamageScorePopup",
 		// popup
-		amount,
-		amount,
+		amount, // damage score
+		amount, // damage bonus
 		bossEHandle,
 		damageOrigin.x,
 		damageOrigin.y,
@@ -484,26 +543,25 @@ void function AT_AddPlayerBonusPointsForBossDamaged( entity player, entity victi
 	)
 }
 
-void function AT_AddPlayerBonusPointsForEntityKilled( entity player, int amount, var damageInfo )
+void function AT_AddPlayerBonusPointsForEntityKilled( entity player, int amount, var damageInfo, int extraBonus = 0 )
 {
-	AT_AddPlayerBonusPoints( player, amount )
+	AT_AddPlayerBonusPoints( player, amount + extraBonus )
 
 	// send servercallback for damaging
 	int attackerEHandle = player.GetEncodedEHandle()
 	vector damageOrigin = DamageInfo_GetDamagePosition( damageInfo )
-	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
 	
 	Remote_CallFunction_NonReplay( 
 		player, 
 		"ServerCallback_AT_ShowATScorePopup",
 		attackerEHandle,
 		// popup
-		amount,
-		amount,
+		amount, // damage score
+		amount + extraBonus, // damage bonus
 		damageOrigin.x,
 		damageOrigin.y,
 		damageOrigin.z,
-		damageType
+		0 // useless parameter
 	)
 }
 
@@ -597,8 +655,11 @@ void function AT_GameLoop_Threaded()
 		}
 
 		// wave end, prebank phase
-		svGlobal.levelEnt.Signal( "ATWaveEnd" ) // destroy existing campEnts
+		svGlobal.levelEnt.Signal( "ATWaveEnd" ) // defensive fix, destroy existing campEnts
 		SetGlobalNetBool( "preBankPhase", true )
+
+		wait WAVE_END_ANNOUNCEMENT_DELAY
+		
 		// announce wave end
 		foreach ( entity player in GetPlayerArray() )
 		{
@@ -630,13 +691,33 @@ void function AT_GameLoop_Threaded()
 		foreach ( entity bank in file.banks )
 			thread AT_BankActiveThink( bank )
 
-		wait AT_BANK_OPENING_DURATION
+		float endTime = Time() + AT_BANK_OPENING_DURATION
+		// wait until no player is holding bonus, or max wait time
+		while ( Time() <= endTime )
+		{
+			if ( !AnyPlayerHasBonus() ) // all players have deposited their bonus
+			{
+				wait min( endTime - Time(), WAVE_STATE_TRANSITION_TIME ) // wait 5s or less, we break the wait immediately
+				break
+			}
+			WaitFrame()
+		}
 		
 		SetGlobalNetBool( "banksOpen", false )
 		foreach ( entity player in GetPlayerArray() )
 			Remote_CallFunction_NonReplay( player, "ServerCallback_AT_BankClose" )
 		// new wave begins after here
 	}
+}
+
+bool function AnyPlayerHasBonus()
+{
+	foreach ( entity player in GetPlayerArray() )
+	{
+		if ( AT_GetPlayerBonusPoints( player ) > 0 )
+			return true
+	}
+	return false
 }
 
 // camp spawn
@@ -683,6 +764,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 			if ( !IsValid( GetGlobalNetEnt( campEntVarName ) ) && !waveNotActive )
 				SetGlobalNetEnt( campEntVarName, CreateCampTracker( file.camps[ spawnId ], campId ) )
 			
+			array<AT_SpawnData> minionSquadDatas
 			foreach ( AT_SpawnData data in curSpawnData )
 			{
 				switch ( data.aitype )
@@ -690,13 +772,23 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 					case "npc_soldier":
 					case "npc_spectre":
 					case "npc_stalker":
-						thread AT_DroppodSquadEvent( campId, spawnId, data )
+						if ( !USE_TOTAL_ALLOWED_ON_FIELD_CHECK )
+							minionSquadDatas.append( data )
+						else
+							thread AT_DroppodSquadEvent_Single( campId, spawnId, data )
 						break
 					
 					case "npc_super_spectre":
 						thread AT_ReaperEvent( campId, spawnId, data )
 						break
 				}
+			}
+
+			// minions squad spawn
+			if ( !USE_TOTAL_ALLOWED_ON_FIELD_CHECK )
+			{
+				if ( minionSquadDatas.len() > 0 )
+					thread AT_DroppodSquadEvent( campId, spawnId, minionSquadDatas )
 			}
 
 			// use campProgressThink for handling wave state
@@ -913,6 +1005,7 @@ void function PlayerUploadingBonus( entity bank, entity player )
 
 	table results =
 	{
+		uploadSuccess = false
 		depositedPoints = 0
 	}
 
@@ -938,13 +1031,13 @@ void function PlayerUploadingBonus( entity bank, entity player )
 
 				player.SetPlayerNetBool( "AT_playerUploading", false )
 
-				if ( IsAlive( player ) ) // player still alive
+				if ( results.uploadSuccess ) // player deposited all remaining bonus
 				{
 					// emit uploading successful sound
 					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_1P" )
 					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Successful_3P" )
 				}
-				else // player killed while uploading
+				else // player killed or left the bank radius
 				{
 					// emit uploading failed sound
 					EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_End_Unsuccessful_1P" )
@@ -953,9 +1046,6 @@ void function PlayerUploadingBonus( entity bank, entity player )
 			}
 		}
 	)
-
-	// this will move point value position
-	Remote_CallFunction_NonReplay( player, "ServerCallback_AT_ShowRespawnBonusLoss" )
 
 	// uploading start sound
 	EmitSoundOnEntityOnlyToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Deposit_Start_1P" )
@@ -968,9 +1058,15 @@ void function PlayerUploadingBonus( entity bank, entity player )
 	// uploading bonus
 	while ( Distance( player.GetOrigin(), bank.GetOrigin() ) <= AT_BANK_UPLOAD_RADIUS )
 	{
+		// this will move point value position next to crosshair
+		Remote_CallFunction_NonReplay( player, "ServerCallback_AT_ShowRespawnBonusLoss" )
+
 		int bonusToUpload = int( min( AT_BANK_UPLOAD_RATE, AT_GetPlayerBonusPoints( player ) ) )
 		if ( bonusToUpload == 0 ) // no bonus left
+		{
+			results.uploadSuccess = true // mark as this is a success uploading
 			return
+		}
 
 		AT_AddPlayerBonusPoints( player, -bonusToUpload )
 		// add to total points
@@ -995,27 +1091,58 @@ int function GetScriptManagedNPCArrayLength_Alive( int scriptManagerId )
 	return npcsAlive
 }
 
-void function AT_DroppodSquadEvent( int campId, int spawnId, AT_SpawnData data )
+void function AT_DroppodSquadEvent( int campId, int spawnId, array<AT_SpawnData> minionDatas )
+{
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+	// create a script managed array for all handled minions
+	int eventManager = CreateScriptManagedEntArray()
+
+	int totalAllowedOnField = SQUAD_SIZE * DROPPOD_SQUADS_ALLOWED_ON_FIELD
+	while ( true )
+	{
+		foreach ( AT_SpawnData data in minionDatas )
+		{
+			string ent = data.aitype
+			waitthread AT_SpawnDroppodSquad( campId, spawnId, ent, eventManager )
+			data.pendingSpawns -= SQUAD_SIZE
+			if ( data.pendingSpawns <= 0 ) // current spawn data has reached max spawn amount
+				minionDatas.removebyvalue( data ) // remove this data
+			if ( GetScriptManagedNPCArrayLength_Alive( eventManager ) >= totalAllowedOnField ) // we have enough npcs on field?
+				break // stop following spawning functions
+		}
+		if ( minionDatas.len() == 0 ) // all spawn data has finished spawn
+			return
+
+		int npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
+		//print( "npcOnFieldCount: " + string( npcOnFieldCount ) )
+		while ( npcOnFieldCount >= totalAllowedOnField - SQUAD_SIZE ) // wait until we have lost more than 1 squad
+		{
+			WaitFrame()
+			npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
+		}
+	}
+}
+
+// for USE_TOTAL_ALLOWED_ON_FIELD_CHECK, handles a single spawndata
+void function AT_DroppodSquadEvent_Single( int campId, int spawnId, AT_SpawnData data )
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
 	// get ent and create a script managed array for current event
 	string ent = data.aitype
 	int eventManager = CreateScriptManagedEntArray()
-	
-	int spawnedNPCs = 0
-	int totalNPCsToSpawn = data.totalToSpawn
-	int totalAllowedOnField = data.totalAllowedOnField
+	int totalAllowedOnField = data.totalAllowedOnField // mostly 12 for grunts and spectres, too much!
+	// start spawner
 	while ( true )
 	{
 		waitthread AT_SpawnDroppodSquad( campId, spawnId, ent, eventManager )
-		spawnedNPCs += 4
-		if ( spawnedNPCs >= totalNPCsToSpawn ) // we have reached max npcs
+		data.pendingSpawns -= SQUAD_SIZE
+		if ( data.pendingSpawns <= 0 ) // we have reached max npcs
 			return // stop any spawning functions
 
 		int npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
 		//print( "npcOnFieldCount: " + string( npcOnFieldCount ) )
-		while ( npcOnFieldCount > totalAllowedOnField - 4 ) // wait until we have less npcs than allowed count
+		while ( npcOnFieldCount >= totalAllowedOnField - SQUAD_SIZE ) // wait until we have less npcs than allowed count
 		{
 			WaitFrame()
 			npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
@@ -1095,19 +1222,19 @@ void function AT_ReaperEvent( int campId, int spawnId, AT_SpawnData data )
 	// create a script managed array for current event
 	int eventManager = CreateScriptManagedEntArray()
 	
-	int spawnedNPCs = 0
-	int totalNPCsToSpawn = data.totalToSpawn
-	int totalAllowedOnField = data.totalAllowedOnField
+	int totalAllowedOnField = 1 // 1 allowed at the same time for heavy armor units
+	if ( USE_TOTAL_ALLOWED_ON_FIELD_CHECK )
+		totalAllowedOnField = data.totalAllowedOnField
 	while ( true )
 	{
 		waitthread AT_SpawnReaper( campId, spawnId, eventManager )
-		spawnedNPCs += 1
-		if ( spawnedNPCs >= totalNPCsToSpawn ) // we have reached max npcs
+		data.pendingSpawns -= 1
+		if ( data.pendingSpawns <= 0 ) // we have reached max npcs
 			return // stop any spawning functions
 
 		int npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
 		//print( "npcOnFieldCount: " + string( npcOnFieldCount ) )
-		while ( npcOnFieldCount > totalAllowedOnField ) // wait until we have less npcs than allowed count
+		while ( npcOnFieldCount >= totalAllowedOnField ) // wait until we have less npcs than allowed count
 		{
 			WaitFrame()
 			npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
@@ -1160,19 +1287,19 @@ void function AT_BountyTitanEvent( int campId, int spawnId, AT_SpawnData data )
 	// create a script managed array for current event
 	int eventManager = CreateScriptManagedEntArray()
 	
-	int spawnedNPCs = 0
-	int totalNPCsToSpawn = data.totalToSpawn
-	int totalAllowedOnField = data.totalAllowedOnField
+	int totalAllowedOnField = 1 // 1 allowed at the same time for heavy armor units
+	if ( USE_TOTAL_ALLOWED_ON_FIELD_CHECK )
+		totalAllowedOnField = data.totalAllowedOnField
 	while ( true )
 	{
 		waitthread AT_SpawnBountyTitan( campId, spawnId, eventManager )
-		spawnedNPCs += 1
-		if ( spawnedNPCs >= totalNPCsToSpawn ) // we have reached max npcs
+		data.pendingSpawns -= 1
+		if ( data.pendingSpawns <= 0 ) // we have reached max npcs
 			return // stop any spawning functions
 
 		int npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
 		//print( "npcOnFieldCount: " + string( npcOnFieldCount ) )
-		while ( npcOnFieldCount > totalAllowedOnField ) // wait until we have less npcs than allowed count
+		while ( npcOnFieldCount >= totalAllowedOnField ) // wait until we have less npcs than allowed count
 		{
 			WaitFrame()
 			npcOnFieldCount = GetScriptManagedNPCArrayLength_Alive( eventManager )
