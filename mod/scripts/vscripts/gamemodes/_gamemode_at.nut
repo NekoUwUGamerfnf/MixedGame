@@ -455,6 +455,7 @@ void function AT_GameLoop_Threaded()
 			waveId = GetWaveDataSize() - 2	
 			waveCount = waveId * 2
 		}
+		
 		// new wave dialogue
 		bool waveChanged = lastWaveId != waveId
 		if ( waveChanged )
@@ -462,6 +463,12 @@ void function AT_GameLoop_Threaded()
 			PlayFactionDialogueToTeam( "bh_newWave", TEAM_IMC )
 			PlayFactionDialogueToTeam( "bh_newWave", TEAM_MILITIA )
 		}
+		else // same wave, second half
+		{
+			PlayFactionDialogueToTeam( "bh_incoming", TEAM_IMC )
+			PlayFactionDialogueToTeam( "bh_incoming", TEAM_MILITIA )
+		}
+		lastWaveId = waveId
 			
 		SetGlobalNetInt( "AT_currentWave", waveId )
 		bool isBossWave = waveCount % 2 == 0 // even number waveCount means boss wave
@@ -479,12 +486,6 @@ void function AT_GameLoop_Threaded()
 					0.0, // useless parameter
 					waveId 
 				)
-			}
-			
-			if ( !waveChanged ) // same wave, second half
-			{
-				PlayFactionDialogueToTeam( "bh_incoming", TEAM_IMC )
-				PlayFactionDialogueToTeam( "bh_incoming", TEAM_MILITIA )
 			}
 		}
 		
