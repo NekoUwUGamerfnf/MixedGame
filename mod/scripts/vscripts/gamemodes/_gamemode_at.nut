@@ -744,7 +744,22 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 	{
 		if ( campStruct.phaseAllowed[ waveId ] )
 			campsToUse.append( campStruct )
-	} 
+	}
+
+	// HACK: don't know why respawn did multiple phase3 camps on explanet and rise, have to do a check
+	int campsMaxUse = waveId == 0 ? 1 : 2 // first wave always use 1 camp
+	if ( campsToUse.len() > campsMaxUse ) // overloaded camps!
+	{
+		// randomly pick
+		array<AT_WaveOrigin> pickedCamps
+		for ( int i = 0; i < campsMaxUse; i++ )
+		{
+			AT_WaveOrigin randomCamp = campsToUse[ RandomInt( campsToUse.len() ) ]
+			pickedCamps.append( randomCamp )
+			campsToUse.removebyvalue( randomCamp )
+		}
+		campsToUse = pickedCamps
+	}
 
 	foreach ( int spawnId, AT_WaveOrigin curCampData in campsToUse )
 	{
