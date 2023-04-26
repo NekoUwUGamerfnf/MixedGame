@@ -654,6 +654,9 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 	for ( int campId = 0; campId < totalCampUse; campId++ )
 	{
 		array<AT_SpawnData> curSpawnData = campSpawnData[ campId ]
+		int spawnId = campId
+		if ( totalCampUse == 1 ) // if we only used 1 camp, pick a random position
+			spawnId = RandomInt( campSpawnData.len() )
 
 		int totalNPCsToSpawn = 0
 		// initialise pending spawns and get total npcs
@@ -675,7 +678,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 			string campEntVarName = "camp" + string( campId + 1 ) + "Ent"
 			bool waveNotActive = GetGlobalNetBool( "preBankPhase" ) || GetGlobalNetBool( "banksOpen" )
 			if ( !IsValid( GetGlobalNetEnt( campEntVarName ) ) && !waveNotActive )
-				SetGlobalNetEnt( campEntVarName, CreateCampTracker( file.camps[ campId ], campId ) )
+				SetGlobalNetEnt( campEntVarName, CreateCampTracker( file.camps[ spawnId ], campId ) )
 			
 			foreach ( AT_SpawnData data in curSpawnData )
 			{
@@ -684,11 +687,11 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 					case "npc_soldier":
 					case "npc_spectre":
 					case "npc_stalker":
-						thread AT_DroppodSquadEvent( campId, data )
+						thread AT_DroppodSquadEvent( spawnId, data )
 						break
 					
 					case "npc_super_spectre":
-						thread AT_ReaperEvent( campId, data )
+						thread AT_ReaperEvent( spawnId, data )
 						break
 				}
 			}
@@ -703,7 +706,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 				switch ( data.aitype )
 				{
 					case "npc_titan":
-						thread AT_BountyTitanEvent( campId, data )
+						thread AT_BountyTitanEvent( spawnId, data )
 						break
 				}
 			}
@@ -947,7 +950,7 @@ void function PlayerUploadingBonus( entity bank, entity player )
 	EmitSoundOnEntityExceptToPlayer( player, player, "HUD_MP_BountyHunt_BankBonusPts_Ticker_Loop_3P" )
 
 	player.SetPlayerNetBool( "AT_playerUploading", true )
-	//AT_AddPlayerEarnedPoints( player,  ) // earned points when uploading, don't know how to use it now
+	//AT_AddPlayerEarnedPoints( player, AT_GetPlayerBonusPoints( player ) ) // earned points, seems unused
 	// uploading bonus
 	while ( Distance( player.GetOrigin(), bank.GetOrigin() ) <= AT_BANK_UPLOAD_RADIUS )
 	{
@@ -1057,7 +1060,7 @@ void function AT_ForceAssaultAroundSpawn( entity guy, float maxRadius = 1200.0 )
 
 	vector spawnPos = guy.GetOrigin()
 	// goal radius check
-	float goalRadius = maxRadius
+	float goalRadius = maxRadius / 2
 	float guyGoalRadius = guy.GetMinGoalRadius()
 	if ( guyGoalRadius > goalRadius ) // this npc cannot use forced goal radius?
 		goalRadius = guyGoalRadius
