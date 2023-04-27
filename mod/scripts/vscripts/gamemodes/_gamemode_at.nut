@@ -70,6 +70,7 @@ void function GamemodeAt_Init()
 	AiGameModes_SetNPCWeapons( "npc_spectre", [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
 	AiGameModes_SetNPCWeapons( "npc_stalker", [ "mp_weapon_hemlok_smg", "mp_weapon_lstar", "mp_weapon_mastiff" ] )
 
+	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 	AddCallback_GameStateEnter( eGameState.Playing, AT_GameLoop )
 	AddCallback_GameStateEnter( eGameState.Prematch, AT_ScoreEventsValueSetUp )
 	AddCallback_OnClientConnected( InitialiseATPlayer )
