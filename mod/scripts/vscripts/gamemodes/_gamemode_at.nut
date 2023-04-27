@@ -1333,10 +1333,10 @@ void function AT_ReaperEvent( AT_WaveOrigin campData, int spawnId, AT_SpawnData 
 void function AT_SpawnReaper( AT_WaveOrigin campData, int spawnId, int scriptManagerId )
 {
 	entity spawnpoint
-	if ( campData.titanSpawnPoints.len() == 0 )
+	if ( campData.dropPodSpawnPoints.len() == 0 )
 		spawnpoint = campData.ent
 	else
-		spawnpoint = campData.titanSpawnPoints.getrandom()
+		spawnpoint = campData.dropPodSpawnPoints.getrandom()
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
