@@ -1246,6 +1246,9 @@ void function AT_SpawnDroppodSquad( AT_WaveOrigin campData, int spawnId, string 
 		spawnpoint = campData.ent
 	else
 		spawnpoint = campData.dropPodSpawnPoints.getrandom()
+	// anti-crash
+	if ( !IsValid( spawnpoint ) ) 
+		spawnpoint = campData.ent
 	
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1337,6 +1340,9 @@ void function AT_SpawnReaper( AT_WaveOrigin campData, int spawnId, int scriptMan
 		spawnpoint = campData.ent
 	else
 		spawnpoint = campData.dropPodSpawnPoints.getrandom()
+	// anti-crash
+	if ( !IsValid( spawnpoint ) ) 
+		spawnpoint = campData.ent
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
@@ -1398,6 +1404,9 @@ void function AT_SpawnBountyTitan( AT_WaveOrigin campData, int spawnId, int scri
 		spawnpoint = campData.ent
 	else
 		spawnpoint = campData.titanSpawnPoints.getrandom()
+	// anti-crash
+	if ( !IsValid( spawnpoint ) ) 
+		spawnpoint = campData.ent
 
 	// add variation to spawns
 	wait RandomFloat( 1.0 )
