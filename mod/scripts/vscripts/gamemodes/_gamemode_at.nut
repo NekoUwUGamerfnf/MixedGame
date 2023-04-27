@@ -787,8 +787,8 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 							continue
 						float campDist = Distance( curCampOrg, otherCampOrg )
 						float idealDist = curCampRad + otherCampRad
-						//print( "campDist:" + string( campDist ) )
-						//print( "idealDist: " + string( idealDist ) )
+						print( "campDist:" + string( campDist ) )
+						print( "idealDist: " + string( idealDist ) )
 						if ( campDist < idealDist ) // do collide with each other
 						{
 							campsCollide = true
@@ -800,7 +800,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 				}
 			}
 
-			//print( "campsCollide: " + string( campsCollide ) )
+			print( "campsCollide: " + string( campsCollide ) )
 			if ( !campsCollide )
 			{
 				allCampsToUse = tempCampsArray
@@ -1255,7 +1255,9 @@ void function AT_SpawnDroppodSquad( AT_WaveOrigin campData, int spawnId, string 
 		void function( array<entity> guys ) : ( campData, spawnId, aiType, scriptManagerId ) 
 		{
 			AT_HandleSquadSpawn( guys, campData, spawnId, aiType, scriptManagerId )
-		}
+		},
+		// droppod flag, vanilla won't do fast dissolving droppod, but we don't have that good navmeshes, so this will be good
+		eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS
 	)
 }
 
@@ -1263,6 +1265,7 @@ void function AT_HandleSquadSpawn( array<entity> guys, AT_WaveOrigin campData, i
 {
 	foreach ( entity guy in guys )
 	{
+		guy.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE ) // try to avoid them running around
 		guy.EnableNPCFlag( NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		guy.DisableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE ) // no patrol and investigate allowed, avoid them running around
 
@@ -1282,7 +1285,7 @@ void function AT_ForceAssaultAroundCamp( entity guy, AT_WaveOrigin campData )
 
 	// goal check
 	vector goalPos = campData.origin
-	float goalRadius = campData.radius
+	float goalRadius = campData.radius / 4
 	float guyGoalRadius = guy.GetMinGoalRadius()
 	if ( guyGoalRadius > goalRadius ) // this npc cannot use forced goal radius?
 		goalRadius = guyGoalRadius
@@ -1290,9 +1293,9 @@ void function AT_ForceAssaultAroundCamp( entity guy, AT_WaveOrigin campData )
 	{
 		guy.AssaultPoint( goalPos )
 		guy.AssaultSetGoalRadius( goalRadius )
-		guy.AssaultSetFightRadius( goalRadius / 2 )
+		guy.AssaultSetFightRadius( 0 ) 
 
-		wait RandomFloatRange( 10, 15 ) // make randomness
+		wait RandomFloatRange( 5, 10 ) // make randomness
 	}
 }
 
