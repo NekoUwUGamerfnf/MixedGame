@@ -45,10 +45,6 @@ const array<asset> ALTPILOT_RANDOM_MODELS =
 	$"models/humans/pilots/sp_medium_stalker_m.mdl"
 ]
 
-// testing!
-global function BecomeFakeBarker
-
-
 // now using playerSettings to check, saving model names here
 
 // Holopilot Male
@@ -88,6 +84,11 @@ global function BecomeFakeBarker
 
 struct
 {
+	// no need to change table contents
+	table<entity, bool> playerPickedModelChangeChance
+	table<entity, bool> playerThisLifeChangeModel // for we can have more stable model changes
+	table<entity, bool> playerHasChangedModel
+
 	bool modelReplaceEnabled = false
 	int modelReplaceChance = 4 // 25%
 	bool allRandomModel = false
@@ -109,9 +110,10 @@ void function AltPilot_Init()
 	
 	// stop any thread processing
 	RegisterSignal( "AltPilotModelReplace" )
-	RegisterSignal( "AltPilotChangeLoadout" )
 
 	//AddCallback_OnPlayerRespawned( RespawnModelSet ) // really doesn't seem needed, change loadout can handle it, this might mess up some models
+	AddCallback_OnClientConnected( InitializeAltPilot )
+	AddDeathCallback( "player", CleanUpModelChance )
 	AddCallback_OnPlayerGetsNewPilotLoadout( ChangeloadoutModelSet )
 	AddCallback_OnTitanBecomesPilot( DisembarkingModelSet )
 }
@@ -147,6 +149,13 @@ void function SetShouldAlsoFuckOffPOV( bool should )
 	file.fuckOffPOV = should
 }
 
+void function InitializeAltPilot( entity player )
+{
+	file.playerPickedModelChangeChance[ player ] <- false
+	file.playerThisLifeChangeModel[ player ] <- false
+	file.playerHasChangedModel[ player ] <- false
+}
+
 /* // really doesn't seem needed, change loadout can handle it, this might mess up some models
 void function RespawnModelSet( entity player )
 {
@@ -156,24 +165,38 @@ void function RespawnModelSet( entity player )
 	if( file.modelFuckOffAWall )
 		FUCKOFFAWALL( player )
 	
+	// try to do recovering
+	RecoverFromModelChange( player )
+	
 	if( file.allRandomModel )
 		AltPilot_GivePlayerRandomModel( player )
 	else if( file.modelReplaceEnabled )
 	{
 		if ( RandomInt( file.modelReplaceChance ) == 0 )
 			AltPilot_ReplacePilotModel( player )
-		else // otherwise we recover
-			RecoverFromModelChange( player )
 	}
 }
 */
+
+void function CleanUpModelChance( entity victim, var damageInfo )
+{
+	if ( victim in file.playerPickedModelChangeChance )
+		file.playerPickedModelChangeChance[ victim ] = false
+}
 
 // changeLoadout to same tactical doesn't reset model
 // maybe reset it could be funnier, but always trigger ghost skin
 void function ChangeloadoutModelSet( entity player , PilotLoadoutDef p )
 {
-	// to end some thread...
-	player.Signal( "AltPilotChangeLoadout" )
+	// pick modelchange chance. this is called earlier than "OnPlayerRespawned()", we cannot get from it
+	print( "file.playerPickedModelChangeChance[ player ]: " + string( file.playerPickedModelChangeChance[ player ] ) )
+	if ( !file.playerPickedModelChangeChance[ player ] )
+	{
+		file.playerThisLifeChangeModel[ player ] = false
+		if ( file.modelReplaceEnabled )
+			file.playerThisLifeChangeModel[ player ] = RandomInt( file.modelReplaceChance ) == 0
+		file.playerPickedModelChangeChance[ player ] = true
+	}
 
 	// fuckoff goes first
 	if( file.modelFuckOffCloak )
@@ -181,14 +204,22 @@ void function ChangeloadoutModelSet( entity player , PilotLoadoutDef p )
 	if( file.modelFuckOffAWall )
 		FUCKOFFAWALL( player )
 
+	print( "file.playerHasChangedModel[ player ]: " + string( file.playerHasChangedModel[ player ] ) )
+	print( "file.playerThisLifeChangeModel[ player ]: " + string( file.playerThisLifeChangeModel[ player ] ) )
+
+	// try to do recovering
+	if ( file.playerHasChangedModel[ player ] )
+	{
+		RecoverFromModelChange( player )
+		file.playerHasChangedModel[ player ] = false
+	}
+
 	if( file.allRandomModel )
 		AltPilot_GivePlayerRandomModel( player )
 	else if( file.modelReplaceEnabled )
 	{
-		if ( RandomInt( file.modelReplaceChance ) == 0 )
+		if ( file.playerThisLifeChangeModel[ player ] )
 			AltPilot_ReplacePilotModel( player )
-		else // otherwise we recover
-			RecoverFromModelChange( player )
 	}
 }
 
@@ -202,8 +233,11 @@ void function DisembarkingModelSet( entity player, entity titan )
 
 	if( file.allRandomModel )
 		AltPilot_GivePlayerRandomModel( player )
-	else if( file.modelReplaceEnabled && RandomInt( file.modelReplaceChance ) == 0 )
-		AltPilot_ReplacePilotModel( player )
+	else if( file.modelReplaceEnabled )
+	{
+		if ( file.playerThisLifeChangeModel[ player ] )
+			AltPilot_ReplacePilotModel( player )
+	}
 }
 
 //Apply Model
@@ -259,8 +293,9 @@ void function AltPilot_ReplacePilotModel( entity player )
 	{
 		player.SetValueForModelKey( replacementModel )
 		player.SetModel( replacementModel )
+		file.playerHasChangedModel[ player ] = true // mark as player changed model
+		thread GhostSkinPrevention( player ) // always loop this
 	}
-	thread GhostSkinPrevention( player ) // always loop this
 }
 
 // HACK for sometimes going from spectre will hide model
@@ -272,7 +307,7 @@ void function RecoverFromModelChange( entity player )
 	int skin = player.GetSkin()
 	int camo = player.GetCamo()
 	// reset model
-	player.SetModel($"models/humans/pilots/pilot_medium_reaper_f.mdl")
+	player.SetModel( $"models/humans/pilots/pilot_medium_reaper_f.mdl" )
 	player.SetValueForModelKey( $"models/humans/pilots/pilot_medium_reaper_f.mdl" )
 	
 	// recover player model
@@ -288,7 +323,6 @@ void function GhostSkinPrevention( entity player )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "AltPilotModelReplace" )
-	player.EndSignal( "AltPilotChangeLoadout" )
 	
 	while( true )
 	{
@@ -405,36 +439,5 @@ void function FUCKOFFAWALL( entity player )
 		}
 		player.SetSkin( skin )
 		player.SetCamo( camo )
-	}
-}
-
-// can't get this thing work!!
-void function BecomeFakeBarker( entity player )
-{
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "AltPilotModelReplace" )
-	
-	entity barkerProp = CreatePropDynamic( $"models/humans/heroes/mlt_hero_barker.mdl" )
-	barkerProp.SetParent( player, "ref" )
-	
-	//entity decoy = CreateElitePilot( player.GetTeam(), player.GetOrigin(), player.GetAngles() )
-	//decoy.SetModel( player.GetModelName() )
-	//DispatchSpawn( decoy )
-	//decoy.SetModel( player.GetModelName() )
-
-	//decoy.SetTitle( player.GetPlayerName() )
-	//decoy.SetScriptName( player.GetPlayerName() + "_decoy" )
-	
-	while( true )
-	{
-		//player.StartRecordingAnimation( player.GetOrigin(), player.GetAngles() )
-		player.StartRecordingAnimation( < 0,0,0 >, < 0,0,0 > )
-		
-		wait 1
-		
-		var rec = player.StopRecordingAnimation()
-
-		barkerProp.PlayRecordedAnimation( rec, <0,0,0>, <0,0,0>, DEFAULT_SCRIPTED_ANIMATION_BLEND_TIME, player )
 	}
 }
