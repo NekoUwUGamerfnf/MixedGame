@@ -39,6 +39,7 @@ struct
 	string forcedGlobalBurncardOverride = ""
 	table<string, int> boostRewardCount
 	table<string, int> boostLimits
+	table<entity, float> playerRewardReadyMessageTime
 
 	// nessie modify
 	array<string> disabledRewards
@@ -78,7 +79,7 @@ void function BurnMeter_Init()
 
 	// setup player callbacks
 	AddCallback_GameStateEnter( eGameState.Playing, InitBurncardsForIntroPlayers )
-	AddCallback_OnClientConnected( InitBurncardsForLateJoiner )
+	AddCallback_OnClientConnected( OnClientConnected )
 
 	//AddCallback_OnPlayerRespawned( StartPhaseRewindLifetime )
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
@@ -211,6 +212,12 @@ void function InitBurncardsForIntroPlayers()
 		InitPlayerBurncards( player )
 }
 
+void function OnClientConnected( entity player )
+{
+	InitBurncardsForLateJoiner( player )
+	file.playerRewardReadyMessageTime[ player ] <- 0.0
+}
+
 void function InitBurncardsForLateJoiner( entity player )
 {
 	// gotta do this, since sh_burnmeter uses this netint
@@ -220,8 +227,19 @@ void function InitBurncardsForLateJoiner( entity player )
 
 void function OnPlayerRespawned( entity player )
 {
-	Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", Time() - player.s.respawnTime )
+	TryRewardReadyMessage( player )
 	StartPhaseRewindLifetime( player )
+}
+
+bool function TryRewardReadyMessage( entity player )
+{
+	if ( Time() >= file.playerRewardReadyMessageTime[ player ] )
+	{
+		Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", Time() - player.s.respawnTime )
+		file.playerRewardReadyMessageTime[ player ] = Time() + 6.0 // shortest wait time in ServerCallback_RewardReadyMessage()
+		return true
+	}
+	return false
 }
 
 void function StartPhaseRewindLifetime( entity player )
