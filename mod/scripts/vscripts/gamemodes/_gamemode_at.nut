@@ -832,8 +832,8 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 							continue
 						float campDist = Distance( curCampOrg, otherCampOrg )
 						float idealDist = curCampRad + otherCampRad
-						print( "campDist:" + string( campDist ) )
-						print( "idealDist: " + string( idealDist ) )
+						//print( "campDist:" + string( campDist ) )
+						//print( "idealDist: " + string( idealDist ) )
 						if ( campDist < idealDist ) // do collide with each other
 						{
 							campsCollide = true
@@ -845,7 +845,7 @@ void function AT_CampSpawnThink( int waveId, bool isBossWave )
 				}
 			}
 
-			print( "campsCollide: " + string( campsCollide ) )
+			//print( "campsCollide: " + string( campsCollide ) )
 			if ( !campsCollide )
 			{
 				allCampsToUse = tempCampsArray
