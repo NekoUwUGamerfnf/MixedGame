@@ -1070,7 +1070,7 @@ void function AT_BankActiveThink( entity bank )
 	)
 
 	// update use prompt
-	bank.SetUsable() // disable prompt
+	bank.SetUsable() // make sure it's usable
 	bank.SetUsePrompts( "#AT_USE_BANK", "#AT_USE_BANK_PC" )
 
 	thread PlayAnim( bank, "mh_inactive_2_active" )
