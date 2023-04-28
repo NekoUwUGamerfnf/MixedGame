@@ -8,6 +8,21 @@ const int AT_BANK_UPLOAD_RATE = 10 // uploads 10$ per tick(0.1s)
 const int AT_BANK_UPLOAD_RADIUS = 256
 const float AT_BANK_FORCE_CLOSE_DELAY = 4.0 // if nobody holding bonus, we end banking phase after this delay
 
+// HACK score events... respawn made things in AT_SetScoreEventOverride() really messed up, have to do some hack here
+const array<string> AT_ENABLE_SCOREEVENTS = 
+[
+	// these are disabled in AT_SetScoreEventOverride(), but related scoreEvents are not implemented into gamemode
+	// needs to re-enable them
+	"DoomTitan",
+	"DoomAutoTitan"
+]
+const array<string> AT_DISABLE_SCOREEVENTS =
+[
+	// these are missed in AT_SetScoreEventOverride(), but game actually used them
+	// needs to disable them
+	"KillStalker"
+]
+
 // wave settings
 // general
 const int AT_BOUNTY_TEAM = TEAM_BOTH // they can be attacked by both teams
@@ -66,22 +81,27 @@ void function GamemodeAt_Init()
 	// bank
 	RegisterSignal( "ATBankClosed" )
 
+	// score event
+	ScoreEvent_SetupEarnMeterValuesForMixedModes()
+	AddCallback_GameStateEnter( eGameState.Prematch, AT_ScoreEventsValueSetUp )
+	AddDamageFinalCallback( "npc_titan", OnNPCTitanFinalDamaged )
+	AddCallback_OnPlayerKilled( AT_PlayerOrNPCKilledScoreEvent )
+	AddCallback_OnNPCKilled( AT_PlayerOrNPCKilledScoreEvent )
+
+	// npc setup
 	AiGameModes_SetNPCWeapons( "npc_soldier", [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
 	AiGameModes_SetNPCWeapons( "npc_spectre", [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
 	AiGameModes_SetNPCWeapons( "npc_stalker", [ "mp_weapon_hemlok_smg", "mp_weapon_lstar", "mp_weapon_mastiff" ] )
 
-	ScoreEvent_SetupEarnMeterValuesForMixedModes()
+	// main game loop
 	AddCallback_GameStateEnter( eGameState.Playing, AT_GameLoop )
-	AddCallback_GameStateEnter( eGameState.Prematch, AT_ScoreEventsValueSetUp )
+
+	// inits
 	AddCallback_OnClientConnected( InitialiseATPlayer )
 
 	AddSpawnCallbackEditorClass( "info_target", "info_attrition_bank", CreateATBank )
 	AddSpawnCallbackEditorClass( "info_target", "info_attrition_camp", CreateATCamp )
 	AddCallback_EntitiesDidLoad( CreateATCamps_Delayed )
-
-	AddDamageFinalCallback( "npc_titan", OnNPCTitanFinalDamaged )
-	AddCallback_OnPlayerKilled( AT_PlayerOrNPCKilledScoreEvent )
-	AddCallback_OnNPCKilled( AT_PlayerOrNPCKilledScoreEvent )
 }
 
 void function RateSpawnpoints_AT( int checkclass, array<entity> spawnpoints, int team, entity player )
@@ -318,6 +338,12 @@ void function AT_ScoreEventsValueSetUp()
 	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.10, 0.10, 0.5 )
+
+	// HACK
+	foreach ( string eventName in AT_ENABLE_SCOREEVENTS )
+		ScoreEvent_Enable( GetScoreEvent( eventName ) )
+	foreach ( string eventName in AT_DISABLE_SCOREEVENTS )
+		ScoreEvent_Disable( GetScoreEvent( eventName ) )
 }
 
 void function AT_PlayerOrNPCKilledScoreEvent( entity victim, entity attacker, var damageInfo )
