@@ -703,14 +703,29 @@ void function AT_GameLoop_Threaded()
 			thread AT_BankActiveThink( bank )
 
 		float endTime = Time() + AT_BANK_OPENING_DURATION
+		// force close check
+		bool doingForceClose = false
+		float forceCloseStartTime = 0.0
 		// wait until no player is holding bonus, or max wait time
 		while ( Time() <= endTime )
 		{
 			if ( !AnyPlayerHasBonus() ) // all players have deposited their bonus
 			{
-				wait min( endTime - Time(), AT_BANK_FORCE_CLOSE_DELAY ) // wait 5s or less, we break the banking phase immediately
-				if ( !AnyPlayerHasBonus() ) // defensive fix, still nobody having bonus after wait
+				if ( !doingForceClose )
+				{
+					forceCloseStartTime = Time()
+					doingForceClose = true
+				}
+				if ( Time() > forceCloseStartTime + AT_BANK_FORCE_CLOSE_DELAY ) // we break the banking phase immediately
 					break
+			}
+			else // some player may carring bonus
+			{
+				if ( doingForceClose ) // clean up force close
+				{
+					doingForceClose = false
+					forceCloseStartTime = 0.0
+				}
 			}
 			WaitFrame()
 		}
@@ -1263,7 +1278,7 @@ void function AT_SpawnDroppodSquad( AT_WaveOrigin campData, int spawnId, string 
 		{
 			AT_HandleSquadSpawn( guys, campData, spawnId, aiType, scriptManagerId )
 		},
-		// droppod flag, vanilla won't do fast dissolving droppod, but we don't have that good navmeshes, so this will be good
+		// droppod flag, vanilla won't do fast dissolving droppod, but we don't have that good navmeshes, so this will be better
 		eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS
 	)
 }
@@ -1272,15 +1287,13 @@ void function AT_HandleSquadSpawn( array<entity> guys, AT_WaveOrigin campData, i
 {
 	foreach ( entity guy in guys )
 	{
-		guy.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE ) // try to avoid them running around
-		guy.EnableNPCFlag( NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
-		guy.DisableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE ) // no patrol and investigate allowed, avoid them running around
+		// disable some behaviors, try to prevent them running around. may not vanilla behavior
+		guy.DisableNPCFlag( NPC_USE_SHOOTING_COVER )
 
 		// tracking lifetime
 		AddToScriptManagedEntArray( scriptManagerId, guy )
 		thread AT_TrackNPCLifeTime( guy, spawnId, aiType )
 
-		// at least don't let them running around
 		thread AT_ForceAssaultAroundCamp( guy, campData )
 	}
 }
@@ -1366,7 +1379,6 @@ void function AT_HandleReaperSpawn( entity reaper, AT_WaveOrigin campData, int s
 	AddToScriptManagedEntArray( scriptManagerId, reaper )
 	thread AT_TrackNPCLifeTime( reaper, spawnId, "npc_super_spectre" )
 
-	// at least don't let them running around
 	thread AT_ForceAssaultAroundCamp( reaper, campData )
 }
 
