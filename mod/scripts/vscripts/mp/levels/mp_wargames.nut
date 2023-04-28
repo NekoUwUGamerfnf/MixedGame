@@ -3,7 +3,6 @@ global function CodeCallback_MapInit
 
 struct {
 	array<entity> marvinSpawners
-	//bool marvinSpawnerAdded = false
 
 	float introStartTime
 	entity militiaPod
@@ -23,14 +22,9 @@ void function CodeCallback_MapInit()
 	AddCallback_OnPlayerKilled( WargamesOnPlayerKilled )
 	AddCallback_OnNPCKilled( WargamesOnNPCKilled )
 	AddDeathCallback( "npc_pilot_elite", WargamesDissolveDeadEntity ) // onNpcKilled can't handle npc pilots
-	/* // these are pretty hardcoded, removed
-	AddDeathCallback( "player", WargamesDissolveDeadEntity )	
-	AddDeathCallback( "npc_soldier", WargamesDissolveDeadEntity )
-	AddDeathCallback( "npc_spectre", WargamesDissolveDeadEntity )
-	AddDeathCallback( "npc_pilot_elite", WargamesDissolveDeadEntity )
-	AddDeathCallback( "npc_marvin", WargamesDissolveDeadEntity )
-	*/
 	
+	// marvin
+	RegisterSignal( "MarvinSpawnerThink" )
 	AddSpawnCallback( "info_spawnpoint_marvin", AddMarvinSpawner )
 	AddCallback_GameStateEnter( eGameState.Prematch, SpawnMarvinsForRound )
 	
@@ -55,7 +49,7 @@ void function WargamesOnPlayerKilled( entity deadEnt, entity attacker, var damag
 	if( Wargames_IsPlayerDissolveDisabled() ) // defined in custom_damage_effect.gnut
 		return
 
-	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY )
+	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY ) // we don't dissolve heavy armor units
 		return
 	
 	WargamesDissolveDeadEntity( deadEnt, damageInfo )
@@ -63,7 +57,7 @@ void function WargamesOnPlayerKilled( entity deadEnt, entity attacker, var damag
 
 void function WargamesOnNPCKilled( entity deadEnt, entity attacker, var damageInfo )
 {
-	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY )
+	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY ) // we don't dissolve heavy armor units
 		return
 	
 	WargamesDissolveDeadEntity( deadEnt, damageInfo )
@@ -100,10 +94,7 @@ void function EnsureWargamesDeathEffectIsClearedForPlayer( entity player )
 
 void function AddMarvinSpawner( entity spawn )
 {
-	//if( file.marvinSpawnerAdded ) // only add spawners once, or it will be more and more marvins
-	//	return
 	file.marvinSpawners.append( spawn )
-	//file.marvinSpawnerAdded = true
 }
 
 void function SpawnMarvinsForRound()
@@ -112,33 +103,37 @@ void function SpawnMarvinsForRound()
 		thread MarvinSpawnerThink( spawner )
 }
 
-void function MarvinSpawnerThink( entity spawner, float delay = 0 )
+void function MarvinSpawnerThink( entity spawner )
 {
-	// following spawns
-	OnThreadEnd(
-		function(): ( spawner )
-		{
-			if( !IsValid( spawner ) )
-				return
-			thread MarvinSpawnerThink( spawner, MARVIN_RESPAWN_DELAY )
-		}
-	)
-	if( delay > 0 )
-		wait delay
-	if( !IsValid( spawner ) )
-		return
+	spawner.Signal( "MarvinSpawnerThink" )
+	spawner.EndSignal( "MarvinSpawnerThink" ) // prevent it from looping over many times
 	// intro spawn
-	entity marvin = CreateMarvin( TEAM_UNASSIGNED, spawner.GetOrigin(), spawner.GetAngles() )
-	marvin.EndSignal( "OnDestroy" )
-	marvin.kv.health = 1
-	marvin.kv.max_health = 1
-	marvin.kv.spawnflags = 516
-	marvin.kv.contents = (int(marvin.kv.contents) | CONTENTS_NOGRAPPLE)
-	marvin.ai.killShotSound = false
-	DispatchSpawn( marvin )
-	HideName( marvin )
+	while ( true )
+	{
+		entity marvin = CreateMarvin( TEAM_UNASSIGNED, spawner.GetOrigin(), spawner.GetAngles() )
+		marvin.kv.health = 1
+		marvin.kv.max_health = 1
+		marvin.kv.spawnflags = 516
+		marvin.kv.contents = (int(marvin.kv.contents) | CONTENTS_NOGRAPPLE)
+		marvin.ai.killShotSound = false
+		AddEntityCallback_OnDamaged( marvin, OnWargamesMarvinDamaged )
+		DispatchSpawn( marvin )
+		HideName( marvin )
 
-	WaitForever()
+		WaitSignal( marvin, "OnDeath", "OnDestroy" )
+		wait MARVIN_RESPAWN_DELAY
+	}
+}
+
+// marvin will dissolves themselves after being damaged
+void function OnWargamesMarvinDamaged( entity marvin, var damageInfo )
+{
+	DamageInfo_SetDamage( damageInfo, 0 )
+	EmitSoundOnEntity( marvin, "object_dissolve" )
+	marvin.Dissolve( ENTITY_DISSOLVE_CHAR, Vector( 0, 0, 0 ), 0 )
+	marvin.NotSolid()
+	marvin.kv.CollisionGroup = 0
+	marvin.SetInvulnerable()
 }
 
 // intro stuff: 
