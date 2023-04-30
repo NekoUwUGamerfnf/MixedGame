@@ -66,7 +66,6 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 
 	// modified, or it won't have proper behavior
 	proximityMine.SetModel( $"models/weapons/caber_shot/caber_shot_thrown.mdl" ) //caber_shot_thrown_xl
-	proximityMine.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_proximity_mine ) // triggers EMP_DamagedPlayerOrNPC() in _weapon_utility.nut
 
 	Grenade_Init( proximityMine, weapon )
 	PlayerUsedOffhand( player, weapon )
@@ -78,6 +77,9 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 		thread TrapDestroyOnRoundEnd( player, proximityMine )
 		thread EnableTrapWarningSound( proximityMine, PROXIMITY_MINE_ARMING_DELAY, WARNING_SFX )
 		PROTO_PlayTrapLightEffect( proximityMine, "BLINKER", player.GetTeam() )
+
+		// modified
+		proximityMine.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_proximity_mine ) // triggers EMP_DamagedPlayerOrNPC() in _weapon_utility.nut
 	#endif
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }

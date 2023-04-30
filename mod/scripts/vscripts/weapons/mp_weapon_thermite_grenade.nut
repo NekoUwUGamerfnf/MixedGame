@@ -25,7 +25,9 @@ var function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade( entity weapon
 	if( weapon.HasMod( "meteor_grenade" ) )
 	{
 		grenade.SetModel( $"models/weapons/bullets/triple_threat_projectile.mdl" )
-		grenade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_meteor ) // better damageSource
+		#if SERVER
+			grenade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_meteor ) // better damageSource
+		#endif
 	}
 
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
