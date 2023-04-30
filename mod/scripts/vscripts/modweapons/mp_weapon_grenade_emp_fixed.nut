@@ -1,3 +1,4 @@
+// vanilla missing MpWeaponGrenadeEMP_Init()
 untyped
 global function MpWeaponGrenadeEMP_Init
 
@@ -26,14 +27,16 @@ void function OnDamagedTarget_GrenadeEMP( entity ent, var damageInfo )
 		return
 
 	array<string> mods = inflictor.ProjectileGetMods()
-
+	// emp grenade modifier
 	if( mods.contains( "impulse_grenade" ) )
 	{
 		if ( ent.IsPlayer() )
 			ImpulseGrenade_EffectsPlayer( ent, damageInfo )
+		return
 	}
-	else
-		EMP_DamagedPlayerOrNPC( ent, damageInfo )
+
+	// vanilla behavior
+	EMP_DamagedPlayerOrNPC( ent, damageInfo )
 }
 
 function ImpulseGrenade_EffectsPlayer( entity player, damageInfo )
