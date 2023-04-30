@@ -75,7 +75,10 @@ var function OnWeaponTossReleaseAnimEvent_weapon_frag_drone( entity weapon, Weap
 	if( grenade )
 	{
 		if( weapon.HasMod( "sp_tick_model" ) )
-			grenade.SetModel( $"models/robots/drone_frag/frag_drone_proj.mdl" )
+		{
+			grenade.SetModel( $"models/robots/drone_frag/frag_drone_proj.mdl" ) // can't make it behave like disc after resetting model
+			//grenade.SetAngles( grenade.GetAngles() + < RandomFloatRange( 7,11 ), 0, 0 > )
+		}
 	}
 	
 	//Grenade_OnWeaponTossReleaseAnimEvent( weapon, attackParams )
