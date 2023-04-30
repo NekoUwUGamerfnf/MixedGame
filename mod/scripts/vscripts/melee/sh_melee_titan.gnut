@@ -18,15 +18,21 @@ global function TitanMelee_CanScriptedExecution // modified and shared to use in
 global function TitanMelee_GetMeleeDamageSourceIDForWeapon // modified and shared to use in extra_ai_spawner.gnut, idk why respawn have to hardcode this
 
 // settings with weapon mods!!!
+// dash punch
 global function TitanMelee_AddDashPunchSpeedScaleMod // modded dash punch
 global function TitanMelee_AddDashPunchDurationMod // modded dash punch
 global function TitanMelee_AddDashPunchCooldownMod // modded dash punch
+// melee counter
 global function TitanMelee_AddCounterImmuneMod // add some counter immune melee weapon
 global function TitanMelee_AddCounterDisabledMod // add some melee weapon that can't counter attack
+// melee hit
 global function TitanMelee_AddKnockBackScaleMod // knock back scale
+global function TitanMelee_AddSelfKnockBackMultiplierMod // self knockback-scale multiplier
 global function TitanMelee_AddForceLiftScaleMod // lift force
-global function TitanMelee_AddHitConfirmationScaleMod // screen shake scale
+global function TitanMelee_AddHitConfirmationMultiplierMod // screen shake scale multiplier
 global function TitanMelee_AddDamageSourceIdMod // modified damageSourceId
+global function TitanMelee_AddFreezeLockDisabledMod // actually titan.PlayerMelee_SetAttackHitEntity(), which causes melee freeze lock!
+// executions
 global function TitanMelee_AddExecutionDisabledMod // cannot execute with these weapons
 
 struct
@@ -36,16 +42,18 @@ struct
 	table<string, float> dashPunchDurationMods
 	table<string, float> dashPunchCooldownMods
 	// melee counter
-	table<string, bool> counterImmuneMods
-	table<string, bool> counterDisabledMods
+	array<string> counterImmuneMods
+	array<string> counterDisabledMods
 	// melee hit
 	table<string, float> knockBackScaleMods
+	table<string, float> selfKnockBackMultiMods
 	table<string, float> forceLiftScaleMods
-	table<string, float> hitConfirmationScaleMod
+	table<string, float> hitConfirmationMultiMods
 	table<string, int> damageSourceIdMods
+	array<string> freezeLockDisabledMods
 	// executions
-	table<string, bool> executionDisabledMods
-} file
+	array<string> executionDisabledMods
+} modifier
 #endif
 
 // dash punch, basic stats, can be modified through settings funcs
@@ -102,59 +110,23 @@ function TitanUnsyncedMelee( entity player )
 		thread MeleeJetFX( player )
 		player.s.startDashMeleeTime = Time()
 	}
+
 	// modified to make dash punch work
 	if( meleeWeapon.HasMod( TITAN_DASH_PUNCH_MOD_NAME ) )
 	{
-		array<string> mods = meleeWeapon.GetMods()
-		
-		// default
-		float dashCooldown = TITAN_DASH_PUNCH_COOLDOWN
-		// modifier
-		foreach ( string mod, float cooldown in file.dashPunchCooldownMods )
-		{
-			if ( mods.contains( mod ) ) // has modifier!
-			{
-				dashCooldown = cooldown
-				break
-			}
-		}
+		float dashCooldown = GetTitanDashPunchCooldown( player )
 
 		if( Time() - player.s.startDashMeleeTime >= dashCooldown )
 		{
-			float dashSpeed = TITAN_DASH_PUNCH_SPEED // atlas, default
-			float dashDuration = TITAN_DASH_PUNCH_DURATION
-
-			if( IsStryder( player ) )
-				dashSpeed = TITAN_DASH_PUNCH_SPEED_STRYDER
-			if( IsOgre( player ) )
-				dashSpeed = TITAN_DASH_PUNCH_SPEED_OGRE
-
-			// stimmed titan
-			if( StatusEffect_Get( player, eStatusEffect.stim_visual_effect ) > 0.0 )
-				dashSpeed *= 1 + StatusEffect_Get( player, eStatusEffect.speed_boost )
-			// modifier settings
-			foreach ( string mod, float scale in file.dashPunchSpeedScaleMods )
-			{
-				if ( mods.contains( mod ) ) // has modifier!
-				{
-					dashSpeed *= scale
-					break
-				}
-			}
-			foreach ( string mod, float duration in file.dashPunchDurationMods )
-			{
-				if ( mods.contains( mod ) ) // has modifier!
-				{
-					dashDuration = duration
-					break
-				}
-			}
+			float dashSpeed = GetTitanDashPunchSpeedScale( player )
+			float dashDuration = GetTitanDashPunchDuration( player )
 			
 			//
 			thread MeleeJetFX( player )
 			thread PlayerDashMelee( meleeWeapon, player, dashSpeed, dashDuration )
 		}
 	}
+	//
 #endif
 
 	player.SetSelectedOffhandToMelee()
@@ -165,6 +137,7 @@ function TitanUnsyncedMelee( entity player )
 #endif
 }
 
+// modified dash melee!
 #if SERVER
 function MeleeJetFX( entity player )
 {
@@ -238,10 +211,15 @@ void function PlayerDashMelee( entity meleeWeapon, entity player, float speedsca
 		// at least let the dash last 1 frame, or it will seem weird
 		if ( player.GetDodgePower() < lastDodgePower ) // consider this means player dodged, cancel the dash melee
 			return
+		if ( player.PlayerMelee_GetAttackHitEntity() ) // won't do any more dash hits if we hit something on a previous frame
+			return
+		if ( !player.PlayerMelee_IsAttackActive() ) // attack already hit something?
+			return
 		lastDodgePower = player.GetDodgePower()
 	}
 }
 #endif // SERVER
+// end
 
 void function TitanMeleeAttack( entity titan )
 {
@@ -306,9 +284,9 @@ void function TitanMeleeAttack( entity titan )
 		}
 		
 		//titan.PlayerMelee_SetAttackHitEntity( targetEnt ) // this will trigger freezelock on player
-		if ( !isFighterMelee ) // fighter melee is too fast, don't freeze player! this also causes melee do damages each animevent
+		if ( !TitanShouldDoMeleeFreezeLock( titan ) ) // fighter melee is too fast, don't freeze player! this also causes melee do damages each animevent
 			titan.PlayerMelee_SetAttackHitEntity( targetEnt )
-		else // fighter melee
+		else
 			titan.PlayerMelee_EndAttack() // so we have to manually mark the attack as stopped
 
 		if ( IsHumanSized( targetEnt ) )
@@ -401,15 +379,7 @@ void function TitanMeleeAttack( entity titan )
 		
 		// modifier settings
 #if SERVER
-		array<string> mods = meleeWeapon.GetMods()
-		foreach ( string mod, float scale in file.hitConfirmationScaleMod )
-		{
-			if ( mods.contains( mod ) ) // has modifier!
-			{
-				severityScale *= scale // apply scale
-				break
-			}
-		}
+		severityScale *= GetMeleeHitConfirmationMultiplier( meleeWeapon )
 #endif
 		//
 		
@@ -480,8 +450,6 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 
 	//local hasDashPunch = (titan.PlayerMelee_GetState() == PLAYER_MELEE_STATE_TITAN_DASH_PUNCH)
 	bool hasDashPunch = meleeWeapon.HasMod( TITAN_DASH_PUNCH_MOD_NAME )
-	// modified: fighter melee
-	bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" )
 
 	// Shove target away:
 	{
@@ -491,8 +459,10 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		else
 			settingsFile = GetNPCTitanSettingFile( enemyTitan )
 
-		float pushBackScale
 		string meleeWeaponClassName = meleeWeapon.GetWeaponClassName()
+
+		float pushBackScale = GetTitanMeleeKnockBackScale( titan ) // modified!
+		/* // to apply modifiers. default settings are also handled in GetTitanMeleeKnockBackScale()
 		if ( meleeWeaponClassName == "melee_titan_sword" || meleeWeaponClassName == "melee_titan_sword_AOE" )
 		{
 			if ( IsSingleplayer() )
@@ -511,12 +481,15 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		{
 			pushBackScale = TITAN_PUNCH_KNOCKBACK_SCALE
 		}
+		*/
 
+		// modified: fighter melee
+		bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" )
 		// fighter melee: target always receive less knockback, hardcoded!!!
 		if ( isFighterMelee )
 		{
 			pushBackScale = TITAN_FIGHTER_PUNCH_KNOCKBACK_SCALE
-			if ( IsOgre( enemyTitan ) )
+			if ( IsOgre( enemyTitan ) ) // ogre is harder to knock off ground
 				pushBackScale = TITAN_FIGHTER_PUNCH_KNOCKBACK_SCALE_OGRE
 			
 			if ( meleeWeaponClassName == "melee_titan_sword" )
@@ -524,19 +497,6 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 				pushBackScale = TITAN_FIGHTER_SWORD_KNOCKBACK_SCALE
 				if ( IsOgre( enemyTitan ) )
 					pushBackScale = TITAN_FIGHTER_SWORD_KNOCKBACK_SCALE_OGRE
-			}
-		}
-		//
-
-		// pushback modifier
-		array<string> mods = meleeWeapon.GetMods()
-		// knock back
-		foreach ( string mod, float scale in file.knockBackScaleMods )
-		{
-			if ( mods.contains( mod ) ) // has modifier!
-			{
-				pushBackScale = scale
-				break
 			}
 		}
 		//
@@ -570,7 +530,8 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		targetVelocity = ClampVerticalVelocity( targetVelocity, TITAN_MELEE_MAX_VERTICAL_PUSHBACK )
 
 		// modifiers
-		float liftScale = 0
+		float liftScale = GetTitanMeleeForceLiftScale( titan )
+
 		// fighter melee: try knock target off ground
 		if ( isFighterMelee )
 		{
@@ -579,16 +540,7 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 			if ( IsOgre( enemyTitan ) )
 				liftScale = FIGHTER_PUNCH_VERTICAL_LIFT_OGRE // ogre is harder to knock off ground
 		}
-
-		// forced lift
-		foreach ( string mod, float scale in file.forceLiftScaleMods )
-		{
-			if ( mods.contains( mod ) ) // has modifier!
-			{
-				liftScale = scale
-				break
-			}
-		}
+		//
 
 		if ( liftScale > 0 )
 		{
@@ -605,48 +557,23 @@ function TitanAttackTitan( entity titan, entity meleeWeapon, entity enemyTitan, 
 		// enemyTitan.SetVelocity( targetVelocity )
 		PushEntWithVelocity( enemyTitan, targetVelocity )
 
-		vector backVel = -1*pushBackVelocity
+		// backVel with modifiers
+		//vector backVel = -1 * pushBackVelocity
+		vector backVel = -1 * pushBackVelocity * GetTitanMeleeSelfKnockBackMultiplier( titan )
 		backVel.z = 0
 
 		// titan.SetVelocity( backVel )
 		
 		//PushEntWithVelocity( titan, backVel )
-		// fighter melee: owner won't receive knockback, but they will receive "melee_freezelook_on_hit"
+		// fighter melee: owner won't receive knockback
 		if ( !isFighterMelee )
 			PushEntWithVelocity( titan, backVel )
 
 		if ( enemyTitan.IsPlayer() && enemyTitan.PlayerMelee_IsAttackActive() )
 		{
-			bool shouldCounter = true
-
 			// modifier
-			// enemy counter immnue
-			entity enemyMelee = enemyTitan.GetMeleeWeapon()
-			if( IsValid( enemyMelee ) )
-			{
-				array<string> mods = enemyMelee.GetMods()
-				foreach ( string mod, bool immune in file.counterImmuneMods )
-				{
-					if ( mods.contains( mod ) ) // has modifier!
-					{
-						shouldCounter = !immune
-						break
-					}
-				}
-			}
-
-			// owner counter disable
-			array<string> mods = meleeWeapon.GetMods()
-			foreach ( string mod, bool disabled in file.counterDisabledMods )
-			{
-				if ( mods.contains( mod ) ) // has modifier!
-				{
-					shouldCounter = !disabled
-					break
-				}
-			}
-			//
-
+			//enemyTitan.PlayerMelee_EndAttack()
+			bool shouldCounter = !TitanHasCounterImmune( enemyTitan ) && TitanCanCounterEnemyMelee( titan )
 			if( shouldCounter )
 				enemyTitan.PlayerMelee_EndAttack()
 		}
@@ -749,6 +676,8 @@ function AttemptScriptedExecution( entity player, entity target )
 	thread PlayerTriesSyncedMelee( player, target )
 }
 
+
+
 // modified( and hardcoded ) functions
 bool function IsNinja( entity titan )
 {
@@ -847,22 +776,8 @@ bool function TitanMelee_CanScriptedExecution( entity player, entity target )
 	}
 
 	// modifiers
-	entity meleeWeapon = player.GetMeleeWeapon()
-	if ( IsValid( meleeWeapon ) )
-	{
-		array<string> mods = meleeWeapon.GetMods()
-		foreach ( string mod, bool disable in file.executionDisabledMods )
-		{
-			if ( mods.contains( mod ) )
-			{
-				if ( disable )
-					return false
-				else
-					break
-			}
-		}
-	}
-	//
+	if ( !TitanMeleeDisabledExecution( player ) )
+		return false
 
 	return true
 }
@@ -876,7 +791,7 @@ int function TitanMelee_GetMeleeDamageSourceIDForWeapon( entity meleeWeapon )
 
 	// modifier
 	array<string> mods = meleeWeapon.GetMods()
-	foreach ( string mod, int damageSourceId in file.damageSourceIdMods )
+	foreach ( string mod, int damageSourceId in modifier.damageSourceIdMods )
 	{
 		if ( mods.contains( mod ) ) // has modifier!
 		{
@@ -893,71 +808,313 @@ int function TitanMelee_GetMeleeDamageSourceIDForWeapon( entity meleeWeapon )
 // modified settings func
 void function TitanMelee_AddDashPunchSpeedScaleMod( string mod, float speed )
 {
-	if ( !( mod in file.dashPunchSpeedScaleMods ) )
-		file.dashPunchSpeedScaleMods[ mod ] <- TITAN_DASH_PUNCH_SPEED // default value
-	file.dashPunchSpeedScaleMods[ mod ] = speed
+	if ( !( mod in modifier.dashPunchSpeedScaleMods ) )
+		modifier.dashPunchSpeedScaleMods[ mod ] <- TITAN_DASH_PUNCH_SPEED // default value
+	modifier.dashPunchSpeedScaleMods[ mod ] = speed
+}
+
+float function GetTitanDashPunchSpeedScale( entity titan )
+{
+	float dashSpeed = TITAN_DASH_PUNCH_SPEED // atlas, default
+
+	if( IsStryder( titan ) )
+		dashSpeed = TITAN_DASH_PUNCH_SPEED_STRYDER
+	if( IsOgre( titan ) )
+		dashSpeed = TITAN_DASH_PUNCH_SPEED_OGRE
+
+	entity meleeWeapon = titan.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{
+		array<string> mods = meleeWeapon.GetMods()
+		// stimmed titan
+		if( StatusEffect_Get( titan, eStatusEffect.stim_visual_effect ) > 0.0 )
+			dashSpeed *= 1 + StatusEffect_Get( titan, eStatusEffect.speed_boost )
+		// modifier settings
+		foreach ( string mod, float scale in modifier.dashPunchSpeedScaleMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				dashSpeed *= scale
+				break
+			}
+		}
+	}
+
+	return dashSpeed
 }
 
 void function TitanMelee_AddDashPunchDurationMod( string mod, float duration )
 {
-	if ( !( mod in file.dashPunchDurationMods ) )
-		file.dashPunchDurationMods[ mod ] <- TITAN_DASH_PUNCH_DURATION // default value
-	file.dashPunchDurationMods[ mod ] = duration
+	if ( !( mod in modifier.dashPunchDurationMods ) )
+		modifier.dashPunchDurationMods[ mod ] <- TITAN_DASH_PUNCH_DURATION // default value
+	modifier.dashPunchDurationMods[ mod ] = duration
+}
+
+float function GetTitanDashPunchDuration( entity titan )
+{
+	float dashDuration = TITAN_DASH_PUNCH_DURATION
+
+	entity meleeWeapon = titan.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{	
+		array<string> mods = meleeWeapon.GetMods()
+		foreach ( string mod, float duration in modifier.dashPunchDurationMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				dashDuration = duration
+				break
+			}
+		}
+	}
+
+	return dashDuration
 }
 
 void function TitanMelee_AddDashPunchCooldownMod( string mod, float cooldown )
 {
-	if ( !( mod in file.dashPunchCooldownMods ) )
-		file.dashPunchCooldownMods[ mod ] <- 1.0 // default value
-	file.dashPunchCooldownMods[ mod ] = cooldown
+	if ( !( mod in modifier.dashPunchCooldownMods ) )
+		modifier.dashPunchCooldownMods[ mod ] <- 1.0 // default value
+	modifier.dashPunchCooldownMods[ mod ] = cooldown
 }
 
-void function TitanMelee_AddCounterImmuneMod( string mod, bool immune )
+float function GetTitanDashPunchCooldown( entity titan )
 {
-	if ( !( mod in file.counterImmuneMods ) )
-		file.counterImmuneMods[ mod ] <- false // default value
-	file.counterImmuneMods[ mod ] = immune
+	float dashCooldown = TITAN_DASH_PUNCH_COOLDOWN
+
+	entity meleeWeapon = titan.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{	
+		array<string> mods = meleeWeapon.GetMods()
+		// modifier
+		foreach ( string mod, float cooldown in modifier.dashPunchCooldownMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				dashCooldown = cooldown
+				break
+			}
+		}
+	}
+
+	return dashCooldown
 }
 
-void function TitanMelee_AddCounterDisabledMod( string mod, bool disableCounter )
+void function TitanMelee_AddCounterImmuneMod( string mod )
 {
-	if ( !( mod in file.counterDisabledMods ) )
-		file.counterDisabledMods[ mod ] <- false // default value
-	file.counterDisabledMods[ mod ] = disableCounter
+	if ( !modifier.counterImmuneMods.contains( mod ) )
+		modifier.counterImmuneMods.append( mod )
+}
+
+bool function TitanHasCounterImmune( entity titan )
+{
+	entity meleeWeapon = titan.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{
+		array<string> mods = meleeWeapon.GetMods()
+		foreach ( string mod in modifier.counterImmuneMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+				return true
+		}
+	}
+
+	return false
+}
+
+void function TitanMelee_AddCounterDisabledMod( string mod )
+{
+	if ( !modifier.counterDisabledMods.contains( mod ) )
+		modifier.counterDisabledMods.append( mod )
+}
+
+bool function TitanCanCounterEnemyMelee( entity titan )
+{
+	entity meleeWeapon = titan
+	array<string> mods = meleeWeapon.GetMods()
+	foreach ( string mod in modifier.counterDisabledMods )
+	{
+		if ( mods.contains( mod ) ) // has modifier!
+			return false
+	}
+
+	return true
 }
 
 void function TitanMelee_AddKnockBackScaleMod( string mod, float scale ) // knock back scale
 {
-	if ( !( mod in file.knockBackScaleMods ) )
-		file.knockBackScaleMods[ mod ] <- TITAN_SWORD_KNOCKBACK_SCALE_MP // default value
-	file.knockBackScaleMods[ mod ] = scale
+	if ( !( mod in modifier.knockBackScaleMods ) )
+		modifier.knockBackScaleMods[ mod ] <- TITAN_SWORD_KNOCKBACK_SCALE_MP // default value
+	modifier.knockBackScaleMods[ mod ] = scale
+}
+
+float function GetTitanMeleeKnockBackScale( entity titan )
+{
+	float pushBackScale = TITAN_PUNCH_KNOCKBACK_SCALE
+
+	entity meleeWeapon = titan.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{
+		// modified: fighter melee
+		bool isFighterMelee = meleeWeapon.HasMod( "fighter_melee" )
+		string meleeWeaponClassName = meleeWeapon.GetWeaponClassName()
+
+		// vanilla hardcoding
+		if ( meleeWeaponClassName == "melee_titan_sword" || meleeWeaponClassName == "melee_titan_sword_AOE" )
+		{
+			if ( IsSingleplayer() )
+			{
+				pushBackScale = TITAN_SWORD_KNOCKBACK_SCALE_SP
+			}
+			else
+			{
+				if ( meleeWeapon.HasMod( "super_charged" ) )
+					pushBackScale = TITAN_SWORD_KNOCKBACK_SCALE_MP_SWORD_CORE
+				else
+					pushBackScale = TITAN_SWORD_KNOCKBACK_SCALE_MP
+			}
+		}
+		else
+		{
+			pushBackScale = TITAN_PUNCH_KNOCKBACK_SCALE
+		}
+		
+		// knockback modifier!!
+		array<string> mods = meleeWeapon.GetMods()
+		foreach ( string mod, float scale in modifier.knockBackScaleMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				pushBackScale = scale
+				break
+			}
+		}
+	}
+
+	return pushBackScale
+}
+
+void function TitanMelee_AddSelfKnockBackMultiplierMod( string mod, float scale )
+{
+	if ( !( mod in modifier.selfKnockBackMultiMods ) )
+		modifier.selfKnockBackMultiMods[ mod ] <- 1.0 // default value
+	modifier.selfKnockBackMultiMods[ mod ] = scale
+}
+
+float function GetTitanMeleeSelfKnockBackMultiplier( entity titan )
+{
+	float selfKnockBack = 1.0 // default
+
+	entity meleeWeapon = titan.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{
+		array<string> mods = meleeWeapon.GetMods()
+		foreach ( string mod, float multiplier in modifier.selfKnockBackMultiMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				selfKnockBack = multiplier
+				break
+			}
+		}
+	}
+
+	return selfKnockBack
 }
 
 void function TitanMelee_AddForceLiftScaleMod( string mod, float scale ) // lift force
 {
-	if ( !( mod in file.forceLiftScaleMods ) )
-		file.forceLiftScaleMods[ mod ] <- 0 // default value
-	file.forceLiftScaleMods[ mod ] = scale
+	if ( !( mod in modifier.forceLiftScaleMods ) )
+		modifier.forceLiftScaleMods[ mod ] <- 0 // default value
+	modifier.forceLiftScaleMods[ mod ] = scale
 }
 
-void function TitanMelee_AddHitConfirmationScaleMod( string mod, float scale ) // screen shake scale
+float function GetTitanMeleeForceLiftScale( entity titan )
 {
-	if ( !( mod in file.hitConfirmationScaleMod ) )
-		file.hitConfirmationScaleMod[ mod ] <- 1.0 // default value
-	file.hitConfirmationScaleMod[ mod ] = scale
+	float liftScale = 0.0 // default
+
+	entity meleeWeapon = titan.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{
+		array<string> mods = meleeWeapon.GetMods()
+		// forced lift
+		foreach ( string mod, float scale in modifier.forceLiftScaleMods )
+		{
+			if ( mods.contains( mod ) ) // has modifier!
+			{
+				liftScale = scale
+				break
+			}
+		}
+	}
+
+	return liftScale
+}
+
+void function TitanMelee_AddHitConfirmationMultiplierMod( string mod, float scale ) // screen shake scale
+{
+	if ( !( mod in modifier.hitConfirmationMultiMods ) )
+		modifier.hitConfirmationMultiMods[ mod ] <- 1.0 // default value
+	modifier.hitConfirmationMultiMods[ mod ] = scale
+}
+
+float function GetMeleeHitConfirmationMultiplier( entity meleeWeapon )
+{
+	array<string> mods = meleeWeapon.GetMods()
+	foreach ( string mod, float multiplier in modifier.hitConfirmationMultiMods )
+	{
+		if ( mods.contains( mod ) ) // has modifier!
+			return multiplier
+	}
+
+	return 1.0 // default
 }
 
 void function TitanMelee_AddDamageSourceIdMod( string mod, int damageSourceId ) // screen shake scale
 {
-	if ( !( mod in file.damageSourceIdMods ) )
-		file.damageSourceIdMods[ mod ] <- eDamageSourceId.melee_titan_punch // default value
-	file.damageSourceIdMods[ mod ] = damageSourceId
+	if ( !( mod in modifier.damageSourceIdMods ) )
+		modifier.damageSourceIdMods[ mod ] <- eDamageSourceId.melee_titan_punch // default value
+	modifier.damageSourceIdMods[ mod ] = damageSourceId
 }
 
-void function TitanMelee_AddExecutionDisabledMod( string mod, bool disableExecution )
+void function TitanMelee_AddFreezeLockDisabledMod( string mod )
 {
-	if ( !( mod in file.executionDisabledMods ) )
-		file.executionDisabledMods[ mod ] <- false // default value
-	file.executionDisabledMods[ mod ] = disableExecution
+	if ( !modifier.freezeLockDisabledMods.contains( mod ) )
+		modifier.freezeLockDisabledMods.append( mod )
+}
+
+bool function TitanShouldDoMeleeFreezeLock( entity titan )
+{
+	entity meleeWeapon = titan
+	array<string> mods = meleeWeapon.GetMods()
+	foreach ( string mod in modifier.freezeLockDisabledMods )
+	{
+		if ( mods.contains( mod ) ) // has modifier!
+			return false
+	}
+
+	return true
+}
+
+void function TitanMelee_AddExecutionDisabledMod( string mod )
+{
+	if ( !modifier.executionDisabledMods.contains( mod ) )
+		modifier.executionDisabledMods.append( mod )
+}
+
+bool function TitanMeleeDisabledExecution( entity titan )
+{
+	entity meleeWeapon = titan.GetMeleeWeapon()
+	if ( IsValid( meleeWeapon ) )
+	{
+		array<string> mods = meleeWeapon.GetMods()
+		foreach ( string mod in modifier.executionDisabledMods )
+		{
+			if ( mods.contains( mod ) )
+				return false
+		}
+	}
+
+	return true
 }
 #endif
