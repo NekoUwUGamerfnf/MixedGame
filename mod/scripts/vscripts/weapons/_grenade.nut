@@ -128,12 +128,7 @@ function Grenade_FileInit()
 
 void function Grenade_OnWeaponTossPrep( entity weapon, WeaponTossPrepParams prepParams )
 {
-	// modifiers!
-	//weapon.w.startChargeTime = Time()
-	if ( GrenadeShouldChargeOnCook( weapon ) )
-		weapon.w.startChargeTime = Time()
-	else
-		weapon.w.startChargeTime = 0.0 // to prevent being set up in Grenade_Launch()
+	weapon.w.startChargeTime = Time()
 
 	entity weaponOwner = weapon.GetWeaponOwner()
 	weapon.EmitWeaponSound_1p3p( GetGrenadeDeploySound_1p( weapon ), GetGrenadeDeploySound_3p( weapon ) )
@@ -281,9 +276,13 @@ entity function Grenade_Launch( entity weapon, vector attackPos, vector throwVel
 	float baseFuseTime = weapon.GetGrenadeFuseTime() //Note that fuse time of 0 means the grenade won't explode on its own, instead it depends on OnProjectileCollision() functions to be defined and explode there. Arguably in this case grenade_fuse_time shouldn't be 0, but an arbitrarily large number instead.
 	if ( baseFuseTime > 0.0 )
 	{
-		fuseTime = baseFuseTime - ( currentTime - weapon.w.startChargeTime )
-		if ( fuseTime <= 0 )
-			fuseTime = 0.001
+		// modifiers!!
+		if ( GrenadeShouldChargeOnCook( weapon ) ) // only do reduced fuse time if we can charge on cook
+		{
+			fuseTime = baseFuseTime - ( currentTime - weapon.w.startChargeTime )
+			if ( fuseTime <= 0 )
+				fuseTime = 0.001
+		}
 	}
 	else
 	{
