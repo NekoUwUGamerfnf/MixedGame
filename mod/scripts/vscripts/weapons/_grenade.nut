@@ -132,6 +132,8 @@ void function Grenade_OnWeaponTossPrep( entity weapon, WeaponTossPrepParams prep
 	//weapon.w.startChargeTime = Time()
 	if ( GrenadeShouldChargeOnCook( weapon ) )
 		weapon.w.startChargeTime = Time()
+	else
+		weapon.w.startChargeTime = 0.0 // to prevent being set up in Grenade_Launch()
 
 	entity weaponOwner = weapon.GetWeaponOwner()
 	weapon.EmitWeaponSound_1p3p( GetGrenadeDeploySound_1p( weapon ), GetGrenadeDeploySound_3p( weapon ) )
