@@ -1127,10 +1127,19 @@ function Player_DetonateSatchels( entity player )
 	{
 		if ( IsValidSatchel( satchel ) )
 		{
-			if( satchel.ProjectileGetMods().contains( "fuckoff_ordnance" ) )
+			// satchel modifiers
+			array<string> mods = satchel.ProjectileGetMods()
+			//
+
+			// nerfed satchel!
+			if( mods.contains( "satchel_long_delay" ) )
+			{
 				thread PROTO_ExplodeAfterDelay( satchel, ( index + 1 ) * 0.5 )
-			else
-				thread PROTO_ExplodeAfterDelay( satchel, index * 0.25 )
+				continue
+			}
+			
+			// vanilla behavior
+			thread PROTO_ExplodeAfterDelay( satchel, index * 0.25 )
 		}
 	}
 	#endif
