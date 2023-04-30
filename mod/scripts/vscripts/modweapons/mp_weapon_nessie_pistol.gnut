@@ -9,9 +9,11 @@ global function OnProjectileIgnite_weapon_nessie_pistol
 global function OnWeaponNPCPrimaryAttack_weapon_nessie_pistol
 #endif
 
-const float NESSIE_DRONE_LIFETIME = 12
 const asset NESSIE_MODEL = $"models/domestic/nessy_doll.mdl"
 const asset NESSIE_DRONE_FX = $"P_xo_battery"
+
+const float NESSIE_DRONE_LIFETIME = 12
+const float NESSIE_GRUNT_LIFETIME = 15
 
 void function MpWeaponNessiePistol_Init()
 {
@@ -35,11 +37,25 @@ var function OnWeaponPrimaryAttack_weapon_nessie_pistol( entity weapon, WeaponPr
 
 var function FireNessieGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, bool isNPCFiring = false )
 {
+	// prediction checks
+	#if CLIENT
+        if ( !weapon.ShouldPredictProjectiles() )
+            return 1
+    #endif // #if CLIENT
+
+    bool shouldCreateProjectile = false
+	if ( IsServer() || weapon.ShouldPredictProjectiles() )
+		shouldCreateProjectile = true
+
+	if ( isNPCFiring )
+		shouldCreateProjectile = false
+	//
+
 	vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
 
 	int damageType = DF_RAGDOLL | DF_EXPLOSION
 
-	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
+	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0.0 , damageType, damageType, shouldCreateProjectile, true, false )
 
 	if ( nade )
 	{
@@ -65,7 +81,7 @@ void function OnProjectileCollision_weapon_nessie_pistol( entity projectile, vec
 		return
 
 	projectile.GrenadeIgnite() // so the grenade can bounce without triggering this multiple times if we want!
-	projectile.SetDoesExplode( true )
+	projectile.SetDoesExplode( false )
 }
 
 void function OnProjectileIgnite_weapon_nessie_pistol( entity projectile )
@@ -75,30 +91,48 @@ void function OnProjectileIgnite_weapon_nessie_pistol( entity projectile )
 
 		if ( mods.contains( "nessie_drone_spawn" ) )
 			GrenadesToDrones( projectile )
+		else if ( mods.contains( "nessie_grunt_spawn" ) )
+			GrenadesToGrunts( projectile )
 	#endif
 }
 
 #if SERVER
+var function OnWeaponNPCPrimaryAttack_weapon_nessie_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	return FireNessieGrenade( weapon, attackParams, true )
+}
+
+
 // utility
-entity function CreateNessieForEnt( entity targetEnt, string attachment )
+entity function CreateNessieForEnt( entity targetEnt, string attachment, vector angles = < 0, -90, 0 > )
 {
 	entity nessie = CreateEntity( "prop_dynamic" )
 	nessie.SetModel( NESSIE_MODEL )
 	nessie.SetParent( targetEnt, attachment )
-	nessie.SetAngles( < 0, -90, 0 > )
+	nessie.SetAngles( angles )
 
+	nessie.SetTakeDamageType( DAMAGE_YES )
 	nessie.kv.solid = SOLID_HITBOXES
 	nessie.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 
 	DispatchSpawn( nessie )
+	nessie.kv.fadedist = 65535 // prevent it from fading out
 
 	nessie.SetMaxHealth( targetEnt.GetMaxHealth() )
 	nessie.SetHealth( nessie.GetMaxHealth() )
 
 	nessie.SetOwner( targetEnt ) // hopefully this can avoid them block it's owner shoot
+	SetForceDrawWhileParented( nessie, true )
 
-	AddEntityCallback_OnDamaged( nessie, OnNessieDamaged )
+	AddEntityCallback_OnDamaged( nessie, OnNessieDamaged ) // unfortunatelly nessie's actual hitboxes are scaled with their owner...
+
+	// target settings
 	targetEnt.SetInvulnerable() // we clean it when nessie takes damage!
+	targetEnt.NotSolid()
+	//targetEnt.Hide() // will make target unable to show their title
+	targetEnt.kv.CollisionGroup = 0
+	SetObjectCanBeMeleed( targetEnt, false )
+
 	return nessie
 }
 
@@ -107,14 +141,19 @@ void function OnNessieDamaged( entity nessie, var damageInfo )
 	// re-direct damage to it's owner
 	entity victim = nessie.GetOwner()
 
+	//print( "nessie damaged! owner is: " + string( victim ) )
 	if ( IsValid( victim ) )
 	{
 		victim.ClearInvulnerable() // clear once, they'll take damage
 
+		entity attacker = DamageInfo_GetAttacker( damageInfo )
+		if ( attacker.IsProjectile() ) // anti-crash
+			attacker = null
+		entity inflictor = DamageInfo_GetInflictor( damageInfo )
 		victim.TakeDamage(
 			DamageInfo_GetDamage( damageInfo ),
-			DamageInfo_GetAttacker( damageInfo ), 
-			DamageInfo_GetInflictor( damageInfo ), 
+			attacker, 
+			inflictor, 
 			{ // damage table
 				weapon = DamageInfo_GetWeapon( damageInfo ),
 				origin = DamageInfo_GetDamagePosition( damageInfo ), 
@@ -126,7 +165,8 @@ void function OnNessieDamaged( entity nessie, var damageInfo )
 
 		victim.SetInvulnerable()
 
-		// player hitmarker
+		// player hitmarker, no need since TakeDamage() will do it
+		/*
 		entity attacker = DamageInfo_GetAttacker( damageInfo )
 		if ( IsValid( attacker ) && attacker.IsPlayer() )
 		{
@@ -142,14 +182,57 @@ void function OnNessieDamaged( entity nessie, var damageInfo )
 				DamageInfo_GetDistFromAttackOrigin( damageInfo ) 
 			)
 		}
+		*/
 	}
 
 	DamageInfo_SetDamage( damageInfo, 0 )
 }
 
+void function NessieLifetime( entity drone, entity nessie, float delay )
+{
+	drone.EndSignal( "OnDestroy" )
+	OnThreadEnd
+	(
+		function(): ( drone, nessie )
+		{
+			if( IsValid( nessie ) )
+			{
+				nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+			}
+			if( IsValid( drone ) )
+			{
+				// fake explode effect
+				PlayFX( $"P_plasma_exp_SM", drone.GetOrigin(), drone.GetAngles() )
+				EmitSoundAtPosition( TEAM_UNASSIGNED, drone.GetOrigin(), "explo_plasma_small" )
+				drone.Destroy()
+			}
+		}
+	)
+	
+	wait delay
+}
+
+void function AfterTimeDissolveNessie( entity drone, entity nessie, entity fx, float delay )
+{
+	wait delay
+	if( IsValid(drone) )
+		drone.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+	if( IsValid(nessie) )
+		nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+	if( IsValid(fx) )
+		EffectStop( fx )
+
+}
 //
 
 // nessie drone
+array<string> NESSIE_DRONE_TYPES = 
+[ 
+	"npc_drone_beam", 
+	"npc_drone_rocket", 
+	"npc_drone_plasma" 
+]
+
 void function GrenadesToDrones( entity nade )
 {
 	entity owner = nade.GetThrower()
@@ -157,14 +240,7 @@ void function GrenadesToDrones( entity nade )
 	vector angs = nade.GetAngles()
 	int team = nade.GetTeam()
 
-	array<string> validDroneTypes = 
-    [ 
-        "npc_drone_beam", 
-        "npc_drone_rocket", 
-        "npc_drone_plasma" 
-    ]
-	string dronename = validDroneTypes[ RandomInt( validDroneTypes.len() ) ]
-
+	string dronename = NESSIE_DRONE_TYPES[ RandomInt( NESSIE_DRONE_TYPES.len() ) ]
 	entity drone = CreateNPC( "npc_drone", team , pos, angs )
 	SetSpawnOption_AISettings( drone, dronename )
 	drone.kv.modelscale = 0.01
@@ -182,8 +258,8 @@ void function GrenadesToDrones( entity nade )
 	entity nessie = CreateNessieForEnt( drone, "CHESTFOCUS" )
 	
 	thread DisableNessieDroneSound( drone )
-	thread NessieDroneLifetime( drone, nessie, NESSIE_DRONE_LIFETIME )
-	//thread AfterTimeDissolveNessieDrone( drone, nessie, fx, NESSIE_DRONE_LIFETIME )
+	thread NessieLifetime( drone, nessie, NESSIE_DRONE_LIFETIME )
+	//thread AfterTimeDissolveNessie( drone, nessie, fx, NESSIE_DRONE_LIFETIME )
 }
 
 void function DisableNessieDroneSound( entity drone ) // annoying sound!
@@ -200,43 +276,66 @@ void function DisableNessieDroneSound( entity drone ) // annoying sound!
 	}
 }
 
-void function NessieDroneLifetime( entity drone, entity nessie, float delay )
+// nessie grunts(actually spectres since they can scale model)
+array<string> NESSIE_GRUNT_WEAPONS =
+[
+	//"mp_weapon_epg", // barrel too close to ground!
+	//"mp_weapon_mgl",
+	"mp_weapon_autopistol",
+]
+
+void function GrenadesToGrunts( entity nade )
+{
+	entity owner = nade.GetThrower()
+	vector pos = nade.GetOrigin()
+	vector angs = < 0, nade.GetAngles().y, 0 > // only needs angles.y for ground units!
+	int team = nade.GetTeam()
+
+	string gruntWeapon = NESSIE_GRUNT_WEAPONS[ RandomInt( NESSIE_GRUNT_WEAPONS.len() ) ]
+	entity grunt = CreateNPC( "npc_spectre", team , pos, angs )
+	SetSpawnOption_Weapon( grunt, gruntWeapon )
+	grunt.kv.modelscale = 0.01
+	//grunt.kv.modelscale = 0.5
+	//grunt.Hide() // this one can't show a title!
+	DispatchSpawn( grunt )
+
+	// better origin for grounded units
+	vector ornull clampedPos = NavMesh_ClampPointForAIWithExtents( pos, grunt, < 256, 256, 256 > )
+	if ( clampedPos != null )
+	{
+		expect vector( clampedPos )
+		grunt.SetOrigin( clampedPos )
+	}
+
+	// remove useless behaviors
+	grunt.DisableNPCFlag( NPC_USE_SHOOTING_COVER | NPC_CROUCH_COMBAT )
+
+	grunt.SetTitle( "小尼斯水怪" )
+	grunt.SetMaxHealth( 1 )
+	grunt.SetHealth( grunt.GetMaxHealth() )
+	//grunt.SetOwner( owner )
+	grunt.SetBossPlayer( owner )
+	//NPCFollowsPlayer( grunt, owner ) // weird one
+
+	// attach a nessie
+	entity nessie = CreateNessieForEnt( grunt, "HEADSHOT", < 0, -90, 5 > )
+	
+	//thread DisableNessieGruntSound( grunt )
+	thread NessieLifetime( grunt, nessie, NESSIE_GRUNT_LIFETIME )
+	//thread AfterTimeDissolveNessie( drone, nessie, fx, NESSIE_GRUNT_LIFETIME )
+}
+
+void function DisableNessieGruntSound( entity drone ) // annoying sound!
 {
 	drone.EndSignal( "OnDestroy" )
-	OnThreadEnd(
-		function(): ( drone, nessie )
-		{
-			if( IsValid( nessie ) )
-			{
-				nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-			}
-			if( IsValid( drone ) )
-			{
-				PlayFX( $"P_plasma_exp_SM", drone.GetOrigin(), drone.GetAngles() )
-				EmitSoundAtPosition( TEAM_UNASSIGNED, drone.GetOrigin(), "explo_plasma_small" )
-				drone.Destroy()
-			}
-		}
-	)
 	
-	wait delay
-}
-
-void function AfterTimeDissolveNessieDrone( entity drone, entity nessie, entity fx, float delay )
-{
-	wait delay
-	if( IsValid(drone) )
-		drone.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-	if( IsValid(nessie) )
-		nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-	if( IsValid(fx) )
-		EffectStop( fx )
-
-}
-
-
-var function OnWeaponNPCPrimaryAttack_weapon_nessie_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
-{
-	return FireNessieGrenade( weapon, attackParams, true )
+	while( true )
+	{
+		StopSoundOnEntity( drone, "Drone_Mvmt_Hover_Hero" )
+		StopSoundOnEntity( drone, "Drone_Mvmt_Hover" )
+		StopSoundOnEntity( drone, "Drone_Mvmt_Turn" )
+		
+		WaitFrame()
+	}
 }
 #endif
