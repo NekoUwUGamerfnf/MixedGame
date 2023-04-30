@@ -576,6 +576,7 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
 
     // reset behaviors
     player.SetTitanDisembarkEnabled( true ) // do need to set up this since some weapon or titancore will disable it
+    player.Anim_StopGesture( 0 ) // stop any gesture animations maybe meleeing
 
     // monarch hack: after being pick up, cannot upgrade anymore
     bool passUpgrades = ShouldTitanPassUpgradesForPickUp( player, weaponProp )
