@@ -12,6 +12,7 @@ const float LIFT_HEIGHT = 1200
 const float LIFT_RADIUS = 120
 const float LIFT_RISE_SPEED = 325
 const float LIFT_HORIZON_MOVE_SPEED = 225
+const float LIFT_AIR_ACCELERATION = 3000 // higher for better control
 const float LIFT_PULL_SPEED_HORIZON = 350
 //const float LIFT_PULL_SPEED_MULTIPLIER = 2
 const float LIFT_PULL_SPEED_VERTICAl = 340
@@ -263,7 +264,9 @@ void function EntityInGravityLift( entity ent, entity trigger )
 	ent.EndSignal( "LeaveGravityLift" )
 
 	table storedStats = {} // save ent's gravity or some other keyvalues for later restoring
-	storedStats.gravity <- int ( ent.kv.gravity ) // int
+	storedStats.gravity <- int( ent.kv.gravity ) // int
+	storedStats.airAccel <- float( ent.kv.airAcceleration )
+	storedStats.airSpeed <- float( ent.kv.airSpeed )
 
 	table results = {} // save some behaviors
 	results.bouncedFromLift <- false // bool, to get if the entity is leaving the lift manually or being bounced away
@@ -278,6 +281,9 @@ void function EntityInGravityLift( entity ent, entity trigger )
 				// player specifics
 				if ( ent.IsPlayer() ) 
 				{
+					ent.kv.airAcceleration = storedStats.airAccel
+					ent.kv.airSpeed = storedStats.airSpeed
+
 					ent.UnforceStand()
 					ent.TouchGround() // restore one doublejump!
 					StopSoundOnEntity( ent, "titan_flight_hover_3p" ) // clear existing sound
@@ -317,6 +323,10 @@ void function EntityInGravityLift( entity ent, entity trigger )
 		EmitSoundOnEntity( ent, "titan_flight_hover_3p" )
 	}
 
+	// update air speed here
+	ent.kv.airSpeed = LIFT_HORIZON_MOVE_SPEED
+	ent.kv.airAcceleration = LIFT_AIR_ACCELERATION
+
 	bool firstLoop = true
 	while( true ) // start lifting entity
 	{
@@ -341,15 +351,23 @@ void function EntityInGravityLift( entity ent, entity trigger )
 		{
 			// lift the entity
 			ent.kv.gravity = 0.0001 // never uses 0.0, it means default gravity
-			vector airSpeed = GetEntityGravLiftVelocity( ent, LIFT_HORIZON_MOVE_SPEED )
+			vector airSpeed = ent.GetVelocity() //GetEntityGravLiftVelocity( ent, LIFT_HORIZON_MOVE_SPEED )
 			airSpeed.z = LIFT_RISE_SPEED
+			if ( ent.IsPlayer() && PlayerNotDoingInput( ent ) ) // not doing any input
+				airSpeed = RemoveVelocityHorizonal( airSpeed )
+			else
+				airSpeed = LimitVelocityHorizontal( airSpeed, LIFT_HORIZON_MOVE_SPEED )
 			ent.SetVelocity( airSpeed )
 		}
 		else // reached highest!
 		{
 			// make entity floating
-			vector airSpeed = GetEntityGravLiftVelocity( ent, LIFT_HORIZON_MOVE_SPEED )
+			vector airSpeed = ent.GetVelocity() //GetEntityGravLiftVelocity( ent, LIFT_HORIZON_MOVE_SPEED )
 			airSpeed.z = 0
+			if ( ent.IsPlayer() && PlayerNotDoingInput( ent ) ) // not doing any input
+				airSpeed = RemoveVelocityHorizonal( airSpeed )
+			else
+				airSpeed = LimitVelocityHorizontal( airSpeed, LIFT_HORIZON_MOVE_SPEED )
 			ent.SetVelocity( airSpeed )
 			if ( Time() > reachHighestTime + LIFT_TOP_TIME_LIMIT ) // more than limit!
 			{
@@ -377,6 +395,41 @@ void function EntityInGravityLift( entity ent, entity trigger )
 			FindNearestSafeSpotAndPutEntity( ent, 1 ) // always try to protect players from stucking
 		}
 	}
+}
+
+vector function LimitVelocityHorizontal( vector vel, float speed )
+{
+	vector horzVel = <vel.x, vel.y, 0>
+	if ( Length( horzVel ) <= speed )
+		return vel
+
+	horzVel = Normalize( horzVel )
+	horzVel *= speed
+	vel.x = horzVel.x
+	vel.y = horzVel.y
+	return vel
+}
+
+vector function RemoveVelocityHorizonal( vector vel )
+{
+    vector horzVel = <vel.x, vel.y, 0>
+
+    float speed = 0.0
+	horzVel = Normalize( horzVel )
+	horzVel *= speed
+	vel.x = horzVel.x
+	vel.y = horzVel.y
+	return vel
+}
+
+bool function PlayerNotDoingInput( entity player )
+{
+	vector inputVec = GetPlayerVelocityFromInput( player, 1 )
+    vector inputAngs = VectorToAngles( inputVec )
+    inputAngs.x = 0
+    inputAngs.y -= 180
+    //print( inputAngs )
+	return inputAngs.x == 0 && inputAngs.y == 0
 }
 
 void function BounceEntityFromLift( entity ent )
