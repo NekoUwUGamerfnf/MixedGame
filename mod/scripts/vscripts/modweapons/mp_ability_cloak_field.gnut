@@ -1,0 +1,102 @@
+global function MpAbilityCloakField_Init
+
+global function OnWeaponPrimaryAttack_ability_cloak_field
+global function OnProjectileCollision_ability_cloak_field
+
+// better check after changing base_gametype
+const float CLOAK_FIELD_NO_REGEN_TIME = 20
+
+void function MpAbilityCloakField_Init()
+{
+	
+}
+
+var function OnWeaponPrimaryAttack_ability_cloak_field( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	entity ownerPlayer = weapon.GetWeaponOwner()
+
+    entity deployable = ThrowDeployable( weapon, attackParams, DEPLOYABLE_THROW_POWER, OnDeployableCloakfieldPlanted )
+    #if SERVER
+        SendHudMessage( ownerPlayer, "扔出隐身力场", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
+        thread ModdedCloakCooldownThink( weapon, CLOAK_FIELD_NO_REGEN_TIME )
+    #endif
+
+    if ( deployable )
+    {
+        entity player = weapon.GetWeaponOwner()
+
+        #if SERVER
+            string projectileSound = GetGrenadeProjectileSound( weapon )
+            if ( projectileSound != "" )
+                EmitSoundOnEntity( deployable, projectileSound )
+
+            weapon.w.lastProjectileFired = deployable
+        #endif
+    }
+
+	PlayerUsedOffhand( ownerPlayer, weapon )
+
+    return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+}
+
+void function OnProjectileCollision_ability_cloak_field( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+    #if SERVER
+		entity owner = projectile.GetOwner()
+		if ( !IsAlive( owner ) ) // only deploy cloak field if owner still alive
+		{
+			if ( IsValid( projectile ) )
+			{
+				projectile.Destroy()
+				return
+			}
+		}
+	#endif
+
+    return OnProjectileCollision_weapon_deployable( projectile, pos, normal, hitEnt, hitbox, isCritical )
+}
+
+void function OnDeployableCloakfieldPlanted( entity projectile )
+{
+	#if SERVER
+		DeployCloakfield( projectile )
+	#endif
+}
+
+#if SERVER
+void function ModdedCloakCooldownThink( entity weapon, float cooldown )
+{
+	weapon.SetWeaponPrimaryClipCountAbsolute( 0 )
+	weapon.AddMod( "no_regen" )
+	entity weaponOwner = weapon.GetWeaponOwner()
+	weaponOwner.EndSignal( "OnDeath" )
+	weaponOwner.EndSignal( "OnDestroy" )
+
+	int offhandSlot = 0
+	for ( int i = 0; i <= OFFHAND_MELEE; i++ ) // OFFHAND_MELEE is the largest
+	{
+		entity nowWeapon = weaponOwner.GetOffhandWeapon( i )
+		if( IsValid( nowWeapon ))
+		{
+			if( nowWeapon.GetWeaponClassName() == "mp_ability_cloak" )
+				offhandSlot = i
+		}
+	}
+
+	OnThreadEnd(
+		function(): ( weapon, weaponOwner, offhandSlot )
+		{
+			if( IsValid( weapon ) )
+				weapon.RemoveMod( "no_regen" )
+			else if( IsValid( weaponOwner ) ) // player has interrupted their cloak and get a new one
+			{
+				entity cloakWeapon = weaponOwner.GetOffhandWeapon( offhandSlot )
+				if( IsValid( cloakWeapon ) )
+					cloakWeapon.RemoveMod( "no_regen" )
+			}
+		}
+	)
+
+	wait cooldown
+}
+#endif
