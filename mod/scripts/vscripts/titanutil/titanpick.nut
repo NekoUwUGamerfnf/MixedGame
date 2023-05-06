@@ -215,7 +215,7 @@ void function TryDropWeaponOnTitanKilled( entity titan )
 bool function TitanPick_ShouldTitanDropWeapon( entity titan )
 {
     // main check
-    if ( !file.enableWeaponDrops )
+    if ( !file.enableWeaponDrops || GetCurrentPlaylistVarInt( "titan_weapon_drops", 0 ) == 0 )
         return false
 
     if( !titan.IsTitan() )
@@ -604,7 +604,7 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
 
 bool function ShouldTitanPassUpgradesForPickUp( entity titan, entity weaponProp )
 {
-    if ( file.upgradeAllowedAfterDrop )
+    if ( file.upgradeAllowedAfterDrop || GetCurrentPlaylistVarInt( "monarch_upgrade_after_drop", 0 ) == 1 )
         return true
 
     entity soul = titan.GetTitanSoul()
