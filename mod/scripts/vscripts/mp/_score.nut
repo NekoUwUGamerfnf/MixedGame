@@ -201,7 +201,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// modified to handle specific damages
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
 	{
-		if ( file.headShotMedalDisabledDamageSource.contains( methodOfDeath ) )
+		if ( !file.headShotMedalDisabledDamageSource.contains( methodOfDeath ) )
 		{
 			AddPlayerScore( attacker, "Headshot", victim )
 			PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
