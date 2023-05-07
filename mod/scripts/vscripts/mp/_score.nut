@@ -394,7 +394,7 @@ void function SetupEarnMeterValuesForMixedModes_Threaded()
 
 	// todo needs earn/overdrive values
 	// player-controlled stuff
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.33 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.02, 0.05, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
