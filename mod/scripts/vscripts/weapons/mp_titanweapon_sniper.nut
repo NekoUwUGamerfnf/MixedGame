@@ -111,7 +111,7 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 		int damageScale = 1
 		if ( "bulletsToFire" in inflictor.s )
 			damageScale = expect int( inflictor.s.bulletsToFire )
-		float forceLiftScale = 60.0 * damageScale // scale up with damageScale, 300 will be enough to knock titans off ground
+		float forceLiftScale = 50.0 * damageScale // scale up with damageScale, 300 will be enough to knock titans off ground
 		
 		if ( victim.IsPlayer() || victim.IsNPC() )
 			TitanSniperKnockBack( victim, damageInfo, dotBase, pushbackBase, dotScale, damageScale, forceLiftScale )
