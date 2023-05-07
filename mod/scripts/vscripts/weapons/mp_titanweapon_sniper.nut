@@ -105,7 +105,7 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 	if ( projectileMods.contains( "knockback_sniper" ) )
 	{
 		const float dotBase = 0.5
-		const float pushbackBase = 200
+		const float pushbackBase = 300
 		
 		dotScale = 0.5 // stronger knockback
 		int damageScale = 1
