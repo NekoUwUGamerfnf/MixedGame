@@ -21,6 +21,11 @@ struct
 	array<entity> hurtTriggers = []
 	bool functionref( entity, entity, var ) isProtectedFromFriendlyFire
 	table< entity, OutOfBoundsDataStruct > outOfBoundsTable
+
+	// modified! make friendly fire less hardcoded
+	table<entity, bool> entitiesDoFFDamage // can handle players, npcs, weapons and projectiles
+	table<entity, bool> entitiesTakeFFDamage // mostly handle players
+	array<int> allowFFDamageSourceIds
 } file
 
 function BaseGametype_Init()
@@ -77,6 +82,12 @@ function BaseGametype_Init()
 	BaseGametype_Init_MPSP()
 
 	AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot_OutOfBoundsCheck )
+
+	// modified!!! recover behaviors for vanilla
+	FriendlyFire_AddAllowedDamageSourceId( eDamageSourceId.switchback_trap )
+	FriendlyFire_AddAllowedDamageSourceId( eDamageSourceId.suicideSpectreAoE )
+	FriendlyFire_AddAllowedDamageSourceId( eDamageSourceId.mp_titanweapon_stun_laser ) // for energy transfer functionality. Preventing FF damage in the callback.
+	FriendlyFire_AddAllowedDamageSourceId( eDamageSourceId.mp_titanability_smoke ) // For FD Vanguard Shield Upgrades. Preventing FF damage in the callback
 }
 
 void function BaseGametypeEntitiesDidLoad()
@@ -220,17 +231,12 @@ bool function IsProtectedFromFriendlyFire_MP( entity attacker, entity ent, var d
 		return false
 
 	// custom settings
-	if ( "doFriendlyFire" in attacker.s )
-	{
-		if ( expect bool( attacker.s.doFriendlyFire ) ) // attacker can do friendly fire?
-			return false
-	}
+	if ( attacker in file.entitiesDoFFDamage )
+		return file.entitiesDoFFDamage[ attacker ]
 
-	if( "takeFriendlyDamage" in ent.s )
-	{
-		if( expect bool( ent.s.takeFriendlyDamage ) ) // victim will take friendly fire?
-			return false
-	}
+	if ( ent in file.entitiesTakeFFDamage )
+		return file.entitiesTakeFFDamage[ ent ]
+	//
 
 	if ( ent.GetOwner() != attacker && ent.GetBossPlayer() != attacker )
 		return true
@@ -307,24 +313,22 @@ bool function DamageIgnoresFriendlyFire( damageInfo ) // can add friendly fire h
 	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	bool shouldDoFriendlyFire = false
 
+	// modified friendly fire condition...
 	entity weapon = DamageInfo_GetWeapon( damageInfo )
-	if( IsValid( weapon ) )
+	if ( IsValid( weapon ) )
 	{
 		// mod condition
 		if( weapon.HasMod( "friendlyfire_weapon" ) ) // for buff friendly players or killing them
 			shouldDoFriendlyFire = true
 
-		// settings condition
-		if ( "doFriendlyFire" in weapon.s )
-		{
-			if ( expect bool( weapon.s.doFriendlyFire ) )
-				shouldDoFriendlyFire = true
-		}
+		// weapon uses custom settings...
+		if ( weapon in file.entitiesDoFFDamage )
+			shouldDoFriendlyFire = file.entitiesDoFFDamage[ weapon ]
 	}
 
 	// damage uses a inflictor
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	if( IsValid( inflictor ) )
+	if ( IsValid( inflictor ) )
 	{
 		// projectile condition
 		if( inflictor.IsProjectile() )
@@ -334,13 +338,15 @@ bool function DamageIgnoresFriendlyFire( damageInfo ) // can add friendly fire h
 		}
 
 		// inflictor uses custom settings...
-		if ( "doFriendlyFire" in inflictor.s )
-		{
-			if ( expect bool( inflictor.s.doFriendlyFire ) )
-				shouldDoFriendlyFire = true
-		}
+		if ( inflictor in file.entitiesDoFFDamage )
+			shouldDoFriendlyFire = file.entitiesDoFFDamage[ inflictor ]
 	}
+	//
 
+	// reworked
+	if ( file.allowFFDamageSourceIds.contains( damageSourceID ) )
+		shouldDoFriendlyFire = true
+	/* // reworked to make things less hardcoded
 	switch ( damageSourceID )
 	{
 		case eDamageSourceId.switchback_trap:
@@ -349,9 +355,32 @@ bool function DamageIgnoresFriendlyFire( damageInfo ) // can add friendly fire h
 		case eDamageSourceId.mp_titanability_smoke: // For FD Vanguard Shield Upgrades. Preventing FF damage in the callback.
 			return true
 	}
+	*/
 
 	//return false
 	return shouldDoFriendlyFire
+}
+
+// modified! make friendly fire less hardcoded
+void function FriendlyFire_SetEntityDoFFDamage( entity ent, bool doDamage ) // can handle player, npc, weapon and projectiles
+{
+	if ( !( ent in file.entitiesDoFFDamage ) )
+		file.entitiesDoFFDamage[ ent ] <- false // default
+	file.entitiesDoFFDamage[ ent ] = doDamage
+}
+
+void function FriendlyFire_SetEntityTakeFFDamage( entity ent, bool takeDamage ) // mostly handle players
+{
+	if ( !( ent in file.entitiesTakeFFDamage ) )
+		file.entitiesTakeFFDamage[ ent ] <- false // default
+	file.entitiesTakeFFDamage[ ent ] = takeDamage
+}
+
+void function FriendlyFire_AddAllowedDamageSourceId( int damageSourceId )
+{
+	if ( file.allowFFDamageSourceIds.contains( damageSourceId ) )
+		return
+	file.allowFFDamageSourceIds.append( damageSourceId )
 }
 
 bool function ScriptCallback_ShouldEntTakeDamage( entity ent, damageInfo )
