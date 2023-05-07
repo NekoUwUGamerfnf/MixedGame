@@ -126,6 +126,7 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 	savedStatus.airSpeed <- 0.0
 	savedStatus.airAccel <- 0.0
 	savedStatus.gravity <- 0.0
+	savedStatus.titanGravityChanged <- false
 	savedStatus.groundFriction <- 0.0
 
 	if ( player.IsPlayer() )
@@ -133,7 +134,16 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 		// modified to save settings
 		savedStatus.airSpeed = expect string( player.kv.airSpeed ).tofloat()
 		savedStatus.airAccel = expect string( player.kv.airAcceleration ).tofloat()
-		savedStatus.gravity = expect string( player.kv.gravity ).tofloat()
+		float gravityScale = expect string( player.kv.gravity ).tofloat()
+		savedStatus.gravity = gravityScale
+		//print( "player.kv.gravity: " + string( gravityScale ) )
+		//print( "player.GetPlayerSettingsField( \"gravityScale\" ): " + string( player.GetPlayerSettingsField( "gravityScale" ) ) )
+		if ( player.IsTitan() )
+		{
+			float comparationGrav = gravityScale == 0 ? 1.0 : gravityScale // defensive fix. 0.0 kv.gravity equals 1.0
+			if ( player.GetPlayerSettingsField( "gravityScale" ) != comparationGrav )
+				savedStatus.titanGravityChanged = true
+		}
 		savedStatus.groundFriction = GetPlayerGroundFrictionScale( player )
 
 		player.Server_TurnDodgeDisabledOn()
@@ -169,11 +179,12 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 					// modified to save settings
 					//player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
 					//player.kv.airAcceleration = player.GetPlayerSettingsField( "airAcceleration" )
+					//player.kv.gravity = player.GetPlayerSettingsField( "gravityScale" )
 					player.kv.airSpeed = savedStatus.airSpeed
 					player.kv.airAcceleration = savedStatus.airAccel
-					if ( IsPilot( player ) ) // pilot usage
+					if ( IsPilot( player ) || savedStatus.titanGravityChanged ) // pilot usage or titan modified
 						player.kv.gravity = savedStatus.gravity
-					else // vanilla behavior
+					else // no modification titan gravity, vanilla behavior
 						player.kv.gravity = player.GetPlayerSettingsField( "gravityScale" )
 					if ( player.IsOnGround() )
 					{
