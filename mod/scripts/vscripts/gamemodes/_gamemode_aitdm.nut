@@ -55,7 +55,7 @@ void function Modded_Gamemode_Extra_Spawner_Enable_Init()
 
 void function GamemodeAITdm_Init()
 {
-	if( modGamemodes.gruntmode )
+	if( modGamemodes.gruntmode || GetCurrentPlaylistVarInt( "aitdm_grunt_mode", 0 ) != 0 )
 		Modded_Gamemode_GruntMode_Init()
 	else if( modGamemodes.extraSpawner )
 		Modded_Gamemode_Extra_Spawner_Init()
