@@ -1,10 +1,13 @@
 untyped
 global function Pilot_WallClimb_Init
 
-const bool WALLCLIMB_ALLOW_VERTICAL_INPUT = false // client will mostly desync, don't allow this
-const float WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not facing a wall
+const bool WALLCLIMB_ALLOW_HORIZONAL_INPUT = true // client will mostly desync, don't allow this
 const float WALLCLIMB_GRACE_PERIOD_TIME = 0.3 // press left or right within this time won't be kick off wall, causes little desync
 const float WALLCLIMB_GRACE_PERIOD_TIME_NOT_FACING_WALL = 0.5 // if you're not facing wall at start and disabled WALLCLIMB_CLASSMODS_UPDATE, use this grace period instead
+const float WALLCLIMB_HORIZONAL_SPEED_LIMIT = 30 // speed limit if player wants to move on the wall, requires WALLCLIMB_ALLOW_HORIZONAL_INPUT to be true
+
+const float WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not facing a wall
+
 const bool WALLCLIMB_CLASSMODS_UPDATE = true // may not good if using this... but player will feel better contolling their characters
 const bool WALLCLIMB_LERP_PLAYER_VIEW = false // if WALLCLIMB_CLASSMODS_UPDATE is enabled, we may don't need this
 
@@ -35,6 +38,8 @@ struct
 
 void function Pilot_WallClimb_Init()
 {
+	ServerCommand( "script_server_fps 60" ) // function WaitFrame() has been modified
+
     // I can't handle "PilotStartWallClimb" now
     RegisterSignal( "PilotStartWallClimb" )
     RegisterSignal( "PilotStopWallClimb" )
@@ -124,7 +129,7 @@ void function PilotWallClimbThink( entity player )
 	bool lastTickHasJumpJetSound = false
 	while ( true )
 	{
-		WaitFrame() // always wait first
+		WaitFrame( true ) // always wait first, this ignores fps limit
 
 		bool lastTickOffTheWall = false
 		bool lastTickAnimActive = player.IsTraversing() || IsValid( player.GetParent() ) || player.Anim_IsActive()
@@ -288,7 +293,7 @@ void function PilotWallClimbThink( entity player )
 			//print( angDiffer )
 
 			// try to move on the wall
-			if ( !WALLCLIMB_ALLOW_VERTICAL_INPUT )
+			if ( !WALLCLIMB_ALLOW_HORIZONAL_INPUT )
 			{
 				//print( "facingWallAtStart: " + string( facingWallAtStart ) 0)
 				// grace period for better controls, may causes little desync
@@ -317,6 +322,12 @@ void function PilotWallClimbThink( entity player )
 					}
 				}
 			}
+			else // has wall speed limit
+			{
+				float maxSpeed = WALLCLIMB_HORIZONAL_SPEED_LIMIT
+				vector limitedSpeed = LimitVelocityHorizontal( player.GetVelocity(), maxSpeed )
+				player.SetVelocity( limitedSpeed )
+			}
 
 			if ( angDiffer > angleLimit ) // the angle diffrence is bigger than limit?
 			{
@@ -339,6 +350,19 @@ void function PilotWallClimbThink( entity player )
 			}
 		}
 	}
+}
+
+vector function LimitVelocityHorizontal( vector vel, float speed )
+{
+	vector horzVel = <vel.x, vel.y, 0>
+	if ( Length( horzVel ) <= speed )
+		return vel
+
+	horzVel = Normalize( horzVel )
+	horzVel *= speed
+	vel.x = horzVel.x
+	vel.y = horzVel.y
+	return vel
 }
 
 const array<string> JUMP_JET_DISABLED_MODS =
