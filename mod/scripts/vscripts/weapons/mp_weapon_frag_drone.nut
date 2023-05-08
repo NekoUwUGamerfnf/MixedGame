@@ -318,6 +318,10 @@ void function DisableDroneSound( entity drone )
 {
 	drone.EndSignal( "OnDestroy" )
 	
+	WaitFrame()
+	StopSoundOnEntity( drone, "Drone_Mvmt_Hover_Hero" )
+	StopSoundOnEntity( drone, "Drone_Mvmt_Hover" )
+	/* // this might cause entities firing too many signals
 	while( true )
 	{
 		StopSoundOnEntity( drone, "Drone_Mvmt_Hover_Hero" )
@@ -326,5 +330,6 @@ void function DisableDroneSound( entity drone )
 		
 		WaitFrame()
 	}
+	*/
 }
 #endif
