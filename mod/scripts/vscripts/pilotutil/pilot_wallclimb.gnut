@@ -117,21 +117,24 @@ void function PilotWallClimbThink( entity player )
 	bool facingWallAtStart = false
 	bool groundTouched = true
 	bool lastTickOnGround = true
+
+	// sound
 	float lastHealthFrac = 1.0
 	bool woundedSoundStopped = false
+	bool lastTickHasJumpJetSound = false
 	while ( true )
 	{
 		WaitFrame() // always wait first
 
-		bool lastFrameOffTheWall = false
-		bool lastFrameAnimActive = player.IsTraversing() || IsValid( player.GetParent() ) || player.Anim_IsActive()
+		bool lastTickOffTheWall = false
+		bool lastTickAnimActive = player.IsTraversing() || IsValid( player.GetParent() ) || player.Anim_IsActive()
 		if ( isClimbingWall && !player.IsWallRunning() ) // considering player has left the wall?
 		{
 			player.Signal( "PilotStopWallClimb" )
 			isClimbingWall = false
 			facingWallAtStart = false
 
-			lastFrameOffTheWall = true
+			lastTickOffTheWall = true
 		}
 
 		// classmods management checks
@@ -139,7 +142,7 @@ void function PilotWallClimbThink( entity player )
 		{
 			// they won't be able to climb again until they back to ground, unlike apex they can climb the same wall infinitely
 			// I don't know how do I write things to prevent player from climbing different angled walls
-			if ( lastFrameOffTheWall && !lastFrameAnimActive )
+			if ( lastTickOffTheWall && !lastTickAnimActive )
 			{
 				DisablePlayerWallrun_ChangingClassMods( player )
 				continue
@@ -157,6 +160,7 @@ void function PilotWallClimbThink( entity player )
 		{
 			StopPlayerWoundedSound( player ) // we stop wounded sound for player
 			woundedSoundStopped = true
+			//print( "stopped wounded sound!" )
 		}
 		else if ( GetHealthFrac( player ) > 0.5 )
 			woundedSoundStopped = false
@@ -165,7 +169,21 @@ void function PilotWallClimbThink( entity player )
 
 		// try stop jumpjet sound
 		if ( lastTickOnGround && !player.IsOnGround() )
-			StopJumpSounds( player )
+		{
+			bool stopJumpSound = false
+			if ( WALLCLIMB_CLASSMODS_UPDATE )
+			{
+				if ( lastTickHasJumpJetSound )
+					stopJumpSound = true
+			}
+			else
+				stopJumpSound = true
+			if ( stopJumpSound )
+			{
+				StopJumpSounds( player )
+				//print( "stopped jump sound!" )
+			}
+		}
 		lastTickOnGround = player.IsOnGround()
 
 		// noclipping
@@ -180,6 +198,7 @@ void function PilotWallClimbThink( entity player )
 		 // may not good if using this... but player will feel better contolling their characters
 		if ( WALLCLIMB_CLASSMODS_UPDATE )
 		{
+			lastTickHasJumpJetSound = PlayerHasJumpJetSound( player ) // get this before classmods update
 			// classmods management checks
 			// only check try changing classmods if player is not climbing a wall, also avoid changing model breaks animations
 			// update for this frame
@@ -320,6 +339,25 @@ void function PilotWallClimbThink( entity player )
 			}
 		}
 	}
+}
+
+const array<string> JUMP_JET_DISABLED_MODS =
+[
+	"disable_doublejump",
+	"disable_wallrun"
+]
+bool function PlayerHasJumpJetSound( entity player )
+{
+	array<string> classMods = player.GetPlayerSettingsMods()
+	int modsRequired = JUMP_JET_DISABLED_MODS.len()
+	int modsOwned = 0
+	foreach ( string mod in JUMP_JET_DISABLED_MODS )
+	{
+		if ( classMods.contains( mod ) )
+			modsOwned += 1
+	}
+
+	return modsRequired != modsOwned
 }
 
 void function StopJumpSounds( entity player )
