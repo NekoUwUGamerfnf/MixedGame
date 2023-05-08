@@ -215,7 +215,7 @@ void function TryDropWeaponOnTitanKilled( entity titan )
 bool function TitanPick_ShouldTitanDropWeapon( entity titan )
 {
     // main check
-    if ( !file.enableWeaponDrops || GetCurrentPlaylistVarInt( "titan_weapon_drops", 0 ) == 0 )
+    if ( !file.enableWeaponDrops && GetCurrentPlaylistVarInt( "titan_weapon_drops", 0 ) == 0 )
         return false
 
     if( !titan.IsTitan() )
