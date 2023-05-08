@@ -152,5 +152,22 @@ void function PowerShot_DamagedEntity( entity victim, var damageInfo )
 		pushback *= 500 * 1.0 - StatusEffect_Get( victim, eStatusEffect.pushback_dampen ) * GraphCapped( distance, 0, 1200, 1.0, 0.25 )
 		PushPlayerAway( victim, pushback )
 	}
+
+	// maybe funnier? try to fix damageSourceID for predator cannon. hardcoded!
+	bool isCloseRangePowerShot = bool( scriptDamageType & DF_KNOCK_BACK )
+	bool isLongRangePowerShot = false
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if ( IsValid( inflictor ) )
+	{
+		if ( inflictor.IsProjectile() )
+		{
+			if ( inflictor.ProjectileGetMods().contains( "LongRangePowerShot" ) )
+				isLongRangePowerShot = true
+		}
+	}
+
+	if ( isCloseRangePowerShot || isLongRangePowerShot )
+		DamageInfo_SetDamageSourceIdentifier( damageInfo, eDamageSourceId.mp_titanability_power_shot )
+	//
 }
 #endif

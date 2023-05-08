@@ -215,7 +215,7 @@ void function TryDropWeaponOnTitanKilled( entity titan )
 bool function TitanPick_ShouldTitanDropWeapon( entity titan )
 {
     // main check
-    if ( !file.enableWeaponDrops || GetCurrentPlaylistVarInt( "titan_weapon_drops", 0 ) == 0 )
+    if ( !file.enableWeaponDrops && GetCurrentPlaylistVarInt( "titan_weapon_drops", 0 ) == 0 )
         return false
 
     if( !titan.IsTitan() )
@@ -576,6 +576,7 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
 
     // reset behaviors
     player.SetTitanDisembarkEnabled( true ) // do need to set up this since some weapon or titancore will disable it
+    player.ClearMeleeDisabled() // recover this for some titan core and ability(like power shot) will disable them
     player.Anim_StopGesture( 0 ) // stop any gesture animations maybe meleeing
 
     // monarch hack: after being pick up, cannot upgrade anymore
