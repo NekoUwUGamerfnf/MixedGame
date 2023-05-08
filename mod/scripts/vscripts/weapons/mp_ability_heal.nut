@@ -1,5 +1,7 @@
 global function OnWeaponPrimaryAttack_ability_heal
 // modified!
+global function OnWeaponTossPrep_ability_heal
+global function OnWeaponTossReleaseAnimEvent_ability_heal
 global function OnProjectileCollision_ability_heal
 global function AddStimModifier
 
@@ -64,6 +66,26 @@ var function OnWeaponPrimaryAttack_ability_heal( entity weapon, WeaponPrimaryAtt
 #endif //
 
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
+}
+
+
+// modified callbacks
+void function OnWeaponTossPrep_ability_heal( entity weapon, WeaponTossPrepParams prepParams )
+{
+	// modded stim checks!
+	array<string> mods = weapon.GetMods()
+	if ( HasStimModifier( mods ) )
+		return OnWeaponTossPrep_ability_modded_stim( weapon, prepParams )
+	//
+}
+
+var function OnWeaponTossReleaseAnimEvent_ability_heal( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	// modded stim checks!
+	array<string> mods = weapon.GetMods()
+	if ( HasStimModifier( mods ) )
+		return OnWeaponTossReleaseAnimEvent_ability_modded_stim( weapon, attackParams )
+	//
 }
 
 void function OnProjectileCollision_ability_heal( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )

@@ -72,9 +72,10 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 
 	bool isCritical = IsCriticalHit( DamageInfo_GetAttacker( damageInfo ), victim, DamageInfo_GetHitBox( damageInfo ), damage, DamageInfo_GetDamageType( damageInfo ) )
 
+	array<string> projectileMods = inflictor.ProjectileGetMods() // moving here!
 	if ( isCritical )
 	{
-		array<string> projectileMods = inflictor.ProjectileGetMods()
+		//array<string> projectileMods = inflictor.ProjectileGetMods()
 		if ( projectileMods.contains( "fd_upgrade_crit" ) )
 			f_extraDamage *= 2.0
 		else
@@ -93,8 +94,31 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 	float nearScale = 0.5
 	float farScale = 0
 
+	// modified
+	float dotScale = 0.25
+	//
+
 	if ( victim.IsTitan() )
-		PushEntWithDamageInfoAndDistanceScale( victim, damageInfo, nearRange, farRange, nearScale, farScale, 0.25 )
+		PushEntWithDamageInfoAndDistanceScale( victim, damageInfo, nearRange, farRange, nearScale, farScale, dotScale )
+
+	// projectile mods
+	if ( projectileMods.contains( "knockback_sniper" ) )
+	{
+		const float dotBase = 0.5
+		const float pushbackBase = 300
+		
+		dotScale = 0.5 // stronger knockback
+		int damageScale = 1
+		if ( "bulletsToFire" in inflictor.s )
+			damageScale = expect int( inflictor.s.bulletsToFire )
+		float forceLiftScale = 50.0 * damageScale // scale up with damageScale, 300 will be enough to knock titans off ground
+		
+		if ( victim.IsPlayer() || victim.IsNPC() )
+			TitanSniperKnockBack( victim, damageInfo, dotBase, pushbackBase, dotScale, damageScale, forceLiftScale )
+
+		DamageInfo_SetDamage( damageInfo, 0 ) // they don't do any damage
+	}
+	//
 }
 
 var function OnWeaponNpcPrimaryAttack_titanweapon_sniper( entity weapon, WeaponPrimaryAttackParams attackParams )
@@ -217,6 +241,11 @@ function FireSniper( entity weapon, WeaponPrimaryAttackParams attackParams, bool
 		#if SERVER
 			Assert( weaponOwner == weapon.GetWeaponOwner() )
 			bolt.SetOwner( weaponOwner )
+
+			// projectile mods
+			if ( weapon.HasMod( "knockback_sniper" ) )
+				FriendlyFire_SetEntityDoFFDamage( bolt, true ) // they do friendly fire
+			//
 		#endif
 	}
 
@@ -289,3 +318,47 @@ void function OnWeaponOwnerChanged_titanweapon_sniper( entity weapon, WeaponOwne
 		RemoveThreatScopeColorStatusEffect( changeParams.oldOwner )
 	#endif
 }
+
+// modified!!!!
+#if SERVER
+void function TitanSniperKnockBack( entity victim, var damageInfo, float dotBase = 0.5, float pushbackBase = 450, float pushBackScale = 0.5, int damageScale = 1, float forceLiftScale = 0.0 )
+{
+	entity projectile = DamageInfo_GetInflictor( damageInfo )
+	if ( !IsValid( projectile ) )
+		return
+
+	float length = pushbackBase * damageScale
+	float speed
+	if ( length < 900 )
+		speed = GraphCapped( length, 0, 900, 0, 650 )
+	else
+		speed = GraphCapped( length, 900, 1400, 650, 1400 )
+
+	vector attackDirection = Normalize( projectile.GetVelocity() )
+
+	vector direction = attackDirection + <0,0,0>
+	//direction.z *= 0.25
+	vector force = direction * speed
+
+	force += < 0, 0, fabs( direction.z ) * 0.25 >
+
+	vector velocity = victim.GetVelocity()
+	vector baseVel = Normalize( velocity + <0,0,0> )
+
+	float dot = DotProduct( baseVel, attackDirection ) * -1
+	if ( dot > 0 )
+		dot *= pushBackScale
+	else
+		dot = 0
+
+	force *= ( dotBase + dot )
+	//printt( "force " + Length( force ) )
+	velocity += force
+	if ( forceLiftScale > 0 )
+	{
+		if ( victim.IsOnGround() && velocity.z <= forceLiftScale )
+			velocity.z = forceLiftScale
+	}
+	PushEntWithVelocity( victim, velocity )
+}
+#endif

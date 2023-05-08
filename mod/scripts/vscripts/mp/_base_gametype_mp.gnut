@@ -75,9 +75,6 @@ void function BaseGametype_Init_MPSP()
 
 	RegisterSignal( "PlayerRespawnStarted" )
 	RegisterSignal( "KillCamOver" )
-
-	// maybe good to have this
-	AddCallback_OnClientConnected( OnClientConnected )
 }
 
 void function SetIntermissionCamera( entity camera )
@@ -345,7 +342,7 @@ void function GracePeriodThink_Threaded( entity player )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnPrimaryAttack" )
 	player.EndSignal( "OnDeath" )
-	player.EndSignal( "player_embarks_titan" )
+	player.EndSignal( "PlayerEmbarkedTitan" )
 
 	OnThreadEnd(
 		function(): ( player )
@@ -611,7 +608,9 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 // modified here!!!
 void function SetPlayerCameraToIntermissionCam( entity player, float delay = 0 )
 {
-	if( delay > 0 )
+	if ( GetGameState() == eGameState.Epilogue ) // we shouldn't have intermission camera if player be in epilogue
+		return
+	if ( delay > 0 )
 	{
 		player.EndSignal( "OnDestroy" )
 		player.EndSignal( "OnDeath" )
@@ -927,20 +926,28 @@ void function AddToTitanDamageStat( entity victim, var damageInfo )
 
 void function CheckForAutoTitanDeath( entity victim, entity attacker, var damageInfo )
 {
-	if( !IsValid(victim) || !victim.IsTitan() )
+	if ( !IsValid( victim ) || !victim.IsTitan() )
 		return
 
-	if( !victim.IsPlayer() )
+	if ( !victim.IsPlayer() ) // npc titans
 	{
-		if (GetPetTitanOwner(victim) && GetPetTitanOwner(victim) != attacker)
-			foreach(player in GetPlayerArray())
+		entity owner = victim
+		if ( IsValid( GetPetTitanOwner( victim ) ) )
+			owner = GetPetTitanOwner( victim )
+		//if ( GetPetTitanOwner( victim ) && GetPetTitanOwner( victim ) != attacker ) // messed up!
+		if ( owner != attacker ) // no titanKilled obit if owner kill it's titan or titan suicide
+		{
+			foreach ( player in GetPlayerArray() )
 				Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+		}
 	}
-	else
+	else // player titans
 	{
-		if (victim != attacker)
-			foreach(player in GetPlayerArray())
+		if ( victim != attacker )
+		{
+			foreach ( player in GetPlayerArray() )
 				Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+		}
 	}
 }
 
@@ -1005,25 +1012,4 @@ void function SetDeathHintsEnabled( bool enabled )
 void function SetDeathHintsInterval( int interval )
 {
 	file.deathHintsInterval = interval
-}
-
-// try to stop zipline sound sometimes caused by loss
-void function OnClientConnected( entity player )
-{
-	thread StopPlayerUselessZiplineSoundLifeLong( player )
-}
-
-void function StopPlayerUselessZiplineSoundLifeLong( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-
-	while ( true )
-	{
-		if ( !player.IsZiplining() ) // prevent stucking sound!
-		{
-			StopSoundOnEntity( player, "player_zipline_loop" )
-			StopSoundOnEntity( player, "3p_zipline_loop" )
-		}
-		WaitFrame()
-	}
 }

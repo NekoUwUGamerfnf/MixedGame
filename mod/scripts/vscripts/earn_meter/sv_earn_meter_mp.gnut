@@ -7,8 +7,10 @@ global function EarnMeterMP_SetBoostByRef
 // modified settings...
 global function EarnMeterMP_SetPassiveGainProgessEnable
 
-const float EARNMETER_FRAC_PER_LEVEL 	= 0.01
-const int EARNMETER_MAX_LEVELS			= 4 // max frac is 0.04, hardcoded for now
+const float EARNMETER_GAIN_FRAC				= 0.01
+const float EARNMETER_GAIN_INTERVAL			= 5.0
+const float EARNMETER_GAIN_INTERVAL_MIN		= 2.0
+const float EARNMETER_GAIN_MAX_LEVEL		= 0.8 // if score or time reaches this percentage, we will use EARNMETER_GAIN_INTERVAL_MIN
 
 struct 
 {
@@ -18,9 +20,8 @@ struct
 	bool passiveMeterGainEnabled = true
 
 	// modified settings...
-	float passiveMeterGainInterval = 5.0
+	float passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
 	bool passiveGainProgressEnabled = true // like vanilla
-	float progressFrac
 } file
 
 void function Sv_EarnMeterMP_Init()
@@ -71,7 +72,7 @@ void function DelayedCatchUpEarnMeter( entity player )
 	WaitFrame()
 	if( IsValid( player ) && !file.catchedUpUIDs.contains( player.GetUID() ) )
 	{
-		PlayerEarnMeter_AddOwnedFrac( player, ( ( Time() - file.playingStartTime ) / file.passiveMeterGainInterval ) * EARNMETER_FRAC_PER_LEVEL )
+		PlayerEarnMeter_AddOwnedFrac( player, ( ( Time() - file.playingStartTime ) / EARNMETER_GAIN_INTERVAL ) * EARNMETER_GAIN_FRAC )
 		file.catchedUpUIDs.append( player.GetUID() ) // for northstar, only catch up earnmeters once
 	}
 }
@@ -204,11 +205,7 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 			if ( Time() - lastPassiveGainTime >= file.passiveMeterGainInterval && file.passiveMeterGainEnabled ) // this might be 5.0
 			{
 				lastPassiveGainTime = Time()
-				// progress frac
-				if( file.passiveGainProgressEnabled )
-					PlayerEarnMeter_AddOwnedFrac( player, file.progressFrac )
-				else
-					PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_FRAC_PER_LEVEL )
+				PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_GAIN_FRAC )
 			}
 		}
 
@@ -310,8 +307,7 @@ void function EarnMeterMP_ProgessFracCalculate()
 	if ( IsRoundBased() )
 		return
 
-	file.progressFrac = EARNMETER_FRAC_PER_LEVEL // base value, reset every round
-	// progressFrac calculate, WIP
+	// progressFrac calculate
 	while ( GetGameState() == eGameState.Playing )
 	{
 		float startTime = file.playingStartTime
@@ -321,42 +317,40 @@ void function EarnMeterMP_ProgessFracCalculate()
 		//	endTime /= 2
 			
 		float totalTime = endTime - startTime
-		float timePerLevel = totalTime / EARNMETER_MAX_LEVELS
+		float maxLevelTime = totalTime * EARNMETER_GAIN_MAX_LEVEL
 		
 		int totalScore = GameMode_GetScoreLimit( GAMETYPE )
 		if( IsRoundBased() )
 			totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
-		int scorePerLevel = totalScore / EARNMETER_MAX_LEVELS
-
-		int winningTeam = GetWinningTeamWithFFASupport() // GetWinningTeam() won't be set up if match hasn't end yet
-		if ( winningTeam < TEAM_UNASSIGNED ) // no valid winner
-			winningTeam = TEAM_UNASSIGNED
-
-		int highestScore = GameRules_GetTeamScore( winningTeam )
-		//print( "winningTeam: " + string( winningTeam ) )
-		//print( "highestScore: " + string( highestScore ) )
-		//print( "scorePerLevel: " + string( scorePerLevel ) )
+		int maxLevelScore = int( totalScore * EARNMETER_GAIN_MAX_LEVEL )
 
 		// base frac based on gameTime
 		float timeElapsed = Time() - startTime
-		//print( "timeElapsed: " + string( timeElapsed ) )
-		//print( "timePerLevel: " + string( timePerLevel ) )
-		int timeLevel = int( timeElapsed / timePerLevel )
+		float timeLevel = timeElapsed / maxLevelTime
+		
 		// calculate again based on team scores
-		int scoreLevel = highestScore / scorePerLevel
-		if ( IsSwitchSidesBased() ) // we don't do scoreLevel in switchSideBased modes
-			scoreLevel = 0
+		float scoreLevel = 0.0
+		if ( !IsSwitchSidesBased() ) // we don't do scoreLevel in switchSideBased modes
+		{
+			int winningTeam = GetWinningTeamWithFFASupport() // GetWinningTeam() won't be set up if match hasn't end yet
+			if ( winningTeam < TEAM_UNASSIGNED ) // no valid winner
+				winningTeam = TEAM_UNASSIGNED
+			int highestScore = GameRules_GetTeamScore( winningTeam )
+
+			scoreLevel = float( highestScore ) / float( maxLevelScore )
+		}
 
 		// get max level
-		int gainLevel = int( max( timeLevel, scoreLevel ) ) + 1
-		if ( gainLevel >= EARNMETER_MAX_LEVELS )
-			gainLevel = EARNMETER_MAX_LEVELS
-		//print( "timeLevel: " + string( timeLevel ) )
-		//print( "scoreLevel: " + string( timeLevel ) )
+		float gainLevel = max( timeLevel, scoreLevel )
+		if ( gainLevel >= 1.0 )
+			gainLevel = 1.0
 		//print( "gainLevel: " + string( gainLevel ) )
+		// get max time reduction
+		float maxIntervalReduction = EARNMETER_GAIN_INTERVAL - EARNMETER_GAIN_INTERVAL_MIN
 
-		file.progressFrac = EARNMETER_FRAC_PER_LEVEL * gainLevel
-		//print( "progressFrac: " + string( file.progressFrac ) )
+		if( file.passiveGainProgressEnabled )
+			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL - ( maxIntervalReduction * gainLevel )
+		//print( "passiveMeterGainInterval: " + string( file.passiveMeterGainInterval ) )
 		WaitFrame()
 	}
 }

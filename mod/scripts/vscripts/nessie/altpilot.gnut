@@ -4,6 +4,7 @@ global function AltPilot_Enable_Init // for loadedinits
 global function AltPilot_Init
 
 global function AltPilot_ReplacePilotModel
+global function AltPilot_GivePlayerRandomModel
 global function FUCKOFFCLOAK
 global function FUCKOFFAWALL
 
@@ -44,10 +45,6 @@ const array<asset> ALTPILOT_RANDOM_MODELS =
 	$"models/humans/pilots/sp_medium_stalker_m.mdl"
 ]
 
-// testing!
-global function BecomeFakeBarker
-
-
 // now using playerSettings to check, saving model names here
 
 // Holopilot Male
@@ -85,9 +82,15 @@ global function BecomeFakeBarker
 // A-Wall Female
 //$"models/humans/pilots/pilot_heavy_roog_f.mdl
 
-struct{
+struct
+{
+	// no need to change table contents
+	table<entity, bool> playerPickedModelChangeChance
+	table<entity, bool> playerThisLifeChangeModel // for we can have more stable model changes
+	table<entity, bool> playerHasChangedModel
+
 	bool modelReplaceEnabled = false
-	int modelReplaceChance = 4 // 25%
+	float modelReplaceChance = 0.25 // 25% by default
 	bool allRandomModel = false
 	
 	// stupid things
@@ -107,11 +110,12 @@ void function AltPilot_Init()
 	
 	// stop any thread processing
 	RegisterSignal( "AltPilotModelReplace" )
-	RegisterSignal( "AltPilotChangeLoadout" )
 
-	AddCallback_OnPlayerRespawned( RespawnModelSet )
+	//AddCallback_OnPlayerRespawned( RespawnModelSet ) // really doesn't seem needed, change loadout can handle it, this might mess up some models
+	AddCallback_OnClientConnected( InitializeAltPilot )
+	AddDeathCallback( "player", CleanUpModelChance )
 	AddCallback_OnPlayerGetsNewPilotLoadout( ChangeloadoutModelSet )
-	AddCallback_OnTitanBecomesPilot( DisEmbarkingModelSet )
+	AddCallback_OnTitanBecomesPilot( DisembarkingModelSet )
 }
 
 void function AltPilot_SetShouldReplaceModel( bool should )
@@ -119,7 +123,7 @@ void function AltPilot_SetShouldReplaceModel( bool should )
 	file.modelReplaceEnabled = should
 }
 
-void function SetAltPilotChance( int percentage )
+void function SetAltPilotChance( float percentage )
 {
 	file.modelReplaceChance = percentage
 }
@@ -145,51 +149,81 @@ void function SetShouldAlsoFuckOffPOV( bool should )
 	file.fuckOffPOV = should
 }
 
+void function InitializeAltPilot( entity player )
+{
+	file.playerPickedModelChangeChance[ player ] <- false
+	file.playerThisLifeChangeModel[ player ] <- false
+	file.playerHasChangedModel[ player ] <- false
+}
+
+/* // really doesn't seem needed, change loadout can handle it, this might mess up some models
 void function RespawnModelSet( entity player )
 {
-	// defensive fixs
-	AltPilot_RecoverFromSpectre( player )
-
 	// fuckoff goes first
 	if( file.modelFuckOffCloak )
 		FUCKOFFCLOAK( player )
 	if( file.modelFuckOffAWall )
 		FUCKOFFAWALL( player )
-		
-	// hack! but do it again
-	AltPilot_RecoverFromSpectre( player )
+	
+	// try to do recovering
+	RecoverFromModelChange( player )
 	
 	if( file.allRandomModel )
 		AltPilot_GivePlayerRandomModel( player )
-	else if( file.modelReplaceEnabled && RandomInt( file.modelReplaceChance ) == 0 )
-		AltPilot_ReplacePilotModel( player )
+	else if( file.modelReplaceEnabled )
+	{
+		if ( RandomInt( file.modelReplaceChance ) == 0 )
+			AltPilot_ReplacePilotModel( player )
+	}
+}
+*/
+
+void function CleanUpModelChance( entity victim, var damageInfo )
+{
+	if ( victim in file.playerPickedModelChangeChance )
+		file.playerPickedModelChangeChance[ victim ] = false
 }
 
 // changeLoadout to same tactical doesn't reset model
 // maybe reset it could be funnier, but always trigger ghost skin
 void function ChangeloadoutModelSet( entity player , PilotLoadoutDef p )
 {
-	// to end some thread...
-	player.Signal( "AltPilotChangeLoadout" )
-	// defensive fixs
-	AltPilot_RecoverFromSpectre( player )
+	// pick modelchange chance. this is called earlier than "OnPlayerRespawned()", we cannot get from it
+	//print( "file.playerPickedModelChangeChance[ player ]: " + string( file.playerPickedModelChangeChance[ player ] ) )
+	if ( !file.playerPickedModelChangeChance[ player ] )
+	{
+		file.playerThisLifeChangeModel[ player ] = false
+		if ( file.modelReplaceEnabled )
+			file.playerThisLifeChangeModel[ player ] = RandomInt( int( 1.0 / file.modelReplaceChance ) ) == 0
+		file.playerPickedModelChangeChance[ player ] = true
+	}
 
 	// fuckoff goes first
 	if( file.modelFuckOffCloak )
 		FUCKOFFCLOAK( player )
 	if( file.modelFuckOffAWall )
 		FUCKOFFAWALL( player )
-		
-	// hack! but do it again
-	AltPilot_RecoverFromSpectre( player )
+
+	//print( "file.playerHasChangedModel[ player ]: " + string( file.playerHasChangedModel[ player ] ) )
+	//print( "file.playerThisLifeChangeModel[ player ]: " + string( file.playerThisLifeChangeModel[ player ] ) )
+
+	// try to do recovering
+	if ( file.playerHasChangedModel[ player ] )
+	{
+		RecoverFromModelChange( player )
+		file.playerHasChangedModel[ player ] = false
+	}
 
 	if( file.allRandomModel )
 		AltPilot_GivePlayerRandomModel( player )
-	else if( file.modelReplaceEnabled && RandomInt( file.modelReplaceChance ) == 0 )
-		AltPilot_ReplacePilotModel( player )
+	else if( file.modelReplaceEnabled )
+	{
+		if ( file.playerThisLifeChangeModel[ player ] )
+			AltPilot_ReplacePilotModel( player )
+	}
 }
 
-void function DisEmbarkingModelSet( entity player, entity titan )
+void function DisembarkingModelSet( entity player, entity titan )
 {
 	// fuckoff goes first
 	if( file.modelFuckOffCloak )
@@ -199,131 +233,89 @@ void function DisEmbarkingModelSet( entity player, entity titan )
 
 	if( file.allRandomModel )
 		AltPilot_GivePlayerRandomModel( player )
-	else if( file.modelReplaceEnabled && RandomInt( file.modelReplaceChance ) == 0 )
-		AltPilot_ReplacePilotModel( player )
+	else if( file.modelReplaceEnabled )
+	{
+		if ( file.playerThisLifeChangeModel[ player ] )
+			AltPilot_ReplacePilotModel( player )
+	}
 }
 
 //Apply Model
 void function AltPilot_ReplacePilotModel( entity player )
 {
-	if ( IsValid( player ) ) //Anti Crash
+	if ( !IsValid( player ) ) //Anti Crash
+		return
+
+	player.Signal( "AltPilotModelReplace" )
+
+	string playerSettings = player.GetPlayerSettings()
+	asset replacementModel = $""
+
+	switch ( playerSettings )
 	{
-		player.Signal( "AltPilotModelReplace" )
-		thread GhostSkinPrevention( player ) // always loop this
-	
-		string playerSettings = player.GetPlayerSettings()
-	
-		//Holopilot Male
-		if( playerSettings == "pilot_stalker_male" )
-		{
-			//Model
-			player.SetModel($"models/humans/grunts/mlt_grunt_lmg.mdl")
-			player.SetValueForModelKey( $"models/humans/grunts/mlt_grunt_lmg.mdl" )
-		}
-
-		//Holopilot Female
-		if( playerSettings == "pilot_stalker_female" )
-		{
-			//Model
-			player.SetModel($"models/humans/grunts/imc_grunt_lmg.mdl")
-			player.SetValueForModelKey( $"models/humans/grunts/imc_grunt_lmg.mdl" )
-		}
-		
-		// BUGGED, somethings not showing any model, tried to fix it
-		//Shifter Male
-		if( playerSettings == "pilot_light_male" )
-		{
-			// HACKING SPECIFIC!
-			player.SetModel($"models/robots/spectre/imc_spectre.mdl")
-			player.SetValueForModelKey( $"models/robots/spectre/imc_spectre.mdl" )
-		}
-
-		//Shifter Female
-		if( playerSettings == "pilot_light_female" )
-		{
-			player.SetModel($"models/Humans/heroes/imc_hero_ash.mdl")
-			player.SetValueForModelKey( $"models/Humans/heroes/imc_hero_ash.mdl" )
-		}
-
-		// BUGGED, sometimes shows holo skin, tried to fix it
-		//Stim Male
-		if( playerSettings == "pilot_nomad_male" )
-		{
-			//Model
-			player.SetModel($"models/humans/heroes/mlt_hero_jack.mdl")
-			player.SetValueForModelKey( $"models/humans/heroes/mlt_hero_jack.mdl" )
-		}
-
-		//Stim Female
-		if( playerSettings == "pilot_nomad_female" )
-		{
-			//Model
-			player.SetModel($"models/humans/heroes/mlt_hero_sarah.mdl")
-			player.SetValueForModelKey( $"models/humans/heroes/mlt_hero_sarah.mdl" )
-		}
-
-		//PulseBlade Male
-		if( playerSettings == "pilot_medium_male" )
-		{
-			//Model
-			player.SetModel($"models/Humans/heroes/imc_hero_blisk.mdl")
-			player.SetValueForModelKey( $"models/Humans/heroes/imc_hero_blisk.mdl" )
-		}
-
-		//PulseBlade Female
-		if( playerSettings == "pilot_medium_female" )
-		{
-			//Model
-			player.SetModel($"models/humans/pilots/sp_medium_geist_f.mdl")
-			player.SetValueForModelKey( $"models/humans/pilots/sp_medium_geist_f.mdl" )
-		}
-
-		//Grapple Male
-		if( playerSettings == "pilot_grapple_male" )
-		{
-			//Model
-			player.SetModel($"models/humans/pilots/sp_medium_reaper_m.mdl")
-			player.SetValueForModelKey( $"models/humans/pilots/sp_medium_reaper_m.mdl" )
-		}
-
-		//Grapple Female
-		if( playerSettings == "pilot_grapple_female" )
-		{
-			//Model
-			player.SetModel($"models/humans/pilots/sp_medium_stalker_m.mdl")
-			player.SetValueForModelKey( $"models/humans/pilots/sp_medium_stalker_m.mdl" )
-		}
-		
-		// A-Wall
-		if( playerSettings == "pilot_heavy_male" || playerSettings == "pilot_heavy_female" )
-		{
-			player.SetModel($"models/humans/grunts/imc_grunt_shield_captain.mdl")
-			player.SetValueForModelKey( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
-		}
+		case "pilot_stalker_male": // Holopilot Male
+			replacementModel = $"models/humans/grunts/mlt_grunt_lmg.mdl"
+			break
+		case "pilot_stalker_female": // Holopilot Female
+			replacementModel = $"models/humans/grunts/imc_grunt_lmg.mdl"
+			break
+		case "pilot_light_male": // Shifter Male
+			replacementModel = $"models/robots/spectre/imc_spectre.mdl"
+			break
+		case "pilot_light_female": // Shifter Female
+			replacementModel = $"models/Humans/heroes/imc_hero_ash.mdl"
+			break
+		case "pilot_nomad_male": // Stim Male, sometimes shows holo skin, tried to fix it with GhostSkinPrevention()
+			replacementModel = $"models/humans/heroes/mlt_hero_jack.mdl"
+			break
+		case "pilot_nomad_female": // Stim Female, sometimes shows holo skin, tried to fix it with GhostSkinPrevention()
+			replacementModel = $"models/humans/heroes/mlt_hero_sarah.mdl"
+			break
+		case "pilot_medium_male": // PulseBlade Male
+			replacementModel = $"models/Humans/heroes/imc_hero_blisk.mdl"
+			break
+		case "pilot_medium_female": // PulseBlade Female
+			replacementModel = $"models/humans/pilots/sp_medium_geist_f.mdl"
+			break
+		case "pilot_grapple_male": // Grapple Male
+			replacementModel = $"models/humans/pilots/sp_medium_reaper_m.mdl"
+			break
+		case "pilot_grapple_female": // Grapple Female
+			replacementModel = $"models/humans/pilots/sp_medium_stalker_m.mdl"
+			break
+		case "pilot_heavy_male": // A-Wall Male
+		case "pilot_heavy_female": // A-Wall Female
+			replacementModel = $"models/humans/grunts/imc_grunt_shield_captain.mdl"
+			break
 	}
-	//
+
+	if ( replacementModel != $"" )
+	{
+		player.SetValueForModelKey( replacementModel )
+		player.SetModel( replacementModel )
+		file.playerHasChangedModel[ player ] = true // mark as player changed model
+		thread GhostSkinPrevention( player ) // always loop this
+	}
 }
 
 // HACK for sometimes going from spectre will hide model
-void function AltPilot_RecoverFromSpectre( entity player )
+void function RecoverFromModelChange( entity player )
 {
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE 
 	player.Show()
-	if( player.GetModelName() == $"models/robots/spectre/imc_spectre.mdl" )
-	{
-		int skin = player.GetSkin()
-		int camo = player.GetCamo()
-		// reset model
-		player.SetModel($"models/humans/pilots/pilot_medium_reaper_f.mdl")
-		player.SetValueForModelKey( $"models/humans/pilots/pilot_medium_reaper_f.mdl" )
-		
-		// recover player model
-		asset model = GetPlayerSettingsAssetForClassName( player.GetPlayerSettings(), "bodymodel" )
-		player.SetModel(model)
-		player.SetValueForModelKey( model )
-		player.SetSkin( skin )
-		player.SetCamo( camo )
-	}
+
+	int skin = player.GetSkin()
+	int camo = player.GetCamo()
+	// reset model
+	player.SetModel( $"models/humans/pilots/pilot_medium_reaper_f.mdl" )
+	player.SetValueForModelKey( $"models/humans/pilots/pilot_medium_reaper_f.mdl" )
+	
+	// recover player model
+	asset model = GetPlayerSettingsAssetForClassName( player.GetPlayerSettings(), "bodymodel" )
+	player.SetModel( model )
+	player.SetValueForModelKey( model )
+	player.SetSkin( skin )
+	player.SetCamo( camo )
 }
 
 void function GhostSkinPrevention( entity player )
@@ -331,7 +323,6 @@ void function GhostSkinPrevention( entity player )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "AltPilotModelReplace" )
-	player.EndSignal( "AltPilotChangeLoadout" )
 	
 	while( true )
 	{
@@ -448,36 +439,5 @@ void function FUCKOFFAWALL( entity player )
 		}
 		player.SetSkin( skin )
 		player.SetCamo( camo )
-	}
-}
-
-// can't get this thing work!!
-void function BecomeFakeBarker( entity player )
-{
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "AltPilotModelReplace" )
-	
-	entity barkerProp = CreatePropDynamic( $"models/humans/heroes/mlt_hero_barker.mdl" )
-	barkerProp.SetParent( player, "ref" )
-	
-	//entity decoy = CreateElitePilot( player.GetTeam(), player.GetOrigin(), player.GetAngles() )
-	//decoy.SetModel( player.GetModelName() )
-	//DispatchSpawn( decoy )
-	//decoy.SetModel( player.GetModelName() )
-
-	//decoy.SetTitle( player.GetPlayerName() )
-	//decoy.SetScriptName( player.GetPlayerName() + "_decoy" )
-	
-	while( true )
-	{
-		//player.StartRecordingAnimation( player.GetOrigin(), player.GetAngles() )
-		player.StartRecordingAnimation( < 0,0,0 >, < 0,0,0 > )
-		
-		wait 1
-		
-		var rec = player.StopRecordingAnimation()
-
-		barkerProp.PlayRecordedAnimation( rec, <0,0,0>, <0,0,0>, DEFAULT_SCRIPTED_ANIMATION_BLEND_TIME, player )
 	}
 }

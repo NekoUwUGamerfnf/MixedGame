@@ -17,9 +17,6 @@ global function Grenade_OnWeaponDeactivate
 global function Grenade_OnWeaponTossPrep
 global function Grenade_OnProjectileIgnite
 
-// modified function
-global function Grenade_OnWeaponToss_ReturnEntity
-
 #if SERVER
 	global function Grenade_OnPlayerNPCTossGrenade_Common
 	global function ProxMine_Triggered
@@ -29,6 +26,7 @@ global function Grenade_OnWeaponToss_ReturnEntity
 
 	global function ShouldSetOffProximityMine
 #endif
+
 global function Grenade_Init
 
 const GRENADE_EXPLOSIVE_WARNING_SFX_LOOP = "Weapon_Vortex_Gun.ExplosiveWarningBeep"
@@ -66,6 +64,33 @@ const SOLDIER_ARC_STUN_ANIMS = [
 		"pt_react_ARC_stumble_F",
 		"pt_react_ARC_stumble_R" ]
 
+
+// modified functions
+global function Grenade_OnWeaponToss_ReturnEntity // return the grenade while launching, instead of returning launch amount
+
+// shared grenade modifiers
+global function Grenade_AddChargeDisabledMod // grenade cannot charge whiling hoding( mostly for frag grenades )
+global function Grenade_AddDropOnCancelDisabledMod // grenade won't drop on canceling( mostly for frag grenades )
+
+struct
+{
+	array<string> chargeDisabledMods
+	array<string> dropOnCancelDisabledMods
+} modifier
+
+#if SERVER
+	// grenade modifiers
+	global function Grenade_AddCookDisabledMod // grenade won't be force released
+	global function Grenade_AddDropOnDeathDisabledMod // grenade won't drop on death
+
+	struct
+	{
+		array<string> cookDisabledMods
+		array<string> dropOnDeathDisabledMods
+	} serverModifier
+#endif
+//
+
 function Grenade_FileInit()
 {
 	PrecacheParticleSystem( CLUSTER_BASE_FX )
@@ -94,6 +119,8 @@ function Grenade_FileInit()
 		level._empForcedCallbacks[eDamageSourceId.mp_weapon_proximity_mine] <- true
 
 		PrecacheParticleSystem( THERMITE_GRENADE_FX )
+
+		// modified
 		// WHO'S NOT GONNA LOVE THIS?
 		PrecacheModel( $"models/domestic/nessy_doll.mdl" )
 	#endif
@@ -101,19 +128,19 @@ function Grenade_FileInit()
 
 void function Grenade_OnWeaponTossPrep( entity weapon, WeaponTossPrepParams prepParams )
 {
-	// modified and hardcoded!
-	if( weapon.HasMod( "fuckoff_ordnance" ) )
-		weapon.w.startChargeTime = 0
-	else
-		weapon.w.startChargeTime = Time()
+	weapon.w.startChargeTime = Time()
 
 	entity weaponOwner = weapon.GetWeaponOwner()
 	weapon.EmitWeaponSound_1p3p( GetGrenadeDeploySound_1p( weapon ), GetGrenadeDeploySound_3p( weapon ) )
 
 	#if SERVER
-		if( !weapon.HasMod( "fuckoff_ordnance" ) )
+		// modifiers!
+		//thread HACK_CookGrenade( weapon, weaponOwner )
+		//thread HACK_DropGrenadeOnDeath( weapon, weaponOwner )
+		if ( GrenadeShouldCook( weapon ) )
 			thread HACK_CookGrenade( weapon, weaponOwner )
-		thread HACK_DropGrenadeOnDeath( weapon, weaponOwner )
+		if ( GrenadeShouldDropOnDeath( weapon ) )
+			thread HACK_DropGrenadeOnDeath( weapon, weaponOwner )
 	#elseif CLIENT
 		if ( weaponOwner.IsPlayer() )
 		{
@@ -188,8 +215,10 @@ int function Grenade_OnWeaponToss_( entity weapon, WeaponPrimaryAttackParams att
 	entity weaponOwner = weapon.GetWeaponOwner()
 	weaponOwner.Signal( "ThrowGrenade" )
 
+	// base grenade modifiers
 	if( weapon.HasMod( "nessie_grenade" ) )
 		grenade.SetModel( $"models/domestic/nessy_doll.mdl" )
+	//
 
 	PlayerUsedOffhand( weaponOwner, weapon ) // intentionally here and in Hack_DropGrenadeOnDeath - accurate for when cooldown actually begins
 
@@ -204,36 +233,6 @@ int function Grenade_OnWeaponToss_( entity weapon, WeaponPrimaryAttackParams att
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
 
-// modified function
-entity function Grenade_OnWeaponToss_ReturnEntity( entity weapon, WeaponPrimaryAttackParams attackParams, float directionScale )
-{
-	weapon.EmitWeaponSound_1p3p( GetGrenadeThrowSound_1p( weapon ), GetGrenadeThrowSound_3p( weapon ) )
-	bool projectilePredicted = PROJECTILE_PREDICTED
-	bool projectileLagCompensated = PROJECTILE_LAG_COMPENSATED
-#if SERVER
-	if ( weapon.IsForceReleaseFromServer() )
-	{
-		projectilePredicted = false
-		projectileLagCompensated = false
-	}
-#endif
-	entity grenade = Grenade_Launch( weapon, attackParams.pos, (attackParams.dir * directionScale), projectilePredicted, projectileLagCompensated )
-	entity weaponOwner = weapon.GetWeaponOwner()
-	weaponOwner.Signal( "ThrowGrenade" )
-
-	PlayerUsedOffhand( weaponOwner, weapon ) // intentionally here and in Hack_DropGrenadeOnDeath - accurate for when cooldown actually begins
-
-#if SERVER
-
-	#if BATTLECHATTER_ENABLED
-		TryPlayWeaponBattleChatterLine( weaponOwner, weapon )
-	#endif
-
-#endif
-
-	return grenade
-}
-
 var function Grenade_OnWeaponTossReleaseAnimEvent( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	var result = Grenade_OnWeaponToss_( weapon, attackParams, 1.0 )
@@ -242,8 +241,9 @@ var function Grenade_OnWeaponTossReleaseAnimEvent( entity weapon, WeaponPrimaryA
 
 var function Grenade_OnWeaponTossCancelDrop( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if( weapon.HasMod( "nessie_grenade" ) )
+	if ( !GrenadeShouldDropOnCancel( weapon ) )
 		return 0
+
 	var result = Grenade_OnWeaponToss_( weapon, attackParams, 0.2 )
 	return result
 }
@@ -276,9 +276,13 @@ entity function Grenade_Launch( entity weapon, vector attackPos, vector throwVel
 	float baseFuseTime = weapon.GetGrenadeFuseTime() //Note that fuse time of 0 means the grenade won't explode on its own, instead it depends on OnProjectileCollision() functions to be defined and explode there. Arguably in this case grenade_fuse_time shouldn't be 0, but an arbitrarily large number instead.
 	if ( baseFuseTime > 0.0 )
 	{
-		fuseTime = baseFuseTime - ( currentTime - weapon.w.startChargeTime )
-		if ( fuseTime <= 0 )
-			fuseTime = 0.001
+		// modifiers!!
+		if ( GrenadeShouldChargeOnCook( weapon ) ) // only do reduced fuse time if we can charge on cook
+		{
+			fuseTime = baseFuseTime - ( currentTime - weapon.w.startChargeTime )
+			if ( fuseTime <= 0 )
+				fuseTime = 0.001
+		}
 	}
 	else
 	{
@@ -677,3 +681,110 @@ string function GetGrenadeProjectileSound( weapon )
 {
 	return expect string( weapon.GetWeaponInfoFileKeyField( "sound_grenade_projectile" ) ? weapon.GetWeaponInfoFileKeyField( "sound_grenade_projectile" ) : "" )
 }
+
+
+
+// modified functions
+
+entity function Grenade_OnWeaponToss_ReturnEntity( entity weapon, WeaponPrimaryAttackParams attackParams, float directionScale )
+{
+	weapon.EmitWeaponSound_1p3p( GetGrenadeThrowSound_1p( weapon ), GetGrenadeThrowSound_3p( weapon ) )
+	bool projectilePredicted = PROJECTILE_PREDICTED
+	bool projectileLagCompensated = PROJECTILE_LAG_COMPENSATED
+#if SERVER
+	if ( weapon.IsForceReleaseFromServer() )
+	{
+		projectilePredicted = false
+		projectileLagCompensated = false
+	}
+#endif
+	entity grenade = Grenade_Launch( weapon, attackParams.pos, (attackParams.dir * directionScale), projectilePredicted, projectileLagCompensated )
+	entity weaponOwner = weapon.GetWeaponOwner()
+	weaponOwner.Signal( "ThrowGrenade" )
+
+	PlayerUsedOffhand( weaponOwner, weapon ) // intentionally here and in Hack_DropGrenadeOnDeath - accurate for when cooldown actually begins
+
+#if SERVER
+
+	#if BATTLECHATTER_ENABLED
+		TryPlayWeaponBattleChatterLine( weaponOwner, weapon )
+	#endif
+
+#endif
+
+	return grenade
+}
+
+void function Grenade_AddChargeDisabledMod( string mod )
+{
+	if ( !modifier.chargeDisabledMods.contains( mod ) )
+		modifier.chargeDisabledMods.append( mod )
+}
+
+bool function GrenadeShouldChargeOnCook( entity weapon )
+{
+	array<string> mods = weapon.GetMods()
+	foreach ( string mod in modifier.chargeDisabledMods )
+	{
+		if( mods.contains( mod ) )
+			return false
+	}
+
+	return true
+}
+
+void function Grenade_AddDropOnCancelDisabledMod( string mod )
+{
+	if ( !modifier.dropOnCancelDisabledMods.contains( mod ) )
+		modifier.dropOnCancelDisabledMods.append( mod )
+}
+
+bool function GrenadeShouldDropOnCancel( entity weapon )
+{
+	array<string> mods = weapon.GetMods()
+	foreach ( string mod in modifier.dropOnCancelDisabledMods )
+	{
+		if( mods.contains( mod ) )
+			return false
+	}
+	
+	return true
+}
+
+#if SERVER
+void function Grenade_AddCookDisabledMod( string mod )
+{
+	if ( !serverModifier.cookDisabledMods.contains( mod ) )
+		serverModifier.cookDisabledMods.append( mod )
+}
+
+bool function GrenadeShouldCook( entity weapon )
+{
+	array<string> mods = weapon.GetMods()
+	foreach ( string mod in serverModifier.cookDisabledMods )
+	{
+		if( mods.contains( mod ) )
+			return false
+	}
+	
+	return true
+}
+
+void function Grenade_AddDropOnDeathDisabledMod( string mod )
+{
+	if ( !serverModifier.dropOnDeathDisabledMods.contains( mod ) )
+		serverModifier.dropOnDeathDisabledMods.append( mod )
+}
+
+bool function GrenadeShouldDropOnDeath( entity weapon )
+{
+	array<string> mods = weapon.GetMods()
+	foreach ( string mod in serverModifier.dropOnDeathDisabledMods )
+	{
+		if( mods.contains( mod ) )
+			return false
+	}
+	
+	return true
+}
+#endif

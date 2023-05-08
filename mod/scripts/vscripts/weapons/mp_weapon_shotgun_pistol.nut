@@ -2,12 +2,9 @@ untyped
 
 global function OnWeaponPrimaryAttack_weapon_shotgun_pistol
 
-global function OnProjectileCollision_weapon_nessie_gun
-global function OnProjectileIgnite_weapon_nessie_gun
-
-const float NESSIE_DRONE_TIME = 12
-const asset NESSIE_DRONE_MODEL = $"models/domestic/nessy_doll.mdl"
-const asset NESSIE_DRONE_FX = $"P_xo_battery"
+// modified callbacks!
+global function OnProjectileCollision_weapon_shotgun_pistol
+global function OnProjectileIgnite_weapon_shotgun_pistol
 
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_weapon_shotgun_pistol
@@ -27,6 +24,7 @@ struct {
 
 } file
 
+// unused: apex-like spread
 struct
 {
 	float[2][SHOTGUN_PISTOL_MAX_BOLTS] boltOffsets = [
@@ -34,16 +32,27 @@ struct
 		[-0.1, 0.4], //
 		[1.0, 0.0], //
 	]
-}nessie
+} nessie
 
 var function OnWeaponPrimaryAttack_weapon_shotgun_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapons
+	if ( weapon.HasMod( "apex_nessie" ) )
+		return OnWeaponPrimaryAttack_weapon_nessie_pistol( weapon, attackParams )
+	//
+	
 	return FireWeaponPlayerAndNPC( attackParams, true, weapon )
 }
 
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_weapon_shotgun_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapons
+	if ( weapon.HasMod( "apex_nessie" ) )
+		return OnWeaponNPCPrimaryAttack_weapon_nessie_pistol( weapon, attackParams )
+	//
+
+	// vanilla behavior
 	return FireWeaponPlayerAndNPC( attackParams, false, weapon )
 }
 #endif // #if SERVER
@@ -64,6 +73,7 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 	vector baseRightVec = AnglesToRight( attackAngles )
 
 	bool hasArcNet = weapon.HasMod( "arc_net" )
+	// modified!!! apex-spread mozambique
 	bool isNessieWeapon = weapon.HasMod( "nessie_balance" )
 
 	float zoomFrac
@@ -80,9 +90,6 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 	{
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
-		if( weapon.HasMod( "apex_nessie" ) )
-			return FireNessieGrenade( weapon, attackParams, false )
-
 		for ( int index = 0; index < SHOTGUN_PISTOL_MAX_BOLTS; index++ )
 		{
 			vector upVec = baseUpVec * file.boltOffsets[index][0] * spreadFrac
@@ -94,11 +101,11 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 			if ( bolt != null )
 			{
 				bolt.kv.gravity = 0.09
-				if( isNessieWeapon )
+				if( isNessieWeapon ) // modified
 					bolt.kv.gravity = 0.5
 
 				#if SERVER
-					if ( !hasArcNet && !isNessieWeapon )
+					if ( !hasArcNet && !isNessieWeapon ) // random bolt lifetime
 					{
 						if ( !(playerFired && zoomFrac > 0.8) )
 							EntFireByHandle( bolt, "Kill", "", RandomFloatRange( 0.5, 0.75 ), null, null )
@@ -113,6 +120,7 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 		}
 	}
 
+	// modified: arc_net
 	if ( hasArcNet )
 	{
 		entity firstProjectile = null
@@ -126,7 +134,7 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 				if ( firstProjectile != null )
 				{
 					#if SERVER
-					thread CreateArcNetBeam( projectile, firstProjectile )
+						thread CreateArcNetBeam( projectile, firstProjectile )
 					#endif
 				}
 			}
@@ -146,153 +154,31 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 			lastProjectile = projectile;
 		}
 	}
+	//
 
 	return 1
 }
 
-function FireNessieGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isNPCFiring = false )
+// modified callbacks
+void function OnProjectileCollision_weapon_shotgun_pistol( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
-
-	int damageType = DF_RAGDOLL | DF_EXPLOSION
-
-	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
-
-	if ( nade )
-	{
-		#if SERVER
-			Grenade_Init( nade, weapon )
-		#else
-			entity weaponOwner = weapon.GetWeaponOwner()
-			SetTeam( nade, weaponOwner.GetTeam() )
-		#endif
-		if( weapon.HasMod( "apex_nessie" ) )
-		{
-			nade.SetModel( NESSIE_DRONE_MODEL )
-			return 1
-		}
-	}
-}
-
-void function OnProjectileCollision_weapon_nessie_gun( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
-{
+	// modded weapons, vanilla don't have specfic behavior
 	array<string> mods = projectile.ProjectileGetMods()
 
-	if( mods.contains( "apex_nessie" ) )
-	{
-		entity player = projectile.GetOwner()
-		if ( hitEnt == player )
-			return
-
-		if ( projectile.GrenadeHasIgnited() )
-			return
-
-		projectile.GrenadeIgnite()
-		projectile.SetDoesExplode( true )
-	}
+	if ( mods.contains( "apex_nessie" ) )
+		return OnProjectileCollision_weapon_nessie_pistol( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }
 
-void function OnProjectileIgnite_weapon_nessie_gun( entity projectile )
+void function OnProjectileIgnite_weapon_shotgun_pistol( entity projectile )
 {
-	#if SERVER
-	thread GrenadesToDrones( projectile )
-	#endif
+	// modded weapons, vanilla don't have specfic behavior
+	array<string> mods = projectile.ProjectileGetMods()
+
+	if ( mods.contains( "apex_nessie" ) )
+		return OnProjectileIgnite_weapon_nessie_pistol( projectile )
 }
 
-#if SERVER
-void function GrenadesToDrones( entity tick )
-{
-	thread GrenadesToDronesThreaded( tick )
-}
-
-void function GrenadesToDronesThreaded( entity tick )
-{
-	entity tickowner = tick.GetThrower()
-	vector tickpos = tick.GetOrigin() + Vector(0,0,10)
-	vector tickang = tick.GetAngles()
-	int tickteam = tick.GetTeam()
-
-	array<string> validDroneTypes = 
-    [ 
-        "npc_drone_beam", 
-        "npc_drone_rocket", 
-        "npc_drone_plasma" 
-    ]
-	string dronename = validDroneTypes[ RandomInt( validDroneTypes.len() ) ]
-
-	entity drone = CreateNPC("npc_drone" , tickteam , tickpos, tickang )
-	SetSpawnOption_AISettings( drone, dronename )
-	drone.kv.modelscale = 0.01
-	//drone.kv.modelscale = 0.5
-	//drone.Hide() // this one can't show a title!
-	DispatchSpawn( drone )
-
-	entity nessie = CreateEntity( "script_mover" )
-	nessie.SetModel( NESSIE_DRONE_MODEL )
-	nessie.SetParent( drone, "CHESTFOCUS" )
-	nessie.SetAngles( < 0, -90, 0 > )
-
-	drone.SetTitle( "小尼斯水怪" )
-	drone.SetHealth( 1 )
-	drone.SetOwner( tickowner )
-	drone.SetBossPlayer( tickowner )
-
-	NPCFollowsPlayer( drone, tickowner )
-	
-	thread DisableNessieDroneSound( drone )
-	thread NessieDroneLifetime( drone, nessie, NESSIE_DRONE_TIME )
-	//thread AfterTimeDissolveNessieDrone( drone, nessie, fx, NESSIE_DRONE_TIME )
-}
-
-void function DisableNessieDroneSound( entity drone ) // annoying sound!
-{
-	drone.EndSignal( "OnDestroy" )
-	
-	while( true )
-	{
-		StopSoundOnEntity( drone, "Drone_Mvmt_Hover_Hero" )
-		StopSoundOnEntity( drone, "Drone_Mvmt_Hover" )
-		StopSoundOnEntity( drone, "Drone_Mvmt_Turn" )
-		
-		WaitFrame()
-	}
-}
-
-void function NessieDroneLifetime( entity drone, entity nessie, float delay )
-{
-	drone.EndSignal( "OnDestroy" )
-	OnThreadEnd(
-		function(): ( drone, nessie )
-		{
-			if( IsValid( nessie ) )
-			{
-				nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-			}
-			if( IsValid( drone ) )
-			{
-				PlayFX( $"P_plasma_exp_SM", drone.GetOrigin(), drone.GetAngles() )
-				EmitSoundAtPosition( TEAM_UNASSIGNED, drone.GetOrigin(), "explo_plasma_small" )
-				drone.Destroy()
-			}
-		}
-	)
-	
-	wait delay
-}
-
-void function AfterTimeDissolveNessieDrone( entity drone, entity nessie, entity fx, float delay )
-{
-	wait delay
-	if( IsValid(drone) )
-		drone.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-	if( IsValid(nessie) )
-		nessie.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
-	if( IsValid(fx) )
-		EffectStop( fx )
-
-}
-#endif
-
+// respawn made for arc_net, really sucks
 #if CLIENT
 function CreateClientMastiffBeam( entity sourceEnt, entity destEnt )
 {
@@ -326,7 +212,11 @@ function CreateServerMastiffBeam( entity sourceEnt, entity destEnt )
 
 	DispatchSpawn( serverEffect )
 }
+#endif
+//
 
+// modified: arc_net
+#if SERVER
 void function CreateArcNetBeam( entity sourceEnt, entity destEnt, float lifeTime = 5.0, asset beamEffectName = $"P_wpn_charge_tool_beam" )
 {
 	entity cpEnd = CreateEntity( "info_placement_helper" )

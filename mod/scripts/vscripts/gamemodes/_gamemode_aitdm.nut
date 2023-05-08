@@ -55,7 +55,7 @@ void function Modded_Gamemode_Extra_Spawner_Enable_Init()
 
 void function GamemodeAITdm_Init()
 {
-	if ( modGamemodes.gruntmode || GetCurrentPlaylistVarInt( "aitdm_grunt_mode", 0 ) != 0 )
+	if( modGamemodes.gruntmode || GetCurrentPlaylistVarInt( "aitdm_grunt_mode", 0 ) != 0 )
 		Modded_Gamemode_GruntMode_Init()
 	else if( modGamemodes.extraSpawner )
 		Modded_Gamemode_Extra_Spawner_Init()
@@ -325,7 +325,7 @@ void function Spawner_Threaded( int team )
 		// REAPERS
 		if ( file.reapers[ index ] )
 		{
-			array< entity > points = SpawnPoints_GetDropPod()
+			array< entity > points = SpawnPoints_GetTitan()
 			if ( reaperCount < file.reapersPerTeam )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]

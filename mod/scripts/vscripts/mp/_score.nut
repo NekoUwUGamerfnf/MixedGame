@@ -15,7 +15,6 @@ global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 // nessie modify
 global function GetMvpPlayer
 global function AddTitanKilledDialogueEvent
-global function ScoreEvent_ForceUsePilotEliminateEvent
 global function ScoreEvent_DisableCallSignEvent
 global function ScoreEvent_AddHeadShotMedalDisabledDamageSourceId // basically for eDamageSourceId.bleedout
 global function ScoreEvent_EnableComebackEvent
@@ -29,7 +28,6 @@ struct
 
 	IntFromEntityCompare mvpCompareFunc = null
 	
-	bool forceAddEliminateScore = false
 	bool disableCallSignEvent = false
 	array<int> headShotMedalDisabledDamageSource
 	bool comebackEvent = false
@@ -69,7 +67,7 @@ void function InitPlayerForScoreEvents( entity player )
 
 // idk why forth arg is a string, maybe it should be a var type?
 //void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string noideawhatthisis = "", int pointValueOverride = -1 )
-void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string displayTypeOverride = "", int pointValueOverride = -1 )
+void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1 )
 {
 	ScoreEvent event = GetScoreEvent( scoreEventName )
 	
@@ -113,8 +111,17 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 			event.displayType = event.displayType & ~eEventDisplayType.CALLINGCARD
 	}
 	
-	if ( displayTypeOverride != "noCenter" ) // default
-		event.displayType = event.displayType | eEventDisplayType.CENTER // eEventDisplayType.CENTER is required for client to show earnvalue on screen
+	if ( displayTypeOverride != null ) // has overrides?
+	{
+		// anti-crash for calling in GameModeRulesEarnMeterOnDamage_Default()
+		if ( typeof( displayTypeOverride ) == "int" )
+			event.displayType = expect int( displayTypeOverride )
+		else
+			event.displayType = int( displayTypeOverride )
+	}
+	else // default, add a eEventDisplayType.CENTER, required for client to show earnvalue on screen
+		event.displayType = event.displayType | eEventDisplayType.CENTER
+	
 	// messed up "ownValue" and "earnValue"
 	//Remote_CallFunction_NonReplay( targetPlayer, "ServerCallback_ScoreEvent", event.eventId, event.pointValue, event.displayType, associatedHandle, ownValue, earnValue )
 	Remote_CallFunction_NonReplay( targetPlayer, "ServerCallback_ScoreEvent", event.eventId, event.pointValue, event.displayType, associatedHandle, earnValue, ownValue )
@@ -174,10 +181,11 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 			AddPlayerScore( attacker, "VictoryKill", attacker ) // show a callsign event
 	}
 	
-	if( IsPilotEliminationBased() || file.forceAddEliminateScore )
-		AddPlayerScore( attacker, "EliminatePilot", victim ) // elimination gamemodes have a special medal
-	else
-		AddPlayerScore( attacker, "KillPilot", victim )
+	string pilotKillEvent = "KillPilot"
+	if( IsPilotEliminationBased() )
+		pilotKillEvent = "EliminatePilot" // elimination gamemodes have a special medal
+
+	AddPlayerScore( attacker, pilotKillEvent, victim )
 
 	// mvp kill, triggers when there're more than one player in a team
 	bool enoughPlayerForMVP = GetPlayerArrayOfTeam( victim.GetTeam() ).len() > 1
@@ -193,7 +201,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// modified to handle specific damages
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
 	{
-		if ( file.headShotMedalDisabledDamageSource.contains( methodOfDeath ) )
+		if ( !file.headShotMedalDisabledDamageSource.contains( methodOfDeath ) )
 		{
 			AddPlayerScore( attacker, "Headshot", victim )
 			PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
@@ -271,11 +279,11 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 void function ScoreEvent_TitanDoomed( entity titan, entity attacker, var damageInfo )
 {
 	// will this handle npc titans with no owners well? i have literally no idea
-	// these two shouldn't add eEventDisplayType.CENTER, now hardcoded by "noCenter" param
+	// these two shouldn't add eEventDisplayType.CENTER, override with eEventDisplayType.MEDAL
 	if ( titan.IsNPC() )
-		AddPlayerScore( attacker, "DoomAutoTitan", titan, "noCenter" )
+		AddPlayerScore( attacker, "DoomAutoTitan", titan, eEventDisplayType.MEDAL )
 	else
-		AddPlayerScore( attacker, "DoomTitan", titan, "noCenter" )
+		AddPlayerScore( attacker, "DoomTitan", titan, eEventDisplayType.MEDAL )
 }
 
 void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damageInfo )
@@ -284,12 +292,13 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	if ( !attacker.IsPlayer() )
 		return
 
-	string scoreEvent = "KillTitan"
-	if( attacker.IsTitan() )
+	string scoreEvent = "KillPilot"
+	if ( attacker.IsTitan() )
 		scoreEvent = "TitanKillTitan"
 	if( victim.IsNPC() )
 		scoreEvent = "KillAutoTitan"
-	if( IsTitanEliminationBased() || file.forceAddEliminateScore )
+
+	if( IsTitanEliminationBased() )
 	{
 		if( victim.IsNPC() )
 			scoreEvent = "EliminateAutoTitan"
@@ -385,7 +394,7 @@ void function SetupEarnMeterValuesForMixedModes_Threaded()
 
 	// todo needs earn/overdrive values
 	// player-controlled stuff
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.33 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.02, 0.05, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
@@ -454,11 +463,6 @@ entity function GetMvpPlayer( int team = 0 )
 void function AddTitanKilledDialogueEvent( string titanName, string dialogueName )
 {
 	file.killedTitanDialogues[titanName] <- dialogueName
-}
-
-void function ScoreEvent_ForceUsePilotEliminateEvent( bool force )
-{
-	file.forceAddEliminateScore = force
 }
 
 void function ScoreEvent_DisableCallSignEvent( bool disable )

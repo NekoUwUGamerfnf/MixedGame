@@ -11,12 +11,16 @@ const float JET_PACK_BURST_VELOCITY_VERTICAL = 300 // shouldn't set this very hi
 const float JET_PACK_BURST_VELOCITY_HORIZONAL = 320 // this can be bit higher
 const float JET_PACK_BURST_TO_LIFT_DELAY = 0.4 // basically no need to change this
 const float JET_PACK_LIFT_SPEED_VERTICAL = 300
+const float JET_PACK_LIFT_ACCELERATION_VERTICAL = 100
 // reworked over here, using airSpeed for better behavior
 //const float JET_PACK_LIFT_SPEED_HORIZONAL = 250 // actual behaviors not this high, so set higher.
-const float JET_PACK_LIFT_SPEED_HORIZONAL = 250
-const float JET_PACK_LIFT_ACCELERATION_HORIZONAL = 600
+const float JET_PACK_LIFT_SPEED_HORIZONAL = 280 // player's air speed, also air speed limit
+const float JET_PACK_LIFT_ACCELERATION_HORIZONAL = 3000 // player's air acceleration, for better control
 const float JET_PACK_GLIDE_GRAVITY_SCALE = 0.6
 const float JET_PACK_GLIDE_DURATION = 0.5
+const float JET_PACK_DEACCELERATETION_HORIZONAL = 70 // takes 4 ticks(.4s) to de-accelerate if player have no input
+const float JET_PACK_DEACCELERATETION_VERTICAL = 50 // takes 6 ticks(.6s) to de-accelerate if player try to hover
+const float JET_PACK_HOVER_VERTICAL_SPEED_SCALE = 0.1 // hover speed scale
 
 const float HOVER_SOUND_DURATION = 2.2 // should relap a sound if ends, no need to change
 
@@ -32,7 +36,10 @@ const float JET_PACK_BURST_VELOCITY_VERTICAL_GRUNT = 180 // shouldn't set this v
 const float JET_PACK_BURST_VELOCITY_HORIZONAL_GRUNT = 200 // this can be bit higher
 const float JET_PACK_LIFT_SPEED_VERTICAL_GRUNT = 150
 const float JET_PACK_LIFT_SPEED_HORIZONAL_GRUNT = 150 // actual behaviors not this high, so set higher.
-const float JET_PACK_LIFT_ACCELERATION_HORIZONAL_GRUNT = 350
+const float JET_PACK_LIFT_ACCELERATION_HORIZONAL_GRUNT = 900 // higher for better control
+const float JET_PACK_DEACCELERATETION_HORIZONAL_GRUNT = 30 // takes 5 ticks(.5s) to de-accelerate if player have no input
+const float JET_PACK_DEACCELERATETION_VERTICAL_GRUNT = 30 // takes 5 ticks(.5s) to de-accelerate if player try to hover
+
 const int JET_PACK_AMMO_REDUCE_PER_BURST_GRUNT = 40 // higher so player won't have bad looping sound
 const int JET_PACK_AMMO_REDUCE_PER_TICK_GRUNT = 5
 
@@ -242,6 +249,8 @@ void function JetPackActivateThink( entity player, entity weapon )
                 //print( "resetting airAcceleration to " + string ( savedStatus.airAccel ) )
                 player.kv.airSpeed = savedStatus.airSpeed
                 player.kv.airAcceleration = savedStatus.airAccel
+
+                player.UnforceStand() // clean up
             }
 			foreach ( effect in fx )
 			{
@@ -270,6 +279,9 @@ void function JetPackActivateThink( entity player, entity weapon )
         SetTeam( fxJetLeft, player.GetTeam() )
         fxJetLeft.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY // owner can't see
         fx.append( fxJetLeft )
+        
+        //entity fxSmokeLeft = PlayFXOnEntity( $"wpn_grenade_frag_softball", player, "vent_left_out" )
+        //fx.append( fxSmokeLeft )
     }
 
     if( player.LookupAttachment( "vent_right_out" ) > 0 ) // was vent_right_back, this is better
@@ -279,6 +291,9 @@ void function JetPackActivateThink( entity player, entity weapon )
         SetTeam( fxJetRight, player.GetTeam() )
         fxJetRight.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY // owner can't see
         fx.append( fxJetRight )
+
+        //entity fxSmokeRight = PlayFXOnEntity( $"wpn_grenade_frag_softball", player, "vent_right_out" )
+        //fx.append( fxSmokeRight )
     }
 
     EmitSoundOnEntityOnlyToPlayer( player, player, "Boost_Hover_Start_1P" )
@@ -292,6 +307,10 @@ void function JetPackActivateThink( entity player, entity weapon )
     float liftVelHorizonal = JET_PACK_LIFT_SPEED_HORIZONAL
     float liftAccelHorizonal = JET_PACK_LIFT_ACCELERATION_HORIZONAL
     float liftVelVertical = JET_PACK_LIFT_SPEED_VERTICAL
+    float liftAccelVertical = JET_PACK_LIFT_ACCELERATION_VERTICAL
+    float deAccelHorizonal = JET_PACK_DEACCELERATETION_HORIZONAL
+    float deAccelVertical = JET_PACK_DEACCELERATETION_VERTICAL
+    float hoverSpeedScale = JET_PACK_HOVER_VERTICAL_SPEED_SCALE
     // grunt speed
     if ( weapon.HasMod( "gm_flyer" ) )
     {
@@ -300,19 +319,27 @@ void function JetPackActivateThink( entity player, entity weapon )
         liftVelHorizonal = JET_PACK_LIFT_SPEED_HORIZONAL_GRUNT
         liftAccelHorizonal = JET_PACK_LIFT_ACCELERATION_HORIZONAL_GRUNT
         liftVelVertical = JET_PACK_LIFT_SPEED_VERTICAL_GRUNT
+        deAccelHorizonal = JET_PACK_DEACCELERATETION_HORIZONAL_GRUNT
+        deAccelVertical = JET_PACK_DEACCELERATETION_VERTICAL_GRUNT
     }
 
     // start burst: forced velocity for a while
     player.kv.gravity = 0.0001
     vector burstVector = GetVectorFromInput( player ) * burstVelHorizonal
     burstVector.z = burstVelVertical
-    player.SetVelocity( burstVector )
 
     Signal( weapon, "JetPackBurst" )
 
     float startTime = Time()
     int soundRelapCount = 1
-    wait JET_PACK_BURST_TO_LIFT_DELAY - 0.1 // minus a tick
+
+    float burstEndTime = startTime + JET_PACK_BURST_TO_LIFT_DELAY - 0.1
+    while ( Time() < burstEndTime )
+    {
+        player.ForceStand() // force player to stand
+        player.SetVelocity( burstVector )
+        WaitFrame()
+    }
 
     // start lifting
     player.kv.airSpeed = liftVelHorizonal
@@ -349,19 +376,80 @@ void function JetPackActivateThink( entity player, entity weapon )
         player.HolsterWeapon() // defensive fix
         player.Server_TurnOffhandWeaponsDisabledOn() // this can turn off offhand weapons
         player.kv.gravity = 0.0001 // defensive fix
-        vector liftVector = player.GetVelocity() //GetVectorFromInput( player ) * liftVelHorizonal
+        vector liftVector = player.GetVelocity() //GetVectorFromInput( player ) * liftVelHorizonal // pretty bad if you got high latency
         // hovering, more like valk's jecpack
-        if( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) )
-            liftVector.z = liftVelVertical * 0.5 // small amount to regret gravity, also make visual not that bad?
+        bool playerWantsToHover = player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE )
+        if( playerWantsToHover )
+        {
+            float minLiftSpeed = liftVelVertical * hoverSpeedScale
+            liftVector = GainVelocityVertical( liftVector, -deAccelVertical, minLiftSpeed )
+        }
         else
-            liftVector.z = liftVelVertical
+        {
+            liftVector = GainVelocityVertical( liftVector, liftAccelVertical )
+            liftVector.z = min( liftVelVertical, liftVector.z )
+        }
         // if player is on ground, you need at least 220 vel to make them off ground
-        if ( player.IsOnGround() && liftVector.z < 220 )
+        if ( !playerWantsToHover && player.IsOnGround() && liftVector.z < 220 )
             liftVector.z = 220
+        liftVector = LimitVelocityHorizontal( liftVector, liftVelHorizonal ) // better handling control
+        //print( "liftVector.z: " + string( liftVector.z ) )
+
+        if ( PlayerNotDoingInput( player ) ) // player not doing any input?
+            liftVector = GainVelocityHorizonal( liftVector, -deAccelHorizonal )
+
+        player.ForceStand() // force player to stand
         player.SetVelocity( liftVector )
 
         Signal( weapon, "JetPackLift" )
     }
+}
+
+vector function LimitVelocityHorizontal( vector vel, float speed )
+{
+	vector horzVel = <vel.x, vel.y, 0>
+	if ( Length( horzVel ) <= speed )
+		return vel
+
+	horzVel = Normalize( horzVel )
+	horzVel *= speed
+	vel.x = horzVel.x
+	vel.y = horzVel.y
+	return vel
+}
+
+bool function PlayerNotDoingInput( entity player )
+{
+	vector inputVec = GetVectorFromInput( player )
+    vector inputAngs = VectorToAngles( inputVec )
+    inputAngs.x = 0
+    inputAngs.y -= 180
+    //print( inputAngs )
+	return inputAngs.x == 0 && inputAngs.y == 0
+}
+
+vector function GainVelocityHorizonal( vector vel, float speedGain, float minSpeed = 0.0 )
+{
+    vector horzVel = <vel.x, vel.y, 0>
+
+    float speed = max( minSpeed, Length( horzVel ) + speedGain )
+	horzVel = Normalize( horzVel )
+	horzVel *= speed
+	vel.x = horzVel.x
+	vel.y = horzVel.y
+	return vel
+}
+
+vector function GainVelocityVertical( vector vel, float speedGain, float minSpeed = 0.0 )
+{
+    vector vertiVel = <0, 0, vel.z>
+
+    float speed = max( minSpeed, Length( vertiVel ) + speedGain )
+	vertiVel = Normalize( vertiVel )
+	vertiVel *= speed
+    vertiVel.z = max( minSpeed, vertiVel.z )
+	vel.z = vertiVel.z
+	return vel
 }
 
 void function JetPackGlideThink( entity player )

@@ -24,7 +24,7 @@ void function Berserker_Core_Init()
 {
 	#if SERVER
 		// modified function in sh_melee_titan, other players can't counter berserker core's melee
-		TitanMelee_AddCounterImmuneMod( BERSERKER_CORE_MELEE_MOD_NAME, true )
+		TitanMelee_AddCounterImmuneMod( BERSERKER_CORE_MELEE_MOD_NAME )
 		TitanMelee_AddDamageSourceIdMod( BERSERKER_CORE_MELEE_MOD_NAME, eDamageSourceId.berserker_melee )
 	#endif
 }

@@ -206,22 +206,11 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 	entity meleeWeapon = owner.GetOffhandWeapon( OFFHAND_MELEE )
 	if ( IsValid( meleeWeapon ) )
 	{
-		// if we're not having sword, save current melee weapon and give melee_titan_sword
-		if ( meleeWeapon.GetWeaponClassName() != "melee_titan_sword" )
-		{
-			ShiftCoreSavedMelee meleeStruct
-			meleeStruct.meleeName = meleeWeapon.GetWeaponClassName()
-			meleeStruct.meleeMods = meleeWeapon.GetMods()
-			file.soulShiftCoreSavedMelee[ soul ] <- meleeStruct
-			owner.TakeOffhandWeapon( OFFHAND_MELEE )
-
-			// prime sword check
-			TitanLoadoutDef loadout = soul.soul.titanLoadout
-			array<string> mods = []
-			if ( loadout.isPrime == "titan_is_prime" )
-				mods.append( "modelset_prime" )
-			owner.GiveOffhandWeapon( "melee_titan_sword", OFFHAND_MELEE, mods )
-		}
+		ShiftCoreSavedMelee meleeStruct
+		meleeStruct.meleeName = meleeWeapon.GetWeaponClassName()
+		meleeStruct.meleeMods = meleeWeapon.GetMods()
+		file.soulShiftCoreSavedMelee[ soul ] <- meleeStruct
+		owner.TakeOffhandWeapon( OFFHAND_MELEE )
 	}
 	//
 
@@ -238,12 +227,26 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 			AddAnimEvent( titan, "shift_core_use_meter", Shift_Core_UseMeter_NPC )
 		}
 
+		// super charged sword
+		array<string> mods = []
+		if ( IsSingleplayer() )
+			mods.append( "super_charged_SP" )
+		else
+			mods.append( "super_charged" )
+		// prime sword check
+		TitanLoadoutDef loadout = soul.soul.titanLoadout
+		if ( loadout.isPrime == "titan_is_prime" )
+			mods.append( "modelset_prime" )
+		owner.GiveOffhandWeapon( "melee_titan_sword", OFFHAND_MELEE, mods )
+
+		/* // vanilla behavior, removed
 		titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged" )
 
 		if ( IsSingleplayer() )
 		{
 			titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged_SP" )
 		}
+		*/
 		
 		// pullout animation, respawn messed this up, but makes sword core has less startup
 		if ( weapon.HasMod( "deploy_animation_fix" ) )
