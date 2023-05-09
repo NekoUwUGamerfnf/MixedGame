@@ -125,67 +125,65 @@ vector function GetSatchelThrowVelocity( entity player, vector baseAngles )
 
 void function OnProjectileCollision_weapon_satchel( entity weapon, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	// modded weapons
 	array<string> mods = weapon.ProjectileGetMods()
 	if( mods.contains( "proximity_mine" ) || mods.contains( "anti_titan_mine" ) )
-		OnProjectileCollision_weapon_proximity_mine( weapon, pos, normal, hitEnt, hitbox, isCritical )
-	else
+		return OnProjectileCollision_weapon_proximity_mine( weapon, pos, normal, hitEnt, hitbox, isCritical )
+	//
+
+	// vanilla behavior
+	table collisionParams =
 	{
-		table collisionParams =
+		pos = pos,
+		normal = normal,
+		hitEnt = hitEnt,
+		hitbox = hitbox
+	}
+
+	bool result = PlantStickyEntity( weapon, collisionParams )
+
+	#if SERVER
+		entity player = weapon.GetOwner()
+
+		if ( !IsValid( player ) )
 		{
-			pos = pos,
-			normal = normal,
-			hitEnt = hitEnt,
-			hitbox = hitbox
+			weapon.Kill_Deprecated_UseDestroyInstead()
+			return
 		}
 
-		bool result = PlantStickyEntity( weapon, collisionParams )
+		EmitSoundOnEntity( weapon, "Weapon_R1_Satchel.Attach" )
+		EmitAISoundWithOwner( player, SOUND_PLAYER, 0, player.GetOrigin(), 1000, 0.2 )
 
-		#if SERVER
-			entity player = weapon.GetOwner()
+		// Added via AddCallback_OnSatchelPlanted
+		if ( "onSatchelPlanted" in level )
+		{
+			foreach ( callbackFunc in level.onSatchelPlanted )
+				callbackFunc( player, collisionParams )
+		}
 
-			if ( !IsValid( player ) )
-			{
-				weapon.Kill_Deprecated_UseDestroyInstead()
+		//if player is rodeoing a Titan and we stickied the satchel onto the Titan, set lastAttackTime accordingly
+		if ( result )
+		{
+			entity entAttachedTo = weapon.GetParent()
+			if ( !IsValid( entAttachedTo ) )
 				return
-			}
 
-			EmitSoundOnEntity( weapon, "Weapon_R1_Satchel.Attach" )
-			EmitAISoundWithOwner( player, SOUND_PLAYER, 0, player.GetOrigin(), 1000, 0.2 )
+			if ( !player.IsPlayer() ) //If an NPC Titan has vortexed a satchel and fires it back out, then it won't be a player that is the owner of this satchel
+				return
 
-			// Added via AddCallback_OnSatchelPlanted
-			if ( "onSatchelPlanted" in level )
-			{
-				foreach ( callbackFunc in level.onSatchelPlanted )
-					callbackFunc( player, collisionParams )
-			}
+			entity titanSoulRodeoed = player.GetTitanSoulBeingRodeoed()
+			if ( !IsValid( titanSoulRodeoed ) )
+				return
 
-			//if player is rodeoing a Titan and we stickied the satchel onto the Titan, set lastAttackTime accordingly
-			if ( result )
-			{
-				entity entAttachedTo = weapon.GetParent()
-				if ( !IsValid( entAttachedTo ) )
-					return
+			entity titan = titanSoulRodeoed.GetTitan()
 
-				if ( !player.IsPlayer() ) //If an NPC Titan has vortexed a satchel and fires it back out, then it won't be a player that is the owner of this satchel
-					return
+			if ( !IsAlive( titan ) )
+				return
 
-				entity titanSoulRodeoed = player.GetTitanSoulBeingRodeoed()
-				if ( !IsValid( titanSoulRodeoed ) )
-					return
-
-				entity titan = titanSoulRodeoed.GetTitan()
-
-				if ( !IsAlive( titan ) )
-					return
-
-				if ( titan == entAttachedTo )
-					titanSoulRodeoed.SetLastRodeoHitTime( Time() )
-			}
-
-
-
-		#endif
-	}
+			if ( titan == entAttachedTo )
+				titanSoulRodeoed.SetLastRodeoHitTime( Time() )
+		}
+	#endif
 }
 
 function AddCallback_OnSatchelPlanted( callbackFunc )
