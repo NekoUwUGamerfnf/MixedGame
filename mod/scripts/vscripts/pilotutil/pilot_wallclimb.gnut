@@ -5,6 +5,8 @@ const bool WALLCLIMB_ALLOW_HORIZONAL_INPUT = true // client will mostly desync, 
 const float WALLCLIMB_GRACE_PERIOD_TIME = 0.3 // press left or right within this time won't be kick off wall, causes little desync
 const float WALLCLIMB_GRACE_PERIOD_TIME_NOT_FACING_WALL = 0.5 // if you're not facing wall at start and disabled WALLCLIMB_CLASSMODS_UPDATE, use this grace period instead
 const float WALLCLIMB_HORIZONAL_SPEED_LIMIT = 30 // speed limit if player wants to move on the wall, requires WALLCLIMB_ALLOW_HORIZONAL_INPUT to be true
+const float WALLCLIMB_MOVE_SLOW_SEVERITY = 0.5 // slow down player when they're on the wall, so forced horizontal speed won't make view feel bad.. this influnces wallclimb speed!
+const float WALLCLIMB_MOVE_SLOW_SEVERITY_AMPED = 0.0 // amped wallclimb don't receive wallclimb move slow effect
 
 const float WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not facing a wall
 
@@ -38,7 +40,7 @@ struct
 
 void function Pilot_WallClimb_Init()
 {
-	ServerCommand( "script_server_fps 60" ) // function WaitFrame() has been modified
+	//ServerCommand( "script_server_fps 60" ) // function WaitFrame() has been modified. we've added WALLCLIMB_MOVE_SLOW_SEVERITY, which can handle visual effect
 
     // I can't handle "PilotStartWallClimb" now
     RegisterSignal( "PilotStartWallClimb" )
@@ -101,6 +103,7 @@ void function PilotWallClimbThink( entity player )
 	// check wallclimb mod, ttf2 don't have other ways to modify classmods than changing class so this is enough
 	bool hasWallClimb = false
 	float angleLimit
+	float slowMoveSeverity
 	array<string> classMods = player.GetPlayerSettingsMods()
 	// grunt mode climber, should be a array to store them
 	if ( 
@@ -111,6 +114,9 @@ void function PilotWallClimbThink( entity player )
 	{
 		hasWallClimb = true
 		angleLimit = WALLCLIMB_ANGLE_LIMIT
+		slowMoveSeverity = WALLCLIMB_MOVE_SLOW_SEVERITY
+		if ( classMods.contains( "amped_wallclimb" ) ) // amped wallclimb
+			slowMoveSeverity = WALLCLIMB_MOVE_SLOW_SEVERITY_AMPED
 	}
 
 	if ( !hasWallClimb )
@@ -122,6 +128,21 @@ void function PilotWallClimbThink( entity player )
 	bool facingWallAtStart = false
 	bool groundTouched = true
 	bool lastTickOnGround = true
+	int moveSlowEffectHandle
+
+	OnThreadEnd // clean up
+	(
+		function(): ( player, moveSlowEffectHandle )
+		{
+			if ( IsValid( player ) )
+			{
+				player.UnforceCrouch()
+				player.UnforceStand()
+				if ( moveSlowEffectHandle > 0 )
+					StatusEffect_Stop( player, moveSlowEffectHandle )
+			}
+		}
+	)
 
 	// sound
 	float lastHealthFrac = 1.0
@@ -140,6 +161,9 @@ void function PilotWallClimbThink( entity player )
 			facingWallAtStart = false
 
 			lastTickOffTheWall = true
+
+			if ( moveSlowEffectHandle > 0 )
+				StatusEffect_Stop( player, moveSlowEffectHandle )
 		}
 
 		// classmods management checks
@@ -281,6 +305,10 @@ void function PilotWallClimbThink( entity player )
 				//print( fabs( fabs( wallAngles.y - eyeAnglesYawBeforeTrace ) - 180 ) )
 
 				StopWallrunSounds( player ) // stop jumpjet sound!
+
+				// apply move slow effect!
+				if ( WALLCLIMB_ALLOW_HORIZONAL_INPUT && slowMoveSeverity > 0 )
+					moveSlowEffectHandle = StatusEffect_AddEndless( player, eStatusEffect.move_slow, slowMoveSeverity )
 			}
 
 			// comparing yaw is enough
