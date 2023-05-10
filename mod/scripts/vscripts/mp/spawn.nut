@@ -352,8 +352,8 @@ entity function GetBestSpawnpoint( entity player, array<entity> spawnpoints )
 	array<entity> validSpawns
 	foreach ( entity spawnpoint in spawnpoints )
 	{
-		if ( player.p.lastSpawnPoint == spawnpoint ) // don't do this
-			continue
+		//if ( player.p.lastSpawnPoint == spawnpoint ) // don't spawn on a point that is used by other players
+		//	continue
 		if ( IsSpawnpointValid( spawnpoint, player.GetTeam() ) )
 		{
 			validSpawns.append( spawnpoint )
@@ -492,7 +492,7 @@ struct {
 
 void function RateSpawnpoints_Generic( int checkClass, array<entity> spawnpoints, int team, entity player )
 {	
-	if ( Riff_SpawnAsTitan() == 1 && !IsFFAGame() )	// spawn as titan
+	if ( checkClass == TD_TITAN && !IsFFAGame() ) // spawn as titan
 	{
 		//print( "respawning as titan!" )
 		// use frontline spawns in 2-team modes
