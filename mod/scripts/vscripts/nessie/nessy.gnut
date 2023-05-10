@@ -222,6 +222,9 @@ void function EverythingNessy_Init()
 		AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
 	}
 	RAGDOLL_IMPACT_TABLE_IDX = PrecacheImpactEffectTable( "ragdoll_human" )
+
+	// satchel funny, related with batteries
+	AddCallback_OnSatchelPlanted( OnSatchelPlanted )
 	
 	// using _rodeo_titan.gnut for more fix about batteries
 	//AddClientCommandCallback( "spawnbatt", SpawnBattery )
@@ -820,12 +823,13 @@ void function CallbackFuncSpawnBattery( entity player )
 	{
 		entity battery = Rodeo_CreateBatteryPack( player, false, true )
 		bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
-		if( battery )
+		if( battery ) // battery won't be returned if they spawned on player's back
 		{
-			// never blocks bullet, but also unable to stack batteries
+			// never blocks bullet, but also unable to stack batteries. won't work!
 			//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS 
 			vector batteryVel = player.GetViewVector() * 1000
 			battery.SetVelocity( batteryVel )
+			battery.SetBossPlayer( player ) // add a boss player for this battery!
 			if( badCombo || file.alwaysRGBSpawn )
 				thread RGY_BatterySkin( battery )
 			//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_NONE
@@ -845,6 +849,75 @@ void function CallbackFuncSpawnBattery( entity player )
 void function Nessie_SetBatterySpawnEnabled( bool enabled )
 {
 	file.batterySpawnEnabled = enabled
+}
+
+// satchel funny related with batteries
+function OnSatchelPlanted( player, collisionParams )
+{
+	expect entity( player )
+	expect table( collisionParams )
+
+	//print( "RUNNING OnSatchelPlanted()" )
+	// satchel planted on battery!
+	if ( file.batterySpawnEnabled )
+	{
+		entity hitEnt = expect entity( collisionParams.hitEnt )
+		//print( "hitEnt: " + string( hitEnt ) )
+		if ( IsValid( hitEnt ) && hitEnt.GetClassName() == "item_titan_battery" )
+		{
+			entity bossPlayer = hitEnt.GetBossPlayer()
+			//print( "bossPlayer: " + string( bossPlayer ) )
+			array<entity> traps = GetScriptManagedEntArray( player.s.activeTrapArrayId )
+			entity satchel
+			foreach ( entity trap in traps )
+			{
+				entity child = hitEnt.FirstMoveChild()
+				//print( "trap: " + string( trap ) + ", child: " + string( child ) )
+				if ( child == trap )
+					satchel = child
+			}
+			if ( IsValid( satchel ) && IsValid( bossPlayer ) && bossPlayer == satchel.GetThrower() )
+			{
+				satchel.ClearParent()
+				string attachment = "vent_center"
+				vector offset = < 0, 0, 0 >
+				vector angles = < 0, 0, -90 >
+				if ( bossPlayer.LookupAttachment( "vent_center" ) < 0 ) // anti-crash
+				{
+					attachment = "CHESTFOCUS"
+					offset = < -13, 0, -5 >
+					angles = < 0, -180, 0 >
+				}
+				satchel.SetParent( bossPlayer, attachment )
+				satchel.SetOrigin( offset )
+				satchel.SetAngles( angles )
+
+				// attach a bigger satchel!
+				asset satchelModel = satchel.GetModelName()
+				entity biggerSatchel = CreateEntity( "prop_dynamic" )
+				biggerSatchel.SetModel( satchelModel )
+				DispatchSpawn( biggerSatchel )
+				
+				attachment = "CHESTFOCUS"
+				offset = < -13, 0, -5 >
+				angles = < 0, -180, 0 >
+				biggerSatchel.SetParent( bossPlayer, attachment )
+				biggerSatchel.SetOrigin( offset )
+				biggerSatchel.SetAngles( angles )
+				biggerSatchel.Highlight_SetInheritHighlight( true )
+				biggerSatchel.kv.modelscale = 3
+				thread TrackSatchelLifeTime( satchel, biggerSatchel )
+			}
+		}
+	}
+}
+
+void function TrackSatchelLifeTime( entity satchel, entity biggerSatchel )
+{
+	biggerSatchel.EndSignal( "OnDestroy" )
+	satchel.WaitSignal( "OnDestroy" )
+	//biggerSatchel.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 100 )
+	biggerSatchel.Destroy()
 }
 
 void function CallbackFuncSpawnRagdoll( entity player )
