@@ -270,7 +270,8 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		}
 		
 		// pullout animation, respawn messed this up, but makes sword core has less startup
-		if ( weapon.HasMod( "deploy_animation_fix" ) )
+		bool doAnimationFix = weapon.HasMod( "deploy_animation_fix" ) || bool( GetCurrentPlaylistVarInt( "melee_core_anim_fix", 0 ) )
+		if ( doAnimationFix )
 		{
 			if ( owner.IsPlayer() )
 				owner.HolsterWeapon() // to have deploy animation
@@ -279,7 +280,7 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		titan.SetActiveWeaponByName( "melee_titan_sword" )
 		
 		// pullout animation
-		if ( weapon.HasMod( "deploy_animation_fix" ) )
+		if ( doAnimationFix )
 		{
 			if ( owner.IsPlayer() )
 				owner.DeployWeapon() // to have deploy animation
