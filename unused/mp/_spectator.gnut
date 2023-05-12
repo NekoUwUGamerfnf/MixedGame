@@ -17,18 +17,12 @@ global function HACKCleanupStaticObserverStuff
 
 global typedef SpectatorFunc void functionref( entity player )
 
-// modified! for we tracking spectating players
-global function Spectator_IsPlayerSpectating
-
 struct {
 	array<entity> staticSpecCams 
 	SpectatorFunc defaultSpectatorFunc
 	SpectatorFunc nextSpectatorFunc = null
 	
 	int newestFuncIndex = 0 // used to track which players have finished the most recent spectator func
-
-	// modified! for we tracking spectating players
-	table<entity, bool> playerIsSpectating
 } file
 
 void function Spectator_Init()
@@ -42,9 +36,9 @@ void function Spectator_Init()
 	AddClientCommandCallback( "spec_next", ClientCommandCallback_spec_next )
 	AddClientCommandCallback( "spec_prev", ClientCommandCallback_spec_prev )
 	AddClientCommandCallback( "spec_mode", ClientCommandCallback_spec_mode )
-
-	// modified! for we tracking spectating players
-	AddCallback_OnClientConnected( InitPlayerSpectators )
+	
+	// modifed
+	RegisterSignal( "HACKSpectatorStart" )
 }
 
 void function SetStaticSpecCams()
@@ -97,12 +91,13 @@ void function InitialisePrivateMatchSpectatorPlayer( entity player )
 // this should be called when intros respawn players normally to handle fades and stuff
 void function RespawnPrivateMatchSpectator( entity player )
 {
-	ScreenFadeFromBlack( player, 3.0, 1.0 )
+	ScreenFadeFromBlack( player, 0.5, 0.5 )
 }
 
 void function PlayerBecomesSpectator( entity player )
 {
-	file.playerIsSpectating[ player ] = true // mark as player spectating
+	//if( IsAlive( player ) )
+	//	player.Die( player, player, { damageSourceId = damagedef_despawn } )
 
 	player.SetPlayerSettings( "spectator" ) // don't you think we should do this?
 	player.StopPhysics()
@@ -116,15 +111,13 @@ void function PlayerBecomesSpectator( entity player )
 		if ( IsValid( player ) )
 		{
 			player.StopObserverMode()
-
-			// modified clean up
-			file.playerIsSpectating[ player ] = false
 		}
 	})
 	
 	// keeps track of the most recent func this player has completed
 	// this is to ensure that custom spectator funcs are only run once per player even before being cleared
 	int funcIndex = 0
+	//thread HACK_HandlePlayerSpecModeButton( player ) // WIP
 	
 	while ( true )
 	{
@@ -240,16 +233,32 @@ bool function ClientCommandCallback_spec_mode( entity player, array<string> args
 	return true
 }
 
-
-// modified! for we tracking spectating players
-void function InitPlayerSpectators( entity player )
+// not matching respawn settings at all!! and if player changed IN_JUMP it will not showing right icon
+void function HACK_HandlePlayerSpecModeButton( entity player )
 {
-	file.playerIsSpectating[ player ] <- false
+	player.EndSignal( "OnRespawned" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "PlayerRespawnStarted" )
+	player.Signal( "HACKSpectatorStart" )
+	player.EndSignal( "HACKSpectatorStart" )
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+			{
+				RemoveButtonPressedPlayerInputCallback( player, IN_JUMP, HACK_CallSpecMode )
+				print( "removing it!" )
+			}
+		}
+	)
+
+	print( "adding player spectator input callback..." )
+	AddButtonPressedPlayerInputCallback( player, IN_JUMP, HACK_CallSpecMode )
+	WaitForever()
 }
 
-bool function Spectator_IsPlayerSpectating( entity player )
+void function HACK_CallSpecMode( entity player )
 {
-	if ( !( player in file.playerIsSpectating ) )
-		return false
-	return file.playerIsSpectating[ player ]
+	ClientCommandCallback_spec_mode( player, [] )
 }
