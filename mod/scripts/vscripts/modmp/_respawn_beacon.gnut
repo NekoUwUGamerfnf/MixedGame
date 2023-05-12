@@ -49,6 +49,7 @@ struct
     table< entity, float > playerLastCollectedBannerTime // required for check if we can collect next banner
     //table< int, BeaconPlayerStruct > playerBeaconTable // it's better to use player's uid instead of the entity
     array<dropshipAnimData> dropshipAnimDataList
+    table<entity, bool> playerRespawningFromDropship // for we tracking respawning players, so SetPlayerCameraToIntermissionCam() won't mess up other scripts
 } file
 
 
@@ -119,6 +120,7 @@ void function InitBeaconPlayer( entity player )
     //BeaconPlayerStruct emptyStruct
     //file.playerBeaconTable[ player.GetUID() ] <- emptyStruct
     file.playerLastCollectedBannerTime[ player ] <- 0
+    file.playerRespawningFromDropship[ player ] <- false
 
     foreach ( entity beacon in file.respawnBeacons ) // show the beacon!
 		beacon.Minimap_AlwaysShow( 0, player )
@@ -497,6 +499,7 @@ void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int
 	ship.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
 
+    file.playerRespawningFromDropship[ player ] = true // mark as player respawning!
 	dropshipAnimData animData = file.dropshipAnimDataList[ pos ]
 
 	FirstPersonSequenceStruct idleAnimSequence
@@ -562,6 +565,8 @@ void function RespawnBeacon_PutPlayerInDropship( entity player, entity ship, int
 				player.ClearParent()
 				ClearPlayerAnimViewEntity( player )
 				player.ClearInvulnerable()
+
+                file.playerRespawningFromDropship[ player ] = false // clean up
 			}
 
             if ( IsValid( camera ) )
@@ -656,17 +661,17 @@ void function TrackDropshipLifeTime( entity ship )
 
 void function ClearRespawnDropships()
 {
+    foreach ( entity player in GetPlayerArray() )
+    {
+        if ( !IsAlive( player ) && file.playerRespawningFromDropship[ player ] ) // not respawned yet!
+            SetPlayerCameraToIntermissionCam( player )
+    }
     foreach ( entity dropship in file.respawnDropships )
     {
         if ( IsValid( dropship ) )
             dropship.Destroy()
     }
     file.respawnDropships.clear()
-    foreach ( entity player in GetPlayerArray() )
-    {
-        if ( !IsAlive( player ) ) // not respawned yet!
-            SetPlayerCameraToIntermissionCam( player )
-    }
 }
 
 ////////////////////////////////////////
