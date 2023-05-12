@@ -225,6 +225,13 @@ void function InitSpawnpoint( entity spawnpoint )
 void function SetRespawnsEnabled( bool enabled )
 {
 	file.respawnsEnabled = enabled
+	
+	if ( !enabled )
+	{
+		// clear any respawn availablity, or players are able to save respawn for whenever they want
+		foreach( entity player in GetPlayerArray() )
+			ClearRespawnAvailable( player )
+	}
 }
 
 bool function RespawnsEnabled()
@@ -352,8 +359,8 @@ entity function GetBestSpawnpoint( entity player, array<entity> spawnpoints )
 	array<entity> validSpawns
 	foreach ( entity spawnpoint in spawnpoints )
 	{
-		//if ( player.p.lastSpawnPoint == spawnpoint ) // don't spawn on a point that is used by other players
-		//	continue
+		if ( player.p.lastSpawnPoint == spawnpoint ) // don't spawn on the same point as we last spawn!
+			continue
 		if ( IsSpawnpointValid( spawnpoint, player.GetTeam() ) )
 		{
 			validSpawns.append( spawnpoint )
