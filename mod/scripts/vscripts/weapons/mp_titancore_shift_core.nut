@@ -204,13 +204,30 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 
 	// modified: weapon store system, so we can use sword core with no melee_titan_sword
 	entity meleeWeapon = owner.GetOffhandWeapon( OFFHAND_MELEE )
-	if ( IsValid( meleeWeapon ) )
+	// titan sword checks: we only replace weapon if player do modified their melee_attack_animtime
+	bool meleeSaved = false
+	bool animTimeModified = true
+	if ( meleeWeapon.GetWeaponClassName() == "melee_titan_sword" )
+	{
+		// have to hardcode this since "GetWeaponInfoFileKeyField()" won't work for "melee_attack_animtime"
+		const float SWORD_ANIMTIME = 0.9
+		const float SWORD_ANIMTIME_SP = 1.2
+		float animTimeDefault = IsSingleplayer() ? SWORD_ANIMTIME_SP : SWORD_ANIMTIME
+		float animTimeMods = meleeWeapon.GetWeaponSettingFloat( eWeaponVar.melee_attack_animtime )
+		//print( "animTimeDefault: " + string( animTimeDefault ) )
+		//print( "animTimeMods: " + string( animTimeMods ) )
+		animTimeModified = ( animTimeDefault - 0.1 ) > animTimeMods // add 0.1s period
+		//print( "animTimeModified: " + string( animTimeModified ) )
+	}
+	if ( animTimeModified && IsValid( meleeWeapon ) )
 	{
 		ShiftCoreSavedMelee meleeStruct
 		meleeStruct.meleeName = meleeWeapon.GetWeaponClassName()
 		meleeStruct.meleeMods = meleeWeapon.GetMods()
 		file.soulShiftCoreSavedMelee[ soul ] <- meleeStruct
 		owner.TakeOffhandWeapon( OFFHAND_MELEE )
+
+		meleeSaved = true // mark as melee replaced!
 	}
 	//
 
@@ -228,25 +245,29 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		}
 
 		// super charged sword
-		array<string> mods = []
-		if ( IsSingleplayer() )
-			mods.append( "super_charged_SP" )
-		else
-			mods.append( "super_charged" )
-		// prime sword check
-		TitanLoadoutDef loadout = soul.soul.titanLoadout
-		if ( loadout.isPrime == "titan_is_prime" )
-			mods.append( "modelset_prime" )
-		owner.GiveOffhandWeapon( "melee_titan_sword", OFFHAND_MELEE, mods )
-
-		/* // vanilla behavior, removed
-		titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged" )
-
-		if ( IsSingleplayer() )
+		if ( meleeSaved ) 
 		{
-			titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged_SP" )
+			// triggering melee replacement
+			array<string> mods = []
+			if ( IsSingleplayer() )
+				mods.append( "super_charged_SP" )
+			else
+				mods.append( "super_charged" )
+			// prime sword check
+			TitanLoadoutDef loadout = soul.soul.titanLoadout
+			if ( loadout.isPrime == "titan_is_prime" )
+				mods.append( "modelset_prime" )
+			owner.GiveOffhandWeapon( "melee_titan_sword", OFFHAND_MELEE, mods )
 		}
-		*/
+		else
+		{
+			// vanilla behavior
+			titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged" )
+			if ( IsSingleplayer() )
+			{
+				titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged_SP" )
+			}
+		}
 		
 		// pullout animation, respawn messed this up, but makes sword core has less startup
 		if ( weapon.HasMod( "deploy_animation_fix" ) )
