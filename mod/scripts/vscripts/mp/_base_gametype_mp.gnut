@@ -292,6 +292,8 @@ void function CodeCallback_OnClientDisconnected( entity player, string reason )
 
 void function CodeCallback_OnPlayerRespawned( entity player )
 {
+	ClearPlayerEliminated( player ) // mark as player not eliminated
+
 	SetHumanRagdollImpactTable( player )
 	
 	player.s.inGracePeriod = true // defensive fix
@@ -605,8 +607,11 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	else if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue ) // respawn not valid, handling all situations
 	{
 		if ( shouldDoReplay && player.IsWatchingKillReplay() )
-			WaitSignal( player, "KillCamOver", "RespawnMe" ) // allows player to skip replay
-		
+		{
+			SetPlayerEliminated( player ) // allows player to skip replay
+			WaitSignal( player, "KillCamOver", "RespawnMe" )
+		}
+
 		thread PlayerBecomesSpectator( player )
 	}
 }
@@ -722,18 +727,22 @@ void function PlayerWatchesKillReplayWrapper( entity player, entity attacker, fl
 	
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 	
-	OnThreadEnd( function() : ( player ) 
-	{	
-		// don't clear if we're in a roundwinningkillreplay, or winner determined kill
-		if ( IsValid( player ) && !( ( GetGameState() == eGameState.SwitchingSides && IsRoundWinningKillReplayEnabled() ) || GetGameState() == eGameState.WinnerDetermined ) )
-		{
-			player.Signal( "KillCamOver" )
-			player.ClearReplayDelay()
-			player.ClearViewEntity()
-			SetPlayerCameraToIntermissionCam( player )
-			//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
+	OnThreadEnd
+	( 
+		function() : ( player ) 
+		{	
+			// don't clear if we're in a roundwinningkillreplay, or winner determined kill
+			bool roundWinningReplay = ( GetGameState() == eGameState.SwitchingSides || IsRoundBased() ) && IsRoundWinningKillReplayEnabled()
+			if ( IsValid( player ) && !( roundWinningReplay || GetGameState() == eGameState.WinnerDetermined ) )
+			{
+				player.Signal( "KillCamOver" )
+				player.ClearReplayDelay()
+				player.ClearViewEntity()
+				SetPlayerCameraToIntermissionCam( player )
+				//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
+			}
 		}
-	})
+	)
 
 	// have to be spectator before watching kill replay
 	if ( player.GetPlayerSettings() != "spectator" )
