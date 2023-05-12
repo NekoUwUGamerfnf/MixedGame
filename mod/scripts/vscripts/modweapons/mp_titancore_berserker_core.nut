@@ -149,9 +149,10 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 		// core melee, only "melee_titan_punch_fighter" has deployed animations
 		titan.TakeOffhandWeapon( OFFHAND_MELEE )
 		titan.GiveOffhandWeapon( "melee_titan_punch_fighter", OFFHAND_MELEE, ["allow_as_primary", "dash_punch", "berserker", "berserker_core_punch"] )
-
+		
 		// pullout animation, respawn messed this up, but makes core has less startup
-		if ( weapon.HasMod( "deploy_animation_fix" ) )
+		bool doAnimationFix = weapon.HasMod( "deploy_animation_fix" ) || bool( GetCurrentPlaylistVarInt( "melee_core_anim_fix", 0 ) )
+		if ( doAnimationFix )
 		{
 			if ( owner.IsPlayer() )
 				owner.HolsterWeapon() // to have deploy animation
@@ -160,7 +161,7 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 		titan.SetActiveWeaponByName( "melee_titan_punch_fighter" )
 		
 		// pullout animation
-		if ( weapon.HasMod( "deploy_animation_fix" ) )
+		if ( doAnimationFix )
 		{
 			if ( owner.IsPlayer() )
 				owner.DeployWeapon() // to have deploy animation
