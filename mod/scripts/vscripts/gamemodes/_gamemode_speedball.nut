@@ -31,21 +31,27 @@ void function GamemodeSpeedball_Init()
 		PrecacheModel( CTF_FLAG_BASE_MODEL )
 
 		// gamemode settings
+		FlagSet( "ForceStartSpawn" ) // northstar missing
 		SetRoundBased( true )
-		SetSwitchSidesBased( true ) // northstar is missing this...
+		SetSwitchSidesBased( true ) // northstar missing
 		SetRespawnsEnabled( false )
 		SetShouldUseRoundWinningKillReplay( true )
 		EarnMeterMP_SetPassiveGainProgessEnable( false )
 		Riff_ForceTitanAvailability( eTitanAvailability.Never )
 		Riff_ForceSetEliminationMode( eEliminationMode.Pilots )
 		ScoreEvent_SetupEarnMeterValuesForMixedModes()
-		
+
 		AddSpawnCallbackEditorClass( "script_ref", "info_speedball_flag", CreateFlag )
-		
+
+		// northstar missing
+		AddCallback_GameStateEnter( eGameState.Prematch, SetUpSpeedBallScoreEvent ) // livefire do have stronger score events
+		AddCallback_OnClientConnected( OnClientConnected )
+
 		AddCallback_GameStateEnter( eGameState.Prematch, CreateFlagIfNoFlagSpawnpoint )
 		AddCallback_GameStateEnter( eGameState.Playing, ResetFlag )
 		AddCallback_GameStateEnter( eGameState.WinnerDetermined,GamemodeSpeedball_OnWinnerDetermined)
 		AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
+
 		AddCallback_OnPlayerKilled( OnPlayerKilled )
 		SetTimeoutWinnerDecisionFunc( TimeoutCheckFlagHolder )
 		SetTimeoutWinnerDecisionReason( "#GAMEMODE_SPEEDBALL_WIN_TIME_FLAG_LAST", "#GAMEMODE_SPEEDBALL_LOSS_TIME_FLAG_LAST" )
@@ -55,6 +61,55 @@ void function GamemodeSpeedball_Init()
 		ClassicMP_ForceDisableEpilogue( true )
 	}
 }
+
+// northstar missing
+void function SetUpSpeedBallScoreEvent()
+{
+	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.15, 0.3 )
+}
+
+void function OnClientConnected( entity player )
+{
+	thread SpeedBallPlayerObjectiveThink( player )
+}
+
+const int OBJECTIVE_EMPTY = -1
+const int OBJECTIVE_KILL_CAP = 110 // #SPEEDBALL_OBJECTIVE_KILL_CAP
+const int OBJECTIVE_ENEMY_FLAG = 111 // #SPEEDBALL_OBJECTIVE_ENEMY_FLAG
+const int OBJECTIVE_FRIENDLY_FLAG = 112 // #SPEEDBALL_OBJECTIVE_FRIENDLY_FLAG
+const int OBJECTIVE_PLAYER_FLAG = 113 // #SPEEDBALL_OBJECTIVE_PLAYER_FLAG
+
+void function SpeedBallPlayerObjectiveThink( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		int nextObjective = OBJECTIVE_KILL_CAP
+		if ( !IsAlive( player ) || GetGameState() != eGameState.Playing ) // don't show objective to died player
+			nextObjective = OBJECTIVE_EMPTY
+		else
+		{
+			entity flagCarrier = GetGlobalNetEnt( "flagCarrier" )
+			if ( IsValid( flagCarrier ) ) // flag carrier stuffs
+			{
+				if ( flagCarrier == player )
+					nextObjective = OBJECTIVE_PLAYER_FLAG
+				else if ( flagCarrier.GetTeam() == player.GetTeam() )
+					nextObjective = OBJECTIVE_FRIENDLY_FLAG
+				else if ( flagCarrier != file.flag ) // file.flag will be neatual flagCarrier
+					nextObjective = OBJECTIVE_ENEMY_FLAG
+			}
+		}
+
+		int curObjective = player.GetPlayerNetInt( "gameInfoStatusText" )
+		if ( curObjective != nextObjective )
+			player.SetPlayerNetInt( "gameInfoStatusText", nextObjective )
+
+		WaitFrame()
+	}
+}
+//
 
 void function CreateFlag( entity flagSpawn )
 { 

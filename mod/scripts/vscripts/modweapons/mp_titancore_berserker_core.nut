@@ -151,21 +151,16 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 		titan.GiveOffhandWeapon( "melee_titan_punch_fighter", OFFHAND_MELEE, ["allow_as_primary", "dash_punch", "berserker", "berserker_core_punch"] )
 		
 		// pullout animation, respawn messed this up, but makes core has less startup
-		bool doAnimationFix = weapon.HasMod( "deploy_animation_fix" ) || bool( GetCurrentPlaylistVarInt( "melee_core_anim_fix", 0 ) )
-		if ( doAnimationFix )
-		{
-			if ( owner.IsPlayer() )
-				owner.HolsterWeapon() // to have deploy animation
-		}
+		// removed doAnimationFix check, since we gave player a new meleeWeapon
+		// if player is sprinting while activating the core, they will have to wait the weapon pull out before first attack
+		if ( owner.IsPlayer() )
+			owner.HolsterWeapon() // to have deploy animation
 
 		titan.SetActiveWeaponByName( "melee_titan_punch_fighter" )
 		
 		// pullout animation
-		if ( doAnimationFix )
-		{
-			if ( owner.IsPlayer() )
-				owner.DeployWeapon() // to have deploy animation
-		}
+		if ( owner.IsPlayer() )
+			owner.DeployWeapon() // to have deploy animation
 		
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( false )

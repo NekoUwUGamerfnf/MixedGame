@@ -409,6 +409,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	bool doReplay = Replay_IsEnabled() && IsRoundWinningKillReplayEnabled() && IsValid( replayAttacker ) && !ClassicMP_ShouldRunEpilogue()
 				 && Time() - file.roundWinningKillReplayTime <= ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY && winningTeam != TEAM_UNASSIGNED
 
+	//print( "doReplay: " + string( doReplay ) )
 	float replayLength = 2.0 // extra delay if no replay
 	if ( doReplay )
 	{
@@ -1168,13 +1169,12 @@ void function AddTeamScore( int team, int amount )
 
 	GameRules_SetTeamScore( team, GameRules_GetTeamScore( team ) + fixedAmount )
 	GameRules_SetTeamScore2( team, GameRules_GetTeamScore2( team ) + amount ) // round score is no need to use fixedAmount
-		
+
 	//int score = GameRules_GetTeamScore( team ) // moved up to make use of it
-	
 
 	// below shouldn't be handled in this function, some network var may stuck the game. moved to GameStateEnter_Playing_Threaded()
 	/*
-	score = GameRules_GetTeamScore( team ) // get new setting score
+	score = GameRules_GetTeamScore( team ) // update score earned
 	if ( score >= scoreLimit || GetGameState() == eGameState.SuddenDeath )
 		SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
 	else if ( ( file.switchSidesBased && !file.hasSwitchedSides ) && score >= ( scoreLimit.tofloat() / 2.0 ) )
