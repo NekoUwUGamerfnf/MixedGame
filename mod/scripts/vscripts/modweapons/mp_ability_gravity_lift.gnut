@@ -20,9 +20,17 @@ const float LIFT_TOP_TIME_LIMIT = 2
 const float LIFT_LIFETIME = 10
 const float LIFT_COOLDOWN = 0.0 // 0.5 // time between second lift, I guess it's no need for titanfall?
 
+struct GravLiftSavedSettings
+{
+	float gravity
+	float airAccel
+	float airSpeed
+}
+
 struct
 {
-	table<entity, int> playerInGravLiftCount = {} // for handling multiple gravlifts!
+	table<entity, int> playerInGravLiftCount // for handling multiple gravlifts!
+	table<entity, GravLiftSavedSettings> playerGravLiftSavedSettings // for we can recover player's settings after they leave lift
 } file
 
 void function MpAbilityGravityLift_Init()
@@ -223,14 +231,19 @@ void function OnGravityLiftTriggerEnter( entity trigger, entity ent )
 	if ( !ent.IsNPC() && !ent.IsPlayer() && !( className == "prop_physics" ) && !( className == "grenade" ) )
 		return
 
-	bool shouldEndLift = true
+	bool firstEnterLift = true
 	if ( ent.IsPlayer() )
 	{
 		if ( file.playerInGravLiftCount[ ent ] > 0 ) // not first lift
-			shouldEndLift = false
+			firstEnterLift = false
 	}
-	if ( shouldEndLift )
+
+	if ( firstEnterLift )
+	{
 		ent.Signal( "EnterGravityLift" ) // this will end other gravlifts
+		if ( ent.IsPlayer() ) // save settings for player
+			file.playerGravLiftSavedSettings[ ent ] <- SaveSettingsForPlayerEnterLift( ent )
+	}
 	if ( ent.IsPlayer() )
 		file.playerInGravLiftCount[ ent ] += 1
 	thread EntityInGravityLift( ent, trigger )
@@ -249,9 +262,37 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity ent )
 	}
 	
 	if ( shouldEndLift )
+	{
 		ent.Signal( "LeaveGravityLift" ) // this will end other gravlifts
+		if ( ent.IsPlayer() ) // restore settings for player
+			RestorePlayerSavedSettings( ent )
+	}
 	if ( ent.IsPlayer() )
 		file.playerInGravLiftCount[ ent ] -= 1
+}
+
+GravLiftSavedSettings function SaveSettingsForPlayerEnterLift( entity player )
+{
+	// save ent's gravity or some other keyvalues for later restoring
+	GravLiftSavedSettings newSettings
+	newSettings.gravity = float( player.kv.gravity )
+	newSettings.airAccel = float( player.kv.airAcceleration )
+	newSettings.airSpeed = float( player.kv.airSpeed )
+	return newSettings
+}
+
+bool function RestorePlayerSavedSettings( entity player )
+{
+	if ( !( player in file.playerGravLiftSavedSettings ) ) // no saved settings!
+		return false
+	GravLiftSavedSettings savedSettings = file.playerGravLiftSavedSettings[ player ]
+	player.kv.gravity = savedSettings.gravity
+	player.kv.airAcceleration = savedSettings.airAccel
+	player.kv.airSpeed = savedSettings.airSpeed
+
+	// clean up
+	delete file.playerGravLiftSavedSettings[ player ]
+	return true
 }
 
 void function EntityInGravityLift( entity ent, entity trigger )
@@ -263,31 +304,36 @@ void function EntityInGravityLift( entity ent, entity trigger )
 	ent.EndSignal( "EnterGravityLift" )
 	ent.EndSignal( "LeaveGravityLift" )
 
-	table storedStats = {} // save ent's gravity or some other keyvalues for later restoring
-	storedStats.gravity <- int( ent.kv.gravity ) // int
-	storedStats.airAccel <- float( ent.kv.airAcceleration )
-	storedStats.airSpeed <- float( ent.kv.airSpeed )
+	int visualStatusEffect = -1
+	if ( ent.IsPlayer() ) // add a bit visual effect for player
+		visualStatusEffect = StatusEffect_AddEndless( ent, eStatusEffect.emp, 0.05 )
+
+	table storedStats = 
+	{
+		gravity = float( ent.kv.gravity ) // npc specific
+		lastTickVel = < 0, 0, 0 > // player specific
+	}
 
 	table results = {} // save some behaviors
 	results.bouncedFromLift <- false // bool, to get if the entity is leaving the lift manually or being bounced away
 
 	OnThreadEnd(
-		function(): ( ent, trigger, storedStats, results )
+		function(): ( ent, trigger, visualStatusEffect, storedStats, results )
 		{
 			if ( IsValid( ent ) ) // any valid ent should be restore gravity or someother keyvalues
 			{
-				ent.kv.gravity = storedStats.gravity
-				
 				// player specifics
 				if ( ent.IsPlayer() ) 
 				{
-					ent.kv.airAcceleration = storedStats.airAccel
-					ent.kv.airSpeed = storedStats.airSpeed
+					if ( visualStatusEffect > -1 )
+						StatusEffect_Stop( ent, visualStatusEffect )
 
 					ent.UnforceStand()
 					ent.TouchGround() // restore one doublejump!
 					StopSoundOnEntity( ent, "titan_flight_hover_3p" ) // clear existing sound
 				}
+				else // npcs
+					ent.kv.gravity = storedStats.gravity
 			}
 			if ( IsAlive( ent ) ) // only living ent will be push away
 			{
@@ -298,14 +344,10 @@ void function EntityInGravityLift( entity ent, entity trigger )
 				}
 
 				// consider this means the entity is force bounced away, or trigger caused them being force bounced
-				if ( results.bouncedFromLift || !IsValid( trigger ) ) 
-				{
+				if ( ent.IsNPC() || results.bouncedFromLift || !IsValid( trigger ) ) 
 					BounceEntityForward( ent )
-				}
 				else
-				{
-					BounceEntityFromLift( ent )
-				}
+					BouncePlayerFromLift( ent, expect vector( storedStats.lastTickVel ) ) // last tick's velocity can mostly get player's move direction
 			}
 		}
 	)
@@ -334,6 +376,10 @@ void function EntityInGravityLift( entity ent, entity trigger )
 			firstLoop = false
 		else
 			WaitFrame()
+
+		// keep updating velocity
+		if ( ent.IsPlayer() )
+			storedStats.lastTickVel = ent.GetVelocity()
 
 		//bool shouldLiftEnt = true
 		// check if we need to lift the ent
@@ -432,11 +478,23 @@ bool function PlayerNotDoingInput( entity player )
 	return inputAngs.x == 0 && inputAngs.y == 0
 }
 
-void function BounceEntityFromLift( entity ent )
+void function BouncePlayerFromLift( entity player, vector lastTickVel ) // last tick's velocity can mostly get player's move direction
 {
-	vector airSpeed = GetEntityGravLiftVelocity( ent, 1 ) * LIFT_PULL_SPEED_HORIZON
+	vector airSpeed = GetPlayerHorizontalSpeedForced( lastTickVel, LIFT_PULL_SPEED_HORIZON )
 	airSpeed.z = LIFT_PULL_SPEED_VERTICAl
-	ent.SetVelocity( airSpeed )
+	player.SetVelocity( airSpeed )
+}
+
+vector function GetPlayerHorizontalSpeedForced( vector moveVel, float speed )
+{
+	vector horzVel = <moveVel.x, moveVel.y, 0>
+
+	horzVel = Normalize( horzVel )
+	horzVel *= speed
+	moveVel.x = horzVel.x
+	moveVel.y = horzVel.y
+
+	return moveVel
 }
 
 void function BounceEntityForward( entity ent )
@@ -458,6 +516,14 @@ void function BounceEntityForward( entity ent )
 	ent.SetVelocity( airSpeed )
 }
 
+/* // unused, pretty bad to control
+void function BounceEntityFromLift( entity ent )
+{
+	vector airSpeed = GetEntityGravLiftVelocity( ent, 1 ) * LIFT_PULL_SPEED_HORIZON
+	airSpeed.z = LIFT_PULL_SPEED_VERTICAl
+	ent.SetVelocity( airSpeed )
+}
+
 vector function GetEntityGravLiftVelocity( entity ent, float speed )
 {
 	if ( ent.IsPlayer() ) // for players, get their input!
@@ -466,6 +532,7 @@ vector function GetEntityGravLiftVelocity( entity ent, float speed )
 	// other conditions
 	return ent.GetUpVector() * speed
 }
+*/
 
 vector function GetPlayerVelocityFromInput( entity player, float speed )
 {
