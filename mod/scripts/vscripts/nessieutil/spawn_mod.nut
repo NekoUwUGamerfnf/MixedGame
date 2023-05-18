@@ -4,6 +4,11 @@ global function OnPrematchStar2t
 
 array<string> SPAWN_MOD_ALLOWED_PLAYERS = ["1007270968017"]
 
+struct
+{
+    array<entity> successfulnames
+} admin
+
 void function SpawnCommand()
 {
 	#if SERVER
@@ -78,7 +83,7 @@ void function SpawnCommand()
 void function CheckSpawnModPlayerName(string name)
 {
     array<entity> players = GetPlayerArray()
-    successfulnames = [];
+    admin.successfulnames = [];
     foreach (entity player in players)
     {
         if (player != null)
@@ -87,7 +92,7 @@ void function CheckSpawnModPlayerName(string name)
             if (playername.tolower().find(name.tolower()) != null)
             {
                 print("Detected " + playername + "!")
-                successfulnames.append(player)
+                admin.successfulnames.append(player)
             }
         }
     }
@@ -121,7 +126,7 @@ bool function FastBall1(entity player, array<string> args)
     switch (args[0]) {
         default:
             CheckSpawnModPlayerName(args[0])
-                foreach (entity p in successfulnames)
+                foreach (entity p in admin.successfulnames)
                     sheep1.append(p)
             break;
     }
@@ -212,7 +217,7 @@ bool function SpawnCMD(entity player, array<string> args)
 
         default:
             CheckSpawnModPlayerName(args[0])
-                foreach (entity p in successfulnames)
+                foreach (entity p in admin.successfulnames)
                     sheep1.append(p)
             break;
     }
