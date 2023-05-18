@@ -1,116 +1,212 @@
-untyped // related with sh_melee.gnut
 global function Primary_MeleeWeapon_Init
+
+// funny melee: hold melee button to get yourself a melee primary, cannot attack
+global function PrimaryMelee_SetFunnyMeleeEnableToAll
+global function PrimaryMelee_SetFunnyMeleeEnableToPlayer
+
+// hardcoded, don't know how to get a weapon's fire_mode
+array<string> MAIN_MELEE_MODS =
+[
+	"allow_as_primary",
+]
+
+// this really should be a callback
+array<string> SWITCH_DISALLOWED_MODS =
+[
+	"dash_punch",
+	"bison_punch",
+]
+
+struct
+{
+	// primary melee
+	table<entity, float> playerMessageAllowedTime
+
+	// funny melee
+	bool funnyMeleeToAll = false
+	table<entity, bool> playerCanUseFunnyMelee
+	table<entity, bool> playerHasFunnyMelee
+} file
 
 void function Primary_MeleeWeapon_Init()
 {
 	AddCallback_OnClientConnected( OnClientConnected )
-	AddCallback_OnClientDisconnected( OnClientDisconnected )
-
-	// we just need melee commands
-	//AddCallback_OnPlayerRespawned( OnPlayerRespawned )
-	//AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
-}
-
-void function OnPlayerRespawned( entity player )
-{
-	GivePrimaryMelee( player )
-}
-
-void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
-{
-	GivePrimaryMelee( player )
-}
-
-void function GivePrimaryMelee( entity player )
-{
-	foreach( entity weapon in player.GetMainWeapons() )
-	{
-		if( IsUselessAntiTitan( weapon ) )
-		{
-			player.TakeWeapon( weapon.GetWeaponClassName() )
-			
-		}
-	}
-	player.TakeOffhandWeapon( OFFHAND_MELEE )
-	if( player.GetMainWeapons().len() < 3 )
-	{
-		player.GiveOffhandWeapon( "melee_pilot_sword", OFFHAND_MELEE, ["allow_as_primary"] )
-	}
 }
 
 void function OnClientConnected( entity player )
 {
+	// init
+	// primary melee
+	file.playerMessageAllowedTime[ player ] <- 0.0
+	// funny melee
+	file.playerCanUseFunnyMelee[ player ] <- false
+	file.playerHasFunnyMelee[ player ] <- false
+
+	// button registering
+	// primary melee
 	AddButtonPressedPlayerInputCallback( player, IN_MELEE, MeleeNotice )
 	AddButtonPressedPlayerInputCallback( player, IN_ZOOM, SwitchOffMelee )
 	AddButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, SwitchOffMelee )
+	// funny melee
+	AddPlayerHeldButtonEventCallback( player, IN_MELEE, SwitchToFunnyMelee, 0.5 )
 }
 
-void function OnClientDisconnected( entity player )
-{
-}
-
+// primary melee
 void function MeleeNotice( entity player )
 {
-	if( IsAlive( player ) )
-	{
-		array<entity> mainWeapons = player.GetMainWeapons()
-		if ( mainWeapons.len() == 0 ) // no main weapon!
-			return // don't notify
-
-		if( !IsValid( player.GetOffhandWeapon( OFFHAND_MELEE ) ) )
-			return
-		entity meleeWeapon = player.GetActiveWeapon()
-		if( IsValid( meleeWeapon ) )
-		{
-			if( meleeWeapon.HasMod( "allow_as_primary" ) && !meleeWeapon.HasMod( "dash_punch" ) ) // hardcoded here!!!
-			{
-				SendHudMessage(player, "按瞄准键 收回近战武器",  -1, -0.4, 200, 200, 225, 255, 0.15, 3, 1)
-			}
-			// just want player able to switch off melee
-			//else
-			//	SendHudMessage(player, "近战武器不可用",  -1, -0.4, 200, 200, 225, 255, 0.15, 3, 1)
-		}
-	}
+	if ( PlayerCanSwitchOffMeleeWeapon( player ) )
+		TrySendHudMessageToPlayer( player, "按瞄准键 收回近战武器" )
 }
 
 void function SwitchOffMelee( entity player )
 {
-	if( IsAlive( player ) )
-	{
-		array<entity> mainWeapons = player.GetMainWeapons()
-		if ( mainWeapons.len() == 0 ) // no main weapon!
-			return // don't switch
-			
-		if( !IsValid( player.GetOffhandWeapon( OFFHAND_MELEE ) ) )
-			return
-		entity meleeWeapon = player.GetActiveWeapon()
-		if( !IsValid( meleeWeapon ) )
-			return
-		if( meleeWeapon.HasMod( "dash_punch" ) ) // why here's a hardcode?
-			return
-		if( meleeWeapon )
-		{
-			if( meleeWeapon.HasMod( "allow_as_primary" ) )
-			{
-				player.ClearOffhand() // force player to pull out their last main weapon
-				//player.SetActiveWeaponByName( mainWeapons[0].GetWeaponClassName() )
-			}
-		}
-	}
+	if ( player.PlayerMelee_IsAttackActive() ) // don't switch off if player already in a melee state
+		return
+
+	if ( PlayerCanSwitchOffMeleeWeapon( player ) )
+		player.ClearOffhand() // force player to pull out their last main weapon
 }
 
-bool function IsTitanGameMode()
+bool function PlayerCanSwitchOffMeleeWeapon( entity player )
 {
-	if( Riff_TitanAvailability() == eTitanAvailability.Never )
+	if( !IsAlive( player ) )
 		return false
 
+	// cannot switch off funny melee!
+	if ( file.playerHasFunnyMelee[ player ] )
+		return false
+
+	array<entity> mainWeapons = player.GetMainWeapons()
+	if ( mainWeapons.len() == 0 )
+		return false
+
+	entity meleeWeapon = player.GetMeleeWeapon()
+	if ( !IsValid( meleeWeapon ) )
+		return false
+
+	array<string> mods = meleeWeapon.GetMods()
+	bool hasAllowedMods = false
+	foreach ( string mod in mods )
+	{
+		if ( MAIN_MELEE_MODS.contains( mod ) )
+		{
+			hasAllowedMods = true
+			break
+		}
+	}
+	if ( !hasAllowedMods )
+		return false
+
+	bool hasDisallowedMods = false
+	foreach ( string mod in mods )
+	{
+		if ( SWITCH_DISALLOWED_MODS.contains( mod ) )
+		{
+			hasDisallowedMods = true
+			break
+		}
+	}
+
+	if ( hasDisallowedMods )
+		return false
+
+	// all checks done!
 	return true
 }
 
-bool function IsUselessAntiTitan( entity weapon )
+const float MESSAGE_COOLDOWN = 3.0
+bool function TrySendHudMessageToPlayer( entity player, string message )
 {
-	if( ["mp_weapon_rocket_launcher", "mp_weapon_mgl", "mp_weapon_arc_launcher"].contains( weapon.GetWeaponClassName() ) && Riff_TitanAvailability() == eTitanAvailability.Never )
-		return true
+	if ( Time() < file.playerMessageAllowedTime[ player ] )
+		return false
 
-	return false
+	SendHudMessage( player, message, -1, -0.4, 200, 200, 225, 255, 0.15, 2.0, 0.5 )
+	file.playerMessageAllowedTime[ player ] = Time() + MESSAGE_COOLDOWN
+	return true
+}
+
+
+// funny melee
+void function PrimaryMelee_SetFunnyMeleeEnableToAll( bool enable )
+{
+	file.funnyMeleeToAll = enable
+}
+
+void function PrimaryMelee_SetFunnyMeleeEnableToPlayer( entity player, bool enable )
+{
+	file.playerCanUseFunnyMelee[ player ] = enable
+}
+
+void function SwitchToFunnyMelee( entity player )
+{
+	if ( !PlayerCanSwitchToFunnyMelee( player ) )
+		return
+	
+	thread TrackPlayerFunnyMelee( player )
+}
+
+void function TrackPlayerFunnyMelee( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+
+	player.GiveOffhandWeapon( "melee_pilot_sword", OFFHAND_MELEE, ["pilot_emptyhanded", "no_damage"] )
+	entity meleeWeapon = player.GetMeleeWeapon()
+	meleeWeapon.EndSignal( "OnDestroy" )
+
+	player.HolsterWeapon()
+	player.SetActiveWeaponByName( "melee_pilot_sword" )
+	player.DeployWeapon()
+
+	file.playerHasFunnyMelee[ player ] = true
+	table results =
+	{
+		shouldStopAnim = false
+	}
+
+	TrySendHudMessageToPlayer( player, "按住瞄准键 收回近战武器(不可攻击)" )
+
+	OnThreadEnd
+	(
+		function(): ( player, results )
+		{
+			if ( IsValid( player ) )
+			{
+				// clean up!
+				if ( results.shouldStopAnim )
+					player.Anim_StopGesture( 0 )
+				player.TakeOffhandWeapon( OFFHAND_MELEE )
+				file.playerHasFunnyMelee[ player ] = false
+			}
+		}
+	)
+
+	// restrictions check
+	while ( true )
+	{
+		if ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) )
+			return
+		if ( player.PlayerMelee_IsAttackActive() ) // player tried to use melee!
+		{
+			results.shouldStopAnim = true
+			return
+		}
+		if ( player.GetActiveWeapon() != meleeWeapon ) // switched off! might caused by wallclimbing
+			return
+		WaitFrame()
+	}
+}
+
+bool function PlayerCanSwitchToFunnyMelee( entity player )
+{
+	if ( !IsAlive( player ) )
+		return false
+	if ( !file.funnyMeleeToAll && !file.playerCanUseFunnyMelee[ player ] )
+		return false
+	if ( file.playerHasFunnyMelee[ player ] )
+		return false
+	if ( IsValid( player.GetMeleeWeapon() ) )
+		return false
+
+	return true
 }
