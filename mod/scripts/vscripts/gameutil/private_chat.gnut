@@ -1,0 +1,97 @@
+global function Private_ChatMessage_Init
+
+const array<string> PRIVATE_CHAT_COMMANDS = 
+[
+    "!private",
+]
+
+void function Private_ChatMessage_Init()
+{
+    AddCallback_OnReceivedSayTextMessage( OnReceiveChatMessage )
+}
+
+ClServer_MessageStruct function OnReceiveChatMessage( ClServer_MessageStruct msgStruct )
+{
+    bool usedPrivateChat = false
+    entity player = msgStruct.player
+    string message = msgStruct.message
+    array<string> splitedMsg = split( message, " " ) // split with white space
+
+    // check command. should be placed at [0]
+    foreach ( string command in PRIVATE_CHAT_COMMANDS )
+    {
+        if ( splitedMsg[0] == command )
+        {
+            usedPrivateChat = true
+            splitedMsg.remove( 0 ) // remove command from message
+            break
+        }
+    }
+
+    // private chat triggered!
+    if ( usedPrivateChat )
+    {
+        msgStruct.shouldBlock = true // always block the message
+
+        if ( splitedMsg.len() <= 0 ) // wrong args!
+        {
+            Chat_ServerPrivateMessage( player, "尝试发送悄悄话，但未指定玩家。请输入目标的玩家名关键部分", false )
+            return msgStruct
+        }
+
+        string namePiece = splitedMsg[0]
+        array<entity> foundPlayers = GetPlayersFromNamePiece( namePiece )
+        if ( foundPlayers.len() == 0 ) // no players found
+        {
+            Chat_ServerPrivateMessage( player, "尝试发送悄悄话，但未发现可用玩家", false )
+            return msgStruct
+        }
+        if ( foundPlayers.len() > 1 ) // found more than 1 player!
+        {
+            string foundPlayersName
+            foreach ( entity player in foundPlayers )
+                foundPlayersName += player.GetPlayerName() + "、"
+            Chat_ServerPrivateMessage( player, "尝试发送悄悄话，但发现了多名含有目标字段( "+ namePiece + " )的玩家：" + foundPlayersName, false )
+            return msgStruct
+        }
+        entity targetPlayer = foundPlayers[0]
+        if ( !IsValid( targetPlayer ) )
+        {
+            Chat_ServerPrivateMessage( player, "尝试发送悄悄话，但目标玩家不可用", false )
+            return msgStruct
+        }
+        if ( targetPlayer == player )
+        {
+            Chat_ServerPrivateMessage( player, "尝试发送悄悄话，但目标为自己", false )
+            return msgStruct
+        }
+
+        splitedMsg.remove( 0 ) // remove command from message
+        // build messages again
+        message = ""
+        foreach ( string msgPiece in splitedMsg )
+            message += msgPiece + " " // re-add white space might be in player's chat
+        
+        // send out message
+        string senderName = player.GetPlayerName()
+        string receiverName = targetPlayer.GetPlayerName()
+        Chat_ServerPrivateMessage( player, "向 " + receiverName + " 发送：" + message, true, false ) // notify sender
+        Chat_PrivateMessage( player, targetPlayer, message, true ) // send to receiver
+        return msgStruct
+    }
+
+    return msgStruct // no modifications
+}
+
+array<entity> function GetPlayersFromNamePiece( string namePiece )
+{
+    array<entity> foundPlayers
+    foreach ( entity player in GetPlayerArray() )
+    {
+        string name = player.GetPlayerName()
+        if ( name.tolower().find( namePiece.tolower() ) != null )
+            foundPlayers.append( player )
+    }
+
+    return foundPlayers
+}
