@@ -289,8 +289,11 @@ void function SpawnPlayerIntoDropship( entity player )
 	if ( IsAlive( player ) )
 		player.Die() // kill them so we don't have any issues respawning them later
 	
-	table results = {}
-	results.isJumping <- false
+	table results = 
+	{
+		isJumping = false,
+		actionSetBusy = false
+	}
 
 	OnThreadEnd( function() : ( player, results )
 	{	
@@ -303,9 +306,11 @@ void function SpawnPlayerIntoDropship( entity player )
 			
 			if ( !results.isJumping ) // jumping failed!
 			{
-				player.MovementEnable()
 				player.EnableWeaponViewModel()
 				RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
+
+				if ( results.actionSetBusy )
+					player.ContextAction_ClearBusy() // clean up
 			}
 		}
 	})
@@ -363,6 +368,13 @@ void function SpawnPlayerIntoDropship( entity player )
 	// get current sequence data
 	DropShipSequenceDate data = file.dropShipSequenceDateList[ playerDropshipIndex ]
 
+	// mark as player action busy, so other scripts can check it
+	if ( !player.ContextAction_IsBusy() )
+	{
+		player.ContextAction_SetBusy() 
+		results.actionSetBusy = true
+	}
+
 	// do firstperson idle sequence
 	FirstPersonSequenceStruct idleSequence
 	idleSequence.firstPersonAnim 	= data.idlePOVAnim
@@ -416,7 +428,9 @@ void function PlayerJumpsFromDropship( entity player )
 				player.EnableWeaponViewModel()
 				DeployAndEnableWeapons(player)
 				RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
-				
+				if ( player.ContextAction_IsBusy() )
+					player.ContextAction_ClearBusy() // clean up busy state set by SpawnPlayerIntoDropship()
+
 				if ( IsAlive( player ) ) // not resetting through death
 				{
 					if ( Loadouts_CanGivePilotLoadout( player ) ) // to fit vanilla: give loadout upon touched ground, so they'll have weapon's first deploy animation

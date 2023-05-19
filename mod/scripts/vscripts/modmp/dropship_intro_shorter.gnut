@@ -291,8 +291,11 @@ void function SpawnPlayerIntoDropship( entity player )
 	if ( IsAlive( player ) )
 		player.Die() // kill them so we don't have any issues respawning them later
 	
-	table results = {}
-	results.isJumping <- false
+	table results = 
+	{
+		isJumping = false,
+		actionSetBusy = false
+	}
 	
 	OnThreadEnd( function() : ( player, results )
 	{	
@@ -303,12 +306,13 @@ void function SpawnPlayerIntoDropship( entity player )
 			if ( !IsAlive( player ) )
 				player.Anim_Stop() // stop sequence for dead players
 			
-			if ( !results.isJumping )
+			if ( !results.isJumping ) // jumping failed!
 			{
-				player.MovementEnable()
 				player.EnableWeaponViewModel()
-				player.Server_TurnOffhandWeaponsDisabledOff()
 				RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
+
+				if ( results.actionSetBusy )
+					player.ContextAction_ClearBusy() // clean up
 			}
 		}
 	})
@@ -355,7 +359,6 @@ void function SpawnPlayerIntoDropship( entity player )
 	// respawn player and holster their weapons so they aren't out
 	DoRespawnPlayer( player, null )
 	player.DisableWeaponViewModel()
-	player.Server_TurnOffhandWeaponsDisabledOn()
 	
 	// hide hud and fade screen out from black
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
@@ -381,6 +384,13 @@ void function SpawnPlayerIntoDropship( entity player )
 	thread FirstPersonSequence( idleSequence, player, playerDropship.dropship )
 	float duration = player.GetSequenceDuration( idleSequence.thirdPersonAnim )
 	wait duration - timeDiff // for running out from dropship
+
+	// mark as player action busy, so other scripts can check it
+	if ( !player.ContextAction_IsBusy() )
+	{
+		player.ContextAction_SetBusy() 
+		results.actionSetBusy = true
+	}
 
 	// do jumping sequence along with jumping think
 	FirstPersonSequenceStruct jumpSequence
@@ -409,8 +419,10 @@ void function PlayerJumpsFromDropship( entity player )
 
 	int moveLockEffect = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 1.0 ) // 1.0 will lock player's movement
     
-	table savedKeyValues = {}
-    savedKeyValues.gravity <- int( player.kv.gravity )
+	table savedKeyValues = 
+	{
+		gravity = int( player.kv.gravity )
+	}
 
 	OnThreadEnd
 	( 
@@ -423,8 +435,9 @@ void function PlayerJumpsFromDropship( entity player )
 				// show weapon viewmodel and hud and let them move again
 				player.MovementEnable()
 				player.EnableWeaponViewModel()
-				player.Server_TurnOffhandWeaponsDisabledOff()
 				RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
+				if ( player.ContextAction_IsBusy() )
+					player.ContextAction_ClearBusy() // clean up busy state set by SpawnPlayerIntoDropship()
 
 				if ( IsAlive( player ) ) // not resetting through death
 				{

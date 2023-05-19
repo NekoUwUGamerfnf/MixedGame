@@ -7,6 +7,10 @@ array<string> disabledMaps = ["mp_lobby"]
 const int BALANCE_ALLOWED_TEAM_DIFFERENCE = 1
 const bool BALANCE_ON_DEATH = true
 
+const string ANSI_COLOR_ERROR = "\x1b[38;5;196m"
+const string ANSI_COLOR_TEAM = "\x1b[38;5;81m"
+const string ANSI_COLOR_ENEMY = "\x1b[38;5;208m"
+
 struct
 {
 	bool hasShuffled = false
@@ -33,32 +37,32 @@ bool function CC_TrySwitchTeam( entity player, array<string> args )
 	// Blacklist guards
   	if ( gamemodeDisable )
 	{
-    	Chat_ServerPrivateMessage( player, "当前模式不可切换队伍", false ) // chathook has been fucked up
+    	Chat_ServerPrivateMessage( player, ANSI_COLOR_ERROR + "当前模式不可切换队伍", false ) // chathook has been fucked up
 		return true
 	}
 
   	if ( mapDisable )
     {
-    	Chat_ServerPrivateMessage( player, "当前地图不可切换队伍", false ) // chathook has been fucked up
+    	Chat_ServerPrivateMessage( player, ANSI_COLOR_ERROR + "当前地图不可切换队伍", false ) // chathook has been fucked up
 		return true
 	}
 	
 	if ( GetPlayerArray().len() == 1 )
 	{
-    	Chat_ServerPrivateMessage( player, "人数不足，不可切换队伍", false ) // chathook has been fucked up
+    	Chat_ServerPrivateMessage( player, ANSI_COLOR_ERROR + "人数不足，不可切换队伍", false ) // chathook has been fucked up
 		return true
 	}
 
 	// Check if difference is smaller than 2 ( dont balance when it is 0 or 1 )
 	if( abs ( GetPlayerArrayOfTeam( TEAM_IMC ).len() - GetPlayerArrayOfTeam( TEAM_MILITIA ).len() ) <= BALANCE_ALLOWED_TEAM_DIFFERENCE )
 	{
-    	Chat_ServerPrivateMessage( player, "队伍已平衡，不可切换队伍", false ) // chathook has been fucked up
+    	Chat_ServerPrivateMessage( player, ANSI_COLOR_ERROR + "队伍已平衡，不可切换队伍", false ) // chathook has been fucked up
 		return true
 	}
 
 	int oldTeam = player.GetTeam()
 	SetTeam( player, GetOtherTeam( player.GetTeam() ) )
-	Chat_ServerPrivateMessage( player, "已切换队伍", false )
+	Chat_ServerPrivateMessage( player, ANSI_COLOR_TEAM + "已切换队伍", false )
 	thread WaitForPlayerRespawnThenNotify( player )
 	NotifyClientsOfTeamChange( player, oldTeam, player.GetTeam() )
 	if( IsAlive( player ) ) // poor guy
@@ -110,7 +114,7 @@ void function CheckPlayerDisconnect( entity player )
 
 	int weakTeam = imcTeamSize > mltTeamSize ? TEAM_MILITIA : TEAM_IMC
 	foreach ( entity player in GetPlayerArrayOfTeam( GetOtherTeam( weakTeam ) ) )
-		Chat_ServerPrivateMessage( player, "队伍当前不平衡，可通过控制台输入switch切换队伍。", false )
+		Chat_ServerPrivateMessage( player, ANSI_COLOR_ENEMY + "队伍当前不平衡，可通过控制台输入switch切换队伍。", false )
 }
 
 void function ShuffleTeams()
@@ -223,7 +227,7 @@ void function FixShuffle( float delay = 0 )
 	}
 	if( IsValid( poorGuy ) )
 	{ // only notice once
-		Chat_ServerPrivateMessage( poorGuy, "由于队伍人数不平衡，你已被重新分队", false )
+		Chat_ServerPrivateMessage( poorGuy, ANSI_COLOR_TEAM + "由于队伍人数不平衡，你已被重新分队", false )
 		thread WaitForPlayerRespawnThenNotify( poorGuy )
 		NotifyClientsOfTeamChange( poorGuy, oldTeam, poorGuy.GetTeam() ) 
 	}
@@ -250,7 +254,7 @@ void function CheckTeamBalance( entity victim, entity attacker, var damageInfo )
 	// We passed all checks, balance the teams
 	int oldTeam = victim.GetTeam()
 	SetTeam( victim, GetOtherTeam( victim.GetTeam() ) )
-	Chat_ServerPrivateMessage( victim, "由于队伍人数不平衡，你已被重新分队", false )
+	Chat_ServerPrivateMessage( victim, ANSI_COLOR_TEAM + "由于队伍人数不平衡，你已被重新分队", false )
 	thread WaitForPlayerRespawnThenNotify( victim )
 	NotifyClientsOfTeamChange( victim, oldTeam, victim.GetTeam() )
 }
