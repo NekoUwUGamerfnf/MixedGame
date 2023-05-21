@@ -1,15 +1,9 @@
 global function FFA_Init
 
 // modified: for saving player's score in ffa, don't let mid-game joined players get illegal scores
-struct FFAScoreStruct
-{
-	int team
-	int score
-}
-
 struct
 {
-	table<string, FFAScoreStruct> ffaPlayerScoreTable // use player's uid!
+	table<entity, int> ffaPlayerScore
 } file
 
 void function FFA_Init()
@@ -21,50 +15,43 @@ void function FFA_Init()
 
 	// modified for northstar
 	AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_OnClientDisconnected( OnClientDisconnected )
 }
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
 	if ( victim != attacker && victim.IsPlayer() && attacker.IsPlayer() && GetGameState() == eGameState.Playing )
 	{
-		AddTeamScore( attacker.GetTeam(), 1 )
+		// use AddFFAPlayerScore() for better handling
+		//AddTeamScore( attacker.GetTeam(), 1 )
 		// why isn't this PGS_SCORE? odd game
-		attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 )
+		//attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 )
 
 		// modified for northstar
-		string uid = attacker.GetUID()
-		file.ffaPlayerScoreTable[ uid ].score += 1
+		AddFFAPlayerTeamScore( attacker, 1 )
+		attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 ) // add to scoreboard
 	}
 }
 
 // modified for northstar
-void function OnClientConnected( entity player )
+void function AddFFAPlayerTeamScore( entity player, int scoreAmount )
 {
-	string uid = player.GetUID()
-	FFAScoreStruct emptyStruct
-	if ( !( uid in file.ffaPlayerScoreTable ) )
-		file.ffaPlayerScoreTable[ uid ] <- emptyStruct // init a empty struct
-	file.ffaPlayerScoreTable[ uid ].score = 0 // start from 0
-
-	thread FFAPlayerScoreThink( player ) // good to have this! instead of DisconnectCallback this could handle a null player
+	AddTeamScore( player.GetTeam(), scoreAmount ) // add to team score
+	file.ffaPlayerScore[ player ] += scoreAmount // add for later we clean up
 }
 
-void function FFAPlayerScoreThink( entity player )
+void function OnClientConnected( entity player )
 {
-	string uid = player.GetUID()
-	file.ffaPlayerScoreTable[ uid ].team = player.GetTeam()
+	file.ffaPlayerScore[ player ] <- 0
+}
 
-	OnThreadEnd(
-		function(): ( uid )
-		{
-			// take score from this team
-			int team = file.ffaPlayerScoreTable[ uid ].team
-			int score = file.ffaPlayerScoreTable[ uid ].score
+void function OnClientDisconnected( entity player )
+{
+	// take score from this team, based on how much score player earned. handles ffa with 2 or more players in 1 team
+	int team = player.GetTeam()
+	int score = file.ffaPlayerScore[ player ]
 
-			AddTeamScore( team, -score )
-			delete file.ffaPlayerScoreTable[ uid ] // delete existing struct
-		}
-	)
-
-	player.WaitSignal( "OnDestroy" ) // this can handle disconnecting
+	if ( GetGameState() == eGameState.Playing ) // game still playing, we remove score from this player
+		AddTeamScore( team, -score )
+	delete file.ffaPlayerScore[ player ]
 }
