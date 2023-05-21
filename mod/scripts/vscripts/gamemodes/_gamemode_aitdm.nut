@@ -475,7 +475,9 @@ void function SquadHandler( array<entity> guys )
 	
 	// Every 5 - 15 secs change AssaultPoint
 	while ( true )
-	{	
+	{
+		WaitFrame() // wait a frame each loop
+
 		foreach ( guy in guys )
 		{
 			// Check if alive
@@ -493,7 +495,7 @@ void function SquadHandler( array<entity> guys )
 		points = GetNPCArrayOfEnemies( team )
 		if ( points.len() == 0 ) // can't find any points here
 			continue
-			
+
 		point = points[ RandomInt( points.len() ) ].GetOrigin()
 		
 		foreach ( guy in guys )
