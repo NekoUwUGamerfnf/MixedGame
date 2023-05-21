@@ -35,9 +35,13 @@ var function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade( entity weapon
 
 void function OnProjectileCollision_weapon_thermite_grenade( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	// modded weapon
 	array<string> mods = projectile.ProjectileGetMods()
 	if ( mods.contains( "flamewall_grenade" ) )
 		return OnProjectileCollision_weapon_flamewall_grenade( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	if( mods.contains( "ninja_projectile" ) )
+		return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	// vanilla behavior
 
 	entity player = projectile.GetOwner()
 
