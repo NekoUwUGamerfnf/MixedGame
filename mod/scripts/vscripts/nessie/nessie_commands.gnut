@@ -1,5 +1,10 @@
 global function Nessie_Useful_Commands_Init
 
+struct
+{
+	table<entity, bool> playerGainSpecialLoadout
+} file
+
 // BATTERY_SPAWNERS array in nessy.gnut controls avaibility
 void function Nessie_Useful_Commands_Init()
 {
@@ -11,6 +16,30 @@ void function Nessie_Useful_Commands_Init()
 	AddClientCommandCallback( "selfgib", OPSelfGib )
 	//AddClientCommandCallback( "doomedtitan", CC_SpawnDoomedTitan )
 	//AddClientCommandCallback( "doomedpilottitan", CC_SpawnDoomedPilotTitan )
+	AddClientCommandCallback( "special", CC_GiveSpecialLoadout )
+
+	// callbacks
+	AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+}
+
+void function OnClientConnected( entity player )
+{
+	// special loadout
+	file.playerGainSpecialLoadout[ player ] <- false
+}
+
+void function OnPlayerRespawned( entity player )
+{
+	if ( file.playerGainSpecialLoadout[ player ] )
+		DisableBoostBar( player )
+}
+
+void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
+{
+	if ( file.playerGainSpecialLoadout[ player ] )
+		GivePlayerSpecialLoadout( player )
 }
 
 bool function OPSuicide( entity player, array<string> args )
@@ -141,3 +170,84 @@ bool function CC_SpawnDoomedPilotTitan( entity player, array<string> args )
 
 	return true
 }
+
+// special loadout
+bool function CC_GiveSpecialLoadout( entity player, array<string> args )
+{
+	if ( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	array<entity> targets
+	if ( args.len() > 0 )
+		targets = GetSpecialLoadoutPlayers( args[0] )
+	if ( targets.len() < 0 )
+		return true
+
+	foreach ( entity player in targets )
+		file.playerGainSpecialLoadout[ player ] = !file.playerGainSpecialLoadout[ player ]
+
+	return true
+}
+
+array<entity> function GetSpecialLoadoutPlayers( string targetType )
+{
+	array<entity> players
+	switch ( targetType )
+	{
+		case "all":
+			players = GetPlayerArray()
+			break
+		default:
+			players = GetPlayersFromNamePiece( targetType )
+			break
+	}
+
+	return players
+}
+
+array<entity> function GetPlayersFromNamePiece( string namePiece )
+{
+    array<entity> foundPlayers
+    foreach ( entity player in GetPlayerArray() )
+    {
+        string name = player.GetPlayerName()
+        if ( name.tolower().find( namePiece.tolower() ) != null )
+            foundPlayers.append( player )
+    }
+
+    return foundPlayers
+}
+
+void function DisableBoostBar( entity player )
+{
+    thread DisableBoostBar_Threaded( player )
+}
+
+void function DisableBoostBar_Threaded( entity player )
+{
+    WaitFrame() // wait for player earn meter being set up
+    if( IsValid( player ) )
+        PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
+}
+
+void function GivePlayerSpecialLoadout( entity player )
+{
+	thread GivePlayerSpecialLoadout_Threaded( player )
+}
+
+void function GivePlayerSpecialLoadout_Threaded( entity player )
+{
+	WaitFrame() // wait for anyother things set up
+	if ( !IsAlive( player ) )
+		return
+	if ( !file.playerGainSpecialLoadout[ player ] )
+		return
+
+	foreach ( entity weapon in player.GetOffhandWeapons() )
+		player.TakeWeaponNow( weapon.GetWeaponClassName() )
+	player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL, ["zipline_gun"] )
+	player.GiveOffhandWeapon( "mp_ability_heal", OFFHAND_INVENTORY, ["jump_pad", "infinite_jump_pad"] )
+	player.GiveOffhandWeapon( "mp_ability_shifter", OFFHAND_ORDNANCE, ["wraith_portal", "amped_tacticals"] )
+	player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_ANTIRODEO, ["gravity_lift"] )
+}
+//

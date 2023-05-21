@@ -29,34 +29,35 @@ void function Nessie_Funny_Functions_Init()
 	// precaching
 	PrecacheModel( ROCKET_TURRET_MODEL )
 	// signals
+	// rgb highlight
     RegisterSignal( "StartRGBHighlight" )
 	RegisterSignal( "EndRGBHighlight" )
+	// sb title
     RegisterSignal( "StartSBTitle" )
 	RegisterSignal( "EndSBTitle" )
+	// rainbow skin
 	RegisterSignal( "StartRainbowPlayer" )
 	RegisterSignal( "EndRainbowPlayer" )
 	RegisterSignal( "StartRainbowWeapon" )
 	RegisterSignal( "EndRainbowWeapon" )
+	// rgy battery
 	RegisterSignal( "StartRGYBattery" )
 	RegisterSignal( "EndRGYBattery" )
+	// holo flash
 	RegisterSignal( "StartHoloFlash" )
 	RegisterSignal( "EndHoloFlash" )
+	// nuke
 	RegisterSignal( "NukeIncomingEffect" )
+	// self flip
+	RegisterSignal( "EndFlipper" )
 
 	//AddClientCommandCallback( "rainbowdome", CC_SpawnRainbowDome )
 	//AddClientCommandCallback( "nessyoutfit", CC_SpawnNessyOutfit )
 
-	AddClientCommandCallback( "rgbself", SelfRGBHighlight )
-	//AddClientCommandCallback( "sbself", SelfIMSBTitle )
-	AddClientCommandCallback( "special", CC_GiveSpecialLoadout )
+	AddClientCommandCallback( "rgbself", CC_SelfRGBHighlight )
+	//AddClientCommandCallback( "sbself", CC_SelfIMSBTitle )
 
-	//AddClientCommandCallback( "spawngib", SpawnHumanGib ) 
-	//AddClientCommandCallback( "spawnmri", CC_SpawnPilotMri )
-
-	//AddClientCommandCallback( "rocketturret", CC_CreateRocketTurret )
-	//AddClientCommandCallback( "remoterocket", CC_CreateRocketRemoteTurret )
-	//AddClientCommandCallback( "remoteplasma", CC_CreatePlasmaRemoteTurret )
-	//AddClientCommandCallback( "remotesentry", CC_CreateSentryRemoteTurret )
+	AddClientCommandCallback( "flipself", CC_FlipPlayerSelf )
 }
 
 // client commands
@@ -75,7 +76,71 @@ bool function CC_SpawnNessyOutfit( entity player, array<string> args )
 	return true
 }
 
-bool function SelfRGBHighlight( entity player, array<string> args )
+bool function CC_FlipPlayerSelf( entity player, array<string> args )
+{
+	entity playerParent = player.GetParent()
+	//print( "playerParent: " + string( playerParent ) )
+	if ( IsValid( playerParent ) )
+	{
+		player.Signal( "EndFlipper" ) // try to end flipper
+		return true
+	}
+
+	thread FlipperMoverThink( player )
+
+	return true
+}
+
+void function FlipperMoverThink( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "EndFlipper" )
+
+	entity viewControl = CreateEntity( "point_viewcontrol" )
+	viewControl.kv.spawnflags = 56 // infinite hold time, snap to goal angles, make player non-soli
+	DispatchSpawn( viewControl )
+	viewControl.EndSignal( "OnDestroy" )
+
+	float offset = player.IsTitan() ? 500.0 : 200.0
+	viewControl.SetOrigin( player.GetOrigin() + AnglesToForward( < 0, player.EyeAngles().y, 0 > ) * offset )
+	viewControl.SetAngles( < 0, ClampAngle( player.EyeAngles().y - 180 ), 0 > )	
+	player.SetViewEntity( viewControl, true )
+
+	entity mover = CreateExpensiveScriptMover()
+	mover.EndSignal( "OnDestroy" )
+
+	mover.SetOrigin( player.GetOrigin() )
+	player.SetParent( mover )
+
+	OnThreadEnd
+	(
+		function(): ( player, mover, viewControl )
+		{
+			if ( IsValid( player ) )
+			{
+				player.ClearParent()
+				player.ClearViewEntity()
+			}
+
+			if ( IsValid( viewControl ) )
+				viewControl.Destroy()
+			if ( IsValid( mover ) )
+				mover.Destroy()
+		}
+	)
+
+	int loopCount = 0
+	while ( true )
+	{
+		float x = loopCount % 2 == 0 ? -180.0 : 0.0
+		mover.NonPhysicsRotateTo( < x, 0, 0 >, 0.3, 0, 0 )
+		loopCount += 1
+		wait 0.2
+	}
+}
+
+bool function CC_SelfRGBHighlight( entity player, array<string> args )
 {
 	//if ( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
 	//	return false
@@ -84,7 +149,7 @@ bool function SelfRGBHighlight( entity player, array<string> args )
 	return true
 }
 
-bool function SelfIMSBTitle( entity player, array<string> args )
+bool function CC_SelfIMSBTitle( entity player, array<string> args )
 {
 	if ( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
 		return false
@@ -92,25 +157,6 @@ bool function SelfIMSBTitle( entity player, array<string> args )
 	thread TitleFlash( player )
 	return true
 }
-
-// requires karma.abuse
-bool function CC_GiveSpecialLoadout( entity player, array<string> args )
-{
-	if ( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
-		return false
-
-	string target = player.GetPlayerName()
-	if ( args.len() > 0 )
-		target = args[0]
-
-	ServerCommand( "gift mp_ability_grapple " + target + " tactical zipline_gun save" )
-	ServerCommand( "gift mp_ability_heal " + target + " inventory jump_pad infinite_jump_pad save" )
-	ServerCommand( "gift mp_ability_shifter " + target + " ordnance wraith_portal amped_tacticals save" )
-	ServerCommand( "gift mp_weapon_grenade_gravity " + target + " antirodeo gravity_lift save" )
-
-	return true
-}
-//
 
 void function RGB_Hightlight( entity ent, bool showToAll = false, bool alwaysShow = false )
 {
