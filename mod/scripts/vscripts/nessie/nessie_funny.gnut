@@ -19,10 +19,12 @@ global function CreateHumanGib
 global function BecomeApexLegend
 global function CreateRainbowDomeShield
 
-global function NukeIncomingEffectForPlayer
-
-global function CreateRocketTurret
-global function CreateRemoteTurret
+struct
+{
+	table<entity, bool> playerHasRGBHighlight
+	table<entity, bool> playerHasRainbowSkin
+	table<entity, entity> playerFlipperMover
+} file
 
 void function Nessie_Funny_Functions_Init()
 {
@@ -58,6 +60,33 @@ void function Nessie_Funny_Functions_Init()
 	//AddClientCommandCallback( "sbself", CC_SelfIMSBTitle )
 
 	AddClientCommandCallback( "flipself", CC_FlipPlayerSelf )
+
+	// callbacks
+	AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_OnDecoyCreated( OnDecoyCreated )
+	AddCallback_OnModdedDecoyCreated( OnDecoyCreated )
+}
+
+// callbacks
+void function OnClientConnected( entity player )
+{
+	file.playerHasRGBHighlight[ player ] <- false
+	file.playerHasRainbowSkin[ player ] <- false
+	file.playerFlipperMover[ player ] <- null
+}
+
+void function OnDecoyCreated( entity decoy )
+{
+	entity bossPlayer = decoy.GetBossPlayer()
+	if ( IsValid( bossPlayer ) )
+	{
+		// inherit rgb highlight to decoy
+		if ( file.playerHasRGBHighlight[ bossPlayer ] )
+			thread RGB_Hightlight( decoy )
+		// inherit rainbow skin to decoy
+		if ( file.playerHasRainbowSkin[ bossPlayer ] )
+			thread RainbowPlayerSkin( decoy )
+	}
 }
 
 // client commands
@@ -74,70 +103,6 @@ bool function CC_SpawnNessyOutfit( entity player, array<string> args )
 {
 	SpawnNessyOutfit( player )
 	return true
-}
-
-bool function CC_FlipPlayerSelf( entity player, array<string> args )
-{
-	entity playerParent = player.GetParent()
-	//print( "playerParent: " + string( playerParent ) )
-	if ( IsValid( playerParent ) )
-	{
-		player.Signal( "EndFlipper" ) // try to end flipper
-		return true
-	}
-
-	thread FlipperMoverThink( player )
-
-	return true
-}
-
-void function FlipperMoverThink( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "EndFlipper" )
-
-	entity viewControl = CreateEntity( "point_viewcontrol" )
-	viewControl.kv.spawnflags = 56 // infinite hold time, snap to goal angles, make player non-soli
-	DispatchSpawn( viewControl )
-	viewControl.EndSignal( "OnDestroy" )
-
-	float offset = player.IsTitan() ? 500.0 : 200.0
-	viewControl.SetOrigin( player.GetOrigin() + AnglesToForward( < 0, player.EyeAngles().y, 0 > ) * offset )
-	viewControl.SetAngles( < 0, ClampAngle( player.EyeAngles().y - 180 ), 0 > )	
-	player.SetViewEntity( viewControl, true )
-
-	entity mover = CreateExpensiveScriptMover()
-	mover.EndSignal( "OnDestroy" )
-
-	mover.SetOrigin( player.GetOrigin() )
-	player.SetParent( mover )
-
-	OnThreadEnd
-	(
-		function(): ( player, mover, viewControl )
-		{
-			if ( IsValid( player ) )
-			{
-				player.ClearParent()
-				player.ClearViewEntity()
-			}
-
-			if ( IsValid( viewControl ) )
-				viewControl.Destroy()
-			if ( IsValid( mover ) )
-				mover.Destroy()
-		}
-	)
-
-	int loopCount = 0
-	while ( true )
-	{
-		float x = loopCount % 2 == 0 ? -180.0 : 0.0
-		mover.NonPhysicsRotateTo( < x, 0, 0 >, 0.3, 0, 0 )
-		loopCount += 1
-		wait 0.2
-	}
 }
 
 bool function CC_SelfRGBHighlight( entity player, array<string> args )
@@ -158,30 +123,60 @@ bool function CC_SelfIMSBTitle( entity player, array<string> args )
 	return true
 }
 
+bool function CC_FlipPlayerSelf( entity player, array<string> args )
+{
+	thread FlipperMoverThink( player )
+
+	return true
+}
+//
+
 void function RGB_Hightlight( entity ent, bool showToAll = false, bool alwaysShow = false )
 {
-	OnThreadEnd(
-		function(): ( ent )
-		{
-			if( IsValid( ent ) )
-			{
-				Highlight_ClearFriendlyHighlight( ent )
-				Highlight_ClearEnemyHighlight( ent )
-				Highlight_ClearNeutralHighlight( ent )
-			}
-		}
-	)
 	ent.Signal( "StartRGBHighlight" )
 	ent.EndSignal( "OnDestroy" )
 	ent.EndSignal( "OnDeath" )
 	ent.EndSignal( "StartRGBHighlight" )
 	ent.EndSignal( "EndRGBHighlight" )
-	
+
+	// player specific
+	if ( ent.IsPlayer() )
+		file.playerHasRGBHighlight[ ent ] = true
+
+	OnThreadEnd(
+		function(): ( ent )
+		{
+			if( IsValid( ent ) )
+			{
+				// player specific
+				if ( ent.IsPlayer() )
+					file.playerHasRGBHighlight[ ent ] = false
+
+				Highlight_ClearFriendlyHighlight( ent )
+				Highlight_ClearEnemyHighlight( ent )
+				Highlight_ClearNeutralHighlight( ent )
+				Highlight_ClearOwnedHighlight( ent )
+			}
+		}
+	)
+
+	while ( true )
+	{
+		waitthread RGBHighlightThink( ent, showToAll, alwaysShow )
+		ent.WaitSignal( "StopPhaseShift" ) // wait for next phase shift, we do highlight again!
+	}
+}
+
+void function RGBHighlightThink( entity ent, bool showToAll = false, bool alwaysShow = false )
+{
+	ent.EndSignal( "StartPhaseShift" ) // phase shift cleans up highlight
+
 	string highlightToUse = "sp_enemy_pilot" // normal one
 	if ( alwaysShow )
 		highlightToUse = "sp_friendly_hero" // this one will show across walls
 
 	Highlight_SetFriendlyHighlight( ent, highlightToUse )
+	Highlight_SetOwnedHighlight( ent, highlightToUse )
 	if( showToAll )
 	{
 		Highlight_SetEnemyHighlight( ent, highlightToUse )
@@ -195,6 +190,7 @@ void function RGB_Hightlight( entity ent, bool showToAll = false, bool alwaysSho
 		index = index == colorArray.len() - 1 ? 0 : index + 1
 
 		ent.Highlight_SetParam( 1, 0, colorArray[index] ) // friendly
+		ent.Highlight_SetParam( 3, 0, colorArray[index] ) // owned
 		if( showToAll )
 		{
 			ent.Highlight_SetParam( 2, 0, colorArray[index] ) // enemy
@@ -233,8 +229,22 @@ void function RainbowPlayerSkin( entity player )
 	player.EndSignal( "StartRainbowPlayer" )
 	player.EndSignal( "EndRainbowPlayer" )
 
-	entity predictedProxy = player.GetPredictedFirstPersonProxy()
-    entity firstPersonProxy = player.GetFirstPersonProxy()
+	// player specific
+	if ( player.IsPlayer() )
+		file.playerHasRainbowSkin[ player ] = true
+
+	OnThreadEnd
+	(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				// player specific
+				if ( player.IsPlayer() )
+					file.playerHasRainbowSkin[ player ] = false
+			}
+		}
+	)
 
 	array<int> camoIndexArray = [ 14, 81, 30, 31, 17, 83, 16 ] // skin 1
 	// green, pink, black, white, orange, purple, gold
@@ -246,17 +256,6 @@ void function RainbowPlayerSkin( entity player )
 
 		player.SetSkin( 1 )
 		player.SetCamo( camoIndexArray[index] )
-		// proxy update
-		if ( IsValid( predictedProxy ) )
-		{
-			predictedProxy.SetSkin( 1 )
-			predictedProxy.SetCamo( camoIndexArray[index] )
-		}
-		if ( IsValid( firstPersonProxy ) )
-		{
-			firstPersonProxy.SetSkin( 1 )
-			firstPersonProxy.SetCamo( camoIndexArray[index] )
-		}
 	}
 }
 
@@ -633,95 +632,70 @@ void function CleanupBubbleShield( entity bubbleShield, array<entity> bubbleShie
 		wait fadeTime
 }
 
-// test nuke thing
-void function NukeIncomingEffectForPlayer( entity player, float timeBeforeNuke = 2.5 )
+// flipper
+void function FlipperMoverThink( entity player )
 {
-	player.EndSignal( "OnDestroy" )
-	player.Signal( "NukeIncomingEffect" )
-	player.EndSignal( "NukeIncomingEffect" )
-	float bloomScale = 1.0
-	float sunScale = -1.0
-
-	EmitSoundOnEntityOnlyToPlayer( player, player, "titan_nuclear_death_alarm" )
-	wait 1.2
-	
-	float endTime = Time() + timeBeforeNuke + 0.6
-	EmitSoundOnEntityOnlyToPlayer( player, player, "titan_nuclear_death_charge" )
-	
-	thread DelayedDoNukeSound( player, timeBeforeNuke )
-	while ( Time() < endTime )
+	entity playerParent = player.GetParent()
+	//print( "playerParent: " + string( playerParent ) )
+	if ( IsValid( playerParent ) )
 	{
-		Remote_CallFunction_Replay( player, "ServerCallback_ScreenShake", 5, 10, 0.5 )
-		Remote_CallFunction_NonReplay( player, "ServerCallback_SetMapSettings", bloomScale, false, 1.0, 1.0, 1.0, 0, 0, sunScale, 1.0 )
-		bloomScale += 0.2
-		sunScale -= 0.1
-		WaitFrame()
+		if ( playerParent == file.playerFlipperMover[ player ] )
+		{
+			player.Signal( "EndFlipper" ) // try to end last flipper
+			return
+		}
 	}
-}
 
-void function DelayedDoNukeSound( entity player, float timeBeforeNuke )
-{
+	player.Signal( "EndFlipper" )
 	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "NukeIncomingEffect" )
-	wait timeBeforeNuke
-	ScreenFade( player, 255, 255, 255, 255, 0.5, 10, FFADE_OUT | FFADE_PURGE )
-	wait 0.9
-	Remote_CallFunction_NonReplay( player, "ServerCallback_ResetMapSettings" )
-	EmitSoundOnEntityOnlyToPlayer( player, player, "titan_nuclear_death_explode" )
-	wait 10
-}
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "EndFlipper" )
 
-// turrets
-entity function CreateRocketTurret( int team, vector origin, vector angles )
-{
-	entity turret = CreateNPC( "npc_turret_sentry", team, origin, angles )
-	turret.StartDeployed()
-	SetSpawnOption_AISettings( turret, "npc_turret_sentry_plasma" )
-	SetSpawnOption_Weapon( turret, "mp_turretweapon_blaster" )
-	DispatchSpawn( turret )
-	turret.SetTitle( "#WPN_BLASTER_TURRET" )
-	turret.SetModel( ROCKET_TURRET_MODEL )
-	//turret.TakeActiveWeapon()
-	//turret.GiveWeapon( "mp_turretweapon_blaster" )
-	//turret.SetActiveWeaponByName( "mp_turretweapon_blaster" )
+	entity viewControl = CreateEntity( "point_viewcontrol" )
+	viewControl.kv.spawnflags = 56 // infinite hold time, snap to goal angles, make player non-soli
+	DispatchSpawn( viewControl )
+	viewControl.EndSignal( "OnDestroy" )
 
-	return turret
-}
+	float offset = player.IsTitan() ? 500.0 : 200.0
+	float playerViewYaw = player.EyeAngles().y
+	float playerBackViewYaw = ClampAngle( playerViewYaw - 180 )
+	viewControl.SetOrigin( player.GetOrigin() + AnglesToForward( < 0, playerBackViewYaw, 0 > ) * offset )
+	viewControl.SetAngles( < 0, playerViewYaw, 0 > )
+	player.SetViewEntity( viewControl, true )
 
-/* // turret settings
-	"droppod_fireteam_turret"
-	"PROTO_at_turret"		// have special pov
-	"redeye_turret"
-	"redeye_turret_ai"
-	"sat_strike_turret"		// cannot change direction
-	"turret_imc_lrg"
-*/
+	entity mover = CreateExpensiveScriptMover()
+	mover.EndSignal( "OnDestroy" )
 
-/* // turret models
-	SENTRY_TURRET_MODEL and PLASMA_TURRET_MODEL(same)
-	ROCKET_TURRET_MODEL
-	HITSCAN_TURRET_MODEL
-*/
+	mover.SetOrigin( player.GetOrigin() )
+	mover.SetAngles( < 0, playerBackViewYaw, 0 > )
+	player.SetParent( mover )
+	file.playerFlipperMover[ player ] = mover
 
-entity function CreateRemoteTurret( vector origin, vector angles, vector panelOrigin, vector panelAngles, asset turretModel, string turretWeapon )
-{
-	RemoteTurretSettings info
+	OnThreadEnd
+	(
+		function(): ( player, mover, viewControl )
+		{
+			if ( IsValid( player ) )
+			{
+				player.ClearParent()
+				FindNearestSafeSpotAndPutEntity( player, 1 )
+				player.ClearViewEntity()
+				file.playerFlipperMover[ player ] = null
+			}
 
-	info.turretOrigin = origin
-	info.turretAngles = angles
-	info.panelOrigin = panelOrigin
-	info.panelAngles = panelAngles
+			if ( IsValid( viewControl ) )
+				viewControl.Destroy()
+			if ( IsValid( mover ) )
+				mover.Destroy()
+		}
+	)
 
-	info.turretSettingsName		= "PROTO_at_turret"
-	info.weaponName				= turretWeapon
-	info.turretModel			= turretModel
-	info.panelModel				= CONTROL_PANEL_MODEL
-
-	info.viewClampEnabled		= true
-	info.viewClampRangeYaw		= 120
-	info.viewClampRangePitch	= 120
-	info.viewStartPitch			= 0
-
-	entity turret = CreateRemoteTurretAndControlPanel( info )
-	return turret
+	int loopCount = 0
+	while ( true )
+	{
+		float x = loopCount % 2 == 0 ? -180.0 : 0.0
+		mover.NonPhysicsRotateTo( < x, playerBackViewYaw, 0 >, 0.3, 0, 0 )
+		loopCount += 1
+		wait 0.2
+	}
 }
