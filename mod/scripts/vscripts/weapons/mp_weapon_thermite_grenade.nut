@@ -6,7 +6,7 @@ global const float THERMITE_TRAIL_SOUND_TIME = 2.0
 
 // bleedout balance
 const float BLEEDOUT_BURN_TIME = 3.0 // halfed normal duration
-const float BLEEDOUT_STICK_BURN_TIME = 1.0 // sticked firestar will have less duration
+const float BLEEDOUT_STICK_BURN_TIME = 1.5 // sticked firestar will have less duration. was 1.0, due we bind it together with "thermite_grenade_dot", should set bit higher
 #endif
 
 global function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade
@@ -41,8 +41,8 @@ void function OnProjectileCollision_weapon_thermite_grenade( entity projectile, 
 		return OnProjectileCollision_weapon_flamewall_grenade( projectile, pos, normal, hitEnt, hitbox, isCritical )
 	if( mods.contains( "ninja_projectile" ) )
 		return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	
 	// vanilla behavior
-
 	entity player = projectile.GetOwner()
 
 	if ( hitEnt == player )
