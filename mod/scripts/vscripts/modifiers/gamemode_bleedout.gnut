@@ -62,10 +62,23 @@ const int BLEEDOUT_MODE_DOWNED_HEALTH = 100
 const int BLEEDOUT_MODE_SHIELD_HEALTH = 100
 
 const float BLEEDOUT_MODE_ELIMINATE_PILOT_EARNED_VALUE = 0.0 // was 0.1
-const float BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE = 0.35 // was 0.3
-// only earn values if you're assisting
-const float BLEEDOUT_MODE_PILOT_ASSIST_EARNED_VALUE = 0.0 // was 0.3
-const float BLEEDOUT_MODE_PILOT_ASSIST_OWNED_VALUE = 0.2 // was 0.0
+const float BLEEDOUT_MODE_ELIMINATE_PILOT_OWNED_VALUE = 0.3 // was 0.3
+const float BLEEDOUT_MODE_PILOT_ASSIST_EARNED_VALUE = 0.2 // was 0.3
+const float BLEEDOUT_MODE_PILOT_ASSIST_OWNED_VALUE = 0.0 // was 0.0
+// knock down and death events, no score event handler, just add directly to earnmeter
+const float BLEEDOUT_MODE_KNOCKDOWN_EARNED_VALUE = 0.2 // only add once for knocking down a player
+const float BLEEDOUT_MODE_KNOCKDOWN_OWNED_VALUE = 0.0
+const float BLEEDOUT_MODE_DEATH_EARNED_VALUE = 0.0 // death will clean up earned value
+const float BLEEDOUT_MODE_DEATH_OWNED_VALUE = 0.3 // killed by a player will give you some earnmeter
+
+// banlance 
+const array<int> BLEEDOUT_DOT_DAMAGE_TYPES =
+[
+	eDamageSourceId.mp_weapon_thermite_grenade,
+	eDamageSourceId.mp_weapon_grenade_electric_smoke,
+	eDamageSourceId.burn, // triggered by "thermite_grenade_dot"
+]
+const float BLEEDOUT_DOWNED_DOT_DAMAGE_SCALE = 0.3 // scale dot damage for downed players, so they can try to escape
 
 // things below should be in playlistvar
 /*
@@ -106,6 +119,7 @@ struct
 	table<entity, entity> playerIncapShieldTable
 	bool invulnerableIncapShield
 	table<entity, entity> bleedoutFakePlayers // can't handle rn
+	table< entity, array<entity> > playerBeingKnockDownBy // handle knockdown score event
 } file
 
 void function Modded_Gamemode_Bleedout_Init()
@@ -137,7 +151,7 @@ void function Modded_Gamemode_Bleedout_Init()
     //Rodeo_SetBatteryThrowEnabled( true ) // messed up
 	
     Burnmeter_SetForcedReward( "burnmeter_emergency_battery" ) // from _burnmeter.gnut
-	
+
     SetAltPilotChance( 0.5 ) // higher chance to change model, 50%
     //SetShouldAlsoFuckOffPOV( false ) // for something
     SetShouldFUCKOFFCLOAK( true ) // fuck them
@@ -170,6 +184,8 @@ void function Modded_Gamemode_Bleedout_Init()
     AddCallback_OnTouchHealthKit( "item_titan_battery", OnTouchBatteryPack )
 
 	AddDamageCallbackSourceID( eDamageSourceId.human_execution, OnExecutionDamaged )
+	// banlance handler
+	AddDamageCallback( "player", OnPlayerDamaged )
 
     // more score added, why it can only be done midgame?
     AddCallback_GameStateEnter( eGameState.Playing, SetBleedoutModeScoreEvent )
@@ -224,14 +240,15 @@ void function OnClientConnected( entity player )
 	//file.playerSavedTitle[ player ] <- ""
 	//file.incapShieldHealthTable[ player ] <- file.incapShieldMaxHealth
 	file.playerIncapShieldTable[ player ] <- null
-	file.bleedoutFakePlayers[ player ] <- null
-
 	/*
 	IncapShieldStruct emptyStruct
 	emptyStruct.vortexSphere = null
 	emptyStruct.shieldWallFX1P = null
 	file.playerIncapShieldTable[ player ] <- emptyStruct
 	*/
+
+	file.bleedoutFakePlayers[ player ] <- null
+	file.playerBeingKnockDownBy[ player ] <- []
 }
 
 void function OnClientDisconnected( entity player )
@@ -339,7 +356,7 @@ void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
         thread GiveMeleeAfterGracePeriod( player )
     else
 	{
-		// fuck off frag and satchels
+		// balance ordnances
 		entity ordnance = player.GetOffhandWeapon( OFFHAND_ORDNANCE )
 		if ( IsValid( ordnance ) )
 		{
@@ -348,8 +365,13 @@ void function OnPlayerGetsPilotLoadout( entity player, PilotLoadoutDef p )
 			{
 				case "mp_weapon_frag_grenade":
 					ordnance.AddMod( "frag_no_charge" )
+					break
 				case "mp_weapon_satchel":
 					ordnance.AddMod( "satchel_long_delay" )
+					break
+				case "mp_weapon_thermite_grenade":
+					ordnance.AddMod( "thermite_grenade_dot" )
+					break
 			}
 			
 		}
@@ -414,7 +436,12 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
     */
 
 	if ( attacker != victim ) // suicide check!
+	{
+		// score events
 		AddPlayerScore( attacker, "EliminatePilot", victim ) // we disabled "KillPilot", so manually add this
+		PlayerEarnMeter_AddEarnedAndOwned( victim, BLEEDOUT_MODE_DEATH_EARNED_VALUE, BLEEDOUT_MODE_DEATH_OWNED_VALUE )
+	}
+	file.playerBeingKnockDownBy[ victim ].clear() // clear knocked down saver
 }
 
 // since execution will leave player 1 health and redirect score to the knockdowner, adding exection shield should be done over here
@@ -429,21 +456,40 @@ void function OnExecutionDamaged( entity victim, var damageInfo )
     {
         if( attacker.GetShieldHealth() == attacker.GetShieldHealthMax() ) // shield full!
             return
-        entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( attacker, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, attacker.LookupAttachment( "CHESTFOCUS" ) )
-        SetTeam( shieldFXHandle, attacker.GetTeam() )
-        shieldFXHandle.SetOwner( attacker )
-        EffectSetControlPointVector( shieldFXHandle, 1, <115, 247, 255> )
-        
-        int currentShieldHealth = attacker.GetShieldHealth()
-        int shieldToRestore = int( min( attacker.GetShieldHealthMax() - currentShieldHealth, BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD ) )
-        if( shieldToRestore <= BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD ) // consider shield is full, not showing a extra fx
-            shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
-        attacker.SetShieldHealth( min( attacker.GetShieldHealthMax(), attacker.GetShieldHealth() + shieldToRestore ) )
-        SendHudMessage( attacker, "處決一名敵人, 已回復" + string(shieldToRestore) + "點護盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
-        MessageToPlayer( attacker, eEventNotifications.VANGUARD_ShieldGain, attacker )
+
+		int shieldRestored = PlayerShieldReward( attacker, BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD )
+        SendHudMessage( attacker, "處決一名敵人, 已回復" + string(shieldRestored) + "點護盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
 
 		//AddPlayerScore( attacker, "Execution", victim ) // do a manual score event here
     }
+}
+
+void function OnPlayerDamaged( entity victim, var damageInfo )
+{
+	if ( Bleedout_IsPlayerBleeding( victim ) ) // victim is bleeding!
+	{
+		// dot damage banlance
+		int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+		if ( BLEEDOUT_DOT_DAMAGE_TYPES.contains( damageSourceID ) )
+			DamageInfo_ScaleDamage( damageInfo, BLEEDOUT_DOWNED_DOT_DAMAGE_SCALE )
+	}
+}
+
+int function PlayerShieldReward( entity player, int reward )
+{
+	entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( player, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, player.LookupAttachment( "CHESTFOCUS" ) )
+	SetTeam( shieldFXHandle, player.GetTeam() )
+	shieldFXHandle.SetOwner( player )
+	EffectSetControlPointVector( shieldFXHandle, 1, <115, 247, 255> )
+
+	int currentShieldHealth = player.GetShieldHealth()
+	int shieldToRestore = int( min( player.GetShieldHealthMax() - currentShieldHealth, reward ) )
+	if( shieldToRestore <= reward ) // consider shield is full, not showing a extra fx
+		shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
+	player.SetShieldHealth( min( player.GetShieldHealthMax(), player.GetShieldHealth() + shieldToRestore ) )
+	MessageToPlayer( player, eEventNotifications.VANGUARD_ShieldGain, player )
+
+	return shieldToRestore
 }
 
 bool function OnTouchBatteryPack( entity player, entity batteryPack )
@@ -508,6 +554,22 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
 	}
     if( file.executingBleedingEnabled )
 		thread Bleedout_BecomeExecutionTarget( player )
+
+	// score event
+	if ( IsValid( attacker ) && attacker.IsPlayer() )
+	{
+		if ( PlayerCanEarnFromKnockdown( attacker, player ) )
+			PlayerEarnMeter_AddEarnedAndOwned( player, BLEEDOUT_MODE_KNOCKDOWN_EARNED_VALUE, BLEEDOUT_MODE_KNOCKDOWN_OWNED_VALUE )
+	}
+}
+
+bool function PlayerCanEarnFromKnockdown( entity attacker, entity victim )
+{
+	if ( file.playerBeingKnockDownBy[ victim ].contains( attacker ) ) // only gain once for each knockdowner!
+		return false
+
+	file.playerBeingKnockDownBy[ victim ].append( attacker )
+	return true
 }
 
 void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHealer )
@@ -527,17 +589,9 @@ void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHea
     if( playerHealer == playerToRes ) // selfRes
         return
     entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( playerHealer, GetParticleSystemIndex( $"P_xo_armor_body_CP" ), FX_PATTACH_POINT_FOLLOW, playerHealer.LookupAttachment( "CHESTFOCUS" ) )
-    SetTeam( shieldFXHandle, playerHealer.GetTeam() )
-    shieldFXHandle.SetOwner( playerHealer )
-    EffectSetControlPointVector( shieldFXHandle, 1, <115, 247, 255> )
-    
-    int currentShieldHealth = playerHealer.GetShieldHealth()
-    int shieldToRestore = int( min( playerHealer.GetShieldHealthMax() - currentShieldHealth, BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD ) )
-    if( shieldToRestore <= BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD ) // consider shield is full, not showing a extra fx
-        shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
-    playerHealer.SetShieldHealth( min( playerHealer.GetShieldHealthMax(), playerHealer.GetShieldHealth() + shieldToRestore ) )
-    SendHudMessage( playerHealer, "復活一名隊友, 已回復" + string(shieldToRestore) + "點護盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
-    MessageToPlayer( playerHealer, eEventNotifications.VANGUARD_ShieldGain, playerHealer )
+
+    int shieldRestored = PlayerShieldReward( playerHealer, BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD )
+    SendHudMessage( playerHealer, "復活一名隊友, 已回復" + string(shieldRestored) + "點護盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
 }
 
 void function SwitchLoadoutType( entity player )
@@ -942,7 +996,7 @@ void function Bleedout_DeathProtection( entity player )
 			{
 				// clean up
 				if ( !results.postDamageCallbackRemoved ) // hasn't be removed( killed by forceKill things? )
-					RemoveEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamaged )
+					RemoveEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamage )
 				else
 					RemoveEntityCallback_OnDamaged( player, OnRecentDownedPlayerDamaged )
 			}
@@ -950,15 +1004,14 @@ void function Bleedout_DeathProtection( entity player )
 	)
 
 	// this one is only for handling killshots!
-	AddEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamaged )
+	AddEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamage )
 	float endTime = Time() + file.protectionDuration
 	WaitFrame()
 	// since in postdamage the hitmarker has been displayed, we don't need it anymore
-	RemoveEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamaged )
+	RemoveEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamage )
 	results.postDamageCallbackRemoved = true // mark as removed
 
 	AddEntityCallback_OnDamaged( player, OnRecentDownedPlayerDamaged )
-
 	
 	while ( Time() < endTime )
 	{
@@ -974,7 +1027,7 @@ void function OnRecentDownedPlayerDamaged( entity player, var damageInfo )
 	DamageInfo_SetDamage( damageInfo, 0 ) // protect the player
 }
 
-void function OnRecentDownedPlayerPostDamaged( entity player, var damageInfo )
+void function OnRecentDownedPlayerPostDamage( entity player, var damageInfo )
 {
 	if( DamageInfo_GetCustomDamageType( damageInfo ) & DF_KILLSHOT ) // the killshot
 	{
