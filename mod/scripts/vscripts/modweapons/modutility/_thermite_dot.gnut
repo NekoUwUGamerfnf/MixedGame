@@ -243,31 +243,40 @@ void function ThermiteStatusEffect_DoT( entity victim, entity attacker, Thermite
 
 	StatusEffect_AddTimed( victim, eStatusEffect.thermite, 1.0, dotStruct.dotDuration, 0.5 )
 
-	float endTime = Time() + dotStruct.dotDuration
-	while( true )
-	{
-		if( IsAlive( victim ) && IsValid( attacker ) )
-		{
-			if( victim.IsInvulnerable() || victim.IsPhaseShifted() )
-				continue
-			if( victim.IsTitan() )
-				victim.TakeDamage( dotStruct.dotDamageHeavyArmor, attacker, attacker, { scriptType = DF_EXPLOSION, damageSourceId = dotStruct.dotDamageSourceId } )
-			else
-				victim.TakeDamage( dotStruct.dotDamage, attacker, attacker, { scriptType = DF_EXPLOSION , damageSourceId = dotStruct.dotDamageSourceId } )
+	bool startAsTitan = victim.IsTitan()
+	int damageAmount = startAsTitan ? dotStruct.dotDamageHeavyArmor : dotStruct.dotDamage
 
-			EntThermiteDotDamagedSound( victim )
-		}
-		wait dotStruct.dotDamageTick
-		if( Time() >= endTime )
+	OnThreadEnd
+	(
+		function(): ( victim, attacker, dotStruct )
 		{
-			if( IsAlive( victim ) )
+			if( IsValid( victim ) )
 			{
-				victim.TakeDamage( dotStruct.dotDamageFinal, attacker, attacker, { scriptType = DF_EXPLOSION , damageSourceId = dotStruct.dotDamageSourceId } )
+				if ( IsAlive( victim ) && IsValid( attacker ) )
+					victim.TakeDamage( dotStruct.dotDamageFinal, attacker, attacker, { scriptType = DF_EXPLOSION , damageSourceId = dotStruct.dotDamageSourceId } )
 				if( file.entThermiteStack[ victim ] > 0 )
 					file.entThermiteStack[ victim ] -= 1
 			}
-			return
 		}
+	)
+
+	float endTime = Time() + dotStruct.dotDuration
+	while( IsAlive( victim ) && IsValid( attacker ) && Time() <= endTime )
+	{
+		if( victim.IsInvulnerable() || victim.IsPhaseShifted() )
+		{
+			WaitFrame() // wait a frame for each continue, so the loop won't go into stuck
+			continue
+		}
+		if ( victim.IsPlayer() ) // titan transfer check
+		{
+			if ( ( !startAsTitan && victim.IsTitan() ) || ( startAsTitan && !victim.IsTitan() ) )
+				return // if player did titan transfer, we end thermite dot damage
+		}
+		victim.TakeDamage( damageAmount, attacker, attacker, { scriptType = DF_EXPLOSION, damageSourceId = dotStruct.dotDamageSourceId } )
+		EntThermiteDotDamagedSound( victim )
+
+		wait dotStruct.dotDamageTick
 	}
 }
 
