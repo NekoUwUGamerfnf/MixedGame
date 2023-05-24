@@ -6,7 +6,7 @@ global const float THERMITE_TRAIL_SOUND_TIME = 2.0
 
 // bleedout balance
 const float BLEEDOUT_BURN_TIME = 3.0 // halfed normal duration
-const float BLEEDOUT_STICK_BURN_TIME = 1.5 // sticked firestar will have less duration. was 1.0, due we bind it together with "thermite_grenade_dot", should set bit higher
+const float BLEEDOUT_STICK_BURN_TIME = 1.0 // sticked firestar will have less duration.
 #endif
 
 global function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade
@@ -64,7 +64,7 @@ void function OnProjectileCollision_weapon_thermite_grenade( entity projectile, 
 	if( hitEnt.IsPlayer() )
 	{
 		#if SERVER
-		if( mods.contains( "bleedout_balance" ) )
+		if( mods.contains( "bleedout_balance" ) && !mods.contains( "thermite_grenade_dot" ) ) // only apply to normal firestars
 			thread EarlyExtinguishFireStar( projectile, BLEEDOUT_STICK_BURN_TIME )
 		#endif
 	}
