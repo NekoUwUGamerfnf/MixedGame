@@ -28,16 +28,16 @@ const array<string> MODDED_SOFTBALL_MODS =
 	"reload_repeat",
 ]
 
-#if SERVER
 struct
 {
-	table < entity, array<entity> > playerStickyTable = {}
-} serverFile
+	table < entity, array<entity> > playerStickyTable
+} file
 
+// normal grenade
+const float FUSE_TIME = 0.5 //Applies once the grenade has stuck to a surface.
 // sticky grenade
-const STICKY_ARM_DELAY = 0.7
-const STICKY_EXPLOSION_DELAY = 0.13
-#endif
+const float STICKY_ARM_DELAY = 0.7
+const float STICKY_EXPLOSION_DELAY = 0.13
 
 void function MpWeaponModdedSoftball_Init()
 {
@@ -57,9 +57,21 @@ void function MpWeaponModdedSoftball_Init()
 // mainly shared utility with mp_weapon_softball.nut
 bool function ModdedSoftball_WeaponHasMod( entity weapon )
 {
-	foreach ( entity mod in MODDED_SOFTBALL_MODS )
+	foreach ( string mod in MODDED_SOFTBALL_MODS )
 	{
 		if ( weapon.HasMod( mod ) )
+			return true
+	}
+
+	return false
+}
+
+bool function ModdedSoftball_ProjectileHasMod( entity projectile )
+{
+	array<string> mods = projectile.ProjectileGetMods()
+	foreach ( string mod in MODDED_SOFTBALL_MODS )
+	{
+		if ( mods.contains( mod ) )
 			return true
 	}
 
@@ -93,7 +105,7 @@ void function SignalWhenClassChanged( entity player )
 
 void function OnClientConnected( entity player )
 {
-	serverFile.playerStickyTable[ player ] <- []
+	file.playerStickyTable[ player ] <- []
 	//AddStickyDetonateButton( player ) // using OnWeaponOwnerChanged() to add these
 }
 
@@ -145,7 +157,7 @@ void function OnWeaponActivate_weapon_modded_softball( entity weapon )
 	#endif
 }
 
-var function OnWeaponOwnerChanged_weapon_modded_softball( entity weapon, WeaponOwnerChangedParams changeParams )
+void function OnWeaponOwnerChanged_weapon_modded_softball( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 	#if SERVER
 		if( weapon.HasMod( "stickybomb_launcher" ) )
@@ -185,7 +197,7 @@ void function DelayedCheckStickyBombMod( entity weapon, WeaponOwnerChangedParams
 }
 #endif
 
-var function OnWeaponPrimaryAttack_weapon_modded_softball()
+var function OnWeaponPrimaryAttack_weapon_modded_softball( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	entity player = weapon.GetWeaponOwner()
 
@@ -251,9 +263,9 @@ void function InitSoftballGrenade( entity nade, entity weapon, entity owner, ass
 	else if( weapon.HasMod( "arcball_softball" ) )
 	{
 		nade.SetModel( $"models/dev/empty_model.mdl" )
-	#if SERVER
-		AttachBallLightning( weapon, nade ) // this will make grenade a arcball
-	#endif // SERVER
+		#if SERVER
+			AttachBallLightning( weapon, nade ) // this will make grenade a arcball
+		#endif // SERVER
 	}
 	else if( weapon.HasMod( "smoke_softball" ) )
 		nade.SetModel( $"models/weapons/grenades/smoke_grenade_projectile.mdl" )
@@ -265,18 +277,18 @@ void function InitSoftballGrenade( entity nade, entity weapon, entity owner, ass
 		nade.SetModel( $"models/error.mdl" )
 	else if( weapon.HasMod( "grenade_launcher" ) )
 	{
-	#if SERVER
-		thread DetonateGrenadeAfterTime( nade, explosionDelay, impactFXName )
-	#endif
+		#if SERVER
+			thread DetonateGrenadeAfterTime( nade, explosionDelay, impactFXName )
+		#endif
 	}
 	else if( weapon.HasMod( "stickybomb_launcher" ) )
 	{
-	#if SERVER
-		nade.proj.onlyAllowSmartPistolDamage = false // so player can disarm grenades
-		nade.ProjectileSetDamageSourceID( eDamageSourceId.sticky_explosive ) // better damageSource
-		thread DelayedAddStickyForPlayer( owner, nade )
-		thread PlayerStickyManagement( owner )
-	#endif
+		#if SERVER
+			nade.proj.onlyAllowSmartPistolDamage = false // so player can disarm grenades
+			nade.ProjectileSetDamageSourceID( eDamageSourceId.sticky_explosive ) // better damageSource
+			thread DelayedAddStickyForPlayer( owner, nade )
+			thread PlayerStickyManagement( owner )
+		#endif
 	}
 	else
 	{
@@ -284,7 +296,7 @@ void function InitSoftballGrenade( entity nade, entity weapon, entity owner, ass
 	}
 }
 
-void function OnProjectileCollision_weapon_modded_softball(  )
+void function OnProjectileCollision_weapon_modded_softball( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	array<string> mods = projectile.ProjectileGetMods()
 
@@ -471,7 +483,7 @@ void function DelayedAddStickyForPlayer( entity player, entity projectile )
 		return
 	}
 	if( IsValid( projectile ) )
-		serverFile.playerStickyTable[ player ].append( projectile )
+		file.playerStickyTable[ player ].append( projectile )
 }
 
 void function PlayerStickyManagement( entity player )
@@ -483,31 +495,31 @@ void function PlayerStickyManagement( entity player )
 	OnThreadEnd(
 		function() : ( player )
 		{
-			array<entity> stickyBombs = serverFile.playerStickyTable[ player ]
+			array<entity> stickyBombs = file.playerStickyTable[ player ]
 			foreach( entity stickyBomb in stickyBombs )
 			{
 				if( IsValid( stickyBomb ) )
 					stickyBomb.Destroy()
 			}
-			serverFile.playerStickyTable[ player ].clear()
+			file.playerStickyTable[ player ].clear()
 		}
 	)
 	
 	wait STICKY_ARM_DELAY
 	player.WaitSignal( "DetonateSticky" )
 	waitthread EmitStickyActivateSound( player )
-	array<entity> stickyBombs = serverFile.playerStickyTable[ player ]
+	array<entity> stickyBombs = file.playerStickyTable[ player ]
 	foreach( entity stickyBomb in stickyBombs )
 	{
 		if( IsValid( stickyBomb ) )
 			stickyBomb.GrenadeExplode( stickyBomb.proj.savedOrigin )
 	}
-	serverFile.playerStickyTable[ player ].clear()
+	file.playerStickyTable[ player ].clear()
 }
 
 void function EmitStickyActivateSound( entity player )
 {
-	array<entity> stickyBombs = serverFile.playerStickyTable[ player ]
+	array<entity> stickyBombs = file.playerStickyTable[ player ]
 	foreach( entity stickyBomb in stickyBombs )
 	{
 		if( IsValid( stickyBomb ) )
@@ -567,7 +579,7 @@ void function DelayedStartParticleSystem( entity projectile, asset fxAsset )
     if( IsValid( projectile ) )
         StartParticleEffectOnEntity( projectile, GetParticleSystemIndex( fxAsset ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 }
-#endif
+#endif // SERVER
 
 void function OnWeaponReload_weapon_moded_softball( entity weapon, int milestoneIndex )
 {

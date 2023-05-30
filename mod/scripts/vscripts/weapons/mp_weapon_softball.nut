@@ -84,9 +84,15 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 
 void function OnProjectileCollision_weapon_softball( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	array<string> mods = projectile.ProjectileGetMods()
 	// modded softball weapon
 	if ( ModdedSoftball_ProjectileHasMod( projectile ) )
 		return OnProjectileCollision_weapon_modded_softball( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	//
+
+	// direct hit softball
+	if ( mods.contains( "direct_hit" ) )
+        OnProjectileCollision_DirectHit( projectile, pos, normal, hitEnt, hitbox, isCritical )
 	//
 
 	// vanilla behavior
@@ -95,19 +101,28 @@ void function OnProjectileCollision_weapon_softball( entity projectile, vector p
 		return
 
 	#if SERVER
-	entity player = projectile.GetOwner()
-
-	if ( IsAlive( hitEnt ) && hitEnt.IsPlayer() )
-	{
-		EmitSoundOnEntityOnlyToPlayer( projectile, hitEnt, "weapon_softball_grenade_attached_1P" )
-		EmitSoundOnEntityExceptToPlayer( projectile, hitEnt, "weapon_softball_grenade_attached_3P" )
-	}
-	else
-	{
-		EmitSoundOnEntity( projectile, "weapon_softball_grenade_attached_3P" )
-	}
+		if ( IsAlive( hitEnt ) && hitEnt.IsPlayer() )
+		{
+			EmitSoundOnEntityOnlyToPlayer( projectile, hitEnt, "weapon_softball_grenade_attached_1P" )
+			EmitSoundOnEntityExceptToPlayer( projectile, hitEnt, "weapon_softball_grenade_attached_3P" )
+		}
+		else
+		{
+			EmitSoundOnEntity( projectile, "weapon_softball_grenade_attached_3P" )
+		}
+		thread DetonateStickyAfterTime( projectile, FUSE_TIME, normal )
 	#endif
 }
+
+#if SERVER
+// need this so grenade can use the normal to explode
+void function DetonateStickyAfterTime( entity projectile, float delay, vector normal )
+{
+	wait delay
+	if ( IsValid( projectile ) )
+		projectile.GrenadeExplode( normal )
+}
+#endif
 
 // modified callbacks
 void function OnWeaponReload_weapon_softball( entity weapon, int milestoneIndex )
