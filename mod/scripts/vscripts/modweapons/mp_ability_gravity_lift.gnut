@@ -6,19 +6,24 @@ global function OnProjectileCollision_ability_gravity_lift
 
 // Gravity Lift
 const float LIFT_THROW_POWER_SCALE = 0.3
-//const int LIFT_SEGMENT_COUNT = 10
-//const float LIFT_HEIGHT_PER_SEGMENT = 50
 const float LIFT_HEIGHT = 1200
+const float LIFT_TOP_HEIGHT = 100
 const float LIFT_RADIUS = 120
 const float LIFT_RISE_SPEED = 325
+const float LIFT_TOP_RISE_SPEED_MIN = 50
 const float LIFT_HORIZON_MOVE_SPEED = 225
 const float LIFT_AIR_ACCELERATION = 3000 // higher for better control
 const float LIFT_PULL_SPEED_HORIZON = 350
-//const float LIFT_PULL_SPEED_MULTIPLIER = 2
 const float LIFT_PULL_SPEED_VERTICAl = 340
 const float LIFT_TOP_TIME_LIMIT = 2
 const float LIFT_LIFETIME = 10
 const float LIFT_COOLDOWN = 0.0 // 0.5 // time between second lift, I guess it's no need for titanfall?
+const float LIFT_MAX_LIFETIME_EXTEND = 1.5 // cap to 1.5x lifetime
+
+// inspired by flowstate gravity lift!
+const bool USE_HARVESTER_BEAM = false // lift beam variant
+const asset LIFT_SEGMENT_FX = $"P_s2s_flap_wind"
+const asset LIFT_BOTTOM_FX = $"harvester_base_glowflat"
 
 struct GravLiftSavedSettings
 {
@@ -36,6 +41,10 @@ struct
 void function MpAbilityGravityLift_Init()
 {
 	#if SERVER
+		// inspired by flowstate script
+		PrecacheParticleSystem( LIFT_SEGMENT_FX )
+		PrecacheParticleSystem( LIFT_BOTTOM_FX )
+
 		// add to some modifiers
 		Grenade_AddCookDisabledMod( "gravity_lift" )
 		Grenade_AddDropOnDeathDisabledMod( "gravity_lift" )
@@ -58,9 +67,9 @@ var function OnWeaponTossReleaseAnimEvent_ability_gravity_lift( entity weapon, W
 	if ( projectile )
 	{
 		#if SERVER
-		thread WaitForGravLiftDeployMent( weapon, projectile )
-		// manage weapon cooldown
-		thread GravLiftWeaponCooldown( weapon, projectile )
+			thread WaitForGravLiftDeployment( weapon, projectile )
+			// manage weapon cooldown
+			thread GravLiftWeaponCooldown( weapon, projectile )
 		#endif
 	}
 
@@ -73,7 +82,7 @@ void function OnClientConnected( entity player )
 	file.playerInGravLiftCount[ player ] <- 0
 }
 
-void function WaitForGravLiftDeployMent( entity weapon, entity projectile )
+void function WaitForGravLiftDeployment( entity weapon, entity projectile )
 {
 	weapon.EndSignal( "OnDestroy" )
     projectile.EndSignal( "OnDestroy" )
@@ -136,9 +145,28 @@ void function GravityLiftThink( entity projectile )
 	projectile.Hide() // don't show the shuriken to player
 	EmitSoundOnEntity( projectile, "default_gravitystar_impact_3p" )
 
-	entity gravLiftBeam = StartParticleEffectOnEntity_ReturnEntity( projectile, GetParticleSystemIndex( FX_HARVESTER_BEAM ), FX_PATTACH_ABSORIGIN_FOLLOW, 0 )
-	gravLiftBeam.DisableHibernation() // prevent it from fading out( will leave a red destroyed beam! )
-	EffectSetControlPointVector( gravLiftBeam, 1, < 0,100,255 > ) // purly blue
+	array<entity> liftEffects
+	if ( USE_HARVESTER_BEAM )
+	{
+		entity gravLiftBeam = StartParticleEffectOnEntity_ReturnEntity( projectile, GetParticleSystemIndex( FX_HARVESTER_BEAM ), FX_PATTACH_ABSORIGIN_FOLLOW, 0 )
+		gravLiftBeam.DisableHibernation() // prevent it from fading out( will leave a red destroyed beam! )
+		gravLiftBeam.SetStopType( "DestroyImmediately" )
+		EffectSetControlPointVector( gravLiftBeam, 1, < 0,100,255 > ) // purly blue
+		liftEffects.append( gravLiftBeam )
+	}
+	else // inspired by flowstate script
+	{
+		vector pos = projectile.GetOrigin()
+		entity bottomFX = PlayFX( LIFT_BOTTOM_FX, pos + < 0, 0, -20 >, < -90, 0, 0 > )
+		EffectSetControlPointVector( bottomFX, 1, < 0,100,255 > ) // purly blue
+		liftEffects.append( bottomFX )
+		for ( int i = 0; i <= LIFT_HEIGHT; i += 128 )
+		{
+			entity segmentFX = PlayFX( LIFT_SEGMENT_FX, pos + < 0, 0, i >, < -90, 0, 0 > )
+			//EmitSoundOnEntity( segmentFX, "amb_emit_s2s_rushing_wind_v1_01" )
+			liftEffects.append( segmentFX )
+		}
+	}
 
 	// maybe not a good idea to use "trigger_cylinder", for they're too sensitive about z values
 	/* // setup trigger
@@ -161,25 +189,27 @@ void function GravityLiftThink( entity projectile )
 
 	ScriptTriggerSetEnabled( trigger, true )
 
-	thread GravityLiftLifeTime( projectile, trigger, gravLiftBeam )
+	thread GravityLiftLifeTime( projectile, trigger, liftEffects )
 }
 
-void function GravityLiftLifeTime( entity projectile, entity trigger, entity gravLiftBeam )
+void function GravityLiftLifeTime( entity projectile, entity trigger, array<entity> liftEffects )
 {
 	projectile.EndSignal( "OnDestroy" )
 	trigger.EndSignal( "OnDestroy" )
-	gravLiftBeam.EndSignal( "OnDestroy" )
+	//gravLiftBeam.EndSignal( "OnDestroy" )
 
 	OnThreadEnd(
-		function(): ( projectile, trigger, gravLiftBeam )
+		function(): ( projectile, trigger, liftEffects )
 		{
 			// this handles IsValid() checks
-			thread DestroyGravityLift( projectile, trigger, gravLiftBeam )
+			// older version needs thread
+			//thread DestroyGravityLift( projectile, trigger, liftEffects )
+			DestroyGravityLift( projectile, trigger, liftEffects )
 		}
 	)
 
 	float endTime = Time() + LIFT_LIFETIME
-	float maxEndTime = Time() + ( LIFT_LIFETIME * 1.5 ) // for players staying on it, it will try it's best to keep alive
+	float maxEndTime = Time() + ( LIFT_LIFETIME * LIFT_MAX_LIFETIME_EXTEND ) // for players staying on it, it will try it's best to keep alive
 	while ( true )
 	{
 		array<entity> inLiftEntities = GetAllEntitiesInTrigger( trigger )
@@ -193,28 +223,31 @@ void function GravityLiftLifeTime( entity projectile, entity trigger, entity gra
 		}
 
 		// reached lifetime with no players inside
-		if( Time() > endTime && inLiftPlayers.len() == 0 )
-		{
+		if ( Time() > endTime && inLiftPlayers.len() == 0 )
 			break
-		}
-		// reached lifetime with players inside, will keep lifting for another .5 times
+		// reached lifetime with players inside, will keep lifting for a extra short period
 		else if( Time() > maxEndTime )
-		{
 			break
-		}
 
 		WaitFrame()
 	}
 }
 
-void function DestroyGravityLift( entity projectile, entity trigger, entity gravLiftBeam )
+void function DestroyGravityLift( entity projectile, entity trigger, array<entity> liftEffects )
 {
+	/* // older version. now resolved by using gravLiftBeam.SetStopType( "DestroyImmediately" )
 	if( IsValid( gravLiftBeam ) )
 	{
 		gravLiftBeam.kv.Visibilityflags = 0 // first hide, then destroy, or it will show a harvester destroyed fx
 		wait 0.1
 		if ( IsValid( gravLiftBeam ) ) // anti crash
 			EffectStop( gravLiftBeam )
+	}
+	*/
+	foreach ( entity fx in liftEffects )
+	{
+		if( IsValid( fx ) )
+			EffectStop( fx )
 	}
 	if( IsValid( projectile ) )
 		projectile.Destroy()
@@ -253,6 +286,8 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity ent )
 {
 	//if( ent.IsTitan() )
 	//	return
+	if ( ent.IsPlayer() && file.playerInGravLiftCount[ ent ] == 0 ) // no lift valid!
+		return
 
 	bool shouldEndLift = true
 	if ( ent.IsPlayer() )
@@ -330,7 +365,7 @@ void function EntityInGravityLift( entity ent, entity trigger )
 
 					ent.UnforceStand()
 					ent.TouchGround() // restore one doublejump!
-					StopSoundOnEntity( ent, "titan_flight_hover_3p" ) // clear existing sound
+					//StopSoundOnEntity( ent, "titan_flight_hover_3p" ) // clear existing sound
 				}
 				else // npcs
 					ent.kv.gravity = storedStats.gravity
@@ -344,25 +379,31 @@ void function EntityInGravityLift( entity ent, entity trigger )
 				}
 
 				// consider this means the entity is force bounced away, or trigger caused them being force bounced
-				if ( ent.IsNPC() || results.bouncedFromLift || !IsValid( trigger ) ) 
+				if ( !ent.IsPlayer() || results.bouncedFromLift || !IsValid( trigger ) ) 
 					BounceEntityForward( ent )
 				else
 					BouncePlayerFromLift( ent, expect vector( storedStats.lastTickVel ) ) // last tick's velocity can mostly get player's move direction
+			
+				if ( results.bouncedFromLift && IsValid( trigger ) ) // remove entity from current trigger if it's force bounced!
+					ScriptTriggerRemoveEntity( trigger, ent )
 			}
 		}
 	)
 
 	float bottomHeight = trigger.GetOrigin().z
+	float topEnterHeight = LIFT_HEIGHT - LIFT_TOP_HEIGHT
+	float nearTopHeight = bottomHeight + topEnterHeight
 	float topHeight = bottomHeight + LIFT_HEIGHT
 
+	bool nearHighest = false
 	bool reachedHighest = false
 	float reachHighestTime // for saving reach highest part's time
 
 	// sound for player lifting
 	if ( ent.IsPlayer() )
 	{
-		StopSoundOnEntity( ent, "titan_flight_hover_3p" ) // clear existing sound
-		EmitSoundOnEntity( ent, "titan_flight_hover_3p" )
+		//StopSoundOnEntity( ent, "titan_flight_hover_3p" ) // clear existing sound
+		//EmitSoundOnEntity( ent, "titan_flight_hover_3p" )
 	}
 
 	// update air speed here
@@ -399,6 +440,13 @@ void function EntityInGravityLift( entity ent, entity trigger )
 			ent.kv.gravity = 0.0001 // never uses 0.0, it means default gravity
 			vector airSpeed = ent.GetVelocity() //GetEntityGravLiftVelocity( ent, LIFT_HORIZON_MOVE_SPEED )
 			airSpeed.z = LIFT_RISE_SPEED
+			if ( nearHighest ) // near top check
+			{
+				// calculate speed!
+				float topMoveFrac = ( ent.GetOrigin().z - nearTopHeight ) / LIFT_TOP_HEIGHT
+				//print( "topMoveFrac: " + string( topMoveFrac ) )
+				airSpeed.z = max( LIFT_TOP_RISE_SPEED_MIN, ( 1 - topMoveFrac ) * LIFT_RISE_SPEED )
+			}
 			if ( ent.IsPlayer() && PlayerNotDoingInput( ent ) ) // not doing any input
 				airSpeed = RemoveVelocityHorizonal( airSpeed )
 			else
@@ -428,11 +476,13 @@ void function EntityInGravityLift( entity ent, entity trigger )
 		}
 
 		// highest parts check
-		if( ent.GetOrigin().z - bottomHeight >= LIFT_HEIGHT && !reachedHighest )
+		if( ent.GetOrigin().z >= topHeight && !reachedHighest )
 		{
 			reachHighestTime = Time()
 			reachedHighest = true
 		}
+		else if ( ent.GetOrigin().z + ( ent.GetVelocity().z * 0.15 ) >= nearTopHeight && !nearHighest )
+			nearHighest = true
 
 		if ( ent.IsPlayer() )
 		{
