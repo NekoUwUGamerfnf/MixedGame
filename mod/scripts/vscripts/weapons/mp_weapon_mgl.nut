@@ -97,22 +97,21 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 
 	if( mods.contains( "magnetic_rollers" ) )
 	{
-		#if SERVER
+#if SERVER
 		if( projectile.proj.projectileBounceCount == 0 )
 		{
 			if( hitEnt.IsNPC() || hitEnt.IsPlayer() )
 				return
-			GiveProjectileFakeMagnetic( projectile, 125 )
+			GiveProjectileFakeMagnetic( projectile, 95 )
 			projectile.proj.projectileBounceCount++
 			return
 		}
 		projectile.proj.projectileBounceCount++
-		#endif
+#endif
 		if ( ( hitEnt.IsNPC() || hitEnt.IsPlayer() ) && hitEnt.GetTeam() != projectile.GetTeam() )
 		{
 #if SERVER
-			// visual fix for client hitting near target, hardcoded. "exp_mgl" have airburst effect so PlayImpactFXTable() is better 
-			PlayImpactFXTable( pos, projectile, "exp_mgl", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+			TryFixMGLImpactEffect( projectile, pos, "exp_mgl" )
 #endif
 			projectile.ExplodeForCollisionCallback( normal )
 			return
@@ -123,8 +122,8 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 		if ( ( hitEnt.IsNPC() || hitEnt.IsPlayer() ) && hitEnt.GetTeam() != projectile.GetTeam() )
 		{
 #if SERVER
-			// visual fix for client hitting near target, hardcoded. "exp_mgl" have airburst effect so PlayImpactFXTable() is better 
-			PlayImpactFXTable( pos, projectile, "exp_mgl" )
+			// visual fix for client hitting near target, hardcoded
+			TryFixMGLImpactEffect( projectile, pos, "exp_mgl" )
 #endif
 			projectile.ExplodeForCollisionCallback( normal )
 			return
@@ -146,3 +145,18 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 		}
 	}
 }
+
+#if SERVER
+bool function TryFixMGLImpactEffect( entity projectile, vector pos, string effectTable = "exp_mgl" )
+{
+	float creationTime = projectile.GetProjectileCreationTime()
+	float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
+	if ( Time() < maxFixTime )
+	{
+		PlayImpactFXTable( pos, projectile, effectTable, SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+		return true
+	}
+
+	return false
+}
+#endif
