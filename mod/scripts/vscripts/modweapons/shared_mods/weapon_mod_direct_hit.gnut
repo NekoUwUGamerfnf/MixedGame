@@ -1,0 +1,72 @@
+global function WeaponMod_DirectHit_Init
+
+global function OnProjectileCollision_DirectHit
+
+struct
+{
+    table< entity, bool > grenadeImpactOnce
+    table< entity, array<entity> > projectileHitTargets
+} file
+
+void function WeaponMod_DirectHit_Init()
+{
+    #if SERVER
+        AddDamageFinalCallback( "player", OnDirectHitPlayerFinalDamaged )
+        // debug
+        AddDamageFinalCallback( "npc_soldier", OnDirectHitPlayerFinalDamaged )
+    #endif
+}
+
+void function OnProjectileCollision_DirectHit( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+    #if SERVER
+        if ( !( projectile in file.projectileHitTargets ) )
+            file.projectileHitTargets[ projectile ] <- []
+        if ( !hitEnt.IsWorld() )
+            file.projectileHitTargets[ projectile ].append( hitEnt )
+
+        // grenade deals damage earlier than their OnProjectileCollision() callbacks
+        if ( projectile instanceof CBaseGrenade )
+        {
+            if ( !( projectile in file.grenadeImpactOnce ) )
+                file.grenadeImpactOnce[ projectile ] <- true // first impact
+        }
+    #endif
+}
+
+#if SERVER
+void function OnDirectHitPlayerFinalDamaged( entity victim, var damageInfo )
+{
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if ( attacker == victim ) // no self damage protection
+        return
+    entity inflictor = DamageInfo_GetInflictor( damageInfo )
+    if ( !inflictor.IsProjectile() )
+        return
+    array<string> mods = inflictor.ProjectileGetMods()
+    if ( !mods.contains( "direct_hit" ) )
+        return
+
+    // grenade deals damage earlier than their OnProjectileCollision() callbacks
+    if ( inflictor instanceof CBaseGrenade )
+    {
+        if ( !( inflictor in file.grenadeImpactOnce ) ) // first bounce, let them deal damage
+            return
+    }
+
+    // set damage to 1, so they'll still receive knockbacks and run following callbacks 
+    if ( !( inflictor in file.projectileHitTargets ) )
+    {
+        DirectHitDamageReduction( damageInfo )
+        return
+    }
+    if ( !file.projectileHitTargets[ inflictor ].contains( victim ) )
+        DirectHitDamageReduction( damageInfo )
+}
+
+void function DirectHitDamageReduction( var damageInfo )
+{
+    DamageInfo_SetDamage( damageInfo, 1 )
+    DamageInfo_AddCustomDamageType( damageInfo, DF_NO_INDICATOR )
+}
+#endif

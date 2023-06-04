@@ -176,6 +176,8 @@ void function HackedDeath_OnPlayerPostDamage( entity player, var damageInfo )
 {
 	if ( !HackedDeath_ShouldHandleDamage( player, damageInfo ) )
 		return
+	if ( player.s.hackedDeath ) // player already hacked deathed!
+		return
 	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
 	{
 		// triggered hacked death
@@ -231,7 +233,7 @@ void function HackedDeath_PlayerStart( entity player, var damageInfo )
 	//player.SetPlayerSettings( "spectator" ) // well this can't show a death icon on scoreboard, and sometimes crashes client
 }
 
-// vanilla won't stop player's jump jet sound upon death...
+// vanilla won't stop player's jump jet sound upon death... don't do so many StopSound(), otherwise client will lose sound effect
 void function StopPlayerJumpJetSound( entity player )
 {
 	// jumpjets
@@ -433,9 +435,11 @@ void function PlayHackedDeathKilledEffectOnPlayer( entity player, var damageInfo
 
 	bool isGibDeath = ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_GIB ) > 0
 	bool isBulletShot = ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET ) > 0
-	if( player.IsMechanical() )
+
+	// killshot effect
+	if ( isBulletShot && !isGibDeath ) // only play fx when killed by bullets
 	{
-		if ( isBulletShot && !isGibDeath ) // only play fx when killed by bullets
+		if( player.IsMechanical() )
 		{
 			// this should play independently
 			int particleIndex = GetParticleSystemIndex( MECHNAICAL_PINKMIST_FX )
@@ -446,26 +450,19 @@ void function PlayHackedDeathKilledEffectOnPlayer( entity player, var damageInfo
 			SetForceDrawWhileParented( fx, true )
 			thread FastStopParticle( fx, 1.0 )
 		}
-	}
-	else // flesh
-	{
-		if ( isGibDeath && file.fakeBodySilence ) // if killed by gib
-		{
-			// "death.pinkmist" is played when a grunt is gibbed, but we've made them silentDeath, so manually do a sound event
-			EmitSoundAtPosition( TEAM_UNASSIGNED, player.GetOrigin(), "death.pinkmist" )
-		}
-		else if ( isBulletShot ) // only play fx when killed by bullets
+		else // flesh
 		{
 			// this should play on player's FX_PATTACH_POINT_FOLLOW to make it more visible
 			int particleIndex = GetParticleSystemIndex( FLESH_PINKMIST_FX )
+
 			entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
 			EffectSetControlPointVector( fx, 1, < 0, 0, 0 > ) // prevent blood fx fly everywhere
 			SetForceDrawWhileParented( fx, true )
+
+			// play this fx on world will leave a less effective fx, which is... pretty weird
+			//entity fx = StartParticleEffectInWorld_ReturnEntity( particleIndex, origin, < 0,0,0 > ) //PlayFX( MECHNAICAL_PINKMIST_FX, origin, angles )
+			//PlayFX( FLESH_PINKMIST_FX, origin, angles )
 		}
-		
-		// play this fx on world will leave a less effective fx, which is... pretty weird
-		//entity fx = StartParticleEffectInWorld_ReturnEntity( particleIndex, origin, < 0,0,0 > ) //PlayFX( MECHNAICAL_PINKMIST_FX, origin, angles )
-		//PlayFX( FLESH_PINKMIST_FX, origin, angles )
 	}
 }
 
@@ -606,6 +603,8 @@ void function AmpedWeaponsDurationThink( entity weapon, float timerLeft )
 
 void function HackedDeath_PlayerRecoverFrom( entity player )
 {
+	if ( !player.s.hackedDeath ) // player not hacked death yet!
+		return
 	player.s.hackedDeath = false
 	//player.kv.contents = (int(player.kv.contents) & ~CONTENTS_NOGRAPPLE) // grapple now handling in callbacks  // remove unable to be grappled content
 	player.Signal( "RecoverFromHackedDeath" ) // signal this
