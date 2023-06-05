@@ -1,0 +1,141 @@
+global function Nessie_Player_FallDamage_Init
+
+#if SERVER
+global function AddPlayerCallback_OnTakeFallDamage
+global function RemovePlayerCallback_OnTakeFallDamage
+
+struct
+{
+    table< entity, array<void functionref( entity, var )> > playerTakeFallDamageCallbacks
+    table< entity, vector > playerLastTickVelocity
+} serverFile
+#endif
+
+const int FALL_DAMAGE_ENABLED_DEFAULT = 0
+const float FALL_DAMAGE_MIN_SPEED_DEFAULT = 450 // needs to be this fast before taking fall damage
+const int FALL_DAMAGE_AFFECTS_TITAN_DEFAULT = 0
+const float FALL_DAMAGE_SCALE_DEFAULT = 1.0
+const int FALL_DAMAGE_ON_IMPACT_DEFAULT = 0
+const int FALL_DAMAGE_ON_PLAYER_DEFAULT = 0
+const float FALL_DAMAGE_ON_PLAYER_SCALE_DEFAULT = 1.0
+
+void function Nessie_Player_FallDamage_Init()
+{
+    // WIP
+    AddPrivateMatchModeSettingEnum( "#FALL_DAMAGE", "fall_damage_enabled", [ "#SETTING_DISABLED", "#SETTING_ENABLED" ], FALL_DAMAGE_ENABLED_DEFAULT.tostring() )
+	AddPrivateMatchModeSettingArbitrary( "#FALL_DAMAGE", "fall_damage_min_speed", FALL_DAMAGE_MIN_SPEED_DEFAULT.tostring() )
+    //AddPrivateMatchModeSettingEnum( "#FALL_DAMAGE", "fall_damage_affects_titan", [ "#SETTING_DISABLED", "#SETTING_ENABLED" ], FALL_DAMAGE_AFFECTS_TITAN_DEFAULT.tostring() )
+    AddPrivateMatchModeSettingArbitrary( "#FALL_DAMAGE", "fall_damage_scale", FALL_DAMAGE_SCALE_DEFAULT.tostring() )
+	//AddPrivateMatchModeSettingEnum( "#FALL_DAMAGE", "fall_damage_on_impact", [ "#SETTING_DISABLED", "#SETTING_ENABLED" ], FALL_DAMAGE_ON_IMPACT_DEFAULT.tostring() )
+	//AddPrivateMatchModeSettingEnum( "#FALL_DAMAGE", "fall_damage_on_player", [ "#SETTING_DISABLED", "#SETTING_ENABLED" ], FALL_DAMAGE_ON_PLAYER_DEFAULT.tostring() )
+	//AddPrivateMatchModeSettingArbitrary( "#FALL_DAMAGE", "fall_damage_on_player_scale", FALL_DAMAGE_ON_PLAYER_SCALE_DEFAULT.tostring() )
+
+    #if SERVER
+        AddCallback_OnClientConnected( OnClientConnected )
+        AddDamageCallbackSourceID( eDamageSourceId.fall, OnPlayerTakeFallDamage )
+    #endif
+}
+
+#if SERVER
+void function AddPlayerCallback_OnTakeFallDamage( entity player, void functionref( entity player, var damageInfo ) callbackFunc )
+{
+    if ( !serverFile.playerTakeFallDamageCallbacks[ player ].contains( callbackFunc ) )
+        serverFile.playerTakeFallDamageCallbacks[ player ].append( callbackFunc )
+}
+
+void function RemovePlayerCallback_OnTakeFallDamage( entity player, void functionref( entity player, var damageInfo ) callbackFunc )
+{
+    serverFile.playerTakeFallDamageCallbacks[ player ].removebyvalue( callbackFunc )
+}
+
+void function RunPlayerCallback_OnTakeFallDamage( entity player, var damageInfo )
+{
+    foreach ( void functionref( entity, var ) callbackFunc in serverFile.playerTakeFallDamageCallbacks[ player ] )
+        callbackFunc( player, damageInfo )
+}
+
+void function OnPlayerTakeFallDamage( entity player, var damageInfo )
+{
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if ( !IsValid( attacker ) || !attacker.IsPlayer() ) // any damage from this serverFile will have a player as attacker
+        return
+    RunPlayerCallback_OnTakeFallDamage( player, damageInfo )
+}
+
+void function OnClientConnected( entity player )
+{
+    // init
+    serverFile.playerTakeFallDamageCallbacks[ player ] <- []
+    serverFile.playerLastTickVelocity[ player ] <- < 0, 0, 0 >
+
+    AddPlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, OnPlayerTouchGround )
+    thread PlayerMovementThink( player )
+}
+
+void function OnPlayerTouchGround( entity player )
+{
+    if ( GetCurrentPlaylistVarInt( "fall_damage_enabled", FALL_DAMAGE_ENABLED_DEFAULT ) == 0 )
+        return
+
+    PlayerTakeFallDamage( player, CalculatePlayerFallDamage( player ) ) // self damage
+}
+
+void function PlayerMovementThink( entity player )
+{
+    player.EndSignal( "OnDestroy" )
+
+    while ( true )
+    {
+        WaitFrame( true ) // always wait first, ignores script fps limit
+        if ( !IsAlive( player ) )
+        {
+            serverFile.playerLastTickVelocity[ player ] = < 0, 0, 0 > // clean up on player death!
+            continue
+        }
+        serverFile.playerLastTickVelocity[ player ] = player.GetVelocity()
+    }
+}
+
+int function CalculatePlayerFallDamage( entity player )
+{
+    vector velocity = serverFile.playerLastTickVelocity[ player ]
+    vector verticalVel = < 0, 0, velocity.z >
+    float speed = Length( verticalVel )
+    //print( "player vertical speed: " + string( speed ) )
+    float minDamageSpeed = GetCurrentPlaylistVarFloat( "fall_damage_min_speed", FALL_DAMAGE_MIN_SPEED_DEFAULT )
+    if ( speed <= minDamageSpeed )
+        return 0
+    float healthMultiplier = GetCurrentPlaylistVarFloat( "pilot_health_multiplier", 1.0 )
+    int settingsHealth = int( GetPlayerSettingsFieldForClassName_Health( player.GetPlayerSettings() ) )
+	int defaultMaxHealth = int( settingsHealth * healthMultiplier )
+    float maxHealthScale = float( player.GetMaxHealth() ) / float( defaultMaxHealth )
+    //print( "maxHealthScale: " + string( maxHealthScale ) )
+    float damageBase = ( ( speed - minDamageSpeed ) / 10 ) * maxHealthScale * GetCurrentPlaylistVarFloat( "fall_damage_scale", FALL_DAMAGE_SCALE_DEFAULT ) // basic damage
+    //print( "damageBase: " + string( damageBase ) )
+    return int( damageBase )
+}
+
+int function CalculatePlayerImpactDamage( entity player )
+{
+    return 0
+}
+
+void function PlayerTakeFallDamage( entity player, int damage, entity attacker = null )
+{
+    if ( damage <= 0 )
+        return
+
+    if ( !IsValid( attacker ) )
+        attacker = player
+
+    player.TakeDamage( 
+        damage, 
+        attacker,
+        attacker,
+        {   // damage table
+            origin = attacker.GetOrigin(), 
+            damageSourceId = eDamageSourceId.fall // proper damageSource for now
+        }
+    )
+}
+#endif

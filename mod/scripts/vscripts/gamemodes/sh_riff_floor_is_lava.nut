@@ -13,11 +13,11 @@ global function GetMaxTitanSpawnFogHeight
 global function IsEntInSafeVolume
 global function IsEntInLethalVolume
 
-const float FOG_DEPTH_SCALE = 1.0
-
 struct
 {
-	float fogDepth = 64.0 * FOG_DEPTH_SCALE
+	// modified to use new initialize functions
+	//float fogDepth = 64.0
+	float fogDepth
 	float maxTitanSpawnFogDepth = 170.0
 	array lethalTitanVolumes
 	array lethalPilotVolumes
@@ -28,6 +28,10 @@ struct
 
 function RiffFloorIsLavaShared_Init()
 {
+	// new initialize functions!!!
+	file.fogDepth = 64.0 * GetCurrentPlaylistVarFloat( "floorislava_fog_depth_scale", 1.0 )
+	//
+
 	switch ( GetMapName() )
 	{
 		case "mp_lagoon":
@@ -140,10 +144,17 @@ float function GetFogHeight()
 	file.lethalFogHeights[ "mp_lf_traffic" ] <- 50.0
 	file.lethalFogHeights[ "mp_lf_township" ] <- 64.0
 
-	if ( mapName in file.lethalFogHeights )
-		return file.lethalFogHeights[ mapName ] * FOG_DEPTH_SCALE
+	// applying new initialize functions!!!
+	//if ( mapName in file.lethalFogHeights )
+	//	return file.lethalFogHeights[ mapName ]
 
-	return 64.0 * FOG_DEPTH_SCALE
+	//return 64.0
+
+	if ( mapName in file.lethalFogHeights )
+		return file.lethalFogHeights[ mapName ] * GetCurrentPlaylistVarFloat( "floorislava_fog_depth_scale", 1.0 )
+
+	return file.fogDepth
+	//
 }
 
 float function GetLethalFogTopTitan()
