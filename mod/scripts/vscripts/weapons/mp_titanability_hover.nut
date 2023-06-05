@@ -121,31 +121,8 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 
 	thread AirborneThink( player, soundInfo )
 
-	// modified to save settings
-	table savedStatus = {}
-	savedStatus.airSpeed <- 0.0
-	savedStatus.airAccel <- 0.0
-	savedStatus.gravity <- 0.0
-	savedStatus.titanGravityChanged <- false
-	savedStatus.groundFriction <- 0.0
-
 	if ( player.IsPlayer() )
 	{
-		// modified to save settings
-		savedStatus.airSpeed = expect string( player.kv.airSpeed ).tofloat()
-		savedStatus.airAccel = expect string( player.kv.airAcceleration ).tofloat()
-		float gravityScale = expect string( player.kv.gravity ).tofloat()
-		savedStatus.gravity = gravityScale
-		//print( "player.kv.gravity: " + string( gravityScale ) )
-		//print( "player.GetPlayerSettingsField( \"gravityScale\" ): " + string( player.GetPlayerSettingsField( "gravityScale" ) ) )
-		if ( player.IsTitan() )
-		{
-			float comparationGrav = gravityScale == 0 ? 1.0 : gravityScale // defensive fix. 0.0 kv.gravity equals 1.0
-			if ( player.GetPlayerSettingsField( "gravityScale" ) != comparationGrav )
-				savedStatus.titanGravityChanged = true
-		}
-		savedStatus.groundFriction = GetPlayerGroundFrictionScale( player )
-
 		player.Server_TurnDodgeDisabledOn()
 	    player.kv.airSpeed = horizVel
 	    player.kv.airAcceleration = 540
@@ -159,12 +136,10 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 
 	array<entity> activeFX
 
-	// using custom utility!
-	//player.SetGroundFrictionScale( 0 )
-	SetPlayerGroundFrictionScale( player, 0.0 )
+	player.SetGroundFrictionScale( 0 )
 
 	OnThreadEnd(
-		function() : ( activeFX, player, soundInfo, savedStatus )
+		function() : ( activeFX, player, soundInfo )
 		{
 			if ( IsValid( player ) )
 			{
@@ -172,20 +147,18 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 				StopSoundOnEntity( player, soundInfo.hover_3p )
 				// using custom utility!
 				//player.SetGroundFrictionScale( 1 )
-				SetPlayerGroundFrictionScale( player, expect float( savedStatus.groundFriction ) )
 				if ( player.IsPlayer() )
 				{
 					player.Server_TurnDodgeDisabledOff()
-					// modified to save settings
+					// modified to use saved settings
 					//player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
 					//player.kv.airAcceleration = player.GetPlayerSettingsField( "airAcceleration" )
 					//player.kv.gravity = player.GetPlayerSettingsField( "gravityScale" )
-					player.kv.airSpeed = savedStatus.airSpeed
-					player.kv.airAcceleration = savedStatus.airAccel
-					if ( IsPilot( player ) || savedStatus.titanGravityChanged ) // pilot usage or titan modified
-						player.kv.gravity = savedStatus.gravity
-					else // no modification titan gravity, vanilla behavior
-						player.kv.gravity = player.GetPlayerSettingsField( "gravityScale" )
+					RestorePlayerPermanentGroundFriction( player )
+					RestorePlayerPermanentAirSpeed( player )
+					RestorePlayerPermanentAirAcceleration( player )
+					RestorePlayerPermanentGravity( player )
+
 					if ( player.IsOnGround() )
 					{
 						EmitSoundOnEntityOnlyToPlayer( player, player, soundInfo.landing_1p )
