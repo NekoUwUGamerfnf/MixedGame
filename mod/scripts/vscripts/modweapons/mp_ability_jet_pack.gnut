@@ -213,11 +213,6 @@ void function JetPackActivateThink( entity player, entity weapon )
         return
     }
 
-    table savedStatus = {}
-    savedStatus.airSpeed <- player.kv.airSpeed
-    savedStatus.airAccel <- player.kv.airAcceleration
-    //savedStatus.gravity <- player.kv.gravity // can't find a better way to store gravity
-
     player.Signal( "OnPrimaryAttack" ) // should signal this to end loadout grace period
     player.EndSignal( "OnDeath" )
     player.EndSignal( "OnDestroy" )
@@ -228,7 +223,7 @@ void function JetPackActivateThink( entity player, entity weapon )
     array<entity> fx
 
 	OnThreadEnd(
-		function () : ( player, fx, savedStatus )
+		function () : ( player, fx )
 		{
             if( IsValid( player ) )
             {
@@ -245,10 +240,8 @@ void function JetPackActivateThink( entity player, entity weapon )
                 //thread JumpJetFreeFallSound( player )
 
                 // recover behavior
-                //print( "resetting airSpeed to" + string ( savedStatus.airSpeed ) )
-                //print( "resetting airAcceleration to " + string ( savedStatus.airAccel ) )
-                player.kv.airSpeed = savedStatus.airSpeed
-                player.kv.airAcceleration = savedStatus.airAccel
+                RestorePlayerPermanentAirSpeed( player )
+                RestorePlayerPermanentAirAcceleration( player )
 
                 player.UnforceStand() // clean up
             }
@@ -342,8 +335,6 @@ void function JetPackActivateThink( entity player, entity weapon )
     }
 
     // start lifting
-    player.kv.airSpeed = liftVelHorizonal
-    player.kv.airAcceleration = liftAccelHorizonal
     while( true )
     {
         if( !player.IsInputCommandHeld( IN_JUMP ) ) // if player released jump button, stop this
@@ -375,7 +366,12 @@ void function JetPackActivateThink( entity player, entity weapon )
 
         player.HolsterWeapon() // defensive fix
         player.Server_TurnOffhandWeaponsDisabledOn() // this can turn off offhand weapons
+        // keep updating movement
+        player.kv.airSpeed = liftVelHorizonal
+        player.kv.airAcceleration = liftAccelHorizonal
         player.kv.gravity = 0.0001 // defensive fix
+        player.SetGroundFrictionScale( 0.0 )
+
         vector liftVector = player.GetVelocity() //GetVectorFromInput( player ) * liftVelHorizonal // pretty bad if you got high latency
         // hovering, more like valk's jecpack
         bool playerWantsToHover = player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE )
@@ -386,12 +382,12 @@ void function JetPackActivateThink( entity player, entity weapon )
         }
         else
         {
-            liftVector = GainVelocityVertical( liftVector, liftAccelVertical )
+            liftVector = GainVelocityVertical( liftVector, liftAccelVertical ) // cannot lift again when touching something above head
             liftVector.z = min( liftVelVertical, liftVector.z )
         }
-        // if player is on ground, you need at least 220 vel to make them off ground
-        if ( !playerWantsToHover && player.IsOnGround() && liftVector.z < 220 )
-            liftVector.z = 220
+        // if player is on ground, you need at least 220 vel to make them off ground, fixed through 0.0 groundFrictionScale
+        //if ( !playerWantsToHover && player.IsOnGround() && liftVector.z < 220 )
+        //    liftVector.z = 220
         liftVector = LimitVelocityHorizontal( liftVector, liftVelHorizonal ) // better handling control
         //print( "liftVector.z: " + string( liftVector.z ) )
 
@@ -470,7 +466,7 @@ void function JetPackGlideThink( entity player )
         WaitFrame()
     }
     if( IsValid( player ) ) // don't reset gravity if triggered another "StartGlideThink"
-        player.kv.gravity = 0.0 // this is hardcoded!!!
+        RestorePlayerPermanentGravity( player )
 }
 
 void function JumpJetFreeFallSound( entity player )
