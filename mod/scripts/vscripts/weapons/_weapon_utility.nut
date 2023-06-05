@@ -164,6 +164,9 @@ struct
 
 	int activeThermiteBurnsManagedEnts
 	array<ColorSwapStruct> colorSwapStatusEffects
+
+	// add fix for thermite sound
+	table<entity, float> entNextThermiteSoundAllowedTime
 } file
 
 global int HOLO_PILOT_TRAIL_FX
@@ -3965,8 +3968,20 @@ RadiusDamageData function GetRadiusDamageDataFromProjectile( entity projectile, 
 }
 
 #if SERVER
+// this might cause too many sounds playing together! modifying it
 void function Thermite_DamagePlayerOrNPCSounds( entity ent )
 {
+	// fix for thermite sound, prevent too many sounds playing together
+	if ( !( ent in file.entNextThermiteSoundAllowedTime ) )
+		file.entNextThermiteSoundAllowedTime[ ent ] <- 0.0
+
+	if ( file.entNextThermiteSoundAllowedTime[ ent ] > Time() )
+	{
+		//print( "ent " + string( ent ) + " in thermite sound cooldown!" )
+		return
+	}
+	//
+
 	if ( ent.IsTitan() )
 	{
 		if ( ent.IsPlayer() )
@@ -3991,6 +4006,10 @@ void function Thermite_DamagePlayerOrNPCSounds( entity ent )
 		 	EmitSoundOnEntity( ent, "flesh_thermiteburn_1p_vs_3p" )
 		}
 	}
+
+	// fix for thermite sound
+	file.entNextThermiteSoundAllowedTime[ ent ] = Time() + RandomFloatRange( 0.15, 0.25 )
+	//
 }
 #endif
 
