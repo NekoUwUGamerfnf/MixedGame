@@ -154,7 +154,7 @@ void function FlyerHovers( entity player, HoverSounds soundInfo, float flightTim
 					//player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
 					//player.kv.airAcceleration = player.GetPlayerSettingsField( "airAcceleration" )
 					//player.kv.gravity = player.GetPlayerSettingsField( "gravityScale" )
-					RestorePlayerPermaentGroundFriction( player )
+					RestorePlayerPermanentGroundFriction( player )
 					RestorePlayerPermanentAirSpeed( player )
 					RestorePlayerPermanentAirAcceleration( player )
 					RestorePlayerPermanentGravity( player )
