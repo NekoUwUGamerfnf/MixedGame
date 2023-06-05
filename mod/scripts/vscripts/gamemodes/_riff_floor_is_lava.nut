@@ -2,8 +2,21 @@ global function RiffFloorIsLava_Init
 
 const float FOG_DAMAGE_SCALE = 0.05
 
+// modified to use new initialize functions
+struct
+{
+	float fogDamageScale
+	float fogDamageScaleTitan
+} file
+//
+
 void function RiffFloorIsLava_Init()
 {
+	// modified to use new initialize functions
+	file.fogDamageScale = GetCurrentPlaylistVarFloat( "floorislava_fog_damage_scale", 0.05 )
+	file.fogDamageScaleTitan = GetCurrentPlaylistVarFloat( "floorislava_fog_damage_scale_titan", 0.0025 )
+	//
+
 	AddCallback_OnPlayerRespawned( FloorIsLava_PlayerRespawned )
 	
 	AddSpawnCallback( "env_fog_controller", InitLavaFogController )
@@ -113,9 +126,9 @@ void function FloorIsLava_ThinkForPlayer( entity player )
 			// do damage
 			float damageMultiplier
 			if ( player.IsTitan() )
-				damageMultiplier = 0.0025
+				damageMultiplier = file.fogDamageScaleTitan
 			else
-				damageMultiplier = FOG_DAMAGE_SCALE
+				damageMultiplier = file.fogDamageScale
 				
 			// scale damage by time spent in fog and depth
 			if ( IsAlive( player ) ) // check for hacked death?
