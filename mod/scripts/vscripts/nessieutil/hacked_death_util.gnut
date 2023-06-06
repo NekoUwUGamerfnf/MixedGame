@@ -195,14 +195,15 @@ void function HackedDeath_PlayerStart( entity player, var damageInfo )
 	player.s.hackedDeath = true // for IsAlive() checks
 	player.Signal( "StartHackedDeath" ) // signal this
 	player.Signal( "OnDeath" ) // this will trigger most things that EndSignal( "OnDeath" )
-	player.kv.VisibilityFlags = 0
-	
+
+	// fake death
+	thread ForceHideForHackedDeath( player ) // sometimes player not hide! don't know why
 	if ( player.Anim_IsActive() ) // try not to stop animation if don't have a anim active
 		player.Anim_Stop()
 	player.ClearParent()
 	player.kv.CollisionGroup = 0 // stop collision
 	player.NotSolid()
-	
+
 	//HolsterAndDisableWeapons( player ) // player is able to pick up weapons, don't let them able to use it
 	thread ForceHolsterForHackedDeath( player ) // defensive fix for sometimes player DeployWeapon() from other scripts...
 	
@@ -284,6 +285,21 @@ void function StopPlayerJumpJetSound( entity player )
 	StopSoundOnEntity( player, "jumpjet_wallrun_start_3p_enemy" ) 
 
 	// boosted jumpjets, unused in titanfall 2
+}
+
+void function ForceHideForHackedDeath( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	
+	WaitFrame() // assume player will never be in hacked death before this
+	while( player.s.hackedDeath ) // keep hiding player while in hacked death
+	{
+		player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
+		WaitFrame()
+	}
+
+	// player recovered?
+	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 }
 
 void function ForceHolsterForHackedDeath( entity player )
@@ -608,11 +624,12 @@ void function HackedDeath_PlayerRecoverFrom( entity player )
 	player.s.hackedDeath = false
 	//player.kv.contents = (int(player.kv.contents) & ~CONTENTS_NOGRAPPLE) // grapple now handling in callbacks  // remove unable to be grappled content
 	player.Signal( "RecoverFromHackedDeath" ) // signal this
+
+	// restore behavior!
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	player.Show() // defensive fix
 	player.ClearInvulnerable()
 	player.kv.CollisionGroup = TRACE_COLLISION_GROUP_PLAYER
-	if ( GetCurrentPlaylistVarInt( "no_pilot_collision", 0 ) == 1 )
-		player.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 	player.Solid()
 	player.SetNoTarget( false )
 	player.SetNoTargetSmartAmmo( false )
