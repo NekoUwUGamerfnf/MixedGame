@@ -347,6 +347,7 @@ void function OnOwnerDeathOrDisembark(entity owner, entity hitEnt, int statusEff
 
 void function Tracker40mm_DamagedTarget( entity ent, var damageInfo )
 {
+	// vanilla behavior
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsAlive( attacker ) )
 		return
@@ -354,6 +355,9 @@ void function Tracker40mm_DamagedTarget( entity ent, var damageInfo )
 	if ( ent == attacker )
 		return
 
+	ApplyTrackerMark( attacker, ent )
+
+	// modified
 	entity inflictor = DamageInfo_GetInflictor( damageInfo ) // projectile itself
 	if( !IsValid( inflictor ) )
 		return
@@ -371,8 +375,6 @@ void function Tracker40mm_DamagedTarget( entity ent, var damageInfo )
 		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * damageScale )
 		return
 	}
-
- 	ApplyTrackerMark( attacker, ent )
 }
 #endif
 
