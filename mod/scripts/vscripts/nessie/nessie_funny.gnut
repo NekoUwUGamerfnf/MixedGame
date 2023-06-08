@@ -1,5 +1,8 @@
 global function Nessie_Funny_Functions_Init
 
+// funny stuffs with clientcommand!
+global function NessieFunny_EnableClientCommands
+
 global function RGB_Hightlight
 global function TitleFlash
 
@@ -7,6 +10,8 @@ global function RainbowPlayerSkin
 global function RainbowWeaponSkin
 
 global function RGY_BatterySkin
+//
+
 global function HoloFlash_Loop
 global function HoloFlash
 
@@ -15,12 +20,13 @@ global function CreatePulseBladeHead
 global function CreateWoundedHead
 global function BindPulseBladeHeadToPlayer
 global function BindeWoundedHeadToPlayer
-global function CreateHumanGib
 global function BecomeApexLegend
 global function CreateRainbowDomeShield
 
 struct
 {
+	bool clientCommandsEnabled
+
 	table<entity, bool> playerHasRGBHighlight
 	table<entity, bool> playerHasRainbowSkin
 	table<entity, entity> playerFlipperMover
@@ -90,8 +96,16 @@ void function OnDecoyCreated( entity decoy )
 }
 
 // client commands
+void function NessieFunny_EnableClientCommands( bool enable )
+{
+	file.clientCommandsEnabled = enable
+}
+
 bool function CC_SpawnRainbowDome( entity player, array<string> args )
 {
+	if ( !file.clientCommandsEnabled )
+		return false
+
 	if ( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
 		return false
 
@@ -101,12 +115,17 @@ bool function CC_SpawnRainbowDome( entity player, array<string> args )
 
 bool function CC_SpawnNessyOutfit( entity player, array<string> args )
 {
+	if ( !file.clientCommandsEnabled )
+		return false
+
 	SpawnNessyOutfit( player )
 	return true
 }
 
 bool function CC_SelfRGBHighlight( entity player, array<string> args )
 {
+	if ( !file.clientCommandsEnabled )
+		return false
 	//if ( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
 	//	return false
 
@@ -116,6 +135,9 @@ bool function CC_SelfRGBHighlight( entity player, array<string> args )
 
 bool function CC_SelfIMSBTitle( entity player, array<string> args )
 {
+	if ( !file.clientCommandsEnabled )
+		return false
+
 	if ( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
 		return false
 
@@ -125,6 +147,9 @@ bool function CC_SelfIMSBTitle( entity player, array<string> args )
 
 bool function CC_FlipPlayerSelf( entity player, array<string> args )
 {
+	if ( !file.clientCommandsEnabled )
+		return false
+
 	thread FlipperMoverThink( player )
 
 	return true
@@ -454,54 +479,6 @@ void function TrackPlayerDeathForHeadProp( entity player, entity head )
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // restore player visibility!
 }
 
-/* 
-	index
-	studio "gib_lump_LOD0.smd"
-	studio "gib_small_02_LOD0.smd"
-	studio "gib_brain_LOD0.smd"
-	studio "gib_muscle_LOD0.smd"
-	studio "gib_small_01_LOD0.smd"
-*/
-entity function CreateHumanGib( vector origin, vector angles, float scale = 1.0, int styleIndex = -1 )
-{
-	entity prop_physics = CreateEntity( "prop_physics" )
-	prop_physics.SetValueForModelKey( $"models/gibs/human_gibs.mdl" )
-	prop_physics.SetModel( $"models/gibs/human_gibs.mdl" ) // required to make finding bodygroup work
-	prop_physics.kv.spawnflags = 4 // 4 = SF_PHYSPROP_DEBRIS
-	prop_physics.kv.fadedist = 2000
-	prop_physics.kv.renderamt = 255
-	prop_physics.kv.rendercolor = "255 255 255"
-	prop_physics.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS
-
-	// funny things
-	int bodyGroupIndex = prop_physics.FindBodyGroup( "gibs" )
-	int maxBodyGroup = prop_physics.GetBodyGroupModelCount( bodyGroupIndex )
-	int bodygroupValue
-	if ( styleIndex == -1 ) // not setting...
-		bodygroupValue = RandomInt( maxBodyGroup ) // get a random one
-	else
-		bodygroupValue = styleIndex
-	prop_physics.SetBodygroup( bodyGroupIndex, bodygroupValue )
-
-	prop_physics.kv.modelscale = scale
-
-	prop_physics.SetOrigin( origin )
-	prop_physics.SetAngles( angles )
-	DispatchSpawn( prop_physics )
-	prop_physics.SetModel( $"models/gibs/human_gibs.mdl" )
-	thread DelayedPinkmistGib( prop_physics )
-
-	return prop_physics
-}
-
-void function DelayedPinkmistGib( entity gib )
-{
-	gib.EndSignal( "OnDestroy" )
-
-	wait 1
-	gib.Dissolve( ENTITY_DISSOLVE_PINKMIST, < 0, 0, 0 >, 0 )
-}
-
 void function BecomeApexLegend( entity player, string model = "ash" ) // ash, blisk, jack, sarah
 {
 	TakeAllWeapons( player )
@@ -635,15 +612,17 @@ void function CleanupBubbleShield( entity bubbleShield, array<entity> bubbleShie
 // flipper
 void function FlipperMoverThink( entity player )
 {
+	if ( !IsAlive( player ) ) // defensive fix
+		return
+
 	entity playerParent = player.GetParent()
 	//print( "playerParent: " + string( playerParent ) )
 	if ( IsValid( playerParent ) )
 	{
 		if ( playerParent == file.playerFlipperMover[ player ] )
-		{
 			player.Signal( "EndFlipper" ) // try to end last flipper
-			return
-		}
+
+		return // always return, whether player is parented with flipper or other entities
 	}
 
 	player.Signal( "EndFlipper" )
