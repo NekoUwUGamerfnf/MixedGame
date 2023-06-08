@@ -15,7 +15,6 @@ void function FFA_Init()
 
 	// modified for northstar
 	AddCallback_OnClientConnected( OnClientConnected )
-	AddCallback_OnClientDisconnected( OnClientDisconnected )
 }
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
@@ -43,15 +42,37 @@ void function AddFFAPlayerTeamScore( entity player, int scoreAmount )
 void function OnClientConnected( entity player )
 {
 	file.ffaPlayerScore[ player ] <- 0
+	thread FFAPlayerScoreThink( player ) // good to have this! instead of DisconnectCallback this could handle a null player
 }
 
-void function OnClientDisconnected( entity player )
+void function FFAPlayerScoreThink( entity player )
 {
-	// take score from this team, based on how much score player earned. handles ffa with 2 or more players in 1 team
-	int team = player.GetTeam()
-	int score = file.ffaPlayerScore[ player ]
+	player.EndSignal( "OnDestroy" ) // this can handle disconnecting
 
-	if ( GetGameState() == eGameState.Playing ) // game still playing, we remove score from this player
-		AddTeamScore( team, -score )
-	delete file.ffaPlayerScore[ player ]
+	table results = {
+		team = player.GetTeam()
+		score = 0
+	}
+
+	OnThreadEnd
+	(
+		function(): ( results )
+		{
+			int team = expect int( results.team )
+			int score = expect int( results.score )
+			if ( GetGameState() == eGameState.Playing ) // game still playing, we remove score from this player
+				AddTeamScore( team, -score )
+			if ( GetPlayerArrayOfTeam( team ).len() == 0 ) // all player of this team has disconnected!
+				AddTeamScore( team, -GameRules_GetTeamScore( team ) ) // remove all score
+		}
+	)
+
+	// keep updating
+	while ( true )
+	{
+		results.team = player.GetTeam()
+		results.score = file.ffaPlayerScore[ player ]
+
+		WaitFrame()
+	}
 }
