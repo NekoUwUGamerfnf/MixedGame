@@ -5,24 +5,30 @@ global function BecomesGruntMode_Init
 global function GruntMode_RegisterPlayerClass
 global function GruntMode_IsSpecialistClass // for score events in gruntmode.gnut
 
-// player damage protection against titans
+// player damage protection system
 const float PLAYER_DAMAGE_PROTECTION_MIN_HEALTH_FRAC = 0.0 // currently no need to add min frac
 const float PLAYER_DAMAGE_PROTECTION_COOLDOWN = 25.0
 const float PLAYER_DAMAGE_PROTECTION_DURATION = 1.0
-// triggering protection without have to being attacked by titans
-array<int> PLAYER_DAMAGE_PROTECTION_SPECIFICS =
+// protect player from getting instant killed by these classes
+const array<string> PLAYER_DAMAGE_PROTECTION_TRIGGERING_CLASS =
+[
+	"npc_titan",
+	"npc_pilot_elite"
+]
+// triggering protection without have to being attacked by specified classes
+const array<int> PLAYER_DAMAGE_PROTECTION_SPECIFICS =
 [
 	damagedef_reaper_nuke,
 ]
 // no protection against crash damages ( adding back stepping on and melee damage protection )
-array<int> PLAYER_DAMAGE_PROTECTION_BLACKLISTS =
+const array<int> PLAYER_DAMAGE_PROTECTION_BLACKLISTS =
 [
 	damagedef_reaper_fall,
 	//damagedef_titan_step,
 	damagedef_titan_fall,
 	//eDamageSourceId.auto_titan_melee
 ]
-array<int> PLAYER_DAMAGE_PROTECTION_BLACKLIST_DAMAGEFLAGS =
+const array<int> PLAYER_DAMAGE_PROTECTION_BLACKLIST_DAMAGEFLAGS =
 [
 	//DF_MELEE
 ]
@@ -159,6 +165,10 @@ void function OnPlayerDealDamage( entity victim, var damageInfo )
 // want to give player some protection against titan damages, so they won't feel very bad upon encountering titans
 void function OnPlayerPostDamage( entity player, var damageInfo )
 {
+	// general check
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || player.IsTitan() )	
+		return
+
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsValid( attacker ) )
 		return
@@ -176,7 +186,7 @@ void function OnPlayerPostDamage( entity player, var damageInfo )
 			return
 	}
 
-	if ( !PLAYER_DAMAGE_PROTECTION_SPECIFICS.contains( methodOfDamage ) && !attacker.IsTitan() )
+	if ( !PLAYER_DAMAGE_PROTECTION_SPECIFICS.contains( methodOfDamage ) && !PLAYER_DAMAGE_PROTECTION_TRIGGERING_CLASS.contains( attacker.GetClassName() ) )
 		return
 
 	TryGivePlayerDamageProtection( player, damageInfo )
@@ -834,14 +844,14 @@ const float GRUNT_NEARBY_ALLY_SEARCH_RADIUS = 350
 
 void function PlayFriendlyPlayerKilledChatter( entity victim, entity attacker )
 {
-	int team = victim.GetTeam()
-	array<entity> nearbyAllies = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, victim.GetOrigin(), GRUNT_NEARBY_ALLY_SEARCH_RADIUS )
+	array<entity> nearbyAllies = GetPlayerArrayEx( "any", victim.GetTeam(), TEAM_ANY, victim.GetOrigin(), GRUNT_NEARBY_ALLY_SEARCH_RADIUS )
+
 	foreach( entity player in nearbyAllies )
 	{
-		if( IsValid( player ) )
+		if( IsAlive( player ) )
 		{
-			if( player.GetTeam() == team )
-				thread DelayedFriendlyKilledChatter( player )
+			thread DelayedFriendlyKilledChatter( player )
+			return // only one player will call out!
 		}
 	}
 }

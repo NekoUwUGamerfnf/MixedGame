@@ -4,8 +4,10 @@ global function OnWeaponTossPrep_ability_wraith_portal
 global function OnWeaponPrimaryAttack_ability_wraith_portal
 
 #if SERVER
-const vector ROOFCHECK_HEIGHT = < 0,0,100 > // added pilot's height( 60 ), so actually it's 40 height check
-const float FIX_AMOUNT = 20
+const float ROOFCHECK_HEIGHT = 40
+const float FIX_AMOUNT_CANT_STAND = 20
+const float FIX_AMOUNT_CEILING = 5
+const float FIX_AMOUNT_GROUND = 20
 const asset PHASE_REWIND_MODEL = $"models/fx/core_energy.mdl"
 
 // most of these are hardcoded, cannot easily change, fuck I cannot code it well
@@ -208,10 +210,15 @@ void function PortalStart( entity player, entity weapon )
 	array<vector> progressAngs
 	array<bool> wasCrouchedArray
 	float travelTime = 0
-	if( player.IsOnGround() )
-		startPos += < 0,0,FIX_AMOUNT >
-	else if( TraceLine( player.GetOrigin(), player.GetOrigin() + ROOFCHECK_HEIGHT, [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE ).hitEnt != null )
-		startPos -= < 0,0,FIX_AMOUNT >
+	if( PortalPlayerNearRoof( player ) )
+	{
+		if ( player.IsCrouched() )
+			startPos -= < 0, 0, FIX_AMOUNT_CANT_STAND >
+		else
+			startPos -= < 0, 0, FIX_AMOUNT_CEILING >
+	}
+	else if( player.IsOnGround() )
+		startPos += < 0, 0, FIX_AMOUNT_GROUND >
 	vector lastTickPos = player.GetOrigin()
 
 	float maxPortalLength = PORTAL_MAX_DISTANCE
@@ -258,8 +265,11 @@ void function PortalStart( entity player, entity weapon )
 			}
 			if( player.GetVelocity() != < 0,0,0 > )
 			{
-				progressPoses.append( player.GetOrigin() )
+				vector targetPos = player.GetOrigin()
 				bool isCrouched = player.IsCrouched() && player.IsOnGround()
+				if ( isCrouched )
+					targetPos -= < 0, 0, FIX_AMOUNT_CEILING >
+				progressPoses.append( targetPos )
 				wasCrouchedArray.append( isCrouched )
 				progressAngs.append( < 0, player.EyeAngles().y, player.EyeAngles().z > )
 				if( !isInfiniteDistance )
@@ -322,11 +332,16 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	vector endPos = player.GetOrigin()
 	vector endAng = player.EyeAngles()
 	endAng.x = 0
-	if( player.IsOnGround() )
-		endPos += < 0,0,FIX_AMOUNT >
-	else if( TraceLine( player.GetOrigin(), player.GetOrigin() + ROOFCHECK_HEIGHT, [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE ).hitEnt != null )
-		endPos -= < 0,0,FIX_AMOUNT >
-	
+	if( PortalPlayerNearRoof( player ) )
+	{
+		if ( player.IsCrouched() )
+			startPos -= < 0, 0, FIX_AMOUNT_CANT_STAND >
+		else
+			startPos -= < 0, 0, FIX_AMOUNT_CEILING >
+	}
+	else if( player.IsOnGround() )
+		endPos += < 0, 0, FIX_AMOUNT_GROUND >
+
 	EmitSoundOnEntity( player, SHIFTER_END_SOUND_3P )
 	//PlayFX( $"P_phase_shift_main", player.GetOrigin() ) // using cooldown management to do this
 
@@ -586,7 +601,7 @@ void function PortalTravelThink( entity trigger, entity player )
 	bool goalShouldCrouch = trigger.GetTeam() == TEAM_MILITIA ? crouchedArray[0] : crouchedArray[crouchedArray.len()-1]
 	bool isInfiniteDistance = file.portalGoalTable[ trigger ].infiniteDistance
 	bool isInfiniteDuration = file.portalGoalTable[ trigger ].infiniteDuration
-	
+
 	int totalSegments = progressPoses.len()
 	int segmentsLeft = totalSegments
 	bool playedPreEndSound = false
@@ -649,7 +664,7 @@ void function PortalTravelThink( entity trigger, entity player )
 				player.SetVelocity( < 0,0,0 > )
 				player.UnforceStand() // have to do this to clean up last forceStand state
 				player.UnforceCrouch()
-				if( goalShouldCrouch )
+				if( goalShouldCrouch && PortalPlayerNearRoof( player ) )
 					thread TravelEndForceCrouch( player )
 				player.ClearParent()
 				player.DeployWeapon()
@@ -720,8 +735,11 @@ void function PortalTravelThink( entity trigger, entity player )
 				for( int i = 0; i <= totalSegments - 1; i++ )
 				{
 					player.UnforceCrouch()
+					player.UnforceStand()
 					if( crouchedArray[i] )
 						player.ForceCrouch() // make player's view lower
+					else
+						player.ForceStand()
 					player.HolsterWeapon() // defensive fix
 					player.Server_TurnOffhandWeaponsDisabledOn()
 					mover.NonPhysicsMoveTo( progressPoses[i] , fixedTimePerSigment, 0, 0 )
@@ -858,5 +876,20 @@ vector function CalculateFaceToOrigin( vector startPos, vector endPos )
 	vector posDiffer = endPos - startPos
 	vector moveAng = VectorToAngles( posDiffer )
     return moveAng
+}
+
+// utility
+bool function PortalPlayerNearRoof( entity player )
+{
+	float playerHeight = player.GetBoundingMaxs().z - player.GetBoundingMins().z
+	vector startPos = player.GetOrigin()
+	vector endPos = startPos + < 0, 0, playerHeight + ROOFCHECK_HEIGHT >
+
+	TraceResults result = TraceLine( startPos, 
+									 endPos,
+									 [ player ], 
+									 TRACE_MASK_SHOT, 
+									 TRACE_COLLISION_GROUP_NONE )
+	return result.hitEnt != null // player will stuck
 }
 #endif
