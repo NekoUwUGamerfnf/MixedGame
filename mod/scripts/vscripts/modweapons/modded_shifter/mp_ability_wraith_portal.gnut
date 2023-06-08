@@ -4,7 +4,8 @@ global function OnWeaponTossPrep_ability_wraith_portal
 global function OnWeaponPrimaryAttack_ability_wraith_portal
 
 #if SERVER
-const vector ROOFCHECK_HEIGHT = < 0,0,100 > // added pilot's height( 60 ), so actually it's 40 height check
+const float ROOFCHECK_HEIGHT = 40
+const float FIX_AMOUNT_CANT_STAND = 20
 const float FIX_AMOUNT_CEILING = 5
 const float FIX_AMOUNT_GROUND = 20
 const asset PHASE_REWIND_MODEL = $"models/fx/core_energy.mdl"
@@ -209,8 +210,13 @@ void function PortalStart( entity player, entity weapon )
 	array<vector> progressAngs
 	array<bool> wasCrouchedArray
 	float travelTime = 0
-	if( PortalShouldForceCrouch( player ) )
-		startPos -= < 0, 0, FIX_AMOUNT_CEILING >
+	if( PortalPlayerNearRoof( player ) )
+	{
+		if ( player.IsCrouched() )
+			startPos -= < 0, 0, FIX_AMOUNT_CANT_STAND >
+		else
+			startPos -= < 0, 0, FIX_AMOUNT_CEILING >
+	}
 	else if( player.IsOnGround() )
 		startPos += < 0, 0, FIX_AMOUNT_GROUND >
 	vector lastTickPos = player.GetOrigin()
@@ -326,8 +332,13 @@ void function PortalEnd( entity player, entity weapon, vector startPos, vector s
 	vector endPos = player.GetOrigin()
 	vector endAng = player.EyeAngles()
 	endAng.x = 0
-	if( PortalShouldForceCrouch( player ) )
-		endPos -= < 0, 0, FIX_AMOUNT_CEILING >
+	if( PortalPlayerNearRoof( player ) )
+	{
+		if ( player.IsCrouched() )
+			startPos -= < 0, 0, FIX_AMOUNT_CANT_STAND >
+		else
+			startPos -= < 0, 0, FIX_AMOUNT_CEILING >
+	}
 	else if( player.IsOnGround() )
 		endPos += < 0, 0, FIX_AMOUNT_GROUND >
 
@@ -653,7 +664,7 @@ void function PortalTravelThink( entity trigger, entity player )
 				player.SetVelocity( < 0,0,0 > )
 				player.UnforceStand() // have to do this to clean up last forceStand state
 				player.UnforceCrouch()
-				if( goalShouldCrouch && PortalShouldForceCrouch( player ) )
+				if( goalShouldCrouch && PortalPlayerNearRoof( player ) )
 					thread TravelEndForceCrouch( player )
 				player.ClearParent()
 				player.DeployWeapon()
@@ -870,17 +881,15 @@ vector function CalculateFaceToOrigin( vector startPos, vector endPos )
 // utility
 bool function PortalPlayerNearRoof( entity player )
 {
-	return TraceLine( player.GetOrigin(), player.GetOrigin() + ROOFCHECK_HEIGHT, [ player ], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE ).hitEnt != null
-}
+	float playerHeight = player.GetBoundingMaxs().z - player.GetBoundingMins().z
+	vector startPos = player.GetOrigin()
+	vector endPos = startPos + < 0, 0, playerHeight + ROOFCHECK_HEIGHT >
 
-bool function PortalShouldForceCrouch( entity player )
-{
-	TraceResults result = TraceLine( player.GetOrigin(), 
-									 player.GetOrigin() + < 0, 0, 80 >, // 40 is crouched pilot height! add additional 40 for better check
+	TraceResults result = TraceLine( startPos, 
+									 endPos,
 									 [ player ], 
 									 TRACE_MASK_SHOT, 
-									 TRACE_COLLISION_GROUP_NONE 
-									)
+									 TRACE_COLLISION_GROUP_NONE )
 	return result.hitEnt != null // player will stuck
 }
 #endif
