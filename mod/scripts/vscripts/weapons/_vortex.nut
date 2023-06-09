@@ -22,6 +22,8 @@ global function IsVortexing
 global function Vortex_HandleElectricDamage
 global function VortexSphereDrainHealthForDamage
 global function Vortex_CreateImpactEventData
+// modified to globalize
+global function Vortex_SpawnShieldPingFX
 global function Vortex_SpawnHeatShieldPingFX
 #endif
 
@@ -592,14 +594,6 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 
 	if ( vortexWeapon.GetWeaponClassName() == "mp_titanweapon_heat_shield" )
 		return true
-
-	// modified!!!!
-	if ( vortexWeapon.HasMod( "vortex_blocker" ) ) // vortex blocker, always absorb bullets
-	{
-		// generic shield ping FX
-		Vortex_SpawnShieldPingFX( vortexWeapon, impactData )
-		return true
-	}
 
 	if ( !Vortex_ScriptCanHandleImpactEvent( impactData ) )
 		return false

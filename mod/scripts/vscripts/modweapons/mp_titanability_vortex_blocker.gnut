@@ -3,6 +3,8 @@ global function MpTitanAbilityVortexBlocker_Init
 
 global function OnWeaponOwnerChanged_titanability_vortex_blocker
 global function OnWeaponChargeBegin_titanability_vortex_blocker
+global function OnWeaponVortexHitBullet_titanability_vortex_blocker
+global function OnWeaponVortexHitProjectile_titanability_vortex_blocker
 
 // consts
 const float VORTEX_BLOCKER_ENERGY_REGEN_RATE        = 160 // was 125, for normal titans, they have 1000 max energy
@@ -123,13 +125,89 @@ void function OnWeaponOwnerChanged_titanability_vortex_blocker( entity weapon, W
 }
 
 // this one shouldn't overwrite default vortex
-void function OnWeaponChargeBegin_titanability_vortex_blocker( entity weapon )
+bool function OnWeaponChargeBegin_titanability_vortex_blocker( entity weapon )
 {
-#if SERVER
-    // this weapon uses serverSide only
-    ApplyActivationCost( weapon, VORTEX_BLOCKER_ACTIVATION_COST_FRAC )
-#endif
+    entity weaponOwner = weapon.GetWeaponOwner()
+
+	// just for players
+	if ( weaponOwner.IsPlayer() )
+	{
+		PlayerUsedOffhand( weaponOwner, weapon )
+		StartVortex( weapon )
+	}
+
+    return true
 }
+
+// copied from mp_titanweapon_vortex_shield
+function StartVortex( entity weapon )
+{
+	entity weaponOwner = weapon.GetWeaponOwner()
+
+#if CLIENT
+	if ( weaponOwner != GetLocalViewPlayer() )
+		return
+
+	if ( IsFirstTimePredicted() )
+		Rumble_Play( "rumble_titan_vortex_start", {} )
+#endif
+
+	Assert( IsAlive( weaponOwner ),  "ent trying to start vortexing after death: " + weaponOwner )
+
+	if ( "shotgunPelletsToIgnore" in weapon.s )
+		weapon.s.shotgunPelletsToIgnore = 0
+	else
+		weapon.s.shotgunPelletsToIgnore <- 0
+
+	Vortex_SetBulletCollectionOffset( weapon, Vector( 110, -28, -22.0 ) )
+
+	int sphereRadius = 150
+	int bulletFOV = 120
+
+    #if SERVER
+	    ApplyActivationCost( weapon, VORTEX_BLOCKER_ACTIVATION_COST_FRAC )
+    #endif
+
+	local hasBurnMod = weapon.GetWeaponSettingBool( eWeaponVar.is_burn_mod )
+	if ( weapon.GetWeaponChargeFraction() < 1 )
+	{
+		weapon.s.hadChargeWhenFired = true
+		CreateVortexSphere( weapon, false, false, sphereRadius, bulletFOV )
+		EnableVortexSphere( weapon )
+		weapon.EmitWeaponSound_1p3p( "vortex_shield_loop_1P", "vortex_shield_loop_3P" )
+	}
+	else
+	{
+		weapon.s.hadChargeWhenFired = false
+		weapon.EmitWeaponSound_1p3p( "vortex_shield_empty_1P", "vortex_shield_empty_3P" )
+	}
+
+	#if SERVER
+		thread ForceReleaseOnPlayerEject( weapon )
+	#endif
+
+	#if CLIENT
+		weapon.s.lastUseTime = Time()
+	#endif
+}
+
+#if SERVER
+function ForceReleaseOnPlayerEject( entity weapon )
+{
+	weapon.EndSignal( "VortexFired" )
+	weapon.EndSignal( "OnDestroy" )
+
+	entity weaponOwner = weapon.GetWeaponOwner()
+	if ( !IsAlive( weaponOwner ) )
+		return
+
+	weaponOwner.EndSignal( "OnDeath" )
+
+	weaponOwner.WaitSignal( "TitanEjectionStarted" )
+
+	weapon.ForceRelease()
+}
+#endif
 
 // this weapon uses serverSide only
 #if SERVER
@@ -146,6 +224,57 @@ void function ApplyActivationCost( entity weapon, float frac )
     owner.TakeSharedEnergy( min ( energyToReduce, currentEnergy ) )
 }
 #endif
+
+bool function OnWeaponVortexHitBullet_titanability_vortex_blocker( entity weapon, entity vortexSphere, var damageInfo )
+{
+    // vortex blocker, always absorb bullets
+    // copied from mp_titanweapon_heat_shield
+    #if CLIENT
+		return true
+	#else
+		if ( !ValidateVortexImpact( vortexSphere ) )
+			return false
+
+		entity attacker				= DamageInfo_GetAttacker( damageInfo )
+		vector origin				= DamageInfo_GetDamagePosition( damageInfo )
+		int damageSourceID			= DamageInfo_GetDamageSourceIdentifier( damageInfo )
+		entity attackerWeapon		= DamageInfo_GetWeapon( damageInfo )
+		string attackerWeaponName	= attackerWeapon.GetWeaponClassName()
+
+		local impactData = Vortex_CreateImpactEventData( weapon, attacker, origin, damageSourceID, attackerWeaponName, "hitscan" )
+		VortexDrainedByImpact( weapon, attackerWeapon, null, null )
+		if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
+			return true
+		// generic shield ping FX, modified to globalize this function
+        Vortex_SpawnShieldPingFX( weapon, impactData )
+
+		return true
+	#endif
+}
+
+bool function OnWeaponVortexHitProjectile_titanability_vortex_blocker( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos )
+{
+    // vortex blocker, always absorb bullets
+    // copied from mp_titanweapon_heat_shield
+    #if CLIENT
+		return true
+	#else
+		if ( !ValidateVortexImpact( vortexSphere, projectile ) )
+			return false
+
+		int damageSourceID = projectile.ProjectileGetDamageSourceID()
+		string weaponName = projectile.ProjectileGetWeaponClassName()
+
+		local impactData = Vortex_CreateImpactEventData( weapon, attacker, contactPos, damageSourceID, weaponName, "projectile" )
+		VortexDrainedByImpact( weapon, projectile, projectile, null )
+		if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
+			return true
+		// generic shield ping FX, modified to globalize this function
+        Vortex_SpawnShieldPingFX( weapon, impactData )
+
+		return true
+	#endif
+}
 
 #if SERVER
 // this will be running after setPlayerSettings(), it will apply to titan
