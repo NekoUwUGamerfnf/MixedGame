@@ -33,6 +33,7 @@ global function SetGamemodeAnnouncementEnabled
 
 global function SetDeathCamLengthForced
 global function GetForcedDeathCamLength // shared with _utility_shared.nut
+global function SetReplayStartDelayOverride
 
 global function SetDeathHintsEnabled
 global function SetDeathHintsInterval // how many deaths needed for a death hint to show
@@ -59,6 +60,7 @@ struct
 
 	// death cam modifier
 	float forcedDeathCamLength = -1
+	float replayStartDelayOverride = -1
 
 	bool deathHintsEnabled = true
 	table<entity, float> playerDeathHintAllowedTime
@@ -502,13 +504,11 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	// modified over here, add support for modified death cam length
 	float actualDeathCamLength = GetDeathCamLength( player, true ) // this gets the death cam length that ignores custom settings
 	float replayStartDelay = actualDeathCamLength - deathcamLength // in case we're not in good death cam length
-	bool deathCamModified = actualDeathCamLength > deathcamLength
-	if ( replayStartDelay < 0 )
+	if ( file.replayStartDelayOverride != -1 ) // replay start delay modified
+		replayStartDelay = file.replayStartDelayOverride
+	if ( replayStartDelay < 0 ) // defensive fix
 		replayStartDelay = 0
-
-	// HACKED DEATH
-	if( HackedDeath_IsEnabled() )
-		player.UnfreezeControlsOnServer() // unfreeze controls here, make players able to press respawn
+	bool deathCamModified = actualDeathCamLength > deathcamLength
 
 	// hack: double check if killcams are enabled and valid here in case gamestate has changed this
 	//shouldDoReplay = shouldDoReplay && Replay_IsEnabled() && KillcamsEnabled() && IsValid( attacker )
@@ -557,7 +557,8 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		
 		wait respawnDelay
 
-		if( ShouldForceRespawnPlayer() && methodOfDeath != damagedef_despawn ) // check for hacked death and spectator mod
+		// new intermission cam system
+		if( ShouldForceRespawnPlayer() && methodOfDeath != damagedef_despawn ) // check for hacked death
 		{
 			float waitBeforeRespawn = 0.0
 			//if( !shouldDoReplay || respawnDelay >= 3.0 ) // doing this so player can respawn as titan in some modes, but vanilla don't features this lol
@@ -575,11 +576,12 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 			thread ForcedRespawnThink( player, waitBeforeRespawn, deathCamModified, replayStartDelay )// if not doing replay, set player's camera to intermissionCam
 		}
 
-		// HACKED DEATH: to enable respawn button
-		if( HackedDeath_IsEnabled() && !ShouldForceRespawnPlayer() )
+		// HACKED DEATH
+		if( HackedDeath_IsEnabled() )
 		{
-			if( IsAlive( player, true ) )
+			if( !ShouldForceRespawnPlayer() && IsAlive( player, true ) ) // really kill player to enable respawn button
 				player.Die( player, player, { damageSourceId = damagedef_despawn } )
+			player.UnfreezeControlsOnServer() // unfreeze controls here, make players able to press respawn
 		}
 		//
 
@@ -1042,6 +1044,11 @@ void function SetDeathCamLengthForced( float camLength )
 float function GetForcedDeathCamLength()
 {
 	return file.forcedDeathCamLength
+}
+
+void function SetReplayStartDelayOverride( float delay )
+{
+	file.replayStartDelayOverride = delay
 }
 
 void function SetDeathHintsEnabled( bool enabled )

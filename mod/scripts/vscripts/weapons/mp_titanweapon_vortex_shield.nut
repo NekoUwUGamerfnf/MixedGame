@@ -246,6 +246,8 @@ bool function OnWeaponVortexHitBullet_titanweapon_vortex_shield( entity weapon, 
 	// modded weapon
 	if( weapon.HasMod( "shock_shield" ) )
 		return OnWeaponVortexHitBullet_titanweapon_shock_shield( weapon, vortexSphere, damageInfo )
+	if ( weapon.HasMod( "vortex_blocker" ) )
+		return OnWeaponVortexHitBullet_titanability_vortex_blocker( weapon, vortexSphere, damageInfo )
 
 	// vanilla behavior
 	if ( weapon.HasMod( "shield_only" ) )
@@ -275,7 +277,9 @@ bool function OnWeaponVortexHitProjectile_titanweapon_vortex_shield( entity weap
 	// modded weapon
 	if( weapon.HasMod( "shock_shield" ) )
 		return OnWeaponVortexHitProjectile_titanweapon_shock_shield( weapon, vortexSphere, attacker, projectile, contactPos )
-	
+	if ( weapon.HasMod( "vortex_blocker" ) )
+		return OnWeaponVortexHitProjectile_titanability_vortex_blocker( weapon, vortexSphere, attacker, projectile, contactPos )
+
 	// vanilla behavior
 	if ( weapon.HasMod( "shield_only" ) )
 		return true
@@ -364,7 +368,7 @@ void function OnClientAnimEvent_titanweapon_vortex_shield( entity weapon, string
 	// modded weapon
 	if( weapon.HasMod( "shock_shield" ) )
 		return OnClientAnimEvent_titanweapon_shock_shield( weapon, name )
-	
+
 	// vanilla behavior
 	if ( name == "muzzle_flash" )
 	{
@@ -400,7 +404,7 @@ bool function OnWeaponChargeBegin_titanweapon_vortex_shield( entity weapon )
 	if( weapon.HasMod( "shock_shield" ) )
 		return OnWeaponChargeBegin_titanweapon_shock_shield( weapon )
 	if ( weapon.HasMod( "vortex_blocker" ) )
-		OnWeaponChargeBegin_titanability_vortex_blocker( weapon ) // this one won't overwrite default vortex
+		return OnWeaponChargeBegin_titanability_vortex_blocker( weapon ) // this one won't overwrite default vortex
 	
 	// vanilla behavior
 	entity weaponOwner = weapon.GetWeaponOwner()
