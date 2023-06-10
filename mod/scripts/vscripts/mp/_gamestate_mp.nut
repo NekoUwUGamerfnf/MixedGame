@@ -14,6 +14,8 @@ global function SetShouldUseRoundWinningKillReplay
 
 global function SetRoundWinningKillReplayKillClasses
 global function SetRoundWinningKillReplayAttacker
+// fix for projectile kill replay
+global function SetRoundWinningKillReplayInflictor
 global function SetWinner
 global function SetTimeoutWinnerDecisionFunc
 global function SetTimeoutWinnerDecisionReason
@@ -61,6 +63,7 @@ struct {
 	float roundWinningKillReplayTime
 	entity roundWinningKillReplayVictim
 	entity roundWinningKillReplayAttacker
+	int roundWinningKillReplayInflictorEhandle // fix projectile kill replay
 	int roundWinningKillReplayMethodOfDeath
 	float roundWinningKillReplayTimeOfDeath
 	float roundWinningKillReplayHealthFrac
@@ -409,9 +412,12 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 			replayLength = 2.0 // extra delay
 
 		SetServerVar( "roundWinningKillReplayEntHealthFrac", file.roundWinningKillReplayHealthFrac )
+
+		// fix for projectile kill replay
+		int inflictorEHandle = file.roundWinningKillReplayInflictorEhandle
 		
 		foreach ( entity player in GetPlayerArray() )
-			thread PlayerWatchesRoundWinningKillReplay( player, replayAttacker, replayVictim, replayLength ) // pass attacker and victim to replay function
+			thread PlayerWatchesRoundWinningKillReplay( player, inflictorEHandle, replayAttacker, replayVictim, replayLength ) // pass attacker and victim to replay function
 
 		// all waits below should be the same time as PlayerWatchesRoundWinningKillReplay() does
 		wait ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME
@@ -524,7 +530,7 @@ void function AddScoreForMatchWinning( string winScoreEvent, string loseScoreEve
 		AddPlayerScore( otherPlayer, loseScoreEvent )
 }
 
-void function PlayerWatchesRoundWinningKillReplay( entity player, entity replayAttacker, entity replayVictim, float replayLength )
+void function PlayerWatchesRoundWinningKillReplay( entity player, int inflictorEHandle, entity replayAttacker, entity replayVictim, float replayLength )
 {
 	// end if player dcs 
 	player.EndSignal( "OnDestroy" )
@@ -547,8 +553,10 @@ void function PlayerWatchesRoundWinningKillReplay( entity player, entity replayA
 		if( replayDelay <= 0 )
 			replayDelay = 0
 		player.SetKillReplayDelay( replayDelay, THIRD_PERSON_KILL_REPLAY_ALWAYS )
-		player.SetKillReplayInflictorEHandle( replayAttacker.GetEncodedEHandle() )
-		if( IsValid( replayVictim ) )
+		if ( inflictorEHandle == -1 ) // invalid ehandle!
+			inflictorEHandle = replayAttacker.GetEncodedEHandle() // just assign attacker as inflictor!
+		player.SetKillReplayInflictorEHandle( inflictorEHandle )
+		if( IsValid( replayVictim ) ) // here has been delayed, should do a IsValid() check
 			player.SetKillReplayVictim( replayVictim )
 		player.SetViewIndex( replayAttacker.GetIndexForEntity() )
 		player.SetIsReplayRoundWinning( true )
@@ -589,6 +597,8 @@ void function GameStateEnter_SwitchingSides_Threaded()
 				 && Time() - file.roundWinningKillReplayTime <= SWITCHING_SIDES_DELAY
 	
 	float replayLength = 2.0 // extra delay if no replay
+	// fix for projectile kill replay
+	int inflictorEHandle = file.roundWinningKillReplayInflictorEhandle
 	if ( doReplay )
 	{		
 		replayLength = ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
@@ -602,9 +612,9 @@ void function GameStateEnter_SwitchingSides_Threaded()
 			
 		SetServerVar( "roundWinningKillReplayEntHealthFrac", file.roundWinningKillReplayHealthFrac )
 	}
-	
+
 	foreach ( entity player in GetPlayerArray() )
-		thread PlayerWatchesSwitchingSidesKillReplay( player, replayAttacker, replayVictim, doReplay, replayLength )
+		thread PlayerWatchesSwitchingSidesKillReplay( player, inflictorEHandle, replayAttacker, replayVictim, doReplay, replayLength )
 
 	wait ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME // whatever we do, just wait here
 
@@ -637,7 +647,7 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		SetGameState ( eGameState.Prematch )
 }
 
-void function PlayerWatchesSwitchingSidesKillReplay( entity player, entity replayAttacker, entity replayVictim, bool doReplay, float replayLength ) // ( entity player, float replayLength )
+void function PlayerWatchesSwitchingSidesKillReplay( entity player, int inflictorEHandle, entity replayAttacker, entity replayVictim, bool doReplay, float replayLength ) // ( entity player, float replayLength )
 {
 	player.EndSignal( "OnDestroy" )
 	player.FreezeControlsOnServer()
@@ -662,8 +672,10 @@ void function PlayerWatchesSwitchingSidesKillReplay( entity player, entity repla
 			replayDelay = 0
 		//player.SetKillReplayDelay( Time() - replayLength, THIRD_PERSON_KILL_REPLAY_ALWAYS )
 		player.SetKillReplayDelay( replayDelay, THIRD_PERSON_KILL_REPLAY_ALWAYS )
-		player.SetKillReplayInflictorEHandle( replayAttacker.GetEncodedEHandle() )
-		if( IsValid( replayVictim ) ) // maybe no victim for capturing flags
+		if ( inflictorEHandle == -1 ) // invalid ehandle!
+			inflictorEHandle = replayAttacker.GetEncodedEHandle() // just assign attacker as inflictor!
+		player.SetKillReplayInflictorEHandle( inflictorEHandle )
+		if( IsValid( replayVictim ) ) // here has been delayed, should do a IsValid() check
 			player.SetKillReplayVictim( replayVictim )
 		player.SetViewIndex( replayAttacker.GetIndexForEntity() )
 		player.SetIsReplayRoundWinning( true )
@@ -843,6 +855,7 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 		file.roundWinningKillReplayTime = Time()
 		file.roundWinningKillReplayVictim = victim
 		file.roundWinningKillReplayAttacker = attacker
+		SetRoundWinningKillReplayInflictor( DamageInfo_GetInflictor( damageInfo ) ) // fix for projectile kill replay
 		file.roundWinningKillReplayMethodOfDeath = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 		file.roundWinningKillReplayTimeOfDeath = Time()
 		file.roundWinningKillReplayHealthFrac = GetHealthFrac( attacker )
@@ -1079,6 +1092,16 @@ void function SetRoundWinningKillReplayAttacker( entity attacker )
 	file.roundWinningKillReplayHealthFrac = GetHealthFrac( attacker )
 	file.roundWinningKillReplayAttacker = attacker
 	file.roundWinningKillReplayTimeOfDeath = Time()
+}
+
+// fix for projectile kill replay
+void function SetRoundWinningKillReplayInflictor( entity inflictor )
+{
+	if ( !IsValid( inflictor ) ) // have to IsValid() check for inflictors
+		return
+
+	if ( inflictor.IsProjectile() && inflictor.GetProjectileWeaponSettingBool( eWeaponVar.projectile_killreplay_enabled ) )
+		file.roundWinningKillReplayInflictorEhandle = inflictor.GetEncodedEHandle()
 }
 
 void function SetWinner( int team, string winningReason = "", string losingReason = "" )
