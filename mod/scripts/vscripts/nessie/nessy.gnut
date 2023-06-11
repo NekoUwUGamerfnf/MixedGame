@@ -209,8 +209,9 @@ void function EverythingNessy_Init()
 	if ( Riff_TitanAvailability() == eTitanAvailability.Never )
 	{
 		Rodeo_SetBatterySkinRandom( true ) // from _rodeo_titan.gnut
-		SetPilotBatteryUsageAllowed( true ) // from pilot_shield_battery.gnut
-		SetShieldBatteryNoLimit( true ) // from pilot_shield_battery.gnut
+		// disabled shield battery usage, since we added rodeo battery throw
+		//SetPilotBatteryUsageAllowed( true ) // from pilot_shield_battery.gnut
+		//SetShieldBatteryNoLimit( true ) // from pilot_shield_battery.gnut
 	}
 	//if( GAMETYPE != "mfd" ) //prevent mfd client crash, no need for now I've fixed it
 	//{
@@ -466,6 +467,7 @@ void function OnClientConnected( entity player )
 	AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, CallbackFuncSpawnNessy )
 	// battery
 	AddButtonPressedPlayerInputCallback( player, IN_MELEE, CallbackFuncSpawnBattery )
+	AddPlayerHeldButtonEventCallback( player, IN_MELEE, CallbackFuncThrowBattery, 0.5 ) // should only be use this if disabled primary melee?
 	// flag
 	player.s.hasFlag <- false
 	AddButtonPressedPlayerInputCallback( player, IN_OFFHAND2, CallbackFuncSpawnFlag )
@@ -850,37 +852,46 @@ void function CallbackFuncSpawnBattery( entity player )
 		return
 	if ( !(Riff_TitanAvailability() == eTitanAvailability.Never) )
 		return
-	if( !file.battedPlayer.contains(player.GetUID()) )
-	{
-		entity battery = Rodeo_CreateBatteryPack( player, false, true )
-		bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
-		if ( !IsValid( battery ) ) // battery won't be returned it's picked up by player immediately
-			battery = GetBatteryOnBack( player )
-		if( IsValid( battery ) )
-		{
-			// never blocks bullet, but also unable to stack batteries. won't work!
-			//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS
-			//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_NONE
-			if ( !IsValid( battery.GetParent() ) ) // don't reset velocity if it's bind with something(eg. player)
-			{
-				vector batteryVel = player.GetViewVector() * 1000
-				battery.SetVelocity( batteryVel )
-			}
-			battery.SetBossPlayer( player ) // add a boss player for this battery! we can track satchel planting later
-			if( badCombo || file.alwaysRGBSpawn )
-				thread RGY_BatterySkin( battery )
-			HoldingProp_SetEntityCanBePickedUpForced( battery, true ) // make battery pickupable
-		}
-		/*
-		if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
-		{
-			file.battedPlayer.append( player.GetUID() ) 
-			thread ClearBattedPlayer( player )
-		}
-		*/
-	}
-	else
+	if( file.battedPlayer.contains(player.GetUID()) )
 		return
+
+	entity battery = Rodeo_CreateBatteryPack( player, false, true )
+	bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
+	if ( !IsValid( battery ) ) // battery won't be returned it's picked up by player immediately
+		battery = GetBatteryOnBack( player )
+	if( IsValid( battery ) )
+	{
+		// never blocks bullet, but also unable to stack batteries. won't work!
+		//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS
+		//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_NONE
+		if ( !IsValid( battery.GetParent() ) ) // don't reset velocity if it's bind with something(eg. player)
+		{
+			vector batteryVel = player.GetViewVector() * 1000
+			battery.SetVelocity( batteryVel )
+		}
+		battery.SetBossPlayer( player ) // add a boss player for this battery! we can track satchel planting later
+		if( badCombo || file.alwaysRGBSpawn )
+			thread RGY_BatterySkin( battery )
+		HoldingProp_SetEntityCanBePickedUpForced( battery, true ) // make battery pickupable
+	}
+	/*
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+	{
+		file.battedPlayer.append( player.GetUID() ) 
+		thread ClearBattedPlayer( player )
+	}
+	*/
+}
+
+void function CallbackFuncThrowBattery( entity player )
+{
+	// leave the same check as spawnbattery does
+	if( !file.batterySpawnEnabled )
+		return
+	if ( !(Riff_TitanAvailability() == eTitanAvailability.Never) )
+		return
+
+	Rodeo_PilotThrowsBattery( player )
 }
 
 void function Nessie_SetBatterySpawnEnabled( bool enabled )
