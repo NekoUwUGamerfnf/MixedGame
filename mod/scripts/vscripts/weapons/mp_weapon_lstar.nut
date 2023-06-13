@@ -302,7 +302,7 @@ void function PlayerLaggingBoltLimit( entity player, entity newBolt )
 
 	// player limit
 	//print( "file.playerLaggingBoltTable[ player ].len(): " + string( file.playerLaggingBoltTable[ player ].len() ) )
-	print( "GetPlayerMaxLaggingBolts(): " + string( GetPlayerMaxLaggingBolts() ) )
+	//print( "GetPlayerMaxLaggingBolts(): " + string( GetPlayerMaxLaggingBolts() ) )
 	if( file.playerLaggingBoltTable[ player ].len() > GetPlayerMaxLaggingBolts() )
 		PlayerReleaseLaggingBolts( player )
 
