@@ -91,7 +91,7 @@ var function OnWeaponTossReleaseAnimEvent_ability_heal( entity weapon, WeaponPri
 void function OnProjectileCollision_ability_heal( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	// modded stim checks!
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if ( HasStimModifier( mods ) )
 		return OnProjectileCollision_ability_modded_stim( projectile, pos, normal, hitEnt, hitbox, isCritical )
 	//

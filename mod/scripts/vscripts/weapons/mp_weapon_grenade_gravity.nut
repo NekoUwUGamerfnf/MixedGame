@@ -57,7 +57,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_greanade_gravity( entity weapon
 
 void function OnProjectileCollision_weapon_grenade_gravity( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
 	if ( mods.contains( "gravity_lift" ) )
 		return OnProjectileCollision_ability_gravity_lift( projectile, pos, normal, hitEnt, hitbox, isCritical )
@@ -103,7 +103,7 @@ void function SetGravityGrenadeTriggerFilters( entity gravityMine, entity trig )
 	trig.kv.triggerFilterNonCharacter = "0"
 
 	// modifiers
-	array<string> mods = gravityMine.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( gravityMine ) // modded weapon refire behavior
 	// friendlyFire condition
 	if ( mods.contains( "friendlyfire_weapon" ) || FriendlyFire_IsEnabled() )
 	{
@@ -149,7 +149,7 @@ void function GravityGrenadeThink( entity projectile, entity hitEnt, vector norm
 	WaitFrame()
 
 	// modifiers
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( mods.contains( "friendlyfire_weapon" ) || FriendlyFire_IsEnabled() )
 		SetTeam( projectile, TEAM_UNASSIGNED ) // pull all players
 
@@ -312,7 +312,6 @@ void function Proto_SetEnemyVelocity_Pull( entity enemy, vector projOrigin )
 
 array<entity> function GetNearbyEnemiesForGravGrenade( entity projectile )
 {
-	array<string> mods = projectile.ProjectileGetMods()
 	int team = projectile.GetTeam()
 	entity owner = projectile.GetOwner()
 	vector origin = projectile.GetOrigin()

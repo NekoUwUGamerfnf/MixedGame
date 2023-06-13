@@ -224,7 +224,7 @@ void function LStar_DamagedTarget( entity victim, var damageInfo )
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	if ( IsValid( inflictor ) && inflictor.IsProjectile() )
 	{
-		array<string> mods = inflictor.ProjectileGetMods()
+		array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
 		// lagging bolt damage handle
 		if ( mods.contains( "lagging_lstar" ) )
 		{

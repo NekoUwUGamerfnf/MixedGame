@@ -85,11 +85,70 @@ global const VORTEX_REFIRE_ROCKET				= "rocket"
 global const VORTEX_REFIRE_GRENADE				= "grenade"
 global const VORTEX_REFIRE_GRENADE_LONG_FUSE	= "grenade_long_fuse"
 
+// northstar modified utility
 table<string, bool> VortexIgnoreClassnames = {
 	["mp_titancore_flame_wave"] = true,
 	["mp_ability_grapple"] = true,
 	["mp_ability_shifter"] = true,
 }
+//
+
+// nessie modified utility
+global function Vortex_GetRefiredProjectileMods
+
+global function Vortex_AddImpactDataOverride_WeaponName
+global function Vortex_AddImpactDataOverride_WeaponMod
+
+global function Vortex_HasImpactDataOverride_WeaponName
+global function Vortex_GetImpactDataOverride_WeaponName
+global function Vortex_HasImpactDataOverride_WeaponMod
+global function Vortex_GetImpactDataOverride_WeaponMod
+global function Vortex_WeaponOrProjectileHasImpactDataOverride
+global function Vortex_GetImpactDataOverrideFromWeaponOrProjectile
+
+// modified callbacks
+/* // wip
+global function AddCallback_OnVortexHitProjectile_DamageSourceID
+global function AddCallback_OnVortexHitProjectile_WeaponName
+global function AddCallback_OnVortexHitProjectile_WeaponMod
+
+global function AddCallback_OnVortexHitBullet
+global function AddDamageCallbackSourceID_VortexDrainHealth
+global function AddEntityCallback_OnVortexHitBullet // entity callback
+*/
+
+struct WeaponMod
+{
+	string weaponName
+	string modName
+}
+
+struct ImpactDataOverride
+{
+	asset absorb_effect
+	asset absorb_effect_third_person
+	string refire_behavior
+}
+
+//typedef ProjectileCollisionCallbackFunc = void functionref( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+struct
+{
+	// utility
+	table< entity, array<string> > vortexRefiredProjectileMods
+	table< string, ImpactDataOverride > vortexImpactDataOverride_WeaponName
+	table< WeaponMod, ImpactDataOverride > vortexImpactDataOverride_WeaponMod
+
+	// callbacks
+	/* // wip
+	//table<int, ProjectileCollisionCallbackFunc> vortexHitProjectileCallbacks_DamageSourceID
+	//table<int, ProjectileCollisionCallbackFunc> vortexHitProjectileCallbacks_WeaponName
+	//table<int, ProjectileCollisionCallbackFunc> vortexHitProjectileCallbacks_WeaponMod
+	table< int, void functionref( entity, vector, vector, entity, int, bool ) > vortexHitProjectileCallbacks_DamageSourceID
+	table< string, void functionref( entity, vector, vector, entity, int, bool ) > vortexHitProjectileCallbacks_WeaponName
+	table< WeaponMod, void functionref( entity, vector, vector, entity, int, bool ) > vortexHitProjectileCallbacks_WeaponMod
+	*/
+} file
+//
 
 // northstar modified utility
 void function RegisterNewVortexIgnoreClassnames(table<string, bool> classTable)
@@ -104,6 +163,168 @@ void function RegisterNewVortexIgnoreClassname(string classname, bool shouldigno
 	VortexIgnoreClassnames[classname] <- shouldignore
 }
 //
+
+// nessie modified utility
+array<string> function Vortex_GetRefiredProjectileMods( entity projectile )
+{
+	if ( !( projectile in file.vortexRefiredProjectileMods ) )
+		return projectile.ProjectileGetMods()
+
+	return file.vortexRefiredProjectileMods[ projectile ]
+}
+
+void function Vortex_AddImpactDataOverride_WeaponName( string weaponName, asset absorbFX, asset absorbFX_3p, string refireBehavior )
+{
+	// construct
+	ImpactDataOverride dataStruct
+	dataStruct.absorb_effect = absorbFX
+	dataStruct.absorb_effect_third_person = absorbFX_3p
+	dataStruct.refire_behavior = refireBehavior
+
+	if ( !( weaponName in file.vortexImpactDataOverride_WeaponName ) )
+		file.vortexImpactDataOverride_WeaponName[ weaponName ] <- dataStruct
+	else
+		file.vortexImpactDataOverride_WeaponName[ weaponName ] = dataStruct
+}
+
+void function Vortex_AddImpactDataOverride_WeaponMod( string weaponName, string weaponMod, asset absorbFX, asset absorbFX_3p, string refireBehavior )
+{
+	ImpactDataOverride dataStruct
+	dataStruct.absorb_effect = absorbFX
+	dataStruct.absorb_effect_third_person = absorbFX_3p
+	dataStruct.refire_behavior = refireBehavior
+
+	bool modReigstered = false
+	foreach ( modStruct, impactDataOverride in file.vortexImpactDataOverride_WeaponMod )
+	{
+		if ( modStruct.weaponName == weaponName )
+		{
+			if ( modStruct.modName == weaponMod ) // mod existing!
+			{
+				file.vortexImpactDataOverride_WeaponMod[ modStruct ] = dataStruct
+				return
+			}
+		}
+	}
+
+	// new registered mod
+	WeaponMod weaponStruct
+	weaponStruct.weaponName = weaponName
+	weaponStruct.modName = weaponMod
+	file.vortexImpactDataOverride_WeaponMod[ weaponStruct ] <- dataStruct
+}
+
+table function BuildImpactDataFromOverride( ImpactDataOverride overrideStruct )
+{
+	table impactData = {
+		absorbFX = overrideStruct.absorb_effect,
+		absorbFX_3p = overrideStruct.absorb_effect_third_person,
+		refireBehavior = overrideStruct.refire_behavior,
+	}
+
+	return impactData
+}
+
+bool function Vortex_HasImpactDataOverride_WeaponName( string weaponName )
+{
+	return weaponName in file.vortexImpactDataOverride_WeaponName
+}
+
+table function Vortex_GetImpactDataOverride_WeaponName( string weaponName )
+{
+	if ( !Vortex_HasImpactDataOverride_WeaponName( weaponName ) )
+		return {}
+
+	return BuildImpactDataFromOverride( file.vortexImpactDataOverride_WeaponName[ weaponName ] )
+}
+
+bool function Vortex_HasImpactDataOverride_WeaponMod( string weaponName, string weaponMod )
+{
+	foreach ( modStruct, impactDataOverride in file.vortexImpactDataOverride_WeaponMod )
+	{
+		if ( modStruct.weaponName == weaponName )
+		{
+			if ( modStruct.modName == weaponMod )
+				return true
+		}
+	}
+
+	return false
+}
+
+table function Vortex_GetImpactDataOverride_WeaponMod( string weaponName, string weaponMod )
+{
+	foreach ( modStruct, impactDataOverride in file.vortexImpactDataOverride_WeaponMod )
+	{
+		if ( modStruct.weaponName == weaponName )
+		{
+			if ( modStruct.modName == weaponMod )
+				return BuildImpactDataFromOverride( impactDataOverride )
+		}
+	}
+
+	// default return value
+	return {}
+}
+
+bool function Vortex_WeaponOrProjectileHasImpactDataOverride( entity weaponOrProjectile )
+{
+	string weaponName
+	array<string> weaponMods
+
+	if ( weaponOrProjectile.IsProjectile() )
+	{
+		weaponName = weaponOrProjectile.ProjectileGetWeaponClassName()
+		weaponMods = Vortex_GetRefiredProjectileMods( weaponOrProjectile )
+	}
+	else
+	{
+		weaponName = weaponOrProjectile.GetWeaponClassName()
+		weaponMods = weaponOrProjectile.GetMods()
+	}
+
+	foreach ( string mod in weaponMods )
+	{
+		//print( "weapon has mod " + mod + " registered: " + string( Vortex_HasImpactDataOverride_WeaponMod( weaponName, mod ) ) )
+		if ( Vortex_HasImpactDataOverride_WeaponMod( weaponName, mod ) )
+			return true
+	}
+
+	return false
+}
+
+table function Vortex_GetImpactDataOverrideFromWeaponOrProjectile( entity weaponOrProjectile )
+{
+	string weaponName
+	array<string> weaponMods
+
+	if ( weaponOrProjectile.IsProjectile() )
+	{
+		weaponName = weaponOrProjectile.ProjectileGetWeaponClassName()
+		weaponMods = Vortex_GetRefiredProjectileMods( weaponOrProjectile )
+	}
+	else
+	{
+		weaponName = weaponOrProjectile.GetWeaponClassName()
+		weaponMods = weaponOrProjectile.GetMods()
+	}
+
+	bool hasWeaponOverride = weaponName in file.vortexImpactDataOverride_WeaponName
+	// get from mod override
+	foreach ( string mod in weaponMods )
+	{
+		if ( Vortex_HasImpactDataOverride_WeaponMod( weaponName, mod ) )
+			return Vortex_GetImpactDataOverride_WeaponMod( weaponName, mod )
+	}
+	// no mod override! try find weapon
+	if ( hasWeaponOverride )
+		return Vortex_GetImpactDataOverride_WeaponName( weaponName )
+
+	// default value
+	return {}
+}
+
+// modified callbacks
 
 table vortexImpactWeaponInfo
 
@@ -591,7 +812,10 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 			EmitSoundAtPosition( TEAM_UNASSIGNED, origin, impact_sound_3p )
 	}
 
-	local impactData = Vortex_CreateImpactEventData( vortexWeapon, attacker, origin, damageSourceID, weaponName, impactType )
+	// modified to add callbacks
+	//local impactData = Vortex_CreateImpactEventData( vortexWeapon, attacker, origin, damageSourceID, weaponName, impactType )
+	entity weaponOrProjectile = impactType == "hitscan" ? weapon : projectile
+	local impactData = Vortex_CreateImpactEventData( vortexWeapon, attacker, origin, damageSourceID, weaponName, impactType, weaponOrProjectile )
 
 	VortexDrainedByImpact( vortexWeapon, weapon, projectile, damageType )
 	Vortex_NotifyAttackerDidDamage( expect entity( impactData.attacker ), owner, impactData.origin )
@@ -743,7 +967,8 @@ function Vortex_RemoveOldestAbsorbedProjectile( entity vortexWeapon )
 }
 
 // nessie: should add some mod callbacks to change certain mod weapon's vortex behavior...
-function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vector origin, int damageSourceID, string weaponName, string impactType )
+//function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vector origin, int damageSourceID, string weaponName, string impactType )
+function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vector origin, int damageSourceID, string weaponName, string impactType, entity weaponOrProjectile = null )
 {
 	entity player = vortexWeapon.GetWeaponOwner()
 	local impactData = {}
@@ -817,6 +1042,40 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 	if ( impactData.explosion_damage == null )
 		impactData.explosion_damage		= vortexImpactWeaponInfo[ impactData.weaponName ].explosion_damage
 	impactData.impact_effect_table	= vortexImpactWeaponInfo[ impactData.weaponName ].impact_effect_table
+
+	// modified
+	if ( IsValid( weaponOrProjectile ) )
+	{
+		// behavior override
+		//print( "Vortex_WeaponOrProjectileHasImpactDataOverride(): " + string( Vortex_WeaponOrProjectileHasImpactDataOverride( weaponOrProjectile ) ) )
+		if ( Vortex_WeaponOrProjectileHasImpactDataOverride( weaponOrProjectile ) )
+		{
+			table overrideImpactData = Vortex_GetImpactDataOverrideFromWeaponOrProjectile( weaponOrProjectile )
+			if ( overrideImpactData != {} )
+			{
+				impactData.absorbFX = overrideImpactData.absorbFX
+				impactData.absorbFX_3p = overrideImpactData.absorbFX_3p
+				impactData.refireBehavior = overrideImpactData.refireBehavior
+			}
+		}
+
+		// saving model, particle, and reset impact effect
+		impactData.projectileModel <- weaponOrProjectile.GetModelName()
+		impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+		// convert asset to string
+		asset impactEffect = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.impact_effect_table )
+		string tempString = string( impactEffect )
+		string impactFXName = tempString.slice( 2, tempString.len() - 1 )
+		impactData.impact_effect_table = impactFXName
+
+		// saving mods
+		array<string> mods = weaponOrProjectile.IsProjectile() ? Vortex_GetRefiredProjectileMods( weaponOrProjectile ) : weaponOrProjectile.GetMods()
+		// build an var array
+		array untypedArray
+		foreach ( string mod in mods )
+			untypedArray.append( mod )
+		impactData.refiredProjectileMods <- untypedArray
+	}
 
 	return impactData
 }
@@ -1284,10 +1543,33 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData )
 	Vortex_SetImpactEffectTable_OnProjectile( projectile, impactData )  // set the correct impact effect table
 
 	projectile.SetVortexRefired( true ) // This tells code the projectile was refired from the vortex so that it uses "projectile_vortex_vscript"
-	projectile.SetModel( GetWeaponInfoFileKeyFieldAsset_Global( impactData.weaponName, "projectilemodel" ) )
+	
+	// modified: model from modified impactData
+	if ( "projectileModel" in impactData )
+		projectile.SetModel( expect asset( impactData.projectileModel ) )
+	else // default
+		projectile.SetModel( GetWeaponInfoFileKeyFieldAsset_Global( impactData.weaponName, "projectilemodel" ) )
+
 	projectile.SetWeaponClassName( impactData.weaponName )  // causes the projectile to use its normal trail FX
 
+	// modified: fix for trails
+	if ( "projectileTrail" in impactData )
+	{
+		asset trailEffect = expect asset( impactData.projectileTrail )
+		if ( trailEffect != $"" )
+			StartParticleEffectOnEntity( projectile, GetParticleSystemIndex( trailEffect ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	}
+
 	projectile.ProjectileSetDamageSourceID( impactData.damageSourceID ) // obit will show the owner weapon
+
+	// modified: get refired mods from here
+	if ( "refiredProjectileMods" in impactData )
+	{
+		array<string> typedArray
+		foreach ( mod in impactData.refiredProjectileMods )
+			typedArray.append( expect string( mod ) )
+		file.vortexRefiredProjectileMods[ projectile ] <- typedArray
+	}
 }
 
 // gives a refired projectile the correct impact effect table
@@ -1835,6 +2117,7 @@ bool function CodeCallback_OnVortexHitProjectile( entity weapon, entity vortexSp
 
 		EmitSoundAtPosition( teamNum, contactPos, impact_sound_3p )
 
+		// respawn you sure these things should hardcode?
 		int damageSourceID = projectile.ProjectileGetDamageSourceID()
 		switch ( damageSourceID )
 		{

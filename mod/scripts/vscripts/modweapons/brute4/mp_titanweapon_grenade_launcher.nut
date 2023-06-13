@@ -94,7 +94,7 @@ void function OnProjectileCollision_titanweapon_grenade_launcher( entity project
 	projectile.proj.projectileBounceCount++
 
 	EmitSoundOnEntity( projectile, "weapon_softball_grenade_attached_3P" )
-	if ( projectile.ProjectileGetMods().contains( "magnetic_rollers" ) )
+	if ( Vortex_GetRefiredProjectileMods( projectile ).contains( "magnetic_rollers" ) ) // modded weapon refire behavior
 		projectile.InitMagnetic( 1000.0, "Explo_MGL_MagneticAttract" )
 
 	thread DetonateAfterTime( projectile, FUSE_TIME )

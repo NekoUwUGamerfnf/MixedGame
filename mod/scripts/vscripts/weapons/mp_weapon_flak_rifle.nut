@@ -59,7 +59,7 @@ var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrima
 // modified callback
 void function OnProjectileExplode_weapon_flak_rifle( entity projectile )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = projectile.ProjectileGetMods() // this only contains explosions, no need to use Vortex_GetRefiredProjectileMods()
 
 #if SERVER
 	// hardcoded fix...

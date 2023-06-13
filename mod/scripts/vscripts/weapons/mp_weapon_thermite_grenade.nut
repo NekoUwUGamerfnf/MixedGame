@@ -36,7 +36,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade( entity weapon
 void function OnProjectileCollision_weapon_thermite_grenade( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	// modded weapon
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if ( mods.contains( "flamewall_grenade" ) )
 		return OnProjectileCollision_weapon_flamewall_grenade( projectile, pos, normal, hitEnt, hitbox, isCritical )
 	if( mods.contains( "ninja_projectile" ) )
@@ -95,7 +95,7 @@ void function DelayedGrenadeExplode( entity projectile, float delay )
 
 void function OnProjectileIgnite_weapon_thermite_grenade( entity projectile )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if ( mods.contains( "flamewall_grenade" ) )
 		return OnProjectileIgnite_weapon_flamewall_grenade( projectile )
 

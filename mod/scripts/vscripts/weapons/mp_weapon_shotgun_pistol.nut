@@ -163,7 +163,7 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 void function OnProjectileCollision_weapon_shotgun_pistol( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	// modded weapons, vanilla don't have specfic behavior
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
 	if ( mods.contains( "apex_nessie" ) )
 		return OnProjectileCollision_weapon_nessie_pistol( projectile, pos, normal, hitEnt, hitbox, isCritical )
@@ -172,7 +172,7 @@ void function OnProjectileCollision_weapon_shotgun_pistol( entity projectile, ve
 void function OnProjectileIgnite_weapon_shotgun_pistol( entity projectile )
 {
 	// modded weapons, vanilla don't have specfic behavior
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
 	if ( mods.contains( "apex_nessie" ) )
 		return OnProjectileIgnite_weapon_nessie_pistol( projectile )

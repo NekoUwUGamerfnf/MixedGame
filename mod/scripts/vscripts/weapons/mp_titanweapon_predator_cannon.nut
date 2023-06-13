@@ -325,33 +325,32 @@ void function PredatorCannon_DamagedTarget( entity target, var damageInfo )
 // maybe funnier? try to fix damageSourceID for predator cannon. hardcoded!
 void function PredatorCannon_DamageSourceIdModifier( entity target, var damageInfo )
 {
+	// applying smartcore damageSourceID
+	// power shot check
+	bool isCloseRangePowerShot = bool( DamageInfo_GetCustomDamageType( damageInfo ) & DF_KNOCK_BACK ) // close range power shot...
+	bool isLongRangePowerShot = false
+
+	// damaged by projectile!
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if ( IsValid( inflictor ) )
+	{
+		if ( inflictor.IsProjectile() )
+		{
+			if ( inflictor.ProjectileGetMods().contains( "LongRangePowerShot" ) ) // vanilla don't have this! no need to change to Vortex_GetRefiredProjectileMods()
+				return // don't try to apply
+		}
+	}
+
 	entity attackerWeapon
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( IsValid( attacker ) )
-	{
-		foreach ( entity weapon in attacker.GetMainWeapons() )
-		{
-			if ( weapon.GetWeaponClassName() == "mp_titanweapon_predator_cannon" )
-				attackerWeapon = weapon
-		}
-	}
+		attackerWeapon = attacker.GetActiveWeapon() // predator cannon is hitscan, check active weapon is enough
+
 	if ( IsValid( attackerWeapon ) )
 	{
 		if ( attackerWeapon.HasMod( "Smart_Core" ) )
 		{
-			bool isCloseRangePowerShot = bool( DamageInfo_GetCustomDamageType( damageInfo ) & DF_KNOCK_BACK ) // close range power shot...
-			bool isLongRangePowerShot = false
-			entity inflictor = DamageInfo_GetInflictor( damageInfo )
-			if ( IsValid( inflictor ) )
-			{
-				if ( inflictor.IsProjectile() )
-				{
-					if ( inflictor.ProjectileGetMods().contains( "LongRangePowerShot" ) )
-						isLongRangePowerShot = true
-				}
-			}
-			
-			if ( ( !isLongRangePowerShot && !isLongRangePowerShot ) )
+			if ( ( !isLongRangePowerShot && !isCloseRangePowerShot ) )
 				DamageInfo_SetDamageSourceIdentifier( damageInfo, eDamageSourceId.mp_titancore_siege_mode )
 		}
 	}

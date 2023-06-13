@@ -155,10 +155,11 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 
 void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	array<string> mods = projectile.ProjectileGetMods()
-	if( mods.contains( "tediore_effect" ) )
+	array<string> mods = projectile.ProjectileGetMods() // this only contains explosion stuff, no need to use Vortex_GetRefiredProjectileMods()
+	array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
+	if( refiredMods.contains( "tediore_effect" ) )
 		return OnProjectileCollision_Tediore( projectile, pos, normal, hitEnt, hitbox, isCritical )
-		
+
 #if SERVER
 	if( mods.contains( "explosive_sniper" ) )
 	{

@@ -170,7 +170,6 @@ void function BeginScorchedEarth( entity projectile, int projectileCount, entity
 
 bool function CreateFlameWaveSegment( entity projectile, int projectileCount, entity inflictor, entity movingGeo, vector pos, vector angles, int waveCount )
 {
-	array<string> mods = projectile.ProjectileGetMods()
 	projectile.SetOrigin( pos + < 0, 0, 100 > )
 	projectile.SetAngles( angles )
 

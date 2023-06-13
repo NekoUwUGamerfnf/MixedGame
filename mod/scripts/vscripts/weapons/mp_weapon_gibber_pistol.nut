@@ -86,7 +86,7 @@ void function DelayedStartParticleSystem( entity nade )
 
 void function OnProjectileCollision_weapon_gibber_pistol( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( mods.contains( "gibber_pistol" ) )
 	{
 		bool didStick = PlantSuperStickyGrenade( projectile, pos, normal, hitEnt, hitbox )

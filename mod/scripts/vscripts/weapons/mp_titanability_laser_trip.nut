@@ -211,7 +211,7 @@ function DeployLaserPylon( entity projectile )
 	}
 
 	// fakebt_balance, modified to change damage
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	bool isBTVersion = mods.contains( "fakebt_balance" )
 	int health = int ( LASER_TRIP_HEALTH )
 	table damageTable = {}

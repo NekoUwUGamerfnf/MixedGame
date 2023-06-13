@@ -64,7 +64,7 @@ var function OnWeaponPrimaryAttack_titanweapon_flightcore_rockets( entity weapon
 
 void function OnProjectileCollision_titanweapon_flightcore_rockets( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( mods.contains( "barrage_core_launcher" ) )
 		OnProjectileCollision_titanweapon_barrage_core_launcher( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }

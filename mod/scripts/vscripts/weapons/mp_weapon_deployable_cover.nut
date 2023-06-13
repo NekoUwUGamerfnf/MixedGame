@@ -149,7 +149,7 @@ void function OnDeployableCoverPlanted( entity projectile )
 
 		projectile.SetAngles( surfaceAngles )
 		
-		array<string> projectileMods = projectile.ProjectileGetMods()
+		array<string> projectileMods = projectile.ProjectileGetMods() // vanilla behavior, Vortex_GetRefiredProjectileMods()
 		bool isAmpedWall = !( projectileMods.contains( "burn_card_weapon_mod" ) || projectileMods.contains( "hard_cover_always" ) ) //Unusual, but deliberate: the boost version of the weapon does not have amped functionality
 		entity player = projectile.GetOwner()
 		
@@ -271,19 +271,8 @@ void function DeployAmpedWall( entity grenade, vector origin, vector angles )
 			StopSoundOnEntity( grenade, "Hardcover_Shield_Start_3P" )
 			EmitSoundOnEntity( grenade, "Hardcover_Shield_End_3P" )
 
-			// fix for kraber throwing
-			//if ( IsValid( grenade ) )
-			//	grenade.GrenadeExplode( Vector( 0, 0, 0 ) )
 			if ( IsValid( grenade ) )
-			{
-				if ( grenade.ProjectileGetMods().contains( "tediore_deployable_cover" ) )
-				{
-					PlayImpactFXTable( grenade.GetOrigin(), grenade, "exp_deployable_cover" )
-					grenade.Destroy()
-				}
-				else
-					grenade.GrenadeExplode( Vector( 0, 0, 0 ) )
-			}
+				grenade.GrenadeExplode( Vector( 0, 0, 0 ) )
 
 			if ( IsValid( ampedWall ) )
 				ampedWall.Destroy()
