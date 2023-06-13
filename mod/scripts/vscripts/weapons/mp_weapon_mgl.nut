@@ -93,7 +93,7 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 {
 	if ( !IsValid( hitEnt ) )
 		return
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
 	if( mods.contains( "magnetic_rollers" ) )
 	{

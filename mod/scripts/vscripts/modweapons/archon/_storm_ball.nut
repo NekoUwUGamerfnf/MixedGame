@@ -439,8 +439,8 @@ void function StormCore_DamagedTarget( entity target, var damageInfo )
 		return
 	if ( !inflictor.IsProjectile() )
 		return
-	
-	array<string> mods = inflictor.ProjectileGetMods()
+
+	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
 	if ( !mods.contains( "storm_core" ) ) // not storm core!
 		return
 	

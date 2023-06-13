@@ -185,7 +185,7 @@ void function OnDamagedTarget_Proximity_Mine( entity ent, var damageInfo )
 	if( !inflictor.IsProjectile() )
 		return
 
-	array<string> mods = inflictor.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
 
 	if( mods.contains( "proximity_mine" ) )
 	{
@@ -209,11 +209,11 @@ void function ProxMine_Triggered_SatchelMod( entity ent, var damageInfo )
 	if ( attacker == ent )
 		return
 
-	local inflictor = DamageInfo_GetInflictor( damageInfo )
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	if( !IsValid( inflictor ) )
 		return
 
-	local mods = inflictor.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
 
 	if( mods.contains( "proximity_mine" ) )
 	{

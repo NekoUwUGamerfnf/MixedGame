@@ -537,7 +537,7 @@ void function AddToProximityTargets( entity ent )
 function ProximityMineThink( entity proximityMine, entity owner, float explosionDelay = PROXIMITY_MINE_EXPLOSION_DELAY )
 {
 	proximityMine.EndSignal( "OnDestroy" )
-	array<string> mods = proximityMine.ProjectileGetMods()
+	array<string> mods = proximityMine.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
 
 	OnThreadEnd(
 		function() : ( proximityMine )
@@ -612,7 +612,7 @@ function ProximityMineThink( entity proximityMine, entity owner, float explosion
 function ProximityMine_Explode( proximityMine, float explosionDelay )
 {
 	expect entity( proximityMine )
-	array<string> mods = proximityMine.ProjectileGetMods()
+	array<string> mods = proximityMine.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
 	if( mods.contains( "anti_titan_mine" ) )
 		explosionDelay = ANTI_TITAN_MINE_EXPLOSION_DELAY
 	local explodeTime = Time() + explosionDelay

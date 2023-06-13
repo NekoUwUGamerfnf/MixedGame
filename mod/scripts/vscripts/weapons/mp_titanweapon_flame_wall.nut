@@ -140,7 +140,7 @@ bool function CreateThermiteWallSegment( entity projectile, int projectileCount,
 
 	if ( projectile.proj.savedOrigin != < -999999.0, -999999.0, -999999.0 > )
 	{
-		array<string> mods = projectile.ProjectileGetMods()
+		array<string> mods = projectile.ProjectileGetMods() // behavior is "absorb", no need to change to Vortex_GetRefiredProjectileMods()
 		float duration
 		int damageSource
 		if ( mods.contains( "pas_scorch_flamecore" ) )

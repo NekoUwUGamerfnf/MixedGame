@@ -84,7 +84,7 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 
 void function OnProjectileCollision_weapon_softball( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	// modded softball weapon
 	if ( ModdedSoftball_ProjectileHasMod( projectile ) )
 		return OnProjectileCollision_weapon_modded_softball( projectile, pos, normal, hitEnt, hitbox, isCritical )

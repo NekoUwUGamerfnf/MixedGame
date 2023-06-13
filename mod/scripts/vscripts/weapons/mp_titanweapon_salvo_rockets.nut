@@ -55,7 +55,7 @@ var function OnWeaponPrimaryAttack_titanweapon_salvo_rockets( entity weapon, Wea
 
 void function OnProjectileCollision_titanweapon_salvo_rockets( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( mods.contains( "grenade_launcher" ) )
 		return OnProjectileCollision_titanweapon_grenade_launcher( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }

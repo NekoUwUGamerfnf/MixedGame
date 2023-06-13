@@ -87,7 +87,7 @@ var function OnWeaponNpcPrimaryAttack_weapon_arc_launcher( entity weapon, Weapon
 
 void function OnProjectileCollision_weapon_arc_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
 	if ( mods.contains( "smoke_launcher" ) )
 		return OnProjectileCollision_weapon_smoke_launcher( projectile, pos, normal, hitEnt, hitbox, isCritical )
@@ -95,7 +95,7 @@ void function OnProjectileCollision_weapon_arc_launcher( entity projectile, vect
 
 void function OnProjectileIgnite_weapon_arc_launcher( entity projectile )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
 	if ( mods.contains( "smoke_launcher" ) )
 		return OnProjectileIgnite_weapon_smoke_launcher( projectile )

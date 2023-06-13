@@ -120,12 +120,14 @@ void function OnProjectileCollision_weapon_tether( entity projectile, vector pos
 	}
 
 	#if SERVER
-		array<string> projectileMods = projectile.ProjectileGetMods()
+		array<string> projectileMods = projectile.ProjectileGetMods() // vanilla behavior, no need to use Vortex_GetRefiredProjectileMods()
+		array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 		bool isExplosiveTether = false
 		bool canTetherPilot = false
 		if ( projectileMods.contains( "fd_explosive_trap" ) )
 			isExplosiveTether = true
-		if ( projectileMods.contains( "pilot_tether" ) )
+		// modded weapon!!
+		if ( refiredMods.contains( "pilot_tether" ) )
 			canTetherPilot = true
 
 		if ( hitEnt.IsTitan() || canTetherPilot && IsAlive( hitEnt ) && !proxMineOnly )
@@ -260,7 +262,7 @@ void function ProximityTetherThink( entity projectile, entity owner, bool isExpl
 
 	wait 1.0 // slight delay before activation
 
-	bool canTetherPilot = projectile.ProjectileGetMods().contains( "pilot_tether" )
+	bool canTetherPilot = Vortex_GetRefiredProjectileMods( projectile ).contains( "pilot_tether" ) // modded refire behavior
 
 	float startTime = Time()
 	float TETHER_MINE_LIFETIME

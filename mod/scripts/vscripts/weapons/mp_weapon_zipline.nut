@@ -381,7 +381,7 @@ void function OnProjectileCollision_weapon_zipline( entity projectile, vector po
 
 				EmitSoundOnEntityOnlyToPlayer( owner, owner, "Explo_TripleThreat_MagneticAttract")
 
-				if( projectile.ProjectileGetMods().contains( "tripwire_launcher" ) )
+				if( Vortex_GetRefiredProjectileMods( projectile ).contains( "tripwire_launcher" ) ) // modded refire behavior
 				{
 					foreach( entity attatch in ziplineEnts )
 					{

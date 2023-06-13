@@ -32,7 +32,7 @@ void function MpWeaponGreandeElectricSmoke_Init()
 void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	#if SERVER
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( mods.contains( "creeping_bombardment" ) )
 	{
 		if( projectile.GetClassName() == "rpg_missile" )
@@ -193,7 +193,7 @@ void function FlashBang_DamagedTarget( entity ent, var damageInfo )
 	if( !inflictor.IsProjectile() )
 		return
 
-	array<string> mods = inflictor.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
 
 	if( mods.contains( "flashbang" ) )
 	{

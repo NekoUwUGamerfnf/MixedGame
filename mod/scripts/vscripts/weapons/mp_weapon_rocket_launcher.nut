@@ -226,7 +226,7 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 #if SERVER
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = projectile.ProjectileGetMods() // only contains explosion stuffs, no need to use Vortex_GetRefiredProjectileMods())
 	if( mods.contains( "no_lock_required" ) || mods.contains( "guided_missile" ) )
 	{
 		// do a fake explosion effect for better client visual, hardcoded!..

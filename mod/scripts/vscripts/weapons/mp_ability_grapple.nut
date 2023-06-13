@@ -248,7 +248,7 @@ void function TryGrappleImpactExplosion( entity player, entity hitent, vector hi
 // modified
 void function OnProjectileCollision_ability_grapple( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if ( mods.contains( "zipline_gun" ) )
 		return OnProjectileCollision_ability_zipline_gun( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }

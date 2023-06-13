@@ -26,7 +26,7 @@ void function OnDamagedTarget_GrenadeEMP( entity ent, var damageInfo )
 	if( !inflictor.IsProjectile() )
 		return
 
-	array<string> mods = inflictor.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
 	// emp grenade modifier
 	if( mods.contains( "impulse_grenade" ) )
 	{

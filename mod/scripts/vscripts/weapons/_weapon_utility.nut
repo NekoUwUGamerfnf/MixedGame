@@ -1347,7 +1347,7 @@ function AddPlayerScoreForTrapDestruction( entity player, entity trapEnt )
 		return
 	
 	string trapClass = trapEnt.ProjectileGetWeaponClassName()
-	// nessie adding additional checks
+	// nessie adding additional checks, hardcoded!!!
 	array<string> trapMods = trapEnt.ProjectileGetMods()
 
 	if ( trapClass == "" )
@@ -1609,7 +1609,7 @@ function ClusterRocket_Detonate( entity rocket, vector normal )
 	float duration
 	float range
 
-	array mods = rocket.ProjectileGetMods()
+	array mods = rocket.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
 	if ( mods.contains( "pas_northstar_cluster" ) )
 	{
 		count = CLUSTER_ROCKET_BURST_COUNT_BURN
@@ -3651,7 +3651,7 @@ array<string> function GetWeaponModsFromDamageInfo( var damageInfo )
 			return temp
 		}
 		else if( inflictor.IsProjectile() )
-			return inflictor.ProjectileGetMods()
+			return inflictor.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
 		else if ( damageType & DF_EXPLOSION && inflictor.IsPlayer() && IsValid( inflictor.GetActiveWeapon() ) )
 			return inflictor.GetActiveWeapon().GetMods()
 		//Hack - Splash damage doesn't pass mod weapon through. This only works under the assumption that offhand weapons don't have mods.

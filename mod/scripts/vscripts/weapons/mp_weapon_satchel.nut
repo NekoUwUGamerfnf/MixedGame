@@ -126,7 +126,7 @@ vector function GetSatchelThrowVelocity( entity player, vector baseAngles )
 void function OnProjectileCollision_weapon_satchel( entity weapon, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	// modded weapons
-	array<string> mods = weapon.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( weapon ) // modded weapon refire behavior
 	if( mods.contains( "proximity_mine" ) || mods.contains( "anti_titan_mine" ) )
 		return OnProjectileCollision_weapon_proximity_mine( weapon, pos, normal, hitEnt, hitbox, isCritical )
 	//

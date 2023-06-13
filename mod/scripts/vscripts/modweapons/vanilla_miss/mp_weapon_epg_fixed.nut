@@ -13,7 +13,7 @@ void function OnProjectileCollision_weapon_epg( entity projectile, vector pos, v
     // modded weapon
     OnProjectileCollision_Tediore( projectile, pos, normal, hitEnt, hitbox, isCritical ) // always call this, for tediore_reload to work
 
-    array<string> mods = projectile.ProjectileGetMods()
+    array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
     if ( mods.contains( "direct_hit" ) )
         OnProjectileCollision_DirectHit( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }

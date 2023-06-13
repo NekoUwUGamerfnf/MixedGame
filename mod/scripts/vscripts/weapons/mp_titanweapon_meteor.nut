@@ -449,7 +449,7 @@ entity function CreateThermiteTrailOnMovingGeo( entity movingGeo, vector origin,
 void function OnProjectileCollision_Meteor( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	// modded weapon
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if ( mods.contains( "storm_launcher" ) )
 		return OnProjectileCollision_StormLauncher( projectile, pos, normal, hitEnt, hitbox, isCritical )
 

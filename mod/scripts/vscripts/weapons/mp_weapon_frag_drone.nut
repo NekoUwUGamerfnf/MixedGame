@@ -101,7 +101,7 @@ void function OnProjectileExplode_weapon_frag_drone( entity projectile )
 			if ( !IsValid( owner ) )
 				return
 
-		array<string> mods = projectile.ProjectileGetMods()
+		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
 		if( mods.contains( "prowler_spawner" ) )
 			return DeployableToProwler( projectile )

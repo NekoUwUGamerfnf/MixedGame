@@ -72,7 +72,7 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 
 	bool isCritical = IsCriticalHit( DamageInfo_GetAttacker( damageInfo ), victim, DamageInfo_GetHitBox( damageInfo ), damage, DamageInfo_GetDamageType( damageInfo ) )
 
-	array<string> projectileMods = inflictor.ProjectileGetMods() // moving here!
+	array<string> projectileMods = inflictor.ProjectileGetMods() // moving here! contains vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
 	if ( isCritical )
 	{
 		//array<string> projectileMods = inflictor.ProjectileGetMods()

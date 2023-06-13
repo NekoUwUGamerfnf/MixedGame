@@ -105,7 +105,7 @@ int function LSTARPrimaryAttack( entity weapon, WeaponPrimaryAttackParams attack
 #endif // #if CLIENT
 
 	// lagging bolt!
-	if( weapon.HasMod( "lagging_lstar" ) )
+	if ( weapon.HasMod( "lagging_lstar" ) )
 		return FireLaggingBoltLstar( weapon, attackParams, isPlayerFired )
 
 	// vanilla behavior
@@ -224,16 +224,25 @@ void function LStar_DamagedTarget( entity victim, var damageInfo )
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	if ( IsValid( inflictor ) && inflictor.IsProjectile() )
 	{
-		array<string> mods = inflictor.ProjectileGetMods()
+		array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
+		// lagging bolt damage handle
 		if ( mods.contains( "lagging_lstar" ) )
 		{
 			bool selfDamage = victim == inflictor.GetBossPlayer() // boss player assigned in LaggingBoltThink()
 			bool sameTeam = victim.GetTeam() == inflictor.GetTeam()
 			bool hasFriendlyFire = FriendlyFire_IsEnabled() || mods.contains( "friendlyfire_weapon" )
-			if ( !selfDamage && sameTeam && !hasFriendlyFire )
+			if ( !selfDamage ) // self damage
 			{
-				//print( "damaged teammate! resetting damage to 0" )
-				DamageInfo_SetDamage( damageInfo, 0 )
+				if ( mods.contains( "self_damage_only" ) )
+				{
+					//print( "damage is not selfdamage! resetting damage to 0" )
+					DamageInfo_SetDamage( damageInfo, 0 )
+				}
+				if ( sameTeam && !hasFriendlyFire ) // prevent friendly fire caused by lagging_lstar
+				{
+					//print( "damaged teammate! resetting damage to 0" )
+					DamageInfo_SetDamage( damageInfo, 0 )
+				}
 			}
 		}
 	}
