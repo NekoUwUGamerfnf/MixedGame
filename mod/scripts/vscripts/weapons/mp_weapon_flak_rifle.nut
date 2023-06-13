@@ -21,7 +21,7 @@ var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrima
 		vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() - 1.0 )
 		attackParams.dir = bulletVec
 
-		vector projectileSpeed = weapon.HasMod( "flak_cannon" ) ? PROJECILE_SPEED_FLAK_CANNON : PROJECTILE_SPEED_FLAK
+		float projectileSpeed = weapon.HasMod( "flak_cannon" ) ? PROJECILE_SPEED_FLAK_CANNON : PROJECTILE_SPEED_FLAK
 
 		if ( IsServer() || weapon.ShouldPredictProjectiles() )
 		{
@@ -31,7 +31,8 @@ var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrima
 			{
 				SetTeam( missile, weaponOwner.GetTeam() )
 				#if SERVER
-					thread DelayedStartParticleSystem( missile )
+					asset trailEffect = weapon.GetWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+					thread DelayedStartParticleSystem( missile, trailEffect )
 					if ( weapon.HasMod( "flak_cannon" ) )
 						missile.SetModel( $"models/weapons/bullets/mgl_grenade.mdl" )
 					EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )
@@ -53,13 +54,30 @@ var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrima
 	}
 }
 
+// modified callback
+void function OnProjectileExplode_weapon_flak_rifle( entity projectile )
+{
+	array<string> mods = projectile.ProjectileGetMods()
+
+#if SERVER
+	// hardcoded fix...
+	if( mods.contains( "flak_cannon" ) )
+	{
+		float creationTime = projectile.GetProjectileCreationTime()
+		float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
+		if ( Time() < maxFixTime )
+			PlayImpactFXTable( projectile.GetOrigin(), projectile, "exp_softball_grenade", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+	}
+#endif
+}
+
 // trail fix
 #if SERVER
-void function DelayedStartParticleSystem( entity missile )
+void function DelayedStartParticleSystem( entity missile, asset trailEffect = $"Rocket_Smoke_SMR" )
 {
     WaitFrame()
     if( IsValid( missile ) )
-        StartParticleEffectOnEntity( missile, GetParticleSystemIndex( $"Rocket_Smoke_SMR" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+        StartParticleEffectOnEntity( missile, GetParticleSystemIndex( trailEffect ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 }
 #endif
 
