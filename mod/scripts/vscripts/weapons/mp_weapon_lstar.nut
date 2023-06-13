@@ -104,36 +104,13 @@ int function LSTARPrimaryAttack( entity weapon, WeaponPrimaryAttackParams attack
 	}
 #endif // #if CLIENT
 
-	int result
 	// lagging bolt!
 	if( weapon.HasMod( "lagging_lstar" ) )
-	{
-#if CLIENT
-		if ( !weapon.ShouldPredictProjectiles() )
-			return 1
-#endif // #if CLIENT
-		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+		return FireLaggingBoltLstar( weapon, attackParams, isPlayerFired )
 
-		float launchSpeed = weapon.GetWeaponSettingFloat( eWeaponVar.projectile_launch_speed )
-
-		int damageFlags = weapon.GetWeaponDamageFlags()
-		entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, 1, damageFlags, damageFlags, isPlayerFired, 0 )
-		if ( bolt != null )
-		{
-			bolt.kv.gravity = 0.00001
-			bolt.kv.rendercolor = "0 0 0"
-			bolt.kv.renderamt = 0
-			bolt.kv.fadedist = 1
-#if SERVER
-			entity owner = weapon.GetWeaponOwner()
-			if( owner.IsPlayer() )
-				thread LaggingBoltThink( bolt, owner, launchSpeed )
-#endif
-			return 1
-		}
-	}
-	else
-		result = FireGenericBoltWithDrop( weapon, attackParams, isPlayerFired )
+	// vanilla behavior
+	int result
+	result = FireGenericBoltWithDrop( weapon, attackParams, isPlayerFired )
 	return result
 }
 
@@ -213,6 +190,34 @@ void function OnWeaponActivate_weapon_lstar( entity weapon )
 
 
 // lagging bolt
+int function FireLaggingBoltLstar( entity weapon, WeaponPrimaryAttackParams attackParams, bool isPlayerFired )
+{
+#if CLIENT
+	if ( !weapon.ShouldPredictProjectiles() )
+		return 1
+#endif // #if CLIENT
+	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+
+	float launchSpeed = weapon.GetWeaponSettingFloat( eWeaponVar.projectile_launch_speed )
+
+	int damageFlags = weapon.GetWeaponDamageFlags()
+	entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, 1, damageFlags, damageFlags, isPlayerFired, 0 )
+	if ( bolt != null )
+	{
+		bolt.kv.gravity = 0.00001
+		bolt.kv.rendercolor = "0 0 0"
+		bolt.kv.renderamt = 0
+		bolt.kv.fadedist = 1
+#if SERVER
+		entity owner = weapon.GetWeaponOwner()
+		if( owner.IsPlayer() )
+			thread LaggingBoltThink( bolt, owner, launchSpeed )
+#endif
+		return 1
+	}
+
+	return 0
+}
 #if SERVER
 void function LStar_DamagedTarget( entity victim, var damageInfo )
 {
@@ -297,6 +302,7 @@ void function PlayerLaggingBoltLimit( entity player, entity newBolt )
 
 	// player limit
 	//print( "file.playerLaggingBoltTable[ player ].len(): " + string( file.playerLaggingBoltTable[ player ].len() ) )
+	print( "GetPlayerMaxLaggingBolts(): " + string( GetPlayerMaxLaggingBolts() ) )
 	if( file.playerLaggingBoltTable[ player ].len() > GetPlayerMaxLaggingBolts() )
 		PlayerReleaseLaggingBolts( player )
 
@@ -308,8 +314,24 @@ void function PlayerLaggingBoltLimit( entity player, entity newBolt )
 
 int function GetPlayerMaxLaggingBolts()
 {
-	int maxBolts = LAGGING_BOLT_WORLD_MAX / GetPlayerArray().len()
+	int boltWeaponOwnerCount = 0
+	foreach ( entity player in GetPlayerArray() )
+	{
+		bool playerFound = false
+		foreach ( entity weapon in player.GetMainWeapons() )
+		{
+			if ( playerFound )
+				continue
+			if ( weapon.HasMod( "lagging_lstar" ) )
+			{
+				boltWeaponOwnerCount += 1
+				playerFound = true
+				continue
+			}
+		}
+	}
 
+	int maxBolts = boltWeaponOwnerCount == 0 ? LAGGING_BOLT_WORLD_MAX : LAGGING_BOLT_WORLD_MAX / boltWeaponOwnerCount
 	return int( max( maxBolts, LAGGING_BOLT_MAX_PER_PLAYER ) )
 }
 #endif
