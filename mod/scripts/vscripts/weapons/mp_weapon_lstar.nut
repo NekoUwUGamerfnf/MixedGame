@@ -21,8 +21,13 @@ const string LSTAR_WARNING_SOUND_1P = "lstar_lowammowarning"	// should be "LSTAR
 const string LSTAR_BURNOUT_SOUND_1P = "LSTAR_LensBurnout"		// should be "LSTAR_LensBurnout"
 const string LSTAR_BURNOUT_SOUND_3P = "LSTAR_LensBurnout_3P"
 
-table< string, int > playerLaggingBoltTable
-int totalLaggingBolts
+// lagging bolt
+struct
+{
+	table< entity, array<entity> > playerLaggingBoltTable
+	array<entity> totalLaggingBolts
+} file
+
 const int LAGGING_BOLT_MAX_PER_PLAYER = 48
 const int LAGGING_BOLT_WORLD_MAX = 256
 
@@ -34,12 +39,15 @@ void function MpWeaponLSTAR_Init()
 	PrecacheParticleSystem( LSTAR_BURNOUT_EFFECT_3P )
 
 #if SERVER
+	// lagging bolt
 	RegisterSignal( "ReleaseAllBolts" )
+	AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_lstar, LStar_DamagedTarget )
 	AddCallback_OnClientConnected( OnClientConnected )
-	AddCallback_OnPlayerKilled( ResetBoltLimit )
+	AddCallback_OnPlayerKilled( OnPlayerKilled )
 #endif
 }
 
+// modified callback
 void function OnWeaponOwnerChanged_weapon_lstar( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 #if SERVER
@@ -49,8 +57,8 @@ void function OnWeaponOwnerChanged_weapon_lstar( entity weapon, WeaponOwnerChang
 		{
 			if( changeParams.oldOwner.IsPlayer() )
 			{
-				RemoveButtonPressedPlayerInputCallback( changeParams.oldOwner, IN_ZOOM, SignalReleaseBolt )
-				RemoveButtonPressedPlayerInputCallback( changeParams.oldOwner, IN_ZOOM_TOGGLE, SignalReleaseBolt )
+				RemoveButtonPressedPlayerInputCallback( changeParams.oldOwner, IN_ZOOM, PlayerReleaseLaggingBolts )
+				RemoveButtonPressedPlayerInputCallback( changeParams.oldOwner, IN_ZOOM_TOGGLE, PlayerReleaseLaggingBolts )
 			}
 		}
 	}
@@ -73,8 +81,8 @@ void function DelayedCheckLaggingBoltMod( entity weapon, WeaponOwnerChangedParam
 				player = changeParams.newOwner
 			if( !IsValid( player ) )
 				return
-			AddButtonPressedPlayerInputCallback( player, IN_ZOOM, SignalReleaseBolt )
-			AddButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, SignalReleaseBolt )
+			AddButtonPressedPlayerInputCallback( player, IN_ZOOM, PlayerReleaseLaggingBolts )
+			AddButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, PlayerReleaseLaggingBolts )
 		}
 	}
 }
@@ -97,6 +105,7 @@ int function LSTARPrimaryAttack( entity weapon, WeaponPrimaryAttackParams attack
 #endif // #if CLIENT
 
 	int result
+	// lagging bolt!
 	if( weapon.HasMod( "lagging_lstar" ) )
 	{
 #if CLIENT
@@ -118,7 +127,7 @@ int function LSTARPrimaryAttack( entity weapon, WeaponPrimaryAttackParams attack
 #if SERVER
 			entity owner = weapon.GetWeaponOwner()
 			if( owner.IsPlayer() )
-				thread DelayedLagBoltThink( bolt, owner, launchSpeed )
+				thread LaggingBoltThink( bolt, owner, launchSpeed )
 #endif
 			return 1
 		}
@@ -127,70 +136,6 @@ int function LSTARPrimaryAttack( entity weapon, WeaponPrimaryAttackParams attack
 		result = FireGenericBoltWithDrop( weapon, attackParams, isPlayerFired )
 	return result
 }
-
-#if SERVER
-void function OnClientConnected( entity player )
-{
-	playerLaggingBoltTable[player.GetUID()] <- 0 // init
-	// using OnWeaponOwnerChanged() to add these
-	//AddButtonPressedPlayerInputCallback( player, IN_ZOOM, CallbackFuncReleaseBolt )
-	//AddButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, CallbackFuncReleaseBolt )
-}
-
-void function ResetBoltLimit( entity victim, entity attacker, var damageInfo )
-{
-	playerLaggingBoltTable[victim.GetUID()] = 0
-}
-
-void function SignalReleaseBolt( entity player )
-{
-	player.Signal( "ReleaseAllBolts" )
-	playerLaggingBoltTable[player.GetUID()] = 0
-}
-
-void function DelayedLagBoltThink( entity bolt, entity owner, float boltSpeed = 3500 )
-{
-	bolt.EndSignal( "OnDestroy" )
-	owner.EndSignal( "OnDeath" )
-	owner.EndSignal( "OnDestroy" )
-
-	OnThreadEnd( 
-		function(): ( bolt, boltSpeed )
-		{
-			if( IsValid( bolt ) )
-				bolt.SetVelocity( bolt.GetForwardVector() * boltSpeed )
-		}
-	)
-
-	wait 0.15 // can server respon this?
-	bolt.SetVelocity( bolt.GetVelocity() * 0.0001 )
-	PlayerLaggingBoltLimit( owner )
-	owner.WaitSignal( "ReleaseAllBolts" )
-}
-
-void function PlayerLaggingBoltLimit( entity player )
-{
-	string uid = player.GetUID()
-	playerLaggingBoltTable[uid] += 1
-	totalLaggingBolts += 1
-	if( playerLaggingBoltTable[uid] >= LAGGING_BOLT_MAX_PER_PLAYER )
-	{
-		player.Signal( "ReleaseAllBolts" )
-		totalLaggingBolts -= playerLaggingBoltTable[uid]
-		playerLaggingBoltTable[uid] = 0
-	}
-	if( totalLaggingBolts >= LAGGING_BOLT_WORLD_MAX )
-	{
-		totalLaggingBolts = 0
-		foreach( entity player in GetPlayerArray() )
-		{
-			player.Signal( "ReleaseAllBolts" )
-			playerLaggingBoltTable[player.GetUID()] = 0
-		}
-	}
-
-}
-#endif
 
 var function OnWeaponPrimaryAttack_weapon_lstar( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
@@ -220,15 +165,13 @@ void function OnWeaponReload_weapon_lstar( entity weapon, int milestoneIndex )
 	weapon.PlayWeaponEffect( LSTAR_BURNOUT_EFFECT_1P, LSTAR_BURNOUT_EFFECT_3P, "vent_cover_L" )
 	weapon.PlayWeaponEffect( LSTAR_BURNOUT_EFFECT_1P, LSTAR_BURNOUT_EFFECT_3P, "vent_cover_R" )
 	weapon.EmitWeaponSound_1p3p( LSTAR_BURNOUT_SOUND_1P, LSTAR_BURNOUT_SOUND_3P )
-#if SERVER
-	entity owner = weapon.GetWeaponOwner()
-	if( owner.IsPlayer() )
-	{
-		owner.Signal( "ReleaseAllBolts" )
-		totalLaggingBolts -= playerLaggingBoltTable[owner.GetUID()]
-		playerLaggingBoltTable[owner.GetUID()] = 0
-	}
-#endif
+
+	// lagging bolt
+	#if SERVER
+		entity owner = weapon.GetWeaponOwner()
+		if( owner.IsPlayer() )
+			PlayerReleaseLaggingBolts( owner )
+	#endif
 }
 
 #if SERVER
@@ -267,3 +210,106 @@ void function OnWeaponActivate_weapon_lstar( entity weapon )
 	CheckForRCEE( weapon, owner )
 #endif // #if SERVER
 }
+
+
+// lagging bolt
+#if SERVER
+void function LStar_DamagedTarget( entity victim, var damageInfo )
+{
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if ( IsValid( inflictor ) && inflictor.IsProjectile() )
+	{
+		array<string> mods = inflictor.ProjectileGetMods()
+		if ( mods.contains( "lagging_lstar" ) )
+		{
+			bool selfDamage = victim == inflictor.GetBossPlayer() // boss player assigned in LaggingBoltThink()
+			bool sameTeam = victim.GetTeam() == inflictor.GetTeam()
+			bool hasFriendlyFire = FriendlyFire_IsEnabled() || mods.contains( "friendlyfire_weapon" )
+			if ( !selfDamage && sameTeam && !hasFriendlyFire )
+			{
+				//print( "damaged teammate! resetting damage to 0" )
+				DamageInfo_SetDamage( damageInfo, 0 )
+			}
+		}
+	}
+}
+
+void function OnClientConnected( entity player )
+{
+	file.playerLaggingBoltTable[ player ] <- [] // init
+	// using OnWeaponOwnerChanged() to add these
+	//AddButtonPressedPlayerInputCallback( player, IN_ZOOM, CallbackFuncReleaseBolt )
+	//AddButtonPressedPlayerInputCallback( player, IN_ZOOM_TOGGLE, CallbackFuncReleaseBolt )
+}
+
+void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+{
+	PlayerReleaseLaggingBolts( victim )
+}
+
+void function PlayerReleaseLaggingBolts( entity player )
+{
+	player.Signal( "ReleaseAllBolts" )
+	foreach ( entity bolt in file.playerLaggingBoltTable[ player ] )
+		file.totalLaggingBolts.removebyvalue( bolt )
+	file.playerLaggingBoltTable[ player ].clear()
+}
+
+void function ReleaseAllLaggingBolts()
+{
+	foreach ( entity player in GetPlayerArray() )
+		PlayerReleaseLaggingBolts( player )
+
+	file.totalLaggingBolts.clear()
+}
+
+void function LaggingBoltThink( entity bolt, entity owner, float boltSpeed = 3500 )
+{
+	bolt.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+
+	OnThreadEnd( 
+		function(): ( bolt, boltSpeed )
+		{
+			if ( IsValid( bolt ) )
+				bolt.SetVelocity( bolt.GetForwardVector() * boltSpeed )
+		}
+	)
+
+	wait 0.15 // can server respon this?
+	bolt.SetVelocity( bolt.GetVelocity() * 0.0001 )
+	bolt.SetOwner( null ) // make bolts can hit their owner!
+	bolt.SetBossPlayer( owner ) // we use bossplayer for checking it's belonging
+	FriendlyFire_SetEntityDoFFDamage( bolt, true ) // self damage. team damage handled in LStar_DamagedTarget()
+	PlayerLaggingBoltLimit( owner, bolt )
+	owner.WaitSignal( "ReleaseAllBolts" )
+}
+
+void function PlayerLaggingBoltLimit( entity player, entity newBolt )
+{
+	// remove destroyed bolts
+	ArrayRemoveInvalid( file.playerLaggingBoltTable[ player ] )
+	ArrayRemoveInvalid( file.totalLaggingBolts )
+
+	file.playerLaggingBoltTable[ player ].append( newBolt )
+	file.totalLaggingBolts.append( newBolt )
+
+	// player limit
+	//print( "file.playerLaggingBoltTable[ player ].len(): " + string( file.playerLaggingBoltTable[ player ].len() ) )
+	if( file.playerLaggingBoltTable[ player ].len() > GetPlayerMaxLaggingBolts() )
+		PlayerReleaseLaggingBolts( player )
+
+	// world limit
+	//print( "file.totalLaggingBolts.len(): " + string( file.totalLaggingBolts.len() ) )
+	if ( file.totalLaggingBolts.len() >= LAGGING_BOLT_WORLD_MAX )
+		ReleaseAllLaggingBolts()
+}
+
+int function GetPlayerMaxLaggingBolts()
+{
+	int maxBolts = LAGGING_BOLT_WORLD_MAX / GetPlayerArray().len()
+
+	return int( max( maxBolts, LAGGING_BOLT_MAX_PER_PLAYER ) )
+}
+#endif
