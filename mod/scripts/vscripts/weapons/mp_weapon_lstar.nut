@@ -171,7 +171,7 @@ void function CheckForRCEE( entity weapon, entity player )
 		return
 
 	weapon.AddMod( RCEE_MODNAME )
-	weapon.ForceDryfireEvent()
+	weapon.ForceDryfireEvent() // nessie comment: used for resetting screen text! the text tracking lastDryFireTime
 	EmitSoundOnEntity( player, "lstar_lowammowarning" )
 	EmitSoundOnEntity( player, "lstar_dryfire" )
 }
