@@ -1,4 +1,6 @@
 global function OnWeaponPrimaryAttack_weapon_flak_rifle
+// modified callback
+global function OnProjectileExplode_weapon_flak_rifle
 
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_weapon_flak_rifle
@@ -9,7 +11,7 @@ global function OnClientAnimEvent_weapon_flak_rifle
 #endif
 
 global const float PROJECTILE_SPEED_FLAK = 7500.0
-const float PROJECILE_SPEED_FLAK_CANNON = 2900.0
+const float PROJECILE_SPEED_FLAK_CANNON = 1900.0
 
 var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
