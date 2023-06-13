@@ -5,8 +5,10 @@ global function Vortex_Init
 global function CreateVortexSphere
 global function DestroyVortexSphereFromVortexWeapon
 global function EnableVortexSphere
+// northstar modified utility
 global function RegisterNewVortexIgnoreClassname
 global function RegisterNewVortexIgnoreClassnames
+//
 #if SERVER
 global function ValidateVortexImpact
 global function TryVortexAbsorb
@@ -24,6 +26,7 @@ global function VortexSphereDrainHealthForDamage
 global function Vortex_CreateImpactEventData
 // modified to globalize
 global function Vortex_SpawnShieldPingFX
+//
 global function Vortex_SpawnHeatShieldPingFX
 #endif
 
@@ -87,6 +90,8 @@ table<string, bool> VortexIgnoreClassnames = {
 	["mp_ability_grapple"] = true,
 	["mp_ability_shifter"] = true,
 }
+
+// northstar modified utility
 void function RegisterNewVortexIgnoreClassnames(table<string, bool> classTable)
 {
 	foreach(string classname, bool shouldignore in classTable)
@@ -98,6 +103,8 @@ void function RegisterNewVortexIgnoreClassname(string classname, bool shouldigno
 {
 	VortexIgnoreClassnames[classname] <- shouldignore
 }
+//
+
 table vortexImpactWeaponInfo
 
 const DEG_COS_60 = cos( 60 * DEG_TO_RAD )
