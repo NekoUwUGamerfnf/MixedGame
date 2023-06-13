@@ -18,7 +18,9 @@ global function AddCallback_OnModdedDecoyCreated
 #endif //if server
 
 // for infinite_decoy
-const int WORLD_MAX_DECOY_COUNT = 16 // you can only spawn this much of decoy!
+const int WORLD_INFINITE_DECOY_COUNT_MAX = 28 // you can only spawn this much of decoy! scaling down with player count
+const int WORLD_INFINITE_DECOY_COUNT_MIN = 16 // if we have really too much players, scale down to this amount of decoy spawning
+const int INFINITE_DECOY_COUNT_PER_PLAYER_MIN = 4 // if we have multiple players holding infinite_decoy weapon, we scale down each player's spawn amount
 
 struct
 {
@@ -30,7 +32,8 @@ struct
 	bool isRandomDecoy = false
 	bool isCloakDecoy = false
 	// infinite decoy array
-	array<entity> infiniteDecoyOnWorld = []
+	table< entity, array<entity> > playerInfiniteDecoyTable
+	array<entity> infiniteDecoyOnWorld
 }
 file
 
@@ -55,13 +58,17 @@ void function MpAbilityModdedHoloPilot_Init()
     AddDecoyModifier( "cloak_decoy" )
 
 #if SERVER
+	// modified callbacks in mp_ability_holopilot.nut
     AddCallback_PlayerDecoyDie( ModdedDecoyDestroyed )
     AddCallback_PlayerDecoyDissolve( ModdedDecoyDestroyed )
+	//
+	AddCallback_OnClientConnected( OnClientConnected )
 #endif
 }
 
 // callbacks
 #if SERVER
+// modified callbacks in mp_ability_holopilot.nut
 void function AddCallback_OnModdedDecoyCreated( void functionref( entity ) callbackFunc )
 {
     file.decoyCreatedCallbacks.append( callbackFunc )
@@ -71,6 +78,12 @@ void function ModdedDecoyDestroyed( entity decoy, int currentState )
 {
     // infinite decoy clean up
 	file.infiniteDecoyOnWorld.removebyvalue( decoy )
+}
+//
+
+void function OnClientConnected( entity player )
+{
+	file.playerInfiniteDecoyTable[ player ] <- []
 }
 #endif
 
@@ -203,15 +216,30 @@ void function SetupModdedDecoy( entity player, entity decoy, bool infiniteDecoy 
 	}
 	else // infinite decoy
 	{
+		ArrayRemoveInvalid( file.playerInfiniteDecoyTable[ player ] )
+		ArrayRemoveInvalid( file.infiniteDecoyOnWorld ) // remove all invalid decoy
+
+		file.playerInfiniteDecoyTable[ player ].append( decoy )
 		file.infiniteDecoyOnWorld.append( decoy )
-		if( file.infiniteDecoyOnWorld.len() >= WORLD_MAX_DECOY_COUNT )
+		//print( "GetInfiniteDecoySpawnLimitPerPlayer(): " + string( GetInfiniteDecoySpawnLimitPerPlayer() ) )
+		if ( file.playerInfiniteDecoyTable[ player ].len() >= GetInfiniteDecoySpawnLimitPerPlayer() )
 		{
-			file.infiniteDecoyOnWorld.removebyvalue( null ) // remove all invalid decoy
+			entity latestDecoy = file.playerInfiniteDecoyTable[ player ][0]
+			if( IsValid( latestDecoy ) )
+			{
+				file.playerInfiniteDecoyTable[ player ].removebyvalue( latestDecoy )
+				file.infiniteDecoyOnWorld.removebyvalue( latestDecoy )
+				latestDecoy.Decoy_Dissolve()
+			}
+		}
+		//print( "GetWorldMaxInfiniteDecoyCount(): " + string( GetWorldMaxInfiniteDecoyCount() ) )
+		if ( file.infiniteDecoyOnWorld.len() >= GetWorldMaxInfiniteDecoyCount() )
+		{
 			entity latestDecoy = file.infiniteDecoyOnWorld[0]
 			if( IsValid( latestDecoy ) )
 			{
 				file.infiniteDecoyOnWorld.removebyvalue( latestDecoy )
-				latestDecoy.Decoy_Dissolve() // maybe this?
+				latestDecoy.Decoy_Dissolve()
 			}
 		}
 		decoy.SetNameVisibleToOwner( false )
@@ -397,5 +425,36 @@ entity function CreateRandomDecoyForPlayer( entity player, float stickPercentToR
 	player.SetCamo( playerCamo )
 
 	return decoy
+}
+
+// infinite decoy
+int function GetInfiniteDecoySpawnLimitPerPlayer()
+{
+	int decoyWeaponOwnerCount = 0
+	foreach ( entity player in GetPlayerArray() )
+	{
+		bool playerFound = false
+		foreach ( entity weapon in player.GetOffhandWeapons() )
+		{
+			if ( playerFound )
+				continue
+			if ( weapon.HasMod( "infinite_decoy" ) )
+			{
+				decoyWeaponOwnerCount += 1
+				playerFound = true
+				continue
+			}
+		}
+	}
+
+	int worldMaxDecoyCount = GetWorldMaxInfiniteDecoyCount()
+	int playerDecoyLimit = decoyWeaponOwnerCount == 0 ? worldMaxDecoyCount : worldMaxDecoyCount / decoyWeaponOwnerCount
+	return int( max( playerDecoyLimit, INFINITE_DECOY_COUNT_PER_PLAYER_MIN ) )
+}
+
+int function GetWorldMaxInfiniteDecoyCount()
+{
+	int decoyLimit = WORLD_INFINITE_DECOY_COUNT_MAX / GetPlayerArray().len()
+	return int( max( decoyLimit, WORLD_INFINITE_DECOY_COUNT_MIN ) )
 }
 #endif

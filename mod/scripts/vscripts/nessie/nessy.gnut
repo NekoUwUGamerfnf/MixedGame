@@ -18,14 +18,16 @@ global function Nessie_AlwaysSpawnRGBStuff
 // nessie
 global function Nessie_SetNessieSpawnEnabled
 global function Nessie_SetWorldMaxNessieCount
-// battery
+// battery, not enabled by default
 global function Nessie_SetBatterySpawnEnabled
 // flag
 global function Nessie_SetFunnyFlagEnabled
 // decoy
 global function Nessie_SetDecoyOutfit
-// holospray
+// holospray, not enabled by default
 global function Nessie_SetHoloSprayEnabled
+// holding prop, not enabled by default
+global function Nessie_SetHoldingPropsEnabled
 
 struct NessyHat
 {
@@ -82,22 +84,24 @@ struct
 	bool decoyNessieOutfit = false
 	// holospray
 	bool holoSprayEnabled = false
+	// holding prop
+	bool holdingPropsEnabled = false
 
 	// entities, no need to change default value
-	array<entity> nessieDolls = []
-	array<entity> funnyFlags = []
+	array<entity> nessieDolls
+	array<entity> funnyFlags
 
-	array<NessyHat> nessyhats = []
-	array<NessyPack> nessybackpacks = []
-	array<NessyPistol> nessypistols = []
-	array<NessyWeapon> nessyweapons = []
-	array<NessyFX> nessyfxs = []
-	array<NessyMix> nessymixs = []
+	array<NessyHat> nessyhats
+	array<NessyPack> nessybackpacks
+	array<NessyPistol> nessypistols
+	array<NessyWeapon> nessyweapons
+	array<NessyFX> nessyfxs
+	array<NessyMix> nessymixs
 
 	// cooldowns
-	array<string> nessyedPlayer = []
-	array<string> battedPlayer = []
-	array<entity> holoSprayedPlayer = []
+	array<string> nessyedPlayer
+	array<string> battedPlayer
+	array<entity> holoSprayedPlayer
 } file
 
 // now only enabled nessies
@@ -205,8 +209,9 @@ void function EverythingNessy_Init()
 	if ( Riff_TitanAvailability() == eTitanAvailability.Never )
 	{
 		Rodeo_SetBatterySkinRandom( true ) // from _rodeo_titan.gnut
-		SetPilotBatteryUsageAllowed( true ) // from pilot_shield_battery.gnut
-		SetShieldBatteryNoLimit( true ) // from pilot_shield_battery.gnut
+		// disabled shield battery usage, since we added rodeo battery throw
+		//SetPilotBatteryUsageAllowed( true ) // from pilot_shield_battery.gnut
+		//SetShieldBatteryNoLimit( true ) // from pilot_shield_battery.gnut
 	}
 	//if( GAMETYPE != "mfd" ) //prevent mfd client crash, no need for now I've fixed it
 	//{
@@ -449,6 +454,12 @@ void function Nessie_SetHoloSprayEnabled( bool enabled )
 	file.holoSprayEnabled = enabled
 }
 
+void function Nessie_SetHoldingPropsEnabled( bool enabled )
+{
+	file.holdingPropsEnabled = enabled
+	HoldingProp_SetUseNotSolidHolding( enabled ) // bind together
+}
+
 void function OnClientConnected( entity player )
 {
 	// nessie
@@ -456,6 +467,7 @@ void function OnClientConnected( entity player )
 	AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, CallbackFuncSpawnNessy )
 	// battery
 	AddButtonPressedPlayerInputCallback( player, IN_MELEE, CallbackFuncSpawnBattery )
+	AddPlayerHeldButtonEventCallback( player, IN_MELEE, CallbackFuncThrowBattery, 0.5 ) // should only be use this if disabled primary melee?
 	// flag
 	player.s.hasFlag <- false
 	AddButtonPressedPlayerInputCallback( player, IN_OFFHAND2, CallbackFuncSpawnFlag )
@@ -681,6 +693,22 @@ bool function SpawnRGBNessie( entity player, array<string> args )
 
 void function CallbackFuncSpawnNessy( entity player )
 {
+	// holding prop
+	if ( file.holdingPropsEnabled )
+	{
+		bool playerCrouching = player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )
+		if ( IsValid( HoldingProp_GetPlayerPickedProp( player ) ) ) // already holding someting!
+		{
+			HoldingProp_PlayerDropPickedEntity( player ) // cause it to drop
+			return
+		}
+		else if ( playerCrouching ) // triggering pickup when crouched
+		{
+			if ( HoldingProp_PlayerTryPickUpEntity( player ) ) // player successfully picked up something!
+				return // never do nessie spawn
+		}
+	}
+
 	if ( !file.nessieSpawnEnabled && !file.allSettingsEnabled ) // bind together with allSettingsEnabled
 		return
 
@@ -718,10 +746,12 @@ void function CallbackFuncSpawnNessy( entity player )
 
 	// angles offset
 	float yawOffset = -180 // default value
+	float physicsYawOffset = 180
 	switch ( spawnAsset )
 	{
 		case $"models/domestic/nessy_doll.mdl":
 			yawOffset = 90
+			physicsYawOffset = 90 // facing the thrower
 			break
 	}
 	// vertical offset( static )
@@ -758,7 +788,7 @@ void function CallbackFuncSpawnNessy( entity player )
 
 		// attach nessie
 		nessie.SetParent( physics, "origin" )
-		nessie.SetAngles( < 0, -yawOffset, 0 > ) // rotate
+		nessie.SetAngles( < 0, physicsYawOffset, 0 > ) // rotate
 		nessie.SetOrigin( parentedOffset ) // offset
 		thread NessiePhysicsLifeTimeCheck( physics, nessie )
 
@@ -818,35 +848,50 @@ void function Nessie_SetWorldMaxNessieCount( int count )
 
 void function CallbackFuncSpawnBattery( entity player )
 {
-	if ( !(Riff_TitanAvailability() == eTitanAvailability.Never) )
-		return
 	if( !file.batterySpawnEnabled )
 		return
-	if( !file.battedPlayer.contains(player.GetUID()) )
+	if ( !(Riff_TitanAvailability() == eTitanAvailability.Never) )
+		return
+	if( file.battedPlayer.contains(player.GetUID()) )
+		return
+
+	entity battery = Rodeo_CreateBatteryPack( player, false, true )
+	bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
+	if ( !IsValid( battery ) ) // battery won't be returned it's picked up by player immediately
+		battery = GetBatteryOnBack( player )
+	if( IsValid( battery ) )
 	{
-		entity battery = Rodeo_CreateBatteryPack( player, false, true )
-		bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
-		if( battery ) // battery won't be returned if they spawned on player's back
+		// never blocks bullet, but also unable to stack batteries. won't work!
+		//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS
+		//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_NONE
+		if ( !IsValid( battery.GetParent() ) ) // don't reset velocity if it's bind with something(eg. player)
 		{
-			// never blocks bullet, but also unable to stack batteries. won't work!
-			//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS 
 			vector batteryVel = player.GetViewVector() * 1000
 			battery.SetVelocity( batteryVel )
-			battery.SetBossPlayer( player ) // add a boss player for this battery!
-			if( badCombo || file.alwaysRGBSpawn )
-				thread RGY_BatterySkin( battery )
-			//battery.kv.CollisionGroup = TRACE_COLLISION_GROUP_NONE
 		}
-		/*
-		if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
-		{
-			file.battedPlayer.append( player.GetUID() ) 
-			thread ClearBattedPlayer( player )
-		}
-		*/
+		battery.SetBossPlayer( player ) // add a boss player for this battery! we can track satchel planting later
+		if( badCombo || file.alwaysRGBSpawn )
+			thread RGY_BatterySkin( battery )
+		HoldingProp_SetEntityCanBePickedUpForced( battery, true ) // make battery pickupable
 	}
-	else
+	/*
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+	{
+		file.battedPlayer.append( player.GetUID() ) 
+		thread ClearBattedPlayer( player )
+	}
+	*/
+}
+
+void function CallbackFuncThrowBattery( entity player )
+{
+	// leave the same check as spawnbattery does
+	if( !file.batterySpawnEnabled )
 		return
+	if ( !(Riff_TitanAvailability() == eTitanAvailability.Never) )
+		return
+
+	Rodeo_PilotThrowsBattery( player )
 }
 
 void function Nessie_SetBatterySpawnEnabled( bool enabled )
