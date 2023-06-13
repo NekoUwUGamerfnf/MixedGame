@@ -12,7 +12,7 @@ const MAX_BONUS_VELOCITY	= 1250
 var function OnWeaponPrimaryAttack_weapon_gibber_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// gibber pistol
-	if( weapon.HasMod( "gibber_pistol" ) || weapon.HasMod( "grenade_pistol" ) )
+	if ( weapon.HasMod( "gibber_pistol" ) || weapon.HasMod( "grenade_pistol" ) )
 	{
 		entity player = weapon.GetWeaponOwner()
 
@@ -28,9 +28,10 @@ var function OnWeaponPrimaryAttack_weapon_gibber_pistol( entity weapon, WeaponPr
 	else // p2016
 	{
 		//entity weaponOwner = weapon.GetWeaponOwner()
+		// don't calculate again! client will desync
 		//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
 		//attackParams.dir = bulletVec
-		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+		//weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, weapon.GetWeaponDamageFlags() )
 	}
 }

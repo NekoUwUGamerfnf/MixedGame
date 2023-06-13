@@ -9,11 +9,11 @@ global function OnClientAnimEvent_weapon_flak_rifle
 #endif
 
 global const float PROJECTILE_SPEED_FLAK = 7500.0
-
+const float PROJECILE_SPEED_FLAK_CANNON = 2900.0
 
 var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if( weapon.HasMod( "flak_rifle" ) ) // flak rifle
+	if( weapon.HasMod( "flak_rifle" ) || weapon.HasMod( "flak_cannon" ) ) // flak rifle
 	{
 		weapon.EmitWeaponSound_1p3p( "Weapon_Sidewinder_Fire_1P", "Weapon_Sidewinder_Fire_3P" )
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
@@ -21,17 +21,23 @@ var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrima
 		vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() - 1.0 )
 		attackParams.dir = bulletVec
 
+		vector projectileSpeed = weapon.HasMod( "flak_cannon" ) ? PROJECILE_SPEED_FLAK_CANNON : PROJECTILE_SPEED_FLAK
+
 		if ( IsServer() || weapon.ShouldPredictProjectiles() )
 		{
-			entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, PROJECTILE_SPEED_FLAK, DF_GIB | DF_EXPLOSION, DF_GIB | DF_EXPLOSION, false, PROJECTILE_PREDICTED )
+			//entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, PROJECTILE_SPEED_FLAK, DF_GIB | DF_EXPLOSION, DF_GIB | DF_EXPLOSION, false, PROJECTILE_PREDICTED )
+			entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, projectileSpeed, DF_GIB | DF_EXPLOSION, DF_GIB | DF_EXPLOSION, false, PROJECTILE_PREDICTED )
 			if ( missile )
 			{
 				SetTeam( missile, weaponOwner.GetTeam() )
 				#if SERVER
 					thread DelayedStartParticleSystem( missile )
+					if ( weapon.HasMod( "flak_cannon" ) )
+						missile.SetModel( $"models/weapons/bullets/mgl_grenade.mdl" )
 					EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )
 					missile.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_flak_rifle )
-					thread PROTO_FlakCannonMissiles( missile, PROJECTILE_SPEED_FLAK )
+					//thread PROTO_FlakCannonMissiles( missile, PROJECTILE_SPEED_FLAK )
+					thread PROTO_FlakCannonMissiles( missile, projectileSpeed )
 				#endif
 			}
 		}
@@ -39,9 +45,10 @@ var function OnWeaponPrimaryAttack_weapon_flak_rifle( entity weapon, WeaponPrima
 	else // flatline
 	{
 		//entity weaponOwner = weapon.GetWeaponOwner()
+		// don't calculate again! client will desync
 		//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
 		//attackParams.dir = bulletVec
-		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+		//weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, weapon.GetWeaponDamageFlags() )
 	}
 }
