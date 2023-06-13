@@ -12,7 +12,16 @@ const FUSE_TIME = 0.5
 
 void function MpTitanweaponGrenadeLauncher_Init()
 {
-	
+#if SERVER
+	// vortex refire override
+	Vortex_AddImpactDataOverride_WeaponMod( 
+		"mp_titanweapon_salvo_rockets", // weapon name
+		"grenade_launcher", // mod name
+		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_softball", "vortex_absorb_effect" ), // absorb effect
+		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_softball", "vortex_absorb_effect_third_person" ), // absorb effect 3p
+		"grenade" // refire behavior
+	)
+#endif
 }
 
 bool function OnWeaponAttemptOffhandSwitch_titanweapon_grenade_launcher( entity weapon )
