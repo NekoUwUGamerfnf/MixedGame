@@ -157,7 +157,7 @@ void function TeamShuffleThink()
 	if( file.hasShuffled )
 		return
 	// Check if the gamemode or map are on the blacklist
-	bool gamemodeDisable = TEAMSHUFFLE_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame();
+	bool gamemodeDisable = SHUFFLE_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame();
 	bool mapDisable = DISABLED_MAPS.contains(GetMapName());
 
   	if ( gamemodeDisable )
@@ -200,7 +200,7 @@ void function FixShuffle( float delay = 0 )
 	if( delay > 0 )
 		wait delay
 
-	bool gamemodeDisable = TEAMSHUFFLE_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame();
+	bool gamemodeDisable = SHUFFLE_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame();
 	bool mapDisable = DISABLED_MAPS.contains(GetMapName());
 
   	if ( gamemodeDisable )
