@@ -219,7 +219,17 @@ void function ApplyTrackerMark( entity owner, entity hitEnt )
 	if ( owner.IsProjectile() )
 		return
 
-	entity trackerRockets = owner.GetOffhandWeapon( OFFHAND_ORDNANCE )
+	// fix for respawn hardcode
+	//entity trackerRockets = owner.GetOffhandWeapon( OFFHAND_ORDNANCE )
+	entity trackerRockets
+	foreach ( entity weapon in owner.GetOffhandWeapons() )
+	{
+		if ( weapon.GetWeaponClassName() == "mp_titanweapon_tracker_rockets" )
+		{
+			trackerRockets = weapon
+			break
+		}
+	}
 	if ( !IsValid( trackerRockets ) )
 		return
 
