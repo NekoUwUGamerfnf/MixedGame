@@ -1,8 +1,13 @@
 global function TeamShuffle_Init
 
-array<string> disabledGamemodes_Shuffle = ["private_match"]
-array<string> disabledGamemodes_Balance = ["private_match"]
-array<string> disabledMaps = ["mp_lobby"]
+const array<string> SHUFFLE_DISABLED_GAMEMODES = ["private_match", "lts", "cp", "fw", "at"] // gamemodes that can't update it's team-colored rui shouldn't have shuffle
+const array<string> SWITCH_DISABLED_GAMEMODES = ["private_match", "lts", "cp", "fw", "at"] // gamemodes that can't update it's team-colored rui shouldn't have shuffle
+const array<string> DISABLED_MAPS = ["mp_lobby"]
+
+const array<string> MANUAL_SWITCH_COMMANDS = // chat command will append a "!"
+[
+	"switch"
+]
 
 const int BALANCE_ALLOWED_TEAM_DIFFERENCE = 1
 const bool BALANCE_ON_DEATH = true
@@ -20,19 +25,22 @@ void function TeamShuffle_Init()
 {
 	AddCallback_GameStateEnter( eGameState.Prematch, ShuffleTeams )
 	AddCallback_OnClientDisconnected( CheckPlayerDisconnect )
-	// viper battle compatible
-	//if( !(GAMETYPE == "tdm" && GetMapName() == "mp_forwardbase_kodai") )
-	//	AddCallback_OnPlayerKilled( CheckTeamBalance )
 	if ( BALANCE_ON_DEATH )
 		AddCallback_OnPlayerKilled( CheckTeamBalance )
-	AddClientCommandCallback( "switch", CC_TrySwitchTeam )
+
+	// manual team switch
+	foreach ( string command in MANUAL_SWITCH_COMMANDS )
+	{
+		AddClientCommandCallback( command, CC_TrySwitchTeam )
+		NessieChatCommands_Register( "!" + command, Chat_TrySwitchTeam )
+	}
 }
 
 bool function CC_TrySwitchTeam( entity player, array<string> args )
 {
 	// Check if the gamemode or map are on the blacklist
-	bool gamemodeDisable = disabledGamemodes_Balance.contains(GAMETYPE) || IsFFAGame();
-	bool mapDisable = disabledMaps.contains(GetMapName());
+	bool gamemodeDisable = SWITCH_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame();
+	bool mapDisable = DISABLED_MAPS.contains(GetMapName());
 
 	// Blacklist guards
   	if ( gamemodeDisable )
@@ -77,6 +85,14 @@ bool function CC_TrySwitchTeam( entity player, array<string> args )
 	return true
 }
 
+ClServer_MessageStruct function Chat_TrySwitchTeam( ClServer_MessageStruct msgStruct )
+{
+	entity sender = msgStruct.player
+    CC_TrySwitchTeam( sender, [] )
+    msgStruct.shouldBlock = true // always block the message
+    return msgStruct
+}
+
 void function CheckPlayerDisconnect( entity player )
 {
 	// since this player may not being destroyed, should do a new check here
@@ -85,8 +101,8 @@ void function CheckPlayerDisconnect( entity player )
 	if ( playerStillValid )
 		team = player.GetTeam()
 	// Check if the gamemode or map are on the blacklist
-	bool gamemodeDisable = disabledGamemodes_Balance.contains(GAMETYPE) || IsFFAGame()
-	bool mapDisable = disabledMaps.contains(GetMapName())
+	bool gamemodeDisable = SWITCH_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame()
+	bool mapDisable = DISABLED_MAPS.contains(GetMapName())
 
 	// Blacklist guards
   	if ( gamemodeDisable )
@@ -114,7 +130,7 @@ void function CheckPlayerDisconnect( entity player )
 
 	int weakTeam = imcTeamSize > mltTeamSize ? TEAM_MILITIA : TEAM_IMC
 	foreach ( entity player in GetPlayerArrayOfTeam( GetOtherTeam( weakTeam ) ) )
-		Chat_ServerPrivateMessage( player, ANSI_COLOR_ENEMY + "队伍当前不平衡，可通过控制台输入switch切换队伍。", false )
+		Chat_ServerPrivateMessage( player, ANSI_COLOR_ENEMY + "队伍当前不平衡，可通过聊天框输入 !switch 切换队伍。", false )
 }
 
 void function ShuffleTeams()
@@ -141,8 +157,8 @@ void function TeamShuffleThink()
 	if( file.hasShuffled )
 		return
 	// Check if the gamemode or map are on the blacklist
-	bool gamemodeDisable = disabledGamemodes_Shuffle.contains(GAMETYPE) || IsFFAGame();
-	bool mapDisable = disabledMaps.contains(GetMapName());
+	bool gamemodeDisable = TEAMSHUFFLE_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame();
+	bool mapDisable = DISABLED_MAPS.contains(GetMapName());
 
   	if ( gamemodeDisable )
     	return
@@ -184,8 +200,8 @@ void function FixShuffle( float delay = 0 )
 	if( delay > 0 )
 		wait delay
 
-	bool gamemodeDisable = disabledGamemodes_Shuffle.contains(GAMETYPE) || IsFFAGame();
-	bool mapDisable = disabledMaps.contains(GetMapName());
+	bool gamemodeDisable = TEAMSHUFFLE_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame();
+	bool mapDisable = DISABLED_MAPS.contains(GetMapName());
 
   	if ( gamemodeDisable )
     	return
@@ -262,8 +278,8 @@ void function CheckTeamBalance( entity victim, entity attacker, var damageInfo )
 bool function CanChangeTeam()
 {
 	// Check if the gamemode or map are on the blacklist
-	bool gamemodeDisable = disabledGamemodes_Balance.contains(GAMETYPE) || IsFFAGame();
-	bool mapDisable = disabledMaps.contains(GetMapName());
+	bool gamemodeDisable = SWITCH_DISABLED_GAMEMODES.contains(GAMETYPE) || IsFFAGame();
+	bool mapDisable = DISABLED_MAPS.contains(GetMapName());
 
 	// Blacklist guards
   	if ( gamemodeDisable )
