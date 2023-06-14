@@ -427,8 +427,10 @@ void function ADSLaserStart_Threaded( entity weapon )
 			file.rocketLaserTable[ viewModelEnt ] <- null
 		if ( IsValid( file.rocketLaserTable[ viewModelEnt ] ) ) // already has a laser valid
 			return
-		// this can make non_predicted client have proper fx
-		file.rocketLaserTable[ viewModelEnt ] = PlayLoopFXOnEntity( $"P_wpn_lasercannon_aim", viewModelEnt, "flashlight" )
+		// make non_predicted client have proper fx
+		entity fx = PlayLoopFXOnEntity( $"P_wpn_lasercannon_aim", viewModelEnt, "flashlight" )
+		fx.SetStopType( "DestroyImmediately" ) // ensure this fx gets destroyed immediately
+		file.rocketLaserTable[ viewModelEnt ] = fx
 	}
 	// thirdperson fx
 	weapon.PlayWeaponEffect( $"", $"P_wpn_lasercannon_aim", "flashlight" )
@@ -550,6 +552,7 @@ void function RocketMuzzleThink( entity weapon, entity owner )
 
 	// firstperson fx, force play it on vm
 	entity fx = PlayFXOnEntity( $"P_wpn_muzzleflash_law_fp", viewModelEnt, "muzzle_flash" )
+	fx.SetStopType( "DestroyImmediately" ) // ensure this fx gets destroyed immediately
 	viewModelEnt.EndSignal( "OnDestroy" )
 	owner.EndSignal( "OnDestroy" )
 	fx.EndSignal( "OnDestroy" )
