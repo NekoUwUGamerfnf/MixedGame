@@ -81,12 +81,15 @@ int function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, boo
 	{
 		if ( attackParams.burstIndex == 0 )
 		{
-			int level = weapon.GetWeaponChargeLevel()
+			// reworking bad code
+			//int level = weapon.GetWeaponChargeLevel()
+			int burstCount = maxint( 1, weapon.GetWeaponChargeLevel() ) // default burst count
 			// modded weapon
 			if ( weapon.HasMod( "tone_always_max_burst" ) ) // always max burst
 				burstCount = weapon.GetWeaponChargeLevelMax()
 
-			weapon.SetWeaponBurstFireCount( maxint( 1, level ) )
+			//weapon.SetWeaponBurstFireCount( maxint( 1, level ) )
+			weapon.SetWeaponBurstFireCount( burstCount )
 		}
 	}
 
