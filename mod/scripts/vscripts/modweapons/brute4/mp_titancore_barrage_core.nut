@@ -8,7 +8,7 @@ void function BarrageCore_Init()
 #if SERVER
 	// vortex refire override
 	Vortex_AddImpactDataOverride_WeaponMod( 
-		"mp_titanweapon_flightcore_rocket", // weapon name
+		"mp_titanweapon_flightcore_rockets", // weapon name
 		"barrage_core_launcher", // mod name
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_frag_grenade", "vortex_absorb_effect" ), // absorb effect
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_frag_grenade", "vortex_absorb_effect_third_person" ), // absorb effect 3p
