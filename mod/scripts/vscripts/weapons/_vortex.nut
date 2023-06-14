@@ -1060,13 +1060,16 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 		}
 
 		// saving model, particle, and reset impact effect
-		impactData.projectileModel <- weaponOrProjectile.GetModelName()
-		impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
-		// convert asset to string
-		asset impactEffect = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.impact_effect_table )
-		string tempString = string( impactEffect )
-		string impactFXName = tempString.slice( 2, tempString.len() - 1 )
-		impactData.impact_effect_table = impactFXName
+		if ( weaponOrProjectile.IsProjectile() ) // projectile specific stuff!
+		{
+			impactData.projectileModel <- weaponOrProjectile.GetModelName()
+			impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+			// convert asset to string
+			asset impactEffect = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.impact_effect_table )
+			string tempString = string( impactEffect )
+			string impactFXName = tempString.slice( 2, tempString.len() - 1 )
+			impactData.impact_effect_table = impactFXName
+		}
 
 		// saving mods
 		array<string> mods = weaponOrProjectile.IsProjectile() ? Vortex_GetRefiredProjectileMods( weaponOrProjectile ) : weaponOrProjectile.GetMods()
