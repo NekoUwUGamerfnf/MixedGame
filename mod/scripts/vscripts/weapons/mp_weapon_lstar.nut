@@ -28,8 +28,8 @@ struct
 	array<entity> totalLaggingBolts
 } file
 
-const int LAGGING_BOLT_MAX_PER_PLAYER = 48
-const int LAGGING_BOLT_WORLD_MAX = 256
+const int LAGGING_BOLT_PER_PLAYER_MIN = 48
+const int LAGGING_BOLT_WORLD_MAX = 512
 
 void function MpWeaponLSTAR_Init()
 {
@@ -341,6 +341,6 @@ int function GetPlayerMaxLaggingBolts()
 	}
 
 	int maxBolts = boltWeaponOwnerCount == 0 ? LAGGING_BOLT_WORLD_MAX : LAGGING_BOLT_WORLD_MAX / boltWeaponOwnerCount
-	return int( max( maxBolts, LAGGING_BOLT_MAX_PER_PLAYER ) )
+	return int( max( maxBolts, LAGGING_BOLT_PER_PLAYER_MIN ) )
 }
 #endif
