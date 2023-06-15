@@ -15,12 +15,16 @@ global function InitBurnMeterPersistentData
 
 // nessie modify
 global function Burnmeter_SetRewardsDisabled
-global function Burnmeter_GetDisabledRewards
-global function Burnmeter_SetForcedReward
-global function Burnmeter_GetForcedReward
+global function Burnmeter_GetDisabledRewards // shared with sh_burnmeter.gnut
+global function Burnmeter_IsRewardDisabled // shared with sh_burnmeter.gnut
+global function Burnmeter_SetForcedReward // make all players use forced reward
+global function Burnmeter_GetForcedReward // shared with sh_burnmeter.gnut
+global function Burnmeter_SetDefaultReplaceReward // if player is using a reward disabled by Burnmeter_SetRewardsDisabled(), we replace it with this
+global function Burnmeter_GetDefaultReplaceReward // shared with sh_burnmeter.gnut
 
 global function Burnmeter_SetRewardDisableNotification // for modded_burnmeter_items.gnut
 
+// phase rewind
 const float PHASE_REWIND_LENGTH = 2.0
 // taken from wraith portal in apex, assuming it's the same as tf2's
 // 0.1 can be too fast for ttf2 scripts
@@ -28,8 +32,14 @@ const float PHASE_REWIND_PATH_SNAPSHOT_INTERVAL = 0.2 // mainly controlled by th
 const int PHASE_REWIND_MAX_SNAPSHOTS = int( PHASE_REWIND_LENGTH / PHASE_REWIND_PATH_SNAPSHOT_INTERVAL ) - 1
 const int PHASE_REWIND_DATA_MAX_POSITIONS = int( PHASE_REWIND_LENGTH * 10 ) + 1 // hardcoded but maybe good
 
+// amped weapons
 const float AMPED_WEAPONS_LENGTH = 30.0
 
+// radar jammer
+const int RADAR_JAMMER_PULSE_COUNT = 2
+const float RADAR_JAMMER_PULSE_DELAY = 2.0 // higher than BURN_METER_RADAR_JAMMER_EASE_OFF_TIME
+
+// map hack
 const int MAPHACK_PULSE_COUNT = 4
 const float MAPHACK_PULSE_DELAY = 2.0
 const float MAPHACK_PULSE_LENGTH = 0.5
@@ -44,6 +54,7 @@ struct
 	// nessie modify
 	array<string> disabledRewards
 	string forcedReward = ""
+	string defaultReplaceReward = ""
 
 	array<string> skipNotificationRewards
 } file
@@ -316,13 +327,19 @@ void function UseBurnCardWeaponInCriticalSection( entity weapon, entity ownerPla
 
 void function BurnMeter_GiveRewardDirect( entity player, string itemRef )
 {
-	// using sh_burnmeter now, left this for random_foil
-	if ( file.disabledRewards.contains( itemRef ) )
-		itemRef = "burnmeter_amped_weapons" // replace with amped weapons by default...
-	
+	// modified
+	// using checks in sh_burnmeter now, left this for random_foil
+	if ( Burnmeter_IsRewardDisabled( itemRef ) )
+	{
+		// try to use defaultReplaceReward
+		itemRef = Burnmeter_GetDefaultReplaceReward()
+	}
+
+	// forced reward
 	if ( file.forcedReward != "" )
 		itemRef = file.forcedReward
-		
+	//
+
 	PlayerInventory_PushInventoryItemByBurnRef( player, itemRef )
 	// this uses "timeSinceLastRespawn" as param!!!
 	//Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", player.s.respawnTime )
@@ -462,12 +479,27 @@ void function PlayerUsesSmartPistolBurncard( entity player )
 
 void function PlayerUsesRadarJammerBurncard( entity player )
 {
+	thread PlayerUsesRadarJammerBurncardThreaded( player )
+}
+
+// nothstar missing
+void function PlayerUsesRadarJammerBurncardThreaded( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	// notification
 	foreach ( entity otherPlayer in GetPlayerArray() )
-	{
 		MessageToPlayer( otherPlayer, eEventNotifications.BurnMeter_RadarJammerUsed, player )
 
-		if ( otherPlayer.GetTeam() != player.GetTeam() )
-			StatusEffect_AddTimed( otherPlayer, eStatusEffect.minimap_jammed, 1.0, BURN_METER_RADAR_JAMMER_PULSE_DURATION, BURN_METER_RADAR_JAMMER_EASE_OFF_TIME )
+	for ( int i = 0; i < RADAR_JAMMER_PULSE_COUNT; i++ )
+	{
+		foreach ( entity otherPlayer in GetPlayerArray() )
+		{
+			if ( otherPlayer.GetTeam() != player.GetTeam() )
+				StatusEffect_AddTimed( otherPlayer, eStatusEffect.minimap_jammed, 1.0, BURN_METER_RADAR_JAMMER_PULSE_DURATION, BURN_METER_RADAR_JAMMER_EASE_OFF_TIME )
+		}
+
+		wait BURN_METER_RADAR_JAMMER_PULSE_DURATION + BURN_METER_RADAR_JAMMER_EASE_OFF_TIME + RADAR_JAMMER_PULSE_DELAY // + 1.0s before starting next pulse
 	}
 }
 
@@ -482,13 +514,16 @@ void function PlayerUsesMaphackBurncardThreaded( entity player )
 
 	// If the user disconnects, we need to clean up hanging sonar effects, so hold relevant data here.
 	int playerTeam = player.GetTeam()
-	bool cleanup = false
+	//bool cleanup = false // can't just pass a free non-entity var into OnThreadEnd()
+	table results = {
+		shouldCleanup = false
+	}
 	array<entity> entities, affectedEntities
 
 	OnThreadEnd(
-		function() : ( cleanup, playerTeam, affectedEntities )
+		function() : ( results, playerTeam, affectedEntities )
 		{
-			if ( !cleanup ) // Map hack ended when sonar wasn't active, no cleanup needed
+			if ( !results.shouldCleanup ) // Map hack ended when sonar wasn't active, no cleanup needed
 				return
 			
 			foreach ( entity ent in affectedEntities )
@@ -533,7 +568,8 @@ void function PlayerUsesMaphackBurncardThreaded( entity player )
 				SonarStart( ent, player.GetOrigin(), playerTeam, player )
 			}
 		}
-		cleanup = true
+		//cleanup = true // can't just pass a free non-entity var into OnThreadEnd()
+		results.shouldCleanup = true
 		wait MAPHACK_PULSE_LENGTH
 
 		DecrementSonarPerTeam( playerTeam )
@@ -543,7 +579,8 @@ void function PlayerUsesMaphackBurncardThreaded( entity player )
 			if ( IsValid( ent ) )
 				SonarEnd( ent, playerTeam )
 		}
-		cleanup = false
+		//cleanup = false // can't just pass a free non-entity var into OnThreadEnd()
+		results.shouldCleanup = false
 		affectedEntities.clear()
 		wait MAPHACK_PULSE_DELAY - MAPHACK_PULSE_LENGTH
 	}
@@ -731,6 +768,11 @@ array<string> function Burnmeter_GetDisabledRewards()
 	return file.disabledRewards
 }
 
+bool function Burnmeter_IsRewardDisabled( string reward )
+{
+	return file.disabledRewards.contains( reward )
+}
+
 void function Burnmeter_SetForcedReward( string reward )
 {
 	file.forcedReward = reward
@@ -739,6 +781,18 @@ void function Burnmeter_SetForcedReward( string reward )
 string function Burnmeter_GetForcedReward()
 {
 	return file.forcedReward
+}
+
+void function Burnmeter_SetDefaultReplaceReward( string reward )
+{
+	file.defaultReplaceReward = reward
+}
+
+string function Burnmeter_GetDefaultReplaceReward()
+{
+	if ( file.defaultReplaceReward == "" ) // no replacement reward given!
+		return "burnmeter_amped_weapons" // replace with amped weapons by default
+	return file.defaultReplaceReward
 }
 
 void function Burnmeter_SetRewardDisableNotification( string ref )

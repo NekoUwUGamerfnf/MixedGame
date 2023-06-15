@@ -29,7 +29,7 @@ struct
 } file
 
 const int LAGGING_BOLT_PER_PLAYER_MIN = 48
-const int LAGGING_BOLT_WORLD_MAX = 512
+const int LAGGING_BOLT_WORLD_MAX = 312
 
 void function MpWeaponLSTAR_Init()
 {
@@ -331,7 +331,7 @@ int function GetPlayerMaxLaggingBolts()
 		{
 			if ( playerFound )
 				continue
-			if ( weapon.HasMod( "lagging_lstar" ) )
+			if ( weapon.GetWeaponClassName() == "mp_weapon_lstar" && weapon.HasMod( "lagging_lstar" ) )
 			{
 				boltWeaponOwnerCount += 1
 				playerFound = true
@@ -341,6 +341,6 @@ int function GetPlayerMaxLaggingBolts()
 	}
 
 	int maxBolts = boltWeaponOwnerCount == 0 ? LAGGING_BOLT_WORLD_MAX : LAGGING_BOLT_WORLD_MAX / boltWeaponOwnerCount
-	return int( max( maxBolts, LAGGING_BOLT_PER_PLAYER_MIN ) )
+	return maxint( maxBolts, LAGGING_BOLT_PER_PLAYER_MIN )
 }
 #endif
