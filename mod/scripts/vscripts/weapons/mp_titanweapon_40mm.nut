@@ -81,9 +81,15 @@ int function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, boo
 	{
 		if ( attackParams.burstIndex == 0 )
 		{
-			int level = weapon.GetWeaponChargeLevel()
+			// reworking bad code
+			//int level = weapon.GetWeaponChargeLevel()
+			int burstCount = maxint( 1, weapon.GetWeaponChargeLevel() ) // default burst count
+			// modded weapon
+			if ( weapon.HasMod( "tone_always_max_burst" ) ) // always max burst
+				burstCount = weapon.GetWeaponChargeLevelMax()
 
-			weapon.SetWeaponBurstFireCount( maxint( 1, level ) )
+			//weapon.SetWeaponBurstFireCount( maxint( 1, level ) )
+			weapon.SetWeaponBurstFireCount( burstCount )
 		}
 	}
 
@@ -219,7 +225,17 @@ void function ApplyTrackerMark( entity owner, entity hitEnt )
 	if ( owner.IsProjectile() )
 		return
 
-	entity trackerRockets = owner.GetOffhandWeapon( OFFHAND_ORDNANCE )
+	// fix for respawn hardcode
+	//entity trackerRockets = owner.GetOffhandWeapon( OFFHAND_ORDNANCE )
+	entity trackerRockets
+	foreach ( entity weapon in owner.GetOffhandWeapons() )
+	{
+		if ( weapon.GetWeaponClassName() == "mp_titanweapon_tracker_rockets" )
+		{
+			trackerRockets = weapon
+			break
+		}
+	}
 	if ( !IsValid( trackerRockets ) )
 		return
 

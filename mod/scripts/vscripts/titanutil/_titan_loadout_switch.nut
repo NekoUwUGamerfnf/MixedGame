@@ -1,4 +1,12 @@
-// based on _sp_loadouts.gnut, really should rework this to tables
+// based on _sp_loadouts.gnut, really should rework this to callbacks
+/*
+	example: 
+		TitanLoadoutSwitch_RegisterBurstFireWeapon( string weapon )
+		TitanLoadoutSwitch_RegisterChargeWeapon( string weapon )
+		TitanLoadoutSwitch_RegisterAmmoClipWeapon( string weapon )
+		TitanLoadoutSwitch_RegisterSharedEnergyWeapon( string weapon )
+		// don't register ignored weapon to any type
+*/
 global function TitanLoadoutSwitch_Init
 
 global function GetWeaponCooldownsForTitanLoadoutSwitch
