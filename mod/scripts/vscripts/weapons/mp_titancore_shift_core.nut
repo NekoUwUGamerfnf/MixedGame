@@ -271,6 +271,8 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		
 		// pullout animation, respawn messed this up, but makes sword core has less startup
 		bool doAnimationFix = weapon.HasMod( "deploy_animation_fix" ) || bool( GetCurrentPlaylistVarInt( "melee_core_anim_fix", 0 ) )
+		if ( meleeSaved ) // always fix animation if we have melee replaced, otherwise player will have weird behavior if they start swordcore from sprinting
+			doAnimationFix = true
 		if ( doAnimationFix )
 		{
 			if ( owner.IsPlayer() )
