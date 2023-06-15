@@ -29,7 +29,7 @@ struct
 } file
 
 const int LAGGING_BOLT_PER_PLAYER_MIN = 48
-const int LAGGING_BOLT_WORLD_MAX = 512
+const int LAGGING_BOLT_WORLD_MAX = 312
 
 void function MpWeaponLSTAR_Init()
 {
