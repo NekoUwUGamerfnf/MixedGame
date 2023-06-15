@@ -42,7 +42,7 @@ struct ExecutionSavedLoadout
 struct
 {
 	table< string, array<void functionref( entity, entity )> > titanExecutionRefCallbacks
-	table< string, void functionref( entity ) > titanExecutionRefLoadoutReplaceCallback
+	table< string, void functionref( entity, entity ) > titanExecutionRefLoadoutReplaceCallback
 	table<entity, ExecutionSavedLoadout> titanExecutionSavedLoadout
 } file
 #endif
@@ -103,7 +103,7 @@ void function MeleeSyncedTitan_InitDefaultRefCallbacks()
 	MeleeSyncedTitan_SetExecutionRefLoadoutReplaceCallback( "execution_bt_kickshoot", Execution_BT_KickShoot )
 }
 
-void function Execution_Ion( entity attacker )
+void function Execution_Ion( entity attacker, entity victim )
 {
 	ReplaceExecutionAttackerLoadout( 
 		attacker, 
@@ -116,7 +116,7 @@ void function Execution_Ion( entity attacker )
 	)
 }
 
-void function Execution_Ion_Prime( entity attacker )
+void function Execution_Ion_Prime( entity attacker, entity victim )
 {
 	string coreWeapon = ""
 	if ( attacker.IsPlayer() ) // saved for npc execution condition: never fire a lasercannon
@@ -133,7 +133,7 @@ void function Execution_Ion_Prime( entity attacker )
 	)
 }
 
-void function Execution_Tone( entity attacker )
+void function Execution_Tone( entity attacker, entity victim )
 {
 	ReplaceExecutionAttackerLoadout( 
 		attacker, 
@@ -146,7 +146,7 @@ void function Execution_Tone( entity attacker )
 	)
 }
 
-void function Execution_Tone_Prime( entity attacker )
+void function Execution_Tone_Prime( entity attacker, entity victim )
 {
 	ReplaceExecutionAttackerLoadout( 
 		attacker, 
@@ -159,7 +159,7 @@ void function Execution_Tone_Prime( entity attacker )
 	)
 }
 
-void function Execution_Ronin( entity attacker )
+void function Execution_Ronin( entity attacker, entity victim )
 {
 	// prime sword check
 	array<string> meleeMods = []
@@ -182,7 +182,7 @@ void function Execution_Ronin( entity attacker )
 	)
 }
 
-void function Execution_Ronin_Prime( entity attacker )
+void function Execution_Ronin_Prime( entity attacker, entity victim )
 {
 	// prime sword check
 	array<string> meleeMods = []
@@ -205,7 +205,7 @@ void function Execution_Ronin_Prime( entity attacker )
 	)
 }
 
-void function Execution_Northstar( entity attacker )
+void function Execution_Northstar( entity attacker, entity victim )
 {
 	ReplaceExecutionAttackerLoadout( 
 		attacker, 
@@ -218,7 +218,7 @@ void function Execution_Northstar( entity attacker )
 	)
 }
 
-void function Execution_Legion( entity attacker )
+void function Execution_Legion( entity attacker, entity victim )
 {
 	ReplaceExecutionAttackerLoadout( 
 		attacker, 
@@ -231,7 +231,7 @@ void function Execution_Legion( entity attacker )
 	)
 }
 
-void function Execution_Legion_Prime( entity attacker )
+void function Execution_Legion_Prime( entity attacker, entity victim )
 {
 	ReplaceExecutionAttackerLoadout( 
 		attacker, 
@@ -244,7 +244,7 @@ void function Execution_Legion_Prime( entity attacker )
 	)
 }
 
-void function Execution_Scorch( entity attacker )
+void function Execution_Scorch( entity attacker, entity victim )
 {
 	ReplaceExecutionAttackerLoadout( 
 		attacker, 
@@ -257,7 +257,7 @@ void function Execution_Scorch( entity attacker )
 	)
 }
 
-void function Execution_BT_KickShoot( entity attacker )
+void function Execution_BT_KickShoot( entity attacker, entity victim )
 {
 	string xo16 = "mp_titanweapon_xo16_shorty"
 	entity xo16Weapon
@@ -303,7 +303,7 @@ void function ReplaceExecutionAttackerLoadout( entity guy, string primary = "", 
 }
 
 // note that doing this will pause titan offhands' cooldowns, and will sometimes regen a wrong amount of cooldown
-// use it carefully through MeleeSyncedTitan_SetSoulShouldReplaceLoadoutOnExecution() to prevent breaking the gameplay
+// use it carefully through MeleeSyncedTitan_SetSoulUseExecutionCallback() to prevent breaking the gameplay
 void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string primary = "", array<string> primaryMods = [], string special = "", array<string> specialMods = [], string antiRodeo = "", array<string> antiRodeoMods = [], string ordnance = "", array<string> ordnanceMods = [], string melee = "", array<string> meleeMods = [], string equipment = "", array<string> equipmentMods = [] )
 {
 	ExecutionSavedLoadout savedLoadout
@@ -317,6 +317,7 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	entity primaryToSave
 	string primaryNameToSave
 	array<string> primaryModsToSave
+	bool primaryDifferent = true
 	bool primarySaved = false
 	array<entity> mainWeapons = guy.GetMainWeapons()
 	if ( mainWeapons.len() > 0 )
@@ -325,9 +326,12 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	{
 		primaryNameToSave = primaryToSave.GetWeaponClassName()
 		primaryModsToSave = primaryToSave.GetMods()
+		primaryDifferent = primary != "" && primary != primaryNameToSave
+		if ( !primaryDifferent && primaryMods.len() > 0 ) // same weapon name! check for mods
+			primaryDifferent = primaryMods != primaryModsToSave
 	}
 
-	if ( IsValid( primaryToSave ) && primary != "" )
+	if ( IsValid( primaryToSave ) && primaryDifferent ) // only do saving when weapons and mods are different
 	{
 		savedLoadout.primary = primaryNameToSave
 		savedLoadout.primaryMods = primaryModsToSave
@@ -344,14 +348,18 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	entity specialToSave = guy.GetOffhandWeapon( OFFHAND_SPECIAL )
 	string specialNameToSave
 	array<string> specialModsToSave
+	bool specialDifferent = true
 	bool specialSaved = false
 	if ( IsValid( specialToSave ) )
 	{
 		specialNameToSave = specialToSave.GetWeaponClassName()
 		specialModsToSave = specialToSave.GetMods()
+		specialDifferent = special != "" && special != specialNameToSave
+		if ( !specialDifferent && specialMods.len() > 0 ) // same weapon name! check for mods
+			specialDifferent = specialMods != specialModsToSave
 	}
 
-	if ( IsValid( specialToSave ) && special != "" )
+	if ( IsValid( specialToSave ) && specialDifferent ) // only do saving when weapons and mods are different
 	{
 		savedLoadout.special = specialNameToSave
 		savedLoadout.specialMods = specialModsToSave
@@ -365,14 +373,18 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	entity antiRodeoToSave = guy.GetOffhandWeapon( OFFHAND_ANTIRODEO )
 	string antiRodeoNameToSave
 	array<string> antiRodeoModsToSave
+	bool antiRodeoDifferent = true
 	bool antiRodeoSaved = false
 	if ( IsValid( antiRodeoToSave ) )
 	{
 		antiRodeoNameToSave = antiRodeoToSave.GetWeaponClassName()
 		antiRodeoModsToSave = antiRodeoToSave.GetMods()
+		antiRodeoDifferent = antiRodeo != "" && antiRodeo != antiRodeoNameToSave
+		if ( !antiRodeoDifferent && antiRodeoMods.len() > 0 ) // same weapon name! check for mods
+			antiRodeoDifferent = antiRodeoMods != antiRodeoModsToSave
 	}
 
-	if ( IsValid( antiRodeoToSave ) && antiRodeo != "" )
+	if ( IsValid( antiRodeoToSave ) && antiRodeoDifferent ) // only do saving when weapons and mods are different
 	{
 		savedLoadout.antiRodeo = antiRodeoNameToSave
 		savedLoadout.antiRodeoMods = antiRodeoModsToSave
@@ -386,14 +398,18 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	entity ordnanceToSave = guy.GetOffhandWeapon( OFFHAND_ORDNANCE )
 	string ordnanceNameToSave
 	array<string> ordnanceModsToSave
+	bool ordnanceDifferent = true
 	bool ordnanceSaved = false
 	if ( IsValid( ordnanceToSave ) )
 	{
 		ordnanceNameToSave = ordnanceToSave.GetWeaponClassName()
 		ordnanceModsToSave = ordnanceToSave.GetMods()
+		ordnanceDifferent = ordnance != "" && ordnance != ordnanceNameToSave
+		if ( !ordnanceDifferent && ordnanceMods.len() > 0 ) // same weapon name! check for mods
+			ordnanceDifferent = ordnanceMods != ordnanceModsToSave
 	}
 
-	if ( IsValid( ordnanceToSave ) && ordnance != "" )
+	if ( IsValid( ordnanceToSave ) && ordnanceDifferent ) // only do saving when weapons and mods are different
 	{
 		savedLoadout.ordnance = ordnanceNameToSave
 		savedLoadout.ordnanceMods = ordnanceModsToSave
@@ -407,14 +423,18 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	entity meleeToSave = guy.GetOffhandWeapon( OFFHAND_MELEE )
 	string meleeNameToSave
 	array<string> meleeModsToSave
+	bool meleeDifferent = true
 	bool meleeSaved = false
 	if ( IsValid( meleeToSave ) )
 	{
 		meleeNameToSave = meleeToSave.GetWeaponClassName()
 		meleeModsToSave = meleeToSave.GetMods()
+		meleeDifferent = melee != "" && melee != meleeNameToSave
+		if ( !meleeDifferent && meleeMods.len() > 0 ) // same weapon name! check for mods
+			meleeDifferent = meleeMods != meleeModsToSave
 	}
 
-	if ( IsValid( meleeToSave ) && melee != "" )
+	if ( IsValid( meleeToSave ) && meleeDifferent ) // only do saving when weapons and mods are different
 	{
 		savedLoadout.melee = meleeNameToSave
 		savedLoadout.meleeMods = meleeModsToSave
@@ -427,14 +447,18 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	entity equipmentToSave = guy.GetOffhandWeapon( OFFHAND_EQUIPMENT )
 	string equipmentNameToSave
 	array<string> equipmentModsToSave
+	bool equipmentDifferent = true
 	bool equipmentSaved = false
 	if ( IsValid( equipmentToSave ) )
 	{
 		equipmentNameToSave = equipmentToSave.GetWeaponClassName()
 		equipmentModsToSave = equipmentToSave.GetMods()
+		equipmentDifferent = equipment != "" && equipment != equipmentNameToSave
+		if ( !equipmentDifferent && equipmentMods.len() > 0 ) // same weapon name! check for mods
+			equipmentDifferent = equipmentMods != equipmentModsToSave
 	}
 
-	if ( IsValid( equipmentToSave ) && equipment != "" )
+	if ( IsValid( equipmentToSave ) && equipmentDifferent )// only do saving when weapons and mods are different
 	{
 		savedLoadout.equipment = equipmentNameToSave
 		savedLoadout.equipmentMods = equipmentModsToSave
@@ -488,14 +512,18 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 		guy.GiveOffhandWeapon( equipment, OFFHAND_EQUIPMENT, equipmentMods )
 
 	// debug prints
-	/*
 	print( "primarySaved: " + string( primarySaved ) )
 	print( "specialSaved: " + string( specialSaved ) )
 	print( "antiRodeoSaved: " + string( antiRodeoSaved ) )
 	print( "ordnanceSaved: " + string( ordnanceSaved ) )
 	print( "meleeSaved: " + string( meleeSaved ) )
 	print( "equipmentSaved: " + string( equipmentSaved ) )
-	*/
+	print( "primaryDifferent: " + string( primaryDifferent ) )
+	print( "specialDifferent: " + string( specialDifferent ) )
+	print( "antiRodeoDifferent: " + string( antiRodeoDifferent ) )
+	print( "ordnanceDifferent: " + string( ordnanceDifferent ) )
+	print( "meleeDifferent: " + string( meleeDifferent ) )
+	print( "equipmentDifferent: " + string( equipmentDifferent ) )
 
 	file.titanExecutionSavedLoadout[ guy ] = savedLoadout
 
@@ -599,7 +627,7 @@ void function MeleeSyncedTitan_RunCallbackForRef( string ref, entity attacker, e
 		callbackFunc( attacker, target )
 }
 
-void function MeleeSyncedTitan_SetExecutionRefLoadoutReplaceCallback( string ref, void functionref( entity ) callbackFunc )
+void function MeleeSyncedTitan_SetExecutionRefLoadoutReplaceCallback( string ref, void functionref( entity, entity ) callbackFunc )
 {
 	if ( !( ref in file.titanExecutionRefLoadoutReplaceCallback ) )
 		file.titanExecutionRefLoadoutReplaceCallback[ ref ] <- callbackFunc
@@ -618,11 +646,11 @@ bool function MeleeSyncedTitan_ExecutionRefHasLoadoutReplaceCallback( string ref
 	return false
 }
 
-void function MeleeSyncedTitan_RunLoadoutReplaceCallbackForRef( string ref, entity attacker )
+void function MeleeSyncedTitan_RunLoadoutReplaceCallbackForRef( string ref, entity attacker, entity target )
 {
 	if ( !( ref in file.titanExecutionRefLoadoutReplaceCallback ) )
 		return
 	//PrintFunc()
-	file.titanExecutionRefLoadoutReplaceCallback[ ref ]( attacker )
+	file.titanExecutionRefLoadoutReplaceCallback[ ref ]( attackr, target )
 }
 #endif
