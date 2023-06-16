@@ -82,11 +82,14 @@ void function EnsureWargamesDeathEffectIsClearedForPlayer( entity player )
 	player.EndSignal( "OnDestroy" )
 	player.Signal( "EnsureWargamesDeathEffectIsClearedForPlayer" )
 	player.EndSignal( "EnsureWargamesDeathEffectIsClearedForPlayer" )
-	
+
 	float startTime = Time()
+	wait 2.1 // 2s is required for the dissolving player being hide, we wait 0.1s more
+
+	float endTime = Time() + 4.0 // update end time
 	while ( player.kv.VisibilityFlags != "0" )
 	{
-		if ( Time() > startTime + 4.0 ) // if we wait too long, just ignore
+		if ( Time() > endTime ) // if we wait too long, just ignore
 			return
 	
 		WaitFrame() 
