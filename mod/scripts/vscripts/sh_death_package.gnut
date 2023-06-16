@@ -421,6 +421,10 @@ void function HandleDeathPackage( entity ent, var damageInfo )
 				{
 					ent.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
 				}
+
+				// check for modified death cam!!!! if player quickly respawning themselves after being dissolved, they'll be hide!
+				if ( ent.IsPlayer() )
+					thread EnsureDissolveEffectIsClearedForPlayer( ent )
 			}
 		}
 
@@ -444,7 +448,6 @@ void function HandleDeathPackage( entity ent, var damageInfo )
 		ent.BecomeRagdoll( forceVec * forceMag, SKIP_ANIMATION )
 		return
 	}
-
 }
 
 bool function ShouldDoHumanSizedGibs( entity ent, int dpFlags )
@@ -475,11 +478,29 @@ void function HumanSizedGibDeath( entity ent, int dpFlags, var damageInfo )
 	ent.Gib( forceVec )
 
 	// respawn messed up flesh target gibbed sound. they put no sound for flesh pilot, and make grunts use pain_death_sound
-	bool doFleshGibSound = !ent.IsMechanical() && ( ( ent.IsPlayer() && PainDeathSounds_GetBodyTypeOverride( ent ) != eBodyTypes.NPC_GRUNT ) || ( ent.IsNPC() && ( "silentDeath" in ent.s ) ) )
+	bool doFleshGibSound = !ent.IsMechanical() && !( dpFlags & DF_DISSOLVE ) && ( ( ent.IsPlayer() && PainDeathSounds_GetBodyTypeOverride( ent ) != eBodyTypes.NPC_GRUNT ) || ( ent.IsNPC() && ( "silentDeath" in ent.s ) ) )
 	//print( "doFleshGibSound: " + string( doFleshGibSound ) )
 	if ( doFleshGibSound )
         EmitSoundAtPosition( TEAM_UNASSIGNED, ent.GetOrigin(), "death.pinkmist" )
 }
+
+// extra check for modified death cam!!!!
+void function EnsureDissolveEffectIsClearedForPlayer( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	float startTime = Time()
+	while ( player.kv.VisibilityFlags != "0" ) // dissolving will finally set player to ENTITY_VISIBLE_TO_NOBODY
+	{
+		if ( Time() > startTime + 4.0 ) // if we wait too long, just ignore
+			return
+	
+		WaitFrame() 
+	}
+
+	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+}
+//
 
 void function GibTitan( entity titan, var damageInfo )
 {
