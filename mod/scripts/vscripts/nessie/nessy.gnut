@@ -99,8 +99,6 @@ struct
 	array<NessyMix> nessymixs
 
 	// cooldowns
-	array<string> nessyedPlayer
-	array<string> battedPlayer
 	array<entity> holoSprayedPlayer
 } file
 
@@ -213,14 +211,12 @@ void function EverythingNessy_Init()
 		//SetPilotBatteryUsageAllowed( true ) // from pilot_shield_battery.gnut
 		//SetShieldBatteryNoLimit( true ) // from pilot_shield_battery.gnut
 	}
-	//if( GAMETYPE != "mfd" ) //prevent mfd client crash, no need for now I've fixed it
-	//{
-		AddCallback_OnPlayerRespawned( OnPlayerRespawned )
-		AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
-		AddCallback_OnPlayerKilled( OnPlayerKilled )
-		AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
-		AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
-	//}
+
+	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+	AddCallback_OnPlayerKilled( OnPlayerKilled )
+	AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
+	AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
 
 	if( IsNonFlagGamemode() )
 		AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
@@ -479,12 +475,11 @@ void function OnClientConnected( entity player )
 
 void function OnPlayerRespawned( entity player )
 {
-	//SpawnNessyOutfit( player ) // OnPlayerGetsNewPilotLoadout also called after respawn, no need
+
 }
 
 void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
 {
-	ClearNessy( player )
 	SpawnNessyOutfit( player )
 }
 
@@ -506,6 +501,7 @@ void function SpawnDecoyOutfit( entity decoy )
 
 void function DecoyOutfitCleanUp( entity decoy, int currentState )
 {
+	// decoy won't call "OnDeath", have to manually destroy outfit
 	ClearNessy( decoy )
 }
 
@@ -516,17 +512,16 @@ void function Nessie_SetDecoyOutfit( bool set )
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
-	ClearNessy( victim )
+
 }
 
 void function OnPilotBecomesTitan( entity player, entity titan )
 {
-	ClearNessy( player )
+
 }
 
 void function OnTitanBecomesPilot( entity titan, entity player )
 {
-	ClearNessy( player )
 	SpawnNessyOutfit( player )
 }
 
@@ -574,17 +569,26 @@ void function SpawnNessyOutfit( entity ent )
 void function SpawnNessyOutfit_Threaded( entity ent )
 {
 	ClearNessy( ent ) // defensive clear!
-	WaitFrame() // better wait since we have "altpilot"
+	WaitFrame() // better wait for model stuffs set up, we have "altpilot"
 	if( !IsAlive( ent ) )
 		return
-	if( !ent.IsTitan() )
-	{
-		//AllFunctionsTogether( player )
-		CreateNessyHat( hatassets, ent )
-		CreateNessyBackpack( backpackassets, ent )
-		//CreateNessyFX( fxassets, player )
-		//CreateNessyPistol( pistolassets, player )
-	}
+	if( ent.IsTitan() )
+		return
+
+	//AllFunctionsTogether( player )
+	CreateNessyHat( hatassets, ent )
+	CreateNessyBackpack( backpackassets, ent )
+	//CreateNessyFX( fxassets, player )
+	//CreateNessyPistol( pistolassets, player )
+	thread TrackNessyOutfitOwnerDeath( ent )
+}
+
+void function TrackNessyOutfitOwnerDeath( entity ent )
+{
+	ent.EndSignal( "OnDestroy" ) // destroyed ent gets their parent destroyed, no worries
+
+	ent.WaitSignal( "OnDeath" )
+	ClearNessy( ent )
 }
 
 bool function SpawnBattery( entity player, array<string> args )
@@ -852,8 +856,6 @@ void function CallbackFuncSpawnBattery( entity player )
 		return
 	if ( !(Riff_TitanAvailability() == eTitanAvailability.Never) )
 		return
-	if( file.battedPlayer.contains(player.GetUID()) )
-		return
 
 	entity battery = Rodeo_CreateBatteryPack( player, false, true )
 	bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
@@ -874,13 +876,6 @@ void function CallbackFuncSpawnBattery( entity player )
 			thread RGY_BatterySkin( battery )
 		HoldingProp_SetEntityCanBePickedUpForced( battery, true ) // make battery pickupable
 	}
-	/*
-	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
-	{
-		file.battedPlayer.append( player.GetUID() ) 
-		thread ClearBattedPlayer( player )
-	}
-	*/
 }
 
 void function CallbackFuncThrowBattery( entity player )
@@ -1012,22 +1007,6 @@ entity function CreateCopyOfPlayerModel( entity player )
 	return model
 }
 
-void function ClearNessyedPlayer( entity player )
-{
-	string uid = player.GetUID()
-	wait 3
-	if( IsValid( player ) )
-		file.nessyedPlayer.removebyvalue( uid )	
-}
-
-void function ClearBattedPlayer( entity player )
-{
-	string uid = player.GetUID()
-	wait 3
-	if( IsValid( player ) )
-		file.nessyedPlayer.removebyvalue( uid )	
-}
-
 void function DelayedDissolveNessie( entity nessy )
 {
 	wait 10
@@ -1094,28 +1073,28 @@ void function SetNessyHatStats( NessyHat nessy )
 	{
 		if( nessy.modelasset == $"models/domestic/nessy_doll.mdl" )
 		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 )
+			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 ) // remove head
 			nessy.hat.SetOrigin( < 0, 0, -10 > )
 			nessy.hat.SetAngles( < 0, -90, 0 > )
 			return
 		}
 		if( nessy.modelasset == $"models/robots/drone_frag/drone_frag.mdl" )
 		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 )
+			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 ) // remove head
 			nessy.hat.SetOrigin( < 0, 0, -15 > )
 			nessy.hat.kv.modelscale = 0.3
 			return
 		}
 		if( nessy.modelasset == $"models/weapons/sentry_frag/sentry_frag.mdl" )
 		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 )
+			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 ) // remove head
 			nessy.hat.SetOrigin( < 0, 0, -12 > )
 			nessy.hat.kv.modelscale = 0.35
 			return
 		}
 		if( nessy.modelasset == $"models/robots/marvin/marvin.mdl" )
 		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 )
+			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 ) // remove head
 			nessy.hat.SetOrigin( < -5, 0, -25 > )
 			nessy.hat.kv.modelscale = 0.4
 			thread TrackMarvinOwnerDamaged( nessy.owner, nessy.hat )
@@ -1123,6 +1102,7 @@ void function SetNessyHatStats( NessyHat nessy )
 		}
 		if( nessy.modelasset == $"models/creatures/prowler/r2_prowler.mdl" )
 		{
+			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 0 ) // give head back
 			if ( HasFlatHead( nessy.owner ) ) // spectre
 				nessy.hat.SetOrigin( < 0, 0, 1 > )
 			else
@@ -1141,6 +1121,7 @@ void function SetNessyHatStats( NessyHat nessy )
 		*/
 		if( nessy.modelasset == $"models/weapons/data_knife/v_data_knife.mdl" )
 		{
+			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 0 ) // give head back
 			if ( HasFlatHead( nessy.owner ) ) // spectre
 				nessy.hat.SetOrigin( < 2, 0, 5 > )
 			else
@@ -1231,25 +1212,27 @@ void function SetNessyHatStats( NessyHat nessy )
 	{
 		if( nessy.modelasset == $"models/domestic/nessy_doll.mdl" )
 		{
+			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 0 ) // give helmet back
 			nessy.hat.SetOrigin( < 0, 0, 0 > )
 			return
 		}
 		if( nessy.modelasset == $"models/robots/drone_frag/drone_frag.mdl" )
 		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 )
+			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 ) // remove helmet
 			nessy.hat.SetOrigin( < 0, 0, -3 > )
 			nessy.hat.kv.modelscale = 0.3
 			return
 		}
 		if( nessy.modelasset == $"models/weapons/sentry_frag/sentry_frag.mdl" )
 		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 )
+			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 ) // remove helmet
 			nessy.hat.SetOrigin( < 0, 0, -1 > )
 			nessy.hat.kv.modelscale = 0.35
 			return
 		}
 		if( nessy.modelasset == $"models/robots/marvin/marvin.mdl" )
 		{
+			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 0 ) // give helmet back
 			nessy.hat.SetOrigin( < 0, 0, -10 > )
 			nessy.hat.kv.modelscale = 0.3
 			thread TrackMarvinOwnerDamaged( nessy.owner, nessy.hat )
@@ -1257,13 +1240,14 @@ void function SetNessyHatStats( NessyHat nessy )
 		}
 		if( nessy.modelasset == $"models/creatures/prowler/r2_prowler.mdl" )
 		{
+			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 0 ) // give helmet back
 			nessy.hat.SetOrigin( < 0, 0, 3 > )
 			nessy.hat.kv.modelscale = 0.15
 			return
 		}
 		if( nessy.modelasset == $"models/weapons/data_knife/v_data_knife.mdl" )
 		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 )
+			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 ) // remove helmet
 			nessy.hat.SetOrigin( < 2, 0, 7 > )
 			nessy.hat.SetAngles( < 0, 0, 0 > )
 			return
