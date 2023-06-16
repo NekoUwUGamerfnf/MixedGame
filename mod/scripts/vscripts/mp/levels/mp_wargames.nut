@@ -19,6 +19,7 @@ void function CodeCallback_MapInit()
 	AddCallback_EntitiesDidLoad( AddEvacNodes )
 	
 	// dissolve effects
+	RegisterSignal( "EnsureWargamesDeathEffectIsClearedForPlayer" )
 	AddCallback_OnPlayerKilled( WargamesOnPlayerKilled )
 	AddCallback_OnNPCKilled( WargamesOnNPCKilled )
 	AddDeathCallback( "npc_pilot_elite", WargamesDissolveDeadEntity ) // onNpcKilled can't handle npc pilots
@@ -79,6 +80,8 @@ void function EnsureWargamesDeathEffectIsClearedForPlayer( entity player )
 {
 	// this is slightly shit but whatever lol
 	player.EndSignal( "OnDestroy" )
+	player.Signal( "EnsureWargamesDeathEffectIsClearedForPlayer" )
+	player.EndSignal( "EnsureWargamesDeathEffectIsClearedForPlayer" )
 	
 	float startTime = Time()
 	while ( player.kv.VisibilityFlags != "0" )
