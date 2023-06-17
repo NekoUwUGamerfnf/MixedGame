@@ -72,12 +72,20 @@ global function CodeCallback_OnPlayerEndWallrun
 global function CodeCallback_OnPlayerBeginWallhang
 global function CodeCallback_OnPlayerEndWallhang
 
+// nessie modify
+global function EntityKilledCallback_AddDisabledDamageSourceID // disable CodeCallback_OnEntityKilled() for certain damageSourceId
+global function EntityKilledEvent_SetDisabledForEntity // disable entityKilledEvent(mainly to display obit) for certain entity
+
 struct
 {
 	table<string, array< void functionref( entity, var ) > > classDamageCallbacks
 	table<string, array< void functionref( entity, var ) > > classDamageFinalCallbacks
 	table<string, array< void functionref( entity, var ) > > classPostDamageCallbacks
 	array< void functionref( entity ) > playerInventoryChangedCallbacks
+
+	// nessie modify
+	array<int> disableEntityKilledCallbackDamageSourceIDs
+	table<entity, bool> entDisableEntityKilledEvent
 } file
 
 void function CodeCallback_DamageEntity( entity ent, var damageInfo )
@@ -196,10 +204,9 @@ void function HandleFootstepDamage( entity victim, var damageInfo )
 
 void function CodeCallback_OnEntityKilled( entity ent, var damageInfo )
 {
-	// modified
+	// modified settings for mp
 	#if MP
-		// save for hacked death and spectator mod
-		if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == damagedef_despawn )
+		if ( !ShouldRunEntityKilledCallback( damageInfo ) )
 			return
 	#endif
 
@@ -222,6 +229,11 @@ void function CodeCallback_OnEntityKilled( entity ent, var damageInfo )
 	{
 		callbackFunc( ent, damageInfo )
 	}
+
+	#if MP// modified settings for mp
+		if ( !ShouldEntitySendKilledEvent( ent ) )
+			return
+	#endif
 
 	SendEntityKilledEvent( ent, damageInfo )
 }
@@ -897,4 +909,38 @@ void function CodeCallback_OnPlayerEndWallhang( entity player )
 void function AddCallback_OnPlayerInventoryChanged( void functionref( entity ) callbackFunc )
 {
 	file.playerInventoryChangedCallbacks.append( callbackFunc )
+}
+
+
+// modified callbacks!!!!
+void function EntityKilledCallback_AddDisabledDamageSourceID( int damageSourceId )
+{
+	if ( !file.disableEntityKilledCallbackDamageSourceIDs.contains( damageSourceId ) )
+		file.disableEntityKilledCallbackDamageSourceIDs.append( damageSourceId )
+}
+
+void function EntityKilledEvent_SetDisabledForEntity( entity ent, bool disable )
+{
+	if ( !( ent in file.entDisableEntityKilledEvent ) )
+		file.entDisableEntityKilledEvent[ ent ] <- false // default value
+	file.entDisableEntityKilledEvent[ ent ] = disable
+}
+
+// utility for current file
+bool function ShouldRunEntityKilledCallback( var damageInfo )
+{
+	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	if ( file.disableEntityKilledCallbackDamageSourceIDs.contains( damageSourceId ) )
+		return false
+
+	// all checks passed
+	return true
+}
+
+bool function ShouldEntitySendKilledEvent( entity ent )
+{
+	if ( !( ent in file.entDisableEntityKilledEvent ) )
+		return true // default value
+
+	return !file.entDisableEntityKilledEvent[ ent ]
 }

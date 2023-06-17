@@ -161,7 +161,7 @@ void function PowerShot_DamagedEntity( entity victim, var damageInfo )
 	{
 		if ( inflictor.IsProjectile() )
 		{
-			if ( inflictor.ProjectileGetMods().contains( "LongRangePowerShot" ) ) // vanilla don't have this! no need to use Vortex_GetRefiredProjectileMods()
+			if ( inflictor.ProjectileGetMods().contains( "LongRangePowerShot" ) ) // don't want to change damageSourceId for vortex refire! no need to use Vortex_GetRefiredProjectileMods()
 				isLongRangePowerShot = true
 		}
 	}
