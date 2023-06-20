@@ -24,13 +24,17 @@ const LOCKON_RUMBLE_AMOUNT	= 45
 const S2S_MISSILE_SPEED = 2500
 const S2S_MISSILE_HOMING = 5000
 
-
 // modded rocket
-const float GUIDED_MISSILE_LIFETIME = 20
+const array<string> NO_LOCK_REQUIRED_MODS = // we should fix visual for these mods
+[
+	"no_lock_required",
+	"guided_missile",
+]
+const float GUIDED_MISSILE_LIFETIME = 20 // guided missile lifetiime
 // visual fix
 struct
 {
-	table<entity, entity> rocketLaserTable
+	table<entity, entity> rocketLaserTable // save existing laser effect
 } file
 
 function MpWeaponRocketLauncher_Init()
@@ -225,11 +229,27 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 
 void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile )
+	// direct hit
+	if ( refiredMods.contains( "direct_hit" ) )
+        OnProjectileCollision_DirectHit( projectile, pos, normal, hitEnt, hitbox, isCritical )
+
 #if SERVER
-	array<string> mods = projectile.ProjectileGetMods() // only contains explosion stuffs, no need to use Vortex_GetRefiredProjectileMods())
-	if( mods.contains( "no_lock_required" ) || mods.contains( "guided_missile" ) )
+	// visual fix think
+	array<string> mods = projectile.ProjectileGetMods() // only contains explosion stuffs, no need to use Vortex_GetRefiredProjectileMods()
+	bool shouldFixVisual = false
+	foreach ( string mod in NO_LOCK_REQUIRED_MODS )
 	{
-		// do a fake explosion effect for better client visual, hardcoded!..
+		if ( mods.contains( mod ) )
+		{
+			shouldFixVisual = true
+			break
+		}
+	}
+	//print( "shouldFixVisual: " + string( shouldFixVisual ) )
+	if ( shouldFixVisual )
+	{
+		// do a fake explosion effect for better client visual, hardcoded!
 		float creationTime = projectile.GetProjectileCreationTime()
 		float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
 		if ( Time() < maxFixTime )
