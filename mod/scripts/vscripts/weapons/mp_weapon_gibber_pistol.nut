@@ -31,7 +31,7 @@ var function OnWeaponPrimaryAttack_weapon_gibber_pistol( entity weapon, WeaponPr
 		// don't calculate again! client will desync
 		//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
 		//attackParams.dir = bulletVec
-		//weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, weapon.GetWeaponDamageFlags() )
 	}
 }
