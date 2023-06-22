@@ -779,11 +779,13 @@ void function PlayerStatusDisplayer( entity player )
 			return
 		WaitFrame()
 		//player.WaitSignal( "OnDamaged" ) // this can't handle the health regen!
-		string knockdownString = "" // for noticing players health that they've been downed
-		if ( Bleedout_IsPlayerBleeding( player ) )
-			knockdownString = " (倒地)"
-		NSEditStatusMessageOnPlayer( player, "護盾", string( player.GetShieldHealth() ), BLEEDOUT_MODE_SHIELD_MESSAGE_ID ) // update shield message
-		NSEditStatusMessageOnPlayer( player, "血量", string( player.GetHealth() ) + knockdownString, BLEEDOUT_MODE_HEALTH_MESSAGE_ID ) // update health message
+		string shieldString = string( player.GetShieldHealth() )
+		string healthString = string( player.GetHealth() )
+		if ( Bleedout_IsPlayerBleeding( player ) ) // for noticing players health that they've been downed
+			healthString += " (倒地)"
+
+		NSEditStatusMessageOnPlayer( player, "護盾", shieldString, BLEEDOUT_MODE_SHIELD_MESSAGE_ID ) // update shield message
+		NSEditStatusMessageOnPlayer( player, "血量", healthString, BLEEDOUT_MODE_HEALTH_MESSAGE_ID ) // update health message
 
 		if ( ShouldAddPlayerBatteryHint( player ) && player.GetShieldHealth() != player.GetShieldHealthMax() && !Bleedout_IsPlayerBleeding( player ) )
 		{
@@ -1025,6 +1027,9 @@ void function Bleedout_DeathProtection( entity player )
 			}
 		}
 	)
+
+	// update health
+	player.SetHealth( BLEEDOUT_MODE_DOWNED_HEALTH )
 
 	// this one is only for handling killshots!
 	AddEntityCallback_OnPostDamaged( player, OnRecentDownedPlayerPostDamage )
@@ -1424,7 +1429,9 @@ void function Bleedout_IncapShieldThink( entity player )
 
 			if( !vortexShown )
 			{
-				EmitSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
+				//EmitSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
+				StopSoundOnEntity( player, "Hardcover_Shield_End_3P" )
+				EmitSoundOnEntity( vortexSphere, "Hardcover_Shield_Start_3P" )
 				HACK_ShowIncapShieldVortexSphere( vortexSphere, player ) // hacking function
 				//ShowIncapShieldVortexSphere( vortexSphere )
 				//CreateIncapShieldWallFX( vortexSphere ) // no need for now!
@@ -1437,7 +1444,9 @@ void function Bleedout_IncapShieldThink( entity player )
 		else// if( player.IsInputCommandHeld( IN_ATTACK ) )
 		{
 			//print( "Stopping Incap Shield" )
-			StopSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
+			//StopSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
+			StopSoundOnEntity( vortexSphere, "Hardcover_Shield_Start_3P" )
+			EmitSoundOnEntity( player, "Hardcover_Shield_End_3P" ) // do sound on player since vortex has been hide
 			//StopIncapShieldWallFX( vortexSphere ) // no need for now!
 			HACK_TempHideIncapShieldVortexSphere( vortexSphere ) // stupid function
 			//HideIncapShieldVortexSphere( vortexSphere )
@@ -1571,6 +1580,10 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 		//AddEntityCallback_OnDamaged( vortexSphere, IncapShieldTableUpdate )
 		//thread TrackPlayerIncapShieldHealth( vortexSphere, player )
 		thread TrackIncapShieldDeath( vortexSphere, player ) // for emitting a sound
+
+		// damage handler
+		SetVortexSphereBulletHitRules( vortexSphere, OnIncapSheildBulletHit )
+		SetVortexSphereProjectileHitRules( vortexSphere, OnIncapSheildProjectileHit )
 	}
 
 	return vortexSphere
@@ -1596,6 +1609,77 @@ entity function CreateIncapShieldForBleedingPlayer( entity player )
 
 	thread Stop1PFXOnDestroy( vortexSphere, shieldWallFX1P )
 	*/
+}
+
+var function OnIncapSheildBulletHit( entity vortexSphere, var damageInfo )
+{
+	entity owner = vortexSphere.GetOwner()
+	if ( !IsAlive( owner ) )
+		return damageInfo
+
+	// modified function from _vortex.gnut
+	int damage = int( Vortex_CalculateBulletHitDamage( vortexSphere, damageInfo ) )
+	bool isKillShot = damage >= vortexSphere.GetHealth()
+	if ( isKillShot ) // killshot!
+	{
+		int overdoseDamage = damage - vortexSphere.GetHealth()
+		// deal overdose damage to player
+		if ( overdoseDamage >= 1 )
+		{
+			owner.TakeDamage( overdoseDamage,
+							  DamageInfo_GetAttacker( damageInfo ), 
+							  DamageInfo_GetInflictor( damageInfo ), 
+							  { // damage table
+							    weapon = DamageInfo_GetWeapon( damageInfo ), 
+							    origin = DamageInfo_GetDamagePosition( damageInfo ), 
+							    force = DamageInfo_GetDamageForce( damageInfo ), 
+							    scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+							    damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo ) 
+							  }
+							)
+		}
+	}
+
+	// take a viewpunch from damage
+	owner.ViewPunch( DamageInfo_GetDamagePosition( damageInfo ), 2.0, 1.0, 1.0 )
+
+	return damageInfo
+}
+
+// the function SetVortexSphereProjectileHitRules() has been modified, it takes 1 more parameter
+bool function OnIncapSheildProjectileHit( entity vortexSphere, entity attacker, entity projectile, bool takesDamage )
+{
+	if ( !IsValid( projectile ) )
+		return takesDamage
+
+	entity owner = vortexSphere.GetOwner()
+	if ( !IsAlive( owner ) )
+		return takesDamage
+
+	// modified function from _vortex.gnut
+	int damage = int( Vortex_CalculateProjectileHitDamage( vortexSphere, attacker, projectile ) )
+	bool isKillShot = damage >= vortexSphere.GetHealth()
+	if ( isKillShot ) // killshot!
+	{
+		int overdoseDamage = damage - vortexSphere.GetHealth()
+		// deal overdose damage to player
+		if ( overdoseDamage >= 1 )
+		{
+			owner.TakeDamage( overdoseDamage,
+							  attacker, 
+							  projectile, 
+							  { // damage table
+							    scriptType = TEMP_GetDamageFlagsFromProjectile( projectile ), 
+							    damageSourceId = projectile.ProjectileGetDamageSourceID() 
+							  }
+							)
+		}
+	}
+
+	// take a viewpunch from damage
+	owner.ViewPunch( projectile.GetOrigin(), 2.0, 1.0, 1.0 )
+
+	return takesDamage
 }
 
 const string BLEEDOUT_MODE_INCAP_SHIELD_HINT_ID = "16"
