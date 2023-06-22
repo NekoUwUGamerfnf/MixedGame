@@ -1,16 +1,23 @@
 global function MpAbilityGunShield_Init
 
-global function OnWeaponPrimaryAttack_pilot_gun_shield
+global function OnWeaponPrimaryAttack_pilot_gun_shield // shared with mp_titanability_gun_shield
 
 #if SERVER
-// redirect damage: vortexSphere.Signal( "Script_OnDamaged", result ) will return a table that contains damage amount, be sure to use it
-global function CreateHumanSizedGunShield // shared with mp_titanability_gun_shield
+// redirect damage: SetVortexSphereBulletHitRules() and SetVortexSphereProjectileHitRules() will pass damageInfo and projectile on hit, be sure to use them
+global function CreateHumanSizedGunShield
 #endif
+
+struct
+{
+	table<entity, entity> playerPilotGunShield
+} file
 
 void function MpAbilityGunShield_Init()
 {
 #if SERVER
     PrecacheParticleSystem( FX_TITAN_GUN_SHIELD_WALL_PILOT )
+
+	AddCallback_OnClientConnected( OnClientConnected )
 #endif
 }
 
@@ -25,8 +32,8 @@ var function OnWeaponPrimaryAttack_pilot_gun_shield( entity weapon, WeaponPrimar
 	if ( weapons.len() == 0 )
 		return 0
 
-	entity primaryWeapon = weapons[0]
-	if ( !IsValid( primaryWeapon ) )
+	entity activeWeapon = weaponOwner.GetActiveWeapon()
+	if ( !IsValid( activeWeapon ) )
 		return 0
 
 	if ( weaponOwner.ContextAction_IsActive() )
@@ -37,13 +44,28 @@ var function OnWeaponPrimaryAttack_pilot_gun_shield( entity weapon, WeaponPrimar
 		PlayerUsedOffhand( weaponOwner, weapon )
 
 #if SERVER
-    thread CreateHumanSizedGunShield( weaponOwner, duration ) // defined in mp_ability_gun_shield
+    PlayerActivateADSGunShield( weapon, weaponOwner, duration ) // defined in mp_ability_gun_shield
 #endif
 
     return 1 // mark as succeeded
 }
 
 #if SERVER
+void function OnClientConnected( entity player )
+{
+	file.playerPilotGunShield[ player ] <- null
+}
+
+// forced ads style gunshield
+void function PlayerActivateADSGunShield( entity weapon, entity player, float duration )
+{
+	entity vortexSphere = CreateHumanSizedGunShield( weapon, player,duration )
+	entity fpShieldFX = CreateFirstPersonGunShieldFX( player, vortexSphere )
+	thread ForcedADSGunShieldThink( player, vortexSphere, duration )
+}
+
+// passive stype gunshield(WIP)
+
 // pilot gunshield
 // these should fit rotated fx!
 const int PILOT_GUN_SHIELD_RADIUS = 35
@@ -51,17 +73,27 @@ const int PILOT_GUN_SHIELD_HEIGHT = 60
 const int PILOT_GUN_SHIELD_FOV = 75
 const int PILOT_GUN_SHIELD_HEALTH = 200
 
-const asset FX_TITAN_GUN_SHIELD_WALL_PILOT  = $"P_anti_titan_shield_3P"
-const string PILOT_GUN_SHIELD_ATTACHMENT	= "PROPGUN"
-const vector PILOT_GUN_SHIELD_OFFSET		= < 0, 0, -23 > // add a bit offset to cover player
-const vector PILOT_GUN_SHIELD_FX_ANGLES		= < 20, 0, 94 >
-const vector PILOT_GUN_SHIELD_FX_ORIGIN		= < 31, 0, 32 >
+const asset FX_TITAN_GUN_SHIELD_WALL_PILOT  	= $"P_anti_titan_shield_3P"
+const string PILOT_GUN_SHIELD_ATTACHMENT		= "PROPGUN"
+const string PILOT_GUN_SHIELD_ATTACHMENT_FP		= "muzzle_flash"
+const vector PILOT_GUN_SHIELD_OFFSET			= < 0, 0, -23 > // add a bit offset to cover player
+const vector PILOT_GUN_SHIELD_FX_ANGLES			= < 20, 0, 94 >
+const vector PILOT_GUN_SHIELD_FX_ORIGIN			= < 31, 0, 32 >
 
-void function CreateHumanSizedGunShield( entity player, float duration = 6.0 )
+// TEMP, we'll hide gunshield to this origin
+const vector TEMP_GUN_SHIELD_HIDE_POS = < -9999, -9999, -9999 >
+
+entity function CreateHumanSizedGunShield( entity weapon, entity player, float duration = 6.0 )
 {
 	vector angles = VectorToAngles( player.EyeAngles() )
 	entity vortexSphere = CreateShieldWithSettings( player.GetOrigin(), angles, PILOT_GUN_SHIELD_RADIUS, PILOT_GUN_SHIELD_HEIGHT, PILOT_GUN_SHIELD_FOV, duration, PILOT_GUN_SHIELD_HEALTH, FX_TITAN_GUN_SHIELD_WALL_PILOT )
-	thread DrainHealthOverTime( vortexSphere, vortexSphere.e.shieldWallFX, duration )
+	thread DrainHealthOverTime( vortexSphere, vortexSphere.e.shieldWallFX, duration ) // update color and destroy after time
+	// weapon setup
+	vortexSphere.SetOwnerWeapon( weapon )
+	weapon.SetWeaponUtilityEntity( vortexSphere )
+
+	SetVortexSphereBulletHitRules( vortexSphere, OnPilotGunShiledBulletHit )
+	SetVortexSphereProjectileHitRules( vortexSphere, OnPilotGunShiledProjectileHit )
 
 	vortexSphere.SetOwner( player )
 	vortexSphere.SetBlocksRadiusDamage( true )
@@ -76,13 +108,76 @@ void function CreateHumanSizedGunShield( entity player, float duration = 6.0 )
 	shieldFX.SetOrigin( PILOT_GUN_SHIELD_FX_ORIGIN )
 	// don't show to owner
 	shieldFX.SetOwner( player )
-	//shieldFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY 
-
-	entity fpShieldFX = CreateFirstPersonGunShieldFX( player, vortexSphere )
-	thread ShieldADSThink( player, vortexSphere, fpShieldFX, duration )
+	shieldFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY 
+	return vortexSphere
 }
 
-void function ShieldADSThink( entity player, entity vortexSphere, entity fpShieldFX, float duration )
+var function OnPilotGunShiledBulletHit( entity vortexSphere, var damageInfo )
+{
+	entity owner = vortexSphere.GetOwner()
+	if ( !IsAlive( owner ) )
+		return damageInfo
+
+	// modified function from _vortex.gnut
+	int damage = int( Vortex_CalculateBulletHitDamage( vortexSphere, damageInfo ) )
+	bool isKillShot = damage >= vortexSphere.GetHealth()
+	if ( isKillShot ) // killshot!
+	{
+		int overdoseDamage = damage - vortexSphere.GetHealth()
+		// deal overdose damage to player
+		if ( overdoseDamage >= 1 )
+		{
+			owner.TakeDamage( overdoseDamage,
+							  DamageInfo_GetAttacker( damageInfo ), 
+							  DamageInfo_GetInflictor( damageInfo ), 
+							  { // damage table
+							    weapon = DamageInfo_GetWeapon( damageInfo ), 
+							    origin = DamageInfo_GetDamagePosition( damageInfo ), 
+							    force = DamageInfo_GetDamageForce( damageInfo ), 
+							    scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+							    damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo ) 
+							  }
+							)
+		}
+	}
+
+	return damageInfo
+}
+
+// the function SetVortexSphereProjectileHitRules() has been modified, it takes 1 more parameter
+bool function OnPilotGunShiledProjectileHit( entity vortexSphere, entity attacker, entity projectile, bool takesDamage )
+{
+	if ( !IsValid( projectile ) )
+		return takesDamage
+
+	entity owner = vortexSphere.GetOwner()
+	if ( !IsAlive( owner ) )
+		return takesDamage
+
+	// modified function from _vortex.gnut
+	int damage = int( Vortex_CalculateProjectileHitDamage( vortexSphere, attacker, projectile ) )
+	bool isKillShot = damage >= vortexSphere.GetHealth()
+	if ( isKillShot ) // killshot!
+	{
+		int overdoseDamage = damage - vortexSphere.GetHealth()
+		// deal overdose damage to player
+		if ( overdoseDamage >= 1 )
+		{
+			owner.TakeDamage( overdoseDamage,
+							  attacker, 
+							  projectile, 
+							  { // damage table
+							    scriptType = TEMP_GetDamageFlagsFromProjectile( projectile ), 
+							    damageSourceId = projectile.ProjectileGetDamageSourceID() 
+							  }
+							)
+		}
+	}
+
+	return takesDamage
+}
+
+void function ForcedADSGunShieldThink( entity player, entity vortexSphere, float duration )
 {
     player.EndSignal( "ContextAction_SetBusy" )
     player.EndSignal( "OnDestroy" )
@@ -91,14 +186,21 @@ void function ShieldADSThink( entity player, entity vortexSphere, entity fpShiel
     vortexSphere.EndSignal( "OnDestroy" )
 
     OnThreadEnd(
-		function(): ( player, vortexSphere, fpShieldFX )
+		function(): ( player, vortexSphere )
 		{
             // clean up
 			if( IsValid( vortexSphere ) )
+			{
+				StopSoundOnEntity( vortexSphere, "Hardcover_Shield_Start_3P" )
+				
 				vortexSphere.Destroy()
+			}
 
 			if( IsValid( player ) )
 			{
+				EmitSoundOnEntity( player, "Hardcover_Shield_End_3P" )
+				player.ClearMeleeDisabled()
+
 				foreach( entity weapon in player.GetMainWeapons() )
 				{
 					if( IsValid( weapon ) )
@@ -111,6 +213,10 @@ void function ShieldADSThink( entity player, entity vortexSphere, entity fpShiel
 		}
 	)
 
+	// beginning sound
+	EmitSoundOnEntity( vortexSphere, "Hardcover_Shield_Start_3P" )
+	player.SetMeleeDisabled()
+
     float endTIme = Time() + duration
 	bool vortexShown = true
     bool firstLoop = true
@@ -122,7 +228,14 @@ void function ShieldADSThink( entity player, entity vortexSphere, entity fpShiel
 
 		entity weapon = player.GetActiveWeapon()
 		if ( !IsValid( weapon ) )
+		{
+			if ( vortexShown )
+			{
+				HideGunShieldVortexSphere( vortexSphere )
+                vortexShown = false
+			}
             continue
+		}
 
 		weapon.SetForcedADS()
         
@@ -133,6 +246,10 @@ void function ShieldADSThink( entity player, entity vortexSphere, entity fpShiel
             {
                 HideGunShieldVortexSphere( vortexSphere )
                 vortexShown = false
+
+				// stop sound
+				EmitSoundOnEntity( player, "Hardcover_Shield_End_3P" ) // do sound on player since vortex has been hide
+				StopSoundOnEntity( vortexSphere, "Hardcover_Shield_Start_3P" )
             }
         }
         else // safe adsing
@@ -142,6 +259,10 @@ void function ShieldADSThink( entity player, entity vortexSphere, entity fpShiel
             {
                 ShowGunShieldVortexSphere( vortexSphere, player )
                 vortexShown = true
+
+				// start sound
+				StopSoundOnEntity( player, "Hardcover_Shield_End_3P" )
+				EmitSoundOnEntity( vortexSphere, "Hardcover_Shield_Start_3P" )
             }
         }
 
@@ -149,11 +270,11 @@ void function ShieldADSThink( entity player, entity vortexSphere, entity fpShiel
 	}
 }
 
-void function ShowGunShieldVortexSphere( entity vortexSphere, entity player )
+void function ShowGunShieldVortexSphere( entity vortexSphere, entity player, string attachment = PILOT_GUN_SHIELD_ATTACHMENT, vector offset = PILOT_GUN_SHIELD_OFFSET )
 {
 	// this is not very nice!
-	vortexSphere.SetParent( player, PILOT_GUN_SHIELD_ATTACHMENT )
-	vortexSphere.SetOrigin( PILOT_GUN_SHIELD_OFFSET )
+	vortexSphere.SetParent( player, attachment )
+	vortexSphere.SetOrigin( offset )
 	// re-enable shieldWallFx
 	EntFireByHandle( vortexSphere.e.shieldWallFX, "Start", "", 0, null, null )
 }
@@ -164,12 +285,51 @@ void function HideGunShieldVortexSphere( entity vortexSphere )
 	// stop shieldWallFx for a while
 	EntFireByHandle( vortexSphere.e.shieldWallFX, "Stop", "", 0, null, null )
 	vortexSphere.ClearParent()
-	vortexSphere.SetOrigin( < -9999, -9999, -9999 > ) // so player can never hit it
+	vortexSphere.SetOrigin( TEMP_GUN_SHIELD_HIDE_POS ) // so player can never hit it
 }
 
 // fp fx
 entity function CreateFirstPersonGunShieldFX( entity player, entity vortexSphere )
 {
+	entity viewModelEnt = player.GetViewModelEntity()
+	if ( !IsValid( viewModelEnt ) )
+		return null
 
+	entity fpShieldFX = PlayFXOnEntity( FX_TITAN_GUN_SHIELD_WALL_PILOT, viewModelEnt, PILOT_GUN_SHIELD_ATTACHMENT_FP )
+	// rotate the shield fx
+	fpShieldFX.SetAngles( PILOT_GUN_SHIELD_FX_ANGLES )
+	fpShieldFX.SetOrigin( PILOT_GUN_SHIELD_FX_ORIGIN )
+
+	thread UpdateFPGunShieldColor( fpShieldFX, vortexSphere )
+
+	return fpShieldFX
+}
+
+void function UpdateFPGunShieldColor( entity fpShieldFX, entity vortexSphere )
+{
+	fpShieldFX.EndSignal( "OnDestroy" )
+	vortexSphere.EndSignal( "OnDestroy" )
+
+	bool vortexShown = true
+
+	while ( true )
+	{
+		print( "vortexShown: " + string( vortexShown ) )
+		if ( vortexSphere.GetOrigin() == TEMP_GUN_SHIELD_HIDE_POS ) // HACK, this marks shield as hidden
+		{
+			// stop shieldWallFx for a while
+			EntFireByHandle( fpShieldFX, "Stop", "", 0, null, null )
+			vortexShown = false // mark as we've hide vortex
+		}
+		else if ( !vortexShown ) // vortex being hide, but it has been moved to player's weapon
+		{
+			// re-enable shieldWallFx
+			EntFireByHandle( fpShieldFX, "Start", "", 0, null, null )
+			vortexShown = true // mark as we've shown vortex
+		}
+
+		UpdateShieldWallColorForFrac( fpShieldFX, GetHealthFrac( vortexSphere ) ) // update color
+		WaitFrame()
+	}
 }
 #endif
