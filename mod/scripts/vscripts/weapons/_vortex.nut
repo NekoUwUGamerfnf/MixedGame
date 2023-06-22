@@ -106,6 +106,12 @@ global function Vortex_GetImpactDataOverride_WeaponMod
 global function Vortex_WeaponOrProjectileHasImpactDataOverride
 global function Vortex_GetImpactDataOverrideFromWeaponOrProjectile
 
+// respawn messy functions rework
+#if SERVER
+global function Vortex_CalculateBulletHitDamage
+global function Vortex_CalculateProjectileHitDamage
+#endif
+
 // modified callbacks
 /* // wip
 global function AddCallback_OnVortexHitProjectile_DamageSourceID
@@ -138,7 +144,9 @@ struct
 	table< string, ImpactDataOverride > vortexImpactDataOverride_WeaponName
 	table< WeaponMod, ImpactDataOverride > vortexImpactDataOverride_WeaponMod
 
-	// callbacks
+	// respawn messy functions rework
+	table< entity, bool functionref( entity, entity, entity, bool ) > vortexCustomProjectileHitRules // don't want to change entityStruct, use fileStruct instead
+
 	/* // wip
 	//table<int, ProjectileCollisionCallbackFunc> vortexHitProjectileCallbacks_DamageSourceID
 	//table<int, ProjectileCollisionCallbackFunc> vortexHitProjectileCallbacks_WeaponName
@@ -324,6 +332,42 @@ table function Vortex_GetImpactDataOverrideFromWeaponOrProjectile( entity weapon
 	return {}
 }
 
+// respawn messy functions rework
+#if SERVER
+float function Vortex_CalculateBulletHitDamage( entity vortexSphere, var damageInfo )
+{
+	entity weapon = DamageInfo_GetWeapon( damageInfo )
+	float damage = ceil( DamageInfo_GetDamage( damageInfo ) )
+
+	Assert( damage >= 0, "Bug 159851 - Damage should be greater than or equal to 0.")
+	damage = max( 0.0, damage )
+
+	if ( IsValid( weapon ) )
+		damage = HandleWeakToPilotWeapons( vortexSphere, weapon.GetWeaponClassName(), damage )
+
+	//JFS - Arc Round bug fix for Monarch. Projectiles vortex callback doesn't even have damageInfo, so the shield modifier here doesn't exist in VortexSphereDrainHealthForDamage like it should.
+	ShieldDamageModifier damageModifier = GetShieldDamageModifier( damageInfo )
+	damage *= damageModifier.damageScale
+
+	return damage
+}
+
+float function Vortex_CalculateProjectileHitDamage( entity vortexSphere, entity attacker, entity projectile )
+{
+	float damage = float( projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value ) )
+	//	once damageInfo is passed correctly we'll use that instead of looking up the values from the weapon .txt file.
+	//	local damage = ceil( DamageInfo_GetDamage( damageInfo ) )
+
+	if ( IsValid( projectile ) )
+	{
+		damage = HandleWeakToPilotWeapons( vortexSphere, projectile.ProjectileGetWeaponClassName(), damage )
+		damage = damage + CalculateTitanSniperExtraDamage( projectile, vortexSphere )
+	}
+
+	return damage
+}
+#endif
+
 // modified callbacks
 
 table vortexImpactWeaponInfo
@@ -353,7 +397,9 @@ var function VortexBulletHitRules_Default( entity vortexSphere, var damageInfo )
 	return damageInfo
 }
 
-bool function VortexProjectileHitRules_Default( entity vortexSphere, entity attacker, bool takesDamageByDefault )
+// WTF RESPAWN? why not pass the projectile entity on vortex hit? modified
+//bool function VortexProjectileHitRules_Default( entity vortexSphere, entity attacker, bool takesDamageByDefault )
+bool function VortexProjectileHitRules_Default( entity vortexSphere, entity attacker, entity projectile, bool takesDamageByDefault )
 {
 	return takesDamageByDefault
 }
@@ -363,9 +409,14 @@ void function SetVortexSphereBulletHitRules( entity vortexSphere, var functionre
 	vortexSphere.e.BulletHitRules = customRules
 }
 
-void function SetVortexSphereProjectileHitRules( entity vortexSphere, bool functionref( entity, entity, bool ) customRules  )
+// WTF RESPAWN? why not pass the projectile entity on vortex hit? modified
+//void function SetVortexSphereProjectileHitRules( entity vortexSphere, bool functionref( entity, entity, bool ) customRules  )
+void function SetVortexSphereProjectileHitRules( entity vortexSphere, bool functionref( entity, entity, entity, bool ) customRules )
 {
-	vortexSphere.e.ProjectileHitRules = customRules
+	//vortexSphere.e.ProjectileHitRules = customRules // don't want to change entityStruct, use fileStruct instead
+	if ( !( vortexSphere in file.vortexCustomProjectileHitRules ) )
+		file.vortexCustomProjectileHitRules[ vortexSphere ] <- null // default value
+	file.vortexCustomProjectileHitRules[ vortexSphere ] = customRules
 }
 #endif
 function CreateVortexSphere( entity vortexWeapon, bool useCylinderCheck, bool blockOwnerWeapon, int sphereRadius = 40, int bulletFOV = 180 )
@@ -1939,6 +1990,9 @@ bool function CodeCallback_OnVortexHitBullet( entity weapon, entity vortexSphere
 			PlayEffectOnVortexSphere( fxId, DamageInfo_GetDamagePosition( damageInfo ), damageAngles, vortexSphere )
 		}
 
+		// I... genericly don't understand why respawn have to code things like this...
+		// reworked
+		/*
 		entity weapon = DamageInfo_GetWeapon( damageInfo )
 		float damage = ceil( DamageInfo_GetDamage( damageInfo ) )
 
@@ -1955,6 +2009,11 @@ bool function CodeCallback_OnVortexHitBullet( entity weapon, entity vortexSphere
 			damage *= damageModifier.damageScale
 			VortexSphereDrainHealthForDamage( vortexSphere, damage )
 		}
+		*/
+		float damage = Vortex_CalculateBulletHitDamage( vortexSphere, damageInfo )
+		if ( takesDamage )
+			VortexSphereDrainHealthForDamage( vortexSphere, damage )
+		// rework end
 
 		if ( DamageInfo_GetAttacker( damageInfo ) && DamageInfo_GetAttacker( damageInfo ).IsTitan() )
 			EmitSoundAtPosition( teamNum, DamageInfo_GetDamagePosition( damageInfo ), "TitanShieldWall.Heavy.BulletImpact_3P_vs_3P" )
@@ -2069,8 +2128,12 @@ bool function CodeCallback_OnVortexHitProjectile( entity weapon, entity vortexSp
 	bool takesDamage = !isAmpedWall
 
 	#if SERVER
-		if ( vortexSphere.e.ProjectileHitRules != null )
-			takesDamage = vortexSphere.e.ProjectileHitRules( vortexSphere, attacker, takesDamage )
+		// WTF RESPAWN? why not pass the projectile entity on vortex hit? modified
+		//if ( vortexSphere.e.ProjectileHitRules != null )
+		//	takesDamage = vortexSphere.e.ProjectileHitRules( vortexSphere, attacker, takesDamage )
+		// don't want to change entityStruct, use fileStruct instead
+		if ( vortexSphere in file.vortexCustomProjectileHitRules )
+			takesDamage = file.vortexCustomProjectileHitRules[ vortexSphere ]( vortexSphere, attacker, projectile, takesDamage )
 	#endif
 	// hack to let client know about amped wall, and to amp the shot
 	if ( isAmpedWall )
@@ -2099,12 +2162,18 @@ bool function CodeCallback_OnVortexHitProjectile( entity weapon, entity vortexSp
 			PlayEffectOnVortexSphere( fxId, contactPos, damageAngles, vortexSphere )
 		}
 
+		// I... genericly don't understand why respawn have to code things like this...
+		// reworked
+		/*
 		float damage = float( projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value ) )
 		//	once damageInfo is passed correctly we'll use that instead of looking up the values from the weapon .txt file.
 		//	local damage = ceil( DamageInfo_GetDamage( damageInfo ) )
 
 		damage = HandleWeakToPilotWeapons( vortexSphere, projectile.ProjectileGetWeaponClassName(), damage )
 		damage = damage + CalculateTitanSniperExtraDamage( projectile, vortexSphere )
+		*/
+		float damage = Vortex_CalculateProjectileHitDamage( vortexSphere, attacker, projectile )
+		// rework end
 
 		if ( takesDamage )
 		{
