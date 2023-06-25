@@ -18,8 +18,12 @@ const float CHARGE_RIFLE_DAMAGE_COUNT = 10
 void function MpWeaponDefender_Init()
 {
 	DefenderPrecache()
+
 #if SERVER
 	//AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_defender, OnApexChargeRifleDamagedTarget )
+	// burnmod blacklist
+	ModdedBurnMods_AddDisabledMod( "apex_charge_rifle" )
+	ModdedBurnMods_AddDisabledMod( "apex_charge_rifle_burst" )
 #endif
 }
 

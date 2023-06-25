@@ -20,5 +20,9 @@ void function MpWeaponGibberPistol_Init()
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_mgl", "vortex_absorb_effect_third_person" ), // absorb effect 3p
 		"grenade" // refire behavior
 	)
+
+	// burnmod blacklist
+    ModdedBurnMods_AddDisabledMod( "gibber_pistol" )
+	ModdedBurnMods_AddDisabledMod( "grenade_pistol" )
 #endif
 }

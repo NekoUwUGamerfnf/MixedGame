@@ -1,151 +1,105 @@
-global function GetModdedWeaponBurnMods
-global function IsModdedBurnModWeapon
-global function IsModdedWeapon
+// note that this file is currently only for amped weapons burncard, can't affect CodeCallback_CheckPassThroughAddsMods()
+global function Modded_Weapon_BurnMods_Init
 
-global function IsModdedSoftball
+// main callbacks
+global function ModdedBurnMods_AddDisabledMod // weapon with these mods won't get a burnmod. mostly for CodeCallback_CheckPassThroughAddsMods()
+global function ModdedBurnMods_AddReplacementBurnMod // use another mod to replace a weapon's burnmod
 
-// really should be added by ModdedBurnMods_AddWeaponMod( string weaponName, string mod )
-const array<string> MODDED_EXTENDED_MODS = 
-[ 
-	// nessie
-	"nessie_balance",
-	// kraber
-	"ricochet_only_sniper", 
-	"floating_bolt_sniper", 
-	"ricochet_infinite_sniper", 
-	"explosive_sniper", 
-	"phase_sniper", 
-	"heal_sniper", 
-	"stim_sniper", 
-	// arc launcher
-	"smoke_launcher",
-	// all launchers 
-	"rocket_jumper", 
-	// charge rifle
-	"apex_charge_rifle", 
-	"apex_charge_rifle_burst",
-	// flatline
-	"flak_rifle", 
-	// p2016
-	"gibber_pistol", 
-	// mgl
-	"tripwire_launcher", 
-	"flesh_magnetic",
-	"magnetic_rollers",
-	// eva8
-	"twin_slug", 
-	// smart pistol
-	"smart_pistol_unlimited_ammo", 
-	// all weapons
-	"tediore_reload",
-    // softball
-    "thermite_softball", 
-	"sonar_softball", 
-	"northstar_softball", 
-	"cluster_softball", 
-	"arcball_softball", 
-	"smoke_softball", 
-	"gravity_softball", 
-	"triplethreat_softball", 
-	"emp_softball", 
-	"error_softball", 
-	"grenade_launcher", 
-	"stickybomb_launcher",
-    // spitfire
-    "apex_rampage",
-    // mozambique
-    "apex_nessie",
-]
+// utilities
+global function ModdedBurnMods_IsModdedWeapon
+global function ModdedBurnMods_WeaponHasReplacementBurnMod
+global function ModdedBurnMods_WeaponHasDisabledBurnMod
 
-const array<string> MODDED_SOFTBALL_MODS = 
-[
-	"thermite_softball", 
-	"sonar_softball", 
-	"northstar_softball", 
-	"cluster_softball", 
-	"arcball_softball", 
-	"smoke_softball", 
-	"gravity_softball", 
-	"triplethreat_softball", 
-	"emp_softball", 
-	"error_softball", 
-	"grenade_launcher", 
-	"stickybomb_launcher",
-]
+global function ModdedBurnMods_GetBurnModFromWeapon // pass a weapon entity and get it's burnmod with modded support
 
-// really should be added by ModdedBurnMods_AddReplacementBurnMod( string targetMod, string replaceMod )
-const array<string> MODDED_BURNMOD_WEAPONS =
-[
-    "apex_rampage", 
-    "apex_nessie",
-]
-
-array<string> function GetModdedWeaponBurnMods( entity weapon )
+struct
 {
-    array<string> burnMods = []
+	array<string> moddedMods
+	array<string> burnModDisabledMods
+	table<string, string> replacementBurnMods
+} file
+
+void function Modded_Weapon_BurnMods_Init()
+{
+
+}
+
+void function ModdedBurnMods_AddDisabledMod( string mod )
+{
+	if ( !file.burnModDisabledMods.contains( mod ) )
+		file.burnModDisabledMods.append( mod )
+
+	AddToTotalModdedMods( mod )
+}
+
+void function ModdedBurnMods_AddReplacementBurnMod( string mod, string replacement )
+{
+	if ( !( mod in file.replacementBurnMods ) )
+		file.replacementBurnMods[ mod ] <- ""
+	file.replacementBurnMods[ mod ] = replacement
+
+	AddToTotalModdedMods( mod )
+}
+
+void function AddToTotalModdedMods( string mod )
+{
+	if ( !file.moddedMods.contains( mod ) )
+		file.moddedMods.append( mod )
+}
+
+bool function ModdedBurnMods_IsModdedWeapon( entity weapon )
+{
+	foreach ( string mod in file.moddedMods )
+	{
+		if ( weapon.HasMod( mod ) )
+			return true
+	}
+
+	return false
+}
+
+string function ModdedBurnMods_GetBurnModFromWeapon( entity weapon )
+{
+	// generic checks
     if( !IsValid( weapon ) )
-        return burnMods
-    if( !IsModdedBurnModWeapon( weapon ) )
-        return burnMods
+        return ""
+	if ( !ModdedBurnMods_IsModdedWeapon( weapon ) )
+		return ""
+	if ( ModdedBurnMods_WeaponHasDisabledBurnMod( weapon ) )
+		return ""
 
-    if( IsModdedSoftball( weapon ) )
-    {
-        foreach( string hopup in MODDED_SOFTBALL_MODS )
-		{
-			if( weapon.HasMod(hopup) )
-				burnMods.append( "burn_mod_modded_softball" )
-		}
-    }
-	
-	foreach( string hopup in MODDED_BURNMOD_WEAPONS )
-    {
-        if( weapon.HasMod(hopup) )
-            burnMods.append( "burn_mod" + hopup ) // this is really needed, 
-    }
+	array<string> mods = weapon.GetMods()
+	foreach ( string mod in mods )
+	{
+		if ( mod in file.replacementBurnMods )
+			return file.replacementBurnMods[ mod ]
+	}
 
-	return burnMods
+	// no any modded burnmod found
+	return ""
 }
 
-bool function IsModdedBurnModWeapon( entity weapon )
+bool function ModdedBurnMods_WeaponHasReplacementBurnMod( entity weapon )
 {
-    array<string> searchMods = []
-    // these must up on date!
-    searchMods.extend( MODDED_BURNMOD_WEAPONS )
-    searchMods.extend( MODDED_SOFTBALL_MODS )
+	if ( ModdedBurnMods_WeaponHasDisabledBurnMod( weapon ) ) // shouldn't apply any burnmod for disabled weapon
+		return false
 
-    if( IsValid(weapon) )
+    foreach ( string mod, string replace in file.replacementBurnMods )
 	{
-		foreach( string hopup in searchMods )
-		{
-			if( weapon.HasMod(hopup) )
-				return true
-		}
+		if ( weapon.HasMod( mod ) )
+			return true
 	}
+
 	return false
 }
 
-bool function IsModdedWeapon( entity weapon )
+bool function ModdedBurnMods_WeaponHasDisabledBurnMod( entity weapon )
 {
-	if( IsValid(weapon) )
+	foreach ( string mod in file.burnModDisabledMods )
 	{
-		foreach( string hopup in MODDED_EXTENDED_MODS )
-		{
-			if( weapon.HasMod(hopup) )
-				return true
-		}
+		if ( weapon.HasMod( mod ) )
+			return true
 	}
-	return false
-}
 
-bool function IsModdedSoftball( entity weapon )
-{
-	if( IsValid(weapon) )
-	{
-		foreach( string hopup in MODDED_SOFTBALL_MODS )
-		{
-			if( weapon.HasMod(hopup) )
-				return true
-		}
-	}
 	return false
 }

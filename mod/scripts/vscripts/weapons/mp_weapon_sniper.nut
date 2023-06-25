@@ -19,10 +19,21 @@ array<entity> floatingBolts
 void function MpWeaponSniper_Init()
 {
 	SniperPrecache()
-	#if SERVER
+
+	// modified. really should separent these to mp_weapon_modded_kraber.gnut
+#if SERVER
 	AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_sniper, OnHit_WeaponSniper )
 	PrecacheModel( $"models/domestic/nessy_doll.mdl" )
-	#endif
+
+	// burnmod blacklist
+	ModdedBurnMods_AddDisabledMod( "ricochet_only_sniper" )
+	ModdedBurnMods_AddDisabledMod( "floating_bolt_sniper" )
+	ModdedBurnMods_AddDisabledMod( "ricochet_infinite_sniper" )
+	ModdedBurnMods_AddDisabledMod( "explosive_sniper" )
+	ModdedBurnMods_AddDisabledMod( "phase_sniper" )
+	ModdedBurnMods_AddDisabledMod( "heal_sniper" )
+	ModdedBurnMods_AddDisabledMod( "stim_sniper" )
+#endif
 }
 
 void function SniperPrecache()
@@ -89,6 +100,7 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 		int boltSpeed = expect int( weapon.GetWeaponInfoFileKeyField( "bolt_speed" ) )
 		int damageFlags = weapon.GetWeaponDamageFlags()
 		entity bolt
+		// modded condition
 		if( weapon.HasMod( "smart_sniper" ) )
 		{
 			if( weapon.HasMod( "homing_nessie" ) )
@@ -114,7 +126,7 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 					return 0
 			}
 		}
-		else
+		else // vanilla behavior
 		{
 			bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, boltSpeed, damageFlags, damageFlags, playerFired, 0 )
 			//bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, 1.0, damageFlags, damageFlags, playerFired, 0 )
@@ -155,6 +167,7 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 
 void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	// modified condition
 	array<string> mods = projectile.ProjectileGetMods() // this only contains explosion stuff, no need to use Vortex_GetRefiredProjectileMods()
 	array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( refiredMods.contains( "tediore_effect" ) )
@@ -190,6 +203,7 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 
 	projectile.proj.projectileBounceCount++
 
+	// fix for explosive rounds bouncing
 	//float traceFrac = TraceLineSimple( pos + normal, projectile.GetOrigin(), null )
 	//print( "traceFrac: " + string( traceFrac ) )
 	// bounced projectile, try to fix their explosion damage, will double the damage if they're not in valid bounce frac though
@@ -221,6 +235,8 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 #endif
 }
 
+
+// modified conditions! really should separent a file "mp_weapon_modded_kraber"
 #if SERVER
 void function BoltArrayThink( entity bolt )
 {
