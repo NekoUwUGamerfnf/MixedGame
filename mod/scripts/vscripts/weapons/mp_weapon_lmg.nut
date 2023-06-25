@@ -26,21 +26,19 @@ var function OnWeaponPrimaryAttack_lmg( entity weapon, WeaponPrimaryAttackParams
 	}
 	else
 	{
-		if ( weapon.HasMod( "apex_rampage" ) ) // this will fix rampage's thirdperson fire sound
+		if ( weapon.HasMod( "apex_rampage" ) ) // this will fix rampage's thirdperson fire sound, hardcoded!
 		{
-		#if SERVER
-			StopSoundOnEntity( weapon, "Weapon_LMG_Loop_3P" )
-			entity owner = weapon.GetWeaponOwner()
-			if( owner.IsPlayer() )
-				EmitSoundOnEntityExceptToPlayer( weapon, owner, "Weapon_Wingman_Fire_NPC" )
-		#endif
+			#if SERVER
+				StopSoundOnEntity( weapon, "Weapon_LMG_Loop_3P" )
+				entity owner = weapon.GetWeaponOwner()
+				if( owner.IsPlayer() )
+					EmitSoundOnEntityExceptToPlayer( weapon, owner, "Weapon_Wingman_Fire_NPC" )
+			#endif
 		}
 
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, weapon.GetWeaponDamageFlags() )
 	}
-
-
 }
 
 void function OnWeaponBulletHit_weapon_lmg( entity weapon, WeaponBulletHitParams hitParams )

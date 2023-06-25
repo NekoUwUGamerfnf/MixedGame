@@ -22,6 +22,10 @@ void function MpWeaponFlakRifle_Init()
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_mgl", "vortex_absorb_effect_third_person" ), // absorb effect 3p
 		"rocket" // refire behavior
 	)
+
+	// burnmod blacklist
+    ModdedBurnMods_AddDisabledMod( "flak_rifle" )
+	ModdedBurnMods_AddDisabledMod( "flak_cannon" )
 #endif
 }
 
