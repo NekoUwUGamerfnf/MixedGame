@@ -1,17 +1,21 @@
 global function Nessie_Useful_Commands_Init
 
 global function NessieCommands_EnableSuicide
+
 struct
 {
 	bool killCommandsEnabled
+	table<entity, float> playerNextKillCommandAllowedTime
 	table<entity, bool> playerGainSpecialLoadout
 } file
 
 // BATTERY_SPAWNERS array in nessy.gnut controls avaibility
 void function Nessie_Useful_Commands_Init()
 {
+	// overrides northstar default killcommand
 	AddClientCommandCallback( "kill", SelfKillCommand )
 	AddClientCommandCallback( "explode", SelfExplodeCommand )
+	//
 	AddClientCommandCallback( "dissolve", SelfDissolveCommand )
 	AddClientCommandCallback( "pinkmist", SelfPinkMistCommand )
 	AddClientCommandCallback( "ragdoll", SelfRagdollDeathCommand )
@@ -40,6 +44,8 @@ void function NessieCommands_EnableSuicide( bool enable )
 
 void function OnClientConnected( entity player )
 {
+	// kill command
+	file.playerNextKillCommandAllowedTime[ player ] <- 0.0
 	// special loadout
 	file.playerGainSpecialLoadout[ player ] <- false
 }
@@ -113,7 +119,8 @@ bool function SelfRagdollDeathCommand( entity player, array<string> args )
 	if ( !PlayerCanUseKillCommand( player ) )
 		return true
 
-	player.Die( player, player, { scriptType = DF_EXPLOSION | DF_RAGDOLL, damageSourceId = damagedef_suicide } )
+	player.Die( player, player, { damageSourceId = damagedef_suicide } )
+	player.BecomeRagdoll( player.GetVelocity(), false )
 	print( "[NESSIE] " + player.GetPlayerName() + " self ragdolled!!" )
 
 	KillCommandPlayerScorePunish( player )
@@ -126,17 +133,22 @@ bool function PlayerCanUseKillCommand( entity player )
 	if ( !IsAlive( player ) )
 		return false
 
-	bool killConVarEnabled = GetConVarBool( "sv_cheats" ) || GetConVarBool( "ns_allow_kill_commands" )
-	if ( !file.killCommandsEnabled && !killConVarEnabled ) // not enabled!
+	if ( GetConVarBool( "sv_cheats" ) || GetConVarBool( "ns_allow_kill_commands" ) )
+		return true // convar killcommand toggle ignore modified checks
+
+	if ( !file.killCommandsEnabled ) // using script killcommand toggle!
 		return false
 
-	if ( !killConVarEnabled ) // using script killcommand toggle!
-	{
-		if ( GetGameState() < eGameState.Playing ) // suicide only allowed after game start!
-			return false
-		if ( player.IsTitan() ) // no suicide allowed for titans
-			return false
-	}
+	if ( Time() < file.playerNextKillCommandAllowedTime[ player ] ) // in cooldown!
+		return false
+	if ( GetGameState() < eGameState.Playing ) // suicide only allowed after game start!
+		return false
+	if ( player.IsTitan() ) // no suicide allowed for titans
+		return false
+
+	// set killcommand cooldown
+	const float KILL_COMMAND_COOLDOWN = 5.0
+	file.playerNextKillCommandAllowedTime[ player ] = Time() + KILL_COMMAND_COOLDOWN
 
 	// all checks passed
 	return true
@@ -144,13 +156,16 @@ bool function PlayerCanUseKillCommand( entity player )
 
 void function KillCommandPlayerScorePunish( entity player )
 {
+	if ( GetConVarBool( "sv_cheats" ) || GetConVarBool( "ns_allow_kill_commands" ) )
+		return // convar killcommand toggle ignore punishment
+
 	int kills = player.GetPlayerGameStat( PGS_KILLS )
 	if ( kills > 0 )
 	{
 		//player.SetPlayerGameStat( PGS_KILLS, kills - 1 )
+		//player.SetPlayerGameStat( PGS_PILOT_KILLS, player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) - 1 )
 		if ( IsFFAGame() ) // for ffa
 		{
-			//player.SetPlayerGameStat( PGS_PILOT_KILLS, player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) - 1 )
 			player.SetPlayerGameStat( PGS_ASSAULT_SCORE, player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) - 1 )
 			AddTeamScore( player.GetTeam(), -1 )
 		}
