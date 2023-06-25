@@ -99,9 +99,10 @@ void function ClassicMP_OnIntroStarted()
 void function ClassicMP_OnIntroFinished()
 {
 	print( "intro finished!" )
-	SetGameState( eGameState.Playing )
-	
+
 	FlagSet( "ClassicMPIntroEnd" ) // mark as we ended intro
+
+	SetGameState( eGameState.Playing )
 }
 
 float function ClassicMP_GetIntroLength() 
