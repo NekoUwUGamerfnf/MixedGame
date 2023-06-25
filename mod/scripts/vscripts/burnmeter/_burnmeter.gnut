@@ -13,6 +13,9 @@ global function BurnMeter_GiveRewardDirect
 global function GetBurnCardWeaponSkin
 global function InitBurnMeterPersistentData
 
+// shared with sv_item_inventory
+global function BurnMeter_TryRewardReadyMessage
+
 // nessie modify
 global function Burnmeter_SetRewardsDisabled
 global function Burnmeter_GetDisabledRewards // shared with sh_burnmeter.gnut
@@ -238,11 +241,11 @@ void function InitBurncardsForLateJoiner( entity player )
 
 void function OnPlayerRespawned( entity player )
 {
-	TryRewardReadyMessage( player )
+	BurnMeter_TryRewardReadyMessage( player )
 	StartPhaseRewindLifetime( player )
 }
 
-bool function TryRewardReadyMessage( entity player )
+bool function BurnMeter_TryRewardReadyMessage( entity player )
 {
 	if ( Time() >= file.playerRewardReadyMessageTime[ player ] )
 	{
@@ -343,7 +346,7 @@ void function BurnMeter_GiveRewardDirect( entity player, string itemRef )
 	PlayerInventory_PushInventoryItemByBurnRef( player, itemRef )
 	// this uses "timeSinceLastRespawn" as param!!!
 	//Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", player.s.respawnTime )
-	TryRewardReadyMessage( player )
+	BurnMeter_TryRewardReadyMessage( player )
 }
 
 int function GetBurnCardWeaponSkin( entity weapon )
@@ -371,9 +374,12 @@ void function PlayerUsesAmpedWeaponsBurncardThreaded( entity player )
 	player.Signal( "StopAmpedWeapons" )
 	player.EndSignal( "StopAmpedWeapons" )
 
-	array<entity> weapons = player.GetMainWeapons()
+	array<entity> weapons = player.GetMainWeapons() // save current existing weapons
+	table< entity, array<string> > weaponModsToRemove = {} // mods that should be removed after amp ends
+	table< entity, array<string> > weaponModsToRestore = {} // mods that should be restored after amp ends
+
 	OnThreadEnd(
-		function(): ( weapons )
+		function(): ( weapons, weaponModsToRemove, weaponModsToRestore )
 		{
 			// note: weapons may have been destroyed or picked up by other people by this point, so need to verify this
 			foreach ( entity weapon in weapons )
@@ -383,8 +389,13 @@ void function PlayerUsesAmpedWeaponsBurncardThreaded( entity player )
 					if( TryRemoveModdedBurnMods( weapon ) ) // if successfully removed a mod or the modded weapon don't have a mod, we skip it!
 						continue
 
-					foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
+					// remove burnmod for weapon
+					foreach ( string mod in weaponModsToRemove[ weapon ] )
 						weapon.RemoveMod( mod )
+
+					// restore mods for weapon
+					foreach ( string mod in weaponModsToRestore[ weapon ] )
+						weapon.AddMod( mod )
 					
 					weapon.SetScriptFlags0( weapon.GetScriptFlags0() & ~WEAPONFLAG_AMPED )
 				}
@@ -397,25 +408,38 @@ void function PlayerUsesAmpedWeaponsBurncardThreaded( entity player )
 	//weapons.extend( player.GetOffhandWeapons() ) // idk? unsure of vanilla behaviour here
 	foreach ( entity weapon in weapons )
 	{
+		// init table for weapon
+		weaponModsToRemove[ weapon ] <- []
+		weaponModsToRestore[ weapon ] <- []
+
 		if( weapon.GetWeaponPrimaryClipCountMax() > 0 )
 			weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() ) // kind of a fix to get ammo to full, cba to give new weapon
 
 		if( TryApplyModdedBurnMods( weapon ) ) // if successfully apply a mod or the modded weapon don't have a mod, we skip it!
 			continue
 
-		weapon.RemoveMod( "silencer" ) // both this and the burnmod will override firing fx, if a second one overrides this we crash
-
-		foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
+		// HACK for silencer
+		if ( weapon.HasMod( "silencer" ) )
 		{
-			// catch incompatibilities just in case
-			try
-			{
-				weapon.AddMod( mod )
-			}
-			catch( ex )
-			{
-				weapons.removebyvalue( weapon )
-			}
+			weapon.RemoveMod( "silencer" ) // both this and the burnmod will override firing fx, if a second one overrides this we crash
+			weaponModsToRestore[ weapon ].append( "silencer" ) // we should restore silencer for this weapon after thread
+		}
+
+		// modified: only append the first burnmod for weapon, in case we add modded burnmods
+		array<string> burnMods = GetWeaponBurnMods( weapon.GetWeaponClassName() )
+		string mainBurnMod = "" 
+		if ( burnMods.len() > 0 )
+			mainBurnMod = burnMods[0]
+
+		// catch incompatibilities just in case
+		try
+		{
+			weapon.AddMod( mainBurnMod )
+			weaponModsToRemove[ weapon ].append( mainBurnMod ) // we remove the mod after thread
+		}
+		catch( ex )
+		{
+			//weapons.removebyvalue( weapon ) // failed to add mods. maybe no need to remove weapon from array, as we're using table to store modsToRemove
 		}
 
 		// needed to display amped weapon time left
