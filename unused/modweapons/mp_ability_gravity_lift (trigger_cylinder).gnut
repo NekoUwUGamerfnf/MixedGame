@@ -6,7 +6,8 @@ global function OnProjectileCollision_ability_gravity_lift
 
 // Gravity Lift
 const float LIFT_THROW_POWER_SCALE = 0.3
-const float LIFT_HEIGHT = 1200
+const float LIFT_HEIGHT = 1280
+const float LIFT_TOP_HEIGHT = 100
 const float LIFT_RADIUS = 120
 const float LIFT_RISE_SPEED = 325
 const float LIFT_HORIZONTAL_MOVE_SPEED = 225
@@ -42,23 +43,11 @@ const bool USE_HARVESTER_BEAM = false // lift beam variant
 const asset LIFT_SEGMENT_FX = $"P_s2s_flap_wind"
 const asset LIFT_BOTTOM_FX = $"harvester_base_glowflat"
 
-// extra settings
-// lerp to highest spot: entity will slow down when getting close to highest part. this makes them more close to highest spot, but not r5 behavior
-const bool LIFT_LERP_TO_HIGHEST_PART = false
-const float LIFT_TOP_HEIGHT = 100
-const float LIFT_TOP_RISE_SPEED_MIN = 50
-
-struct GravLiftSavedSettings
-{
-	float gravity
-	float airAccel
-	float airSpeed
-}
-
 struct
 {
-	table<entity, int> playerInGravLiftCount // for handling multiple gravlifts!
-	table<entity, GravLiftSavedSettings> playerGravLiftSavedSettings // for we can recover player's settings after they leave lift
+	table<entity, bool> entReachedGravLiftTop // marking entities as reached lift top
+	table< entity, array<entity> > entInGravLifts // for handling multiple gravlifts!
+	table<entity, entity> liftLinkedTrigger // saving top & lift trigger
 } file
 
 void function MpAbilityGravityLift_Init()
@@ -74,8 +63,6 @@ void function MpAbilityGravityLift_Init()
 
 		RegisterSignal( "EnterGravityLift" )
 		RegisterSignal( "LeaveGravityLift" )
-
-		AddCallback_OnClientConnected( OnClientConnected )
 	#endif
 }
 
@@ -100,11 +87,6 @@ var function OnWeaponTossReleaseAnimEvent_ability_gravity_lift( entity weapon, W
 }
 
 #if SERVER
-void function OnClientConnected( entity player )
-{
-	file.playerInGravLiftCount[ player ] <- 0
-}
-
 void function WaitForGravLiftDeployment( entity weapon, entity projectile )
 {
 	weapon.EndSignal( "OnDestroy" )
@@ -191,43 +173,56 @@ void function GravityLiftThink( entity projectile )
 		}
 	}
 
-	// maybe not a good idea to use "trigger_cylinder", for they're too sensitive about z values
-	/* // setup trigger
-	entity trigger = CreateEntity( "trigger_cylinder" )
-	trigger.SetRadius( LIFT_RADIUS )
-	trigger.SetAboveHeight( LIFT_HEIGHT + 200 ) // set a bit higher, this is not a single scriptRef anymore
-	trigger.SetBelowHeight( -1 )
-	trigger.SetOrigin( projectile.GetOrigin() )
+	// setup trigger
+	array<entity> liftTriggers
 
-	trigger.SetEnterCallback( OnGravityLiftTriggerEnter )
-	trigger.SetLeaveCallback( OnGravityLiftTriggerLeave )
-	DispatchSpawn( trigger )
-	*/
+	entity liftTrigger = CreateEntity( "trigger_cylinder" )
+	liftTrigger.SetRadius( LIFT_RADIUS )
+	liftTrigger.SetAboveHeight( LIFT_HEIGHT )
+	liftTrigger.SetBelowHeight( -1 )
+	liftTrigger.SetOrigin( projectile.GetOrigin() )
 
-	entity trigger = CreateTriggerRadiusMultiple( projectile.GetOrigin(), LIFT_RADIUS, [], TRIG_FLAG_START_DISABLED | TRIG_FLAG_NO_PHASE_SHIFT, LIFT_HEIGHT, -1 )
-	//trigger.SetParent( projectile, "ORIGIN" )
+	liftTrigger.SetEnterCallback( OnGravityLiftTriggerEnter )
+	liftTrigger.SetLeaveCallback( OnGravityLiftTriggerLeave )
+	DispatchSpawn( liftTrigger )
+	liftTriggers.append( liftTrigger )
 
-	AddCallback_ScriptTriggerEnter( trigger, OnGravityLiftTriggerEnter )
-	AddCallback_ScriptTriggerLeave( trigger, OnGravityLiftTriggerLeave )
+	// top trigger
+	entity topTrigger = CreateEntity( "trigger_cylinder" )
+	topTrigger.SetRadius( LIFT_RADIUS )
+	topTrigger.SetAboveHeight( LIFT_TOP_HEIGHT )
+	topTrigger.SetBelowHeight( 0 )
+	float topOffset = LIFT_HEIGHT - LIFT_TOP_HEIGHT
+	topTrigger.SetOrigin( projectile.GetOrigin() + < 0, 0, topOffset > )
 
-	ScriptTriggerSetEnabled( trigger, true )
+	topTrigger.SetEnterCallback( OnGravityLiftTopEnter )
+	topTrigger.SetLeaveCallback( OnGravityLiftTopLeave )
+	DispatchSpawn( topTrigger )
+	liftTriggers.append( topTrigger )
 
-	thread GravityLiftLifeTime( projectile, trigger, liftEffects )
+	// binding together
+	file.liftLinkedTrigger[ liftTrigger ] <- topTrigger
+	file.liftLinkedTrigger[ topTrigger ] <- liftTrigger
+
+	// search for entities that already in trigger
+	liftTrigger.SearchForNewTouchingEntity()
+	topTrigger.SearchForNewTouchingEntity()
+
+	thread GravityLiftLifeTime( projectile, liftTriggers, liftEffects )
 }
 
-void function GravityLiftLifeTime( entity projectile, entity trigger, array<entity> liftEffects )
+void function GravityLiftLifeTime( entity projectile, array<entity> liftTriggers, array<entity> liftEffects )
 {
 	projectile.EndSignal( "OnDestroy" )
-	trigger.EndSignal( "OnDestroy" )
+	foreach ( entity trigger in liftTriggers )
+		trigger.EndSignal( "OnDestroy" ) // we end the thread when one of the trigger is destroyed
 	//gravLiftBeam.EndSignal( "OnDestroy" )
 
 	OnThreadEnd(
-		function(): ( projectile, trigger, liftEffects )
+		function(): ( projectile, liftTriggers, liftEffects )
 		{
 			// this handles IsValid() checks
-			// older version needs thread
-			//thread DestroyGravityLift( projectile, trigger, liftEffects )
-			DestroyGravityLift( projectile, trigger, liftEffects )
+			DestroyGravityLift( projectile, liftTriggers, liftEffects )
 		}
 	)
 
@@ -235,7 +230,9 @@ void function GravityLiftLifeTime( entity projectile, entity trigger, array<enti
 	float maxEndTime = Time() + ( LIFT_LIFETIME * LIFT_MAX_LIFETIME_EXTEND ) // for players staying on it, it will try it's best to keep alive
 	while ( true )
 	{
-		array<entity> inLiftEntities = GetAllEntitiesInTrigger( trigger )
+		array<entity> inLiftEntities
+		foreach ( entity trigger in liftTriggers )
+			inLiftEntities.extend( trigger.GetTouchingEntities() )
 		array<entity> inLiftPlayers
 		foreach ( entity ent in inLiftEntities )
 		{
@@ -256,26 +253,22 @@ void function GravityLiftLifeTime( entity projectile, entity trigger, array<enti
 	}
 }
 
-void function DestroyGravityLift( entity projectile, entity trigger, array<entity> liftEffects )
+void function DestroyGravityLift( entity projectile, array<entity> liftTriggers, array<entity> liftEffects )
 {
-	/* // older version. now resolved by using gravLiftBeam.SetStopType( "DestroyImmediately" )
-	if( IsValid( gravLiftBeam ) )
-	{
-		gravLiftBeam.kv.Visibilityflags = 0 // first hide, then destroy, or it will show a harvester destroyed fx
-		wait 0.1
-		if ( IsValid( gravLiftBeam ) ) // anti crash
-			EffectStop( gravLiftBeam )
-	}
-	*/
 	foreach ( entity fx in liftEffects )
 	{
 		if( IsValid( fx ) )
 			EffectStop( fx )
 	}
+
 	if( IsValid( projectile ) )
 		projectile.Destroy()
-	if( IsValid( trigger ) )
-		trigger.Destroy()
+
+	foreach ( entity trigger in liftTriggers )
+	{
+		if( IsValid( trigger ) )
+			trigger.Destroy()
+	}
 }
 
 bool function EntityAllowedToTriggerGravLift( entity ent )
@@ -294,27 +287,54 @@ bool function EntityAllowedToTriggerGravLift( entity ent )
 	return true
 }
 
+void function InitGravLiftEntity( entity ent )
+{
+	if ( !( ent in file.entReachedGravLiftTop ) )
+		file.entReachedGravLiftTop[ ent ] <- false
+	if ( !( ent in file.entInGravLifts ) )
+		file.entInGravLifts[ ent ] <- []
+
+	ArrayRemoveInvalid( file.entInGravLifts[ ent ] )
+}
+
+int function GetEntityInGravLiftCount( entity ent )
+{
+	if ( !( ent in file.entInGravLifts ) )
+		return 0
+	return file.entInGravLifts[ ent ].len()
+}
+
+void function SetEntEnterGravLift( entity ent, entity liftTrigger )
+{
+	ArrayRemoveInvalid( file.entInGravLifts[ ent ] )
+	file.entInGravLifts[ ent ].append( liftTrigger )
+}
+
+void function SetEntLeaveGravLift( entity ent, entity liftTrigger )
+{
+	ArrayRemoveInvalid( file.entInGravLifts[ ent ] )
+	file.entInGravLifts[ ent ].removebyvalue( liftTrigger )
+}
+
+bool function IsEntInGravLift( entity ent, entity liftTrigger )
+{
+	return file.entInGravLifts[ ent ].contains( liftTrigger )
+}
+
 void function OnGravityLiftTriggerEnter( entity trigger, entity ent )
 {
-	// only affects pilots, npcs, prop_physics and grenades
 	if ( !EntityAllowedToTriggerGravLift( ent ) ) // generic check
 		return
+	InitGravLiftEntity( ent ) // init
 
 	bool firstEnterLift = true
-	if ( ent.IsPlayer() )
-	{
-		if ( file.playerInGravLiftCount[ ent ] > 0 ) // not first lift
-			firstEnterLift = false
-	}
+	if ( GetEntityInGravLiftCount( ent ) > 0 ) // not first lift
+		firstEnterLift = false
 
 	if ( firstEnterLift )
-	{
 		ent.Signal( "EnterGravityLift" ) // this will end other gravlifts
-		//if ( ent.IsPlayer() ) // save settings for player
-		//	file.playerGravLiftSavedSettings[ ent ] <- SaveSettingsForPlayerEnterLift( ent )
-	}
-	if ( ent.IsPlayer() )
-		file.playerInGravLiftCount[ ent ] += 1
+
+	SetEntEnterGravLift( ent, trigger )
 	thread EntityInGravityLift( ent, trigger )
 }
 
@@ -322,16 +342,17 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity ent )
 {
 	if ( !EntityAllowedToTriggerGravLift( ent ) ) // generic check
 		return
+	InitGravLiftEntity( ent ) // init
 
-	if ( ent.IsPlayer() && file.playerInGravLiftCount[ ent ] == 0 ) // no lift valid!
+	if ( !IsEntInGravLift( ent, trigger ) ) // ent has been removed from trigger!
+		return
+
+	if ( GetEntityInGravLiftCount( ent ) == 0 ) // no lift valid!
 		return
 
 	bool shouldEndLift = true
-	if ( ent.IsPlayer() )
-	{
-		if ( file.playerInGravLiftCount[ ent ] > 1 ) // still have other lifts left
-			shouldEndLift = false
-	}
+	if ( GetEntityInGravLiftCount( ent ) > 1 ) // still have other lifts left
+		shouldEndLift = false
 	
 	if ( shouldEndLift )
 	{
@@ -339,40 +360,40 @@ void function OnGravityLiftTriggerLeave( entity trigger, entity ent )
 		if ( ent.IsPlayer() ) // restore settings for player
 			RestorePlayerSavedSettings( ent )
 	}
-	if ( ent.IsPlayer() )
-		file.playerInGravLiftCount[ ent ] -= 1
-}
 
-/* // modified using functions in custom_movements.gnut
-GravLiftSavedSettings function SaveSettingsForPlayerEnterLift( entity player )
-{
-	// save ent's gravity or some other keyvalues for later restoring
-	GravLiftSavedSettings newSettings
-	newSettings.gravity = float( player.kv.gravity )
-	newSettings.airAccel = float( player.kv.airAcceleration )
-	newSettings.airSpeed = float( player.kv.airSpeed )
-	return newSettings
+	SetEntLeaveGravLift( ent, trigger )
 }
-*/
 
 bool function RestorePlayerSavedSettings( entity player )
 {
-	/* // modified using functions in custom_movements.gnut
-	if ( !( player in file.playerGravLiftSavedSettings ) ) // no saved settings!
-		return false
-	GravLiftSavedSettings savedSettings = file.playerGravLiftSavedSettings[ player ]
-	player.kv.gravity = savedSettings.gravity
-	player.kv.airAcceleration = savedSettings.airAccel
-	player.kv.airSpeed = savedSettings.airSpeed
-
-	// clean up
-	delete file.playerGravLiftSavedSettings[ player ]
-	*/
 	RestorePlayerPermanentGravity( player )
 	RestorePlayerPermanentAirAcceleration( player )
 	RestorePlayerPermanentAirSpeed( player )
 	RestorePlayerPermanentGroundFriction( player )
 	return true
+}
+
+void function OnGravityLiftTopEnter( entity trigger, entity ent )
+{
+	if ( !EntityAllowedToTriggerGravLift( ent ) ) // generic check
+		return
+	InitGravLiftEntity( ent ) // init
+
+	entity linkedTrigger = file.liftLinkedTrigger[ trigger ]
+	if ( !IsEntInGravLift( ent, linkedTrigger ) ) // the entity is not in linked trigger!
+		return
+	file.entReachedGravLiftTop[ ent ] = true // mark as player reached highest
+}
+
+void function OnGravityLiftTopLeave( entity trigger, entity ent )
+{
+	if ( !EntityAllowedToTriggerGravLift( ent ) ) // generic check
+		return
+	InitGravLiftEntity( ent ) // init
+
+	if ( GetEntityInGravLiftCount( ent ) > 1 ) // still have other lifts left
+		return
+	file.entReachedGravLiftTop[ ent ] = false // mark as player left highest
 }
 
 void function EntityInGravityLift( entity ent, entity trigger )
@@ -409,7 +430,7 @@ void function EntityInGravityLift( entity ent, entity trigger )
 						StatusEffect_Stop( ent, visualStatusEffect )
 
 					ent.UnforceStand()
-					ent.TouchGround() // restore one doublejump usage!
+					ent.TouchGround() // restore one doublejump!
 					StopSoundOnEntity( ent, "titan_flight_hover_3p" ) // clear existing sound
 				}
 				else // npcs
@@ -417,30 +438,34 @@ void function EntityInGravityLift( entity ent, entity trigger )
 			}
 			if ( IsAlive( ent ) ) // only living ent will be push away
 			{
-				if ( ent.IsPlayer() )
-				{
-					if ( file.playerInGravLiftCount[ ent ] > 1 ) // still having other gravlifts!
-						return // don't bounce
-				}
+				if ( GetEntityInGravLiftCount( ent ) > 1 ) // still having other gravlifts!
+					return // don't bounce
 
-				// consider this means the entity is force bounced away, or trigger caused them being force bounced
+				// consider this means the entity is force bounced away, trigger caused them being force bounced, or trigger reached max duration
 				if ( !ent.IsPlayer() || results.bouncedFromLift || !IsValid( trigger ) ) 
 					BounceEntityForward( ent )
 				else
 					BouncePlayerFromLift( ent, expect vector( storedStats.lastTickVel ) ) // last tick's velocity can mostly get player's move direction
 			
-				if ( results.bouncedFromLift && IsValid( trigger ) ) // remove entity from current trigger if it's force bounced!
-					ScriptTriggerRemoveEntity( trigger, ent )
+				if ( results.bouncedFromLift ) // remove entity from current trigger if it's force bounced!
+				{
+					if ( IsValid( trigger ) )
+						SetEntLeaveGravLift( ent, trigger )
+					if ( ent.IsPlayer() ) // restore settings for player
+						RestorePlayerSavedSettings( ent )
+				}
 			}
 		}
 	)
 
-	float bottomHeight = trigger.GetOrigin().z
-	float topEnterHeight = LIFT_HEIGHT - LIFT_TOP_HEIGHT
-	float nearTopHeight = bottomHeight + topEnterHeight
-	float topHeight = bottomHeight + LIFT_HEIGHT
+	float liftRequiedHighet = trigger.GetOrigin().z + ( LIFT_HEIGHT - LIFT_TOP_HEIGHT )
+	while ( ent.GetOrigin().z > liftRequiedHighet ) // wait until entity actually in lift
+	{
+		print( "ent.GetOrigin().z: " + string( ent.GetOrigin().z ) )
+		print( "liftRequiedHighet: " + string( liftRequiedHighet ) )
+		WaitFrame()
+	}
 
-	bool nearHighest = false
 	bool reachedHighest = false
 	float reachHighestTime // for saving reach highest part's time
 
@@ -459,6 +484,12 @@ void function EntityInGravityLift( entity ent, entity trigger )
 		else
 			WaitFrame()
 
+		if ( !reachedHighest && file.entReachedGravLiftTop[ ent ] ) // last tick wasn't reach highest
+		{
+			reachedHighest = true
+			reachHighestTime = Time()
+		}
+
 		// keep updating velocity
 		if ( ent.IsPlayer() )
 		{
@@ -473,9 +504,9 @@ void function EntityInGravityLift( entity ent, entity trigger )
 		// check if we need to lift the ent
 		if ( ent.IsPlayer() )
 		{
-			//print( file.playerInGravLiftCount[ ent ] )
-			// don't lift wallrunning/wallhanging/ziplining players
-			if ( ent.IsWallRunning() || ent.IsWallHanging() || ent.IsZiplining() )
+			//print( GetEntityInGravLiftCount( ent ) )
+			// don't lift wallrunning/wallhanging/wallclimbing/ziplining players
+			if ( ent.IsWallRunning() || ent.IsWallHanging() || ent.IsTraversing() || ent.IsZiplining() )
 				continue
 		}
 		if ( IsValid( ent.GetParent() ) ) // has a parent
@@ -485,16 +516,7 @@ void function EntityInGravityLift( entity ent, entity trigger )
 		ent.kv.gravity = 0.0001 // never uses 0.0, it means default gravity
 		vector airSpeed = ent.GetVelocity() //GetEntityGravLiftVelocity( ent, LIFT_HORIZONTAL_MOVE_SPEED )
 		airSpeed.z = reachedHighest ? 0.0 : LIFT_RISE_SPEED
-		if ( LIFT_LERP_TO_HIGHEST_PART ) // lerp to highest part
-		{
-			if ( nearHighest ) // near top check
-			{
-				// calculate speed!
-				float topMoveFrac = ( ent.GetOrigin().z - nearTopHeight ) / LIFT_TOP_HEIGHT
-				//print( "topMoveFrac: " + string( topMoveFrac ) )
-				airSpeed.z = max( LIFT_TOP_RISE_SPEED_MIN, ( 1 - topMoveFrac ) * LIFT_RISE_SPEED )
-			}
-		}
+
 		if ( ent.IsPlayer() && PlayerNotDoingInput( ent ) ) // not doing any input, we take 2 ticks to fully stop player, so they can feel better controlling
 			airSpeed = GainVelocityHorizontal( airSpeed, -( LIFT_HORIZONTAL_MOVE_SPEED * 0.5 ), 0.0 ) //RemoveVelocityHorizonal( airSpeed )
 		else
@@ -505,34 +527,19 @@ void function EntityInGravityLift( entity ent, entity trigger )
 		{
 			if ( Time() > reachHighestTime + LIFT_TOP_TIME_LIMIT ) // more than limit!
 			{
-				if ( ent.IsPlayer() )
-				{
-					if ( file.playerInGravLiftCount[ ent ] > 1 ) // still having other gravlifts! )
-						continue
-				}
+				if ( GetEntityInGravLiftCount( ent ) > 1 ) // still having other gravlifts! )
+					continue
 				results.bouncedFromLift = true // consider as force bounced away!
 				break // end the loop
 			}
 		}
 
-		// highest parts check
-		if( ent.GetOrigin().z >= topHeight && !reachedHighest )
-		{
-			reachHighestTime = Time()
-			reachedHighest = true
-		}
-		else if ( LIFT_LERP_TO_HIGHEST_PART ) // lerp to highest part
-		{
-			if ( ent.GetOrigin().z + ( ent.GetVelocity().z * 0.15 ) >= nearTopHeight && !nearHighest )
-				nearHighest = true
-		}
-
-		// player movement limiter
+		// movement limiter
 		if ( ent.IsPlayer() )
 		{
 			ent.ForceStand() // force player to stand
 			ent.ConsumeDoubleJump() // don't let players doublejump
-			if ( ent.IsTraversing() ) // is traversing or mantling
+			if ( ent.IsTraversing() ) // is mantling or traversing?
 				ent.ClearTraverse()
 			FindNearestSafeSpotAndPutEntity( ent, 1 ) // always try to protect players from stucking
 		}

@@ -13,6 +13,12 @@ global function BurnMeter_GiveRewardDirect
 global function GetBurnCardWeaponSkin
 global function InitBurnMeterPersistentData
 
+// shared with sv_item_inventory
+global function BurnMeter_TryRewardReadyMessage
+
+// new utility
+global function BurnMeter_ApplyWeaponAmpForDuration
+
 // nessie modify
 global function Burnmeter_SetRewardsDisabled
 global function Burnmeter_GetDisabledRewards // shared with sh_burnmeter.gnut
@@ -94,10 +100,14 @@ void function BurnMeter_Init()
 
 	//AddCallback_OnPlayerRespawned( StartPhaseRewindLifetime )
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
-	AddCallback_OnTitanBecomesPilot( RemoveAmpedWeaponsForTitanPilot )
+	//AddCallback_OnTitanBecomesPilot( RemoveAmpedWeaponsForTitanPilot ) // shouldn't do this. "StopAmpedWeapons" is signaled on each weapon when StoreWeapons() in _titan_transfer.gnut, which means we need to run a thread for each amped weapons, but not player
 
 	// necessary signals
 	RegisterSignal( "StopAmpedWeapons" )
+
+	// modified
+	RegisterSignal( "PlayerAmpedWeaponsThink" )
+	RegisterSignal( "WaitForBurnCardAnim" )
 }
 
 void function BurnMeter_SetBoostLimit( string burnRef, int limit )
@@ -238,11 +248,11 @@ void function InitBurncardsForLateJoiner( entity player )
 
 void function OnPlayerRespawned( entity player )
 {
-	TryRewardReadyMessage( player )
+	BurnMeter_TryRewardReadyMessage( player )
 	StartPhaseRewindLifetime( player )
 }
 
-bool function TryRewardReadyMessage( entity player )
+bool function BurnMeter_TryRewardReadyMessage( entity player )
 {
 	if ( Time() >= file.playerRewardReadyMessageTime[ player ] )
 	{
@@ -343,7 +353,7 @@ void function BurnMeter_GiveRewardDirect( entity player, string itemRef )
 	PlayerInventory_PushInventoryItemByBurnRef( player, itemRef )
 	// this uses "timeSinceLastRespawn" as param!!!
 	//Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", player.s.respawnTime )
-	TryRewardReadyMessage( player )
+	BurnMeter_TryRewardReadyMessage( player )
 }
 
 int function GetBurnCardWeaponSkin( entity weapon )
@@ -365,104 +375,132 @@ void function PlayerUsesAmpedWeaponsBurncard( entity player )
 
 void function PlayerUsesAmpedWeaponsBurncardThreaded( entity player )
 {
-	player.Signal( "StopAmpedWeapons" )
-	player.EndSignal( "StopAmpedWeapons" )
-	array<entity> weapons = player.GetMainWeapons()
-	OnThreadEnd(
-		function(): ( weapons )
-		{
-			// note: weapons may have been destroyed or picked up by other people by this point, so need to verify this
-			foreach ( entity weapon in weapons )
-			{
-				if( IsValid( weapon ) )
-				{
-					if( TryRemoveModdedBurnMods( weapon ) ) // if successfully removed a mod or the modded weapon don't have a mod, we skip it!
-						continue
+	PlayBattleChatterLine( player, "bc_pAmp" ) // special battle chatter
 
-					foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
-						weapon.RemoveMod( mod )
-					
-					weapon.SetScriptFlags0( weapon.GetScriptFlags0() & ~WEAPONFLAG_AMPED )
-				}
-				else
-					continue
-			}
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.Signal( "PlayerAmpedWeaponsThink" )
+	player.EndSignal( "PlayerAmpedWeaponsThink" )
+
+	// temporarily no sense
+	OnThreadEnd(
+		function(): ( player )
+		{
+
 		}
 	)
 
 	//weapons.extend( player.GetOffhandWeapons() ) // idk? unsure of vanilla behaviour here
-	foreach ( entity weapon in weapons )
+	foreach ( entity weapon in player.GetMainWeapons() )
+		BurnMeter_ApplyWeaponAmpForDuration( weapon, AMPED_WEAPONS_LENGTH )
+
+	wait AMPED_WEAPONS_LENGTH // temporarily no sense
+}
+
+void function BurnMeter_ApplyWeaponAmpForDuration( entity weapon, float duration )
+{
+	thread ApplyWeaponAmpForDuration_Threaded( weapon, duration )
+}
+
+void function ApplyWeaponAmpForDuration_Threaded( entity weapon, float duration )
+{
+	// modified condition for disabled mods
+	if ( ModdedBurnMods_WeaponHasDisabledBurnMod( weapon ) ) // weapon has burnmod disabled?
+		return // don't apply burnmod
+
+	weapon.EndSignal( "OnDestroy" )
+	// signal to stop previous amped weapon thread
+	weapon.Signal( "StopAmpedWeapons" )
+	weapon.EndSignal( "StopAmpedWeapons" )
+
+	array<string> emptyStringArray
+	table< string, array<string> > weaponMod =
 	{
-		if( weapon.GetWeaponPrimaryClipCountMax() > 0 )
-			weapon.SetWeaponPrimaryClipCount( weapon.GetWeaponPrimaryClipCountMax() ) // kind of a fix to get ammo to full, cba to give new weapon
+		[ "modsToRemove" ] = clone emptyStringArray, // mods that should be removed after amping ends
+		[ "modsToRestore" ] = clone emptyStringArray, // mods that should be restored after amping ends
+	}
 
-		if( TryApplyModdedBurnMods( weapon ) ) // if successfully apply a mod or the modded weapon don't have a mod, we skip it!
-			continue
+	OnThreadEnd
+	(
+		function(): ( weapon, weaponMod )
+		{
+			if ( IsValid( weapon ) )
+			{
+				// remove burnmod for weapon
+				foreach ( string mod in weaponMod[ "modsToRemove" ] )
+					weapon.RemoveMod( mod )
 
+				// restore mods for weapon
+				foreach ( string mod in weaponMod[ "modsToRestore" ] )
+					weapon.AddMod( mod )
+
+				// remove "WEAPON AMPED" RUI
+				weapon.SetScriptFlags0( weapon.GetScriptFlags0() & ~WEAPONFLAG_AMPED )
+				weapon.SetScriptTime0( 0.0 )
+			}
+		}
+	)
+
+	// modified: always append the first burnmod for weapon by default, in case we add modded burnmods
+	array<string> burnMods = GetWeaponBurnMods( weapon.GetWeaponClassName() )
+	string mainBurnMod = "" 
+	if ( burnMods.len() > 0 )
+		mainBurnMod = burnMods[0]
+	// modified condition for replacement burnmods
+	if ( ModdedBurnMods_WeaponHasReplacementBurnMod( weapon ) ) // weapon has replacement burnmod?
+		mainBurnMod = ModdedBurnMods_GetBurnModFromWeapon( weapon )
+	//print( "mainBurnMod: " + mainBurnMod )
+
+	// defensive fix for weapons that already have a burnmod, or already having a amping RUI
+	if ( weapon.HasMod( mainBurnMod ) )
+		return // don't apply amped weapons
+	if ( weapon.GetScriptFlags0() & WEAPONFLAG_AMPED )
+	{
+		weapon.SetScriptFlags0( weapon.GetScriptFlags0() & ~WEAPONFLAG_AMPED )
+		weapon.SetScriptTime0( 0.0 )
+	}
+
+	// applying weapon mods
+	// HACK for silencer
+	if ( weapon.HasMod( "silencer" ) )
+	{
 		weapon.RemoveMod( "silencer" ) // both this and the burnmod will override firing fx, if a second one overrides this we crash
-
-		foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
-		{
-			// catch incompatibilities just in case
-			try
-			{
-				weapon.AddMod( mod )
-			}
-			catch( ex )
-			{
-				weapons.removebyvalue( weapon )
-			}
-		}
-
-		// needed to display amped weapon time left
-		weapon.SetScriptFlags0( weapon.GetScriptFlags0() | WEAPONFLAG_AMPED )
-		weapon.SetScriptTime0( Time() + AMPED_WEAPONS_LENGTH )
+		weaponMod[ "modsToRestore" ].append( "silencer" ) // we should restore silencer for this weapon after thread
 	}
-
-	wait AMPED_WEAPONS_LENGTH
-}
-
-bool function TryApplyModdedBurnMods( entity weapon )
-{
-	if( IsModdedWeapon( weapon ) ) // is it my modded weapon?
+	// catch incompatibilities just in case
+	try
 	{
-		if( IsModdedBurnModWeapon( weapon ) ) // do it have modified burnmod?
-		{
-			foreach( string burnMod in GetModdedWeaponBurnMods( weapon ) )
-				weapon.AddMod( burnMod )
-		}
-
-		return true // meet a modded weapon, always return true to let other functions skip it
+		weapon.AddMod( mainBurnMod )
+		weaponMod[ "modsToRemove" ].append( mainBurnMod ) // we remove the mod after thread
 	}
-	return false // not a modded weapon
-}
-
-bool function TryRemoveModdedBurnMods( entity weapon )
-{
-	if( IsModdedWeapon( weapon ) ) // is it my modded weapon?
+	catch( ex ) // ran into error, remove burnmod on this weapon
 	{
-		if( IsModdedBurnModWeapon( weapon ) ) // do it have modified burnmod?
-		{
-			foreach( string burnMod in GetModdedWeaponBurnMods( weapon ) )
-				weapon.RemoveMod( burnMod )
-		}
-
-		return true // meet a modded weapon, always return true to let other functions skip it
+		weapon.RemoveMod( mainBurnMod )
+		return
 	}
-	return false // not a modded weapon
+
+	// needed to display amped weapon time left
+	weapon.SetScriptFlags0( weapon.GetScriptFlags0() | WEAPONFLAG_AMPED )
+	if ( duration >= 0 ) // apply timer if duration >= 0
+		weapon.SetScriptTime0( Time() + duration )
+
+	if ( duration >= 0 )
+		wait duration
+	else
+		WaitForever()
 }
 
+// shouldn't do this. "StopAmpedWeapons" is signaled on each weapon when StoreWeapons() in _titan_transfer.gnut, which means we need to run a thread for each amped weapons, but not player
+/*
 void function RemoveAmpedWeaponsForTitanPilot( entity player, entity titan )
 {
 	foreach ( entity weapon in player.GetMainWeapons() )
 	{
-		if( TryApplyModdedBurnMods( weapon ) ) // if successfully apply a mod or the modded weapon don't have a mod, we skip it!
-			continue
-
 		foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
 			weapon.RemoveMod( mod )
 	}
 }
+*/
 
 void function PlayerUsesSmartPistolBurncard( entity player )
 {
@@ -720,31 +758,13 @@ void function PlayerUsesNukeBurncardThreaded( entity player )
 	thread TitanEjectPlayer( titan, true )
 }
 
+// WIP: add support for modded burnmods
 void function PlayerUsesPermanentAmpedWeaponsBurncard( entity player )
 {
 	array<entity> weapons = player.GetMainWeapons()
 	//weapons.extend( player.GetOffhandWeapons() ) // idk? unsure of vanilla behaviour here
 	foreach ( entity weapon in weapons )
-	{
-		if( TryApplyModdedBurnMods( weapon ) ) // if successfully apply a mod or the modded weapon don't have a mod, we skip it!
-			continue
-
-		weapon.RemoveMod( "silencer" ) // both this and the burnmod will override firing fx, if a second one overrides this we crash
-		foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
-		{
-			// catch incompatibilities just in case
-			try
-			{
-				weapon.AddMod( mod )
-			}
-			catch( ex )
-			{
-				weapons.removebyvalue( weapon )
-			}
-		}
-
-		weapon.SetScriptFlags0( weapon.GetScriptFlags0() | WEAPONFLAG_AMPED )
-	}
+		BurnMeter_ApplyWeaponAmpForDuration( weapon, -1 ) // -1 means infinite duration
 }
 
 void function PlayerUsesHarvesterShieldBurncard( entity player )

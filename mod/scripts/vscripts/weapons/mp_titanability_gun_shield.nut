@@ -355,7 +355,9 @@ var function GunShield_InvulBulletHitRules( entity vortexSphere, var damageInfo 
 	DamageInfo_SetDamage( damageInfo, 0 )
 }
 
-bool function GunShield_InvulProjectileHitRules( entity vortexSphere, entity attacker, bool takesDamageByDefault )
+// the function SetVortexSphereProjectileHitRules() has been modified, it takes 1 more parameter
+//bool function GunShield_InvulProjectileHitRules( entity vortexSphere, entity attacker, bool takesDamageByDefault )
+bool function GunShield_InvulProjectileHitRules( entity vortexSphere, entity attacker, entity projectile, bool takesDamageByDefault )
 {
 	return false
 }

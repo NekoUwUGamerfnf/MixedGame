@@ -76,21 +76,36 @@ int function PlayerInventory_CountBurnRef( entity player, string burnRef )
 	return count
 }
 
-void function PlayerInventory_TakeInventoryItem( entity player )
+void function PlayerInventory_TakeInventoryItem( entity player, bool ignoreWait = false )
 {
 	player.EndSignal( "OnDestroy" )
-	entity preexistingWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
+	entity preExistingWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
 
-	if( !IsValid( preexistingWeapon ) )
+	if( !IsValid( preExistingWeapon ) )
 		return
-	preexistingWeapon.EndSignal( "OnDestroy" )
-	if( preexistingWeapon.GetWeaponClassName() == "mp_ability_burncardweapon" )
+
+	if ( !ignoreWait )
+		waitthread WaitForInventoryWeaponFireEnd( player, preExistingWeapon ) // wait until weapon's fire animation end
+
+	player.TakeWeaponNow( preExistingWeapon.GetWeaponClassName() )
+}
+
+void function WaitForInventoryWeaponFireEnd( entity player, entity weapon )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	weapon.EndSignal( "OnDestroy" )
+
+	var fireMode = weapon.GetWeaponInfoFileKeyField( "fire_mode" ) // no support for weapon mods!
+	bool isOffhandInstant = fireMode == "offhand_instant"
+
+	if ( isOffhandInstant ) // for offhand instant, we wait a frame
+		WaitFrame()
+	else // for normal offhand weapons, we wait until player holsters them
 	{
-		var fireTime = preexistingWeapon.GetWeaponInfoFileKeyField( "fire_anim_rate" )
-		if( fireTime != null )
-			wait fireTime
+		while ( player.GetActiveWeapon() == weapon )
+			WaitFrame()
 	}
-	player.TakeWeaponNow( preexistingWeapon.GetWeaponClassName() )
 }
 
 void function PlayerInventory_GiveInventoryItem( entity player, InventoryItem inventoryItem )
@@ -107,14 +122,17 @@ void function PlayerInventory_GiveInventoryItem( entity player, InventoryItem in
 
 	// ensure inventory slot isn't full to avoid crash
 	waitthread PlayerInventory_TakeInventoryItem( player )
-	entity preexistingWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY ) // defensive fix
-	if( IsValid( preexistingWeapon ) )
-		player.TakeWeaponNow( preexistingWeapon.GetWeaponClassName() )
+	entity preExistingWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY ) // defensive fix
+	if( IsValid( preExistingWeapon ) )
+		player.TakeWeaponNow( preExistingWeapon.GetWeaponClassName() )
 
+	// start giving inventory
 	player.GiveOffhandWeapon( inventoryItem.weaponRef, OFFHAND_INVENTORY, mods )
-	if ( inventoryItem.itemType == eInventoryItemType.burnmeter ) {
+	if ( inventoryItem.itemType == eInventoryItemType.burnmeter ) // is inventory a burncard?
+	{
 		entity weapon = player.GetOffhandWeapon(OFFHAND_INVENTORY)
-		weapon.e.burnReward = inventoryItem.burnReward.ref
+		weapon.e.burnReward = inventoryItem.burnReward.ref // set up use effect
+		BurnMeter_TryRewardReadyMessage( player ) // do annoucement to player
 	}
 }
 
@@ -158,7 +176,7 @@ void function PlayerInventory_PopInventoryItem( entity player )
 void function PlayerInventory_TakeAllInventoryItems( entity player )
 {
 	file.playerInventoryStacks[ player ].clear()
-	waitthread PlayerInventory_TakeInventoryItem( player )
+	PlayerInventory_TakeInventoryItem( player, true ) // ignore waiting caused by mp_ability_burncardweapon
 	player.SetPlayerNetInt( "itemInventoryCount", 0 )
 	return
 }
