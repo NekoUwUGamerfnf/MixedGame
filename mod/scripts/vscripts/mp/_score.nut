@@ -395,7 +395,7 @@ void function SetupEarnMeterValuesForMixedModes_Threaded()
 	// todo needs earn/overdrive values
 	// player-controlled stuff
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.34 )
-	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.02, 0.05, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.0, 0.15 )
@@ -403,17 +403,17 @@ void function SetupEarnMeterValuesForMixedModes_Threaded()
 	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 ) // unsure
 	ScoreEvent_SetEarnMeterValues( "TitanAssist", 0.0, 0.10 )
-	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35 ) // this actually just doesn't have overdrive in vanilla even
-	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02 )
-	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05 )
-	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35 )
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35, 0.0 ) // this actually just doesn't have overdrive in vanilla even
+	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
 	
 	// ai
 	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.02, 0.02 )
 	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.0, 0.1, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.1, 0.1, 0.5 )
 }
 
 void function ScoreEvent_SetupEarnMeterValuesForTitanModes()
