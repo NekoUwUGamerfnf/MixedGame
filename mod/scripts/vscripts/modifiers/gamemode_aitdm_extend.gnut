@@ -561,44 +561,110 @@ bool function ReachedPlayerCheckAmount()
 
 void function SpawnIntroBatch( int team )
 {
-	// intro spawn
+	array<entity> dropPodNodes = GetEntArrayByClass_Expensive( "info_spawnpoint_droppod_start" )
+	array<entity> dropShipNodes = GetValidIntroDropShipSpawn( dropPodNodes )  
+	
+	array<entity> podNodes
+	
+	array<entity> shipNodes
+	
+	
+	// mp_rise has weird droppod_start nodes, this gets around it
+	// To be more specific the teams aren't setup and some nodes are scattered in narnia
+	if( GetMapName() == "mp_rise" )
+	{
+		entity spawnPoint
+		
+		// Get a spawnpoint for team
+		foreach ( point in GetEntArrayByClass_Expensive( "info_spawnpoint_dropship_start" ) )
+		{
+			if ( point.HasKey( "gamemode_tdm" ) )
+				if ( point.kv[ "gamemode_tdm" ] == "0" )
+					continue
+			
+			if ( point.GetTeam() == team )
+			{
+				spawnPoint = point
+				break
+			}
+		}
+		
+		// Get nodes close enough to team spawnpoint
+		foreach ( node in dropPodNodes )
+		{
+			if ( node.HasKey("teamnum") && Distance2D( node.GetOrigin(), spawnPoint.GetOrigin()) < 2000 )
+				podNodes.append( node )
+		}
+	}
+	else
+	{
+		// Sort per team
+		foreach ( node in dropPodNodes )
+		{
+			if ( node.GetTeam() == team )
+				podNodes.append( node )
+		}
+	}
+
+	shipNodes = GetValidIntroDropShipSpawn( podNodes )
+
+
+	// Spawn logic
+	int startIndex = 0
+	bool first = true
+	entity node
 	string introSpawnClass = "npc_soldier"
+	
+	int pods = RandomInt( podNodes.len() + 1 )
+	
+	int ships = shipNodes.len()
+	
 	for ( int i = 0; i < SQUADS_PER_TEAM; i++ )
 	{
-		wait 5 // wait 5s per spawn, or player will have model issue since there're too many entities
-		if ( ShouldSpawnSpecialistSquad() )
+		if ( pods != 0 || ships == 0 )
 		{
-			array< entity > points = GetZiplineDropshipSpawns()
-			string leaderSet = GetSpecialistGruntLeader()
-			int leaderHealth = GetSpecialistLeaderHealth( team, leaderSet )
-
-			if ( ShouldSpawnDropship() )
-			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, leaderSet, leaderHealth, SquadHandler )
-				continue
-			}
+			int index = i
 			
-			points = SpawnPoints_GetDropPod()
-			entity node = points[ GetSpawnPointIndex( points, team ) ]
-			//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
-			thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, leaderSet, leaderHealth, SquadHandler )
+			if ( index > podNodes.len() - 1 )
+			index = RandomInt( podNodes.len() )
+			
+			node = podNodes[ index ]
+			if ( ShouldSpawnSpecialistSquad() )
+			{
+				array< entity > points = GetZiplineDropshipSpawns()
+				string leaderSet = GetSpecialistGruntLeader()
+				int leaderHealth = GetSpecialistLeaderHealth( team, leaderSet )
+				thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, leaderSet, leaderHealth, SquadHandler )
+			}
+			else
+				thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, SquadHandler )
+
+			pods--
 		}
 		else
 		{
-			array< entity > points = GetZiplineDropshipSpawns()
-
-			if ( ShouldSpawnDropship() )
+			if ( startIndex == 0 ) 
+			startIndex = i // save where we started
+			
+			node = shipNodes[ i - startIndex ]
+			if ( ShouldSpawnSpecialistSquad() )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, SquadHandler )
-				continue
+				array< entity > points = GetZiplineDropshipSpawns()
+				string leaderSet = GetSpecialistGruntLeader()
+				int leaderHealth = GetSpecialistLeaderHealth( team, leaderSet )
+				thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, leaderSet, leaderHealth, SquadHandler )
 			}
-
-			points = SpawnPoints_GetDropPod()
-			entity node = points[ GetSpawnPointIndex( points, team ) ]
-			thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, SquadHandler )
+			else
+				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, SquadHandler )
+			
+			ships--
 		}
+		
+		// Vanilla has a delay after first spawn
+		if ( first )
+			wait 2
+		
+		first = false
 	}
 
 	wait 5
