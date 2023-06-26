@@ -19,12 +19,14 @@ global function ExtraSpawner_RegisterToRandomTitanList
 global function ExtraSpawner_SpawnPilotElite
 global function ExtraSpawner_SpawnPilotCanEmbark
 global function ExtraSpawner_SpawnTitanWithPilot
-// set up funcs
-global function ExtraSpawner_SetUpNPCWeapons 
-global function ExtraSpawner_SetUpNPCPilot
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetNPCWeapons
 global function ExtraSpawner_SetNPCAntiTitanWeapons
+global function ExtraSpawner_SetNPCExtraWeaponMods // mods added by this func will be applies to npcs
+// set up funcs
+global function ExtraSpawner_ApplyNPCWeapons 
+global function ExtraSpawner_ApplyNPCExtraWeaponMods
+global function ExtraSpawner_SetUpNPCPilot
 
 // boss titans
 global function ExtraSpawner_SpawnBTWithCooper
@@ -76,7 +78,7 @@ const table<string, string> HACK_NPC_ORDNANCE_AISET =
 	["mp_weapon_grenade_gravity"]			= "npc_soldier_blisk",
 	["mp_weapon_grenade_emp"]				= "npc_soldier_pve_eliteguard",
 	["mp_weapon_grenade_electric_smoke"]	= "npc_soldier_pve_sandbox",
-	["mp_weapon_satchel"]					= "npc_soldier_spyglass", // missing npc logic
+	["mp_weapon_satchel"]					= "npc_soldier_spyglass", // satchel is missing npc logic
 }
 //
 
@@ -107,6 +109,7 @@ struct
 	// npc weapons, should we add a struct to set up mods for them?
 	table< string, array<string> > npcMainWeaponsTable
 	table< string, array<string> > npcAntiTitanWeaponsTable
+	table< string, array<string> > npcExtraWeaponModsTable
 	// npc titan settings
 	table<entity, EmbarkedNPCTitanStruct> soulEmbarkedSettings
 	// for ExtraSpawner_SpawnTitanRandom() picking random titans
@@ -551,6 +554,13 @@ void function ExtraSpawner_SetNPCAntiTitanWeapons( string npcClass, array<string
 	file.npcAntiTitanWeaponsTable[ npcClass ] = weapons
 }
 
+void function ExtraSpawner_SetNPCExtraWeaponMods( string npcClass, array<string> mods )
+{
+	if ( !( npcClass in file.npcExtraWeaponModsTable ) )
+		file.npcExtraWeaponModsTable[ npcClass ] <- []
+	file.npcExtraWeaponModsTable[ npcClass ] = mods
+}
+
 void function ExtraSpawner_SetCarePackageWeapons( array<string> weapons )
 {
 	file.carePackageWeapons = weapons
@@ -749,7 +759,7 @@ void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, boo
 		damageAreaInfo.Destroy()
 }
 
-void function ExtraSpawner_SetUpNPCWeapons( entity npc )
+void function ExtraSpawner_ApplyNPCWeapons( entity npc )
 {
 	string className = npc.GetClassName()
 	
@@ -775,12 +785,34 @@ void function ExtraSpawner_SetUpNPCWeapons( entity npc )
 	}
 	if ( antiTitanWeapons.len() > 0 )
 		npc.GiveWeapon( antiTitanWeapons[ RandomInt( antiTitanWeapons.len() ) ] )
-	
-	foreach ( entity weapon in npc.GetMainWeapons() )
-		weapon.AddMod( "extra_spawner_ai_weapon" ) // shared mod, if a weapon's keyvalue has this mod, we'll use it
+
+	ExtraSpawner_ApplyNPCExtraWeaponMods( npc ) // add extra weapon mods
 
 	// also make them use heavy armor weapon
 	npc.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon )
+}
+
+void function ExtraSpawner_ApplyNPCExtraWeaponMods( entity npc )
+{
+	string className = npc.GetClassName()
+
+	array<string> modsToApply
+	if ( className in file.npcExtraWeaponModsTable )
+		modsToApply = file.npcExtraWeaponModsTable[ className ]
+
+	if ( modsToApply.len() == 0 ) // no valid mods
+		return
+
+	foreach ( entity weapon in npc.GetMainWeapons() )
+	{
+		array<string> validMods = GetWeaponMods_Global( weapon.GetWeaponClassName() )
+		foreach ( string mod in modsToApply )
+		{
+			if ( !validMods.contains( mod ) ) // this weapon don't have such a mod!
+				continue
+			weapon.AddMod( mod )
+		}
+	}
 }
 
 // modified, since WT_ANTITITAN won't work in r2, hardcoded
@@ -994,7 +1026,7 @@ void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, stri
 	
 	foreach ( guy in guys )
 	{
-		ExtraSpawner_SetUpNPCWeapons( guy )
+		ExtraSpawner_ApplyNPCWeapons( guy )
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	}
 	
@@ -1035,7 +1067,7 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 		DispatchSpawn( npc )
 		SetSquad( npc, squadName )
 		
-		ExtraSpawner_SetUpNPCWeapons( npc )
+		ExtraSpawner_ApplyNPCWeapons( npc )
 		
 		npc.SetParent( pod, "ATTACH", true )
 		
@@ -1398,7 +1430,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 		bool sniperGrunt = isLeader && leaderAiSet == "npc_soldier_sidearm"
 		//print( "sniperGrunt: " + string( sniperGrunt ) )
 		if ( !sniperGrunt )
-			ExtraSpawner_SetUpNPCWeapons( guy )
+			ExtraSpawner_ApplyNPCWeapons( guy )
 
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	}
@@ -1442,7 +1474,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		bool sniperGrunt = i == 0 && leaderAiSet == "npc_soldier_sidearm"
 		//print( "sniperGrunt: " + string( sniperGrunt ) )
 		if ( !sniperGrunt )
-			ExtraSpawner_SetUpNPCWeapons( npc )
+			ExtraSpawner_ApplyNPCWeapons( npc )
 		
 		npc.SetParent( pod, "ATTACH", true )
 		
@@ -1519,8 +1551,8 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			break
 
 		case "npc_soldier_sidearm": // sniper grunt
-			npc.SetAISettings( "npc_soldier_shield_captain" ) // re-assign aiset to shield captain: more heavy damage threshold
-			npc.Signal( "ForceStopShield" ) // stop it's shield
+			//npc.SetAISettings( "npc_soldier_shield_captain" ) // re-assign aiset to shield captain: higher damage threshold
+			//npc.Signal( "ForceStopShield" ) // stop it's shield
 			if ( team == TEAM_MILITIA )
 				npc.SetModel( $"models/humans/grunts/mlt_grunt_lmg.mdl" )
 			else
@@ -1531,11 +1563,11 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			npc.SetBehaviorSelector( "behavior_sp_soldier" ) // they'll switch to pistol if needed
 			npc.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
 
-			// special weapons
+			// special weapons, hardcoded!
 			// take off existing main weapons, or sometimes they'll have a archer
 			foreach ( entity weapon in npc.GetMainWeapons() )
 				npc.TakeWeapon( weapon.GetWeaponClassName() )
-			npc.GiveWeapon( "mp_weapon_sniper", ["npc_sniper_grunt", "burn_mod_sniper"] )
+			npc.GiveWeapon( "mp_weapon_sniper", ["pve_elite", "burn_mod_sniper"] )
 			npc.SetActiveWeaponByName( "mp_weapon_sniper" )
 
 			string sideArmName = SNIPER_VALID_SIDEARMS[ RandomInt( SNIPER_VALID_SIDEARMS.len() ) ]
@@ -1546,10 +1578,10 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			if ( "npc_soldier" in file.npcAntiTitanWeaponsTable )
 				antiTitanWeapons = file.npcAntiTitanWeaponsTable[ "npc_soldier" ]
 			if ( antiTitanWeapons.len() > 0 )
-			{
 				entity antiTitan = npc.GiveWeapon( antiTitanWeapons[ RandomInt( antiTitanWeapons.len() ) ] )
-				antiTitan.AddMod( "extra_spawner_ai_weapon" ) // shared mod, if a weapon's keyvalue has this mod, we'll use it
-			}
+
+			ExtraSpawner_ApplyNPCExtraWeaponMods( npc ) // apply weapon mods
+
 			break
 	}
 }
@@ -1762,7 +1794,7 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.SetHealth( 1000 )
 	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
 
-	ExtraSpawner_SetUpNPCWeapons( pilot )
+	ExtraSpawner_ApplyNPCWeapons( pilot )
 
 	return pilot
 }
