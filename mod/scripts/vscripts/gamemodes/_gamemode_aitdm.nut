@@ -67,7 +67,7 @@ void function GamemodeAITdm_Init()
 		Modded_Gamemode_GruntMode_Init()
 	else if( modGamemodes.extraSpawner )
 		Modded_Gamemode_Extra_Spawner_Init()
-	if( modGamemodes.aitdmExtend || GetCurrentPlaylistVarInt( "aitdm_extended_spawns", 0 ) != 0 )
+	else if( modGamemodes.aitdmExtend || GetCurrentPlaylistVarInt( "aitdm_extended_spawns", 0 ) != 0 )
 		Modded_Gamemode_AITdm_Extended_Init()
 	else // vanilla attrition
 	{
