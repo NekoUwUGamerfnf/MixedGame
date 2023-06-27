@@ -116,6 +116,9 @@ struct
 	array<RandomTitanStruct> randomTitanList
 	// for making the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
+	// scripted npc dialogue
+	table<entity, float> npcDialogueNextAllowedTime
+	table<entity, string> npcLastDialogue
 
 	// care package
 	array<entity> usedplayer = []
@@ -875,8 +878,108 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		if ( activeWeapon.GetWeaponClassName() == weaponToChange ) // already holding this weapon
 			return
 	}
-	
+
+	if ( weaponToChange == "" )
+		return
+
 	guy.SetActiveWeaponByName( weaponToChange )
+
+	// grunt specific: do dialogue(vanilla missing this in grunt_chatter_mp.rpak)
+	if ( IsGrunt( guy ) && isHeavyArmorTarget )
+	{
+		string dialogueType = "bc_switchingToAT"
+		string dialoguePrefix = "diag_imc_grunt"
+		int gruntVariants = 6 // 1~6
+		int dialogueVariants = 2 // 1~2
+		float debounce = 20.0
+		// charge rifle specific
+		if ( weaponToChange == "mp_weapon_defender" )
+			dialogueType = "bc_usingChargeRifle"
+		TryGruntDialogue( guy, dialogueType, dialoguePrefix, gruntVariants, dialogueVariants, debounce )
+	}
+	//string dialogue = 
+	//EmitSoundOnEntity
+}
+
+// grunt dialogue is mostly a format of prefix + gruntNum + "_" + type + "_0" + dialogueNum
+bool function TryGruntDialogue( entity guy, string dialogueType, string dialoguePrefix, int gruntVariants, int dialogueVariants, float debounce = 20.0 )
+{
+	string gruntNum = string( RandomInt( gruntVariants ) + 1 )
+	string dialogueNum = string( RandomInt( dialogueVariants ) + 1 )
+	string builtDialogue = dialoguePrefix + gruntNum + "_" + dialogueType + "_0" + dialogueNum
+
+	return TryScriptedNPCDialogue( guy, builtDialogue, debounce )
+}
+
+// scripted npc dialogue, simply just emit a sound for npc
+bool function TryScriptedNPCDialogue( entity guy, string dialogue, float debounce )
+{
+	// init
+	InitScriptedNPCDialogue( guy )
+
+	// limit checks
+	if ( Time() < file.npcDialogueNextAllowedTime[ guy ] )
+		return false
+	if ( file.npcLastDialogue[ guy ] != "" )
+		StopSoundOnEntity( guy, file.npcLastDialogue[ guy ] )
+
+	file.npcDialogueNextAllowedTime[ guy ] = Time() + debounce
+	// if the npc has a squad, apply debouce to all it's squadmates
+	foreach ( entity otherGuy in GetSquadMatesForNPC( guy ) )
+	{
+		// init
+		InitScriptedNPCDialogue( guy )
+		file.npcDialogueNextAllowedTime[ guy ] = Time() + debounce
+	}
+	file.npcLastDialogue[ guy ] = dialogue
+
+	thread TrackDialogueSpeakerDeath( guy, dialogue, debounce )
+	return true
+}
+
+array<entity> function GetSquadMatesForNPC( entity guy )
+{
+	array<entity> squad
+	string squadName = expect string( guy.kv.squadname )
+	if ( squadName == "" )
+		return squad
+
+	squad = GetNPCArrayBySquad( squadName )
+	squad.removebyvalue( guy ) // remove guy itself
+	ArrayRemoveDead( squad ) // remove dead guys
+	return squad
+}
+
+void function InitScriptedNPCDialogue( entity guy )
+{
+	if ( !( guy in file.npcDialogueNextAllowedTime ) )
+		file.npcDialogueNextAllowedTime[ guy ] <- 0.0
+	if ( !( guy in file.npcLastDialogue ) )
+		file.npcLastDialogue[ guy ] <- ""
+}
+
+void function TrackDialogueSpeakerDeath( entity guy, string dialogue, float debounce )
+{
+	guy.EndSignal( "OnDestroy" )
+	guy.EndSignal( "OnDeath" )
+	table results = {
+		waitTilDialogueEnd = false
+	}
+
+	OnThreadEnd
+	(
+		function(): ( guy, dialogue, results )
+		{
+			if ( IsValid( guy ) )
+			{
+				if ( !results.waitTilDialogueEnd )
+					StopSoundOnEntity( guy, dialogue )
+			}
+		}
+	)
+
+	wait debounce // max wait time
+	results.waitTilDialogueEnd = true // mark as we ended dialogue properly
 }
 
 // npc minimap and spawn checks
