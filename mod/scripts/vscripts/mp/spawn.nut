@@ -79,11 +79,11 @@ void function Spawn_Init()
 	AddCallback_GameStateEnter( eGameState.Prematch, ResetSpawnzones )
 	AddSpawnCallbackEditorClass( "trigger_multiple", "trigger_mp_spawn_zone", AddSpawnZoneTrigger )
 
-	// modified: add spawn_on_friendly support
-	AddCallback_OnClientConnected( TrackFriendlySpawnLifeLong )
+	// modified: add spawn_on_friendly support. temp removed for now, vanilla seems spawn right onto a safe&moving friendly player
+	//AddCallback_OnClientConnected( TrackFriendlySpawnLifeLong )
 	// modified: prevent spawning in friendly's deadly area
 	AddCallback_OnPlayerKilled( AddNoSpawnAreaForBeingKilled )
-	// modified: spawn point is not enough for most ffa maps, try to add more of them
+	// modified: spawn point is not enough for most ffa maps, try to add more of them. temp removed now since we're including tdm spawns for ffa
 	//AddCallback_EntitiesDidLoad( FFAExtraSpawnPoints )
 }
 
@@ -306,8 +306,9 @@ entity function FindSpawnPoint( entity player, bool isTitan, bool useStartSpawnp
 	else
 		spawnpoints = isTitan ? SpawnPoints_GetTitan() : SpawnPoints_GetPilot()
 
-	// modified: spawn point is not enough for most ffa maps, try to add more of them
-	// modified: add spawn_on_friendly support
+	// modified: spawn point is not enough for most ffa maps, try to add more of them. temp removed now since we're including tdm spawns for ffa
+	// modified: add spawn_on_friendly support. temp removed for now, vanilla seems spawn right onto a safe&moving friendly player
+	/*
 	if ( IsFFAGame() )
 		spawnpoints.extend( file.ffaExtraSpawns )
 	else
@@ -315,7 +316,8 @@ entity function FindSpawnPoint( entity player, bool isTitan, bool useStartSpawnp
 		if ( !isTitan ) // if we're not in ffa, should also rating "spawn_on_friendly" points
 			spawnpoints.extend( GetTeamFriendlyPilotSpawns( team ) )
 	}
-	
+	*/
+
 	InitRatings( player, player.GetTeam() )
 	
 	// don't think this is necessary since we call discardratings
