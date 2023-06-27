@@ -33,41 +33,10 @@ struct
 	int levelReapers = LEVEL_REAPERS
 } file
 
-// modded gamemodes
-global function Modded_Gamemode_GruntMode_Enable_Init
-global function Modded_Gamemode_Extra_Spawner_Enable_Init
-global function Modded_Gamemode_AITdm_Extended_Enabled_Init
-
-struct
-{
-	bool gruntmode = false
-	bool extraSpawner = false
-	bool aitdmExtend = false
-} modGamemodes
-
-void function Modded_Gamemode_GruntMode_Enable_Init()
-{
-	modGamemodes.gruntmode = true
-}
-
-void function Modded_Gamemode_Extra_Spawner_Enable_Init()
-{
-	modGamemodes.extraSpawner = true
-}
-
-void function Modded_Gamemode_AITdm_Extended_Enabled_Init()
-{
-	modGamemodes.aitdmExtend = true
-}
-
 void function GamemodeAITdm_Init()
 {
 	// modded gamemodes
-	if( modGamemodes.gruntmode || GetCurrentPlaylistVarInt( "aitdm_grunt_mode", 0 ) != 0 )
-		Modded_Gamemode_GruntMode_Init()
-	else if( modGamemodes.extraSpawner )
-		Modded_Gamemode_Extra_Spawner_Init()
-	else if( modGamemodes.aitdmExtend || GetCurrentPlaylistVarInt( "aitdm_extended_spawns", 0 ) != 0 )
+	if( GetCurrentPlaylistVarInt( "aitdm_extended_spawns", 0 ) != 0 )
 		Modded_Gamemode_AITdm_Extended_Init()
 	else // vanilla attrition
 	{
@@ -97,9 +66,6 @@ void function GamemodeAITdm_Init()
 		}
 		
 		ScoreEvent_SetupEarnMeterValuesForMixedModes()
-
-		// nscn specifics
-		SetShouldPlayDefaultMusic( true )
 	}
 }
 

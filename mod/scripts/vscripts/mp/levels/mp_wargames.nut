@@ -47,9 +47,6 @@ void function AddEvacNodes()
 // dissolve effects
 void function WargamesOnPlayerKilled( entity deadEnt, entity attacker, var damageInfo )
 {
-	if( Wargames_IsPlayerDissolveDisabled() ) // defined in custom_damage_effect.gnut
-		return
-
 	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY ) // we don't dissolve heavy armor units
 		return
 	

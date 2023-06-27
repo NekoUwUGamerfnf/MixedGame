@@ -28,11 +28,6 @@ global function GetLungeTargetForPlayer
 global function Melee_IsAllowed
 global function IsAttackerRef
 
-// modified!!!
-global function Melee_SetSyncedMeleeNoLimit
-global function Melee_IsSyncedMeleeNoLimit
-global function Melee_AlwaysDoRandomSyncedMelee
-
 #if SERVER
 	global function Melee_Enable
 	global function Melee_Disable
@@ -95,12 +90,6 @@ struct
 	table<SyncedMeleeChooser, bool functionref( SyncedMelee action, entity player, entity target ) > syncedMeleeServerThink
 
 	string lastExecutionUsed = ""
-
-	// no synced limit think
-	// modified for primary_melee_gnut
-	bool noSyncedMeleeLimit = false
-	// modified for bleedout
-	bool alwaysRandomSyncedMelee = false
 } file
 
 function MeleeShared_Init()
@@ -208,25 +197,19 @@ bool function CodeCallback_IsValidMeleeExecutionTarget( entity attacker, entity 
 			return false
 	}
 
-	if( file.noSyncedMeleeLimit )
+	if( attacker.IsPlayer() )
 	{
-		if( attacker.IsPlayer() )
-		{
-			if( attacker.IsZiplining() )
-				return false
-		}
-		if( target.IsPlayer() )
-		{
-			if( target.IsZiplining() )
-				return false
-		}
-	}
-
-	if( !file.noSyncedMeleeLimit )
-	{
-		if ( !attacker.IsOnGround() && attacker.IsHuman() )
+		if( attacker.IsZiplining() )
 			return false
 	}
+	if( target.IsPlayer() )
+	{
+		if( target.IsZiplining() )
+			return false
+	}
+
+	if ( !attacker.IsOnGround() && attacker.IsHuman() )
+		return false
 
 	if ( !IsAlive( target ) )
 		return false
@@ -287,16 +270,12 @@ bool function CodeCallback_IsValidMeleeExecutionTarget( entity attacker, entity 
 	// npc execution case
 	if ( attacker.IsPlayer() )
 	{
-		// no limit if variable turns on, for primary_melee.gnut
-		if( !file.noSyncedMeleeLimit )
-		{
-			if ( !CheckVerticallyCloseEnough( attacker, target ) )
-				return false
+		if ( !CheckVerticallyCloseEnough( attacker, target ) )
+			return false
 
-			//No necksnaps while wall running or mantling
-			if ( attacker.IsWallRunning() )
-				return false
-		}
+		//No necksnaps while wall running or mantling
+		if ( attacker.IsWallRunning() )
+			return false
 
 		if ( attacker.IsTraversing() )
 			return false
@@ -306,24 +285,17 @@ bool function CodeCallback_IsValidMeleeExecutionTarget( entity attacker, entity 
 	{
 		if ( target.IsHuman() )
 		{
-			// from primary_melee.gnut
-			if( !file.noSyncedMeleeLimit )
-			{
-				if ( target.IsWallRunning() )
-					return false
-			}
+			if ( target.IsWallRunning() )
+				return false
 
 			if ( target.IsTraversing() )
 				return false
 
-			if( !file.noSyncedMeleeLimit )
-			{
-				if ( !target.IsOnGround() ) //disallow mid-air necksnaps. Can't really do that for Titan executions since dash puts them in mid air... will have visual glitches unfortunately.
-					return false
+			if ( !target.IsOnGround() ) //disallow mid-air necksnaps. Can't really do that for Titan executions since dash puts them in mid air... will have visual glitches unfortunately.
+				return false
 
-				if ( target.IsCrouched() )
-					return false
-			}
+			if ( target.IsCrouched() )
+				return false
 
 			if ( Rodeo_IsAttached( target ) )
 				return false
@@ -347,9 +319,7 @@ bool function CodeCallback_IsValidMeleeExecutionTarget( entity attacker, entity 
 			return false
 	}
 
-	// modified for friendlyFire
-	//if ( attacker.GetTeam() == target.GetTeam() )
-	if ( attacker.GetTeam() == target.GetTeam() && !FriendlyFire_IsEnabled() )
+	if ( attacker.GetTeam() == target.GetTeam() )
 		return false
 
 #if SERVER
@@ -387,10 +357,7 @@ bool function CodeCallback_IsValidMeleeAttackTarget( entity attacker, entity tar
 	if ( !CanBeMeleed( target ) )
 		return false
 
-	// modified for friendlyFire
-	//if ( attacker.GetTeam() == target.GetTeam() )
-	bool friendlyMelee = FriendlyFire_IsEnabled() || FirendlyFire_CanMeleeFriendlyTarget()
-	if ( attacker.GetTeam() == target.GetTeam() && !friendlyMelee )
+	if ( attacker.GetTeam() == target.GetTeam() )
 		return false
 
 #if SERVER
@@ -925,36 +892,16 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 				break
 			
 			float dot = relTargetToPlayerDir.Dot( action.direction )
-			// modified for primary_melee.gnut
-			if( file.noSyncedMeleeLimit )
-			{
-				if ( dot < 0 )
-					break
-			}
-			else
-			{
-				if ( dot < action.minDot )
-					break
-			}
+			if ( dot < action.minDot )
+				break
 
 #if SERVER
 			//Random Execution
-			/* // modified to add a new settings
 			if ( string( attacker.GetPersistentVar( "activePilotLoadout.execution" )) == "execution_random")
 			{
 				returnVal = PickRandomExecution(actions, attacker)
 				break
 			}
-			*/
-			bool randomExecution = file.alwaysRandomSyncedMelee
-			if ( string( attacker.GetPersistentVar( "activePilotLoadout.execution" )) == "execution_random")
-				randomExecution = true
-			if ( randomExecution )
-			{
-				returnVal = PickRandomExecution(actions, attacker)
-				break
-			}
-			
 #endif
 
 			returnVal = action
@@ -1100,17 +1047,6 @@ string function GetVictimSyncedMeleeTargetType( entity ent )
 	{
 		targetType = "titan"
 	}
-	// player decoy executions...
-	else if ( ent.IsPlayerDecoy() )
-	{
-		targetType = "human"
-	}
-	// executing a prop... should match "EXECUTABLE_PROP_SCRIPTNAME" in _melee_synced_decoy.gnut
-	else if ( ent.GetScriptName() == "executable_prop" )
-	{
-		targetType = "human"
-	}
-	// vanilla, can't find any action
 	else
 	{
 		Assert( 0, "Unknown ent type" )
@@ -1364,19 +1300,3 @@ SyncedMelee ornull function PickRandomExecution( SyncedMeleeChooser actions, ent
 }
 #endif
 #endif
-
-// modified checks goes here!
-void function Melee_SetSyncedMeleeNoLimit( bool limit )
-{
-	file.noSyncedMeleeLimit = limit
-}
-
-bool function Melee_IsSyncedMeleeNoLimit()
-{
-	return file.noSyncedMeleeLimit
-}
-
-void function Melee_AlwaysDoRandomSyncedMelee( bool always )
-{
-	file.alwaysRandomSyncedMelee = always
-}
