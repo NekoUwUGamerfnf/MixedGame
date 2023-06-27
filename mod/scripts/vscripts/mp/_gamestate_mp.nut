@@ -1260,14 +1260,12 @@ void function DialoguePlayNormal()
 	if( IsFFAGame() )
 		return
 
-	const float DIALOGUE_INITIAL_WAIT = 10 // initial wait before first playing a dialogue
 	const float DIALOGUE_INTERVAL = 91 // play a faction dailogue every 90 + 1s to prevent play together with winner dialogue
 
-	wait DIALOGUE_INITIAL_WAIT
 	while( GetGameState() == eGameState.Playing )
 	{
-		PlayScoreEventFactionDialogue( "winningLarge", "losingLarge", "winning", "losing", "winningClose", "losingClose" )
 		wait DIALOGUE_INTERVAL // wait first before playing a dialogue
+		PlayScoreEventFactionDialogue( "winningLarge", "losingLarge", "winning", "losing", "winningClose", "losingClose" )
 	}
 }
 
