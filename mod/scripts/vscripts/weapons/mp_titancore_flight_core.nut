@@ -14,7 +14,7 @@ void function FlightCore_Init()
 bool function OnAbilityStart_FlightCore( entity weapon )
 {
 	// modded weapon
-	if( weapon.HasMod( "barrage_core" ) )
+	if( weapon.HasMod( "brute4_barrage_core" ) )
 		return OnAbilityStart_BarrageCore( weapon )
 	//
 
@@ -45,7 +45,7 @@ bool function OnAbilityStart_FlightCore( entity weapon )
 void function OnAbilityEnd_FlightCore( entity weapon )
 {
 	// modded weapon
-	if( weapon.HasMod( "barrage_core" ) )
+	if( weapon.HasMod( "brute4_barrage_core" ) )
 		return OnAbilityEnd_BarrageCore( weapon )
 	//
 

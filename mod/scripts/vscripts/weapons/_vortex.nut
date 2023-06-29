@@ -1114,6 +1114,18 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 		if ( weaponOrProjectile.IsProjectile() ) // projectile specific stuff!
 		{
 			impactData.projectileModel <- weaponOrProjectile.GetModelName()
+			// get default trail effect, compare to current trail: if modified, do a extra trail effect
+			// seems complex, some modded weapon have their trail effect in infoKeyField. removed for now
+			/*
+			asset defaultTrail = GetWeaponInfoFileKeyFieldAsset_Global( weaponName, "projectile_trail_effect_0" )
+			asset modTrail = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+			if ( defaultTrail != modTrail )
+			{
+				//print( "refired projectile trail has been modified!" )
+				impactData.projectileTrail <- modTrail
+			}
+			*/
+			// this may require tons of resources to display?
 			impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
 			// convert asset to string
 			asset impactEffect = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.impact_effect_table )
@@ -1611,7 +1623,7 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData )
 	{
 		asset trailEffect = expect asset( impactData.projectileTrail )
 		if ( trailEffect != $"" )
-			StartParticleEffectOnEntity( projectile, GetParticleSystemIndex( trailEffect ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+			thread DelayedStartParticleEffectOnProjectile( projectile, trailEffect ) // delay one frame, so client can predict it
 	}
 
 	projectile.ProjectileSetDamageSourceID( impactData.damageSourceID ) // obit will show the owner weapon
@@ -1625,6 +1637,15 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData )
 		file.vortexRefiredProjectileMods[ projectile ] <- typedArray
 	}
 }
+
+// delay one frame, so client can predict it
+void function DelayedStartParticleEffectOnProjectile( entity projectile, asset trailEffect )
+{
+	WaitFrame()
+	if ( IsValid( projectile ) )
+		StartParticleEffectOnEntity( projectile, GetParticleSystemIndex( trailEffect ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+}
+//
 
 // gives a refired projectile the correct impact effect table
 function Vortex_SetImpactEffectTable_OnProjectile( projectile, impactData )

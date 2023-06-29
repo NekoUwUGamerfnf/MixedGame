@@ -21,7 +21,7 @@ const SALVOROCKETS_DEBUG_DRAW_PATH 			= false
 var function OnWeaponPrimaryAttack_titanweapon_salvo_rockets( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// modded weapons
-	if( weapon.HasMod( "grenade_launcher" ) )
+	if( weapon.HasMod( "brute4_grenade_launcher" ) )
 		return OnWeaponPrimaryAttack_titanweapon_grenade_launcher( weapon, attackParams )
 	//
 
@@ -56,7 +56,7 @@ var function OnWeaponPrimaryAttack_titanweapon_salvo_rockets( entity weapon, Wea
 void function OnProjectileCollision_titanweapon_salvo_rockets( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
-	if( mods.contains( "grenade_launcher" ) )
+	if( mods.contains( "brute4_grenade_launcher" ) )
 		return OnProjectileCollision_titanweapon_grenade_launcher( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }
 
@@ -64,7 +64,7 @@ void function OnProjectileCollision_titanweapon_salvo_rockets( entity projectile
 var function OnWeaponNPCPrimaryAttack_titanweapon_salvo_rockets( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// modded weapon
-	if( weapon.HasMod( "grenade_launcher" ) )
+	if( weapon.HasMod( "brute4_grenade_launcher" ) )
 		return OnWeaponNpcPrimaryAttack_titanweapon_grenade_launcher( weapon, attackParams )
 	//
 
