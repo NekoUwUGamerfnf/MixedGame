@@ -9,7 +9,7 @@ void function BarrageCore_Init()
 	// vortex refire override
 	Vortex_AddImpactDataOverride_WeaponMod( 
 		"mp_titanweapon_flightcore_rockets", // weapon name
-		"barrage_core_launcher", // mod name
+		"brute4_barrage_core_launcher", // mod name
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_frag_grenade", "vortex_absorb_effect" ), // absorb effect
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_frag_grenade", "vortex_absorb_effect_third_person" ), // absorb effect 3p
 		"grenade" // refire behavior
@@ -86,8 +86,8 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 	storedWeapon.camo <- 0
 
 	array<string> weaponArray = [ "mp_titancore_flight_core" ]
-	mods.removebyvalue( "barrage_core" )
-	mods.append( "barrage_core_launcher" )
+	mods.removebyvalue( "brute4_barrage_core" )
+	mods.append( "brute4_barrage_core_launcher" )
 
 	titan.EndSignal( "OnDestroy" )
 	titan.EndSignal( "OnDeath" )

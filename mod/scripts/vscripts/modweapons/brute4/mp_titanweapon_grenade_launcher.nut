@@ -16,7 +16,7 @@ void function MpTitanweaponGrenadeLauncher_Init()
 	// vortex refire override
 	Vortex_AddImpactDataOverride_WeaponMod( 
 		"mp_titanweapon_salvo_rockets", // weapon name
-		"grenade_launcher", // mod name
+		"brute4_grenade_launcher", // mod name
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_softball", "vortex_absorb_effect" ), // absorb effect
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_softball", "vortex_absorb_effect_third_person" ), // absorb effect 3p
 		"grenade" // refire behavior
