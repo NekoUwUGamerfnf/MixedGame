@@ -541,7 +541,12 @@ void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSetti
 		}
 	)
 
-	printt( reaper, "   BEGIN LAUNCHING: ", minionsToSpawn, reaper.GetCurScheduleName() )
+	// vanilla missing this case. they always print out reaper's launch
+	//printt( reaper, "   BEGIN LAUNCHING: ", minionsToSpawn, reaper.GetCurScheduleName() )
+	#if DEV_DEBUG_PRINTS
+		printt( reaper, "   BEGIN LAUNCHING: ", minionsToSpawn, reaper.GetCurScheduleName() )
+	#endif
+
 
 	reaper.EndSignal( "OnDeath" )
 
@@ -558,7 +563,11 @@ void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSetti
 			if ( minionsToSpawn <= 0 )
 				break
 
-			printt( reaper, "    LAUNCHING: ", minionsToSpawn )
+			// vanilla missing this case. they always print out reaper's launch
+			//printt( reaper, "    LAUNCHING: ", minionsToSpawn )
+			#if DEV_DEBUG_PRINTS
+				printt( reaper, "    LAUNCHING: ", minionsToSpawn )
+			#endif
 			thread LaunchSpawnerProjectile( reaper, targetOrigin, activeMinions_EntArrayID, fragDroneSettings )
 			minionsToSpawn--
 
