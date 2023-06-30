@@ -146,7 +146,7 @@ void function DisableCloak( entity player, float fadeOut = CLOAK_FADE_OUT )
 
 	// add npc cloak compatibility
 	if ( player.IsNPC() )
-		player.SetCanCloak( false ) // set npc's cloak avaibility to default
+		player.SetCanCloak( false ) // set npc's cloak availability to default
 	//
 }
 
