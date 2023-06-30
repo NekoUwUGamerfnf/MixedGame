@@ -590,30 +590,24 @@ bool function PlayerTriesSyncedMelee( entity player, entity target )
 	if ( target.ContextAction_IsBusy() )
 		return false
 
-	// save for npc executions, adding IsPlayer() check
-	if ( player.IsPlayer() )
+	if ( player.IsTitan() )
 	{
-		if ( player.IsTitan() )
-		{
 #if SERVER
-			player.PlayerMelee_SetState( PLAYER_MELEE_STATE_TITAN_EXECUTION )
+		player.PlayerMelee_SetState( PLAYER_MELEE_STATE_TITAN_EXECUTION )
 #else
-			player.PlayerMelee_SetState( PLAYER_MELEE_STATE_TITAN_EXECUTION_PREDICTED )
+		player.PlayerMelee_SetState( PLAYER_MELEE_STATE_TITAN_EXECUTION_PREDICTED )
 #endif
-		}
-		else
-		{
+	}
+	else
+	{
 #if SERVER
-			player.PlayerMelee_SetState( PLAYER_MELEE_STATE_HUMAN_EXECUTION )
+		player.PlayerMelee_SetState( PLAYER_MELEE_STATE_HUMAN_EXECUTION )
 #else
-			player.PlayerMelee_SetState( PLAYER_MELEE_STATE_HUMAN_EXECUTION_PREDICTED )
+		player.PlayerMelee_SetState( PLAYER_MELEE_STATE_HUMAN_EXECUTION_PREDICTED )
 #endif
-		}
 	}
 
-	// save for npc executions, adding IsPlayer() check
-	//if ( !player.Lunge_IsActive() || !player.Lunge_IsGroundExecute() || !player.Lunge_IsLungingToEntity() || (player.Lunge_GetTargetEntity() != target) )
-	if ( player.IsPlayer() && ( !player.Lunge_IsActive() || !player.Lunge_IsGroundExecute() || !player.Lunge_IsLungingToEntity() || (player.Lunge_GetTargetEntity() != target) ) )
+	if ( !player.Lunge_IsActive() || !player.Lunge_IsGroundExecute() || !player.Lunge_IsLungingToEntity() || (player.Lunge_GetTargetEntity() != target) )
 	{
 /*
 #if SERVER
@@ -622,7 +616,7 @@ bool function PlayerTriesSyncedMelee( entity player, entity target )
 		print( "CLIENT: " + player + " is calling Lunge_SetTargetEntity() from PlayerTriesSyncedMelee()\n" )
 #endif
 */
-		if( GameRules_GetGameMode() == "fd" ) // why is this hack here?
+		if( GameRules_GetGameMode() == "fd" )
 			player.Lunge_SetTargetEntity( target, false )
 		else
 			player.Lunge_SetTargetEntity( null, false )
@@ -655,19 +649,14 @@ bool function PlayerTriesSyncedMelee( entity player, entity target )
 	if ( IsValid( target ) && target.IsPlayer() )
 	{
 		AddCinematicFlag( target, CE_FLAG_TITAN_3P_CAM )
-		// respawn are you serious? you're always adding flag to attacker, not victim
-		// adding back flag breaks vanilla behavior, whatever
-		//AddCinematicFlag( player, CE_FLAG_EXECUTION )
-		AddCinematicFlag( target, CE_FLAG_EXECUTION )
+		AddCinematicFlag( player, CE_FLAG_EXECUTION )
 	}
 #endif
 
 	bool success = DoSyncedMelee( player, target )
 	if ( !success )
 	{
-		// save for npc executions, adding IsPlayer() check
-		if ( player.IsPlayer() )
-			player.Lunge_ClearTarget()
+		player.Lunge_ClearTarget()
 	}
 
 	return success
@@ -689,9 +678,7 @@ bool function DoSyncedMelee( entity player, entity target )
 #if SERVER
 	if ( player.IsPlayer() )
 	{
-		// fix for executions without meleeweapon: only add lag compensate when lunge is active
-		if ( player.Lunge_IsActive() )
-			PlayerMelee_StartLagCompensateTargetForLunge( player, target )
+		PlayerMelee_StartLagCompensateTargetForLunge( player, target )
 	}
 #endif // #if SERVER
 
@@ -700,11 +687,10 @@ bool function DoSyncedMelee( entity player, entity target )
 #if SERVER
 	if ( player.IsPlayer() )
 	{
+
 		player.ForceStand()
 		player.UnforceStand()
-		// fix for executions without meleeweapon: only add lag compensate when lunge is active
-		if ( player.Lunge_IsActive() )
-			PlayerMelee_FinishLagCompensateTarget( player )
+		PlayerMelee_FinishLagCompensateTarget( player )
 	}
 #endif // #if SERVER
 
@@ -721,9 +707,7 @@ bool function DoSyncedMelee( entity player, entity target )
 	target.Signal( "OnSyncedMeleeVictim" )
 
 #if SERVER
-	// save for npc executions
-	if ( player.IsPlayer() )
-		player.p.lastExecutionUsed = action.ref
+	player.p.lastExecutionUsed = action.ref
 
 	if ( actions in file.syncedMeleeServerCallbacks )
 		thread SyncedMeleeServerCallbacks( actions, action, player, target )
@@ -963,14 +947,16 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 			}
 			*/
 			bool randomExecution = file.alwaysRandomSyncedMelee
-			if ( string( attacker.GetPersistentVar( "activePilotLoadout.execution" ) ) == "execution_random" )
+			if ( string( attacker.GetPersistentVar( "activePilotLoadout.execution" )) == "execution_random")
 				randomExecution = true
 			if ( randomExecution )
 			{
 				returnVal = PickRandomExecution(actions, attacker)
 				break
 			}
+			
 #endif
+
 			returnVal = action
 			break
 		}
@@ -1024,26 +1010,7 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 		}
 
 		if ( bestActions.len() )
-		{
-			// default
 			returnVal = bestActions.getrandom()
-
-			// modified: adding npc executionref override
-			#if SERVER
-				string overrideRef = MeleeSyncedNPC_GetNPCExecutionRefOverride( attacker )
-				if ( overrideRef != "" )
-				{
-					foreach ( SyncedMelee action in bestActions )
-					{
-						if ( action.ref == overrideRef )
-						{
-							returnVal = action
-							break
-						}
-					}
-				}
-			#endif
-		}
 #if MP
 	}
 #endif
@@ -1078,15 +1045,17 @@ string function GetAttackerSyncedMelee( entity ent )
 	}
 	else if ( IsPilotElite( ent ) )
 	{
-		#if SERVER && MP // modded case: no synced melee for "pilotelite", just use human
-			return "human"
+		#if SERVER && MP
+			if( MeleeSyncedNPC_IsPilotAbleToExecute() || MeleeSyncedNPC_IsPilotAbleToExecuteOtherNPCs() ) // from _melee_synced_npc.gnut
+				return "human" 
 		#endif
 		return "pilotelite"
 	}
 	else if ( IsSpectre( ent ) )
 	{
-		#if SERVER && MP // modded case: no synced melee for "spectre", just use human
-			return "human" 
+		#if SERVER && MP
+			if( MeleeSyncedNPC_IsSpectreAbleToExecute() ) // from _melee_synced_npc.gnut
+				return "human" 
 		#endif
 		return "spectre"
 	}
@@ -1118,8 +1087,8 @@ string function GetVictimSyncedMeleeTargetType( entity ent )
 	{
 		targetType = "pilotelite"
 		// modified here
-		#if SERVER && MP // modded case: no synced melee for "pilotelite", just use human
-			if( MeleeSyncedNPC_ExecutingNPCPilotAllowed() ) // from melee_synced_npc.gnut. pilots're unable to be executed by default! adding a check here
+		#if SERVER && MP
+			if( MeleeSyncedNPC_ExecutingNPCPilotAllowed() ) // from _melee_synced_npc.gnut
 				targetType = "human" 
 		#endif
 	}

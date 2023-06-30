@@ -879,12 +879,13 @@ void function AnimEvent_mriPulseEvent( entity ent )
 
 void function AnimEvent_Cloak_On( entity ent )
 {
+	// function EnableCloak() has been modified to add npc execution compatibility
 	EnableCloak( ent, 1.5, 0.35 ) //Make sure duration is longer than animation seqeunce length
-
 }
 
 void function AnimEvent_Cloak_Off( entity ent )
 {
+	// function DisableCloak() has been modified to add npc execution compatibility
 	DisableCloak( ent, 0.35 )
 }
 
@@ -907,27 +908,53 @@ void function AnimEvent_attach_wingman( entity ent )
 
 void function AnimEvent_spawn_decoy1( entity ent )
 {
-	entity decoy = ent.CreateAnimatedPlayerDecoy( "pt_mp_execution_attacker_hologram_01" )
-	SetupDecoy_Common( ent, decoy )
-	HoloPilot_Execution_DecoySetup( decoy )
-	thread HoloPilot_Execution_MonitorLifeTime( ent, decoy )
-
+	// add npc execution compatibility!
+	if ( ent.IsPlayer() )
+	{
+		entity decoy = ent.CreateAnimatedPlayerDecoy( "pt_mp_execution_attacker_hologram_01" )
+		SetupDecoy_Common( ent, decoy )
+		HoloPilot_Execution_DecoySetup( decoy )
+		thread HoloPilot_Execution_MonitorLifeTime( ent, decoy )
+	}
+	else
+	{
+		entity decoy = CreatePropAsDecoyForEnt( ent )
+		decoy.Anim_Play( "pt_mp_execution_attacker_hologram_01" )
+	}
 }
 
 void function AnimEvent_spawn_decoy2( entity ent )
 {
-	entity decoy = ent.CreateAnimatedPlayerDecoy( "pt_mp_execution_attacker_hologram_02" )
-	SetupDecoy_Common( ent, decoy )
-	HoloPilot_Execution_DecoySetup( decoy )
-	thread HoloPilot_Execution_MonitorLifeTime( ent, decoy )
+	// add npc execution compatibility!
+	if ( ent.IsPlayer() )
+	{
+		entity decoy = ent.CreateAnimatedPlayerDecoy( "pt_mp_execution_attacker_hologram_02" )
+		SetupDecoy_Common( ent, decoy )
+		HoloPilot_Execution_DecoySetup( decoy )
+		thread HoloPilot_Execution_MonitorLifeTime( ent, decoy )
+	}
+	else
+	{
+		entity decoy = CreatePropAsDecoyForEnt( ent )
+		decoy.Anim_Play( "pt_mp_execution_attacker_hologram_02" )
+	}
 }
 
 void function AnimEvent_spawn_decoy3( entity ent )
 {
-	entity decoy = ent.CreateAnimatedPlayerDecoy( "pt_mp_execution_attacker_hologram_03" )
-	SetupDecoy_Common( ent, decoy )
-	HoloPilot_Execution_DecoySetup( decoy )
-	thread HoloPilot_Execution_MonitorLifeTime( ent, decoy )
+	// add npc execution compatibility!
+	if ( ent.IsPlayer() )
+	{
+		entity decoy = ent.CreateAnimatedPlayerDecoy( "pt_mp_execution_attacker_hologram_03" )
+		SetupDecoy_Common( ent, decoy )
+		HoloPilot_Execution_DecoySetup( decoy )
+		thread HoloPilot_Execution_MonitorLifeTime( ent, decoy )
+	}
+	else
+	{
+		entity decoy = CreatePropAsDecoyForEnt( ent )
+		decoy.Anim_Play( "pt_mp_execution_attacker_hologram_03" )
+	}
 }
 
 void function HoloPilot_Execution_DecoySetup( entity decoy )
@@ -935,13 +962,91 @@ void function HoloPilot_Execution_DecoySetup( entity decoy )
 	/*decoy.SetMaxHealth( 50 )
 	decoy.SetHealth( 50 )*/
 	SetObjectCanBeMeleed( decoy, false )
-	decoy.SetNameVisibleToOwner( false )
-	decoy.SetNameVisibleToFriendly( false )
-	decoy.SetNameVisibleToEnemy( false )
-	decoy.SetTimeout( DECOY_DURATION )
+	// add npc execution compatibility! we use prop to play animations
+	if ( decoy.IsPlayerDecoy() )
+	{
+		decoy.SetNameVisibleToOwner( false )
+		decoy.SetNameVisibleToFriendly( false )
+		decoy.SetNameVisibleToEnemy( false )
+		decoy.SetTimeout( DECOY_DURATION )
+	}
 	decoy.NotSolid()
 	AddAnimEvent( decoy, "decoy_dissolve", HoloPilot_Execution_DissolveDecoy ) //Doesn't seem to work for decoy entities?
 }
+
+// save for npc executions!
+entity function CreatePropAsDecoyForEnt( entity ent )
+{
+	entity decoy = CreatePropDynamic( ent.GetModelName() )
+	decoy.SetOrigin( ent.GetOrigin() )
+	decoy.SetAngles( < 0, ent.GetAngles().y, 0 > )
+	SetTeam( decoy, ent.GetTeam() )
+	decoy.SetOwner( ent ) // can't use setBossPlayer() cuz owner is a npc or something
+
+	SetupPropDecoy( ent, decoy )
+	HoloPilot_Execution_DecoySetup( decoy )
+	thread HoloPilot_Execution_MonitorLifeTime( ent, decoy )
+
+	return decoy
+}
+
+// take some useful functions from SetupDecoy_Common()
+struct PropDecoyStruct
+{
+	array<string> loopingSounds
+	array<entity> particleEffects
+}
+
+struct
+{
+	table<entity, PropDecoyStruct> propDecoyFakeStruct // use fake struct for saving decoy's effects
+} propDecoy
+
+void function SetupPropDecoy( entity owner, entity prop )
+{
+	if ( !(	prop in propDecoy.propDecoyFakeStruct ) )
+	{
+		PropDecoyStruct emptyStruct // use fake struct for saving decoy's effects
+		propDecoy.propDecoyFakeStruct[ prop ] <- clone emptyStruct
+	}
+
+	int friendlyTeam = prop.GetTeam()
+
+	EmitSoundOnEntityToTeam( prop, "holopilot_loop", friendlyTeam ) //loopingSound
+	EmitSoundOnEntityToEnemies( prop, "holopilot_loop_enemy", friendlyTeam ) ///loopingSound
+	propDecoy.propDecoyFakeStruct[ prop ].loopingSounds.extend( [ "holopilot_loop", "holopilot_loop_enemy" ] )
+
+	Highlight_SetFriendlyHighlight( prop, "friendly_player_decoy" )
+	//Highlight_SetOwnedHighlight( prop, "friendly_player_decoy" )
+	// can't get Decoy_Dissolve() particle effects, just let enemies can see decoy highlights
+	Highlight_SetEnemyHighlight( prop, "sp_enemy_pilot" ) // always show in los!
+	prop.Highlight_SetParam( 2, 0, HIGHLIGHT_COLOR_FRIENDLY ) // enemy highlight
+
+	entity holoPilotTrailFX = StartParticleEffectOnEntity_ReturnEntity( prop, HOLO_PILOT_TRAIL_FX, FX_PATTACH_POINT_FOLLOW, prop.LookupAttachment( "CHESTFOCUS" ) )
+	SetTeam( holoPilotTrailFX, friendlyTeam )
+	holoPilotTrailFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	propDecoy.propDecoyFakeStruct[ prop ].particleEffects.append( holoPilotTrailFX )
+
+	//prop.e.hasDefaultEnemyHighlight = true
+	//SetDefaultMPEnemyHighlight( prop )
+}
+
+void function DissolvePropDecoy( entity prop )
+{
+	prop.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 0 ) // can't get Decoy_Dissolve() particle effects
+	// take things from fakestruct, for cleaning up
+	if ( prop in propDecoy.propDecoyFakeStruct )
+	{
+		foreach ( string sound in propDecoy.propDecoyFakeStruct[ prop ].loopingSounds )
+			StopSoundOnEntity( prop, sound )
+		foreach ( entity effect in propDecoy.propDecoyFakeStruct[ prop ].particleEffects )
+		{
+			if ( IsValid( effect ) )
+				EffectStop( effect )
+		}
+	}
+}
+//
 
 void function AnimEvent_holopilot_headshot_sfx( entity victim )
 {
@@ -961,8 +1066,13 @@ void function HoloPilot_Execution_MonitorLifeTime( entity attacker, entity decoy
 	function() : ( decoy )
 		{
 			if( IsValid( decoy ) )
-				decoy.Decoy_Dissolve()
-
+			{
+				// add npc execution compatibility!
+				if ( decoy.IsPlayerDecoy() )
+					decoy.Decoy_Dissolve()
+				else // we may use prop for playing animations
+					DissolvePropDecoy( decoy )
+			}
 		}
 	)
 
@@ -974,7 +1084,13 @@ void function HoloPilot_Execution_DissolveDecoy( entity decoy )
 {
 	//PrintFunc()
 	if( IsValid( decoy ) )
-		decoy.Decoy_Dissolve()
+	{
+		// add npc execution compatibility!
+		if ( decoy.IsPlayerDecoy() )
+			decoy.Decoy_Dissolve()
+		else // we may use prop for playing animations
+			DissolvePropDecoy( decoy )
+	}
 }
 
 void function HoloPilot_Execution_MuzzleFlash( entity pistol ) //Only real difference between this and p2011 version is the sound effect

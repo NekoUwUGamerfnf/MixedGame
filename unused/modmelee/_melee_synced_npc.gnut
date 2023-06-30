@@ -12,11 +12,8 @@ global function MeleeSyncedNPC_AllowNPCGruntExecutions
 global function MeleeSyncedNPC_AllowExecutingNPCPilot // "pilotelite" is not a valid syncedMelee body type, this overwrites it to "human"
 // npc executing each other
 global function MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs // pilot models don't have syncedMeleeData, so let them use mp executions
-// npc executionref override
-global function MeleeSyncedNPC_SetNPCExecutionRefOverride
 
 // utility, mostly shared with sh_melee.gnut
-// syncedmelee availability
 global function MeleeSyncedNPC_IsTitanAbleToExecute
 global function MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot
 global function MeleeSyncedNPC_IsPilotAbleToExecute
@@ -24,8 +21,6 @@ global function MeleeSyncedNPC_IsSpectreAbleToExecute
 global function MeleeSyncedNPC_IsGruntAbleToExecute
 global function MeleeSyncedNPC_ExecutingNPCPilotAllowed
 global function MeleeSyncedNPC_IsPilotAbleToExecuteOtherNPCs
-// executionref override
-global function MeleeSyncedNPC_GetNPCExecutionRefOverride
 
 // normal synced melee with scripted cameras(not working well)
 global function MeleeSyncedNPC_NPCUseNormalSyncedMelee // they'will try to use executions from synced_melee_data.rson
@@ -66,14 +61,11 @@ const array<string> NPC_NORMAL_SYNCED_MELEE_ALLOWED_ATTACKERS =
 ]
 
 // these ref will crash if npc uses them
-// has been fixed by reworking both player_cloak.nut and sh_melee_synced_human.gnut related functions
-/*
 const array<string> HUMANSIZED_NPC_DISALLOWED_REF =
 [
     "execution_holopilot",
     "execution_cloak"
 ]
-*/
 
 struct
 {
@@ -90,9 +82,6 @@ struct
     bool npcPilotExecuteOtherNPCs = false
 
     bool useNormalSyncedMelee = false
-
-    // executionref
-    table<entity, string> npcExecutionRefOverride
 } file
 
 void function MeleeSyncedNPC_Init()
@@ -129,13 +118,8 @@ void function NPCTrysSyncedMelee( entity victim, var damageInfo )
         return
     if( !attacker.IsNPC() )
         return
-
     if( attacker.ContextAction_IsActive() || victim.ContextAction_IsActive() ) // already doing a execution?
 		return
-
-    // general availability check
-    if ( !CodeCallback_IsValidMeleeExecutionTarget( attacker, victim ) )
-        return
 
     // normal syncedMelee checks!
     if( file.useNormalSyncedMelee && NPC_NORMAL_SYNCED_MELEE_ALLOWED_ATTACKERS.contains( attacker.GetClassName() ) )
@@ -183,24 +167,58 @@ void function NPCTrysSyncedMelee( entity victim, var damageInfo )
         if ( !TitanMelee_CanScriptedExecution( attacker, victim ) )
 			return
 
-        // this hit will kill the victim
-        if( DamageInfo_GetDamage( damageInfo ) >= victim.GetHealth() + victim.GetShieldHealth() )
-            return
-
         if( !file.npcTitanExecution )
             return
         if( !TitanHasNpcPilot( attacker ) && file.npcTitanWithPilotsOnly )
             return
     }
 
-    // debug
-    //MeleeSyncedNPC_SetNPCExecutionRefOverride( attacker, "execution_holopilot" )
-    //MeleeSyncedNPC_SetNPCExecutionRefOverride( attacker, "execution_cloak" )
-
+    //if( DamageInfo_GetDamage( damageInfo ) >= victim.GetHealth() + victim.GetShieldHealth() ) // this hit will kill the victim
+    //    return
     // all checks passed
+    // get synced melee action
     //print( "npc tries synced melee.." )
-    DamageInfo_SetDamage( damageInfo, 0 ) // remove damage from this hit! also remove for titans, since we're using AddDamageCallbackSourceID(), prevent sometimes they get extra damage from following damage callbacks
-    thread PlayerTriesSyncedMelee( attacker, victim )
+    SyncedMeleeChooser ornull actions = GetSyncedMeleeChooserForPlayerVsTarget( attacker, victim )
+    //print( actions )
+    if( actions == null )
+        return
+    expect SyncedMeleeChooser( actions )
+    SyncedMelee ornull action = FindBestSyncedMelee( attacker, victim, actions )
+    //print( action )
+    if( action == null )
+        return
+    expect SyncedMelee( action )
+    while( HUMANSIZED_NPC_DISALLOWED_REF.contains( action.ref ) ) // not valid for npcs, find a new one
+    {
+        SyncedMelee ornull newAction = FindBestSyncedMelee( attacker, victim, actions )
+        if( newAction == null )
+            return
+        expect SyncedMelee( newAction )
+        action = newAction
+        //print( action.ref )
+    }
+
+    if( victim.IsTitan() ) // titan executions
+    {
+        entity soul = victim.GetTitanSoul()
+        if( !IsValid( soul ) )
+            return
+        if( !soul.IsDoomed() )
+            return
+        // succeed! reset damage
+        DamageInfo_SetDamage( damageInfo, 0 ) // sometimes resetting damage don't work?
+        if( victim.IsPlayer() )
+            thread PlayerBeingSyncedMelee( victim )
+        thread MeleeThread_TitanVsTitan( action, attacker, victim )
+    }
+    else
+    {
+        // succeed! reset damage
+        DamageInfo_SetDamage( damageInfo, 0 )
+        if( victim.IsPlayer() )
+            thread PlayerBeingSyncedMelee( victim )
+        thread MeleeThread_PilotVsEnemy( action, attacker, victim )
+    }
 }
 
 bool function TryNormalSyncedMelee( entity attacker, entity target )
@@ -426,13 +444,6 @@ void function MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs( bool allow )
     file.npcPilotExecuteOtherNPCs = allow 
 }
 
-void function MeleeSyncedNPC_SetNPCExecutionRefOverride( entity npc, string executionref )
-{
-    if ( !( npc in file.npcExecutionRefOverride ) )
-        file.npcExecutionRefOverride[ npc ] <- "" // default value
-    file.npcExecutionRefOverride[ npc ] = executionref
-}
-
 bool function MeleeSyncedNPC_IsTitanAbleToExecute()
 {
     return file.npcTitanExecution
@@ -466,13 +477,6 @@ bool function MeleeSyncedNPC_ExecutingNPCPilotAllowed()
 bool function MeleeSyncedNPC_IsPilotAbleToExecuteOtherNPCs()
 {
     return file.npcPilotExecuteOtherNPCs
-}
-
-string function MeleeSyncedNPC_GetNPCExecutionRefOverride( entity npc )
-{
-    if ( !( npc in file.npcExecutionRefOverride ) )
-        return "" // default value
-    return file.npcExecutionRefOverride[ npc ]
 }
 
 void function MeleeSyncedNPC_NPCUseNormalSyncedMelee( bool use )

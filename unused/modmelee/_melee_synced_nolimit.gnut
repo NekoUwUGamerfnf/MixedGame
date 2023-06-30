@@ -125,7 +125,7 @@ bool function TryNolimitExecution( entity player )
 	if( player.ContextAction_IsActive() ) // already doing a execution?
 		return false
 	array<entity> ignoredArray
-	ignoredArray.extend( GetEntArrayByClass_Expensive( "item_titan_battery" ) ) // ignore all batteries... cuz I'm adding battery throw ability
+	ignoredArray.extend( GetEntArrayByClass_Expensive( "item_titan_battery" ) ) // ignore all batteries... you know why
 	ignoredArray.append( player )
 	TraceResults traceResult = TraceLine( player.EyePosition(), player.EyePosition() + player.GetViewVector() * NO_LIMIT_EXECUTION_RANGE, ignoredArray, (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
 	if( !IsValid( traceResult.hitEnt ) )
@@ -153,11 +153,32 @@ bool function TryNolimitExecution( entity player )
 		return false
 
 	// ignore backstab check will allow player executing friendlies without friendlyFire turns on
-	bool isValidTarget = CodeCallback_IsValidMeleeExecutionTarget( player, target )
-	if ( isValidTarget || file.friendlyExecution )
+	bool canbackstab = CodeCallback_IsValidMeleeExecutionTarget( player, target )
+	if ( canbackstab || file.friendlyExecution )
 	{
-		thread PlayerTriesSyncedMelee( player, target )
-		return true // guess it's succeeded
+		//print( "try to find action..." )
+		SyncedMeleeChooser ornull actions = GetSyncedMeleeChooserForPlayerVsTarget( player, target )
+		if( actions == null )
+		{
+			//print( "can't find any action!" )
+			return false
+		}
+		expect SyncedMeleeChooser( actions )
+		SyncedMelee ornull action = FindBestSyncedMelee( player, target, actions )
+		if( action == null )
+		{
+			//print( "can't find any action!" )
+			return false
+		}
+		expect SyncedMelee( action )
+		//player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, 0.1 ) // temp fix, stop melee animations, which triggers when you try to execute a friendly
+		player.Anim_StopGesture( 0 ) // maybe use this? to stop existing melee animations, same as AttemptHumanMeleeExecution() does
+		thread MeleeThread_PilotVsEnemy( action, player, target )
+		// classic executions should have no CinematicFlag, this has been done in _melee_synced_human's ForceRemoveExecutioCinematic()
+		thread PlayerSyncedMeleeScreenEffect( player )
+		if( target.IsPlayer() )
+			thread PlayerSyncedMeleeScreenEffect( target )
+		return true
 	}
 	return false // did nothing!
 }
