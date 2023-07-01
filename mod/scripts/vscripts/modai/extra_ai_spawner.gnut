@@ -2338,77 +2338,74 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 {	
 	// Setup AI, no need for now
 	//pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
-	
-	// First AssaultPoint
-	array< entity > points = GetNPCArrayOfEnemies( pilot.GetTeam() )
-	vector point
-	
-	if ( points.len() > 0 )
-	{
-		point = points[ RandomInt( points.len() ) ].GetOrigin()
-		pilot.AssaultPoint( point )
-		pilot.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
-	}
-	
-	array<entity> players = GetPlayerArrayOfEnemies( pilot.GetTeam() )
+	int team = pilot.GetTeam()
+	array<entity> points
+
+	pilot.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 	// show on enemy radar, unfortunatelly cl_minimap won't track npc_pilot_elite
 	AddMinimapForNPC( pilot, true )
 	
-	// Every 5 - 15 secs change AssaultPoint
+	// Every 5 - 15 secs get a closest target and go to them
 	while ( true )
 	{	
-		wait RandomFloatRange(5.0,15.0) // do wait first
+		WaitFrame() // always wait a frame before each loop
 		
 		// Check if alive
 		if ( !IsAlive( pilot ) )
 			return
 		
 		// Get point and send guy to it
-		points = GetNPCArrayOfEnemies( pilot.GetTeam() )
+		points = [] // clean up last points
+		points.extend( GetNPCArrayOfEnemies( team ) )
+		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
 		if ( points.len() == 0 )
 			continue
-			
-		point = points[ RandomInt( points.len() ) ].GetOrigin()
-		
-		pilot.AssaultPoint( point )
-	}
 
+		entity enemy = GetClosest2D( points, pilot.GetOrigin() )
+		pilot.AssaultPoint( enemy.GetOrigin() )
+
+		wait RandomFloatRange( 5.0, 15.0 ) // random wait
+	}
 }
 
 void function ExtraSpawner_TitanHandler( entity titan )
 {
-	// First AssaultPoint
-	array< entity > points = GetNPCArrayOfEnemies( titan.GetTeam() )
-	vector point
-	
-	if ( points.len() > 0 )
-	{
-		point = points[ RandomInt( points.len() ) ].GetOrigin()
-		titan.AssaultPoint( point )
-		titan.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
-	}
-	
-	array<entity> players = GetPlayerArrayOfEnemies( titan.GetTeam() )
+	int team = titan.GetTeam()
+	array<entity> points
+
+	titan.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 	// show on enemy radar
 	AddMinimapForNPC( titan, false )
 	
-	// Every 5 - 15 secs change AssaultPoint
+	// Every 10 - 20 secs get a closest target and go to them
 	while ( true )
 	{	
-		wait RandomFloatRange(5.0,15.0) // wait first!
-	
+		WaitFrame() // always wait a frame before each loop
+
 		// Check if alive
 		if ( !IsAlive( titan ) )
 			return
 		
 		// Get point and send guy to it
-		points = GetNPCArrayOfEnemies( titan.GetTeam() )
+		points = [] // clean up last points
+		// we only search for heavy armor targets
+		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+		{
+			if ( npc.GetArmorType() == ARMOR_TYPE_HEAVY )
+				points.append( npc )
+		}
+		foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
+		{
+			if ( player.IsTitan() )
+				points.append( player )
+		}
 		if ( points.len() == 0 )
 			continue
-			
-		point = points[ RandomInt( points.len() ) ].GetOrigin()
-		
-		titan.AssaultPoint( point )
+
+		entity enemy = GetClosest2D( points, titan.GetOrigin() )
+		titan.AssaultPoint( enemy.GetOrigin() )
+
+		wait RandomFloatRange( 10.0, 20.0 ) // random wait
 	}
 }
 
@@ -2628,22 +2625,29 @@ void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType
 // Same as SquadHandler, just for reapers
 void function ExtraSpawner_ReaperHandler( entity reaper )
 {
-	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+	int team = reaper.GetTeam()
+	array<entity> points
+
 	// show on enmey radar
 	AddMinimapForNPC( reaper, false )
 	
-	reaper.AssaultSetGoalRadius( 500 )
+	reaper.AssaultSetGoalRadius( 500 ) // goal radius
 	
-	// Every 10 - 20 secs get a player and go to him
-	// Definetly not annoying or anything :)
+	// Every 10 - 20 secs get a closest target and go to them
 	while( IsAlive( reaper ) )
 	{
-		players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
-		if ( players.len() != 0 )
-		{
-			entity player = GetClosest2D( players, reaper.GetOrigin() )
-			reaper.AssaultPoint( player.GetOrigin() )
-		}
+		WaitFrame() // always wait before each loop!
+
+		points = [] // clean up last point
+		points.extend( GetNPCArrayOfEnemies( team ) )
+		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 )
+			continue
+
+		entity enemy = GetClosest2D( points, reaper.GetOrigin() )
+		reaper.AssaultPoint( enemy.GetOrigin() )
+
 		wait RandomFloatRange( 10.0, 20.0 )
 	}
 }
