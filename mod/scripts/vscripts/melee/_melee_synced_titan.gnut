@@ -502,10 +502,7 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 				else
 					EnableWeapons( target, [] )
 
-				// fix for modified death cam: player can respawn before attacker sequence ends, causes them being killed again
-				//if ( IsAlive( target ) )
-				bool shouldForceKillTarget = target.IsNPC() || ( target.IsPlayer() && target.e.markedForExecutionDeath )
-				if ( IsAlive( target ) && shouldForceKillTarget )
+				if ( IsAlive( target ) )
 				{
 					local attack = attacker
 					if ( !IsValid( attack ) )
@@ -522,9 +519,14 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 		}
 	)
 
-	// fix for modified death cam: player can respawn before attacker sequence ends, causes them being killed again
+	// fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
+	// needs to end execution if target respawned
 	if ( target.IsPlayer() )
-		thread MarkForDeath( target ) // titan termination always kill the target once it started
+	{
+		// make respawning cleans up execution
+		EndThreadOnPlayerRespawn( target )
+	}
+	//
 
 	thread FirstPersonSequence( targetSequence, target, ref )
 	waitthread FirstPersonSequence( attackerSequence, attacker, ref )
@@ -781,15 +783,10 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 
 			if ( GetBugReproNum() != 129802 && IsAlive( targetTitan ) )
 			{
-				// fix for modified death cam: player can respawn before attacker sequence ends, causes them being killed again
-				bool shouldForceKillTarget = targetTitan.IsNPC() || ( targetTitan.IsPlayer() && targetTitan.e.markedForExecutionDeath )
-				if ( targetTitan.IsPlayer() && shouldForceKillTarget )
-				{
-					if ( IsValid( attacker ) )
-						targetTitan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
-					else
-						targetTitan.Die()
-				}
+				if ( IsValid( attacker ) )
+					targetTitan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
+				else
+					targetTitan.Die()
 
 				if ( GetBugReproNum() == 129815 )
 				{
@@ -800,10 +797,15 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 		}
 	)
 
-	target.EndSignal( "OnRespawnPlayer" )
-	// fix for modified death cam: player can respawn before attacker sequence ends, causes them being killed again
+	target.EndSignal( "OnRespawnPlayer" ) // northstar scripts didn't use this often... this is signaled in CPlayer::RespawnPlayer()
+	// fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
+	// needs to end execution if target respawned
 	if ( target.IsPlayer() )
-		thread MarkForDeath( target ) // titan termination always kill the target once it started
+	{
+		// make respawning cleans up execution
+		EndThreadOnPlayerRespawn( target )
+	}
+	//
 
 	waitthread TitanSyncedMeleeAnimationsPlay( attackerBodySequence, attackerViewBody, ref, targetBodySequence, target, attackerSequence, attacker, targetSequence, targetTitan, e )
 }
@@ -870,7 +872,7 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 
 	attacker.EndSignal( "OnDeath" )
 	target.EndSignal( "OnDestroy" )
-	target.EndSignal( "OnRespawnPlayer" )
+	target.EndSignal( "OnRespawnPlayer" ) // northstar scripts didn't use this often... this is signaled in CPlayer::RespawnPlayer()
 
 	if ( !attacker.IsPlayer() ) // save for npc titans
 	{
@@ -1190,10 +1192,7 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 				if ( !target.IsNPC() )
 					target.PlayerMelee_ExecutionEndTarget()
 
-				// fix for modified death cam: player can respawn before attacker sequence ends, causes them being killed again
-				//if ( e.lostArm && IsAlive( target ) ) )
-				bool shouldForceKillTarget = target.IsNPC() || ( target.IsPlayer() && target.e.markedForExecutionDeath )
-				if ( e.lostArm && IsAlive( target ) && shouldForceKillTarget )
+				if ( e.lostArm && IsAlive( target ) )
 				{
 					target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
 					return
@@ -1211,14 +1210,19 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 	)
 
 	attacker.EndSignal( "OnDeath" )
+	// fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
+	// needs to end execution if target respawned
+	if ( target.IsPlayer() )
+	{
+		// make respawning cleans up execution
+		EndThreadOnPlayerRespawn( target )
+	}
+	//
 
 	EmitDifferentSoundsOnEntityForPlayerAndWorld( "Ogre_1p_Sync_Melee", "Ogre_3p_Sync_Melee", attacker, attacker )
 
 	AddAnimEvent( target, "lost_arm", TitanLostArm, e )
 
-	// fix for modified death cam: player can respawn before attacker sequence ends, causes them being killed again
-	if ( target.IsPlayer() )
-		thread MarkForDeath( target ) // titan termination always kill the target once it started
 
 	thread FirstPersonSequence( targetSequence, target, ref )
 	waitthread FirstPersonSequence( attackerSequence, attacker, ref )
@@ -1558,10 +1562,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 				if ( !target.IsNPC() && target.ContextAction_IsMeleeExecution() )
 					target.PlayerMelee_ExecutionEndTarget()
 
-				// fix for modified death cam: player can respawn before attacker sequence ends, causes them being killed again
-				//if ( IsAlive( target ) ) //Should have no need to PlayTitanCockpitSounds for target because the target is going to die
-				bool shouldForceKillTarget = target.IsNPC() || ( target.IsPlayer() && target.e.markedForExecutionDeath )
-				if ( IsAlive( target ) && shouldForceKillTarget )
+				if ( IsAlive( target ) ) //Should have no need to PlayTitanCockpitSounds for target because the target is going to die
 				{
 					target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
 				}
@@ -1602,9 +1603,14 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	if ( IsValid( bossPlayer ) ) //Executing an auto-Titan, when the pilot disconnects it destroys the auto-titan creating weird circumstances.
 		bossPlayer.EndSignal( "OnDestroy" )
 	target.EndSignal( "OnDestroy" )
-	// fix for modified death cam: player can respawn before attacker sequence ends, causes them being killed again
+	// fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
+	// needs to end execution if target respawned
 	if ( target.IsPlayer() )
-		thread MarkForDeath( target ) // titan termination always kill the target once it started
+	{
+		// make respawning cleans up execution
+		EndThreadOnPlayerRespawn( target )
+	}
+	//
 
 	if ( isAttackerRef )
 	{
@@ -1688,22 +1694,13 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	}
 }
 
-// taken from _melee_synced_human.gnut, for fixing modified deathcam
-void function MarkForDeath( entity target )
+// fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
+// needs to end execution if target respawned
+void function EndThreadOnPlayerRespawn( entity player )
 {
-	//printt("marking player " + target + " for death")
-	target.e.markedForExecutionDeath = true //This will kill off the player even if the execution animation is interruped from this point forward
-
-	target.EndSignal( "OnDeath" )
-
-	OnThreadEnd(
-	function() : ( target )
-		{
-			target.e.markedForExecutionDeath = false
-		}
-	)
-
-	WaitForever()
+	player.EndSignal( "RespawnMe" )
+	player.EndSignal( "OnRespawned" )
+	player.EndSignal( "PlayerRespawnStarted" )
 }
 //
 
@@ -1840,7 +1837,6 @@ void function MeleeKilledRagdoll( entity titan ) // this is actually "pilot" ins
 
 	if ( !IsValid( attacker ) )
 		return
-	// add fix for npc execution
 	if( !IsAlive( titan ) )
 	{
 		if( !titan.IsPlayer() )
@@ -1849,8 +1845,6 @@ void function MeleeKilledRagdoll( entity titan ) // this is actually "pilot" ins
 		if( IsAlive( titan ) )
 			titan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
 	}
-	//
-
 	titan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
 	titan.SetContinueAnimatingAfterRagdoll( true )
 	titan.BecomeRagdoll( < 0, 0, 0 >, false )
