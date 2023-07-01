@@ -406,38 +406,11 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 void function SquadHandler( array<entity> guys )
 {
 	int team = guys[0].GetTeam()
-	// show the squad enemy radar
-	array<entity> players = GetPlayerArrayOfEnemies( team )
-	foreach ( entity guy in guys )
-	{
-		if ( IsAlive( guy ) )
-		{
-			foreach ( player in players )
-				guy.Minimap_AlwaysShow( 0, player )
-		}
-	}
+	bool hasHeavyArmorWeapon = GetCurrentPlaylistVarInt( "aitdm_archer_grunts", 0 ) != 0
+	//print( "hasHeavyArmorWeapon: " + string( hasHeavyArmorWeapon ) )
 
-	// Not all maps have assaultpoints / have weird assault points ( looking at you ac )
-	// So we use enemies with a large radius
-	while ( GetNPCArrayOfEnemies( team ).len() == 0 ) // if we can't find any enemy npcs, keep waiting
-		WaitFrame()
-
-	// our waiting is end, check if any soldiers left
-	bool squadAlive = false
-	foreach ( entity guy in guys )
-	{
-		if ( IsAlive( guy ) )
-			squadAlive = true
-		else
-			guys.removebyvalue( guy )
-	}
-	if ( !squadAlive )
-		return
-
-	array<entity> points = GetNPCArrayOfEnemies( team )
-	
+	array<entity> points
 	vector point
-	point = points[ RandomInt( points.len() ) ].GetOrigin()
 	
 	// Setup AI, first assault point
 	foreach ( guy in guys )
@@ -446,33 +419,45 @@ void function SquadHandler( array<entity> guys )
 		guy.AssaultPoint( point )
 		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 
+		// show the squad enemy radar
+		array<entity> players = GetPlayerArrayOfEnemies( team )
+		foreach ( player in players )
+			guy.Minimap_AlwaysShow( 0, player )
 		//thread AITdm_CleanupBoredNPCThread( guy )
 	}
 	
-	// Every 5 - 15 secs change AssaultPoint
+	// Every 5 - 15 secs get a closest target and go to them. search for only light armor
 	while ( true )
 	{
 		WaitFrame() // wait a frame each loop
 
 		foreach ( guy in guys )
 		{
-			// Check if alive
-			if ( !IsAlive( guy ) )
-			{
-				guys.removebyvalue( guy )
-				continue
-			}
+			// remove dead guys
+			ArrayRemoveDead( guys )
 			// Stop func if our squad has been killed off
 			if ( guys.len() == 0 )
 				return
 		}
 
 		// Get point and send our whole squad to it
-		points = GetNPCArrayOfEnemies( team )
+		points = []
+		if ( hasHeavyArmorWeapon )
+			points.extend( GetNPCArrayOfEnemies( team ) )
+		else
+		{
+			foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+			{
+				if ( npc.GetArmorType() != ARMOR_TYPE_HEAVY ) // only search for npcs with light armor
+					points.append( npc )
+			}
+		}
+		ArrayRemoveDead( points ) // remove dead targets
 		if ( points.len() == 0 ) // can't find any points here
 			continue
 
-		point = points[ RandomInt( points.len() ) ].GetOrigin()
+		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		point = enemy.GetOrigin()
 		
 		foreach ( guy in guys )
 		{
@@ -502,19 +487,27 @@ void function ReaperHandler( entity reaper )
 	foreach ( player in players )
 		reaper.Minimap_AlwaysShow( 0, player )
 	
-	reaper.AssaultSetGoalRadius( 500 )
+	int team = reaper.GetTeam()
+	array<entity> points
 	
-	// Every 10 - 20 secs get a player and go to him
-	// Definetly not annoying or anything :)
+	reaper.AssaultSetGoalRadius( 500 ) // goal radius
+	
+	// Every 10 - 20 secs get a closest target and go to them. search for both players and npcs
 	while( IsAlive( reaper ) )
 	{
-		players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
-		if ( players.len() != 0 )
-		{
-			entity player = GetClosest2D( players, reaper.GetOrigin() )
-			reaper.AssaultPoint( player.GetOrigin() )
-		}
-		wait RandomFloatRange(10.0,20.0)
+		WaitFrame() // always wait before each loop!
+
+		points = [] // clean up last point
+		points.extend( GetNPCArrayOfEnemies( team ) )
+		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 )
+			continue
+
+		entity enemy = GetClosest2D( points, reaper.GetOrigin() )
+		reaper.AssaultPoint( enemy.GetOrigin() )
+
+		wait RandomFloatRange( 10.0, 20.0 )
 	}
 	// thread AITdm_CleanupBoredNPCThread( reaper )
 }
