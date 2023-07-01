@@ -306,15 +306,22 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 			scoreEvent = "EliminateTitan"
 	}
 
-	if( victim.GetBossPlayer() || victim.IsPlayer() ) // to confirm this is a pet titan or player titan
-	{
+	bool isPlayerTitan = IsValid( victim.GetBossPlayer() ) || victim.IsPlayer()
+	if( isPlayerTitan ) // to confirm this is a pet titan or player titan
 		AddPlayerScore( attacker, scoreEvent, attacker ) // this will show the "Titan Kill" callsign event
-		KilledPlayerTitanDialogue( attacker, victim )
-	}
 	else
-	{
 		AddPlayerScore( attacker, scoreEvent ) // no callsign event
-	}
+
+	bool playTitanKilledDiag = isPlayerTitan
+	// modified for npc pilot embarked titan
+	#if NPC_TITAN_PILOT_PROTOTYPE
+		entity owner = victim.GetOwner()
+		bool hasNPCPilot = ( IsAlive( owner ) && IsPilotElite( owner ) ) || TitanHasNpcPilot( victim )
+		playTitanKilledDiag = isPlayerTitan || hasNPCPilot
+	#endif
+
+	if ( playTitanKilledDiag )
+		KilledPlayerTitanDialogue( attacker, victim )
 
 	// titan damage history stores in titanSoul, but if they killed by termination it's gonna transfer to victim themselves
 	bool killedByTermination = DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.titan_execution
