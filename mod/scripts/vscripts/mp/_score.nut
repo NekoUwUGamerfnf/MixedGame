@@ -292,7 +292,7 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	if ( !attacker.IsPlayer() )
 		return
 
-	string scoreEvent = "KillPilot"
+	string scoreEvent = "KillTitan"
 	if ( attacker.IsTitan() )
 		scoreEvent = "TitanKillTitan"
 	if( victim.IsNPC() )
