@@ -86,6 +86,7 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 
     // game settings
+	Highlight_SetCustomHighlightFunction( AiTDMExtend_Highlight ) // highlight handle for phase shift and such
     // npc executions
 	//MeleeSyncedNPC_EnableAll_Init() // npc executions for fun
 	MeleeSyncedNPC_AllowNPCTitanExecutions( true )
@@ -110,6 +111,36 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 
 	// ai damages
 	AddDamageByCallback( "npc_pilot_elite", BuffPilotDamage )
+}
+
+void function AiTDMExtend_Highlight( entity ent )
+{
+	// friendly highlight
+	Highlight_SetFriendlyHighlight( ent, "sp_enemy_pilot" )
+	ent.Highlight_SetParam( 1, 0, < 2,2,2 > )
+
+	// highlights think
+	string className = ent.GetClassName()
+	switch ( className )
+	{
+		case "player":
+			ent.e.hasDefaultEnemyHighlight = true
+			string highlight = "enemy_player"
+			if ( ent.IsTitan() )
+				highlight = "enemy_titan"
+			Highlight_SetEnemyHighlight( ent, highlight )
+			break
+		case "npc_pilot_elite":
+			ent.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
+			Highlight_SetEnemyHighlight( ent, "enemy_player" )
+			break
+		case "npc_titan":
+		case "npc_super_spectre":
+		case "npc_gunship":
+			ent.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
+			Highlight_SetEnemyHighlight( ent, "enemy_titan" )
+			break
+	}
 }
 
 ////////////////////////////////
@@ -317,6 +348,8 @@ void function InitExtraSpawnerSettings()
 
 	//AiDrone_SetDroneSpawnedByNPCRandomType( true ) // modified function in _ai_drone.nut, specialist grunts will spawn random drones
 	AiDrone_SetDroneSpawnedByNPCForceDie( true ) // modified function in _ai_drone.nut, drones spawned by npcs will be destroyed right after it's owner's death
+
+	Wallrun_EnableProtectionForRodeoPlayerAgainstNPCs( false ) // modified function in class_wallrun.gnut. disable damage immune against npcs while rodeoing
 }
 
 //////////////////////////////////////////////
@@ -509,21 +542,48 @@ bool function ShouldSpawnBossTitan()
 	return RandomInt( 3 ) == 0 // boss titans has 33% chance to spawn
 }
 
-entity functionref( vector origin, vector angles, int team ) function GetBossTitanSpawnFunc()
+entity functionref( vector origin, vector angles, int team ) function GetBossTitanSpawnFunc( int team )
 {
+	// team specific
+	if ( team == TEAM_IMC )
+	{
+		switch ( RandomInt( 2 ) )
+		{
+			case 0:
+				return ExtraSpawner_SpawnRoninWithAsh
+				break
+			case 1:
+				return ExtraSpawner_SpawnLegionWithBlisk
+				break
+		}
+	}
+	else if ( team == TEAM_MILITIA )
+	{
+		switch ( RandomInt( 2 ) )
+		{
+			case 0:
+				return ExtraSpawner_SpawnBTWithCooper
+				break
+			case 1:
+				return ExtraSpawner_SpawnVanguardWithSarah
+				break
+		}
+	}
+
+	// default case
 	switch ( RandomInt( 4 ) )
 	{
 		case 0:
 			return ExtraSpawner_SpawnBTWithCooper
 			break
 		case 1:
-			return ExtraSpawner_SpawnRoninWithAsh
+			return ExtraSpawner_SpawnVanguardWithSarah
 			break
 		case 2:
-			return ExtraSpawner_SpawnLegionWithBlisk
+			return ExtraSpawner_SpawnRoninWithAsh
 			break
 		case 3:
-			return ExtraSpawner_SpawnMonarchWithSarah
+			return ExtraSpawner_SpawnLegionWithBlisk
 			break
 	}
 }
@@ -793,7 +853,7 @@ void function SpawnerExtend( int team )
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				//entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team, TitanHandler )
 				if ( ShouldSpawnBossTitan() ) 
-					thread GetBossTitanSpawnFunc()( node.GetOrigin(), node.GetAngles(), team )
+					thread GetBossTitanSpawnFunc( -1 )( node.GetOrigin(), node.GetAngles(), team ) // get bosstitan spawn func without team check
 				else
 					thread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
 
@@ -929,62 +989,45 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 // AI can also flee deeper into their zone suggesting someone spent way too much time on this
 void function SquadHandler( array<entity> guys )
 {
-	foreach ( entity guy in guys )
-	{
-		// add map
-		AddMinimapForNPC( guy, true )
-	}
-
-	// Not all maps have assaultpoints / have weird assault points ( looking at you ac )
-	// So we use enemies with a large radius
 	int team = guys[0].GetTeam()
-	while ( GetNPCArrayOfEnemies( team ).len() == 0 ) // if we can't find any enemy npcs, keep waiting
-		WaitFrame()
-
-	// our waiting is end, check if any soldiers left
-	bool squadAlive = false
+	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
 	foreach ( entity guy in guys )
 	{
-		if ( IsAlive( guy ) )
-			squadAlive = true
-		else
-			guys.removebyvalue( guy )
-	}
-	if ( !squadAlive )
-		return
+		if ( hasHeavyArmorWeapon ) // found heavy armor weapon
+			break
 
-	array<entity> points = GetNPCArrayOfEnemies( team )
-	
+		foreach ( entity weapon in guy.GetMainWeapons() )
+		{
+			if ( !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required ) )
+			{
+				hasHeavyArmorWeapon = true
+				break
+			}
+		}
+	}
+	//print( "hasHeavyArmorWeapon: " + string( hasHeavyArmorWeapon ) )
+
+	array<entity> points
 	vector point
-	point = points[ RandomInt( points.len() ) ].GetOrigin()
-	
+
 	// Setup AI
 	foreach ( guy in guys )
 	{
-		// Check if alive, since we've delayed this
-		if ( !IsAlive( guy ) )
-		{
-			guys.removebyvalue( guy )
-			continue
-		}
+		// add map
+		AddMinimapForNPC( guy, true )
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
-		guy.AssaultPoint( point )
 		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 	}
-	
-	// Every 5 - 15 secs change AssaultPoint
+
+	// Every 5 - 15 secs get a closest target and go to them
 	while ( true )
 	{
 		WaitFrame() // wait a frame each loop
 
 		foreach ( guy in guys )
 		{
-			// Check if alive
-			if ( !IsAlive( guy ) )
-			{
-				guys.removebyvalue( guy )
-				continue
-			}
+			// remove dead guys
+			ArrayRemoveDead( guys )
 			// Stop func if our squad has been killed off
 			if ( guys.len() == 0 )
 				return
@@ -992,12 +1035,29 @@ void function SquadHandler( array<entity> guys )
 
 		// Get point and send our whole squad to it
 		points = []
-		points.extend( GetNPCArrayOfEnemies( team ) )
-		points.extend( GetPlayerArrayOfEnemies_Alive( team ) ) // also find players since they're also grunts
+		if ( hasHeavyArmorWeapon )
+		{
+			points.extend( GetNPCArrayOfEnemies( team ) )
+			foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) ) // also find titan players if they have heavy armor weapon
+			{
+				if ( player.IsTitan() ) // only search for npcs with light armor
+					points.append( player )
+			}
+		}
+		else
+		{
+			foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+			{
+				if ( npc.GetArmorType() != ARMOR_TYPE_HEAVY ) // only search for npcs with light armor
+					points.append( npc )
+			}
+		}
+		ArrayRemoveDead( points ) // remove dead targets
 		if ( points.len() == 0 ) // can't find any points here
 			continue
 
-		point = points[ RandomInt( points.len() ) ].GetOrigin()
+		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		point = enemy.GetOrigin()
 		
 		foreach ( guy in guys )
 		{
