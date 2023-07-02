@@ -99,40 +99,41 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 	{
 		int boltSpeed = expect int( weapon.GetWeaponInfoFileKeyField( "bolt_speed" ) )
 		int damageFlags = weapon.GetWeaponDamageFlags()
-		entity bolt
+		int explosionFlags = damageFlags
+		if ( weapon.HasMod( "explosive_sniper" ) ) // explosive weapons should have a DF_EXPLOSION damage flag...
+			explosionFlags = damageFlags | DF_EXPLOSION
+
 		// modded condition
 		if( weapon.HasMod( "smart_sniper" ) )
 		{
-			if( weapon.HasMod( "homing_nessie" ) )
-			{
-				SmartAmmo_SetMissileSpeed( weapon, 100 )
-				SmartAmmo_SetMissileHomingSpeed( weapon, 10000 )
-				SmartAmmo_SetMissileSpeedLimit( weapon, 10000 )
-				int fired = SmartAmmo_FireWeapon( weapon, attackParams, damageTypes.bullet, damageTypes.bullet )
-				if( !fired )
-					return 0
-			}
-			else
-			{
-				// better not adjust itself
-				//entity weaponOwner = weapon.GetWeaponOwner()
-				//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
-				//attackParams.dir = bulletVec
-				SmartAmmo_SetMissileSpeed( weapon, 10000 )
-				SmartAmmo_SetMissileHomingSpeed( weapon, 10000 )
-				SmartAmmo_SetMissileSpeedLimit( weapon, 10000 )
-				int fired = SmartAmmo_FireWeapon( weapon, attackParams, damageTypes.bullet, damageTypes.bullet )
-				if( !fired )
-					return 0
-			}
+			SmartAmmo_SetAllowUnlockedFiring( weapon, true ) // allow unlocked fire
+
+			// fire a missile!
+			float missileSpeed = 10000
+			float missileHomingSpeed = 10000
+			float missileSpeedLimit = 10000
+			if ( weapon.HasMod( "homing_nessie" ) ) // homing nessie modifier
+				missileSpeed = 100
+
+			// maybe we should recalculate? SmartAmmo_FireWeapon() seems fire a bullet that ignores spread
+			//entity weaponOwner = weapon.GetWeaponOwner()
+			//vector bulletVec = ApplyVectorSpread( attackParams.dir, weaponOwner.GetAttackSpreadAngle() )
+			//attackParams.dir = bulletVec
+			SmartAmmo_SetMissileSpeed( weapon, missileSpeed )
+			SmartAmmo_SetMissileHomingSpeed( weapon, missileHomingSpeed )
+			SmartAmmo_SetMissileSpeedLimit( weapon, missileSpeedLimit )
+			int fired = SmartAmmo_FireWeapon( weapon, attackParams, damageFlags, explosionFlags )
+			if( !fired )
+				return 0
 		}
 		else // vanilla behavior
 		{
-			bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, boltSpeed, damageFlags, damageFlags, playerFired, 0 )
+			entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, boltSpeed, damageFlags, damageFlags, playerFired, 0 )
 			//bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, 1.0, damageFlags, damageFlags, playerFired, 0 )
 
 			if ( bolt != null )
 			{
+				// weapon mods. hardcoded
 				if( weapon.HasMod( "nessie_sniper" ) )
 					bolt.SetModel( $"models/domestic/nessy_doll.mdl" )
 				if( weapon.HasMod( "nessie_balance" ) )
