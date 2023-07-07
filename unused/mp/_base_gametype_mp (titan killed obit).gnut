@@ -77,6 +77,9 @@ void function BaseGametype_Init_MPSP()
 
 	AddPostDamageCallback( "player", AddToTitanDamageStat )
 	AddPostDamageCallback( "npc_titan", AddToTitanDamageStat )
+	
+	AddCallback_OnNPCKilled( CheckForAutoTitanDeath )
+	AddCallback_OnPlayerKilled( CheckForAutoTitanDeath )
 
 	RegisterSignal( "PlayerRespawnStarted" )
 	RegisterSignal( "KillCamOver" )
@@ -448,6 +451,24 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	table<int, bool> alreadyAssisted
 	if ( IsValid( attacker ) ) 
 	{
+		if ( !player.IsTitan() ) // titan assist handled by ScoreEvent_TitanKilled()
+		{
+			foreach( DamageHistoryStruct attackerInfo in player.e.recentDamageHistory )
+			{
+				if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == player )
+					continue
+
+				bool exists = attackerInfo.attacker.GetEncodedEHandle() in alreadyAssisted ? true : false
+				if( attackerInfo.attacker != attacker && !exists )
+				{
+					alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
+					Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), player.GetEncodedEHandle(), attackerInfo.time ) 
+					AddPlayerScore( attackerInfo.attacker, "PilotAssist", player )
+					attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
+				}
+			}
+		}
+
 		if( attacker.IsPlayer() )	
 			Highlight_SetDeathRecapHighlight( attacker, "killer_outline" )
 
@@ -939,6 +960,33 @@ int function CalculateTitanDamageTaken( entity victim, var damageInfo )
 	}
 	// calculation done!
 	return damageAmount
+}
+
+void function CheckForAutoTitanDeath( entity victim, entity attacker, var damageInfo )
+{
+	if ( !IsValid( victim ) || !victim.IsTitan() )
+		return
+
+	if ( !victim.IsPlayer() ) // npc titans
+	{
+		entity owner = victim
+		if ( IsValid( GetPetTitanOwner( victim ) ) )
+			owner = GetPetTitanOwner( victim )
+		//if ( GetPetTitanOwner( victim ) && GetPetTitanOwner( victim ) != attacker ) // messed up!
+		if ( owner != attacker ) // no titanKilled obit if owner kill it's titan or titan suicide
+		{
+			foreach ( player in GetPlayerArray() )
+				Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+		}
+	}
+	else // player titans
+	{
+		if ( victim != attacker )
+		{
+			foreach ( player in GetPlayerArray() )
+				Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+		}
+	}
 }
 
 void function SetRecalculateRespawnAsTitanStartPointCallback( entity functionref( entity player, entity basePoint ) callbackFunc )
