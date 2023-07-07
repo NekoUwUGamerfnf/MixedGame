@@ -68,19 +68,8 @@ bool function CC_TrySwitchTeam( entity player, array<string> args )
 		return true
 	}
 
-	int oldTeam = player.GetTeam()
-	SetTeam( player, GetOtherTeam( player.GetTeam() ) )
+	PlayerTrySwitchTeam( player, true ) // we fix respawn
 	Chat_ServerPrivateMessage( player, ANSI_COLOR_TEAM + "已切换队伍", false )
-	thread WaitForPlayerRespawnThenNotify( player )
-	NotifyClientsOfTeamChange( player, oldTeam, player.GetTeam() )
-	if( IsAlive( player ) ) // poor guy
-	{
-		player.Die( null, null, { damageSourceId = eDamageSourceId.team_switch } ) // better
-		if ( player.GetPlayerGameStat( PGS_DEATHS ) >= 1 ) // reduce the death count
-			player.AddToPlayerGameStat( PGS_DEATHS, -1 )
-	}
-	if( !RespawnsEnabled() ) // do need respawn the guy if respawnsdisabled
-		RespawnAsPilot( player )
 
 	return true
 }
@@ -225,6 +214,7 @@ void function FixShuffle( float delay = 0 )
 	int largerTeamIndex = 0
 	entity poorGuy
 	int oldTeam
+	// fix shuffle is done before match start, no need to use PlayerTrySwitchTeam()
 	for( int i = 0; i < timeShouldBeDone; i ++ )
 	{
 		poorGuy = largerTeamPlayers[ largerTeamIndex ]
@@ -242,7 +232,8 @@ void function FixShuffle( float delay = 0 )
 			RespawnAsPilot( poorGuy )
 	}
 	if( IsValid( poorGuy ) )
-	{ // only notice once
+	{
+		// only notify once
 		Chat_ServerPrivateMessage( poorGuy, ANSI_COLOR_TEAM + "由于队伍人数不平衡，你已被重新分队", false )
 		thread WaitForPlayerRespawnThenNotify( poorGuy )
 		NotifyClientsOfTeamChange( poorGuy, oldTeam, poorGuy.GetTeam() ) 
@@ -266,13 +257,11 @@ void function CheckTeamBalance( entity victim, entity attacker, var damageInfo )
 	// Compare victims teams size
 	if ( GetPlayerArrayOfTeam( victim.GetTeam() ).len() < GetPlayerArrayOfTeam( GetOtherTeam( victim.GetTeam() ) ).len() )
 		return
-	
+
 	// We passed all checks, balance the teams
-	int oldTeam = victim.GetTeam()
-	SetTeam( victim, GetOtherTeam( victim.GetTeam() ) )
+	PlayerTrySwitchTeam( victim )
 	Chat_ServerPrivateMessage( victim, ANSI_COLOR_TEAM + "由于队伍人数不平衡，你已被重新分队", false )
 	thread WaitForPlayerRespawnThenNotify( victim )
-	NotifyClientsOfTeamChange( victim, oldTeam, victim.GetTeam() )
 }
 
 bool function CanChangeTeam()
@@ -298,7 +287,38 @@ bool function CanChangeTeam()
 
 	return true
 }
-	
+
+// main utility
+bool function PlayerTrySwitchTeam( entity player, bool fixRespawn = false )
+{
+	string playerFaction = GetFactionChoice( player )
+	string enemyFaction = GetEnemyFaction( player )
+
+	int oldTeam = player.GetTeam()
+	SetTeam( player, GetOtherTeam( player.GetTeam() ) )
+	NotifyClientsOfTeamChange( player, oldTeam, player.GetTeam() )
+
+	if( IsAlive( player ) ) // poor guy
+	{
+		player.Die( null, null, { damageSourceId = eDamageSourceId.team_switch } ) // better
+		if ( player.GetPlayerGameStat( PGS_DEATHS ) >= 1 ) // reduce the death count
+			player.AddToPlayerGameStat( PGS_DEATHS, -1 )
+	}
+
+	if( fixRespawn && !RespawnsEnabled() ) // do need respawn the guy if respawnsdisabled
+		RespawnAsPilot( player )
+
+	// re-assign faction
+	player.SetPersistentVar( "factionChoice", enemyFaction )
+	player.SetPersistentVar( "enemyFaction", playerFaction )
+
+	// change pet titan's team
+	entity titan = player.GetPetTitan()
+	if ( IsValid( titan ) )
+		SetTeam( titan, player.GetTeam() )
+
+	return true
+}
 
 /* // pandora version
 bool function ClientCommand_SwitchTeam( entity player, array<string> args )
