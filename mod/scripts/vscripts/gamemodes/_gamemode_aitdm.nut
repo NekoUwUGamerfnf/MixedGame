@@ -189,9 +189,10 @@ void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
 	
 	// Player ejecting triggers this without the extra check
 	// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
+	// always try add score if titan not in doom. some damage can skip doomed state and kill the titan
 	if ( victim.IsTitan() && victim.GetBossPlayer() != attacker )
 	{
-		if ( TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+		if ( !GetDoomedState( victim ) || TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
 			playerScore += 10
 	}
 

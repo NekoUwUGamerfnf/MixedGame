@@ -402,7 +402,8 @@ void function CheckForAutoTitanDeath( entity victim, entity attacker, var damage
 		return
 
 	// modified function in _titan_health.gnut, recovering ttf1 behavior: we do obit on doom but not on death for health loss titans
-	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+	// always do obit if titan not in doom. some damage can skip doomed state and kill the titan
+	if ( GetDoomedState( victim ) && !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
 		return
 
 	// obit
