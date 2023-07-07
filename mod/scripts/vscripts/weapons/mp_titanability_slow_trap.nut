@@ -732,8 +732,6 @@ void function FireTrap_DamagedPlayerOrNPC( entity ent, var damageInfo )
 	//if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
 	if ( !IsValid( attacker ) || ( attacker.GetTeam() == ent.GetTeam() && !FriendlyFire_IsEnabled() ) )
 		return
-	if ( !attacker.IsPlayer() && !attacker.IsNPC() ) // defensive fix
-		return
 
 	array<entity> weapons = attacker.GetMainWeapons()
 	if ( weapons.len() > 0 )

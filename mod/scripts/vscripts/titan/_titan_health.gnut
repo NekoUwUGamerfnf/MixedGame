@@ -706,9 +706,7 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 
 	string settings = GetSoulPlayerSettings( titanSoul )
 	float damageMod = 1.0
-	// modified for modded titan doomed state
-	if( titanSoul in file.soulDoomedHealthLossDamage )
-		damageMod = file.soulDoomedHealthLossDamage[ titanSoul ]
+
 	while ( true )
 	{
 		table lastAttackInfo = expect table( titanSoul.lastAttackInfo )
@@ -732,7 +730,12 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 			//else
 			//	damageMod = 1.0
 
-			// re-enabled this
+			// modified for modded titan doomed state
+			if( titanSoul in file.soulDoomedHealthLossDamage )
+				damageMod = file.soulDoomedHealthLossDamage[ titanSoul ]
+			//
+
+			// re-enabled this, change to multiplier
 			if ( PlayerHasPassive( soulOwner, ePassives.PAS_DOOMED_TIME ) )
 				damageMod *= 0.4 // less doomed damage if passive valid
 
@@ -746,7 +749,22 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 
 		float dmgAmount = DPS * tickRate * damageMod
 
-		soulOwner.TakeDamage( dmgAmount, expect entity( lastAttackInfo.attacker ), expect entity( lastAttackInfo.inflictor ), extraDeathInfo )
+		// needs to update attacker and inflictor, if attacker turns to invalid, it will automatically assign to worldspawn
+		// if worldspawn triggering some damageSourceIdCallback(mostly ttf2 ones, like scorch's and legion's weapons), game's gonna crash
+		entity healthLossAttacker = expect entity( lastAttackInfo.attacker )
+		entity healthLossInflictor = expect entity( lastAttackInfo.inflictor )
+		bool attackerValid = IsValid( healthLossAttacker ) && !IsWorldSpawn( healthLossAttacker )
+		if ( !attackerValid )
+		{
+			healthLossAttacker = soulOwner // attacker invalid, turns to self damage
+			extraDeathInfo.damageSourceId = damagedef_suicide // attacker invalid, change damageSourceId to suicide
+		}
+		if ( attackerValid && !IsValid( healthLossInflictor ) ) // attacker valid but inflictor invalid
+			healthLossInflictor = healthLossAttacker // re-assign attacker as inflictor
+
+		//soulOwner.TakeDamage( dmgAmount, expect entity( lastAttackInfo.attacker ), expect entity( lastAttackInfo.inflictor ), extraDeathInfo )
+		soulOwner.TakeDamage( dmgAmount, healthLossAttacker, healthLossInflictor, extraDeathInfo )
+		//print( "Doomded health loss dmgAmount: " + string( dmgAmount ) )
 
 		wait tickRate
 	}
@@ -1128,7 +1146,7 @@ void function Titan_MonarchCleanup( entity soul, var damageInfo )
 
 // modded function
 const float NPC_PILOT_EJECTING_DELAY = 5.0
-const float NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS = 2.5 // pilots do fast eject if they have health loss
+const float NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS = 3.0 // pilots do fast eject if they have health loss. 3s ~half health
 
 void function NpcPilotEjectingThink( entity titan )
 {
