@@ -550,9 +550,13 @@ void function ReaperHandler( entity reaper )
 	reaper.AssaultSetGoalRadius( 500 ) // goal radius
 	
 	// Every 10 - 20 secs get a closest target and go to them. search for both players and npcs
-	while( IsAlive( reaper ) )
+	while( true )
 	{
 		WaitFrame() // always wait before each loop!
+
+		// Check if alive
+		if ( !IsAlive( titan ) )
+			return
 
 		points = [] // clean up last point
 		points.extend( GetNPCArrayOfEnemies( team ) )
