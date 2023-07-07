@@ -728,9 +728,11 @@ void function FireTrap_DamagedPlayerOrNPC( entity ent, var damageInfo )
 		Scorch_SelfDamageReduction( ent, damageInfo )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) || ( attacker.GetTeam() == target.GetTeam() && !FriendlyFire_IsEnabled() ) )
+	// adding friendlyfire support!
+	//if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
+	if ( !IsValid( attacker ) || ( attacker.GetTeam() == ent.GetTeam() && !FriendlyFire_IsEnabled() ) )
 		return
-	if ( !attacker.IsPlayer() && !attacker.IsNPC() ) // defensive fix. don't know why worldspawn could damage entities by this
+	if ( !attacker.IsPlayer() && !attacker.IsNPC() ) // defensive fix
 		return
 
 	array<entity> weapons = attacker.GetMainWeapons()

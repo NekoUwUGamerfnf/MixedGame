@@ -116,6 +116,8 @@ void function MeteorThermite_DamagedTarget( entity target, var damageInfo )
 	Scorch_SelfDamageReduction( target, damageInfo )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	// adding friendlyfire support!
+	//if ( !IsValid( attacker ) || attacker.GetTeam() == target.GetTeam() )
 	if ( !IsValid( attacker ) || ( attacker.GetTeam() == target.GetTeam() && !FriendlyFire_IsEnabled() ) )
 		return
 	if ( !attacker.IsPlayer() && !attacker.IsNPC() ) // defensive fix. don't know why worldspawn could damage entities by this
