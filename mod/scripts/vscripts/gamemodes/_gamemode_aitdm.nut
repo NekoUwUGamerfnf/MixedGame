@@ -555,7 +555,7 @@ void function ReaperHandler( entity reaper )
 		WaitFrame() // always wait before each loop!
 
 		// Check if alive
-		if ( !IsAlive( titan ) )
+		if ( !IsAlive( reaper ) )
 			return
 
 		points = [] // clean up last point
