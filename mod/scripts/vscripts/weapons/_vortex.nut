@@ -123,12 +123,6 @@ global function AddDamageCallbackSourceID_VortexDrainHealth
 global function AddEntityCallback_OnVortexHitBullet // entity callback
 */
 
-struct WeaponMod
-{
-	string weaponName
-	string modName
-}
-
 struct ImpactDataOverride
 {
 	asset absorb_effect
@@ -142,7 +136,7 @@ struct
 	// utility
 	table< entity, array<string> > vortexRefiredProjectileMods
 	table< string, ImpactDataOverride > vortexImpactDataOverride_WeaponName
-	table< WeaponMod, ImpactDataOverride > vortexImpactDataOverride_WeaponMod
+	table< string, table< string, ImpactDataOverride > > vortexImpactDataOverride_WeaponMod
 
 	// respawn messy functions rework
 	table< entity, bool functionref( entity, entity, entity, bool ) > vortexCustomProjectileHitRules // don't want to change entityStruct, use fileStruct instead
@@ -203,23 +197,13 @@ void function Vortex_AddImpactDataOverride_WeaponMod( string weaponName, string 
 	dataStruct.refire_behavior = refireBehavior
 
 	bool modReigstered = false
-	foreach ( modStruct, impactDataOverride in file.vortexImpactDataOverride_WeaponMod )
-	{
-		if ( modStruct.weaponName == weaponName )
-		{
-			if ( modStruct.modName == weaponMod ) // mod existing!
-			{
-				file.vortexImpactDataOverride_WeaponMod[ modStruct ] = dataStruct
-				return
-			}
-		}
-	}
-
-	// new registered mod
-	WeaponMod weaponStruct
-	weaponStruct.weaponName = weaponName
-	weaponStruct.modName = weaponMod
-	file.vortexImpactDataOverride_WeaponMod[ weaponStruct ] <- dataStruct
+	// init done here
+	if ( !( weaponName in file.vortexImpactDataOverride_WeaponMod ) )
+		file.vortexImpactDataOverride_WeaponMod[ weaponName ] <- {}
+	if ( !( weaponMod in file.vortexImpactDataOverride_WeaponMod[ weaponName ] ) )
+		file.vortexImpactDataOverride_WeaponMod[ weaponName ][ weaponMod ] <- dataStruct
+	else
+		file.vortexImpactDataOverride_WeaponMod[ weaponName ][ weaponMod ] = dataStruct
 }
 
 table function BuildImpactDataFromOverride( ImpactDataOverride overrideStruct )
@@ -248,27 +232,20 @@ table function Vortex_GetImpactDataOverride_WeaponName( string weaponName )
 
 bool function Vortex_HasImpactDataOverride_WeaponMod( string weaponName, string weaponMod )
 {
-	foreach ( modStruct, impactDataOverride in file.vortexImpactDataOverride_WeaponMod )
-	{
-		if ( modStruct.weaponName == weaponName )
-		{
-			if ( modStruct.modName == weaponMod )
-				return true
-		}
-	}
+	if ( weaponName in file.vortexImpactDataOverride_WeaponMod 
+		 && weaponMod in file.vortexImpactDataOverride_WeaponMod[ weaponName ] )
+		return true
 
 	return false
 }
 
 table function Vortex_GetImpactDataOverride_WeaponMod( string weaponName, string weaponMod )
 {
-	foreach ( modStruct, impactDataOverride in file.vortexImpactDataOverride_WeaponMod )
+	if ( weaponName in file.vortexImpactDataOverride_WeaponMod 
+		 && weaponMod in file.vortexImpactDataOverride_WeaponMod[ weaponName ] )
 	{
-		if ( modStruct.weaponName == weaponName )
-		{
-			if ( modStruct.modName == weaponMod )
-				return BuildImpactDataFromOverride( impactDataOverride )
-		}
+		ImpactDataOverride impactDataOverride = file.vortexImpactDataOverride_WeaponMod[ weaponName ][ weaponMod ]
+		return BuildImpactDataFromOverride( impactDataOverride )
 	}
 
 	// default return value
