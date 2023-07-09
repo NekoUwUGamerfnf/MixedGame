@@ -1256,16 +1256,17 @@ float function GetTimeLimit_ForGameMode()
 // faction dialogue, not supporting FFA now
 void function DialoguePlayNormal()
 {
-	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // so this will play right after roundbased game starts
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 	if( IsFFAGame() )
 		return
 
-	const float DIALOGUE_INTERVAL = 91 // play a faction dailogue every 90 + 1s to prevent play together with winner dialogue
+	const float DIALOGUE_INTERVAL = 181 // play a faction dailogue every 180 + 1s to prevent play together with winner dialogue
 
 	while( GetGameState() == eGameState.Playing )
 	{
-		wait DIALOGUE_INTERVAL // wait first before playing a dialogue
+		// generally we start from 0:0 score, no dialogue will be played. but for round based gamemodes, this will play a dialogue on round start
 		PlayScoreEventFactionDialogue( "winningLarge", "losingLarge", "winning", "losing", "winningClose", "losingClose" )
+		wait DIALOGUE_INTERVAL // wait before playing next dialogue
 	}
 }
 

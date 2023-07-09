@@ -32,6 +32,7 @@ global function RestoreTitan
 
 // modified for modded titan doom state
 global function TitanHealth_SetSoulInfiniteDoomedState
+global function TitanHealth_GetSoulInfiniteDoomedState // for score events
 global function TitanHealth_SetSoulDoomedHealthLossDamage
 
 global const SIGNAL_TITAN_HEALTH_REGEN = "BeginTitanHealthRegen"
@@ -637,7 +638,7 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 
 	titanSoul.EnableDoomed()
 	titanSoul.doomedTime = Time()
-	soulOwner.SetDoomed()
+	soulOwner.SetDoomed() // start doomed animation
 	DoomTitan( soulOwner )
 	soulOwner.Signal( "Doomed" )
 	titanSoul.Signal( "Doomed" )
@@ -651,10 +652,8 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 	if ( !IsValid( soulOwner ) )
 		return
 
-	// For fakeBT( and other modded conditions ), so that it's not gonna infinite-dooom
-	bool isInfiniteDoom = PROTO_AlternateDoomedState() // default value
-	if( titanSoul in file.soulInfiniteDoomedState ) // overwrite
-		isInfiniteDoom = file.soulInfiniteDoomedState[ titanSoul ]
+	// For fakeBT( and other modded conditions ), we can set whether to use infinite doom
+	bool isInfiniteDoom = TitanHealth_GetSoulInfiniteDoomedState( titanSoul )
 
 	//if ( PROTO_AlternateDoomedState() )
 	if ( isInfiniteDoom )
@@ -664,7 +663,7 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 		soulOwner.SetMaxHealth( maxDoomedHealth )
 		//soulOwner.SetHealthPerSegment( 0 )
 
-		soulOwner.ClearDoomed()
+		soulOwner.ClearDoomed() // disable doomed animation
 
 		if ( soulOwner.IsPlayer() && PlayerHasAutoEject( soulOwner ) )
 		{
@@ -693,7 +692,8 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 	soulOwner.SetMaxHealth( maxDoomedHealth )
 	//soulOwner.SetHealthPerSegment( 0 )
 
-	// for players, clean their doomed state, or their titan will always flinching
+	// vanilla missing!
+	// for players, clean their doomed state(which handles animation), or their replacement titans will always flinching
 	OnThreadEnd
 	(
 		function(): ( soulOwner )
@@ -702,12 +702,11 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 				soulOwner.ClearDoomed()
 		}
 	)
+	//
 
 	string settings = GetSoulPlayerSettings( titanSoul )
 	float damageMod = 1.0
-	// modified for modded titan doomed state
-	if( titanSoul in file.soulDoomedHealthLossDamage )
-		damageMod = file.soulDoomedHealthLossDamage[ titanSoul ]
+
 	while ( true )
 	{
 		table lastAttackInfo = expect table( titanSoul.lastAttackInfo )
@@ -731,7 +730,12 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 			//else
 			//	damageMod = 1.0
 
-			// re-enabled this
+			// modified for modded titan doomed state
+			if( titanSoul in file.soulDoomedHealthLossDamage )
+				damageMod = file.soulDoomedHealthLossDamage[ titanSoul ]
+			//
+
+			// re-enabled this, change to multiplier
 			if ( PlayerHasPassive( soulOwner, ePassives.PAS_DOOMED_TIME ) )
 				damageMod *= 0.4 // less doomed damage if passive valid
 
@@ -745,7 +749,22 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 
 		float dmgAmount = DPS * tickRate * damageMod
 
-		soulOwner.TakeDamage( dmgAmount, expect entity( lastAttackInfo.attacker ), expect entity( lastAttackInfo.inflictor ), extraDeathInfo )
+		// needs to update attacker and inflictor, if attacker turns to invalid, it will automatically assign to worldspawn
+		// if worldspawn triggering some damageSourceIdCallback(mostly ttf2 ones, like scorch's and legion's weapons), game's gonna crash
+		entity healthLossAttacker = expect entity( lastAttackInfo.attacker )
+		entity healthLossInflictor = expect entity( lastAttackInfo.inflictor )
+		bool attackerValid = IsValid( healthLossAttacker ) && !IsWorldSpawn( healthLossAttacker )
+		if ( !attackerValid )
+		{
+			healthLossAttacker = soulOwner // attacker invalid, turns to self damage
+			extraDeathInfo.damageSourceId = damagedef_suicide // attacker invalid, change damageSourceId to suicide
+		}
+		if ( attackerValid && !IsValid( healthLossInflictor ) ) // attacker valid but inflictor invalid
+			healthLossInflictor = healthLossAttacker // re-assign attacker as inflictor
+
+		//soulOwner.TakeDamage( dmgAmount, expect entity( lastAttackInfo.attacker ), expect entity( lastAttackInfo.inflictor ), extraDeathInfo )
+		soulOwner.TakeDamage( dmgAmount, healthLossAttacker, healthLossInflictor, extraDeathInfo )
+		//print( "Doomded health loss dmgAmount: " + string( dmgAmount ) )
 
 		wait tickRate
 	}
@@ -1127,6 +1146,7 @@ void function Titan_MonarchCleanup( entity soul, var damageInfo )
 
 // modded function
 const float NPC_PILOT_EJECTING_DELAY = 5.0
+const float NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS = 3.0 // pilots do fast eject if they have health loss. 3s ~half health
 
 void function NpcPilotEjectingThink( entity titan )
 {
@@ -1138,7 +1158,10 @@ void function NpcPilotEjectingThink( entity titan )
 	entity soul = titan.GetTitanSoul()
 	soul.EndSignal( "OnDestroy" )
 
-	wait NPC_PILOT_EJECTING_DELAY
+	float ejectDelay = NPC_PILOT_EJECTING_DELAY
+	if ( !TitanHealth_GetSoulInfiniteDoomedState( soul ) )
+		ejectDelay = NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS
+	wait ejectDelay
 
 	while( titan.Anim_IsActive() || TitanCoreInUse( titan ) )
 		WaitFrame() // wait till some animation and core ability end
@@ -1183,6 +1206,13 @@ void function TitanHealth_SetSoulInfiniteDoomedState( entity titanSoul, bool inf
 	if( !( titanSoul in file.soulInfiniteDoomedState ) )
 		file.soulInfiniteDoomedState[ titanSoul ] <- PROTO_AlternateDoomedState() // default value
 	file.soulInfiniteDoomedState[ titanSoul ] = infinite
+}
+
+bool function TitanHealth_GetSoulInfiniteDoomedState( entity titanSoul )
+{
+	if( !( titanSoul in file.soulInfiniteDoomedState ) )
+		return PROTO_AlternateDoomedState() // default value
+	return file.soulInfiniteDoomedState[ titanSoul ]
 }
 
 void function TitanHealth_SetSoulDoomedHealthLossDamage( entity titanSoul, float damageMod )
