@@ -13,8 +13,14 @@ global function FW_ReplaceMegaTurret
 global function FW_IsPlayerInFriendlyTerritory
 global function FW_IsPlayerInEnemyTerritory
 
+// callbacks for mods to reduce harvester damage of modded weapons
+global function FW_Harvester_AddDamagedCallback
+global function FW_Harvester_RemoveDamagedCallback
+global function FW_Harvester_AddPostDamagedCallback
+global function FW_Harvester_RemovePostDamagedCallback
+
 // you need to deal this much damage to trigger "FortWarTowerDamage" score event
-const int FW_HARVESTER_DAMAGE_SEGMENT = 1500
+const int FW_HARVESTER_DAMAGE_SEGMENT = 5250
 
 // basically needs to match "waves count - bosswaves count"
 const int FW_MAX_LEVELS = 3
@@ -100,6 +106,10 @@ struct
     
 	// this is for saving territory's connecting time, try not to make faction dialogues play together
 	table< int, float > teamTerrLastConnectTime // team, time
+
+	// damage callbacks
+	array<void functionref( entity, var )> harvesterDamagedCallbacks
+	array<void functionref( entity, var )> harvesterPostDamagedCallbacks
 	
 	// unused
 	array<entity> etitaninmlt
@@ -1730,18 +1740,20 @@ void function FW_createHarvester()
 {
 	// imc havester spawn
 	fw_harvesterImc = SpawnHarvester( file.harvesterImc_info.GetOrigin(), file.harvesterImc_info.GetAngles(), GetCurrentPlaylistVarInt( "fw_harvester_health", FW_DEFAULT_HARVESTER_HEALTH ), GetCurrentPlaylistVarInt( "fw_harvester_shield", FW_DEFAULT_HARVESTER_SHIELD ), TEAM_IMC )
+	// map settings
 	fw_harvesterImc.harvester.Minimap_SetAlignUpright( true )
 	fw_harvesterImc.harvester.Minimap_AlwaysShow( TEAM_IMC, null )
 	fw_harvesterImc.harvester.Minimap_AlwaysShow( TEAM_MILITIA, null )
 	fw_harvesterImc.harvester.Minimap_SetHeightTracking( true )
 	fw_harvesterImc.harvester.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
 	fw_harvesterImc.harvester.Minimap_SetCustomState( eMinimapObject_prop_script.FD_HARVESTER )
+	// damage settings
+	fw_harvesterImc.harvester.SetArmorType( ARMOR_TYPE_HEAVY ) // it will take heavy armor damages
 	AddEntityCallback_OnDamaged( fw_harvesterImc.harvester, OnHarvesterDamaged )
 	AddEntityCallback_OnPostDamaged( fw_harvesterImc.harvester, OnHarvesterPostDamaged )
 	
 	// imc havester settings
-	// don't set this, or sonar pulse will try to find it and failed to set highlight
-	//fw_harvesterMlt.harvester.SetScriptName("fw_team_tower")
+	//fw_harvesterMlt.harvester.SetScriptName("fw_team_tower") // don't set this, or sonar pulse will try to find it and failed to set highlight
 	file.harvesters.append(fw_harvesterImc)
 	entity trackerImc = GetAvailableBaseLocationTracker()
 	trackerImc.SetOwner( fw_harvesterImc.harvester )
@@ -1755,18 +1767,20 @@ void function FW_createHarvester()
 
 	// mlt havester spawn
 	fw_harvesterMlt = SpawnHarvester( file.harvesterMlt_info.GetOrigin(), file.harvesterMlt_info.GetAngles(), GetCurrentPlaylistVarInt( "fw_harvester_health", FW_DEFAULT_HARVESTER_HEALTH ), GetCurrentPlaylistVarInt( "fw_harvester_shield", FW_DEFAULT_HARVESTER_SHIELD ), TEAM_MILITIA )
+	// map settings
 	fw_harvesterMlt.harvester.Minimap_SetAlignUpright( true )
 	fw_harvesterMlt.harvester.Minimap_AlwaysShow( TEAM_IMC, null )
 	fw_harvesterMlt.harvester.Minimap_AlwaysShow( TEAM_MILITIA, null )
 	fw_harvesterMlt.harvester.Minimap_SetHeightTracking( true )
 	fw_harvesterMlt.harvester.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
 	fw_harvesterMlt.harvester.Minimap_SetCustomState( eMinimapObject_prop_script.FD_HARVESTER )
+	// damage settings
+	fw_harvesterMlt.harvester.SetArmorType( ARMOR_TYPE_HEAVY ) // it will take heavy armor damages
 	AddEntityCallback_OnDamaged( fw_harvesterMlt.harvester, OnHarvesterDamaged )
 	AddEntityCallback_OnPostDamaged( fw_harvesterMlt.harvester, OnHarvesterPostDamaged )
 
 	// mlt havester settings
-	// don't set this, or sonar pulse will try to find it and failed to set highlight
-	//fw_harvesterImc.harvester.SetScriptName("fw_team_tower")
+	//fw_harvesterImc.harvester.SetScriptName("fw_team_tower") // don't set this, or sonar pulse will try to find it and failed to set highlight
 	file.harvesters.append(fw_harvesterMlt)
 	entity trackerMlt = GetAvailableBaseLocationTracker()
 	trackerMlt.SetOwner( fw_harvesterMlt.harvester )
@@ -1778,15 +1792,53 @@ void function FW_createHarvester()
 	GameRules_SetTeamScore2( TEAM_IMC , 100 )
 }
 
+// damage callbacks
+void function FW_Harvester_AddDamagedCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
+{
+	if ( !( file.harvesterDamagedCallbacks.contains( callbackFunc ) ) )
+		file.harvesterDamagedCallbacks.append( callbackFunc )
+}
+
+void function FW_Harvester_RemoveDamagedCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
+{
+	if ( file.harvesterDamagedCallbacks.contains( callbackFunc ) )
+		file.harvesterDamagedCallbacks.fastremovebyvalue( callbackFunc )
+}
+
+void function FW_Harvester_AddPostDamagedCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
+{
+	if ( !( file.harvesterPostDamagedCallbacks.contains( callbackFunc ) ) )
+		file.harvesterPostDamagedCallbacks.append( callbackFunc )
+}
+
+void function FW_Harvester_RemovePostDamagedCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
+{
+	if ( file.harvesterPostDamagedCallbacks.contains( callbackFunc ) )
+		file.harvesterPostDamagedCallbacks.fastremovebyvalue( callbackFunc )
+}
+
 // this function can't handle specific damageSourceID, such as plasma railgun, but is the best to scale both shield and health damage
 void function OnHarvesterDamaged( entity harvester, var damageInfo )
 {
 	if ( !IsValid( harvester ) )
 		return
 
+	// from Dinorush's https://github.com/R2Northstar/NorthstarMods/pull/579
+	// Entities (non-Players and non-NPCs) don't consider damaged entity lists, which makes ground attacks (e.g. Arc Wave) and thermite hit more than they should
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if ( IsValid( inflictor ) && ( inflictor.e.onlyDamageEntitiesOnce || inflictor.e.onlyDamageEntitiesOncePerTick ) )
+	{
+		if ( inflictor.e.damagedEntities.contains( harvester ) )
+		{
+			DamageInfo_SetDamage( damageInfo, 0 )
+			return
+		}
+		else
+			inflictor.e.damagedEntities.append( harvester )
+	}
+
 	int friendlyTeam = harvester.GetTeam()
 	int enemyTeam = GetOtherTeam( friendlyTeam )
-	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 		
 	HarvesterStruct harvesterstruct // current harveter's struct
 	if( friendlyTeam == TEAM_MILITIA )
@@ -1794,8 +1846,12 @@ void function OnHarvesterDamaged( entity harvester, var damageInfo )
 	if( friendlyTeam == TEAM_IMC )
 		harvesterstruct = fw_harvesterImc
 
+	// run damage callbacks
+	foreach ( void functionref( entity, var ) callbackFunc in file.harvesterDamagedCallbacks )
+		callbackFunc( harvester, damageInfo )
+	// get modified damage
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
-	if((harvester.GetShieldHealth()-damageAmount)<0)
+	if( ( harvester.GetShieldHealth()-damageAmount) < 0 )
 	{
 		if( !harvesterstruct.harvesterShieldDown )
 		{
@@ -1805,56 +1861,10 @@ void function OnHarvesterDamaged( entity harvester, var damageInfo )
 		}
 	}
 
-	// always reset harvester's recharge delay
+	// always reset harvester's recharge delay even it's not taking any damage
 	harvesterstruct.lastDamage = Time()
-
-	
-	// done damage adjustments here, since harvester prop's health is setting manually through damageAmount
-	if ( damageSourceID == eDamageSourceId.mp_titancore_laser_cannon )
-		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) / 50 ) // laser core shreds super well for some reason
-
-    // plasma railgun can always do no-charge shots and deal same damage
-    if ( damageSourceID == eDamageSourceId.mp_titanweapon_sniper ) // nerf northstar
-    {
-		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) / 3 )
-		entity inflictor = DamageInfo_GetInflictor( damageInfo )
-		if( IsValid( inflictor ) && inflictor.IsProjectile() )
-		{
-			inflictor.s.extraDamagePerBullet = expect int( inflictor.s.extraDamagePerBullet ) / 3
-		}
-	}
-
-    // leadwall have high pilot damage so works really well aginst harvester
-    if ( damageSourceID == eDamageSourceId.mp_titanweapon_leadwall ) // nerf ronin
-        DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) / 2 )
-
-    // missiles mostly have high pilot damage so works really well aginst harvester
-	if ( damageSourceID == eDamageSourceId.mp_titanweapon_salvo_rockets ||
-		damageSourceID == eDamageSourceId.mp_titanweapon_shoulder_rockets ||
-        damageSourceID == eDamageSourceId.mp_titancore_salvo_core
-	) // titan missiles
-		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) / 3 )
-
-	if ( damageSourceID == eDamageSourceId.mp_titanweapon_sticky_40mm ) // 40mm trakcer cannon
-		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) / 2 )
-
-    if ( damageSourceID == eDamageSourceId.mp_titanweapon_flightcore_rockets ) // flight core shreds well
-        DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) / 5 ) 
-
-    // cluster missle is very effective against non-moving targets
-    if ( damageSourceID == eDamageSourceId.mp_titanweapon_dumbfire_rockets ) // cluster missile shreds super well
-        DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) / 10 ) 
-
-    // scorch's thermites is very effective against non-moving targets
-	if ( damageSourceID == eDamageSourceId.mp_titanweapon_heat_shield || 
-        damageSourceID == eDamageSourceId.mp_titanweapon_meteor_thermite ||
-		damageSourceID == eDamageSourceId.mp_titanweapon_flame_wall ||
-		damageSourceID == eDamageSourceId.mp_titanability_slow_trap ||
-		damageSourceID == eDamageSourceId.mp_titancore_flame_wave_secondary
-	) // scorch's thermite damages, nerf scorch
-		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) / 5 )
-
 }
+
 void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 {
 	if ( !IsValid( harvester ) )
@@ -1870,7 +1880,7 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 	int scriptType = DamageInfo_GetCustomDamageType( damageInfo )
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
 
-	if(damageAmount == 0)
+	if( damageAmount == 0 )
 		return
 
 	if ( !damageSourceID && !damageAmount && !attacker ) // actually not dealing any damage?
@@ -1879,7 +1889,7 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 	// prevent player from sniping the harvester cross-map
 	if ( attacker.IsPlayer() && !FW_IsPlayerInEnemyTerritory( attacker ) )
 	{
-		Remote_CallFunction_NonReplay( attacker , "ServerCallback_FW_NotifyNeedsEnterEnemyArea" )
+		Remote_CallFunction_NonReplay( attacker, "ServerCallback_FW_NotifyNeedsEnterEnemyArea" )
 		DamageInfo_SetDamage( damageInfo, 0 )
 		DamageInfo_SetCustomDamageType( damageInfo, scriptType | DF_NO_INDICATOR ) // hide the hitmarker
 		return // these damage won't do anything to the harvester
@@ -1891,8 +1901,11 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 	if( friendlyTeam == TEAM_IMC )
 		harvesterstruct = fw_harvesterImc
 
-
-	damageAmount = DamageInfo_GetDamage( damageInfo ) // get damageAmount again after all damage adjustments
+	// run damage callbacks
+	foreach ( void functionref( entity, var ) callbackFunc in file.harvesterPostDamagedCallbacks )
+		callbackFunc( harvester, damageInfo )
+	// get damageAmount again after all damage adjustments
+	damageAmount = DamageInfo_GetDamage( damageInfo )
 
 	if ( !attacker.IsTitan() )
 	{
@@ -1969,7 +1982,6 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
         }
 	}
 
-
 	// harvester down!
     if ( harvester.GetHealth() == 0 )
     {
@@ -1980,6 +1992,50 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
         GameRules_SetTeamScore2( friendlyTeam, 0 ) // force set score2 to 0( shield bar will empty )
         GameRules_SetTeamScore( friendlyTeam, 0 ) // force set score to 0( health 0% )
     }
+}
+
+void function InitDefaultHarvesterDamageCallbacks() // default damage modifier for harvester
+{
+	FW_Harvester_AddDamagedCallback( HarvesterDamageModifier )
+	FW_Harvester_AddPostDamagedCallback( HarvesterPostDamageModifier )
+}
+
+// damage balancing
+const float CORE_DAMAGE_FRAC = 0.67 // for core abilities that can deal large amount of damage to a non-moving target(laser core, flight core and salvo core etc.)
+const float NUKE_EJECT_DAMAGE_FRAC = 0.0 // for nuke titans. normally player titan nuke won't do any damage because the nuke damage attacker is player, but player is no longer a titan. just for handling sometimes player nuke then disconnect
+const float DOT_DAMAGE_FRAC = 0.5 // mostly for scorch, for they can deal dot damage
+
+void function HarvesterDamageModifier( entity harvester, var damageInfo )
+{
+	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+
+	switch ( damageSourceID )
+	{
+		// core balancing
+		case eDamageSourceId.mp_titancore_laser_cannon:
+		case eDamageSourceId.mp_titancore_salvo_core:
+		case eDamageSourceId.mp_titanweapon_flightcore_rockets:
+		case eDamageSourceId.mp_titancore_shift_core:
+			DamageInfo_ScaleDamage( damageInfo, CORE_DAMAGE_FRAC )
+			break
+		// nuke
+		case damagedef_nuclear_core:
+			DamageInfo_ScaleDamage( damageInfo, NUKE_EJECT_DAMAGE_FRAC )
+			break
+		// damage over time
+		case eDamageSourceId.mp_titanweapon_dumbfire_rockets:
+		case eDamageSourceId.mp_titanweapon_meteor_thermite:
+		case eDamageSourceId.mp_titanweapon_flame_wall:
+		case eDamageSourceId.mp_titanability_slow_trap:
+		case eDamageSourceId.mp_titancore_flame_wave_secondary:
+			DamageInfo_ScaleDamage( damageInfo, DOT_DAMAGE_FRAC )
+			break
+	}
+}
+
+void function HarvesterPostDamageModifier( entity harvester, var damageInfo )
+{
+	// not implemented yet
 }
 
 void function HarvesterThink( HarvesterStruct fw_harvester )
