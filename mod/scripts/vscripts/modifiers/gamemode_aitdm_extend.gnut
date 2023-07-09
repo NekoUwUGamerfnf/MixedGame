@@ -78,6 +78,7 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 	AddDeathCallback( "npc_super_spectre", ForceAddScoreForPlayerOrNPCKill )
 	AddDeathCallback( "npc_drone", ForceAddScoreForPlayerOrNPCKill )
 	AddDeathCallback( "npc_titan", ForceAddScoreForPlayerOrNPCKill )
+	AddCallback_OnTitanDoomed( HandleTitanDoomedScore ) // for handling doomed health loss titans
 
 	AddCallback_OnClientConnected( OnPlayerConnected )
 
@@ -340,10 +341,14 @@ void function InitExtraSpawnerSettings()
 {
 	ExtraSpawner_SetNPCWeapons( "npc_soldier", ["mp_weapon_rspn101", "mp_weapon_lmg", "mp_weapon_shotgun", "mp_weapon_r97", "mp_weapon_dmr"] )
 	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_rocket_launcher", "mp_weapon_mgl"] )
+	ExtraSpawner_SetNPCGrenadeWeapons( "npc_soldier", ["mp_weapon_frag_grenade", "mp_weapon_thermite_grenade", "mp_weapon_grenade_electric_smoke"] )
+	
 	ExtraSpawner_SetNPCWeapons( "npc_spectre", ["mp_weapon_mastiff", "mp_weapon_doubletake", "mp_weapon_hemlok_smg", "mp_weapon_hemlok"] )
 	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_spectre", ["mp_weapon_arc_launcher", "mp_weapon_defender"] )
 
 	ExtraSpawner_SetNPCWeapons( "npc_pilot_elite", ["mp_weapon_rspn101_og", "mp_weapon_r97", "mp_weapon_car", "mp_weapon_hemlok_smg", "mp_weapon_hemlok", "mp_weapon_g2", "mp_weapon_esaw", "mp_weapon_vinson"] )
+	ExtraSpawner_SetNPCGrenadeWeapons( "npc_pilot_elite", ["mp_weapon_thermite_grenade", "mp_weapon_grenade_emp"] )	
+
 	ExtraSpawner_SetNPCWeapons( "npc_stalker", ["mp_weapon_softball", "mp_weapon_smr"] ) // npcs can't shoot "mp_weapon_pulse_lmg"
 
 	//AiDrone_SetDroneSpawnedByNPCRandomType( true ) // modified function in _ai_drone.nut, specialist grunts will spawn random drones
@@ -391,38 +396,19 @@ void function ForceAddScoreForPlayerOrNPCKill( entity victim, var damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if( !IsValid( attacker ) )
 		return
-	if( !attacker.IsNPC() && !attacker.IsPlayer() ) // not killed by anybody
-		return
-
-	if ( attacker == victim ) // suicide!
+	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
 		return
 
 	// if it's a npc with bossplayer/owner...
 	if ( attacker.IsNPC() )
 	{
 		// reassign attacker
-		if ( IsValid( attacker.GetBossPlayer() ) )
-			attacker = attacker.GetBossPlayer()
-		if ( IsValid( attacker.GetOwner() ) )
-			attacker = attacker.GetOwner()
+		attacker = GetAiTDMAttackOwner( attacker )
 	}
 
-	if ( victim.IsNPC() )
-	{
-		// if victim is a npc that owned by players, don't add score
-		entity bossPlayer = victim.GetBossPlayer()
-		entity owner = victim.GetOwner()
-		if ( IsValid( bossPlayer ) )
-		{
-			if ( bossPlayer.IsPlayer() )
-				return
-		}
-		if ( IsValid( owner ) )
-		{
-			if ( owner.IsPlayer() )
-				return
-		}
-	}
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAiTDMScore( victim ) )
+		return
 
 	string className = victim.GetClassName()
 	int scoreToAdd = 0
@@ -480,24 +466,109 @@ void function ForceAddScoreForPlayerOrNPCKill( entity victim, var damageInfo )
 			scoreToAdd = TITAN_SCORE_AMOUNT + PLAYER_SCORE_AMOUNT
 		else // ejecting auto titan
 			scoreToAdd = TITAN_SCORE_AMOUNT
-		
+
+		// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
+		if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+			scoreToAdd -= TITAN_SCORE_AMOUNT // remove titan score on kill for doomed health loss titans
+
 		// obit, has been fixed in _base_gametype_mp.gnut
 		//foreach ( entity player in GetPlayerArray() )
 		//	Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
 	}
 
 	if ( scoreToAdd > 0 )
-		AddTeamScore( attacker.GetTeam(), scoreToAdd ) // this can handle both players' and npcs' kills
+		AddAiTDMTeamScore( attacker, scoreToAdd ) // this can handle both players' and npcs' kills
 	if( attacker.IsPlayer() ) // specific for players
 	{
 		if ( scoreEvent != "" )
 			AddPlayerScore( attacker, scoreEvent, victim )
-		if ( scoreToAdd > 0 )
+	}
+}
+
+bool function AttackerIsValidForAiTDMScore( entity victim, entity attacker, var damageInfo )
+{
+	if( !attacker.IsNPC() && !attacker.IsPlayer() ) // not killed by anybody
+		return false
+
+	if ( attacker == victim ) // suicide!
+		return false
+
+	// all checks passed
+	return true
+}
+
+bool function VictimIsValidForAiTDMScore( entity victim )
+{
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( victim.IsNPC() && !victim.IsTitan() )
+	{
+		entity bossPlayer = victim.GetBossPlayer()
+		entity owner = victim.GetOwner()
+		if ( IsValid( bossPlayer ) )
 		{
-			attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, scoreToAdd )
-			attacker.SetPlayerNetInt( "AT_bonusPoints", attacker.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+			if ( bossPlayer.IsPlayer() )
+				return false
+		}
+		if ( IsValid( owner ) )
+		{
+			if ( owner.IsPlayer() )
+				return false
 		}
 	}
+
+	// all checks passed
+	return true
+}
+
+entity function GetAiTDMAttackOwner( entity ent )
+{
+	entity attacker
+	if ( ent.IsPlayer() ) // player always use themselves as attacker
+		return ent
+	if ( IsValid( ent.GetBossPlayer() ) )
+		attacker = ent.GetBossPlayer()
+	if ( IsValid( ent.GetOwner() ) )
+		attacker = ent.GetOwner()
+	// attacker still not valid?
+	if ( !IsValid( attacker ) )
+		return ent // use npc or something itself
+	return attacker
+}
+
+void function AddAiTDMTeamScore( entity ent, int score )
+{
+	// Add score + update network int to trigger the "Score +n" popup
+	AddTeamScore( ent.GetTeam(), score )
+	if ( ent.IsPlayer() )
+	{
+		ent.AddToPlayerGameStat( PGS_ASSAULT_SCORE, score )
+		ent.SetPlayerNetInt( "AT_bonusPoints", ent.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+	}
+}
+
+// for handling doomed health loss titans
+void function HandleTitanDoomedScore( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+
+	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
+		return
+
+	// if it's a npc with bossplayer/owner...
+	if ( attacker.IsNPC() )
+	{
+		// reassign attacker
+		attacker = GetAiTDMAttackOwner( attacker )
+	}
+
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAiTDMScore( victim ) )
+		return
+
+	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+		AddAiTDMTeamScore( attacker, TITAN_SCORE_AMOUNT )
 }
 
 //------------------------------------------------------
@@ -1305,6 +1376,8 @@ void function CleanupBoredNPCThread( entity guy )
 	print( "cleaning up bored npc: " + guy + " from team " + guy.GetTeam() )
 	HideName( guy ) // prevent their title or health bar from showing
 	TakeAllWeapons( guy ) // so they won't have a weapon floating
+	guy.SetNoTarget( true ) // disable npc targeting
+	guy.SetNoTargetSmartAmmo( true ) // disable smart ammo targeting
 	guy.EnableNPCFlag( NPC_IGNORE_ALL ) // disable any sensing
 	guy.NotSolid() // disable collision
 	// titan being dissolved

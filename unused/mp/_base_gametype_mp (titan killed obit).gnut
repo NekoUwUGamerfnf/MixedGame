@@ -77,6 +77,9 @@ void function BaseGametype_Init_MPSP()
 
 	AddPostDamageCallback( "player", AddToTitanDamageStat )
 	AddPostDamageCallback( "npc_titan", AddToTitanDamageStat )
+	
+	AddCallback_OnNPCKilled( CheckForAutoTitanDeath )
+	AddCallback_OnPlayerKilled( CheckForAutoTitanDeath )
 
 	RegisterSignal( "PlayerRespawnStarted" )
 	RegisterSignal( "KillCamOver" )
@@ -306,6 +309,9 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.s.respawnTime = Time()
 	ClearRecentDamageHistory( player )
 
+	// HACKED DEATH, before loadout grace period set up
+	if( HackedDeath_IsEnabled() )
+		HackedDeath_PlayerRecoverFrom( player )
 	//player.ClearReplayDelay() // these has been done in CPlayer::RespawnPlayer()
 	//player.ClearViewEntity()
 	
@@ -368,23 +374,8 @@ void function GracePeriodThink_Threaded( entity player )
 
 void function CodeCallback_OnPlayerKilled( entity player, var damageInfo )
 {
-	HandleDeathPackage( player, damageInfo )
-
-	// refering to CodeCallback_OnNPCKilled(): should fix doomed callbacks if titan player died without entering doom
-	if ( player.IsTitan() )
-	{
-		if ( !GetDoomedState( player ) )
-		{
-			// Added via AddCallback_OnTitanDoomed
-			foreach ( callbackFunc in svGlobal.onTitanDoomedCallbacks )
-			{
-				callbackFunc( player, damageInfo )
-			}
-		}
-	}
-
 	PlayerOrNPCKilled( player, damageInfo )
-	//HandleDeathPackage( player, damageInfo ) // refering to CodeCallback_OnNPCKilled(): HandleDeathPackage() gets called earlier than PlayerOrNPCKilled()
+	HandleDeathPackage( player, damageInfo )
 	thread PostDeathThread_MP( player, damageInfo )
 }
 
@@ -405,15 +396,26 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 
 	player.s.inPostDeath = true
 
-	player.s.inGracePeriod = true // make sure player always in GracePeriod after respawn
+	if( HackedDeath_IsEnabled() ) // prevent players reset their class after hacked death
+		player.s.inGracePeriod = false
+	else
+		player.s.inGracePeriod = true // make sure player always in GracePeriod after respawn
 	player.s.respawnSelectionDone = false
 
 	player.cloakedForever = false
 	player.stimmedForever = false
 
-	player.SetNoTarget( false )
-	player.SetNoTargetSmartAmmo( false )
-
+	if( HackedDeath_IsEnabled() )
+	{
+		player.SetNoTarget( true )
+		player.SetNoTargetSmartAmmo( true )
+		player.s.hackedDeath = true
+	}
+	else
+	{
+		player.SetNoTarget( false )
+		player.SetNoTargetSmartAmmo( false )
+	}
 	player.ClearExtraWeaponMods()
 	
 	// disable prediction to prevent it messing with ragdoll in some places, as well as killreplay and such
@@ -449,6 +451,24 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	table<int, bool> alreadyAssisted
 	if ( IsValid( attacker ) ) 
 	{
+		if ( !player.IsTitan() ) // titan assist handled by ScoreEvent_TitanKilled()
+		{
+			foreach( DamageHistoryStruct attackerInfo in player.e.recentDamageHistory )
+			{
+				if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == player )
+					continue
+
+				bool exists = attackerInfo.attacker.GetEncodedEHandle() in alreadyAssisted ? true : false
+				if( attackerInfo.attacker != attacker && !exists )
+				{
+					alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
+					Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), player.GetEncodedEHandle(), attackerInfo.time ) 
+					AddPlayerScore( attackerInfo.attacker, "PilotAssist", player )
+					attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
+				}
+			}
+		}
+
 		if( attacker.IsPlayer() )	
 			Highlight_SetDeathRecapHighlight( attacker, "killer_outline" )
 
@@ -509,6 +529,10 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		replayStartDelay = file.replayStartDelayOverride
 	if ( replayStartDelay < 0 ) // defensive fix
 		replayStartDelay = 0
+	// HACKED DEATH: never delay replay
+	if( HackedDeath_IsEnabled() )
+		replayStartDelay = 0
+	//
 
 	// hack: double check if killcams are enabled and valid here in case gamestate has changed this
 	//shouldDoReplay = shouldDoReplay && Replay_IsEnabled() && KillcamsEnabled() && IsValid( attacker )
@@ -570,9 +594,31 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 			thread ForcedRespawnThink( player, waitBeforeRespawn, deathCamModified, replayStartDelay )// if not doing replay, set player's camera to intermissionCam
 		}
 
+		// HACKED DEATH
+		if( HackedDeath_IsEnabled() )
+		{
+			if( !ShouldForceRespawnPlayer_FromDamageInfo( player, methodOfDeath ) ) // really kill player to enable respawn button
+				HackedDeath_KillPlayer( player )
+			player.UnfreezeControlsOnServer() // unfreeze controls here, make players able to press respawn
+		}
+		//
+
 		player.WaitSignal( "RespawnMe" ) // set in base_gametype: ClientCommand_RespawnPlayer
 
+		// HACKED DEATH: defensive fix for hacked death, kill player if they're not actual dead, so they can respawn
+		if( respawnDelay > 0 && HackedDeath_IsEnabled() && ShouldForceRespawnPlayer_FromDamageInfo( player, methodOfDeath ) )
+		{
+			HackedDeath_KillPlayer( player )
+			player.Signal( "RespawnMe" )
+		}
+		//
+
 		ClearRespawnAvailable( player ) // need so the respawn icon doesn't show for like a frame on next death
+
+		// HACKED DEATH
+		if ( HackedDeath_IsEnabled() && !shouldDoReplay ) // wait an extra frame if the player not entered replay, otherwise they'll lose their ability icons
+			WaitFrame()
+		//
 
 		if ( ( expect bool( player.GetPersistentVar( "spawnAsTitan" ) ) && IsTitanAvailable( player ) ) || ( Riff_SpawnAsTitan() > 0 && Riff_ShouldSpawnAsTitan( player ) ) )	// spawn as titan
 			thread RespawnAsTitan( player )
@@ -656,7 +702,7 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, bool r
 	
 	WaitFrame() // wait a frame for player.WaitSignal( "RespawnMe" ) to set up, or maybe put the waitsignal inside this function? rename it to PlayerWaitForRespawn()
 	// modified over here, add support for modified death cam length
-	if ( replayHasDelayed )
+	if ( replayHasDelayed && !HackedDeath_IsEnabled() ) // hacked death ignores this
 	{
 		if ( replayStartDelay > 0 )
 			wait replayStartDelay // this is actually replayStartDelay
@@ -665,8 +711,13 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, bool r
 		player.WaitSignal( "KillCamOver" )
 
 	if( waitBeforeRespawn > 0 )
-		wait waitBeforeRespawn
-
+	{
+		// HACKED DEATH
+		if( HackedDeath_IsEnabled() )
+			HackedDeath_KillPlayer( player )
+		else
+			wait waitBeforeRespawn
+	}
 	result.repsawnIsForced = true
 }
 
@@ -909,6 +960,33 @@ int function CalculateTitanDamageTaken( entity victim, var damageInfo )
 	}
 	// calculation done!
 	return damageAmount
+}
+
+void function CheckForAutoTitanDeath( entity victim, entity attacker, var damageInfo )
+{
+	if ( !IsValid( victim ) || !victim.IsTitan() )
+		return
+
+	if ( !victim.IsPlayer() ) // npc titans
+	{
+		entity owner = victim
+		if ( IsValid( GetPetTitanOwner( victim ) ) )
+			owner = GetPetTitanOwner( victim )
+		//if ( GetPetTitanOwner( victim ) && GetPetTitanOwner( victim ) != attacker ) // messed up!
+		if ( owner != attacker ) // no titanKilled obit if owner kill it's titan or titan suicide
+		{
+			foreach ( player in GetPlayerArray() )
+				Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+		}
+	}
+	else // player titans
+	{
+		if ( victim != attacker )
+		{
+			foreach ( player in GetPlayerArray() )
+				Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+		}
+	}
 }
 
 void function SetRecalculateRespawnAsTitanStartPointCallback( entity functionref( entity player, entity basePoint ) callbackFunc )
