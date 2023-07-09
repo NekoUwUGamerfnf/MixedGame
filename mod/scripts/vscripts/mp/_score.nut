@@ -414,9 +414,6 @@ void function NotifyClientsOfTitanDeath( entity victim, entity attacker, var dam
 {
 	if ( !IsValid( victim ) || !victim.IsTitan() )
 		return
-	// modified function in _codecallbacks_common.gnut
-	if ( EntityKilledEvent_IsDisabledForEntity( victim ) )
-		return
 
 	foreach ( player in GetPlayerArray() )
 		Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
