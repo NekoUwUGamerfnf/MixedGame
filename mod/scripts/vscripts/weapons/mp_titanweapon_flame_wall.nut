@@ -241,7 +241,9 @@ void function FlameWall_DamagedTarget( entity ent, var damageInfo )
 	Scorch_SelfDamageReduction( ent, damageInfo )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
+	// adding friendlyfire support!
+	//if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
+	if ( !IsValid( attacker ) || ( attacker.GetTeam() == ent.GetTeam() && !FriendlyFire_IsEnabled() ) )
 		return
 
 	array<entity> weapons = attacker.GetMainWeapons()

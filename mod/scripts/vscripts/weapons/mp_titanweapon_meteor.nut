@@ -116,7 +116,9 @@ void function MeteorThermite_DamagedTarget( entity target, var damageInfo )
 	Scorch_SelfDamageReduction( target, damageInfo )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) || attacker.GetTeam() == target.GetTeam() )
+	// adding friendlyfire support!
+	//if ( !IsValid( attacker ) || attacker.GetTeam() == target.GetTeam() )
+	if ( !IsValid( attacker ) || ( attacker.GetTeam() == target.GetTeam() && !FriendlyFire_IsEnabled() ) )
 		return
 
 	array<entity> weapons = attacker.GetMainWeapons()

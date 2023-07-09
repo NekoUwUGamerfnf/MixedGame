@@ -40,6 +40,9 @@ void function Score_Init()
 
 	// modified
 	InitTitanKilledDialogues()
+	AddCallback_OnNPCKilled( CheckForAutoTitanDeath )
+	AddCallback_OnPlayerKilled( CheckForAutoTitanDeath )
+	AddCallback_OnTitanDoomed( HandleTitanDoomedScoreEvent )
 }
 
 // modified!!!
@@ -243,7 +246,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		AddPlayerScore( attacker, "KillingSpree", attacker )
 	else if ( attacker.s.currentKillstreak == 5 )
 		AddPlayerScore( attacker, "Rampage", attacker )
-	
+
 	// increment untimed killstreaks against specific players
 	if ( !( victim in attacker.p.playerKillStreaks ) )
 		attacker.p.playerKillStreaks[ victim ] <- 1
@@ -274,8 +277,29 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	}
 	
 	attacker.s.lastKillTime = Time()
+
+	// assist. was previously be in _base_gametype_mp.gnut, which is bad. vanilla won't add assist on npc killing a player
+	if ( !victim.IsTitan() ) // titan assist handled by ScoreEvent_TitanKilled()
+	{
+		table<int, bool> alreadyAssisted
+		foreach( DamageHistoryStruct attackerInfo in victim.e.recentDamageHistory )
+		{
+			if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == victim )
+				continue
+
+			bool exists = attackerInfo.attacker.GetEncodedEHandle() in alreadyAssisted ? true : false
+			if( attackerInfo.attacker != attacker && !exists )
+			{
+				alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
+				Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time ) 
+				AddPlayerScore( attackerInfo.attacker, "PilotAssist", victim )
+				attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
+			}
+		}
+	}
 }
 
+// this only gets called when titan's owner is player
 void function ScoreEvent_TitanDoomed( entity titan, entity attacker, var damageInfo )
 {
 	// will this handle npc titans with no owners well? i have literally no idea
@@ -286,9 +310,29 @@ void function ScoreEvent_TitanDoomed( entity titan, entity attacker, var damageI
 		AddPlayerScore( attacker, "DoomTitan", titan, eEventDisplayType.MEDAL )
 }
 
+// needs this to handle npc doom titan
+void function HandleTitanDoomedScoreEvent( entity titan, var damageInfo )
+{
+	entity titanSoul = titan.GetTitanSoul()
+	// same check as _titan_health.gnut, HandleKillshot() does
+	entity attacker = expect entity( expect table( titanSoul.lastAttackInfo ).attacker )
+	if ( IsValid( attacker ) )
+	{
+		entity bossPlayer = attacker.GetBossPlayer()
+		if ( attacker.IsNPC() && IsValid( bossPlayer ) )
+			attacker = bossPlayer
+
+		// obit
+		// modified function in _titan_health.gnut, recovering ttf1 behavior: we do obit on doom but not on death for health loss titans
+		if ( !TitanHealth_GetSoulInfiniteDoomedState( titan.GetTitanSoul() ) )
+			NotifyClientsOfTitanDeath( titan, attacker, damageInfo )
+	}
+}
+
 void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damageInfo )
 {
 	// will this handle npc titans with no owners well? i have literally no idea
+	// this won't, attacker needs to have a player owner or something to trigger score event
 	if ( !attacker.IsPlayer() )
 		return
 
@@ -346,6 +390,36 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 			}
 		}
 	}
+}
+
+// this can also handle npc killing another npc condition
+void function CheckForAutoTitanDeath( entity victim, entity attacker, var damageInfo )
+{
+	if ( !IsValid( victim ) || !victim.IsTitan() )
+		return
+
+	if ( !IsValid( attacker ) )
+		return
+
+	// modified function in _titan_health.gnut, recovering ttf1 behavior: we do obit on doom but not on death for health loss titans
+	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+		return
+
+	// obit
+	NotifyClientsOfTitanDeath( victim, attacker, damageInfo )
+}
+
+// titan killed remotecall. was previously be in _base_gametype_mp.gnut, which is bad
+void function NotifyClientsOfTitanDeath( entity victim, entity attacker, var damageInfo )
+{
+	if ( !IsValid( victim ) || !victim.IsTitan() )
+		return
+	// modified function in _codecallbacks_common.gnut
+	if ( EntityKilledEvent_IsDisabledForEntity( victim ) )
+		return
+
+	foreach ( player in GetPlayerArray() )
+		Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
 }
 
 void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageInfo )

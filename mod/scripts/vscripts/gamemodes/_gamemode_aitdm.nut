@@ -75,10 +75,11 @@ void function GamemodeAITdm_Init()
 
 		AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
 		AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
-		
+
 		AddCallback_OnNPCKilled( HandleScoreEvent )
 		AddCallback_OnPlayerKilled( HandleScoreEvent )
-			
+		AddCallback_OnTitanDoomed( HandleTitanDoomedScore ) // modified: for handling doomed health loss titans
+
 		AddCallback_OnClientConnected( OnPlayerConnected )
 		
 		AddCallback_NPCLeeched( OnSpectreLeeched )
@@ -154,21 +155,9 @@ void function OnPlayerConnected( entity player )
 // Used to handle both player and ai events
 void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
 {
-	// Basic checks
-	if ( victim == attacker || !( attacker.IsPlayer() || attacker.IsTitan() ) || GetGameState() != eGameState.Playing )
+	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
 		return
-	
-	// Hacked spectre filter
-	if ( victim.GetOwner() == attacker )
-		return
-	
-	// NPC titans without an owner player will not count towards any team's score
-	if ( attacker.IsNPC() && attacker.IsTitan() && !IsValid( GetPetTitanOwner( attacker ) ) )
-		return
-	
-	// Split score so we can check if we are over the score max
-	// without showing the wrong value on client
-	int teamScore
+
 	int playerScore
 	string eventName
 	
@@ -199,20 +188,54 @@ void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
 		playerScore = 5
 	
 	// Player ejecting triggers this without the extra check
+	// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
 	if ( victim.IsTitan() && victim.GetBossPlayer() != attacker )
-		playerScore += 10
+	{
+		if ( TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+			playerScore += 10
+	}
+
+	AddAiTDMPlayerTeamScore( attacker, playerScore )
+}
+
+bool function AttackerIsValidForAiTDMScore( entity victim, entity attacker, var damageInfo )
+{
+	// Basic checks
+	if ( victim == attacker || !( attacker.IsPlayer() || attacker.IsTitan() ) || GetGameState() != eGameState.Playing )
+		return false
 	
+	// Hacked spectre and pet titan filter
+	if ( victim.GetOwner() == attacker )
+		return false
 	
-	teamScore = playerScore
-	
-	// Check score so we dont go over max
-	if ( GameRules_GetTeamScore(attacker.GetTeam()) + teamScore > GetScoreLimit_FromPlaylist() )
-		teamScore = GetScoreLimit_FromPlaylist() - GameRules_GetTeamScore(attacker.GetTeam())
-	
+	// NPC titans without an owner player will not count towards any team's score
+	if ( attacker.IsNPC() && attacker.IsTitan() && !IsValid( GetPetTitanOwner( attacker ) ) )
+		return false
+
+	// all checks passed
+	return true
+}
+
+void function AddAiTDMPlayerTeamScore( entity player, int score )
+{
 	// Add score + update network int to trigger the "Score +n" popup
-	AddTeamScore( attacker.GetTeam(), teamScore )
-	attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, playerScore )
-	attacker.SetPlayerNetInt("AT_bonusPoints", attacker.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+	AddTeamScore( player.GetTeam(), score )
+	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, score )
+	player.SetPlayerNetInt( "AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+}
+
+// modified: for handling doomed health loss titans
+void function HandleTitanDoomedScore( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
+		return
+
+	// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
+	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+		AddAiTDMPlayerTeamScore( attacker, 10 )
 }
 
 // When attrition starts both teams spawn ai on preset nodes, after that
@@ -527,9 +550,13 @@ void function ReaperHandler( entity reaper )
 	reaper.AssaultSetGoalRadius( 500 ) // goal radius
 	
 	// Every 10 - 20 secs get a closest target and go to them. search for both players and npcs
-	while( IsAlive( reaper ) )
+	while( true )
 	{
 		WaitFrame() // always wait before each loop!
+
+		// Check if alive
+		if ( !IsAlive( reaper ) )
+			return
 
 		points = [] // clean up last point
 		points.extend( GetNPCArrayOfEnemies( team ) )

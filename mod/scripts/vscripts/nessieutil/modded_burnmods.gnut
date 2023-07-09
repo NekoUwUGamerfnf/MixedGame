@@ -1,4 +1,5 @@
 // note that this file is currently only for amped weapons burncard, can't affect CodeCallback_CheckPassThroughAddsMods()
+untyped // for inflictor.s.weaponMods... fuck respawn why not leaving a entity struct?
 global function Modded_Weapon_BurnMods_Init
 
 // main callbacks
@@ -21,7 +22,9 @@ struct
 
 void function Modded_Weapon_BurnMods_Init()
 {
-
+	// try to add "DF_BURN_CARD_WEAPON" for burnmod kills!
+	// unfortunatelly client won't track it. obitColor is a variable that nowhere used
+	//AddDamageCallback( "player", OnPlayerOrNPCDamaged )
 }
 
 void function ModdedBurnMods_AddDisabledMod( string mod )
@@ -120,4 +123,67 @@ array<string> function GetModsFromWeaponOrProjectile( entity weaponOrProjectile 
 		mods = weaponOrProjectile.GetMods()
 
 	return mods
+}
+
+// try to add "DF_BURN_CARD_WEAPON" for burnmod kills!
+// unfortunatelly client won't track it. obitColor is a variable that nowhere used
+void function OnPlayerOrNPCDamaged( entity victim, var damageInfo )
+{
+	if ( AttackerIsUsingBurnModWeapon( damageInfo ) )
+	{
+		print( "Adding DF_BURN_CARD_WEAPON!" )
+		DamageInfo_AddCustomDamageType( damageInfo, DF_BURN_CARD_WEAPON )
+	}
+}
+
+// a copy of GetWeaponModsFromDamageInfo() in _weapon_utility.nut, with some tweak
+bool function AttackerIsUsingBurnModWeapon( var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	entity weapon = DamageInfo_GetWeapon( damageInfo )
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+
+	array<string> mods
+	if ( IsValid( weapon ) )
+		mods = weapon.GetMods()
+	else if ( IsValid( inflictor ) )
+	{
+		if ( "weaponMods" in inflictor.s && inflictor.s.weaponMods ) // used on cluster missiles...
+		{
+			foreach ( string mod in inflictor.s.weaponMods )
+				mods.append( mod )
+		}
+		else if( inflictor.IsProjectile() )
+			mods = Vortex_GetRefiredProjectileMods( inflictor ) // get mods with refire support
+		else if ( damageType & DF_EXPLOSION && inflictor.IsPlayer() ) // seems damaged by hitscan weapon will pass attacker themselves as inflictor?
+		{
+			weapon = inflictor.GetActiveWeapon()
+			if ( IsValid( weapon ) )
+				mods = weapon.GetMods()
+		}
+		//Hack - Splash damage doesn't pass mod weapon through. This only works under the assumption that offhand weapons don't have mods.
+	}
+	else if ( IsValid( attacker ) ) // inflictor and attacker both invalid. check if it's attacker's hitscan weapon dealing splash damage
+	{
+		weapon = attacker.GetActiveWeapon()
+		if ( IsValid( weapon ) )
+			mods = weapon.GetMods()
+	}
+
+	if ( mods.len() == 0 )
+		return false
+
+	bool hasBurnMod = false
+	string prefix = "burn_mod"
+	foreach ( string mod in mods )
+	{
+		if ( mod.find( prefix ) == 0 )
+		{
+			hasBurnMod = true
+			break
+		}
+	}
+
+	return hasBurnMod
 }

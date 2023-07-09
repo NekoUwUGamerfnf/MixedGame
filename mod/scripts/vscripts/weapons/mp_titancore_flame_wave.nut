@@ -271,7 +271,9 @@ void function FlameWave_DamagedPlayerOrNPC( entity ent, var damageInfo )
 	}
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
+	// adding friendlyfire support!
+	//if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
+	if ( !IsValid( attacker ) || ( attacker.GetTeam() == ent.GetTeam() && !FriendlyFire_IsEnabled() ) )
 		return
 
 	array<entity> weapons = attacker.GetMainWeapons()
