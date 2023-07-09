@@ -22,9 +22,11 @@ global function ExtraSpawner_SpawnTitanWithPilot
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetNPCWeapons
 global function ExtraSpawner_SetNPCAntiTitanWeapons
+global function ExtraSpawner_SetNPCGrenadeWeapons
 global function ExtraSpawner_SetNPCExtraWeaponMods // mods added by this func will be applies to npcs
 // set up funcs
-global function ExtraSpawner_ApplyNPCWeapons 
+global function ExtraSpawner_ApplyNPCWeapons
+global function ExtraSpawner_ApplyNPCGrenadeWeapon // grenade have to be given before DispatchSpawn()
 global function ExtraSpawner_ApplyNPCExtraWeaponMods
 global function ExtraSpawner_SetUpNPCPilot
 
@@ -71,6 +73,7 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 ]
 
 // extrame HACK here! make use of unused aisettings for set up npc ordnances
+/* // we try to use npc.kv.grenadeWeaponName instead
 const table<string, string> HACK_NPC_ORDNANCE_AISET =
 {
 	["mp_weapon_frag_grenade"]				= "npc_soldier",
@@ -81,6 +84,7 @@ const table<string, string> HACK_NPC_ORDNANCE_AISET =
 	["mp_weapon_grenade_electric_smoke"]	= "npc_soldier_pve_sandbox",
 	["mp_weapon_satchel"]					= "npc_soldier_spyglass", // satchel is missing npc logic
 }
+*/
 //
 
 // for ExtraSpawner_SpawnTitanRandom() picking random titans
@@ -113,6 +117,7 @@ struct
 	// npc weapons, should we add a struct to set up mods for them?
 	table< string, array<string> > npcMainWeaponsTable
 	table< string, array<string> > npcAntiTitanWeaponsTable
+	table< string, array<string> > npcGrenadeWeaponsTable
 	table< string, array<string> > npcExtraWeaponModsTable
 	// npc titan settings
 	table<entity, EmbarkedNPCTitanStruct> soulEmbarkedSettings
@@ -622,6 +627,13 @@ void function ExtraSpawner_SetNPCAntiTitanWeapons( string npcClass, array<string
 	file.npcAntiTitanWeaponsTable[ npcClass ] = weapons
 }
 
+void function ExtraSpawner_SetNPCGrenadeWeapons( string npcClass, array<string> weapons )
+{
+	if ( !( npcClass in file.npcGrenadeWeaponsTable ) )
+		file.npcGrenadeWeaponsTable[ npcClass ] <- []
+	file.npcGrenadeWeaponsTable[ npcClass ] = weapons
+}
+
 void function ExtraSpawner_SetNPCExtraWeaponMods( string npcClass, array<string> mods )
 {
 	if ( !( npcClass in file.npcExtraWeaponModsTable ) )
@@ -830,37 +842,67 @@ void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, boo
 		damageAreaInfo.Destroy()
 }
 
-void function ExtraSpawner_ApplyNPCWeapons( entity npc )
+void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons = true, bool applyMods = true )
 {
 	string className = npc.GetClassName()
-	
+
 	array<string> mainWeapons
 	array<string> antiTitanWeapons
 	if ( className in file.npcMainWeaponsTable )
 		mainWeapons = file.npcMainWeaponsTable[ className ]
 	if ( className in file.npcAntiTitanWeaponsTable )
 		antiTitanWeapons = file.npcAntiTitanWeaponsTable[ className ]
-	
+
 	if ( mainWeapons.len() == 0 && antiTitanWeapons.len() == 0 ) // no valid weapons
 		return
 
 	// take off existing main weapons, or sometimes they'll have a archer
-	foreach ( entity weapon in npc.GetMainWeapons() )
-		npc.TakeWeapon( weapon.GetWeaponClassName() )
+	if ( replaceAllWeapons ) // only take all weapons if we're doing replacement.
+	{
+		foreach ( entity weapon in npc.GetMainWeapons() )
+			npc.TakeWeaponNow( weapon.GetWeaponClassName() )
+	}
+	else // if we're not doing weapon replace, npc shouldn't take more than 3 weapons
+	{
+		if ( npc.GetMainWeapons().len() == 3 )
+			return
+	}
 
-	if ( mainWeapons.len() > 0 )
+	// main weapon
+	bool giveMainWeapon = mainWeapons.len() > 0
+	if ( !replaceAllWeapons && npc.GetMainWeapons().len() >= 1 ) // npc already have a weapon and we disabled replace!
+		giveMainWeapon = false // don't give main weapon again
+	if ( giveMainWeapon )
 	{
 		string weaponName = mainWeapons[ RandomInt( mainWeapons.len() ) ]
 		npc.GiveWeapon( weaponName )
 		npc.SetActiveWeaponByName( weaponName )
 	}
-	if ( antiTitanWeapons.len() > 0 )
+	// anti-titan
+	bool giveAntiTitanWeapon = antiTitanWeapons.len() > 0
+	if ( giveAntiTitanWeapon )
 		npc.GiveWeapon( antiTitanWeapons[ RandomInt( antiTitanWeapons.len() ) ] )
 
-	ExtraSpawner_ApplyNPCExtraWeaponMods( npc ) // add extra weapon mods
+	if ( applyMods )
+		ExtraSpawner_ApplyNPCExtraWeaponMods( npc ) // add extra weapon mods
 
 	// also make them use heavy armor weapon
 	npc.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon )
+}
+
+// grenade have to be given before DispatchSpawn()
+void function ExtraSpawner_ApplyNPCGrenadeWeapon( entity npc )
+{
+	string className = npc.GetClassName()
+	array<string> grenadeWeapons
+	if ( className in file.npcGrenadeWeaponsTable )
+		grenadeWeapons = file.npcGrenadeWeaponsTable[ className ]
+
+	if ( grenadeWeapons.len() == 0 ) // no valid weapons
+		return
+
+	npc.kv.grenadeWeaponName = grenadeWeapons[ RandomInt( grenadeWeapons.len() ) ] // this mainly controlls which grenade npc will equip
+	//print( "npc.kv.grenadeWeaponName: " + npc.kv.grenadeWeaponName )
 }
 
 void function ExtraSpawner_ApplyNPCExtraWeaponMods( entity npc )
@@ -906,12 +948,23 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		return
 
 	array<entity> weapons = guy.GetMainWeapons()
+	// sniper grunt debug: don't know why they get a incorrect weapon cycle
+	/* // fixed: adding active weaponName check in foreach()
+	if ( guy.GetAISettingsName() == "npc_soldier_sidearm" )
+	{
+		foreach ( entity weapon in weapons )
+			print( "weapon: " + weapon.GetWeaponClassName() )
+	}
+	*/
 
 	// do we have a weapon to switch to?
 	if ( weapons.len() < 2 )
 		return
 
 	entity activeWeapon = guy.GetActiveWeapon()
+	string acitveWeaponName = ""
+	if ( IsValid( activeWeapon ) )
+		acitveWeaponName = activeWeapon.GetWeaponClassName()
 	bool isHeavyArmorTarget = enemy.GetArmorType() == ARMOR_TYPE_HEAVY
 
 	string weaponToChange = ""
@@ -923,7 +976,11 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 			string className = weapon.GetWeaponClassName()
 			bool isAntiTitan = ANTI_TITAN_WEAPONS.contains( className )
 			if( isAntiTitan )
+			{
+				if ( acitveWeaponName == className ) // already holding this weapon
+					return
 				weaponToChange = className
+			}
 		}
 	}
 	else // light unit, switch off anti-titans
@@ -933,20 +990,19 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 			string className = weapon.GetWeaponClassName()
 			bool isPrimary = !ANTI_TITAN_WEAPONS.contains( className )
 			if( isPrimary )
+			{
+				if ( acitveWeaponName == className ) // already holding this weapon
+					return
 				weaponToChange = className
+			}
 		}
 	}
-
-	if ( IsValid( activeWeapon ) )
-	{
-		if ( activeWeapon.GetWeaponClassName() == weaponToChange ) // already holding this weapon
-			return
-	}
-
+ 
 	if ( weaponToChange == "" )
 		return
 
 	guy.SetActiveWeaponByName( weaponToChange )
+	//print( "weaponToChange: " + weaponToChange )
 
 	// grunt specific: do dialogue(vanilla missing this in grunt_chatter_mp.rpak)
 	if ( IsGrunt( guy ) && isHeavyArmorTarget )
@@ -1218,15 +1274,38 @@ entity functionref( int, vector, vector ) function GetDropshipSpawnFunc( string 
 	switch ( content )
 	{
 		case "npc_soldier":
-			return CreateSoldier
+			return CreateSoldier_GrenadeSetup
 		case "npc_spectre":
-			return CreateSpectre
+			return CreateSpectre_GrenadeSetup
 		case "npc_stalker":
-			return CreateStalker
+			return CreateStalker_GrenadeSetup
 	}
 	
 	return null
 }
+
+// these are exact the same as CreateXXX() stuffs in _ai_spawn.gnut, but added ExtraSpawner_ApplyNPCGrenadeWeapon()
+entity function CreateSoldier_GrenadeSetup( int team, vector origin, vector angles )
+{
+	entity npc = CreateSoldier( team, origin, angles )
+	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	return npc
+}
+
+entity function CreateSpectre_GrenadeSetup( int team, vector origin, vector angles )
+{
+	entity npc = CreateSpectre( team, origin, angles )
+	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	return npc
+}
+
+entity function CreateStalker_GrenadeSetup( int team, vector origin, vector angles )
+{
+	entity npc = CreateStalker( team, origin, angles )
+	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	return npc
+}
+//
 
 void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, string content /*( ͡° ͜ʖ ͡°)*/, void functionref( array<entity> guys ) squadHandler = null )
 {
@@ -1242,6 +1321,7 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 	for ( int i = 0; i < 4 ;i++ )
 	{
 		entity npc = CreateNPC( content, team, pos, <0,0,0> )
+		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
 		DispatchSpawn( npc )
 		SetSquad( npc, squadName )
@@ -1667,7 +1747,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 	drop.npcSpawnFuncs.append( 
 		entity function( int team, vector origin, vector angles ) : ( leaderAiSet )
 		{
-			return CreateSpecialistGrunt( team, origin, angles, leaderAiSet )
+			return CreateSpecialistGrunt_NonSetup( team, origin, angles, leaderAiSet )
 		}
 	)
 	// others are normal spawn functions
@@ -1692,11 +1772,11 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 			guy.SetHealth( leaderHealth )
 		}
 
-		// hardcoded here, never re-assign weapon for sniper grunts
+		// hardcoded here, setup grunt weapon specific
 		bool sniperGrunt = isLeader && leaderAiSet == "npc_soldier_sidearm"
+		bool replaceAllWeapons = !sniperGrunt
 		//print( "sniperGrunt: " + string( sniperGrunt ) )
-		if ( !sniperGrunt )
-			ExtraSpawner_ApplyNPCWeapons( guy )
+		ExtraSpawner_ApplyNPCWeapons( guy, replaceAllWeapons )
 
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	}
@@ -1705,11 +1785,18 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 		thread squadHandler( guys )
 }
 
-// spawn a normal specialist grunt here, we set them up later, since DispatchSpawn() is done in CreateNPCSForDropship()
-entity function CreateSpecialistGrunt( int team, vector origin, vector angles, string aiSet )
+// spawn a normal specialist grunt here, we setup them up later, since DispatchSpawn() is done in CreateNPCSForDropship()
+entity function CreateSpecialistGrunt_NonSetup( int team, vector origin, vector angles, string aiSet )
 {
 	entity npc = CreateNPC( "npc_soldier", team, origin, angles )
 	SetSpawnOption_AISettings( npc, aiSet )
+
+	bool specialistGrunt = aiSet == "npc_soldier_pve_specialist"
+	bool changeGrenade = !specialistGrunt
+	//print( "specialistGrunt: " + string( sniperGrunt ) )
+	if ( changeGrenade )
+		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	
 	return npc
 }
 
@@ -1725,22 +1812,23 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 	array<entity> guys
 	for ( int i = 0; i < 4 ;i++ )
 	{
+		bool isLeader = i == 0 // leader always spawn first, have to set here
 		entity npc
-		if ( i == 0 ) // specialist as leader
+		if ( isLeader ) // specialist as leader
 			npc = ExtraSpawner_SpawnSpecialistGrunt( pos, <0,0,0>, team, leaderAiSet, leaderHealth )
 		else
 		{
 			npc = CreateNPC( content, team, pos, <0,0,0> )
+			ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 			DispatchSpawn( npc )
 		}
 
 		SetSquad( npc, squadName )
-		
-		// hardcoded here, never re-assign weapon for sniper grunts
-		bool sniperGrunt = i == 0 && leaderAiSet == "npc_soldier_sidearm"
+		// hardcoded here, setup grunt weapon specific
+		bool sniperGrunt = isLeader && leaderAiSet == "npc_soldier_sidearm"
+		bool replaceAllWeapons = !sniperGrunt
 		//print( "sniperGrunt: " + string( sniperGrunt ) )
-		if ( !sniperGrunt )
-			ExtraSpawner_ApplyNPCWeapons( npc )
+		ExtraSpawner_ApplyNPCWeapons( npc, replaceAllWeapons )
 		
 		npc.SetParent( pod, "ATTACH", true )
 		
@@ -1756,8 +1844,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 
 entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int team, string aiSet = "npc_soldier_pve_specialist", int maxHealth = 350 )
 {
-	entity npc = CreateNPC( "npc_soldier", team, pos, rot )
-	SetSpawnOption_AISettings( npc, aiSet )
+	entity npc = CreateSpecialistGrunt_NonSetup( team, pos, rot, aiSet )
 
 	DispatchSpawn( npc )
 	SetUpSpecialistGrunt( npc, aiSet )
@@ -1801,7 +1888,7 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			npc.SetTitle( "#NPC_SPECIALIST" )
 			// modified signal in _ai_drone.gnut, vanilla won't register it
 			npc.Signal( "ForceStopDroneSpawn" ) // stop it's drone spawn think
-			
+
 			string droneType = SPECIALIST_VALID_DRONETYPES[ RandomInt( SPECIALIST_VALID_DRONETYPES.len() ) ]
 			thread DroneGruntThink( npc, droneType ) // force set it again
 			break
@@ -1832,22 +1919,13 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			// special weapons, hardcoded!
 			// take off existing main weapons, or sometimes they'll have a archer
 			foreach ( entity weapon in npc.GetMainWeapons() )
-				npc.TakeWeapon( weapon.GetWeaponClassName() )
+				npc.TakeWeaponNow( weapon.GetWeaponClassName() )
 			npc.GiveWeapon( "mp_weapon_sniper", ["pve_elite", "burn_mod_sniper"] )
 			npc.SetActiveWeaponByName( "mp_weapon_sniper" )
 
 			string sideArmName = SNIPER_VALID_SIDEARMS[ RandomInt( SNIPER_VALID_SIDEARMS.len() ) ]
 			entity sideArm = npc.GiveWeapon( sideArmName )
 			//sideArm.AddMod( "npc_sniper_grunt" ) // removed, which is overpowered
-
-			array<string> antiTitanWeapons
-			if ( "npc_soldier" in file.npcAntiTitanWeaponsTable )
-				antiTitanWeapons = file.npcAntiTitanWeaponsTable[ "npc_soldier" ]
-			if ( antiTitanWeapons.len() > 0 )
-				entity antiTitan = npc.GiveWeapon( antiTitanWeapons[ RandomInt( antiTitanWeapons.len() ) ] )
-
-			ExtraSpawner_ApplyNPCExtraWeaponMods( npc ) // apply weapon mods
-			npc.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon ) // also make them use heavy armor weapon
 
 			break
 	}
