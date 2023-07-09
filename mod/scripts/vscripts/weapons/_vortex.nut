@@ -130,6 +130,7 @@ struct ImpactDataOverride
 	string refire_behavior
 }
 
+// wip
 //typedef ProjectileCollisionCallbackFunc = void functionref( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 struct
 {
@@ -142,12 +143,9 @@ struct
 	table< entity, bool functionref( entity, entity, entity, bool ) > vortexCustomProjectileHitRules // don't want to change entityStruct, use fileStruct instead
 
 	/* // wip
-	//table<int, ProjectileCollisionCallbackFunc> vortexHitProjectileCallbacks_DamageSourceID
-	//table<int, ProjectileCollisionCallbackFunc> vortexHitProjectileCallbacks_WeaponName
-	//table<int, ProjectileCollisionCallbackFunc> vortexHitProjectileCallbacks_WeaponMod
-	table< int, void functionref( entity, vector, vector, entity, int, bool ) > vortexHitProjectileCallbacks_DamageSourceID
-	table< string, void functionref( entity, vector, vector, entity, int, bool ) > vortexHitProjectileCallbacks_WeaponName
-	table< WeaponMod, void functionref( entity, vector, vector, entity, int, bool ) > vortexHitProjectileCallbacks_WeaponMod
+	table< int, ProjectileCollisionCallbackFunc > vortexHitProjectileCallbacks_DamageSourceID
+	table< string, ProjectileCollisionCallbackFunc > vortexHitProjectileCallbacks_WeaponName
+	table< string, table< string, ProjectileCollisionCallbackFunc > > vortexHitProjectileCallbacks_WeaponMod
 	*/
 } file
 //
