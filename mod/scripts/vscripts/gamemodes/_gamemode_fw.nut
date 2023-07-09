@@ -19,6 +19,9 @@ global function FW_Harvester_RemoveDamagedCallback
 global function FW_Harvester_AddPostDamagedCallback
 global function FW_Harvester_RemovePostDamagedCallback
 
+global function FW_Turret_AddDamagedCallback
+global function FW_Turret_RemoveDamagedCallback
+
 // you need to deal this much damage to trigger "FortWarTowerDamage" score event
 const int FW_HARVESTER_DAMAGE_SEGMENT = 5250
 
@@ -110,7 +113,8 @@ struct
 	// damage callbacks
 	array<void functionref( entity, var )> harvesterDamagedCallbacks
 	array<void functionref( entity, var )> harvesterPostDamagedCallbacks
-	
+	array<void functionref( entity, var )> turretDamagedCallbacks	
+
 	// unused
 	array<entity> etitaninmlt
 	array<entity> etitaninimc
@@ -302,6 +306,10 @@ void function OnFWGamePrematch()
 	FW_createHarvester()
 	InitFWCampSites()
 	InitCampSpawnerLevel()
+
+	// new adding
+	InitDefaultHarvesterDamageCallbacks()
+	InitDefaultTurretDamageCallbacks()
 }
 
 void function OnFWGamePlaying()
@@ -1448,6 +1456,19 @@ entity function FW_ReplaceMegaTurret( entity perviousTurret )
 	return turret
 }
 
+// damage callbacks
+void function FW_Turret_AddDamagedCallback( void functionref( entity turret, var damageInfo ) callbackFunc )
+{
+	if ( !( file.turretDamagedCallbacks.contains( callbackFunc ) ) )
+		file.turretDamagedCallbacks.append( callbackFunc )
+}
+
+void function FW_Turret_RemoveDamagedCallback( void functionref( entity turret, var damageInfo ) callbackFunc )
+{
+	if ( file.turretDamagedCallbacks.contains( callbackFunc ) )
+		file.turretDamagedCallbacks.fastremovebyvalue( callbackFunc )
+}
+
 // avoid notifications overrides itself
 const float TURRET_NOTIFICATION_DEBOUNCE = 10.0
 
@@ -1455,34 +1476,16 @@ void function OnMegaTurretDamaged( entity turret, var damageInfo )
 {
 	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	// run callbacks
+	foreach ( void functionref( entity, var ) callbackFunc in file.turretDamagedCallbacks )
+		callbackFunc( turret, damageInfo )
+	// get modified damage
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
 	int scriptType = DamageInfo_GetCustomDamageType( damageInfo )
 	int turretTeam = turret.GetTeam()
 
 	if ( !damageSourceID && !damageAmount && !attacker )
 		return
-
-	if( turret.GetShieldHealth() - damageAmount <= 0 && scriptType != damageTypes.rodeoBatteryRemoval ) // this shot breaks shield
-	{
-		if ( !attacker.IsTitan() && !IsSuperSpectre( attacker ) )
-		{
-			if( attacker.IsPlayer() && attacker.GetTeam() != turret.GetTeam() ) // good to have
-			{
-				// avoid notifications overrides itself
-				if( attacker.s.lastTurretNotifyTime + TURRET_NOTIFICATION_DEBOUNCE < Time() )
-				{
-					MessageToPlayer( attacker, eEventNotifications.Clear ) // clean up last message
-					MessageToPlayer( attacker, eEventNotifications.TurretTitanDamageOnly )
-					attacker.s.lastTurretNotifyTime = Time()
-				}
-			}
-			DamageInfo_SetDamage( damageInfo, turret.GetShieldHealth() ) // destroy shields
-			return
-		}
-	}
-
-	// successfully damaged turret
-	turret.s.lastDamagedTime = Time()
 
 	if ( damageSourceID == eDamageSourceId.mp_titanweapon_heat_shield ||
 	damageSourceID == eDamageSourceId.mp_titanweapon_meteor_thermite ||
@@ -1492,12 +1495,70 @@ void function OnMegaTurretDamaged( entity turret, var damageInfo )
 	) // scorch's thermite damages
 		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo )/2 ) // nerf scorch
 
+	if( turret.GetShieldHealth() - damageAmount <= 0 && scriptType != damageTypes.rodeoBatteryRemoval ) // this shot breaks shield
+	{
+		if ( !attacker.IsTitan() && !IsSuperSpectre( attacker ) )
+		{
+			if( attacker.IsPlayer() && attacker.GetTeam() != turret.GetTeam() ) // attacker is not titan?
+			{
+				// avoid notifications overrides itself
+				if( attacker.s.lastTurretNotifyTime + TURRET_NOTIFICATION_DEBOUNCE < Time() )
+				{
+					MessageToPlayer( attacker, eEventNotifications.Clear ) // clean up last message
+					MessageToPlayer( attacker, eEventNotifications.TurretTitanDamageOnly )
+					attacker.s.lastTurretNotifyTime = Time()
+				}
+			}
+			DamageInfo_SetDamage( damageInfo, turret.GetShieldHealth() ) // only try to damage shields, never damage health
+			return
+		}
+	}
+
+	// successfully damaged turret
+	turret.s.lastDamagedTime = Time()
+
 	// faction dialogue
 	damageAmount = DamageInfo_GetDamage( damageInfo )
 	if( turret.GetHealth() - damageAmount <= 0 ) // turret killed this shot
 	{
 		if( GamePlayingOrSuddenDeath() )
 			PlayFactionDialogueToTeam( "fortwar_turretDestroyedFriendly", turretTeam )
+	}
+}
+
+void function InitDefaultTurretDamageCallbacks()
+{
+	FW_Turret_AddDamagedCallback( TurretDamageModifier )
+}
+
+const float TURRET_NUKE_DAMAGE_FRAC = 0.0 // for nuke titans. normally player titan nuke won't do any damage because the nuke damage attacker is player, but player is no longer a titan. just for handling sometimes player nuke then disconnect
+const float TURRET_DOT_DAMAGE_FRAC = 0.5 // mostly for scorch and cluter missile, they're very effective against non-moving targets
+const float TURRET_LOCKON_DAMAGE_FRAC = 0.75 // mostly for tone, their lock on damage is easy to apply to non-moving targets
+
+void function TurretDamageModifier( entity turret, var damageInfo )
+{
+	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+
+	switch ( damageSourceID )
+	{
+		// nuke
+		case damagedef_nuclear_core:
+			DamageInfo_ScaleDamage( damageInfo, TURRET_NUKE_DAMAGE_FRAC )
+			break
+
+		// damage over time
+		case eDamageSourceId.mp_titanweapon_dumbfire_rockets:
+		case eDamageSourceId.mp_titanweapon_meteor_thermite:
+		case eDamageSourceId.mp_titanweapon_flame_wall:
+		case eDamageSourceId.mp_titanability_slow_trap:
+		case eDamageSourceId.mp_titancore_flame_wave_secondary:
+			DamageInfo_ScaleDamage( damageInfo, TURRET_DOT_DAMAGE_FRAC )
+			break
+
+		// lockon damage
+		case eDamageSourceId.mp_titanweapon_tracker_rockets:
+			DamageInfo_ScaleDamage( damageInfo, TURRET_LOCKON_DAMAGE_FRAC )
+			break
 	}
 }
 
@@ -1878,6 +1939,10 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	int scriptType = DamageInfo_GetCustomDamageType( damageInfo )
+	// run damage callbacks
+	foreach ( void functionref( entity, var ) callbackFunc in file.harvesterPostDamagedCallbacks )
+		callbackFunc( harvester, damageInfo )
+	// get modified damage
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
 
 	if( damageAmount == 0 )
@@ -1900,12 +1965,6 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 		harvesterstruct = fw_harvesterMlt
 	if( friendlyTeam == TEAM_IMC )
 		harvesterstruct = fw_harvesterImc
-
-	// run damage callbacks
-	foreach ( void functionref( entity, var ) callbackFunc in file.harvesterPostDamagedCallbacks )
-		callbackFunc( harvester, damageInfo )
-	// get damageAmount again after all damage adjustments
-	damageAmount = DamageInfo_GetDamage( damageInfo )
 
 	if ( !attacker.IsTitan() )
 	{
@@ -2001,9 +2060,10 @@ void function InitDefaultHarvesterDamageCallbacks() // default damage modifier f
 }
 
 // damage balancing
-const float CORE_DAMAGE_FRAC = 0.67 // for core abilities that can deal large amount of damage to a non-moving target(laser core, flight core and salvo core etc.)
-const float NUKE_EJECT_DAMAGE_FRAC = 0.0 // for nuke titans. normally player titan nuke won't do any damage because the nuke damage attacker is player, but player is no longer a titan. just for handling sometimes player nuke then disconnect
-const float DOT_DAMAGE_FRAC = 0.5 // mostly for scorch, for they can deal dot damage
+const float HAVESTER_CORE_DAMAGE_FRAC = 0.67 // for core abilities that can deal large amount of damage to a non-moving target(laser core, flight core and salvo core etc.)
+const float HAVESTER_NUKE_DAMAGE_FRAC = 0.0 // for nuke titans. normally player titan nuke won't do any damage because the nuke damage attacker is player, but player is no longer a titan. just for handling sometimes player nuke then disconnect
+const float HAVESTER_DOT_DAMAGE_FRAC = 0.5 // mostly for scorch and cluter missile, they're very effective against non-moving targets
+const float HARVESTER_LOCKON_DAMAGE_FRAC = 0.75 // mostly for tone, their lock on damage is easy to apply to non-moving targets
 
 void function HarvesterDamageModifier( entity harvester, var damageInfo )
 {
@@ -2016,19 +2076,26 @@ void function HarvesterDamageModifier( entity harvester, var damageInfo )
 		case eDamageSourceId.mp_titancore_salvo_core:
 		case eDamageSourceId.mp_titanweapon_flightcore_rockets:
 		case eDamageSourceId.mp_titancore_shift_core:
-			DamageInfo_ScaleDamage( damageInfo, CORE_DAMAGE_FRAC )
+			DamageInfo_ScaleDamage( damageInfo, HAVESTER_CORE_DAMAGE_FRAC )
 			break
+
 		// nuke
 		case damagedef_nuclear_core:
-			DamageInfo_ScaleDamage( damageInfo, NUKE_EJECT_DAMAGE_FRAC )
+			DamageInfo_ScaleDamage( damageInfo, HAVESTER_NUKE_DAMAGE_FRAC )
 			break
+
 		// damage over time
 		case eDamageSourceId.mp_titanweapon_dumbfire_rockets:
 		case eDamageSourceId.mp_titanweapon_meteor_thermite:
 		case eDamageSourceId.mp_titanweapon_flame_wall:
 		case eDamageSourceId.mp_titanability_slow_trap:
 		case eDamageSourceId.mp_titancore_flame_wave_secondary:
-			DamageInfo_ScaleDamage( damageInfo, DOT_DAMAGE_FRAC )
+			DamageInfo_ScaleDamage( damageInfo, HAVESTER_DOT_DAMAGE_FRAC )
+			break
+
+		// lockon damage
+		case eDamageSourceId.mp_titanweapon_tracker_rockets:
+			DamageInfo_ScaleDamage( damageInfo, HARVESTER_LOCKON_DAMAGE_FRAC )
 			break
 	}
 }
