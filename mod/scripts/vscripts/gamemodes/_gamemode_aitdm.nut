@@ -539,6 +539,7 @@ void function SquadHandler( array<entity> guys )
 				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
 				if ( clampedPos == null )
 					continue
+				expect vector( clampedPos )
 				guy.AssaultPoint( clampedPos )
 			}
 		}
@@ -592,6 +593,7 @@ void function ReaperHandler( entity reaper )
 		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), reaper )
 		if ( clampedPos == null )
 			continue
+		expect vector( clampedPos )
 		reaper.AssaultPoint( clampedPos )
 
 		wait RandomFloatRange( 10.0, 20.0 )
