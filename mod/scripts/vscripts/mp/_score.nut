@@ -432,7 +432,7 @@ void function NotifyClientsOfTitanDeath( entity victim, entity attacker, var dam
 
 	int attackerEHandle = attacker ? attacker.GetEncodedEHandle() : -1
 
-	int victimEHandle = ent.GetEncodedEHandle()
+	int victimEHandle = victim.GetEncodedEHandle()
 	int scriptDamageType = DamageInfo_GetCustomDamageType( damageInfo )
 	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 
