@@ -368,6 +368,9 @@ void function GracePeriodThink_Threaded( entity player )
 
 void function CodeCallback_OnPlayerKilled( entity player, var damageInfo )
 {
+	// disable prediction to prevent it messing with ragdoll in some places, as well as killreplay and such
+	player.SetPredictionEnabled( false )
+
 	HandleDeathPackage( player, damageInfo )
 
 	// refering to CodeCallback_OnNPCKilled(): should fix doomed callbacks if titan player died without entering doom
@@ -416,8 +419,9 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 
 	player.ClearExtraWeaponMods()
 	
+	// move to "OnPlayerKilled"
 	// disable prediction to prevent it messing with ragdoll in some places, as well as killreplay and such
-	player.SetPredictionEnabled( false )
+	//player.SetPredictionEnabled( false )
 	
 	if ( player.IsTitan() )
 		SoulDies( player.GetTitanSoul(), damageInfo ) // cleanup some titan stuff, no idea where else to put this
@@ -443,19 +447,21 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		if ( inflictor.IsProjectile() && inflictor.GetProjectileWeaponSettingBool( eWeaponVar.projectile_killreplay_enabled ) )
 			inflictorEHandle = inflictor.GetEncodedEHandle()
 	}
-	// northstar messed up
-	int attackerIndex = -1
 
-	table<int, bool> alreadyAssisted
+	// northstar messed up. fix for replay attacker index
+	int attackerEhandle = -1
+	int attackerIndex = -1
 	if ( IsValid( attacker ) ) 
 	{
+		attackerEhandle = attacker.GetEncodedEHandle()
+		attackerIndex = attacker.GetIndexForEntity()
+
 		if( attacker.IsPlayer() )	
 			Highlight_SetDeathRecapHighlight( attacker, "killer_outline" )
 
 		// fix for replay
-		if ( inflictorEHandle == -1 ) // invalid ehandle!
-			inflictorEHandle = attacker.GetEncodedEHandle() // just assign attacker as inflictor!
-		attackerIndex = attacker.GetIndexForEntity()
+		if ( inflictorEHandle == -1 ) // invalid projectile ehandle!
+			inflictorEHandle = attackerEhandle // just assign attacker as inflictor!
 	}
 
 	player.p.rematchOrigin = player.p.deathOrigin
@@ -492,10 +498,15 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	
 	if ( ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue ) && !file.playerDeathsHidden )
 		player.AddToPlayerGameStat( PGS_DEATHS, 1 )
-	
-	// fuck respawn why leaving a annying death sound
+
+	// fuck respawn why leaving a annoying death sound
 	if ( !file.playerDeathsHidden )
-		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", attacker.GetEncodedEHandle(), GetHealthFrac( attacker ), methodOfDeath )
+	{
+		int diedRemoteCallEhandle = attackerEhandle
+		if ( IsValid( attacker ) && !attacker.IsPlayer() ) // don't want to mess up a npc's highlight context. they won't be reset on player respawn
+			diedRemoteCallEhandle = -1
+		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", diedRemoteCallEhandle, GetHealthFrac( attacker ), methodOfDeath )
+	}
 
 	// modified function
 	float deathcamLength = GetDeathCamLength( player )
@@ -520,7 +531,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		player.watchingKillreplayEndTime = Time() + replayLength		
 		float beforeTime = GetKillReplayBeforeTime( player, methodOfDeath )
 		
-		replayTracker.validTime <- null 
+		//replayTracker.validTime <- null // are you serious? you're overwriting replayTracker's valid time from TrackDestroyTimeForReplay()
 		
 		float respawnTime = Time() - 2 // seems to get the killreplay to end around the actual kill
 		if ( "respawnTime" in attacker.s )

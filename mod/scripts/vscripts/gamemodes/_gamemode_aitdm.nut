@@ -429,7 +429,21 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 void function SquadHandler( array<entity> guys )
 {
 	int team = guys[0].GetTeam()
-	bool hasHeavyArmorWeapon = GetCurrentPlaylistVarInt( "aitdm_archer_grunts", 0 ) != 0
+	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
+	foreach ( entity guy in guys )
+	{
+		if ( hasHeavyArmorWeapon ) // found heavy armor weapon
+			break
+
+		foreach ( entity weapon in guy.GetMainWeapons() )
+		{
+			if ( !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required ) )
+			{
+				hasHeavyArmorWeapon = true
+				break
+			}
+		}
+	}
 	//print( "hasHeavyArmorWeapon: " + string( hasHeavyArmorWeapon ) )
 
 	array<entity> points
@@ -479,13 +493,21 @@ void function SquadHandler( array<entity> guys )
 		if ( points.len() == 0 ) // can't find any points here
 			continue
 
+		// get nearest enemy and send our full squad to it
 		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		if ( !IsAlive( enemy ) )
+			continue
 		point = enemy.GetOrigin()
-		
 		foreach ( guy in guys )
 		{
 			if ( IsAlive( guy ) )
-				guy.AssaultPoint( point )
+			{
+				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
+				if ( clampedPos == null )
+					continue
+				expect vector( clampedPos )
+				guy.AssaultPoint( clampedPos )
+			}
 		}
 
 		wait RandomFloatRange(5.0,15.0)
@@ -532,7 +554,13 @@ void function ReaperHandler( entity reaper )
 			continue
 
 		entity enemy = GetClosest2D( points, reaper.GetOrigin() )
-		reaper.AssaultPoint( enemy.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), reaper )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		reaper.AssaultPoint( clampedPos )
 
 		wait RandomFloatRange( 10.0, 20.0 )
 	}
