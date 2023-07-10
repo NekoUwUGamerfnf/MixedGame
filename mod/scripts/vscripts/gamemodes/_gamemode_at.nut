@@ -1655,6 +1655,9 @@ void function AT_HandleBossTitanSpawn( entity titan, AT_WaveOrigin campData, int
 	// make minimap always show them and highlight them
 	titan.Minimap_AlwaysShow( TEAM_IMC, null )
 	titan.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	// icon
+	titan.Minimap_SetCustomState( eMinimapObject_npc_titan.AT_BOUNTY_BOSS ) // seems don't work though
+	titan.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
 	thread BountyBossHighlightThink( titan )
 
 	// set up titan-specific death callbacks, mark it as bounty boss

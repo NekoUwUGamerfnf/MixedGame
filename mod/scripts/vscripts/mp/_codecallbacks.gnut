@@ -25,6 +25,7 @@ global function CodeCallback_OnServerAnimEvent
 
 // modified callbacks
 global function AddCallback_OnPlayerGrappled
+global function AddCallback_ShouldPlayDamageChatter
 
 struct AccumulatedDamageData
 {
@@ -49,6 +50,7 @@ struct
 
 	// modified callbacks
 	array< void functionref( entity, entity ) > onPlayerGrappledCallbacks
+	array< bool functionref( entity, entity, var, table, bool ) > shouldPlayDamageChatterCallbacks
 } file
 
 void function CodeCallback_Init()
@@ -425,16 +427,6 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 
 	RunClassPostDamageCallbacks( ent, damageInfo )
 
-	// apex version shield damage
-	if ( entIsPlayer && !entIsTitan )
-	{
-		if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_SHIELD_DAMAGE )
-		{
-			if ( ent.GetShieldHealth() > 0 )
-				DamageInfo_SetDamage( damageInfo, 0 ) // Do not damage the player, the damage value was only required for proper client display.
-		}
-	}
-
 	#if SERVER && MP
 		Stats_OnPlayerDidDamage( ent, damageInfo )
 		PIN_DamageDone( attacker, ent, DamageInfo_GetDamage( damageInfo ) )
@@ -448,12 +440,17 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 				bool isKillShot = ( ent.GetHealth() + ent.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) ) <= 0
 				bool inChatterRange = Distance( attacker.GetOrigin(), ent.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
 				bool playDamageBC = !isKillShot && inChatterRange // make instant kills won't play a chatter
-				// HACK for hacked death: player will never receive a chatter from hacked death killshot
-				if ( HackedDeath_IsEnabled() )
-					playDamageBC = !hackedDeathKillshot && inChatterRange
-				// HACK for bleedout: never do dialogue if this shot makes player enter bleedout
-				if ( Bleedout_IsPlayerBleeding( ent ) )
-					playDamageBC = false
+				// include into result for other files to use
+				table damageChatterResult =
+				{
+					isKillShot = isKillShot
+					inChatterRange = inChatterRange
+				}
+				// run callbacks to decide whether we play damage chatter
+				// added via AddCallback_ShouldPlayDamageChatter()
+				foreach ( bool functionref( entity, entity, var, table, bool ) callbackFunc in file.shouldPlayDamageChatterCallbacks )
+					playDamageBC = callbackFunc( ent, attacker, damageInfo, damageChatterResult, playDamageBC )
+				//
 				//print( "playDamageBC: " + string( playDamageBC ) )
 				if( playDamageBC )
 				{
@@ -462,12 +459,18 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 				}
 			}
 		#endif
-		// modified!!! always try to reset the hackedDeath killshot
-		hackedDeathKillshot = false
 	#endif
 
 	attacker.Signal( "DamagedPlayerOrNPC" )
 }
+
+// modified to make damage chatter less hardcoded
+void function AddCallback_ShouldPlayDamageChatter( bool functionref( entity, entity, var, table, bool ) callbackFunc )
+{
+	if ( !file.shouldPlayDamageChatterCallbacks.contains( callbackFunc ) )
+		file.shouldPlayDamageChatterCallbacks.append( callbackFunc )
+}
+//
 
 void function EarnMeterDamageConversion( var damageInfo, entity attacker, entity ent, float savedDamage, TitanDamage titanDamage )
 {
@@ -808,23 +811,17 @@ void function PlayerTookDamage( entity player, var damageInfo, entity attacker, 
 	float shieldDamage = 0
 	if ( isTitan )
 		Titan_PlayerTookDamage( player, damageInfo, attacker, critHit, titanDamage )
-	else // using apex version
-	{
-		var takenDamage = Wallrun_PlayerTookDamage( player, damageInfo, attacker )
-
-		if( takenDamage != null)
-			shieldDamage = expect float(takenDamage)
-	}
-	//else 
-		//Wallrun_PlayerTookDamage( player, damageInfo, attacker )
+	else
+		Wallrun_PlayerTookDamage( player, damageInfo, attacker )
 
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
 	bool isKillShot = (damageAmount >= player.GetHealth())
-	if ( !isTitan ) // for pilots, using apex version
-		isKillShot = (damageAmount >= player.GetHealth() + shieldDamage)
 	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
 	if ( isKillShot )
 		damageType = (damageType | DF_KILLSHOT)
+	// modified debug
+	//print( "shieldDamage: " + string( shieldDamage ) )
+	//print( "isKillShot: " + string( isKillShot ) )
 
 	if ( isTitan && (DamageInfo_GetDamage( damageInfo ) == 0) )
 	{

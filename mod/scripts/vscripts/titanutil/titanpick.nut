@@ -250,11 +250,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     if ( !IsValid( weapon ) )
         return
     
-    string charaName = ""
-    // may have modded titan that can't use GetTitanCharacterName(), like npc bison
-	try { charaName = GetTitanCharacterName( titan ) } // default character name
-	catch(ex) {}
-
+    string charaName = GetTitanCharacterName( titan )
     //print( "charaName " + charaName )
     if ( soul in file.soulWeaponDropCharcterName ) // soul has another character name
         charaName = file.soulWeaponDropCharcterName[ soul ]

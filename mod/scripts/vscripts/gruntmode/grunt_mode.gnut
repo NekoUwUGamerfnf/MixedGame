@@ -90,6 +90,7 @@ void function Modded_Gamemode_GruntMode_Init()
 
 	// npc killed score event, using death callbacks for npc killing each other!
 	// these two can't be handle by scoreEvents
+	// now fixed by changing function IsValidNPCTarget() in _base_gametype.gnut. fuck respawn
 	AddDeathCallback( "npc_pilot_elite", ForceAddScoreForPlayerOrNPCKill )
 	AddDeathCallback( "npc_gunship", ForceAddScoreForPlayerOrNPCKill )
 
@@ -242,7 +243,7 @@ void function ForceAddScoreForPlayerOrNPCKill( entity victim, var damageInfo )
 		if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
 			scoreToAdd -= TITAN_SCORE_AMOUNT // remove titan score on kill for doomed health loss titans
 
-		// obit, has been fixed in _base_gametype_mp.gnut
+		// obit, has been fixed in _score.gnut
 		//foreach ( entity player in GetPlayerArray() )
 		//	Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
 	}
@@ -922,14 +923,23 @@ void function SquadHandler( array<entity> guys )
 		if ( points.len() == 0 ) // can't find any points here
 			continue
 
+		// get nearest enemy and send our full squad to it
 		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		if ( !IsAlive( enemy ) )
+			continue
 		point = enemy.GetOrigin()
-		
 		foreach ( guy in guys )
 		{
 			if ( IsAlive( guy ) )
-				guy.AssaultPoint( point )
+			{
+				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
+				if ( clampedPos == null )
+					continue
+				expect vector( clampedPos )
+				guy.AssaultPoint( clampedPos )
+			}
 		}
+
 		wait RandomFloatRange(5.0,15.0)
 	}
 }
@@ -1038,7 +1048,13 @@ void function ReaperHandler( entity reaper )
 			continue
 
 		entity enemy = GetClosest2D( points, reaper.GetOrigin() )
-		reaper.AssaultPoint( enemy.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), reaper )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		reaper.AssaultPoint( clampedPos )
 
 		wait RandomFloatRange( 10.0, 20.0 )
 	}
@@ -1116,6 +1132,9 @@ void function CleanupBoredNPCThread( entity guy )
 		wait 10.0
 
 		if ( guy.Anim_IsActive() ) // anim active, such as marvin doing a job or npc being executed
+			continue
+		entity enemy = guy.GetEnemy()
+		if ( IsValid( enemy ) && enemy.IsPlayer() ) // targeting a player
 			continue
 
 		// if the npc is owner by player, we skip checks

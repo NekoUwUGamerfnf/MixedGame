@@ -321,7 +321,9 @@ float function Vortex_CalculateBulletHitDamage( entity vortexSphere, var damageI
 		damage = HandleWeakToPilotWeapons( vortexSphere, weapon.GetWeaponClassName(), damage )
 
 	//JFS - Arc Round bug fix for Monarch. Projectiles vortex callback doesn't even have damageInfo, so the shield modifier here doesn't exist in VortexSphereDrainHealthForDamage like it should.
-	ShieldDamageModifier damageModifier = GetShieldDamageModifier( damageInfo )
+	// GetShieldDamageModifier() has been modified, now passing victim into it
+	//ShieldDamageModifier damageModifier = GetShieldDamageModifier( damageInfo )
+	ShieldDamageModifier damageModifier = GetShieldDamageModifier( vortexSphere, damageInfo )
 	damage *= damageModifier.damageScale
 
 	return damage

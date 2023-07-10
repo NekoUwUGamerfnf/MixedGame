@@ -405,6 +405,10 @@ void function CheckForAutoTitanDeath( entity victim, entity attacker, var damage
 	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
 		return
 
+	// modified function in _codecallbacks_common.gnut
+	if ( EntityKilledEvent_IsDisabledForEntity( victim ) )
+		return
+
 	// obit
 	NotifyClientsOfTitanDeath( victim, attacker, damageInfo )
 }
@@ -414,12 +418,29 @@ void function NotifyClientsOfTitanDeath( entity victim, entity attacker, var dam
 {
 	if ( !IsValid( victim ) || !victim.IsTitan() )
 		return
-	// modified function in _codecallbacks_common.gnut
-	if ( EntityKilledEvent_IsDisabledForEntity( victim ) )
-		return
+
+	// below are from SendEntityKilledEvent(), removed headshot checks
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	// trigger_hurt is no longer networked, so the "attacker" fails to display obituaries
+	if ( attacker )
+	{
+		string attackerClassname = attacker.GetClassName()
+
+		if ( attackerClassname == "trigger_hurt" || attackerClassname == "trigger_multiple" )
+			attacker = GetEntByIndex( 0 ) // worldspawn
+	}
+
+	int attackerEHandle = attacker ? attacker.GetEncodedEHandle() : -1
+
+	int victimEHandle = victim.GetEncodedEHandle()
+	int scriptDamageType = DamageInfo_GetCustomDamageType( damageInfo )
+	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+
+	if ( scriptDamageType & DF_VORTEX_REFIRE )
+		damageSourceId = eDamageSourceId.mp_titanweapon_vortex_shield
 
 	foreach ( player in GetPlayerArray() )
-		Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+		Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attackerEHandle, victimEHandle, scriptDamageType, damageSourceId )
 }
 
 void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageInfo )
@@ -509,18 +530,15 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 	entity titan
 	if ( victim.IsTitan() )
 		titan = victim
-
 	if( !IsValid( titan ) )
 		return
-	string titanCharacterName = ""
-	// may have modded titan that can't use GetTitanCharacterName()
-	try { titanCharacterName = GetTitanCharacterName( titan ) }
-	catch(ex) {}
 
-	if( titanCharacterName in file.killedTitanDialogues ) // have this titan's dialogue
-		PlayFactionDialogueToPlayer( file.killedTitanDialogues[titanCharacterName], attacker )
-	else // play a default one
-		PlayFactionDialogueToPlayer( "kc_pilotkilltitan", attacker )
+	string titanCharacterName = GetTitanCharacterName( titan )
+	string dialogue = "kc_pilotkilltitan"
+	if ( CoinFlip() && titanCharacterName in file.killedTitanDialogues ) // 50% chance to play titan specific dialogue
+		dialogue = file.killedTitanDialogues[ titanCharacterName ]
+
+	PlayFactionDialogueToPlayer( dialogue, attacker )
 }
 
 // nessy modify

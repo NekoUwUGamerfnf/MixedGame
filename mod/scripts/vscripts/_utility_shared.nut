@@ -3614,6 +3614,14 @@ vector function FlattenAngles( vector angles )
 	return Vector( 0, angles.y, 0 )
 }
 
+// making it a array... don't know why respawn hardcode everything
+const array<string> VALID_HUMANSIZE_BODYTYPE = 
+[
+	"human",
+	"marvin",
+	"pilotelite",
+]
+
 bool function IsHumanSized( entity ent )
 {
 	if ( ent.IsPlayer() )
@@ -3621,12 +3629,13 @@ bool function IsHumanSized( entity ent )
 
 	if ( ent.IsNPC() )
 	{
-
 		if ( ent.GetAIClass() == AIC_SMALL_TURRET )
 			return true
 
 		string bodyType = ent.GetBodyType()
-		return bodyType == "human" || bodyType == "marvin"
+		// why is this hardcoded here???
+		//return bodyType == "human" || bodyType == "marvin"
+		return VALID_HUMANSIZE_BODYTYPE.contains( bodyType )
 	}
 
 	return false
