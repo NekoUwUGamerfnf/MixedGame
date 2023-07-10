@@ -509,15 +509,15 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 	entity titan
 	if ( victim.IsTitan() )
 		titan = victim
-
 	if( !IsValid( titan ) )
 		return
-	string titanCharacterName = GetTitanCharacterName( titan )
 
-	if( titanCharacterName in file.killedTitanDialogues ) // have this titan's dialogue
-		PlayFactionDialogueToPlayer( file.killedTitanDialogues[titanCharacterName], attacker )
-	else // play a default one
-		PlayFactionDialogueToPlayer( "kc_pilotkilltitan", attacker )
+	string titanCharacterName = GetTitanCharacterName( titan )
+	string dialogue = "kc_pilotkilltitan"
+	if ( CoinFlip() && titanCharacterName in file.killedTitanDialogues ) // 50% chance to play titan specific dialogue
+		dialogue = file.killedTitanDialogues[ titanCharacterName ]
+
+	PlayFactionDialogueToPlayer( dialogue, attacker )
 }
 
 // nessy modify
