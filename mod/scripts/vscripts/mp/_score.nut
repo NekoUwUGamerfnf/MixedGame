@@ -405,10 +405,6 @@ void function CheckForAutoTitanDeath( entity victim, entity attacker, var damage
 	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
 		return
 
-	// modified function in _codecallbacks_common.gnut
-	if ( EntityKilledEvent_IsDisabledForEntity( victim ) )
-		return
-
 	// obit
 	NotifyClientsOfTitanDeath( victim, attacker, damageInfo )
 }
