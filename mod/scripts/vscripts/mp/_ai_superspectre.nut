@@ -23,6 +23,7 @@ global function SuperSpectre_SetSelfAsNukeAttacker // the nuke's attacker will a
 global function SuperSpectre_SetDropBatteryOnDeath
 global function SuperSpectre_SetNukeExplosionCountAndDuration
 global function SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath // ticks will go explode if their owner reaper nuke or gibbed
+global function SuperSpectre_SetSpawnerTickMaxCount // decides how many ticks this reaper can own
 //
 
 //==============================================================
@@ -44,6 +45,9 @@ const SPAWN_FUSE_TIME						= 2.0	  	// How long after being fired before the spa
 const SPAWN_PROJECTILE_AIR_TIME				= 3.0    	// How long the spawn project will be in the air before hitting the ground.
 const SPECTRE_EXPLOSION_DMG_MULTIPLIER		= 1.2 		// +20%
 const DEV_DEBUG_PRINTS						= false
+// new adding, was in functions, need to use them for default values
+const int MAX_TICKS = 4
+const int SUPER_SPECTRE_NUKE_DEATH_THRESHOLD = 300 // make it a file const
 
 // modified!!!
 struct ReaperNukeDamage
@@ -65,6 +69,7 @@ struct
 	table<entity, bool> reaperDropBattOnDeath
 	table<entity, ReaperNukeDamage> reaperNukeDamageOverrides
 	table<entity, bool> reaperMinionExplodeOwnerDeath
+	table<entity, int> reaperMinionMaxCount
 	//
 } file
 
@@ -145,7 +150,6 @@ void function SuperSpectreNukes( entity npc, entity attacker )
 	npc.Gib( <0,0,100> )
 }
 
-const int SUPER_SPECTRE_NUKE_DEATH_THRESHOLD = 300 // make it a file const
 void function DoSuperSpectreDeath( entity npc, var damageInfo )
 {
 	// destroyed?
@@ -154,7 +158,7 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
-	// extended
+	// making it a file const
 	//const int SUPER_SPECTRE_NUKE_DEATH_THRESHOLD = 300
 
 	// modified, so you can have reapers dropping batteries in mp
@@ -515,15 +519,20 @@ void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSetti
 
 	int activeMinions_EntArrayID = reaper.ai.activeMinionEntArrayID
 
-	const int MAX_TICKS = 4
+	// making it a file const
+	//const int MAX_TICKS = 4
 
 	int currentMinions = GetScriptManagedEntArray( reaper.ai.activeMinionEntArrayID ).len()
-	int minionsToSpawn = MAX_TICKS - currentMinions
+	// adding new settings function
+	//int minionsToSpawn = MAX_TICKS - currentMinions
+	int minionsToSpawn = GetReaperMaxMinionSpawn( reaper ) - currentMinions
 
 	if ( minionsToSpawn <= 0 )
 		return
 
-	array<vector> targetOrigins = GetFragDroneTargetOrigins( reaper, reaper.GetOrigin(), 200, 2000, 64, MAX_TICKS )
+	// adding new settings function
+	//array<vector> targetOrigins = GetFragDroneTargetOrigins( reaper, reaper.GetOrigin(), 200, 2000, 64, MAX_TICKS )
+	array<vector> targetOrigins = GetFragDroneTargetOrigins( reaper, reaper.GetOrigin(), 200, 2000, 64, minionsToSpawn )
 
 	if ( targetOrigins.len() < minionsToSpawn )
 		return
@@ -917,6 +926,13 @@ void function SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath( entity ent, bool e
 	file.reaperMinionExplodeOwnerDeath[ ent ] = explode
 }
 
+void function SuperSpectre_SetSpawnerTickMaxCount( entity ent, int maxCount )
+{
+	if ( !( ent in file.reaperMinionMaxCount ) )
+		file.reaperMinionMaxCount[ ent ] <- MAX_TICKS // default value
+	file.reaperMinionMaxCount[ ent ] = maxCount
+}
+
 // get modified settings
 int function GetNukeDeathThreshold( entity ent )
 {
@@ -981,5 +997,12 @@ void function WaitForFragDroneArmThenDetonate( entity drone )
 	while ( !drone.ai.fragDroneArmed )
 		WaitFrame()
 	drone.Signal( "SuicideSpectreExploding" )
+}
+
+int function GetReaperMaxMinionSpawn( entity ent )
+{
+	if ( !( ent in file.reaperMinionMaxCount ) )
+		return MAX_TICKS // default value
+	return file.reaperMinionMaxCount[ ent ]
 }
 //
