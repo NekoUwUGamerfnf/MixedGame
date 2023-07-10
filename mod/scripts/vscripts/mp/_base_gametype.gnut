@@ -21,6 +21,14 @@ struct
 	array<entity> hurtTriggers = []
 	bool functionref( entity, entity, var ) isProtectedFromFriendlyFire
 	table< entity, OutOfBoundsDataStruct > outOfBoundsTable
+
+	// modified! make friendly fire less hardcoded
+	table<entity, bool> entitiesDoFFDamage // can handle players, npcs, weapons and projectiles
+	table<entity, bool> entitiesTakeFFDamage // mostly handle players
+	array<int> allowFFDamageSourceIds
+
+	// modified! make damage feedback less hardcoded
+	array< void functionref( entity, var, table ) > playerDamageFeedbackCallbacks
 } file
 
 function BaseGametype_Init()
@@ -563,19 +571,55 @@ function PlayerDamageFeedback( entity ent, damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	Assert( attacker.IsPlayer() )
 
-	int customDamageType = DamageInfo_GetCustomDamageType( damageInfo )
+	// modified to handle damage modifiers
+	table damageFeedbackTable =
+	{
+		customDamageType = DamageInfo_GetCustomDamageType( damageInfo ) // default value
+		damageToDisplay = DamageInfo_GetDamage( damageInfo ) // default value
+	}
+	//int customDamageType = DamageInfo_GetCustomDamageType( damageInfo )
 
 	if ( IsMaxRangeShot( damageInfo ) )
-		customDamageType = customDamageType | DF_MAX_RANGE
+	{
+		//customDamageType = customDamageType | DF_MAX_RANGE
+		damageFeedbackTable.customDamageType = damageFeedbackTable.customDamageType | DF_MAX_RANGE
+	}
+
+	//float damageToDisplay = DamageInfo_GetDamage( damageInfo )
+
+	// modified: run callbacks, to make damage display less hardcoded
+	// added via AddCallback_PlayerDamageFeedback()
+	foreach ( void functionref( entity, var, table ) callbackFunc in file.playerDamageFeedbackCallbacks )
+		callbackFunc( ent, damageInfo, damageFeedbackTable )
+	//
 
 	if ( ent.GetHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
 	{
 		if ( !ent.IsNPC() || ent.ai.killShotSound )
-			customDamageType = customDamageType | DF_KILLSHOT
+		{
+			// modified debug
+			//print( "adding DF_KILLSHOT! from PlayerDamageFeedback()" )
+			//customDamageType = customDamageType | DF_KILLSHOT
+			damageFeedbackTable.customDamageType = damageFeedbackTable.customDamageType | DF_KILLSHOT
+		}
 	}
 
-	attacker.NotifyDidDamage( ent, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), customDamageType, DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
+	// get modified damage
+	int customDamageType = expect int( damageFeedbackTable.customDamageType )
+	float damageToDisplay = expect float( damageFeedbackTable.damageToDisplay )
+
+	// modified to handle damage modifiers
+	//attacker.NotifyDidDamage( ent, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), customDamageType, DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
+	attacker.NotifyDidDamage( ent, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), customDamageType, damageToDisplay, DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
 }
+
+// modified function for handling various damage callbacks
+void function AddCallback_PlayerDamageFeedback( void functionref( entity, var, table ) callbackFunc )
+{
+	if ( !file.playerDamageFeedbackCallbacks.contains( callbackFunc ) )
+		file.playerDamageFeedbackCallbacks.append( callbackFunc )
+}
+//
 
 void function UpdateLastDamageTime( entity ent )
 {
@@ -711,6 +755,7 @@ bool function PlayerOrNPCKilled( entity ent, var damageInfo )
 
 	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 
+	// below two are hardcoded stuff, should be in a callback AddCallback_ShouldSendKillCallback( bool funtionref( ent, damageInfo ) )
 	if ( damageSourceID == eDamageSourceId.round_end )
 		return false
 
@@ -908,7 +953,9 @@ bool function ShouldSetObserverTarget( entity attacker )
 
 float function CalculateLengthOfKillReplay( entity player, int methodOfDeath ) //Meant to be called on the same frame player dies
 {
-	return GetDeathCamLength( player ) + GetKillReplayBeforeTime( player, methodOfDeath ) + GetKillReplayAfterTime( player )
+	// we added modified death cam, should get player's actual death cam length by using GetDeathCamLength( player, true )
+	//return GetDeathCamLength( player ) + GetKillReplayBeforeTime( player, methodOfDeath ) + GetKillReplayAfterTime( player )
+	return GetDeathCamLength( player, true ) + GetKillReplayBeforeTime( player, methodOfDeath ) + GetKillReplayAfterTime( player )
 }
 
 float function GetKillReplayBeforeTime( entity player, int methodOfDeath )
@@ -958,6 +1005,7 @@ function TrackDestroyTimeForReplay( entity attacker, table replayTracker )
 	OnThreadEnd(
 		function () : ( replayTracker, startTime )
 		{
+			//print( "killreplay attacker has been destroyed!" )
 			replayTracker.validTime = Time() - startTime
 		}
 	)
@@ -1623,6 +1671,9 @@ bool function IsValidNPCTarget( entity ent )
 		case "npc_turret_sentry":
 		case "npc_turret_mega":
 		case "npc_dropship":
+		// vanilla missing
+		case "npc_gunship":
+		case "npc_pilot_elite":
 			return true
 	}
 
