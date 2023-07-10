@@ -35,6 +35,17 @@ global function TitanHealth_SetSoulInfiniteDoomedState
 global function TitanHealth_GetSoulInfiniteDoomedState // for score events
 global function TitanHealth_SetSoulDoomedHealthLossDamage
 
+// modified for scripted titan shield regen
+global function TitanHealth_SetSoulEnableShieldRegen
+global function TitanHealth_GetSoulEnableShieldRegen // shared with _utility.gnut, function TitanHasRegenningShield()
+global function TitanHealth_SetSoulShieldRegenDelay
+global function TitanHealth_SetSoulShieldRegenTime
+global function TitanHealth_SetSoulShieldDamageReductionScale
+
+// debug
+const bool TITAN_SCRIPTED_SHIELD_REGEN_DEBUG = false
+//
+
 global const SIGNAL_TITAN_HEALTH_REGEN = "BeginTitanHealthRegen"
 global const SIGNAL_TITAN_SHIELD_REGEN = "BeginTitanShieldRegen"
 
@@ -57,12 +68,17 @@ const float TITAN_HEALTH_HISTORY_FALLOFF_END = 4.0
 struct
 {
   	float earn_meter_titan_multiplier
-
+ 
 	// modified to get rid of respawn's hardcode
 	table<entity, float> soulCoreBuilderMultiplier
 	// modified for modded titan doom state
 	table<entity, bool> soulInfiniteDoomedState
 	table<entity, float> soulDoomedHealthLossDamage
+	// modified for scripted titan shield regen
+	table<entity, bool> soulEnableShieldRegen
+	table<entity, float> soulShieldRegenDelay
+	table<entity, float> soulShieldRegenTime
+	table<entity, float> soulShieldDamageReductionScale // 1.0 in ttf2
 } file
 
 void function TitanHealth_Init()
@@ -82,6 +98,14 @@ void function TitanHealth_Init()
 	HealthRegenInit()
 	AddSoulInitFunc( TitanShieldRegenThink ) //This runs even if playlist var titan_shield_regen is set to 0 because it also does stuff like give friendly Pilots protection with shield, etc
 	AddSoulDeathCallback( Titan_MonarchCleanup )
+
+	// modified callback in _utility.gnut
+	AddCallback_ShieldDamageModifier( TitanShieldModifier )
+
+#if TITAN_SCRIPTED_SHIELD_REGEN_DEBUG // debug
+	//Riff_ForceSetSpawnAsTitan( eSpawnAsTitan.Always )
+	//Riff_ForceTitanExitEnabled( eTitanExitEnabled.Never )
+#endif
 }
 
 void function UndoomTitan( entity titan, int numSegments )
@@ -789,8 +813,17 @@ void function HandleAutoEject( entity rider, entity soul )
 	}
 }
 
-void function TitanShieldRegenThink( entity soul  )
+void function TitanShieldRegenThink( entity soul )
 {
+	// debug
+#if TITAN_SCRIPTED_SHIELD_REGEN_DEBUG
+	TitanHealth_SetSoulEnableShieldRegen( soul, true )
+	TitanHealth_SetSoulShieldRegenDelay( soul, TITAN_SHIELD_REGEN_DELAY )
+	TitanHealth_SetSoulShieldRegenTime( soul, TITAN_SHIELD_REGEN_TIME )
+	TitanHealth_SetSoulShieldDamageReductionScale( soul, 0.75 )
+	TitanHealth_SetSoulInfiniteDoomedState( soul, false )
+#endif
+
 	thread TitanShieldRegenThink_Internal( soul )
 }
 
@@ -804,14 +837,30 @@ void function TitanShieldRegenThink_Internal( entity soul )
 	//Shield starts at 0 health for now
 	string settings = GetSoulPlayerSettings( soul )
 	bool hasShield = Dev_GetPlayerSettingByKeyField_Global( settings, "start_with_shields" ) == 1
+	// modified, titans from scripted shield regen starts from max shield
+	bool startFromMaxShield = false
+	if ( soul in file.soulEnableShieldRegen )
+		startFromMaxShield = file.soulEnableShieldRegen[ soul ]
+	//
 
-	if ( !hasShield )
+	// modified, titans from scripted shield regen starts from max shield
+	//if ( !hasShield )
+	//	soul.SetShieldHealth( 0 )
+	if ( startFromMaxShield )
+		soul.SetShieldHealth( soul.GetShieldHealthMax() )
+	else if ( !hasShield )
 		soul.SetShieldHealth( 0 )
 
 	int lastShieldHealth = soul.GetShieldHealth()
 	bool shieldHealthSound = false
-	int maxShield = soul.GetShieldHealthMax()
+	int maxShield = soul.GetShieldHealthMax() // what if we update max shield mid-time?
 	float lastTime = Time()
+
+// debug
+#if TITAN_SCRIPTED_SHIELD_REGEN_DEBUG
+	bool healthSetup = false
+	int loopCount = 0
+#endif
 
 	while ( true )
 	{
@@ -819,7 +868,23 @@ void function TitanShieldRegenThink_Internal( entity soul )
 		if ( !IsValid( titan ) )
 			return
 
+// debug
+#if TITAN_SCRIPTED_SHIELD_REGEN_DEBUG
+		if ( !healthSetup && loopCount > 1 )
+		{
+			//print( "Settting up debug titan health!" )
+			int segments = titan.GetMaxHealth() / 2500
+			soul.SetShieldHealthMax( segments * 1250 )
+			soul.SetShieldHealth( soul.GetShieldHealthMax() )
+			titan.SetMaxHealth( segments * 1500 ) // 1500 health per segment
+			titan.SetHealth( titan.GetMaxHealth() )
+			healthSetup = true
+		}
+		loopCount += 1
+#endif
+
 		int shieldHealth = soul.GetShieldHealth()
+		maxShield = soul.GetShieldHealthMax() // what if we update max shield mid-time?
 		Assert( titan )
 
 		if ( lastShieldHealth <= 0 && shieldHealth && titan.IsPlayer() )
@@ -874,11 +939,22 @@ void function TitanShieldRegenThink_Internal( entity soul )
 
 float function GetShieldRegenTime( entity soul )
 {
+	// modified, get rid of hardcode
+	/*
 	float time
 	if ( SoulHasPassive( soul, ePassives.PAS_SHIELD_REGEN ) )
 		time = TITAN_SHIELD_REGEN_TIME * 0.5
 	else
 		time = TITAN_SHIELD_REGEN_TIME
+	*/
+
+	float time = TITAN_SHIELD_REGEN_TIME
+
+	if ( soul in file.soulShieldRegenTime )
+		time = file.soulShieldRegenDelay[ soul ]
+
+	if ( SoulHasPassive( soul, ePassives.PAS_SHIELD_REGEN ) )
+		time *= 0.5
 
 	return time
 }
@@ -898,13 +974,22 @@ float function GetShieldRegenDelay( entity soul )
 	string settings = GetSoulPlayerSettings( soul )
 	regenDelay = expect float( Dev_GetPlayerSettingByKeyField_Global( settings, "titan_regen_delay" ) )
 
+	// modified to get rid of stupid code
+	/*
 	float delay
 	if ( SoulHasPassive( soul, ePassives.PAS_SHIELD_REGEN ) )
 		delay = regenDelay - 1.0
 	else
 		delay = regenDelay
+	*/
 
-	if ( SoulHasPassive( soul, ePassives.PAS_SHIELD_BOOST ) )
+	float delay = regenDelay
+	if ( soul in file.soulShieldRegenDelay )
+		delay = file.soulShieldRegenDelay[ soul ]
+	if ( SoulHasPassive( soul, ePassives.PAS_SHIELD_REGEN ) )
+		delay = regenDelay - 1.0
+
+	if ( SoulHasPassive( soul, ePassives.PAS_SHIELD_BOOST ) ) // WTF?
 		delay = 2.0
 
 	return delay
@@ -1220,4 +1305,71 @@ void function TitanHealth_SetSoulDoomedHealthLossDamage( entity titanSoul, float
 	if( !( titanSoul in file.soulDoomedHealthLossDamage ) )
 		file.soulDoomedHealthLossDamage[ titanSoul ] <- 1.0 // default value
 	file.soulDoomedHealthLossDamage[ titanSoul ] = damageMod
+}
+
+// modded titan shield regen, set shield regen per titan
+void function TitanHealth_SetSoulEnableShieldRegen( entity titanSoul, bool enable )
+{
+	if ( !( titanSoul in file.soulEnableShieldRegen ) )
+		file.soulEnableShieldRegen[ titanSoul ] <- false // default value
+	file.soulEnableShieldRegen[ titanSoul ] = enable
+}
+
+// shared with _utility.gnut, function TitanHasRegenningShield()
+bool function TitanHealth_GetSoulEnableShieldRegen( entity titanSoul )
+{
+	if ( !( titanSoul in file.soulEnableShieldRegen ) ) // not customized!
+		return false
+	return file.soulEnableShieldRegen[ titanSoul ]
+}
+
+void function TitanHealth_SetSoulShieldRegenDelay( entity titanSoul, float delay )
+{
+	if ( !( titanSoul in file.soulShieldRegenDelay ) )
+		file.soulShieldRegenDelay[ titanSoul ] <- TITAN_SHIELD_REGEN_DELAY // default value
+	file.soulShieldRegenDelay[ titanSoul ] = delay
+}
+
+void function TitanHealth_SetSoulShieldRegenTime( entity titanSoul, float regenTime )
+{
+	if ( !( titanSoul in file.soulShieldRegenTime ) )
+		file.soulShieldRegenTime[ titanSoul ] <- TITAN_SHIELD_REGEN_TIME // default value
+	file.soulShieldRegenTime[ titanSoul ] = regenTime
+}
+
+void function TitanHealth_SetSoulShieldDamageReductionScale( entity titanSoul, float damageReduction )
+{
+	if ( !( titanSoul in file.soulShieldDamageReductionScale ) ) // not customized!
+		file.soulShieldDamageReductionScale[ titanSoul ] <- 1.0 - TITAN_SHIELD_PERMAMENT_DAMAGE_FRAC // ttf2 default is reduce all damages
+	file.soulShieldDamageReductionScale[ titanSoul ] = damageReduction
+}
+
+// shield modifier
+void function TitanShieldModifier( entity ent, var damageInfo, ShieldDamageModifier shieldModifier )
+{
+	if ( !IsValid( ent ) || !ent.IsTitan() )
+		return
+	entity soul = ent.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	// taken from Titan_NPCTookDamage() and Titan_PlayerTookDamage(), removed #if MP
+	// checking whether this is a damage using non-titan-damage weapon
+	bool critHit = false
+	if ( CritWeaponInDamageInfo( damageInfo ) )
+		critHit = IsCriticalHit( DamageInfo_GetAttacker( damageInfo ), ent, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageType( damageInfo ) )
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( HeavyArmorCriticalHitRequired( damageInfo ) && CritWeaponInDamageInfo( damageInfo ) && !critHit && IsValid( attacker ) && !attacker.IsTitan())
+		return
+
+	if ( soul in file.soulShieldDamageReductionScale )
+	{
+		shieldModifier.permanentDamageFrac = 1.0 - file.soulShieldDamageReductionScale[ soul ]
+		//print( "IsRodeoDamage(): " + string( IsRodeoDamage( soul, damageInfo ) ) )
+		//print( "IsRodeoDamageFromBatteryPack(): " + string( IsRodeoDamageFromBatteryPack( soul, damageInfo ) ) )
+		// specific damage
+		if ( IsRodeoDamage( soul, damageInfo ) )
+			shieldModifier.permanentDamageFrac = 1.0 // take full damage from rodeo
+	}
 }

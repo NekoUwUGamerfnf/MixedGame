@@ -43,8 +43,11 @@ struct
 	bool isSkyboxView = false
 
 	// modified to make shield damage less hardcoded
-	array< void functionref( entity, var ) > onShieldDamageCallbacks
+	array< void functionref( entity, var, ShieldDamageModifier ) > onShieldDamageCallbacks
 	array< void functionref( entity, var, ShieldDamageModifier ) > shieldDamageModifierCallbacks
+	// for damage feedback
+	bool takingShieldDamage = false
+	float shieldDamageToDisplay = 0.0
 } file
 
 void function Utility_Init()
@@ -68,6 +71,9 @@ void function Utility_Init()
 		FlagInit( "AimAssistSwitchTest_Enabled" )
 		AddClientCommandCallback( "DoomTitan", ClientCommand_DoomTitan )
 	#endif
+
+	// modified callback in _base_gametype.gnut, fix client damage feedback
+	AddCallback_PlayerDamageFeedback( PlayerDamageShieldFeedback )
 }
 
 void function GiveAllTitans()
@@ -3766,6 +3772,7 @@ float function ShieldModifyDamage( entity ent, var damageInfo )
 
 	float shieldDamage
 
+	// hardcoded hell
 	if ( damageSourceIdentifier == eDamageSourceId.titanEmpField )
 	{
 		shieldDamage = min( 1000.0, float( shieldHealth ) )
@@ -3784,12 +3791,12 @@ float function ShieldModifyDamage( entity ent, var damageInfo )
 		// should be added from a callback, maybe just name as AddCallback_OnShieldDamage()
 		//if ( IsSoul( victim ) && SoulHasPassive( victim, ePassives.PAS_BERSERKER ) )
 		//	shieldDamage *= BERSERKER_INCOMING_DAMAGE_DAMPEN
-
-		// run callbacks
-		// added via AddCallback_OnShieldDamage()
-		foreach ( void functionref( entity, var ) callbackFunc in file.onShieldDamageCallbacks )
-			callbackFunc( ent, damageInfo )
 	}
+
+	// run callbacks to make things less hardcoded
+	// added via AddCallback_OnShieldDamage()
+	RunCallback_OnShieldDamage( ent, damageInfo, damageModifier )
+	//
 
 	float newShieldHealth = shieldHealth - shieldDamage
 
@@ -3847,11 +3854,22 @@ float function ShieldModifyDamage( entity ent, var damageInfo )
 
 	if ( actualShieldDamage > 0 )
 	{
+		// for sending proper damage feedback to players
+		file.takingShieldDamage = true
+
 		foreach ( func in ent.e.entPostShieldDamageCallbacks )
 		{
 			func( ent, damageInfo, actualShieldDamage )
 		}
 	}
+
+	// modified: titan taking shield broke damage!
+	// for sending proper damage feedback to players
+	if ( file.takingShieldDamage )
+		file.shieldDamageToDisplay = actualShieldDamage
+	//
+	//print( "shieldDamage: " + string( shieldDamage ) )
+	//print( "actualShieldDamage: " + string( actualShieldDamage ) )
 
 	return actualShieldDamage
 }
@@ -3906,11 +3924,29 @@ ShieldDamageModifier function GetShieldDamageModifier( entity ent, var damageInf
 	return damageModifier
 }
 
+// to correct damage feedback
+void function PlayerDamageShieldFeedback( entity victim, var damageInfo, table feedbackTable )
+{
+	if ( file.takingShieldDamage )
+	{
+		feedbackTable.damageToDisplay += file.shieldDamageToDisplay
+		//print( "feedbackTable.damageToDisplay: " + string( feedbackTable.damageToDisplay ) )
+		file.takingShieldDamage = false
+	}
+}
+
 // modified to make shield damage less hardcoded
-void function AddCallback_OnShieldDamage( void functionref( entity, var ) callbackFunc )
+void function AddCallback_OnShieldDamage( void functionref( entity, var, ShieldDamageModifier ) callbackFunc )
 {
 	if ( !file.onShieldDamageCallbacks.contains( callbackFunc ) )
 		file.onShieldDamageCallbacks.append( callbackFunc )
+}
+
+// globalizing so other files can use these callbacks
+void function RunCallback_OnShieldDamage( entity ent, var damageInfo, ShieldDamageModifier damageModifier )
+{
+	foreach ( void functionref( entity, var, ShieldDamageModifier ) callbackFunc in file.onShieldDamageCallbacks )
+		callbackFunc( ent, damageInfo, damageModifier )
 }
 
 void function AddCallback_ShieldDamageModifier( void functionref( entity, var, ShieldDamageModifier ) callbackFunc )
