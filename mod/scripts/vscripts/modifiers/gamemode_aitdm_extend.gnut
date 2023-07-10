@@ -1129,14 +1129,22 @@ void function SquadHandler( array<entity> guys )
 		if ( points.len() == 0 ) // can't find any points here
 			continue
 
+		// get nearest enemy and send our full squad to it
 		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		if ( !IsAlive( enemy ) )
+			continue
 		point = enemy.GetOrigin()
-		
 		foreach ( guy in guys )
 		{
 			if ( IsAlive( guy ) )
-				guy.AssaultPoint( point )
+			{
+				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
+				if ( clampedPos == null )
+					continue
+				guy.AssaultPoint( clampedPos )
+			}
 		}
+
 		wait RandomFloatRange(5.0,15.0)
 	}
 }
@@ -1221,9 +1229,39 @@ void function OnSpectreLeeched( entity spectre, entity player )
 
 void function ReaperHandler( entity reaper )
 {
-	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
-	foreach ( player in players )
-		reaper.Minimap_AlwaysShow( 0, player )
+	int team = reaper.GetTeam()
+	array<entity> points
+
+	// show on enmey radar
+	AddMinimapForNPC( reaper, false )
+	
+	reaper.AssaultSetGoalRadius( 500 ) // goal radius
+	
+	// Every 10 - 20 secs get a closest target and go to them
+	while( true )
+	{
+		WaitFrame() // always wait before each loop!
+
+		// Check if alive
+		if ( !IsAlive( reaper ) )
+			return
+
+		points = [] // clean up last point
+		points.extend( GetNPCArrayOfEnemies( team ) )
+		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		if ( points.len() == 0 )
+			continue
+
+		entity enemy = GetClosest2D( points, reaper.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), reaper )
+		if ( clampedPos == null )
+			continue
+		reaper.AssaultPoint( clampedPos )
+
+		wait RandomFloatRange( 10.0, 20.0 )
+	}
 }
 
 // ticks clean up
