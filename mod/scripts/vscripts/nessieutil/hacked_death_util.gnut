@@ -22,8 +22,7 @@ const asset FLESH_PINKMIST_FX = $"death_pinkmist_LG_nochunk" // was death_pinkmi
 const asset MECHNAICAL_PINKMIST_FX = $"xo_damage_exp_1" // was xo_damage_exp_2, current one has chunks
 
 // used in _base_gametype.gnut, for showing player correct damage number
-global bool hackedDeathKillshot = false
-global float hackedDeathActualDamage = 0.0
+global 
 
 struct
 {
@@ -32,6 +31,10 @@ struct
 	// settings
 	bool fakeBodySilence = true
 	bool deathEffectEnable = true
+
+	// damage feedback
+	bool hackedDeathKillshot = false
+	float hackedDeathActualDamage = 0.0
 } file
 
 void function Hacked_Death_Utility_Init()
@@ -54,6 +57,11 @@ void function Hacked_Death_Utility_Init()
 
 	// handling grapple
 	AddCallback_OnPlayerGrappled( HackedDeathOnPlayerGrappled ) // modified callback in _codecallbacks.gnut
+
+	// modified callback in _base_gametype.gnut
+	AddCallback_PlayerDamageFeedback( HackedDeathPlayerDamage )
+	// modified callback in _codecallbacks.gnut
+	AddCallback_ShouldPlayDamageChatter( HackedDeathDamageChatter )
 }
 
 // utility
@@ -68,6 +76,31 @@ bool function HackedDeath_ShouldHandleDamage( entity ent, var damageInfo )
 	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) || ent.IsTitan() )	
 		return false // these shouldn't be handled by hacked death
 	return true
+}
+
+// NEW callback
+void function HackedDeathPlayerDamage( entity victim, var damageInfo, table feedbackTable )
+{
+	if ( HackedDeath_IsEnabled() )
+	{
+		if ( file.hackedDeathKillshot ) // for pilot entering hackedDeath, notify their actual taken damage
+		{
+			//print( "pilot triggered hacked death killshot!" )
+			damageToDisplay = file.hackedDeathActualDamage
+			//file.hackedDeathKillshot = false // this var should be reset after try to play the chatter in _codecallbacks.gnut!
+		}
+	}
+}
+
+bool function HackedDeathDamageChatter( entity victim, entity attacker, var damageInfo, table resultTable, bool shouldPlayChatter )
+{
+	if ( HackedDeath_IsEnabled() )
+		shouldPlayChatter = !file.hackedDeathKillshot && resultTable.inChatterRange
+
+	// always try to cleanup hackedDeath killshot variable
+	file.hackedDeathKillshot = false
+
+	return shouldPlayChatter
 }
 
 void function InitHackedDeathForPlayer( entity player )
@@ -187,8 +220,8 @@ void function HackedDeath_OnPlayerPostDamage( entity player, var damageInfo )
 	if ( player.GetHealth() + player.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
 	{
 		// triggered hacked death
-		hackedDeathKillshot = true // mark as killshot
-		hackedDeathActualDamage = DamageInfo_GetDamage( damageInfo ) // save the damage
+		file.hackedDeathKillshot = true // mark as killshot
+		file.hackedDeathActualDamage = DamageInfo_GetDamage( damageInfo ) // save the damage
 		DamageInfo_SetDamage( damageInfo, player.GetHealth() - 1 ) // don't kill the player
 		if( IsPlayerDeathsHidden() ) // add a extra death sound here
 			EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )

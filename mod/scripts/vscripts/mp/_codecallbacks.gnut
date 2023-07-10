@@ -25,6 +25,7 @@ global function CodeCallback_OnServerAnimEvent
 
 // modified callbacks
 global function AddCallback_OnPlayerGrappled
+global function AddCallback_ShouldPlayDamageChatter
 
 struct AccumulatedDamageData
 {
@@ -49,6 +50,7 @@ struct
 
 	// modified callbacks
 	array< void functionref( entity, entity ) > onPlayerGrappledCallbacks
+	array< bool functionref( entity, entity, var, table, bool ) > shouldPlayDamageChatterCallbacks
 } file
 
 void function CodeCallback_Init()
@@ -445,15 +447,18 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 			if( attackerIsPlayer && !attackerIsTitan && entIsPlayer && attacker != ent )
 			{
 				const float NEAR_DAMAGE_CHATTER_DIST = 1500 // damage from too far shouldn't trigger damage chatter
-				bool isKillShot = ( ent.GetHealth() + ent.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) ) <= 0
-				bool inChatterRange = Distance( attacker.GetOrigin(), ent.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
-				bool playDamageBC = !isKillShot && inChatterRange // make instant kills won't play a chatter
-				// HACK for hacked death: player will never receive a chatter from hacked death killshot
-				if ( HackedDeath_IsEnabled() )
-					playDamageBC = !hackedDeathKillshot && inChatterRange
-				// HACK for bleedout: never do dialogue if this shot makes player enter bleedout
-				if ( Bleedout_IsPlayerBleeding( ent ) )
-					playDamageBC = false
+				
+				table damageChatterResult =
+				{
+					isKillShot = ( ent.GetHealth() + ent.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) ) <= 0
+					inChatterRange = Distance( attacker.GetOrigin(), ent.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
+				}
+				playDamageBC = !isKillShot && inChatterRange // make instant kills won't play a chatter
+				// run callbacks to decide whether we play damage chatter
+				// added via AddCallback_ShouldPlayDamageChatter()
+				foreach ( bool functionref( entity, entity, var ) callbackFunc in file.shouldPlayDamageChatterCallbacks )
+					playDamageBC = callbackFunc( ent, attacker, damageInfo, damageChatterResult, playDamageBC )
+				//
 				//print( "playDamageBC: " + string( playDamageBC ) )
 				if( playDamageBC )
 				{
@@ -462,12 +467,18 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 				}
 			}
 		#endif
-		// modified!!! always try to reset the hackedDeath killshot
-		hackedDeathKillshot = false
 	#endif
 
 	attacker.Signal( "DamagedPlayerOrNPC" )
 }
+
+// modified to make damage chatter less hardcoded
+void function AddCallback_ShouldPlayDamageChatter( bool functionref( entity, entity, var, table, bool ) callbackFunc )
+{
+	if ( !file.shouldPlayDamageChatterCallbacks.contains( callbackFunc ) )
+		file.shouldPlayDamageChatterCallbacks.append( callbackFunc )
+}
+//
 
 void function EarnMeterDamageConversion( var damageInfo, entity attacker, entity ent, float savedDamage, TitanDamage titanDamage )
 {
