@@ -430,8 +430,9 @@ void function Escalate( int team )
 			SetGlobalNetInt( defcon, 4 )
 			return
 	}
-	
-	unreachable // hopefully
+
+	// why we have to run into unreachable?
+	//unreachable // hopefully
 }
 
 
