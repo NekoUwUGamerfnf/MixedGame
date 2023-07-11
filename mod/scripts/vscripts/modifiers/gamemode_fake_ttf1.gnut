@@ -14,7 +14,8 @@ const array<string> CONNECTING_NOTIFICATIONS =
 	ANSI_COLOR_YELLOW + "启用了仿照泰坦陨落1的泰坦血量机制" + ANSI_COLOR_END,
 	ANSI_COLOR_ORANGE + "泰坦在被拔去电池后可以被直接攻击电池舱，造成破盾伤害" + ANSI_COLOR_END,
 	ANSI_COLOR_ORANGE + "泰坦护盾自动恢复，但护盾仅提供减伤，无法完全免除伤害" + ANSI_COLOR_END,
-	ANSI_COLOR_ORANGE + "泰坦血量上限下降，自带快速恢复冲刺。若装备涡轮引擎将自动替换为超级核心" + ANSI_COLOR_END,
+	ANSI_COLOR_ORANGE + "泰坦血量上限下降，黄血自动流失" + ANSI_COLOR_END,
+    ANSI_COLOR_ORANGE + "泰坦自带快速恢复冲刺，若装备涡轮引擎将自动替换为超级核心" + ANSI_COLOR_END,
 ]
 
 void function Modded_Gamemode_Fake_Titanfall1_Init()
@@ -69,11 +70,7 @@ void function SetupTTF1StyleTitan( entity titan, TitanLoadoutDef titanLoadout )
     WaitFrame() 
 
     // health
-    int segments = titan.GetMaxHealth() / 2500 // hardcoded
-    soul.SetShieldHealthMax( segments * TITAN_SHIELD_PER_SEGMENT ) // 1000(was 1250) shield per segment
-    soul.SetShieldHealth( soul.GetShieldHealthMax() )
-    titan.SetMaxHealth( segments * TITAN_HEALTH_PER_SEGMENT ) // 1500 health per segment
-    titan.SetHealth( titan.GetMaxHealth() )
+    thread TitanHealthWatcher( titan ) // prevent changing health midway
 
     // class mods
     if ( titanLoadout.setFileMods.contains( "pas_mobility_dash_capacity" ) ) // has turbo engine
@@ -88,4 +85,36 @@ void function SetupTTF1StyleTitan( entity titan, TitanLoadoutDef titanLoadout )
     }
     titanLoadout.setFileMods.removebyvalue( "pas_mobility_dash_capacity" )
     titanLoadout.setFileMods.append( "turbo_titan" )
+}
+
+void function TitanHealthWatcher( entity titan )
+{
+    entity soul = titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return
+    titan.EndSignal( "OnDestroy" )
+    titan.EndSignal( "OnDeath" )
+    soul.EndSignal( "OnDestroy" )
+
+    // initial setup
+    int segments = titan.GetMaxHealth() / 2500 // hardcoded
+    soul.SetShieldHealthMax( segments * TITAN_SHIELD_PER_SEGMENT ) // 1000(was 1250) shield per segment
+    soul.SetShieldHealth( soul.GetShieldHealthMax() )
+    titan.SetMaxHealth( segments * TITAN_HEALTH_PER_SEGMENT ) // 1500 health per segment
+    titan.SetHealth( titan.GetMaxHealth() )
+
+    int startingMaxHealth = titan.GetMaxHealth()
+    // start watching
+    while ( true )
+    {
+        segments = titan.GetMaxHealth() / 2500 // keep updating
+        if ( startingMaxHealth != titan.GetMaxHealth() ) // max health updated!
+        {
+            float healthFrac = GetHealthFrac( titan )
+            titan.SetMaxHealth( segments * TITAN_HEALTH_PER_SEGMENT ) // 1500 health per segment
+            titan.SetHealth( int( titan.GetMaxHealth() * healthFrac ) )
+            startingMaxHealth = titan.GetMaxHealth()
+        }
+        WaitFrame()
+    }
 }
