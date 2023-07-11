@@ -207,7 +207,8 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		if ( !file.headShotMedalDisabledDamageSource.contains( methodOfDeath ) )
 		{
 			AddPlayerScore( attacker, "Headshot", victim )
-			PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
+			if ( CoinFlip() ) // 50% chance of playing a special dialogue
+				PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
 		}
 	}
 
