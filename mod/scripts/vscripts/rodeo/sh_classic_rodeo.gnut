@@ -7,6 +7,9 @@ global function ClassicRodeo_SetAdditionalDamageScale
 
 global function CreateClassicRodeoWeakpoint
 
+// callbacks
+global function AddCallback_ClassicRodeo_WeakPointDamaged
+
 // handling hardcoded nerf!
 const array<int> NO_ADDITIONAL_DAMAGE_DAMAGESOURCES = 
 [ 
@@ -22,6 +25,8 @@ const array<int> ELECTRIC_SMOKE_DAMAGESOURCES =
 struct
 {
 	float classicRodeoAdditionalDamage = 1.5 // default additional damage value, should make it changable through playlistVars
+	// callbacks
+	array<void functionref( entity, var, table )> weakpointDamagedCallbacks
 } file
 #endif
 
@@ -52,7 +57,7 @@ entity function CreateClassicRodeoWeakpoint( entity player, entity titan )
 	weakpoint.SetTakeDamageType( DAMAGE_YES )
 	SetTeam( weakpoint, TEAM_UNASSIGNED )
 	SetObjectCanBeMeleed( weakpoint, false )
-	weakpoint.kv.solid = 6
+	weakpoint.kv.solid = SOLID_HITBOXES
 	weakpoint.Hide()
 
 	entity titanSoul = titan.GetTitanSoul()
@@ -72,44 +77,57 @@ entity function CreateClassicRodeoWeakpoint( entity player, entity titan )
 void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 {	
 	DamageInfo_SetDamage( damageInfo, 0 ) // make sure weakpoint ent doesn't die ever
+
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if( attacker != weakpoint.s.pilot ) // avoid things like reapers trigger following things
 		return
+
 	entity titanSoul = attacker.GetTitanSoulBeingRodeoed()
 	if( !IsValid( titanSoul ) )
 		return
+	if ( titanSoul != weakpoint.s.titanSoul )
+		return
+
 	entity titan = titanSoul.GetTitan() // real titan
 	if( !IsValid( titan ) )
 		return
-	float damageAmount = DamageInfo_GetDamage( damageInfo )
-	if ( titanSoul != weakpoint.s.titanSoul )
-		return
-		
+
+	table weakpointDamage =
+	{
+		rodeoDamage = 0,
+		damageScale = 1.0,
+		damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo ),
+		damageTypes = DamageInfo_GetCustomDamageType( damageInfo ) | DF_BYPASS_SHIELD | DF_CRITICAL,
+		shouldMultiplyDamage = true,
+	}
 	// figure out damage to deal to titan
-	entity attackerWeapon = DamageInfo_GetWeapon( damageInfo )
-	if ( !IsValid( attackerWeapon ) )
-		attackerWeapon = attacker.GetActiveWeapon()
-	
 	// most weapons in ttf2 don't have damage_rodeo, let's use it's damage_near_value_titanarmor
-	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	entity attackerWeapon = DamageInfo_GetWeapon( damageInfo )
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	int rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
-	
-	bool shouldMultiplyDamage = true
-	if( NO_ADDITIONAL_DAMAGE_DAMAGESOURCES.contains( damageSourceID ) ) // hardcoded nerf
-		shouldMultiplyDamage = false
-	
+	if ( IsValid( inflictor ) && inflictor.IsProjectile() )
+	{
+		weakpointDamage.rodeoDamage = inflictor.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+		weakpointDamage.damageScale = inflictor.GetProjectileWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
+	}
+	else if ( !IsValid( attackerWeapon ) && IsValid( inflictor ) && inflictor.IsPlayer() ) // damaged by hitscan radius damage
+		attackerWeapon = inflictor.GetActiveWeapon()
+
+	if ( IsValid( attackerWeapon ) )
+	{
+		weakpointDamage.rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+		weakpointDamage.damageScale = attackerWeapon.GetWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
+	}
+
 	// not using these check now, since we have done hitbox changes, grenadiers can cause really high damage to player themselves
 	//bool canNormallyDamage = attackerWeapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
 	//if( canNormallyDamage )
-	//	shouldMultiplyDamage = false
+	//	weakpointDamage.shouldMultiplyDamage = false
 	
-	// can't get right condition
+	// can't get right condition. seems ttf2 doesn't implemented GetWeaponType()
 	//if( attackerWeapon.GetWeaponType() == WT_ANTITITAN ) // antiTitan weapons such as defender, can deal so much damage, so don't multiply it
-	//	shouldMultiplyDamage = false
-	
-	float damageScale = attackerWeapon.GetWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
+	//	weakpointDamage.shouldMultiplyDamage = false
 
+	// DEFAULT DAMAGE MODIFIERS
 	if( IsValid( inflictor ) )
 	{
 		if( inflictor.IsProjectile() )
@@ -118,39 +136,63 @@ void function OnRodeoWeakpointDamaged( entity weakpoint, var damageInfo )
 			if( inflictor.GetClassName() == "grenade" )
 			{
 				//print( "damaged by grenade!" )
-				shouldMultiplyDamage = false
-				if( "rodeoDamagedOnce" in inflictor.s ) // prevent grenadiers like MGL from dealing damage twice as normal( explosion will have less damage )
+				weakpointDamage.shouldMultiplyDamage = false
+				if( ( "rodeoDamagedOnce" in inflictor.s ) && inflictor.s.rodeoDamagedOnce ) // prevent grenadiers like MGL from dealing damage twice as normal( explosion will have less damage )
+					weakpointDamage.rodeoDamage = inflictor.GetProjectileWeaponSettingInt( eWeaponVar.explosion_damage_heavy_armor )
+				else
+					inflictor.s.rodeoDamagedOnce <- true
+			}
+			// _ball_lightning.gnut has been modified, assuming this is ballLightning 
+			if( "ballLightning" in inflictor.s )
+			{
+				entity ballLightning = expect entity( inflictor.s.ballLightning )
+				if ( IsValid( ballLightning ) )
 				{
-					if( expect bool( inflictor.s.rodeoDamagedOnce ) )
-						rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.explosion_damage_heavy_armor )
+					//print( "damaged by arcball!" )
+					weakpointDamage.rodeoDamage = int( ballLightning.e.ballLightningData.damage * 0.2 ) // titan will still take damage from arcball. rodeo damage should be lower
+					weakpointDamage.shouldMultiplyDamage = false
 				}
-				inflictor.s.rodeoDamagedOnce <- true
 			}
 		}
-		if( inflictor.GetScriptName() == "ball_lightning" ) // modified in _ball_lightning.gnut, assuming this is ballLightning 
-		{
-			//print( "damaged by arcball!" )
-			rodeoDamage = int( inflictor.e.ballLightningData.damage )
-			shouldMultiplyDamage = false
-		}
 	}
-	else if( ELECTRIC_SMOKE_DAMAGESOURCES.contains( damageSourceID ) ) // hardcoded here
+	// hardcoded modifiers
+	if ( NO_ADDITIONAL_DAMAGE_DAMAGESOURCES.contains( expect int( weakpointDamage.damageSourceID ) ) )
+		weakpointDamage.shouldMultiplyDamage = false
+	if ( ELECTRIC_SMOKE_DAMAGESOURCES.contains( expect int( weakpointDamage.damageSourceID ) ) )
 	{
-		return // don't do additional damage for smokes
+		weakpointDamage.rodeoDamage = 0 // don't do additional damage for smokes
 		//rodeoDamage = 300 // electric smoke grenade's damage per tick
-		//shouldMultiplyDamage = false
+		//weakpointDamage.shouldMultiplyDamage = false
 	}
-	if( shouldMultiplyDamage )
-		rodeoDamage = int( rodeoDamage * damageScale * file.classicRodeoAdditionalDamage )
-	else
-		rodeoDamage = int( rodeoDamage * file.classicRodeoAdditionalDamage ) // no additional damage based on criticalScale
-	
+
+	// run modified callbacks
+	foreach ( void functionref( entity, var, table ) callbackFunc in file.weakpointDamagedCallbacks )
+		callbackFunc( weakpoint, damageInfo, weakpointDamage )
+	//
+
+	// calculate damage
+	if( weakpointDamage.shouldMultiplyDamage )
+		weakpointDamage.rodeoDamage = int( weakpointDamage.rodeoDamage * weakpointDamage.damageScale )
+	weakpointDamage.rodeoDamage = int( weakpointDamage.rodeoDamage * file.classicRodeoAdditionalDamage )
+
+	if ( weakpointDamage.rodeoDamage <= 0 ) // no valid damage
+		return
+
+	int rodeoDamage = expect int( weakpointDamage.rodeoDamage )
+	int damageTypes = expect int( weakpointDamage.damageTypes )
+	int damageSourceID = expect int( weakpointDamage.damageSourceID )
 	//print( file.classicRodeoAdditionalDamage )
 	//print( rodeoDamage )
 	// damage titanSoul, make sure DF_BYPASS_SHIELD	is a thing for proper behaviour. DF_RODEO is added in CheckRodeoRiderHitsTitan() so no need to add again.
-	titan.TakeDamage( rodeoDamage, attacker, attackerWeapon, { damageSourceId = eDamageSourceId.rodeo, scriptType = DamageInfo_GetCustomDamageType( damageInfo ) | DF_BYPASS_SHIELD | DF_CRITICAL } )
-	
+	titan.TakeDamage( rodeoDamage, attacker, inflictor, { damageSourceId = eDamageSourceId.rodeo, scriptType = damageTypes } )
+
 	// hitmarker, automatically triggered by "target.TakeDamage()"
 	//attacker.NotifyDidDamage( weakpoint, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ) | DF_CRITICAL, rodeoDamage, DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
+}
+
+void function AddCallback_ClassicRodeo_WeakPointDamaged( void functionref( entity, var, table ) callbackFunc )
+{
+	if ( !file.weakpointDamagedCallbacks.contains( callbackFunc ) )
+		file.weakpointDamagedCallbacks.append( callbackFunc )
 }
 #endif
