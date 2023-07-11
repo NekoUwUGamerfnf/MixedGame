@@ -742,7 +742,11 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 		if ( expect int( lastAttackInfo.scriptType ) & DF_VORTEX_REFIRE )
 			extraDeathInfo.scriptType = expect int( extraDeathInfo.scriptType ) | DF_VORTEX_REFIRE
 
-		extraDeathInfo.damageSourceId <- lastAttackInfo.damageSourceId
+		// should always be despawn. don't let this function triggering any of the damageSourceIdCallbacks
+		// also can't use suicide. it's a kind of force kill which can kill the titan while they're invulnerable
+		// for proper obit, change to desired damageSourceId if we're about to perform a killshot
+		//extraDeathInfo.damageSourceId <- lastAttackInfo.damageSourceId
+		extraDeathInfo.damageSourceId <- damagedef_despawn
 
 		entity soulOwner = titanSoul.GetTitan()
 		if ( !IsValid( soulOwner ) )
@@ -779,12 +783,19 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 		entity healthLossInflictor = expect entity( lastAttackInfo.inflictor )
 		bool attackerValid = IsValid( healthLossAttacker ) && !IsWorldSpawn( healthLossAttacker )
 		if ( !attackerValid )
-		{
 			healthLossAttacker = soulOwner // attacker invalid, turns to self damage
-			extraDeathInfo.damageSourceId = damagedef_suicide // attacker invalid, change damageSourceId to suicide
-		}
 		if ( attackerValid && !IsValid( healthLossInflictor ) ) // attacker valid but inflictor invalid
 			healthLossInflictor = healthLossAttacker // re-assign attacker as inflictor
+
+		// killshot: add proper obit
+		bool isKillshot = dmgAmount >= soulOwner.GetHealth()
+		if ( isKillshot && !soulOwner.IsInvulnerable() ) // defensive fix
+		{
+			if ( attackerValid ) // get attacker validation before we re-assign attacker
+				extraDeathInfo.damageSourceId = lastAttackInfo.damageSourceId
+			else // attacker invalid or has been re-assigned
+				extraDeathInfo.damageSourceId = damagedef_suicide
+		}
 
 		//soulOwner.TakeDamage( dmgAmount, expect entity( lastAttackInfo.attacker ), expect entity( lastAttackInfo.inflictor ), extraDeathInfo )
 		soulOwner.TakeDamage( dmgAmount, healthLossAttacker, healthLossInflictor, extraDeathInfo )

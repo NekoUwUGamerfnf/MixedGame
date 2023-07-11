@@ -23,19 +23,30 @@ const float ARC_TRAP_COOLDOWN = 12.0
 
 const float ARC_TRAP_RADIUS = 500.0
 
+const int ARC_TRAP_LIMIT = 2
+const int ARC_TRAP_ACTIVE_LIMIT = 2
+const float ARC_TRAP_LIFETIME = 20
+
 #if SERVER
 struct
 {
 	array < void functionref( entity, var ) > arcTrapTriggerCallbacks = []
-	// limited arc traps
-	table< entity, array<entity> > playerOwnedArcTraps
-	table<entity, int> arcTrapActivateCount
 } file
 
-// limited arc traps
-const int ARC_TRAP_LIMIT = 2
-const int ARC_TRAP_ACTIVATE_LIMIT = 2
-const float ARC_TRAP_LIFETIME = 20
+struct TrapStruct
+{
+	entity trap
+	int count
+}
+
+struct ArcTrapLimit
+{
+	entity owner
+	array<TrapStruct> traps
+}
+
+array<ArcTrapLimit> arctraps = []
+array<string> deployedTrap = []
 #endif
 
 function MpWeaponArcTrap_Init()
@@ -46,15 +57,13 @@ function MpWeaponArcTrap_Init()
 	PrecacheParticleSystem( ARC_TRAP_ZAP_FX )
 	#if SERVER
 	AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_arc_trap, ArcTrap_DamagedTarget )
+	AddCallback_OnClientDisconnected( ArcTrap_LimitClean )
 	RegisterSignal( "ActivateArcTrap" )
 	RegisterSignal( "DeployArcTrap" )
 
 	// make arc traps usable in any modes
 	//if( GameRules_GetGameMode() != "fd" )
 	RegisterSignal( "BoostRefunded" )
-
-	// modified arctrap mods
-	AddCallback_OnClientConnected( OnClientConnected )
 	#endif
 }
 
@@ -82,13 +91,10 @@ var function OnWeaponTossReleaseAnimEvent_weapon_arc_trap( entity weapon, Weapon
 	{
 		entity player = weapon.GetWeaponOwner()
 		PlayerUsedOffhand( player, weapon )
-
-		// arc trap mods
-		if ( weapon.HasMod( "multiplayer_arc_trap" ) )
-		{
+		if( weapon.HasMod( "multiplayer_arc_trap" ) )
+		{ // enable attackable by players
 			Grenade_Init( deployable, weapon )
 			#if SERVER
-			// enable attackable by players
 			deployable.proj.onlyAllowSmartPistolDamage = false
 			// not working, why?
 			//thread TrapExplodeOnDamage( deployable, 50 )
@@ -96,13 +102,12 @@ var function OnWeaponTossReleaseAnimEvent_weapon_arc_trap( entity weapon, Weapon
 			thread TrapDestroyOwnerDeath( deployable, deployable.GetOwner() )
 			#endif
 		}
-		if ( weapon.HasMod( "gm_shock_grunt" ) ) // grunt mode shock grunts
+		else if ( weapon.HasMod( "gm_shock_grunt" ) ) // grunt mode shock grunts
 		{
 			#if SERVER
 			thread TrapDestroyOwnerDeath( deployable, deployable.GetOwner() )
 			#endif
 		}
-		//
 
 		#if SERVER
 		deployable.e.fd_roundDeployed = weapon.e.fd_roundDeployed
@@ -179,32 +184,45 @@ void function DeployArcTrap( entity projectile )
 	entity owner = projectile.GetOwner()
 	entity mover = CreateScriptMover( projectile.GetOrigin() )
 
-	// modified traps
 	array<string> projectileMods = projectile.ProjectileGetMods()
-	// limited arc trap
-	if ( projectileMods.contains( "limited_arc_trap" ) )
+	if( projectileMods.contains( "limited_arc_trap" ) )
 	{
-		if ( owner in file.playerOwnedArcTraps )
+		if( !deployedTrap.contains( owner.GetUID() ) )
 		{
-			ArrayRemoveInvalid( file.playerOwnedArcTraps[ owner ] )
-			file.playerOwnedArcTraps[ owner ].append( projectile )
-			file.arcTrapActivateCount[ projectile ] <- 0
+			ArcTrapLimit trapstruct
+			trapstruct.owner = owner
+			TrapStruct firsttrap
+			firsttrap.trap = projectile
+			firsttrap.count = 0
+			trapstruct.traps.append( firsttrap )
+			arctraps.append( trapstruct )
+			deployedTrap.append( owner.GetUID() )
+		}
 
-			// max limit check
-			if ( file.playerOwnedArcTraps[ owner ].len() > ARC_TRAP_LIMIT )
+		else
+		{
+			foreach( ArcTrapLimit arctrap in arctraps )
 			{
-				// try to dissolve latest trap
-				entity latestTrap = file.playerOwnedArcTraps[ owner ][0]
-				if ( IsValid( latestTrap ) )
-					latestTrap.Destroy() // just destroy it like any other deployables. dissolving will fallsafe sometimes, as they can still damage targets
-				file.playerOwnedArcTraps[ owner ].remove( 0 )
+				if( arctrap.owner == owner )
+				{
+					TrapStruct othertrap
+					othertrap.trap = projectile
+					othertrap.count = 0
+					arctrap.traps.append( othertrap )
+					if( arctrap.traps.len() > ARC_TRAP_LIMIT )
+					{
+						if( IsValid( arctrap.traps[0].trap ) )
+						{
+							arctrap.traps[0].trap.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 100 )
+							arctrap.traps.remove( 0 )
+						}
+					}
+				}
 			}
 		}
 	}
-	// one-use arc trap
-	if ( projectileMods.contains( "one_time_arc_trap" ) )
+	else if( projectileMods.contains( "one_time_arc_trap" ) )
 		thread AfterTimeDestroyTrap( projectile, ARC_TRAP_LIFETIME )
-	//
 
 	entity fx
 	entity idleLightFX
@@ -228,11 +246,8 @@ void function DeployArcTrap( entity projectile )
 	eyeButton.SetBossPlayer( owner )
 	if ( BoostStoreEnabled() )
 		thread BurnRewardRefundThink( eyeButton, projectile )
-
-	// arc trap mods
-	if ( projectileMods.contains( "multiplayer_arc_trap" ) )
-		eyeButton.NotSolid() // so player can destroy the trap, or can't. idk why
-	//
+	else if( projectileMods.contains( "multiplayer_arc_trap" ) )
+		eyeButton.NotSolid() // so player can destroy the trap, or not. idk why
 
 	owner.Signal( "DeployArcTrap", { projectile = projectile } )
 
@@ -433,25 +448,35 @@ void function ActivateArcTrap( entity owner, entity mover, entity projectile, en
 
 	mover.NonPhysicsMoveTo( projectile.GetOrigin(), ARC_TRAP_DROP_DURATION, ARC_TRAP_DROP_DURATION*0.5, ARC_TRAP_DROP_DURATION*0.5 )
 	//wait ARC_TRAP_DROP_DURATION*0.5
-
-	// modified arc trap mods
-	array<string> mods = projectile.ProjectileGetMods()
-	// limited arc trap
-	if ( mods.contains( "limited_arc_trap" ) )
+	if( projectile.ProjectileGetMods().contains( "limited_arc_trap" ) )
 	{
-		if ( projectile in file.arcTrapActivateCount )
+		foreach( ArcTrapLimit arctrap in arctraps)
 		{
-			file.arcTrapActivateCount[ projectile ] += 1
-			// max activate count check
-			if ( file.arcTrapActivateCount[ projectile ] >= ARC_TRAP_ACTIVATE_LIMIT )
-				projectile.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 100 )
+			if( arctrap.owner == owner )
+			{
+				foreach( TrapStruct singletrap in arctrap.traps )
+				{
+					if( singletrap.trap == projectile )
+					{
+						singletrap.count += 1
+						if( singletrap.count >= ARC_TRAP_ACTIVE_LIMIT )
+						{
+							if( IsValid( singletrap.trap ) )
+							{
+								singletrap.trap.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 100 )
+								arctrap.traps.removebyvalue( singletrap )
+							}
+						}
+					}
+				}
+			}
 		}
 	}
-	// one-time arc trap
-	if( mods.contains( "one_time_arc_trap" ) )
+
+	if( projectile.ProjectileGetMods().contains( "one_time_arc_trap" ) )
 	{
-		if ( IsValid( projectile ) )
-			projectile.GrenadeExplode( < 0, 0, 1 > ) // explode after use
+		if( IsValid(projectile) )
+			projectile.GrenadeExplode( <0,0,1> )
 	}
 }
 
@@ -519,10 +544,20 @@ void function ArcTrap_StaggerTitan( entity titan )
 	wait 2.0
 }
 
-// arc trap mods
-void function OnClientConnected( entity player )
+void function ArcTrap_LimitClean( entity player )
 {
-	file.playerOwnedArcTraps[ player ] <- []
+	if( deployedTrap.contains( player.GetUID() ) )
+	{
+		deployedTrap.removebyvalue( player.GetUID() )
+		foreach( ArcTrapLimit arctrap in arctraps )
+		{
+			if( arctrap.owner == player )
+			{
+				if( IsValid( arctrap ) )
+					arctraps.removebyvalue( arctrap )
+			}
+		}
+	}
 }
 
 void function AfterTimeDestroyTrap( entity projectile, float delay )
