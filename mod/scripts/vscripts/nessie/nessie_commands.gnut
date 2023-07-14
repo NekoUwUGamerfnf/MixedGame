@@ -24,7 +24,7 @@ void function Nessie_Useful_Commands_Init()
 	AddClientCommandCallback( "explode_admin", AdminSelfExplode )
 
     //AddClientCommandCallback( "suicide", OPSuicide )
-	//AddClientCommandCallback( "dropweapon", PlayerDropActiveWeapon )
+	AddClientCommandCallback( "dropweapon", PlayerDropActiveWeapon )
 	AddClientCommandCallback( "selfdamage", OPSelfDamage )
 	AddClientCommandCallback( "selfgib", OPSelfGib )
 	//AddClientCommandCallback( "doomedtitan", CC_SpawnDoomedTitan )
@@ -232,12 +232,72 @@ bool function OPSuicide( entity player, array<string> args )
 
 bool function PlayerDropActiveWeapon( entity player, array<string> args )
 {
-	if( !IsValid( player.GetActiveWeapon() ) )
-		return false
+	entity activeWeapon = player.GetActiveWeapon()
+	if( !IsValid( activeWeapon ) )
+		return true
+	// hack here: if player holding a mp_weapon_gunship_missile with "pilot_emptyhanded", we don't do anything
+	if ( IsPilotEmptyHandWeapon( activeWeapon ) )
+		return true
 
-	player.DropWeapon( player.GetActiveWeapon() )
+	player.DropWeapon( activeWeapon )
 	print( "[NESSIE] " + player.GetPlayerName() + " dropped weapon!" )
+	// player has no weapon! want to give them a emptyhand!
+	if ( player.GetMainWeapons().len() == 0 )
+		thread PlayerEmptyHandThink( player )
 	return true
+}
+
+void function PlayerEmptyHandThink( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+
+	// check if we already have emptyhand
+	foreach ( entity weapon in player.GetMainWeapons() )
+	{
+		if ( IsPilotEmptyHandWeapon( weapon ) )
+			return
+	}
+
+	// emptyhand prevents player from picking up other weapons...
+	// if player is holding use, we need to re-enable their weapon pickup
+	// by temp destroy the emptyhand weapon
+	entity emptyHand = player.GiveWeapon( "mp_weapon_gunship_missile", ["pilot_emptyhanded"] )
+	while ( true )
+	{
+		//print( "Waiting for player get another weapon" )
+		WaitFrame()
+		if ( player.IsInputCommandHeld( IN_USE ) ) // no need to support controller?
+		{
+			if ( IsValid( emptyHand ) )
+				emptyHand.Destroy()
+		}
+		else
+		{
+			if ( !IsValid( emptyHand ) )
+				emptyHand = player.GiveWeapon( "mp_weapon_gunship_missile", ["pilot_emptyhanded"] )
+		}
+
+		// wait for player pick up another weapon
+		array<entity> validWeapons
+		foreach ( entity weapon in player.GetMainWeapons() )
+		{
+			if ( IsPilotEmptyHandWeapon( weapon ) )
+				continue
+
+			validWeapons.append( weapon )
+		}
+		if ( validWeapons.len() >= 1 )
+			break
+	}
+
+	if ( IsValid( emptyHand ) )
+		emptyHand.Destroy()
+}
+
+bool function IsPilotEmptyHandWeapon( entity weapon )
+{
+	return weapon.GetWeaponClassName() == "mp_weapon_gunship_missile" && ( weapon.HasMod( "pilot_emptyhanded" ) || weapon.HasMod( "pilot_emptyhanded_boost" ) )
 }
 
 bool function OPSelfDamage( entity player, array<string> args )
