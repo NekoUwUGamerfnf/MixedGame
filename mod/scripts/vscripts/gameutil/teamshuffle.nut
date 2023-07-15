@@ -291,8 +291,8 @@ bool function CanChangeTeam()
 // main utility
 bool function PlayerTrySwitchTeam( entity player, bool fixRespawn = false )
 {
-	string playerFaction = GetFactionChoice( player )
-	string enemyFaction = GetEnemyFaction( player )
+	//string playerFaction = GetFactionChoice( player )
+	//string enemyFaction = GetEnemyFaction( player )
 
 	int oldTeam = player.GetTeam()
 	SetTeam( player, GetOtherTeam( player.GetTeam() ) )
@@ -309,8 +309,8 @@ bool function PlayerTrySwitchTeam( entity player, bool fixRespawn = false )
 		RespawnAsPilot( player )
 
 	// re-assign faction
-	player.SetPersistentVar( "factionChoice", enemyFaction )
-	player.SetPersistentVar( "enemyFaction", playerFaction )
+	//player.SetPersistentVar( "factionChoice", enemyFaction )
+	//player.SetPersistentVar( "enemyFaction", playerFaction )
 
 	// change pet titan's team
 	entity titan = player.GetPetTitan()
