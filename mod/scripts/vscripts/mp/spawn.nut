@@ -23,6 +23,9 @@ global function RateSpawnpoints_SpawnZones
 global function DecideSpawnZone_Generic
 global function DecideSpawnZone_CTF
 
+// modified: make a new function so ai gamemodes don't have to re-decide for each spawn
+global function GetCurrentSpawnZoneForTeam
+
 // modified: prevent spawning in friendly's deadly area
 const float DEADLY_AREA_DURATION = 10.0
 const int DEADLY_AREA_RADIUS = 1000 // try to spawn away from player's max damage range
@@ -1041,5 +1044,13 @@ entity function DecideSpawnZone_CTF( array<entity> spawnzones, int team )
 	
 	spawnStateSpawnzones.activeTeamSpawnzones[ team ] <- chosenZone
 	
+	return spawnStateSpawnzones.activeTeamSpawnzones[ team ]
+}
+
+// modified: make a new function so ai gamemodes don't have to re-decide for each spawn
+entity function GetCurrentSpawnZoneForTeam( int team )
+{
+	if ( !( team in spawnStateSpawnzones.activeTeamSpawnzones ) )
+		return null
 	return spawnStateSpawnzones.activeTeamSpawnzones[ team ]
 }
