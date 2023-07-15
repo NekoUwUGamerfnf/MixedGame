@@ -316,6 +316,9 @@ bool function PlayerTrySwitchTeam( entity player, bool fixRespawn = false )
 	entity titan = player.GetPetTitan()
 	if ( IsValid( titan ) )
 		SetTeam( titan, player.GetTeam() )
+	// destroy all leeched npcs so server won't crash on next leeching
+	foreach ( entity npc in GetLeechedEnts( player ) )
+		npc.Die()
 
 	return true
 }
