@@ -54,6 +54,12 @@ bool function CC_TrySwitchTeam( entity player, array<string> args )
     	Chat_ServerPrivateMessage( player, ANSI_COLOR_ERROR + "当前地图不可切换队伍", false ) // chathook has been fucked up
 		return true
 	}
+
+	if ( player.isSpawning )
+	{
+    	Chat_ServerPrivateMessage( player, ANSI_COLOR_ERROR + "作为泰坦复活途中，不可切换队伍", false ) // chathook has been fucked up
+		return true
+	}
 	
 	if ( GetPlayerArray().len() == 1 )
 	{
