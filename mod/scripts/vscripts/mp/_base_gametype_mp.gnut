@@ -27,7 +27,7 @@ global function SetPlayerCameraToIntermissionCam // shared
 global function IsPlayerDeathsHidden // new added
 
 global function SetPlayerRespawnForced
-global function ForcedRespawn_AddDisabledDamageSourceID // add a damageSourceId that won't trigger forced respawn
+global function AddCallback_ShouldPlayerDoForcedRespawn // add a callback func to check whether we trigger forced respawn
 global function ForcedRespawn_SetDisabledForPlayer // disable forced respawn for certain player
 global function SetLateJoinRespawnEnabled
 
@@ -55,7 +55,7 @@ struct
 	
 	// modified
 	bool forcedRespawn = true
-	array<int> disableForcedRespawnDamageSourceIDs
+	array<bool functionref( entity, table, bool )> shouldDoForcedRespawnCallbacks
 	table<entity, bool> playerDisableForcedRespawn
 
 	bool enableLateRespawn = true
@@ -418,6 +418,9 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	player.SetNoTargetSmartAmmo( false )
 
 	player.ClearExtraWeaponMods()
+
+	// we're not delayed yet, get damage table from damageInfo, so we can use it in ShouldForceRespawnPlayer_FromDamageTable()
+	table damageTable = GetDamageTableFromInfo( damageInfo )
 	
 	// move to "OnPlayerKilled"
 	// disable prediction to prevent it messing with ragdoll in some places, as well as killreplay and such
@@ -563,7 +566,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		wait respawnDelay
 
 		// new intermission cam system
-		if( ShouldForceRespawnPlayer_FromDamageInfo( player, methodOfDeath ) )
+		if( ShouldForceRespawnPlayer_FromDamageTable( player, damageTable ) )
 		{
 			float waitBeforeRespawn = 0.0
 			//if( !shouldDoReplay || respawnDelay >= 3.0 ) // doing this so player can respawn as titan in some modes, but vanilla don't features this lol
@@ -955,10 +958,10 @@ void function SetPlayerRespawnForced( bool forced )
 	file.forcedRespawn = forced
 }
 
-void function ForcedRespawn_AddDisabledDamageSourceID( int damageSourceId )
+void function AddCallback_ShouldPlayerDoForcedRespawn( bool functionref( entity, table, bool ) callbackFunc )
 {
-	if ( !file.disableForcedRespawnDamageSourceIDs.contains( damageSourceId ) )
-		file.disableForcedRespawnDamageSourceIDs.append( damageSourceId )
+	if ( !file.shouldDoForcedRespawnCallbacks.contains( callbackFunc ) )
+		file.shouldDoForcedRespawnCallbacks.append( callbackFunc )
 }
 
 void function ForcedRespawn_SetDisabledForPlayer( entity player, bool disable )
@@ -977,13 +980,16 @@ bool function ShouldForceRespawnPlayer()
 	return file.forcedRespawn
 }
 
-bool function ShouldForceRespawnPlayer_FromDamageInfo( entity victim, int methodOfDeath )
+bool function ShouldForceRespawnPlayer_FromDamageTable( entity victim, table damageTable )
 {
 	if ( !ShouldForceRespawnPlayer() ) // main check
 		return false
 
 	// extra checks
-	if ( file.disableForcedRespawnDamageSourceIDs.contains( methodOfDeath ) )
+	bool shouldForceRespawn = true
+	foreach ( bool functionref( entity, table, bool ) callbackFunc in file.shouldDoForcedRespawnCallbacks )
+		shouldForceRespawn = callbackFunc( victim, damageTable, shouldForceRespawn )
+	if ( !shouldForceRespawn )
 		return false
 
 	if ( victim in file.playerDisableForcedRespawn )

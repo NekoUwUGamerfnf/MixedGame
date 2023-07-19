@@ -407,7 +407,9 @@ void function Escalate( int team )
 // These zones should swap based on which team is dominating where
 int function GetSpawnPointIndex( array< entity > points, int team )
 {
-	entity zone = DecideSpawnZone_Generic( points, team )
+	// modified: make a new function so ai gamemodes don't have to re-decide for each spawn
+	//entity zone = DecideSpawnZone_Generic( points, team )
+	entity zone = GetCurrentSpawnZoneForTeam( team )
 	
 	if ( IsValid( zone ) )
 	{
