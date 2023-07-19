@@ -23,6 +23,12 @@ global function RateSpawnpoints_SpawnZones
 global function DecideSpawnZone_Generic
 global function DecideSpawnZone_CTF
 
+// modified: make a new function so ai gamemodes don't have to re-decide for each spawn
+global function GetCurrentSpawnZoneForTeam
+
+const float PROJECTILE_NOSPAWN_RADIUS = 600
+const float NPC_NOSPAWN_RADIUS = 800
+
 // modified: prevent spawning in friendly's deadly area
 const float DEADLY_AREA_DURATION = 10.0
 const int DEADLY_AREA_RADIUS = 1000 // try to spawn away from player's max damage range
@@ -121,7 +127,7 @@ bool function HasEnemyNearSpawnPoint( int team, entity spawnpoint, bool checkFFa
 	float noSpawnRadius = ENEMY_NOSPAWN_RADIUS
 	if ( checkFFa )
 		noSpawnRadius = FFA_NOSPAWN_RADIUS
-	foreach ( entity player in GetPlayerArrayOfEnemies( team ) )
+	foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
 	{
 		if ( Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) <= noSpawnRadius )
 			return true
@@ -146,7 +152,7 @@ bool function HasFriendlyNearSpawnPoint( int team, entity spawnpoint )
 // modified: in ffa, try to spawn in fight areas, don't make players run across maps to have a fight
 bool function FFA_IsGoodSpawnPoint( int team, entity spawnpoint )
 {
-	foreach ( entity player in GetPlayerArrayOfEnemies( team ) )
+	foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
 	{
 		if ( Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) < FFA_SPAWN_RADIUS
 			 && Distance2D( player.GetOrigin(), spawnpoint.GetOrigin() ) >= FFA_NOSPAWN_RADIUS )
@@ -160,7 +166,7 @@ bool function FFA_IsGoodSpawnPoint( int team, entity spawnpoint )
 // modified: prevent player spawn in places enemies can see!
 bool function EnemyCanSeeSpawnPoint( int team, entity spawnpoint )
 {
-	foreach ( entity player in GetPlayerArrayOfEnemies( team ) )
+	foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
 	{
 		if ( PlayerCanSeePos( player, spawnpoint.GetOrigin(), true, 135 ) )
 			return true
@@ -255,7 +261,12 @@ string function CreateNoSpawnArea( int blockSpecificTeam, int blockEnemiesOfTeam
 	
 	// generate an id
 	noSpawnArea.id = UniqueString( "noSpawnArea" )
-	
+
+	// northstar didn't append current created noSpawnArea to file.noSpawnAreas
+	// didn't tested yet, guess DeleteNoSpawnArea() will never work
+	file.noSpawnAreas[ noSpawnArea.id ] <- noSpawnArea
+	//
+
 	thread NoSpawnAreaLifetime( noSpawnArea )
 	
 	return noSpawnArea.id
@@ -467,7 +478,8 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 		
 	if ( Time() - spawnpoint.s.lastUsedTime <= 10.0 )
 		return false
-		
+
+	// noSpawnArea think
 	foreach ( k, NoSpawnArea noSpawnArea in file.noSpawnAreas )
 	{
 		if ( Distance( noSpawnArea.position, spawnpoint.GetOrigin() ) > noSpawnArea.radius )
@@ -475,15 +487,29 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 			
 		if ( noSpawnArea.blockedTeam != TEAM_INVALID && noSpawnArea.blockedTeam == team )
 			return false
-			
-		if ( noSpawnArea.blockOtherTeams != TEAM_INVALID && noSpawnArea.blockOtherTeams != team )
+
+		// blockOtherTeams == TEAM_INVALID may means "blocking all teams"?
+		//if ( noSpawnArea.blockOtherTeams != TEAM_INVALID && noSpawnArea.blockOtherTeams != team )
+		if ( noSpawnArea.blockOtherTeams == TEAM_INVALID || noSpawnArea.blockOtherTeams != team )
 			return false
 	}
 
-	array<entity> projectiles = GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, spawnpoint.GetOrigin(), 600 )
+	// projectile think
+	//array<entity> projectiles = GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, spawnpoint.GetOrigin(), 600 )
+	array<entity> projectiles = GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, spawnpoint.GetOrigin(), PROJECTILE_NOSPAWN_RADIUS )
 	foreach ( entity projectile in projectiles )
+	{
 		if ( projectile.GetTeam() != team )
 			return false
+	}
+
+	// npc think
+	array<entity> npcs = GetNPCArrayOfEnemies( team )
+	foreach ( entity npc in npcs )
+	{
+		if ( Distance( npc.GetOrigin(), spawnpoint.GetOrigin() ) <= NPC_NOSPAWN_RADIUS )
+			return false
+	}
 	
 	// los check
 	return !spawnpoint.IsVisibleToEnemies( team )
@@ -694,8 +720,9 @@ entity function CreateTeamSpawnZoneEntity( entity spawnzone, int team )
 {
 	entity minimapObj = CreatePropScript( $"models/dev/empty_model.mdl", spawnzone.GetOrigin() )
 	SetTeam( minimapObj, team )	
-	minimapObj.Minimap_SetObjectScale( 0.05 ) // was "Distance2D( < 0, 0, 0 >, spawnzone.GetBoundingMaxs() ) / 20000.0"
-	//minimapObj.Minimap_SetAlignUpright( true ) // vanilla doesn't seem like this
+	//minimapObj.Minimap_SetObjectScale( Distance2D( < 0, 0, 0 >, spawnzone.GetBoundingMaxs() ) / 20000.0 )
+	minimapObj.Minimap_SetObjectScale( 0.05 ) // proper map icon. though vanilla doesn't seem like this
+	//minimapObj.Minimap_SetAlignUpright( true ) // vanilla doesn't seem like you can see enemy's spawnpoint across map
 	minimapObj.Minimap_AlwaysShow( TEAM_IMC, null )
 	minimapObj.Minimap_AlwaysShow( TEAM_MILITIA, null )
 	minimapObj.Minimap_SetHeightTracking( true )
@@ -1041,5 +1068,13 @@ entity function DecideSpawnZone_CTF( array<entity> spawnzones, int team )
 	
 	spawnStateSpawnzones.activeTeamSpawnzones[ team ] <- chosenZone
 	
+	return spawnStateSpawnzones.activeTeamSpawnzones[ team ]
+}
+
+// modified: make a new function so ai gamemodes don't have to re-decide for each spawn
+entity function GetCurrentSpawnZoneForTeam( int team )
+{
+	if ( !( team in spawnStateSpawnzones.activeTeamSpawnzones ) )
+		return null
 	return spawnStateSpawnzones.activeTeamSpawnzones[ team ]
 }

@@ -37,8 +37,8 @@ struct
 void function Hacked_Death_Utility_Init()
 {
 	// callbacks
-	EntityKilledCallback_AddDisabledDamageSourceID( damagedef_despawn ) // modified callback in _codecallbacks_common.gnut
-	ForcedRespawn_AddDisabledDamageSourceID( damagedef_despawn ) // modified callback in _base_gametype_mp.gnut
+	AddCallback_ShouldRunEntityKilledCallback( HackedDeath_ShouldRunEntityKilledCallback ) // modified callback in _codecallbacks_common.gnut
+	AddCallback_ShouldPlayerDoForcedRespawn( HackedDeath_ShouldPlayerForcedRespawn ) // modified callback in _base_gametype_mp.gnut
 
     // funny HACKs!
 	RegisterSignal( "StartHackedDeath" )
@@ -76,6 +76,28 @@ bool function HackedDeath_ShouldHandleDamage( entity ent, var damageInfo )
 }
 
 // NEW callback
+bool function HackedDeath_ShouldRunEntityKilledCallback( entity victim, var damageInfo, bool shouldRunCallback )
+{
+	if ( !victim.IsPlayer() )
+		return shouldRunCallback // default value, inherit last callback
+
+	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	if ( HackedDeath_IsEnabled() && damageSourceId == damagedef_despawn )
+		return false // if hacked death enabled and we're killing the player through damagedef_despawn, we don't do entity killed callbacks and events!
+	return shouldRunCallback
+}
+
+bool function HackedDeath_ShouldPlayerForcedRespawn( entity victim, table damageTable, bool shouldForceRespawn )
+{
+	if ( !victim.IsPlayer() )
+		return shouldForceRespawn // default value, inherit last callback
+
+	int damageSourceId = expect int( damageTable.damageSourceId )
+	if ( HackedDeath_IsEnabled() && damageSourceId == damagedef_despawn )
+		return false // if hacked death enabled and we're killing the player through damagedef_despawn, we don't do forced respawn!
+	return shouldForceRespawn
+}
+
 void function HackedDeathPlayerDamage( entity victim, var damageInfo, table feedbackTable )
 {
 	if ( HackedDeath_IsEnabled() )
@@ -327,7 +349,8 @@ void function StopPlayerJumpJetSound( entity player )
 void function ForceHideForHackedDeath( entity player )
 {
 	player.EndSignal( "OnDestroy" )
-	
+
+	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // hide before wait starts
 	WaitFrame() // assume player will never be in hacked death before this
 	while( player.s.hackedDeath ) // keep hiding player while in hacked death
 	{
