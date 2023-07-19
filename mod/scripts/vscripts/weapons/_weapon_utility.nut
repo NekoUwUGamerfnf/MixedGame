@@ -313,11 +313,16 @@ void function TripleThreatGrenade_DamagedPlayerOrNPC( entity ent, var damageInfo
 	if ( !IsValid( ent ) )
 		return
 
-	if ( ent.GetClassName() == "grenade_frag" )
+	// titanfall 2 uses "grenade"
+	//if ( ent.GetClassName() == "grenade_frag" )
+	if ( ent.GetClassName() == "grenade" )
 		return
 
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_DOOMED_HEALTH_LOSS )
 		return
+
+	// debug
+	//print( "RUNNING TripleThreatGrenade_DamagedPlayerOrNPC()" )
 
 	vector damagePosition = DamageInfo_GetDamagePosition( damageInfo )
 
@@ -347,6 +352,9 @@ void function TripleThreatGrenade_DamagedPlayerOrNPC( entity ent, var damageInfo
 		zDamageDiff = GraphCapped( zDifferenceOrigin, 0.0, -32.0, 1.0, 0.0 )
 
 	DamageInfo_ScaleDamage( damageInfo, zDamageDiff )
+
+	// debug
+	//sprint( "Damage Scale: " + string( zDamageDiff ) )
 }
 
 void function Defender_DamagedPlayerOrNPC( entity ent, var damageInfo )
