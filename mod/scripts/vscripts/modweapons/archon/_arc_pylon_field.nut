@@ -142,7 +142,7 @@ function ArcPylonFieldDamage( entity owner, entity pylon, vector origin )
         0,										// distanceFromAttacker
         0,					                    // explosionForce
         DF_ELECTRICAL | DF_STOPS_TITAN_REGEN,	// scriptDamageFlags
-        eDamageSourceId.mp_titanweapon_arc_pylon )			// scriptDamageSourceIdentifier
+        eDamageSourceId.mp_titanweapon_tesla_node )		// scriptDamageSourceIdentifier, registered in mp_titanweapon_tesla_node.nut
 }
 
 function CreateBeam( weapon, target, startPos, endPos, lifeDuration = ARC_CANNON_BEAM_LIFETIME, radius = 256, boltWidth = 4, noiseAmplitude = 5, hasTarget = true, firstBeam = false )

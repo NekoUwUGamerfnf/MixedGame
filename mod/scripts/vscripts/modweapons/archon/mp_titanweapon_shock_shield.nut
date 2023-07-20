@@ -48,7 +48,16 @@ function MpTitanweaponShockShield_Init()
 	RegisterSignal( "FireAmpedVortexBullet" )
 
 	#if SERVER
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_vortex_shield, ShockShieldOnDamage )
+		// adding a new damageSourceId. it's gonna transfer to client automatically
+		RegisterWeaponDamageSource( "mp_titanweapon_shock_shield", "Shock Shield" )
+		// modified callback in _codecallbacks.gnut
+		AddCallback_WeaponMod_DamageSourceIdOverride( 
+			"mp_titanweapon_vortex_shield",					// weapon name
+			"shock_shield",									// weapon mod
+			eDamageSourceId.mp_titanweapon_shock_shield		// damageSourceId override
+		)
+
+		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_shock_shield, ShockShieldOnDamage )
 	#endif
 
 

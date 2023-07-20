@@ -581,7 +581,8 @@ function FireArcWithTargets( entity weapon, table firstTargetInfo, WeaponPrimary
 	zapInfo.hitBox			<- firstTargetInfo.hitBox
 	zapInfo.zappedTargets 	<- {}
 	zapInfo.zappedTargets[ firstTargetInfo.target ] <- true
-	zapInfo.dmgSourceID 	<- weapon.GetDamageSourceID()
+	// damageSourceId temp turns to hardcode!
+	zapInfo.dmgSourceID 	<- eDamageSourceId.mp_titanweapon_archon_cannon //weapon.GetDamageSourceID()
 	local chainNum = 1
 	thread ZapTargetRecursive( expect entity( firstTargetInfo.target), zapInfo, zapInfo.muzzleOrigin, expect vector( firstTargetInfo.hitLocation ), chainNum )
 

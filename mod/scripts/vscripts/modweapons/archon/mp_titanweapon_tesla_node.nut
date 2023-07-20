@@ -59,11 +59,15 @@ void function MpTitanAbilityArcPylon_Init()
 	PrecacheParticleSystem( LASER_TRIP_ZAP_FX )
 
 	#if SERVER
+		// adding a new damageSourceId. it's gonna transfer to client automatically
+		RegisterWeaponDamageSource( "mp_titanweapon_tesla_node", "Tesla Node" )
+
 		file.ArcPylonsIdx = CreateScriptManagedEntArray()
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titanability_laser_trip, ArcPylon_DamagedPlayerOrNPC )
+		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_tesla_node, ArcPylon_DamagedPlayerOrNPC )
 	#endif
 }
-    void function OnWeaponOwnerChanged_titanweapon_Arc_pylon( entity weapon, WeaponOwnerChangedParams changeParams )
+
+void function OnWeaponOwnerChanged_titanweapon_Arc_pylon( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 	#if SERVER
 	entity owner = weapon.GetWeaponOwner()
