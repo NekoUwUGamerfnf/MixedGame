@@ -6,6 +6,9 @@ global function OnAbilityEnd_BarrageCore
 void function BarrageCore_Init()
 {
 #if SERVER
+	// adding a new damageSourceId. it's gonna transfer to client automatically
+	RegisterWeaponDamageSource( "mp_titancore_barrage_core_launcher", "Barrage Core" )
+
 	// vortex refire override
 	Vortex_AddImpactDataOverride_WeaponMod( 
 		"mp_titanweapon_flightcore_rockets", // weapon name

@@ -21,8 +21,11 @@ void function MpTitanweaponChargeBall_Init()
 	PrecacheParticleSystem( $"P_impact_exp_emp_med_air" )
 
 	#if SERVER
-		AddDamageCallbackSourceID( eDamageSourceId.charge_ball, ChargeBallOnDamage )
-		RegisterBallLightningDamage( eDamageSourceId.charge_ball )
+		// adding a new damageSourceId. it's gonna transfer to client automatically
+	    RegisterWeaponDamageSource( "mp_titanweapon_charge_ball", "Charge Ball" )
+
+		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_charge_ball, ChargeBallOnDamage )
+		RegisterBallLightningDamage( eDamageSourceId.mp_titanweapon_charge_ball )
 	#endif
 }
 
@@ -194,7 +197,7 @@ entity function FireArchonChargeBall( entity weapon, vector pos, vector dir, boo
 		bolt.SetProjectileLifetime( lifetime )
 
 		#if SERVER
-			bolt.ProjectileSetDamageSourceID( eDamageSourceId.charge_ball )
+			bolt.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_charge_ball )
 
 			AttachBallLightning( bolt, bolt ) // not using( weapon, bolt ) since we want to make the lightning use projectile's damageSourceID
 

@@ -27,6 +27,9 @@ global function CodeCallback_OnServerAnimEvent
 global function AddCallback_OnPlayerGrappled
 global function AddCallback_ShouldPlayDamageChatter
 
+// modified settings override
+global function AddCallback_WeaponMod_DamageSourceIdOverride
+
 struct AccumulatedDamageData
 {
 	float accumulatedDamage
@@ -51,6 +54,9 @@ struct
 	// modified callbacks
 	array< void functionref( entity, entity ) > onPlayerGrappledCallbacks
 	array< bool functionref( entity, entity, var, table, bool ) > shouldPlayDamageChatterCallbacks
+
+	// modified settings override
+	table< string, table<string, int> > damageSourceIdOverride_WeaponMod
 } file
 
 void function CodeCallback_Init()
@@ -91,6 +97,7 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 	}
 
 	// Set damage source correctly when npc grunts or titans try to melee us
+	// THIS IS HARDCODED AS HELL
 	if ( attackerIsNPC && DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
 	{
 		if ( IsValid( attacker ) )
@@ -117,6 +124,10 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 			}
 		}
 	}
+
+	// modified settings: damageSourceId Override
+	DamageInfo_SetDamageSourceIdentifier( damageInfo, GetDamageSourceIdOverride( damageInfo ) )
+	//
 
 	#if VERBOSE_DAMAGE_PRINTOUTS
 		printt( "CodeCallback_DamagePlayerOrNPC ent:", ent )
@@ -1116,3 +1127,55 @@ void function CodeCallback_OnServerAnimEvent( entity ent, string eventName )
 	PerfEnd( PerfIndexServer.CB_OnServerAnimEvent )
 }
 #endif // #if MP
+
+
+// modified settings override
+void function AddCallback_WeaponMod_DamageSourceIdOverride( string weaponName, string modName, int damageSourceId )
+{
+	if ( !( weaponName in file.damageSourceIdOverride_WeaponMod ) )
+		file.damageSourceIdOverride_WeaponMod[ weaponName ] <- {}
+
+	if ( !( modName in file.damageSourceIdOverride_WeaponMod[ weaponName ] ) )
+		file.damageSourceIdOverride_WeaponMod[ weaponName ][ modName ] <- damageSourceId
+	else
+		file.damageSourceIdOverride_WeaponMod[ weaponName ][ modName ] = damageSourceId
+}
+
+int function GetDamageSourceIdOverride( var damageInfo )
+{
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if ( IsValid( inflictor ) )
+	{
+		string weaponName
+		array<string> mods
+		if ( inflictor.IsProjectile() ) // projectile condition
+		{
+			weaponName = inflictor.ProjectileGetWeaponClassName()
+			mods = Vortex_GetRefiredProjectileMods( inflictor ) // get projectile mods with refire support
+		}
+		else if ( inflictor.IsPlayer() || inflictor.IsNPC() ) // hitscan weapon condition
+		{
+			entity weapon = inflictor.GetActiveWeapon()
+			if ( IsValid( weapon ) )
+			{
+				weaponName = weapon.GetWeaponClassName()
+				mods = weapon.GetMods()
+			}
+		}
+
+		if ( weaponName != "" && mods.len() > 0 )
+		{
+			if ( weaponName in file.damageSourceIdOverride_WeaponMod )
+			{
+				foreach ( string modName in mods )
+				{
+					if ( modName in file.damageSourceIdOverride_WeaponMod[ weaponName ] )
+						return file.damageSourceIdOverride_WeaponMod[ weaponName ][ modName ]
+				}
+			}
+		}
+	}
+
+	// default value, return basic damageSourceId
+	return DamageInfo_GetDamageSourceIdentifier( damageInfo )
+}
