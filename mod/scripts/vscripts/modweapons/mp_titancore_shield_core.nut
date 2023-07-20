@@ -9,7 +9,11 @@ global function OnAbilityStart_Shield_Core
 const float SHIELD_CORE_REGEN_DELAY = 2.0
 const int SHILED_CORE_REGEN_RATE = 150
 const float SHIELD_CORE_REGEN_TICKRATE = 0.1 // 1500 shields per second
-const int SHIELD_CORE_MAX_SHIELD = 4000
+const float SHIELD_CORE_SHIELD_MULTIPLIER = 1.6 // 4000 shields by default, scale up
+// nerfed shield effect if titan already enabled shield regen
+const float SHIELD_CORE_REGEN_DELAY_REGENNING = 2.0
+const int SHILED_CORE_REGEN_RATE_REGENNING = 150
+const float SHIELD_CORE_SHIELD_MULTIPLIER_REGENNING = 1.5
 
 void function Shield_Core_Init()
 {
@@ -78,14 +82,14 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 	table storedShield = {}
 	storedShield.starterShield <- soul.GetShieldHealth()
 	storedShield.starterMaxShield <- soul.GetShieldHealthMax()
-	soul.SetShieldHealthMax( SHIELD_CORE_MAX_SHIELD )
-	soul.SetShieldHealth( SHIELD_CORE_MAX_SHIELD )
-	AddEntityCallback_OnDamaged( owner, TrackShieldCoreBeingDamaged )
 
 	if ( owner.IsPlayer() )
 	{
 		ScreenFade( owner, 100, 100, 0, 10, 0.1, coreDuration, FFADE_OUT | FFADE_PURGE )
 	}
+
+	// add OnDamagedCallback before OnThreadEnd()
+	AddEntityCallback_OnDamaged( owner, TrackShieldCoreBeingDamaged )
 
 	OnThreadEnd(
 	function() : ( weapon, soul, owner, storedShield )
@@ -119,8 +123,23 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 		}
 	)
 
+	float shieldMultiplier = SHIELD_CORE_SHIELD_MULTIPLIER
+	float regenDelay = SHIELD_CORE_REGEN_DELAY
+	int regenRate = SHILED_CORE_REGEN_RATE
+
+	// soul already have shield regen! do nerfed effect
+	if ( TitanHasRegenningShield( soul ) )
+	{
+		shieldMultiplier = SHIELD_CORE_SHIELD_MULTIPLIER_REGENNING
+		regenDelay = SHIELD_CORE_REGEN_DELAY_REGENNING
+		int regenRate = SHILED_CORE_REGEN_RATE_REGENNING
+	}
+
+	soul.SetShieldHealthMax( int( soul.GetShieldHealthMax() * shieldMultiplier ) )
+	soul.SetShieldHealth( soul.GetShieldHealthMax() )
+
 	float startTime = Time()
-	owner.p.lastDamageTime = Time() - SHIELD_CORE_REGEN_DELAY // reset lastDamageTime, start player regen
+	owner.p.lastDamageTime = Time() - regenDelay // reset lastDamageTime, force start player regen
 	while( true )
 	{
 		if( IsValid( soul ) )
@@ -128,7 +147,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			if( Time() >= startTime + coreDuration )
 				break
 			if ( Time() - owner.p.lastDamageTime >= SHIELD_CORE_REGEN_DELAY && !owner.ContextAction_IsActive() )
-				soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + SHILED_CORE_REGEN_RATE ) )
+				soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + regenRate ) )
 			
 			wait SHIELD_CORE_REGEN_TICKRATE
 		}
