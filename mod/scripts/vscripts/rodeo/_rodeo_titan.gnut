@@ -54,20 +54,21 @@ global function Battery_StopFXAndHideIconForPlayer
 global function RemovePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 global function RestorePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 
-#if MP // classic rodeo
+// RODEO modifiers
+#if MP
+// classic rodeo
 global function ClassicRodeo_SetEnabled
 global function ClassicRodeo_IsEnabled
 
 global function ClassicRodeo_SetStarterBatteryCount
 global function ClassicRodeo_AllowContinouslyRemoveBattery // this will make players able to remove batteries until
-global function ClassicRodeo_SetBatteryRemovalDamageAmped // this will make removing batteries also removing titan's shield, and rodeo grenade will deal 2x damage
+global function ClassicRodeo_SetBatteryRemovalDamageAmped // this will make removing batteries also removing titan's shield
+global function ClassicRodeo_SetBatteryRemovalDamageCoreMeter // removing battery will reduce a titan's core meter!
 global function ClassicRodeo_BatteryContainerOnlyProtectsOnce // every titan only have one battery protects their panel like ttf1's panel
 global function ClassicRodeo_OwnerApplyBatteryAllowed // owner can't add battery count to their titans
 // fuck once I thought this can be enabled to vanilla rodeo mechanic and tried to make it a independent mechanic!
 global function ClassicRodeo_SetShouldAutomaticallyDoRodeoSequence // player won't remove batteries or do other sequences if they're not inputing anything
 global function ClassicRodeo_SetDeathBatteiesDropEnabled
-global function ClassicRodeo_SetBatteryRemovalDamageScale
-global function ClassicRodeo_SetRodeoGrenadeDamageNerfEnabled // normally throwing a grenade will only deal half of the rodeo damage
 
 global function ClassicRodeo_IsPlayerRemovingBatteryPack
 global function ClassicRodeo_IsPlayerThrowingGrenadeInHatch
@@ -87,6 +88,10 @@ global function Rodeo_SetWorldBatteryMaxCount
 global function Rodeo_SetTitanPickupBatteryAllowed
 global function Rodeo_BatteryThiefHighlightEnabled
 global function Rodeo_SetTitanBatteryDropOnDeath
+
+global function Rodeo_SetBatteryRemovalDamageFlags // modify damageflag by this
+global function Rodeo_SetBatteryRemovalDamageScale
+global function Rodeo_SetRodeoGrenadeDamageScale // default is 0.5, half the damage as battery removal
 #endif // MP
 
 #if DEV
@@ -174,12 +179,11 @@ struct
 	int classicRodeoMaxBatteryCount = 1 // default
 	bool continouslyRemoveBattery = false
 	bool batteryRemovalDamageAmped = false
+	bool batteryRemovalDamageCoreMeter = false
 	bool batteryContainerOnlyProtectsOnce = false
 	bool ownerApplyBatteryAllowed = true
 	bool automaticallyDoRodeoSequence = true
 	bool dropBatteryOnTitanDeath = false
-	float batteryRemovalDamageScale = 1.0
-	bool rodeoGrenadeDamageNerf = true
 
 	// nessie modify
 	int worldBatteryMaxCount = WORLD_BATTERY_MAX_COUNT_DEFAULT
@@ -189,6 +193,10 @@ struct
 	bool titanPickUpBattery = false
 	bool batteryThiefHighlightEnable = true
 	bool titanBatteryDropOnDeath = false
+
+	int batteryRemovalDamageFlags = damageTypes.rodeoBatteryRemoval
+	float batteryRemovalDamageScale = 1.0
+	float rodeoGrenadeDamageScale = 0.5 // default value
 
 	table <entity, bool> titanSoulRodeoSequenceEnabled
 } file
@@ -1695,20 +1703,16 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 	
 	#if MP
 		bool isGrenadeDamage = PlayerHasBattery( attacker )
+		// classic rodeo case
 		bool classicRodeo = ClassicRodeo_IsEnabled()
 		if( classicRodeo && ClassicRodeo_GetSoulBatteryCount( victimTitanSoul ) >= 1 )
 			isGrenadeDamage = false // check for classicRodeo conditions: if victimTitan has battery left, then it must be a batteryRemoval rodeo
-		
-		bool damageNerf = isGrenadeDamage
-		if( classicRodeo && ( file.batteryRemovalDamageAmped || !file.rodeoGrenadeDamageNerf ) ) // classic rodeo grenade is amped if file.batteryRemovalDamageAmped
-			damageNerf = false
-		
-		if ( damageNerf ) //i.e. you are throwing a grenade
-			damageAmount /= 2
 
 		SetSoulBatteryCount( victimTitanSoul, GetSoulBatteryCount( victimTitanSoul ) - 1 )
 
-		int damageScriptType = damageTypes.rodeoBatteryRemoval
+		// modified damage flags
+		//int damageScriptType = damageTypes.rodeoBatteryRemoval
+		int damageScriptType = file.batteryRemovalDamageFlags
 
 		if ( GetDoomedState( victim ) )
 		{
@@ -1720,8 +1724,12 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 		}
 
 		// modify damage again
-		if ( classicRodeo )
-			damageAmount = int( damageAmount * file.batteryRemovalDamageScale )
+		float damageScale = file.batteryRemovalDamageScale
+		if( isGrenadeDamage )
+			damageScale = file.rodeoGrenadeDamageScale
+
+		damageAmount = int( damageAmount * damageScale )
+		//
 
 		table damageTable =
 		{
@@ -1731,30 +1739,35 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 			origin = victim.GetOrigin()
 			hitbox = 2
 		}
-		
-		//print( !isGrenadeDamage && ClassicRodeo_IsEnabled() )
-		if( !isGrenadeDamage && classicRodeo ) // confirm it's batteryStyle damage
+
+		if( !isGrenadeDamage && classicRodeo ) // confirm it's batteryStyle damage and classic rodeo
 		{
 			// take additional damage to remove all shields. victim.GetShieldHealth() won't work for titans! have to track soul's shield amount
-			if( file.batteryRemovalDamageAmped ) // if damageAmped, will also remove all shields from victim, means it will always deal 2500 damage to titan's health
+			if ( file.batteryRemovalDamageAmped ) // if damageAmped, will also remove all shields from victim, means it will always deal 2500 damage to titan's health
 			{
-				victim.TakeDamage( victimTitanSoul.GetShieldHealth(), attacker, attacker, damageTable )
-				//victimTitanSoul.SetShieldHealth( 0 ) // this won't give player additional titanMeters, maybe better?
+				//victimTitanSoul.SetShieldHealth( 0 ) // this method won't give player additional titanMeters, maybe better?
+				table ampDamageTable = clone damageTable
+				// try to remove DF_BYPASS_SHIELD from shield damage
+				if ( ampDamageTable.scriptType & DF_BYPASS_SHIELD )
+					ampDamageTable.scriptType = ampDamageTable.scriptType & ~DF_BYPASS_SHIELD
+				victim.TakeDamage( victimTitanSoul.GetShieldHealth(), attacker, attacker, ampDamageTable )
 			}
-			entity coreWeapon = victim.GetOffhandWeapon( OFFHAND_EQUIPMENT )
-			if( IsValid( coreWeapon ) )
+
+			if ( file.batteryRemovalDamageCoreMeter )
 			{
-				if( !CheckCoreAvailable( coreWeapon ) )
+				entity coreWeapon = victim.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+				if( IsValid( coreWeapon ) )
 				{
-					// also remove some of core meter if core not avaliable yet
-					float currentCoreMeter = SoulTitanCore_GetNextAvailableTime( victimTitanSoul )
-					float goalCoreMeter = max( 0, currentCoreMeter - ( GetCurrentPlaylistVarFloat( "battery_core_frac", 0.2 ) * GetCurrentPlaylistVarFloat( "earn_meter_titan_multiplier", 1.0 ) ) )
-					SoulTitanCore_SetNextAvailableTime( victimTitanSoul, goalCoreMeter )
+					if( !CheckCoreAvailable( coreWeapon ) )
+					{
+						// also remove some of core meter if core not avaliable yet
+						float currentCoreMeter = SoulTitanCore_GetNextAvailableTime( victimTitanSoul )
+						float goalCoreMeter = max( 0, currentCoreMeter - ( GetCurrentPlaylistVarFloat( "battery_core_frac", 0.2 ) * GetCurrentPlaylistVarFloat( "earn_meter_titan_multiplier", 1.0 ) ) )
+						SoulTitanCore_SetNextAvailableTime( victimTitanSoul, goalCoreMeter )
+					}
 				}
 			}
 		}
-		if( classicRodeo ) // classic rodeo behavior: bypass shields, works both for batteryRemoval and grenadeThrow
-			damageTable.scriptType = damageScriptType | DF_BYPASS_SHIELD
 
 		// deal damage
 		victim.TakeDamage( damageAmount, attacker, attacker, damageTable )
@@ -3976,6 +3989,11 @@ void function ClassicRodeo_SetBatteryRemovalDamageAmped( bool amp )
 	file.batteryRemovalDamageAmped = amp
 }
 
+void function ClassicRodeo_SetBatteryRemovalDamageCoreMeter( bool damageCore )
+{
+	file.batteryRemovalDamageCoreMeter = damageCore
+}
+
 void function ClassicRodeo_BatteryContainerOnlyProtectsOnce( bool once )
 {
 	file.batteryContainerOnlyProtectsOnce = once
@@ -3994,16 +4012,6 @@ void function ClassicRodeo_SetShouldAutomaticallyDoRodeoSequence( bool should )
 void function ClassicRodeo_SetDeathBatteiesDropEnabled( bool enabled )
 {
 	file.dropBatteryOnTitanDeath = enabled
-}
-
-void function ClassicRodeo_SetBatteryRemovalDamageScale( float scale )
-{
-	file.batteryRemovalDamageScale = scale
-}
-
-void function ClassicRodeo_SetRodeoGrenadeDamageNerfEnabled( bool enabled )
-{
-	file.rodeoGrenadeDamageNerf = enabled
 }
 ///////////////////////////////////////
 ///// CLASSIC RODEO FUNCTIONS END /////
@@ -4083,5 +4091,20 @@ void function Rodeo_BatteryThiefHighlightEnabled( bool enable )
 void function Rodeo_SetTitanBatteryDropOnDeath( bool drop )
 {
 	file.titanBatteryDropOnDeath = drop
+}
+
+void function Rodeo_SetBatteryRemovalDamageFlags( int flags )
+{
+	file.batteryRemovalDamageFlags = flags
+}
+
+void function Rodeo_SetBatteryRemovalDamageScale( float scale )
+{
+	file.batteryRemovalDamageScale = scale
+}
+
+void function Rodeo_SetRodeoGrenadeDamageScale( float scale )
+{
+	file.rodeoGrenadeDamageScale = scale
 }
 #endif // MP
