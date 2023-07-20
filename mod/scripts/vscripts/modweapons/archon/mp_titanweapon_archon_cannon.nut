@@ -36,7 +36,9 @@ void function MpTitanweaponArchonCannon_Init()
 	ArchonCannon_PrecacheFX()
 
 	#if SERVER
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_sniper, ArchonCannonOnDamage )
+		// adding a new damageSourceId. it's gonna transfer to client automatically
+	    RegisterWeaponDamageSource( "mp_titanweapon_archon_cannon", "Archon Cannon" )
+		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_archon_cannon, ArchonCannonOnDamage )
 	#endif
 }
 

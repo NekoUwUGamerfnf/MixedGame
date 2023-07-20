@@ -42,7 +42,7 @@ var function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams,
 	{
 		nade.SetModel( $"models/weapons/grenades/m20_f_grenade_projectile.mdl" )
 		#if SERVER
-			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_multi_cluster ) // change damageSourceID
+			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titancore_barrage_core_launcher ) // change damageSourceID
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
 		#else
@@ -94,7 +94,7 @@ void function StartClusterAfterDelay( entity projectile, vector normal) {
 			untypedArray.append( mod )
 		popcornInfo.weaponName = "mp_titanweapon_flightcore_launcher"
 		popcornInfo.weaponMods = untypedArray
-		popcornInfo.damageSourceId = eDamageSourceId.mp_titanweapon_multi_cluster
+		popcornInfo.damageSourceId = eDamageSourceId.mp_titancore_barrage_core_launcher
 		popcornInfo.count = 5
 		popcornInfo.delay = mods.contains( "rapid_detonator" ) ? 0.225 : 0.15 // avg delay and duration -30%
 		popcornInfo.offset = 0.1

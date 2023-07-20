@@ -23,9 +23,11 @@ const string BERSERKER_CORE_MELEE_MOD_NAME = "berserker_core_punch"
 void function Berserker_Core_Init()
 {
 	#if SERVER
+		// adding a new damageSourceId. it's gonna transfer to client automatically
+		RegisterWeaponDamageSource( "mp_titancore_berserker_core", "Berserker Core" )
 		// modified function in sh_melee_titan, other players can't counter berserker core's melee
 		TitanMelee_AddCounterImmuneMod( BERSERKER_CORE_MELEE_MOD_NAME )
-		TitanMelee_AddDamageSourceIdMod( BERSERKER_CORE_MELEE_MOD_NAME, eDamageSourceId.berserker_melee )
+		TitanMelee_AddDamageSourceIdMod( BERSERKER_CORE_MELEE_MOD_NAME, eDamageSourceId.mp_titancore_berserker_core )
 	#endif
 }
 

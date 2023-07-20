@@ -47,7 +47,8 @@ void function MpTitanweaponStormBall_Init()
 	PrecacheParticleSystem( FX_EMP_ORB )
 
 	#if SERVER
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_emp, StormCore_DamagedTarget )
+		// damageSourceId registered in mp_titancore_storm_core.nut
+		AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_storm_core, StormCore_DamagedTarget )
 	#endif
 }
 
@@ -180,7 +181,7 @@ void function FireStormBall( entity weapon, vector pos, vector dir, bool shouldP
 
 			if ( IsValid( bolt ) )
 			{
-				bolt.ProjectileSetDamageSourceID( eDamageSourceId.mp_titancore_emp ) // change damageSourceID
+				bolt.ProjectileSetDamageSourceID( eDamageSourceId.mp_titancore_storm_core ) // change damageSourceID
 				PlayFXOnEntity( FX_EMP_FIELD, bolt, "", <0, 0, -21.0> )
 				PlayFXOnEntity( FX_EMP_FIELD, bolt, "", <0, 0, -20.0> )
 				PlayFXOnEntity( FX_EMP_FIELD, bolt, "", <0, 0, -22.0> )
@@ -309,7 +310,7 @@ function StormCoreFieldDamage( entity weapon, entity bolt, vector origin )
 		0,										// distanceFromAttacker
 		0,					                    // explosionForce
 		flags,	// scriptDamageFlags
-		eDamageSourceId.mp_titancore_emp )			// scriptDamageSourceIdentifier
+		eDamageSourceId.mp_titancore_storm_core )			// scriptDamageSourceIdentifier
 }
 
 void function StormCoreSonar_Think( entity ent, int sonarTeam, entity owner, vector origin )
@@ -326,6 +327,8 @@ void function StormCoreSonar_Think( entity ent, int sonarTeam, entity owner, vec
 	SonarEnd( ent, sonarTeam )
 }
 
+// UNUSED
+/*
 void function OnStormBallCollDamaged( entity collision, var damageInfo )
 {
 	entity arcBall = collision.GetParent()
@@ -346,7 +349,7 @@ void function OnStormBallCollDamaged( entity collision, var damageInfo )
 	{
 		if ( DamageInfo_GetInflictor( damageInfo ) != arcBall )
 		{
-			if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.mp_titanweapon_arc_cannon && attacker == owner )
+			if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.mp_titanweapon_archon_cannon && attacker == owner )
 			{
 				entity ballLightning = expect entity( arcBall.s.ballLightning )
 				int inflictorTeam = ballLightning.GetTeam()
@@ -361,7 +364,7 @@ void function OnStormBallCollDamaged( entity collision, var damageInfo )
 				fxData.damage = float( arcBall.GetProjectileWeaponSettingInt( eWeaponVar.explosion_damage ) )
 				fxData.deathPackage = fxData.deathPackage | DF_CRITICAL
 
-				thread BallLightningZapTargets( expect entity( arcBall.s.ballLightning ), arcBall.GetOrigin(), inflictorTeam, eDamageSourceId.mp_titanweapon_arc_ball, fxData, true )
+				thread BallLightningZapTargets( expect entity( arcBall.s.ballLightning ), arcBall.GetOrigin(), inflictorTeam, eDamageSourceId.mp_titancore_storm_core, fxData, true )
 				thread StormBallExplode( arcBall )
 			}
 			else if ( attacker.GetTeam() != ownerTeam )
@@ -372,7 +375,7 @@ void function OnStormBallCollDamaged( entity collision, var damageInfo )
 	}
 }
 
-/*void function TrackCollision( entity prop_physics, entity projectile )
+void function TrackCollision( entity prop_physics, entity projectile )
 {
 	prop_physics.EndSignal( "OnDestroy" )
 	projectile.EndSignal( "OnDestroy" )
@@ -399,7 +402,8 @@ void function OnStormBallCollDamaged( entity collision, var damageInfo )
 	// 	}
 	// }
 	WaitForever()
-}*/
+}
+*/
 
 void function StormBallExplode( entity projectile )
 {
@@ -421,7 +425,7 @@ void function StormBallExplode( entity projectile )
 		0,										// distanceFromAttacker
 		0,										// explosionForce
 		DF_ELECTRICAL | DF_STOPS_TITAN_REGEN | DF_DOOM_FATALITY | DF_SKIP_DAMAGE_PROT,							// scriptDamageFlags
-		eDamageSourceId.mp_titancore_emp )			// scriptDamageSourceIdentifier
+		eDamageSourceId.mp_titancore_storm_core )			// scriptDamageSourceIdentifier
 	projectile.Destroy()
 }
 
@@ -477,7 +481,7 @@ void function StormCoreSmokescreen( entity bolt, asset fx, entity owner )
 	smokescreen.smokescreenFX = fx
 	smokescreen.lifetime = 5.0
 	smokescreen.ownerTeam = owner.GetTeam()
-	smokescreen.damageSource = eDamageSourceId.mp_titancore_emp
+	smokescreen.damageSource = eDamageSourceId.mp_titancore_storm_core
 	smokescreen.deploySound1p = ""
 	smokescreen.deploySound3p = ""
 	smokescreen.attacker = owner

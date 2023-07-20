@@ -13,6 +13,9 @@ const FUSE_TIME = 0.5
 void function MpTitanweaponGrenadeLauncher_Init()
 {
 #if SERVER
+	// adding a new damageSourceId. it's gonna transfer to client automatically
+	RegisterWeaponDamageSource( "mp_titanweapon_grenade_launcher", "Grenade Salvo" )
+
 	// vortex refire override
 	Vortex_AddImpactDataOverride_WeaponMod( 
 		"mp_titanweapon_salvo_rockets", // weapon name
@@ -80,7 +83,7 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	{
 		nade.SetModel( $"models/weapons/grenades/m20_f_grenade_projectile.mdl" )
 		#if SERVER
-			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_shoulder_grenade ) // change damageSourceID
+			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_grenade_launcher ) // change damageSourceID
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
 		#else

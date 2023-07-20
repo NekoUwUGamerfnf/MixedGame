@@ -26,10 +26,12 @@ void function MpTitanWeaponStormWave_Init()
 	PrecacheParticleSystem( FLAMEWAVE_EFFECT )
 	PrecacheParticleSystem( FLAMEWAVE_EFFECT_CONTROL )
 
-	/*#if SERVER
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_flame_wave, StormWave_DamagedPlayerOrNPC )
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_flame_wave_secondary, StormWave_DamagedPlayerOrNPC )
-	#endif*/
+	#if SERVER
+		// adding a new damageSourceId. it's gonna transfer to client automatically
+	    RegisterWeaponDamageSource( "mp_titancore_storm_core", "Storm Core" )
+
+		//AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_storm_core, StormWave_DamagedPlayerOrNPC )
+	#endif
 }
 
 void function OnWeaponActivate_titancore_storm_wave( entity weapon )
