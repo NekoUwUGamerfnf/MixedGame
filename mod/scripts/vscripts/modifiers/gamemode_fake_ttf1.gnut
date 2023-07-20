@@ -2,6 +2,7 @@ global function Modded_Gamemode_Fake_Titanfall1_Init
 
 const int TITAN_SHIELD_PER_SEGMENT = 1000
 const int TITAN_HEALTH_PER_SEGMENT = 1500
+const float TITAN_DOOMED_HEALTH_FRAC = 1.0 // fake ttf1 behavior: doomed health is almost same as undoomed health
 
 const string ANSI_COLOR_END = "\x1b[0m"
 const string ANSI_COLOR_BLUE = "\x1b[38;5;81m"
@@ -35,6 +36,7 @@ void function Modded_Gamemode_Fake_Titanfall1_Init()
 	//ClassicRodeo_SetShouldAutomaticallyDoRodeoSequence( true )
 
     AddCallback_OnTitanGetsNewTitanLoadout( OnTitanGetsLoadout ) // titan settings
+    AddCallback_OnTitanDoomed( OnTitanDoomed ) // doomed settings
 }
 
 void function OnClientConnected( entity player )
@@ -65,9 +67,10 @@ void function SetupTTF1StyleTitan( entity titan, TitanLoadoutDef titanLoadout )
 	TitanHealth_SetSoulShieldDamageReductionScale( soul, 0.75 )
     // doomed state
     TitanHealth_SetSoulInfiniteDoomedState( soul, false )
+    TitanHealth_SetSoulDoomedHealthLossDamage( soul, 0.8 )
 
     // wait for next frame before we apply and classmods
-    WaitFrame() 
+    WaitEndFrame() 
 
     // health
     thread TitanHealthWatcher( titan ) // prevent changing health midway
@@ -104,6 +107,9 @@ void function TitanHealthWatcher( entity titan )
     titan.SetHealth( titan.GetMaxHealth() )
 
     int startingMaxHealth = titan.GetMaxHealth()
+    // fake ttf1 behavior: doomed health is almost same as undoomed health
+    // modified function in sh_titan_soul.gnut
+    TitanSoul_SetDoomedHealthOverride( soul, int( titan.GetMaxHealth() * TITAN_DOOMED_HEALTH_FRAC ) )
     // start watching
     while ( true )
     {
@@ -114,7 +120,20 @@ void function TitanHealthWatcher( entity titan )
             titan.SetMaxHealth( segments * TITAN_HEALTH_PER_SEGMENT ) // 1500 health per segment
             titan.SetHealth( int( titan.GetMaxHealth() * healthFrac ) )
             startingMaxHealth = titan.GetMaxHealth()
+            // update doomed health
+            TitanSoul_SetDoomedHealthOverride( soul, int( titan.GetMaxHealth() * TITAN_DOOMED_HEALTH_FRAC ) )
         }
         WaitFrame()
     }
+}
+
+void function OnTitanDoomed( entity titan, var damageInfo )
+{
+    if ( !IsAlive( titan ) ) // titan may get killed
+        return
+    entity soul = titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return
+    // fake ttf1 behavior: titan loses shields on doomed
+    soul.SetShieldHealth( 0 )
 }
