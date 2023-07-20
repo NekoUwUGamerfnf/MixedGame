@@ -102,7 +102,8 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 		PushEntWithDamageInfoAndDistanceScale( victim, damageInfo, nearRange, farRange, nearScale, farScale, dotScale )
 
 	// projectile mods
-	if ( projectileMods.contains( "knockback_sniper" ) )
+	array<string> refiredMods = Vortex_GetRefiredProjectileMods( inflictor )
+	if ( refiredMods.contains( "knockback_sniper" ) )
 	{
 		const float dotBase = 0.5
 		const float pushbackBase = 300
