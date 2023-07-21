@@ -164,8 +164,12 @@ void function WargamesIntro_AddPlayer( entity player )
 {
 	if ( GetGameState() != eGameState.Prematch )
 		return
-	
-	thread PlayerWatchesWargamesIntro( player )
+
+	// for very late joiners, spawn them on ground. intro animation lasts 15.5s
+	if ( file.introStartTime + 14.0 < Time() )
+		thread SpawnPlayerOnGround( player )
+	else
+		thread PlayerWatchesWargamesIntro( player )
 }
 
 void function OnPrematchStart()
@@ -569,4 +573,32 @@ void function PodFXCleanup( entity pod )
 	pod.s.rightLaserEmitter.s.fxHandle.ClearParent()
 	pod.s.rightLaserEmitter.s.fxHandle.Destroy()
 	pod.s.rightLaserEmitter.Destroy()
+}
+
+// for very late joiners, spawn them on ground
+void function SpawnPlayerOnGround( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	if ( IsAlive( player ) )
+		player.Die()
+
+	RespawnAsPilot( player )
+	player.FreezeControlsOnServer()
+	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
+	ScreenFadeFromBlack( player, 3.0, 1.0 )
+
+	waitthread WaitForIntroOver( player ) // wait for intro over
+
+	player.UnfreezeControlsOnServer() // restore player movements
+	RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
+	// do gamemode announcement
+	TryGameModeAnnouncement( player )
+}
+
+void function WaitForIntroOver( entity player )
+{
+	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // also wait for gamestate change
+
+	FlagWait( "ClassicMPIntroEnd" ) // this flag will be set in ClassicMP_OnIntroFinished()
 }
