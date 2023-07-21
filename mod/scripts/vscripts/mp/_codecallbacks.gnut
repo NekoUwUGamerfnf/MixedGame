@@ -23,13 +23,6 @@ global function SetTitanMeterGainScale
 global function CodeCallback_OnServerAnimEvent
 #endif
 
-// modified callbacks
-global function AddCallback_OnPlayerGrappled
-global function AddCallback_ShouldPlayDamageChatter
-
-// modified settings override
-global function AddCallback_WeaponMod_DamageSourceIdOverride
-
 struct AccumulatedDamageData
 {
 	float accumulatedDamage
@@ -50,13 +43,6 @@ struct
 	]
 
 	table<entity, AccumulatedDamageData> playerAccumulatedDamageData
-
-	// modified callbacks
-	array< void functionref( entity, entity ) > onPlayerGrappledCallbacks
-	array< bool functionref( entity, entity, var, table, bool ) > shouldPlayDamageChatterCallbacks
-
-	// modified settings override
-	table< string, table<string, int> > damageSourceIdOverride_WeaponMod
 } file
 
 void function CodeCallback_Init()
@@ -124,10 +110,6 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 			}
 		}
 	}
-
-	// modified settings: damageSourceId Override
-	DamageInfo_SetDamageSourceIdentifier( damageInfo, GetDamageSourceIdOverride( damageInfo ) )
-	//
 
 	#if VERBOSE_DAMAGE_PRINTOUTS
 		printt( "CodeCallback_DamagePlayerOrNPC ent:", ent )
@@ -317,7 +299,6 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 	if ( entIsPlayer )
 	{
 		PlayerTookDamage( ent, damageInfo, attacker, inflictor, damageSourceId, titanDamage )
-		
 		if ( DamageInfo_GetDamage( damageInfo ) == 0 && entIsTitan )
 		{
 			EarnMeterDamageConversion( damageInfo, attacker, ent, 0, titanDamage )
@@ -446,17 +427,6 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 				bool isKillShot = ( ent.GetHealth() + ent.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) ) <= 0
 				bool inChatterRange = Distance( attacker.GetOrigin(), ent.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
 				bool playDamageBC = !isKillShot && inChatterRange // make instant kills won't play a chatter
-				// include into result for other files to use
-				table damageChatterResult =
-				{
-					isKillShot = isKillShot
-					inChatterRange = inChatterRange
-				}
-				// run callbacks to decide whether we play damage chatter
-				// added via AddCallback_ShouldPlayDamageChatter()
-				foreach ( bool functionref( entity, entity, var, table, bool ) callbackFunc in file.shouldPlayDamageChatterCallbacks )
-					playDamageBC = callbackFunc( ent, attacker, damageInfo, damageChatterResult, playDamageBC )
-				//
 				//print( "playDamageBC: " + string( playDamageBC ) )
 				if( playDamageBC )
 				{
@@ -805,7 +775,6 @@ void function PlayerTookDamage( entity player, var damageInfo, entity attacker, 
 
 	bool isTitan = player.IsTitan()
 
-	float shieldDamage = 0
 	if ( isTitan )
 		Titan_PlayerTookDamage( player, damageInfo, attacker, critHit, titanDamage )
 	else
@@ -816,9 +785,6 @@ void function PlayerTookDamage( entity player, var damageInfo, entity attacker, 
 	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
 	if ( isKillShot )
 		damageType = (damageType | DF_KILLSHOT)
-	// modified debug
-	//print( "shieldDamage: " + string( shieldDamage ) )
-	//print( "isKillShot: " + string( isKillShot ) )
 
 	if ( isTitan && (DamageInfo_GetDamage( damageInfo ) == 0) )
 	{
@@ -949,15 +915,6 @@ void function CodeCallback_OnPlayerGrappled( entity player, entity victim )
 
 		victim.p.lastGrappledTime = Time()
 	}
-
-	// modified callbacks
-	foreach ( void functionref( entity, entity ) callbackFunc in file.onPlayerGrappledCallbacks )
-		callbackFunc( player, victim )
-}
-
-void function AddCallback_OnPlayerGrappled( void functionref( entity, entity ) callbackFunc )
-{
-	file.onPlayerGrappledCallbacks.append( callbackFunc )
 }
 
 void function CodeCallback_OnProjectileGrappled( entity player, entity projectile )
@@ -1087,55 +1044,3 @@ void function CodeCallback_OnServerAnimEvent( entity ent, string eventName )
 	PerfEnd( PerfIndexServer.CB_OnServerAnimEvent )
 }
 #endif // #if MP
-
-
-// modified settings override
-void function AddCallback_WeaponMod_DamageSourceIdOverride( string weaponName, string modName, int damageSourceId )
-{
-	if ( !( weaponName in file.damageSourceIdOverride_WeaponMod ) )
-		file.damageSourceIdOverride_WeaponMod[ weaponName ] <- {}
-
-	if ( !( modName in file.damageSourceIdOverride_WeaponMod[ weaponName ] ) )
-		file.damageSourceIdOverride_WeaponMod[ weaponName ][ modName ] <- damageSourceId
-	else
-		file.damageSourceIdOverride_WeaponMod[ weaponName ][ modName ] = damageSourceId
-}
-
-int function GetDamageSourceIdOverride( var damageInfo )
-{
-	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	if ( IsValid( inflictor ) )
-	{
-		string weaponName
-		array<string> mods
-		if ( inflictor.IsProjectile() ) // projectile condition
-		{
-			weaponName = inflictor.ProjectileGetWeaponClassName()
-			mods = Vortex_GetRefiredProjectileMods( inflictor ) // get projectile mods with refire support
-		}
-		else if ( inflictor.IsPlayer() || inflictor.IsNPC() ) // hitscan weapon condition
-		{
-			entity weapon = inflictor.GetActiveWeapon()
-			if ( IsValid( weapon ) )
-			{
-				weaponName = weapon.GetWeaponClassName()
-				mods = weapon.GetMods()
-			}
-		}
-
-		if ( weaponName != "" && mods.len() > 0 )
-		{
-			if ( weaponName in file.damageSourceIdOverride_WeaponMod )
-			{
-				foreach ( string modName in mods )
-				{
-					if ( modName in file.damageSourceIdOverride_WeaponMod[ weaponName ] )
-						return file.damageSourceIdOverride_WeaponMod[ weaponName ][ modName ]
-				}
-			}
-		}
-	}
-
-	// default value, return basic damageSourceId
-	return DamageInfo_GetDamageSourceIdentifier( damageInfo )
-}
