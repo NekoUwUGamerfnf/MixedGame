@@ -218,6 +218,9 @@ function ArchonCannon_ChargeBegin( entity weapon )
 		Assert( weaponOwner.IsPlayer() )
 		weaponOwner.StartArcCannon();
 	#endif
+
+	// effect handle
+	weapon.PlayWeaponEffect( $"wpn_arc_cannon_charge_fp", $"wpn_arc_cannon_charge", "muzzle_flash" )
 }
 
 function ArchonCannon_ChargeEnd( entity weapon, entity player = null )
@@ -248,6 +251,9 @@ function ArchonCannon_ChargeEnd( entity weapon, entity player = null )
 		}
 
 	#endif
+
+	// effect handle
+	weapon.StopWeaponEffect( $"wpn_arc_cannon_charge_fp", $"wpn_arc_cannon_charge" )
 }
 
 /*function MonitorChargeFraction(entity weapon)
@@ -755,12 +761,12 @@ function ZapTarget( zapInfo, target, beamStartPos, beamEndPos, chainNum = 1 )
 				if ( owner.IsNPC() || weapon.GetWeaponClassName() == "mp_titanweapon_shock_shield")
 				{
 					damageAmount = maxDamageAmount
-					print("DAMAGE OUTPUT: " + damageAmount)
+					//print("DAMAGE OUTPUT: " + damageAmount)
 				}
 				else
 				{
 					damageAmount = maxDamageAmount * arcWeaponCharge
-					print("DAMAGE OUTPUT: " + damageAmount)
+					//print("DAMAGE OUTPUT: " + damageAmount)
 				}
 
 			}
