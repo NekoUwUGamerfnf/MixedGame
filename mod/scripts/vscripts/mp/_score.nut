@@ -488,35 +488,51 @@ void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, flo
 
 void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in this case means modes with both pilots and titans
 {
-	thread SetupEarnMeterValuesForMixedModes_Threaded() // needs thread or "PilotEmilinate" won't be set up correctly
+	if ( IsLobby() )
+		return
+
+	// assume this means we're setting up score events before map load. needs to wait for entities load
+	if ( GetGameState() < eGameState.WaitingForPlayers )
+	{
+		//print( "Awaiting entities load before setup score events!" )
+		AddCallback_EntitiesDidLoad( SetupDefaultScoreEventsValue )
+	}
+	else // we're setting up during match
+		SetupDefaultScoreEventsValue()
 }
 
-void function SetupEarnMeterValuesForMixedModes_Threaded()
+void function SetupDefaultScoreEventsValue()
 {
-	WaitFrame()
-
-	// todo needs earn/overdrive values
-	// player-controlled stuff
+	// pilot kill
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.02, 0.05, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.0, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.0, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.0, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 ) // unsure
+	// titan kill
+	ScoreEvent_SetEarnMeterValues( "DoomTitan", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.10, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.10, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.10, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.10, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "TitanAssist", 0.0, 0.10 )
-	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35, 0.0 ) // this actually just doesn't have overdrive in vanilla even
+	// rodeo
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
+	// special method of killing
 	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
 	
 	// ai
 	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.02, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "KillHackedSpectre", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.1, 0.1, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.10, 0.10, 0.5 )
+	// ai(extended)
+	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.05, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "KillProwler", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillDrone", 0.00, 0.02 )
 }
 
 void function ScoreEvent_SetupEarnMeterValuesForTitanModes()
