@@ -12,6 +12,9 @@ global function ScoreEvent_SetEarnMeterValues
 global function ScoreEvent_SetupEarnMeterValuesForMixedModes
 global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 
+// callback for doomed health loss titans
+global function AddCallback_TitanDoomedScoreEvent
+
 // nessie modify
 global function GetMvpPlayer
 global function AddTitanKilledDialogueEvent
@@ -22,6 +25,10 @@ global function ScoreEvent_EnableComebackEvent
 struct 
 {
 	bool firstStrikeDone = false
+
+	// callback for doomed health loss titans
+	table<entity, bool> soulHasDoomedOnce // for handling UndoomTitan() conditions, one soul can only be earn score once
+	array<void functionref( entity, var, bool )> titanDoomedScoreEventCallbacks
 
 	// nessie modify
 	table<string, string> killedTitanDialogues
@@ -315,6 +322,13 @@ void function ScoreEvent_TitanDoomed( entity titan, entity attacker, var damageI
 void function HandleTitanDoomedScoreEvent( entity titan, var damageInfo )
 {
 	entity titanSoul = titan.GetTitanSoul()
+
+	// first doom check. ttf2 titans can recover from doomed state
+	bool firstDoom = !( titanSoul in file.soulHasDoomedOnce )
+	//print( "firstDoom: " + string( firstDoom ) )
+	if ( firstDoom )
+		file.soulHasDoomedOnce[ titanSoul ] <- true
+
 	// same check as _titan_health.gnut, HandleKillshot() does
 	entity attacker = expect entity( expect table( titanSoul.lastAttackInfo ).attacker )
 	if ( IsValid( attacker ) )
@@ -327,6 +341,9 @@ void function HandleTitanDoomedScoreEvent( entity titan, var damageInfo )
 		// modified function in _titan_health.gnut, recovering ttf1 behavior: we do obit on doom but not on death for health loss titans
 		if ( !TitanHealth_GetSoulInfiniteDoomedState( titan.GetTitanSoul() ) )
 			NotifyClientsOfTitanDeath( titan, attacker, damageInfo )
+		// run callbacks
+		foreach ( callbackFunc in file.titanDoomedScoreEventCallbacks )
+			callbackFunc( titan, damageInfo, firstDoom )
 	}
 }
 
@@ -556,6 +573,13 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 		dialogue = file.killedTitanDialogues[ titanCharacterName ]
 
 	PlayFactionDialogueToPlayer( dialogue, attacker )
+}
+
+// callback for doomed health loss titans
+void function AddCallback_TitanDoomedScoreEvent( void functionref( entity, var, bool ) callbackFunc )
+{
+	if ( !file.titanDoomedScoreEventCallbacks.contains( callbackFunc ) )
+		file.titanDoomedScoreEventCallbacks.append( callbackFunc )
 }
 
 // nessy modify
