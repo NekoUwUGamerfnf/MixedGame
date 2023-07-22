@@ -78,6 +78,8 @@ global function EntityKilledCallback_IsDisabledDamageInfo
 global function EntityKilledEvent_SetDisabledForEntity // disable entityKilledEvent(mainly to display obit) for certain entity
 global function EntityKilledEvent_IsDisabledForEntity
 
+global function AddCallback_OnSendingEntityKilledEvent // so we can modify entity killed event easily
+
 struct
 {
 	table<string, array< void functionref( entity, var ) > > classDamageCallbacks
@@ -88,6 +90,8 @@ struct
 	// nessie modify
 	array<bool functionref( entity, var, bool )> shouldRunEntityKilledCallbackChecks
 	table<entity, bool> entDisableEntityKilledEvent
+
+	array<void functionref( entity, var, table )> sendingEntityKilledEventCallbacks
 } file
 
 void function CodeCallback_DamageEntity( entity ent, var damageInfo )
@@ -270,6 +274,26 @@ void function SendEntityKilledEvent( entity ent, var damageInfo )
 		scriptDamageType = scriptDamageType | DF_HEADSHOT
 	else
 		scriptDamageType = scriptDamageType & (~DF_HEADSHOT)
+
+	// modified: construct a table so we can modify it
+	table entityKilledEventTable =
+	{
+		attackerEHandle = attackerEHandle
+		victimEHandle = victimEHandle
+		scriptDamageType = scriptDamageType
+		damageSourceId = damageSourceId
+	}
+	// added via AddCallback_OnSendingEntityKilledEvent
+	foreach ( callbackFunc in file.sendingEntityKilledEventCallbacks )
+		callbackFunc( ent, damageInfo, entityKilledEventTable )
+	//
+
+	// modified: get modified table to pass into remotecall
+	attackerEHandle = expect int( entityKilledEventTable.attackerEHandle )
+	victimEHandle = expect int( entityKilledEventTable.victimEHandle )
+	scriptDamageType = expect int( entityKilledEventTable.attackerEHandle )
+	damageSourceId = expect int( entityKilledEventTable.damageSourceId )
+	//
 
 	foreach ( player in players )
 	{
@@ -928,6 +952,12 @@ void function EntityKilledEvent_SetDisabledForEntity( entity ent, bool disable )
 	if ( !( ent in file.entDisableEntityKilledEvent ) )
 		file.entDisableEntityKilledEvent[ ent ] <- false // default value
 	file.entDisableEntityKilledEvent[ ent ] = disable
+}
+
+void function AddCallback_OnSendingEntityKilledEvent( void functionref( entity, var, table ) callbackFunc )
+{
+	if ( !file.sendingEntityKilledEventCallbacks.contains( callbackFunc ) )
+		file.sendingEntityKilledEventCallbacks.append( callbackFunc )
 }
 
 // utility for current file

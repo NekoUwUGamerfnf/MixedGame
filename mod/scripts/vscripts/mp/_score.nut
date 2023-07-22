@@ -14,13 +14,17 @@ global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 
 // callback for doomed health loss titans
 global function AddCallback_TitanDoomedScoreEvent
+// new settings override func
+global function ScoreEvent_SetScoreEventNameOverride
+
+// nessie fix
+global function ScoreEvent_GetPlayerMVP
+global function ScoreEvent_SetMVPCompareFunc
+global function AddTitanKilledDialogueEvent
 
 // nessie modify
-global function GetMvpPlayer
-global function AddTitanKilledDialogueEvent
 global function ScoreEvent_DisableCallSignEvent
-global function ScoreEvent_AddHeadShotMedalDisabledDamageSourceId // basically for eDamageSourceId.bleedout
-global function ScoreEvent_EnableComebackEvent
+global function ScoreEvent_EnableComebackEvent // doesn't exsit in vanilla, make it a setting
 
 struct 
 {
@@ -30,13 +34,15 @@ struct
 	table<entity, bool> soulHasDoomedOnce // for handling UndoomTitan() conditions, one soul can only be earn score once
 	array<void functionref( entity, var, bool )> titanDoomedScoreEventCallbacks
 
-	// nessie modify
-	table<string, string> killedTitanDialogues
+	// new settings override func
+	table<string, string> scoreEventNameOverride
 
+	// nessie fix
+	table<string, string> killedTitanDialogues
 	IntFromEntityCompare mvpCompareFunc = null
-	
+
+	// nessie modify
 	bool disableCallSignEvent = false
-	array<int> headShotMedalDisabledDamageSource
 	bool comebackEvent = false
 } file
 
@@ -79,6 +85,14 @@ void function InitPlayerForScoreEvents( entity player )
 //void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string noideawhatthisis = "", int pointValueOverride = -1 )
 void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1 )
 {
+	// modified: adding score event override
+	if ( scoreEventName in file.scoreEventNameOverride )
+		scoreEventName = file.scoreEventNameOverride[ scoreEventName ]
+	// anti-crash
+	if ( scoreEventName == "" )
+		return
+	//
+
 	ScoreEvent event = GetScoreEvent( scoreEventName )
 	
 	if ( !event.enabled || !IsValid( targetPlayer ) || !targetPlayer.IsPlayer() )
@@ -201,7 +215,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	bool enoughPlayerForMVP = GetPlayerArrayOfTeam( victim.GetTeam() ).len() > 1
 	if ( IsFFAGame() ) // for ffa, we check if there're more than 2 players in total
 		enoughPlayerForMVP = GetPlayerArray().len() > 2
-	if ( enoughPlayerForMVP && GetMvpPlayer( victim.GetTeam() ) == victim )
+	if ( enoughPlayerForMVP && ScoreEvent_GetPlayerMVP( victim.GetTeam() ) == victim )
 		AddPlayerScore( attacker, "KilledMVP", victim )
 	
 	int methodOfDeath = DamageInfo_GetDamageSourceIdentifier( damageInfo )
@@ -211,12 +225,9 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// modified to handle specific damages
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
 	{
-		if ( !file.headShotMedalDisabledDamageSource.contains( methodOfDeath ) )
-		{
-			AddPlayerScore( attacker, "Headshot", victim )
-			if ( CoinFlip() ) // 50% chance of playing a special dialogue
-				PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
-		}
+		AddPlayerScore( attacker, "Headshot", victim )
+		if ( CoinFlip() ) // 50% chance of playing a special dialogue
+			PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
 	}
 
 	// special method of killing dialogues	
@@ -570,8 +581,16 @@ void function AddCallback_TitanDoomedScoreEvent( void functionref( entity, var, 
 		file.titanDoomedScoreEventCallbacks.append( callbackFunc )
 }
 
-// nessy modify
-entity function GetMvpPlayer( int team = 0 )
+// new settings override func
+void function ScoreEvent_SetScoreEventNameOverride( string eventName, string overrideName )
+{
+	if ( !( eventName in file.scoreEventNameOverride ) )
+		file.scoreEventNameOverride[ eventName ] <- ""
+	file.scoreEventNameOverride[ eventName ] = overrideName
+}
+
+// nessie fix
+entity function ScoreEvent_GetPlayerMVP( int team = 0 )
 {
 	if( IsFFAGame() )
 		team = 0 // 0 means sorting all players( good for ffa ), if use a teamNumber it will sort a certain team
@@ -588,22 +607,20 @@ entity function GetMvpPlayer( int team = 0 )
 	return sortedPlayer[0] // mvp
 }
 
+void function ScoreEvent_SetMVPCompareFunc( IntFromEntityCompare func )
+{
+	file.mvpCompareFunc = func
+}
+
 void function AddTitanKilledDialogueEvent( string titanName, string dialogueName )
 {
 	file.killedTitanDialogues[titanName] <- dialogueName
 }
 
+// nessie modify
 void function ScoreEvent_DisableCallSignEvent( bool disable )
 {
 	file.disableCallSignEvent = disable
-}
-
-void function ScoreEvent_AddHeadShotMedalDisabledDamageSourceId( int damageSourceId )
-{
-	if ( file.headShotMedalDisabledDamageSource.contains( damageSourceId ) )
-		return
-
-	file.headShotMedalDisabledDamageSource.append( damageSourceId )
 }
 
 void function ScoreEvent_EnableComebackEvent( bool enable )
