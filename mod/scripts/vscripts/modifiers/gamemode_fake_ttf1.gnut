@@ -3,6 +3,8 @@ global function Modded_Gamemode_Fake_Titanfall1_Init
 const int TITAN_SHIELD_PER_SEGMENT = 1000
 const int TITAN_HEALTH_PER_SEGMENT = 1500
 const float TITAN_DOOMED_HEALTH_FRAC = 1.0 // fake ttf1 behavior: doomed health is almost same as undoomed health
+// needs to rework most of the titancore ability before we can use this...
+const bool DISABLE_TITAN_CORE_ON_DOOM = false
 
 const string ANSI_COLOR_END = "\x1b[0m"
 const string ANSI_COLOR_BLUE = "\x1b[38;5;81m"
@@ -19,6 +21,20 @@ const array<string> CONNECTING_NOTIFICATIONS =
     ANSI_COLOR_ORANGE + "泰坦自带快速恢复冲刺，若装备涡轮引擎将替换为超级核心" + ANSI_COLOR_END,
 ]
 
+// hard to control.. respawn almost didn't add any support for ttf1-like core meter
+// needs to rework most of the titancore ability before we can use this...
+
+struct CoreWeapon
+{
+    string weapon
+    array<string> mods
+}
+
+struct
+{
+    table<entity, CoreWeapon> soulStoredCoreWeapon
+} file
+
 void function Modded_Gamemode_Fake_Titanfall1_Init()
 {
     // notifications
@@ -28,6 +44,7 @@ void function Modded_Gamemode_Fake_Titanfall1_Init()
     Rodeo_SetBatteryRemovalDamageFlags( damageTypes.rodeoBatteryRemoval | DF_BYPASS_SHIELD ) // rodeo will deal bvpass_shield damage to titans
     Rodeo_SetBatteryRemovalDamageScale( 0.8 ) // take less damage from battery removal( current: 1500 -> 1200 )
     Rodeo_SetRodeoGrenadeDamageScale( 0.6667 ) // take higher damage from rodeo grenades( current: 750 -> ~1000 )
+    //Rodeo_BatteryRemovalKillsDoomedTitan( false ) // rodeo battery removal and grenade won't instant kill doomed titan
     Rodeo_SetBatteryRegenScale( 1.3333 ) // regen more health from batteries( current: 750 -> ~1000 )
 
     // classic rodeo modifier settings!
@@ -37,6 +54,10 @@ void function Modded_Gamemode_Fake_Titanfall1_Init()
 
     AddCallback_OnTitanGetsNewTitanLoadout( OnTitanGetsLoadout ) // titan settings
     AddCallback_OnTitanDoomed( OnTitanDoomed ) // doomed settings
+    // hard to control.. respawn almost didn't add any support for ttf1-like core meter
+    RegisterSignal( "PendingEarnModeChange" )
+    AddCallback_OnTitanUndoomed( OnTitanUndoomed ) // modified callback in _titan_health.gnut. undoomed settings
+    AddCallback_OnPilotBecomesTitan( OnPlayerBecomesTitan )
 }
 
 void function OnClientConnected( entity player )
@@ -146,4 +167,108 @@ void function OnTitanDoomed( entity titan, var damageInfo )
         return
     // fake ttf1 behavior: titan loses shields on doomed
     soul.SetShieldHealth( 0 )
+
+    #if DISABLE_TITAN_CORE_ON_DOOM
+        // hard to control.. respawn almost didn't add any support for ttf1-like core meter
+        // fake ttf1 behavior: titan loses core ability on doomed
+        entity coreWeapon = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+        if ( IsValid( coreWeapon ) )
+        {
+            bool ignoreModeChange = false
+            if ( TitanCoreInUse( titan ) ) // start when core still using!
+            {
+                //print( "Titan core still using!" )
+                SoulTitanCore_SetExpireTime( soul, Time() ) // stop core immediately
+                ignoreModeChange = true // core disabling will change earn mode, ignore it
+            }
+            OnAbilityEnd_TitanCore( coreWeapon ) // clean up core effect
+
+            if ( titan.IsPlayer() )
+                thread UpdateEarnMeterMode( titan, eEarnMeterMode.DISABLED, ignoreModeChange ) // try to update icon
+
+            CoreWeapon weaponStruct
+            weaponStruct.weapon = coreWeapon.GetWeaponClassName()
+            weaponStruct.mods = coreWeapon.GetMods()
+            file.soulStoredCoreWeapon[ soul ] <- weaponStruct
+
+            titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
+        }
+    #endif // DISABLE_TITAN_CORE_ON_DOOM
 }
+
+#if DISABLE_TITAN_CORE_ON_DOOM
+void function UpdateEarnMeterMode( entity player, int mode, bool ignoreEarnModeChange )
+{
+    player.Signal( "PendingEarnModeChange" )
+    player.EndSignal( "PendingEarnModeChange" )
+    player.EndSignal( "OnDestroy" )
+    int starterEarnMode = PlayerEarnMeter_GetMode( player )
+    WaitFrame()
+
+    if ( !ignoreEarnModeChange && starterEarnMode != PlayerEarnMeter_GetMode( player ) ) // earn mode updated midway!
+        return
+    PlayerEarnMeter_SetMode( player, mode )
+}
+#endif // DISABLE_TITAN_CORE_ON_DOOM
+
+// hard to control.. respawn almost didn't add any support for ttf1-like core meter
+void function OnTitanUndoomed( entity titan, int numSegments )
+{
+    if ( !IsAlive( titan ) )
+        return
+    entity soul = titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return
+
+    #if DISABLE_TITAN_CORE_ON_DOOM
+        // try to retrieve core ability
+        if ( soul in file.soulStoredCoreWeapon )
+        {
+            if ( titan.IsPlayer() )
+            {
+                titan.Signal( "PendingEarnModeChange" ) // stop other earnmeter update function
+                PlayerEarnMeter_SetMode( titan, eEarnMeterMode.CORE )
+            }
+
+            CoreWeapon weaponStruct = clone file.soulStoredCoreWeapon[ soul ]
+            if ( !IsValid( titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ) ) )
+                titan.GiveOffhandWeapon( weaponStruct.weapon, OFFHAND_EQUIPMENT, weaponStruct.mods )
+
+            delete file.soulStoredCoreWeapon[ soul ]
+        }
+    #endif // DISABLE_TITAN_CORE_ON_DOOM
+}
+
+void function OnPlayerBecomesTitan( entity player, entity titan )
+{
+    #if DISABLE_TITAN_CORE_ON_DOOM
+        thread DisableCoreEarnMode( player )
+    #endif // DISABLE_TITAN_CORE_ON_DOOM
+}
+
+#if DISABLE_TITAN_CORE_ON_DOOM
+void function DisableCoreEarnMode( entity player )
+{
+    player.EndSignal( "PendingEarnModeChange" )
+    player.EndSignal( "OnDestroy" )
+    WaitFrame()
+
+    entity soul = player.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return
+
+    if ( soul.IsDoomed() )
+    {
+        OnThreadEnd
+        (
+            function(): ( player )
+            {
+                PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
+            }    
+        )
+        //print( "soul doomed! disabling core ability" )
+        // fake ttf1 behavior: titan loses core ability on doomed
+        player.Signal( "PendingEarnModeChange" ) // stop other earnmeter update function and run into OnThreadEnd()
+    }
+}
+#endif // DISABLE_TITAN_CORE_ON_DOOM
