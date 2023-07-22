@@ -505,21 +505,9 @@ void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, flo
 
 void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in this case means modes with both pilots and titans
 {
-	if ( IsLobby() )
+	if ( IsLobby() ) // setup score events in lobby can cause crash
 		return
 
-	// assume this means we're setting up score events before map load. needs to wait for entities load
-	if ( GetGameState() < eGameState.WaitingForPlayers )
-	{
-		//print( "Awaiting entities load before setup score events!" )
-		AddCallback_EntitiesDidLoad( SetupDefaultScoreEventsValue )
-	}
-	else // we're setting up during match
-		SetupDefaultScoreEventsValue()
-}
-
-void function SetupDefaultScoreEventsValue()
-{
 	// pilot kill
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15, 0.34 )
