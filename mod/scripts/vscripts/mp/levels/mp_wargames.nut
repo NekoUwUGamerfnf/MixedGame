@@ -22,7 +22,6 @@ void function CodeCallback_MapInit()
 	RegisterSignal( "EnsureWargamesDeathEffectIsClearedForPlayer" )
 	AddCallback_OnPlayerKilled( WargamesOnPlayerKilled )
 	AddCallback_OnNPCKilled( WargamesOnNPCKilled )
-	AddDeathCallback( "npc_pilot_elite", WargamesDissolveDeadEntity ) // onNpcKilled can't handle npc pilots
 	
 	// marvin
 	RegisterSignal( "MarvinSpawnerThink" )
