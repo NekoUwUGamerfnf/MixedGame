@@ -12,24 +12,37 @@ global function ScoreEvent_SetEarnMeterValues
 global function ScoreEvent_SetupEarnMeterValuesForMixedModes
 global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 
-// nessie modify
-global function GetMvpPlayer
+// callback for doomed health loss titans
+global function AddCallback_TitanDoomedScoreEvent
+// new settings override func
+global function ScoreEvent_SetScoreEventNameOverride
+
+// nessie fix
+global function ScoreEvent_GetPlayerMVP
+global function ScoreEvent_SetMVPCompareFunc
 global function AddTitanKilledDialogueEvent
+
+// nessie modify
 global function ScoreEvent_DisableCallSignEvent
-global function ScoreEvent_AddHeadShotMedalDisabledDamageSourceId // basically for eDamageSourceId.bleedout
-global function ScoreEvent_EnableComebackEvent
+global function ScoreEvent_EnableComebackEvent // doesn't exsit in vanilla, make it a setting
 
 struct 
 {
 	bool firstStrikeDone = false
 
-	// nessie modify
-	table<string, string> killedTitanDialogues
+	// callback for doomed health loss titans
+	table<entity, bool> soulHasDoomedOnce // for handling UndoomTitan() conditions, one soul can only be earn score once
+	array<void functionref( entity, var, bool )> titanDoomedScoreEventCallbacks
 
+	// new settings override func
+	table<string, string> scoreEventNameOverride
+
+	// nessie fix
+	table<string, string> killedTitanDialogues
 	IntFromEntityCompare mvpCompareFunc = null
-	
+
+	// nessie modify
 	bool disableCallSignEvent = false
-	array<int> headShotMedalDisabledDamageSource
 	bool comebackEvent = false
 } file
 
@@ -72,6 +85,14 @@ void function InitPlayerForScoreEvents( entity player )
 //void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string noideawhatthisis = "", int pointValueOverride = -1 )
 void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1 )
 {
+	// modified: adding score event override
+	if ( scoreEventName in file.scoreEventNameOverride )
+		scoreEventName = file.scoreEventNameOverride[ scoreEventName ]
+	// anti-crash
+	if ( scoreEventName == "" )
+		return
+	//
+
 	ScoreEvent event = GetScoreEvent( scoreEventName )
 	
 	if ( !event.enabled || !IsValid( targetPlayer ) || !targetPlayer.IsPlayer() )
@@ -194,7 +215,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	bool enoughPlayerForMVP = GetPlayerArrayOfTeam( victim.GetTeam() ).len() > 1
 	if ( IsFFAGame() ) // for ffa, we check if there're more than 2 players in total
 		enoughPlayerForMVP = GetPlayerArray().len() > 2
-	if ( enoughPlayerForMVP && GetMvpPlayer( victim.GetTeam() ) == victim )
+	if ( enoughPlayerForMVP && ScoreEvent_GetPlayerMVP( victim.GetTeam() ) == victim )
 		AddPlayerScore( attacker, "KilledMVP", victim )
 	
 	int methodOfDeath = DamageInfo_GetDamageSourceIdentifier( damageInfo )
@@ -204,12 +225,9 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// modified to handle specific damages
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
 	{
-		if ( !file.headShotMedalDisabledDamageSource.contains( methodOfDeath ) )
-		{
-			AddPlayerScore( attacker, "Headshot", victim )
-			if ( CoinFlip() ) // 50% chance of playing a special dialogue
-				PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
-		}
+		AddPlayerScore( attacker, "Headshot", victim )
+		if ( CoinFlip() ) // 50% chance of playing a special dialogue
+			PlayFactionDialogueToPlayer( "kc_bullseye", attacker )
 	}
 
 	// special method of killing dialogues	
@@ -315,6 +333,13 @@ void function ScoreEvent_TitanDoomed( entity titan, entity attacker, var damageI
 void function HandleTitanDoomedScoreEvent( entity titan, var damageInfo )
 {
 	entity titanSoul = titan.GetTitanSoul()
+
+	// first doom check. ttf2 titans can recover from doomed state
+	bool firstDoom = !( titanSoul in file.soulHasDoomedOnce )
+	//print( "firstDoom: " + string( firstDoom ) )
+	if ( firstDoom )
+		file.soulHasDoomedOnce[ titanSoul ] <- true
+
 	// same check as _titan_health.gnut, HandleKillshot() does
 	entity attacker = expect entity( expect table( titanSoul.lastAttackInfo ).attacker )
 	if ( IsValid( attacker ) )
@@ -327,6 +352,9 @@ void function HandleTitanDoomedScoreEvent( entity titan, var damageInfo )
 		// modified function in _titan_health.gnut, recovering ttf1 behavior: we do obit on doom but not on death for health loss titans
 		if ( !TitanHealth_GetSoulInfiniteDoomedState( titan.GetTitanSoul() ) )
 			NotifyClientsOfTitanDeath( titan, attacker, damageInfo )
+		// run callbacks
+		foreach ( callbackFunc in file.titanDoomedScoreEventCallbacks )
+			callbackFunc( titan, damageInfo, firstDoom )
 	}
 }
 
@@ -484,35 +512,39 @@ void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, flo
 
 void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in this case means modes with both pilots and titans
 {
-	thread SetupEarnMeterValuesForMixedModes_Threaded() // needs thread or "PilotEmilinate" won't be set up correctly
-}
+	if ( IsLobby() ) // setup score events in lobby can cause crash
+		return
 
-void function SetupEarnMeterValuesForMixedModes_Threaded()
-{
-	WaitFrame()
-
-	// todo needs earn/overdrive values
-	// player-controlled stuff
+	// pilot kill
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.07, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.07, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.02, 0.05, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.0, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.0, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.0, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 ) // unsure
+	// titan kill
+	ScoreEvent_SetEarnMeterValues( "DoomTitan", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.10, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.10, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.10, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.10, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "TitanAssist", 0.0, 0.10 )
-	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35, 0.0 ) // this actually just doesn't have overdrive in vanilla even
+	// rodeo
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
+	// special method of killing
 	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
 	
 	// ai
 	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.02, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "KillHackedSpectre", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.1, 0.1, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.05, 0.10, 0.5 )
+	// ai(extended)
+	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "KillProwler", 0.02, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillDrone", 0.00, 0.02 )
 }
 
 void function ScoreEvent_SetupEarnMeterValuesForTitanModes()
@@ -538,8 +570,23 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 	PlayFactionDialogueToPlayer( dialogue, attacker )
 }
 
-// nessy modify
-entity function GetMvpPlayer( int team = 0 )
+// callback for doomed health loss titans
+void function AddCallback_TitanDoomedScoreEvent( void functionref( entity, var, bool ) callbackFunc )
+{
+	if ( !file.titanDoomedScoreEventCallbacks.contains( callbackFunc ) )
+		file.titanDoomedScoreEventCallbacks.append( callbackFunc )
+}
+
+// new settings override func
+void function ScoreEvent_SetScoreEventNameOverride( string eventName, string overrideName )
+{
+	if ( !( eventName in file.scoreEventNameOverride ) )
+		file.scoreEventNameOverride[ eventName ] <- ""
+	file.scoreEventNameOverride[ eventName ] = overrideName
+}
+
+// nessie fix
+entity function ScoreEvent_GetPlayerMVP( int team = 0 )
 {
 	if( IsFFAGame() )
 		team = 0 // 0 means sorting all players( good for ffa ), if use a teamNumber it will sort a certain team
@@ -556,22 +603,20 @@ entity function GetMvpPlayer( int team = 0 )
 	return sortedPlayer[0] // mvp
 }
 
+void function ScoreEvent_SetMVPCompareFunc( IntFromEntityCompare func )
+{
+	file.mvpCompareFunc = func
+}
+
 void function AddTitanKilledDialogueEvent( string titanName, string dialogueName )
 {
 	file.killedTitanDialogues[titanName] <- dialogueName
 }
 
+// nessie modify
 void function ScoreEvent_DisableCallSignEvent( bool disable )
 {
 	file.disableCallSignEvent = disable
-}
-
-void function ScoreEvent_AddHeadShotMedalDisabledDamageSourceId( int damageSourceId )
-{
-	if ( file.headShotMedalDisabledDamageSource.contains( damageSourceId ) )
-		return
-
-	file.headShotMedalDisabledDamageSource.append( damageSourceId )
 }
 
 void function ScoreEvent_EnableComebackEvent( bool enable )

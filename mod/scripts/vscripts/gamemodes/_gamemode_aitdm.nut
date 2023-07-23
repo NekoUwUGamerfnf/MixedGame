@@ -47,7 +47,8 @@ void function GamemodeAITdm_Init()
 
 		AddCallback_OnNPCKilled( HandleScoreEvent )
 		AddCallback_OnPlayerKilled( HandleScoreEvent )
-		AddCallback_OnTitanDoomed( HandleTitanDoomedScore ) // modified: for handling doomed health loss titans
+		// modified callback in _score.nut: for handling doomed health loss titans
+		AddCallback_TitanDoomedScoreEvent( HandleTitanDoomedScore )
 
 		AddCallback_OnClientConnected( OnPlayerConnected )
 		
@@ -191,8 +192,11 @@ void function AddAiTDMPlayerTeamScore( entity player, int score )
 }
 
 // modified: for handling doomed health loss titans
-void function HandleTitanDoomedScore( entity victim, var damageInfo )
+void function HandleTitanDoomedScore( entity victim, var damageInfo, bool firstDoom )
 {
+	if ( !firstDoom ) // only add score on first doom
+		return
+
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsValid( attacker ) )
 		return
