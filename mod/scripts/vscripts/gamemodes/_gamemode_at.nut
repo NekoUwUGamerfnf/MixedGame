@@ -42,7 +42,7 @@ const float AT_WAVE_END_ANNOUNCEMENT_DELAY = 1.0 	// Extra wait before announcin
 const float AT_BANK_OPENING_DELAY = 4.0
 
 // Spawn settings
-const float AT_CAMP_SPAWNPOINTS_SEARCH_RADIUS_SCALE = 0.6 // search spawnpoints in decreased percentage of camp's actual radius
+const float AT_CAMP_SPAWNPOINTS_SEARCH_RADIUS_SCALE = 0.5 // search spawnpoints in decreased percentage of camp's actual radius
 
 // Squad settings
 const int AT_DROPPOD_SQUADS_ALLOWED_ON_FIELD = 4 // default is 4 droppod squads on field, won't use if AT_USE_TOTAL_ALLOWED_ON_FIELD_CHECK turns on // TODO: verify this
@@ -86,6 +86,7 @@ const float AT_PLAYER_HUD_MESSAGE_COOLDOWN = 2.5
 // so we try to cleanup the camps after a set amount of time of inactivity
 const int   AT_CAMP_BORED_NPCS_LEFT_TO_START_CLEANUP = 4
 const float AT_CAMP_BORED_CLEANUP_WAIT = 20.0
+
 struct 
 {
 	array<entity> banks 
