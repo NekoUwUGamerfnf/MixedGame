@@ -14,6 +14,22 @@ struct {
 
 const float MARVIN_RESPAWN_DELAY = 30
 
+const array<asset> MLT_GRUNT_MODELS =
+[
+	$"models/humans/grunts/mlt_grunt_lmg.mdl",
+	$"models/humans/grunts/mlt_grunt_smg.mdl",
+	$"models/humans/grunts/mlt_grunt_shotgun.mdl",
+	$"models/humans/grunts/mlt_grunt_rifle.mdl",
+]
+
+const array<asset> IMC_GRUNT_MODELS =
+[
+	$"models/humans/grunts/imc_grunt_lmg.mdl",
+	$"models/humans/grunts/imc_grunt_smg.mdl",
+	$"models/humans/grunts/imc_grunt_shotgun.mdl",
+	$"models/humans/grunts/imc_grunt_rifle.mdl",
+]
+
 void function CodeCallback_MapInit()
 {
 	AddCallback_EntitiesDidLoad( AddEvacNodes )
@@ -208,30 +224,37 @@ void function OnPrematchStart()
 	thread PlayAnim( militiaIon, "at_titan_activation_wargames_intro" )
 	militiaIon.Anim_SetInitialTime( 4.5 )
 
+	/* // vanilla seems to use grunt inside that ion titan...
 	entity militiaPilot = CreateElitePilot( TEAM_UNASSIGNED, < 0, 0, 0 >, < 0, 0, 0 > )
 	DispatchSpawn( militiaPilot )
 	militiaPilot.SetParent( militiaIon, "HIJACK" )
 	militiaPilot.MarkAsNonMovingAttachment()
 	militiaPilot.Anim_ScriptedPlay( "pt_titan_activation_pilot" )
 	militiaPilot.Anim_EnableUseAnimatedRefAttachmentInsteadOfRootMotion()
+	*/
+	entity militiaGrunt = CreatePropDynamic( MLT_GRUNT_MODELS[ RandomInt( MLT_GRUNT_MODELS.len() ) ], < 0, 0, 0 >, < 0, 0, 0 > )
+	militiaGrunt.SetParent( militiaIon, "HIJACK" )
+	militiaGrunt.MarkAsNonMovingAttachment()
+	militiaGrunt.Anim_Play( "pt_titan_activation_pilot" )
+	militiaGrunt.Anim_EnableUseAnimatedRefAttachmentInsteadOfRootMotion()
 	
 	entity militiaMarvinChillin = CreateMarvin( TEAM_UNASSIGNED, < -1786, 3060, -1412 >, < 0, -120, 0 > )
 	DispatchSpawn( militiaMarvinChillin )
 	thread PlayAnim( militiaMarvinChillin, "mv_idle_unarmed" )
 	
 	// imc grunts
-	entity imcGrunt1 = CreatePropDynamic( $"models/humans/grunts/imc_grunt_rifle.mdl", < -2915, 2867, -1788 >, < 0, -137, 0 > )
+	entity imcGrunt1 = CreatePropDynamic( IMC_GRUNT_MODELS[ RandomInt( IMC_GRUNT_MODELS.len() ) ], < -2915, 2867, -1788 >, < 0, -137, 0 > )
 	thread PlayAnim( imcGrunt1, "pt_console_idle" )
 	
-	entity imcGrunt2 = CreatePropDynamic( $"models/humans/grunts/imc_grunt_rifle.mdl", < -2870, 2746, -1786 >, < 0, -167, 0 > )
+	entity imcGrunt2 = CreatePropDynamic( IMC_GRUNT_MODELS[ RandomInt( IMC_GRUNT_MODELS.len() ) ], < -2870, 2746, -1786 >, < 0, -167, 0 > )
 	thread PlayAnim( imcGrunt2, "pt_console_idle" )
 	imcGrunt2.Anim_SetInitialTime( 2.0 )
 	
-	entity imcGrunt3 = CreatePropDynamic( $"models/humans/grunts/imc_grunt_rifle.mdl", < -3037, 2909, -1786 >, < 0, -60, 0 > )
+	entity imcGrunt3 = CreatePropDynamic( IMC_GRUNT_MODELS[ RandomInt( IMC_GRUNT_MODELS.len() ) ], < -3037, 2909, -1786 >, < 0, -60, 0 > )
 	thread PlayAnim( imcGrunt3, "pt_console_idle" )
 	imcGrunt3.Anim_SetInitialTime( 4.0 )
 	
-	entity imcGrunt4 = CreatePropDynamic( $"models/humans/grunts/imc_grunt_rifle.mdl", < -3281, 2941, -1790 >, < 0, 138, 0 > )
+	entity imcGrunt4 = CreatePropDynamic( IMC_GRUNT_MODELS[ RandomInt( IMC_GRUNT_MODELS.len() ) ], < -3281, 2941, -1790 >, < 0, 138, 0 > )
 	thread PlayAnim( imcGrunt4, "pt_console_idle" )
 	imcGrunt4.Anim_SetInitialTime( 6.0 )
 	
@@ -278,8 +301,11 @@ void function OnPrematchStart()
 		militiaOgre.Destroy()
 	if( IsValid( militiaIon ) )
 		militiaIon.Destroy()
-	if( IsValid( militiaPilot ) )
-		militiaPilot.Destroy()
+	// vanilla seems to use grunt inside that ion titan...
+	//if( IsValid( militiaPilot ) )
+	//	militiaPilot.Destroy()
+	if ( IsValid( militiaGrunt ) )
+		militiaGrunt.Destroy()
 	if( IsValid( militiaOgreMarvin1 ) )
 		militiaOgreMarvin1.Destroy()
 	if( IsValid( militiaOgreMarvin2 ) )
