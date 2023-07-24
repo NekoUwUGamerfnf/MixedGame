@@ -123,7 +123,9 @@ struct
 	table<entity, EmbarkedNPCTitanStruct> soulEmbarkedSettings
 	// for ExtraSpawner_SpawnTitanRandom() picking random titans
 	array<RandomTitanStruct> randomTitanList
-	// for making the npc as one of prowler squad
+	// for marking the npc as spawning from this file
+	table<entity, bool> npcSpawnFromExtraSpawner
+	// for marking the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
 	// scripted npc dialogue
 	table<entity, float> npcDialogueNextAllowedTime
@@ -170,6 +172,10 @@ void function ExtraAISpawner_Init()
 	// npc prowler: scale damage depend on model scale
 	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, ProwlerMeleeDamageModifier )
 
+	// convert imc stalkers to white ones
+	// this is hardcode and not vanilla behavior.. just want to add some funny stuff		
+	AddSpawnCallback( "npc_stalker", OnStalkerSpawned )
+
 	// for debugging
 	//MeleeSyncedNPC_EnableAll_Init()
 	//AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
@@ -178,6 +184,18 @@ void function ExtraAISpawner_Init()
 	//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
 	//AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
 	//AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
+}
+	
+void function OnStalkerSpawned( entity stalker )
+{	
+	int team = stalker.GetTeam()
+	if ( team == TEAM_IMC && stalker in file.npcSpawnFromExtraSpawner )
+	{
+		stalker.SetValueForModelKey( $"Robots/stalker/robot_stalker.mdl" )
+		// the problem is we can't handle dropship condition, may break their animation
+		// maybe just modify aisettings file?
+		stalker.SetModel( $"Robots/stalker/robot_stalker.mdl" )
+	}
 }
 
 void function ProwlerPrecache()
@@ -519,17 +537,14 @@ void function NPCBisonLoadout( entity titan )
 	// execution_scorch_prime don't require weapons, no need to fix
 
 	// camo for prime titans
+	titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+	titan.SetCamo( 31 ) // default is white. best camo for bison
+
 	int team = titan.GetTeam()
 	if ( team == TEAM_IMC )
-	{
-		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
 		titan.SetCamo( 19 ) // shadow
-	}
 	if ( team == TEAM_MILITIA )
-	{
-		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
 		titan.SetCamo( 1 ) // forest
-	}
 }
 
 void function NPCBrute4Loadout( entity titan )
@@ -749,6 +764,7 @@ bool function CC_SpawnAssassinPilot( entity player, array<string> args )
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 	entity pilot = CreateNPC( "npc_pilot_elite", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	SetSpawnOption_AISettings( pilot, "npc_pilot_elite_assassin" )
 	pilot.s.petTitan <- null // initializing
 	pilot.s.nextTitanRespawnAvailable <- null
@@ -774,6 +790,7 @@ bool function CC_SpawnSpecialistGrunt( entity player, array<string> args )
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	file.npcSpawnFromExtraSpawner[ grunt ] <- true
 	SetSpawnOption_AISettings( grunt, "npc_soldier_pve_specialist" )
 
 	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
@@ -1314,6 +1331,8 @@ entity function CreateSoldier_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateSoldier( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
 	return npc
 }
 
@@ -1321,6 +1340,8 @@ entity function CreateSpectre_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateSpectre( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
 	return npc
 }
 
@@ -1328,16 +1349,7 @@ entity function CreateStalker_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateStalker( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
-
-	// convert imc stalkers to white ones
-	// this is hardcode and not vanilla behavior.. just want to add some funny stuff
-	if ( team == TEAM_IMC )
-	{
-		npc.SetValueForModelKey( $"Robots/stalker/robot_stalker.mdl" )
-		// needs to set model after dispatchSpawn()... but the problem is we can't handle dropship condition
-		// maybe just modify aisettings file?
-		npc.SetModel( $"Robots/stalker/robot_stalker.mdl" )
-	}
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
 
 	return npc
 }
@@ -1358,17 +1370,8 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 	{
 		entity npc = CreateNPC( content, team, pos, <0,0,0> )
 		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
-		
-		// convert imc stalkers to white ones
-		// this is hardcode and not vanilla behavior.. just want to add some funny stuff
-		if ( team == TEAM_IMC && content == "npc_stalker" )
-		{
-			npc.SetValueForModelKey( $"Robots/stalker/robot_stalker.mdl" )
-			// needs to set model after dispatchSpawn()... but the problem is we can't handle dropship condition
-			// maybe just modify aisettings file?
-			npc.SetModel( $"Robots/stalker/robot_stalker.mdl" )
-		}
 
+		file.npcSpawnFromExtraSpawner[ npc ] <- true
 		DispatchSpawn( npc )
 		SetSquad( npc, squadName )
 		
@@ -1427,6 +1430,7 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// set up embarked behavior
@@ -1466,6 +1470,7 @@ void function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void 
 	SetSpawnOption_NPCTitan( titan, TITAN_HENCH )
     titan.ai.titanSpawnLoadout.setFile = "titan_buddy"
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
@@ -1496,6 +1501,7 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
@@ -1547,6 +1553,7 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.SetSkin( 6 ) // possibly be ash's skin?
@@ -1592,6 +1599,7 @@ entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int t
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.SetSkin( 8 ) // possibly be blisk's skin?
@@ -1637,6 +1645,7 @@ entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int 
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// re-assign weapons
@@ -1690,6 +1699,7 @@ entity function ExtraSpawner_SpawnVanguardWithSarah( vector pos, vector rot, int
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// sarah skin
@@ -1761,6 +1771,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 	{
 		entity spawnNpc = CreateNPC( content, team, pos, rot )
 
+		file.npcSpawnFromExtraSpawner[ spawnNpc ] <- true
 		DispatchSpawn( spawnNpc ) // never delay dispatchSpawn()
 		SetSquad( spawnNpc, squadName )
 
@@ -1874,17 +1885,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		{
 			npc = CreateNPC( content, team, pos, <0,0,0> )
 			ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
-			
-			// convert imc stalkers to white ones
-			// this is hardcode and not vanilla behavior.. just want to add some funny stuff
-			if ( team == TEAM_IMC && content == "npc_stalker" )
-			{
-				npc.SetValueForModelKey( $"Robots/stalker/robot_stalker.mdl" )
-				// needs to set model after dispatchSpawn()... but the problem is we can't handle dropship condition
-				// maybe just modify aisettings file?
-				npc.SetModel( $"Robots/stalker/robot_stalker.mdl" )
-			}
 
+			file.npcSpawnFromExtraSpawner[ npc ] <- true
 			DispatchSpawn( npc )
 		}
 
@@ -1911,6 +1913,7 @@ entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int t
 {
 	entity npc = CreateSpecialistGrunt_NonSetup( team, pos, rot, aiSet )
 
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
 	DispatchSpawn( npc )
 	SetUpSpecialistGrunt( npc, aiSet )
 
@@ -2027,6 +2030,7 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 		if ( i >= 2 ) // small prowlers
 			npc.kv.modelscale = prowlerScale
 
+		file.npcSpawnFromExtraSpawner[ npc ] <- true
 		DispatchSpawn( npc )
 
 		if ( i < 2 ) // normal prowlers
@@ -2061,6 +2065,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 {
 	entity gunship = CreateNPC("npc_gunship", team, pos, rot )
 	HideName( gunship ) // won't make it's info target( or health bar ) teleport into battle
+	file.npcSpawnFromExtraSpawner[ gunship ] <- true
 	DispatchSpawn( gunship )
 	SetDefaultMPEnemyHighlight( gunship )
 	thread PlayAnim( gunship , "st_AngelCity_IMC_Win_ComeIn" ) // flying anim
@@ -2073,6 +2078,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	entity gunship2 = CreateNPC( "npc_gunship", team, spawnpoint, spawnang )
 	gunship2.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( gunship2 )
+	file.npcSpawnFromExtraSpawner[ gunship2 ] <- true
 	DispatchSpawn( gunship2 )
 
 	array<string> gunshipWeapons =
@@ -2202,6 +2208,7 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.s.nextTitanRespawnAvailable <- null
 
 	ExtraSpawner_ApplyNPCGrenadeWeapon( pilot ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
 
 	ExtraSpawner_SetUpNPCPilot( pilot )
@@ -2767,6 +2774,7 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SetSpawnOption_AISettings( reaper, reaperSettings )
 	
 	HideName( reaper ) // prevent flash a name onto it
+	file.npcSpawnFromExtraSpawner[ reaper ] <- true
 	DispatchSpawn( reaper )
 
 	reaper.WaitSignal( "WarpfallComplete" )
