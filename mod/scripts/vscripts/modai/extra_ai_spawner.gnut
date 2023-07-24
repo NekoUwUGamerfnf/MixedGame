@@ -123,7 +123,9 @@ struct
 	table<entity, EmbarkedNPCTitanStruct> soulEmbarkedSettings
 	// for ExtraSpawner_SpawnTitanRandom() picking random titans
 	array<RandomTitanStruct> randomTitanList
-	// for making the npc as one of prowler squad
+	// for marking the npc as spawning from this file
+	table<entity, bool> npcSpawnFromExtraSpawner
+	// for marking the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
 	// scripted npc dialogue
 	table<entity, float> npcDialogueNextAllowedTime
@@ -167,6 +169,22 @@ void function ExtraAISpawner_Init()
 	//AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
 	// npc prowler: scale damage depend on model scale
 	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, ProwlerMeleeDamageModifier )
+
+	// convert imc stalkers to white ones
+	// this is hardcode and not vanilla behavior.. just want to add some funny stuff		
+	AddSpawnCallback( "npc_stalker", OnStalkerSpawned )
+}
+	
+void function OnStalkerSpawned( entity stalker )
+{	
+	int team = stalker.GetTeam()
+	if ( team == TEAM_IMC && stalker in file.npcSpawnFromExtraSpawner )
+	{
+		stalker.SetValueForModelKey( $"models/Robots/stalker/robot_stalker.mdl" )
+		// the problem is we can't handle dropship condition, may break their animation
+		// maybe just modify aisettings file?
+		stalker.SetModel( $"models/Robots/stalker/robot_stalker.mdl" )
+	}
 }
 
 void function ProwlerPrecache()
@@ -519,6 +537,29 @@ void function ExtraSpawner_RegisterToRandomTitanList( string setFile, string aiS
 	newStruct.mltSkinIndex = mltSkinIndex
 
 	file.randomTitanList.append( newStruct )
+}
+
+void function SetupNPCPilotEmbarkedTitanNuke( entity titan )
+{
+	NPC_SetNuclearPayload( titan )
+
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		// modified function in sh_titan.gnut
+		TitanEject_SetSoulNukeExplosionDamageOverride( 
+			soul, 			// current soul
+			8, 				// explosion count
+			0.8, 			// explosion duration, end the nuke before titan gets destroyed, so it won't deal friendly fire
+			75, 			// damage
+			2500, 			// damage heavy armor
+			350, 			// inner radius
+			600, 			// outer radius
+			SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
+			0,				// explosion force
+			DF_RAGDOLL | DF_EXPLOSION			// script damage flags
+		)
+	}
 }
 
 // copied from cl_replacement_titan_hud.gnut
@@ -1014,6 +1055,8 @@ entity function CreateSoldier_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateSoldier( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
 	return npc
 }
 
@@ -1021,6 +1064,8 @@ entity function CreateSpectre_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateSpectre( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
 	return npc
 }
 
@@ -1028,6 +1073,8 @@ entity function CreateStalker_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateStalker( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
 	return npc
 }
 //
@@ -1048,6 +1095,7 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 		entity npc = CreateNPC( content, team, pos, <0,0,0> )
 		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
+		file.npcSpawnFromExtraSpawner[ npc ] <- true
 		DispatchSpawn( npc )
 		SetSquad( npc, squadName )
 		
@@ -1106,6 +1154,7 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// set up embarked behavior
@@ -1145,6 +1194,7 @@ void function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void 
 	SetSpawnOption_NPCTitan( titan, TITAN_HENCH )
     titan.ai.titanSpawnLoadout.setFile = "titan_buddy"
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
@@ -1174,6 +1224,7 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
@@ -1224,6 +1275,7 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.SetSkin( 6 ) // possibly be ash's skin?
@@ -1242,8 +1294,9 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
 	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
 	titan.SetBehaviorSelector( "behavior_titan_shotgun" ) // become smarter, since pilot has control of it
 	// nuke
-	NPC_SetNuclearPayload( titan ) // imc titans do nuke
-	TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
+	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	SetupNPCPilotEmbarkedTitanNuke( titan )
 	// set up embarked behavior, we may feature npc pilot disembarking in future?
 	SetTitanSoulEmbarkedSettings( titan, "npc_titan_stryder_leadwall", "behavior_titan_shotgun", "#BOSSNAME_ASH" )
 
@@ -1268,6 +1321,7 @@ entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int t
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.SetSkin( 8 ) // possibly be blisk's skin?
@@ -1313,6 +1367,7 @@ entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int 
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// re-assign weapons
@@ -1366,6 +1421,7 @@ entity function ExtraSpawner_SpawnVanguardWithSarah( vector pos, vector rot, int
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// sarah skin
@@ -1436,6 +1492,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 	{
 		entity spawnNpc = CreateNPC( content, team, pos, rot )
 
+		file.npcSpawnFromExtraSpawner[ spawnNpc ] <- true
 		DispatchSpawn( spawnNpc ) // never delay dispatchSpawn()
 		SetSquad( spawnNpc, squadName )
 
@@ -1549,6 +1606,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		{
 			npc = CreateNPC( content, team, pos, <0,0,0> )
 			ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+
+			file.npcSpawnFromExtraSpawner[ npc ] <- true
 			DispatchSpawn( npc )
 		}
 
@@ -1575,6 +1634,7 @@ entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int t
 {
 	entity npc = CreateSpecialistGrunt_NonSetup( team, pos, rot, aiSet )
 
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
 	DispatchSpawn( npc )
 	SetUpSpecialistGrunt( npc, aiSet )
 
@@ -1691,6 +1751,7 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 		if ( i >= 2 ) // small prowlers
 			npc.kv.modelscale = prowlerScale
 
+		file.npcSpawnFromExtraSpawner[ npc ] <- true
 		DispatchSpawn( npc )
 
 		if ( i < 2 ) // normal prowlers
@@ -1723,6 +1784,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 {
 	entity gunship = CreateNPC("npc_gunship", team, pos, rot )
 	HideName( gunship ) // won't make it's info target( or health bar ) teleport into battle
+	file.npcSpawnFromExtraSpawner[ gunship ] <- true
 	DispatchSpawn( gunship )
 	SetDefaultMPEnemyHighlight( gunship )
 	thread PlayAnim( gunship , "st_AngelCity_IMC_Win_ComeIn" ) // flying anim
@@ -1735,6 +1797,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	entity gunship2 = CreateNPC( "npc_gunship", team, spawnpoint, spawnang )
 	gunship2.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( gunship2 )
+	file.npcSpawnFromExtraSpawner[ gunship2 ] <- true
 	DispatchSpawn( gunship2 )
 
 	array<string> gunshipWeapons =
@@ -1864,6 +1927,7 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.s.nextTitanRespawnAvailable <- null
 
 	ExtraSpawner_ApplyNPCGrenadeWeapon( pilot ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
 
 	ExtraSpawner_SetUpNPCPilot( pilot )
@@ -2426,6 +2490,7 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SetSpawnOption_AISettings( reaper, reaperSettings )
 	
 	HideName( reaper ) // prevent flash a name onto it
+	file.npcSpawnFromExtraSpawner[ reaper ] <- true
 	DispatchSpawn( reaper )
 
 	reaper.WaitSignal( "WarpfallComplete" )
@@ -2440,7 +2505,18 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SuperSpectre_SetNukeDeathThreshold( reaper, 9999 ) // they'll always try to nuke
 	SuperSpectre_SetForcedKilledByTitans( reaper, false ) // they won't be disarmed by titans, always try to nuke
 	SuperSpectre_SetSelfAsNukeAttacker( reaper, true ) // the nuke's attacker will always be the reaper
-	SuperSpectre_SetNukeExplosionCountAndDuration( reaper, 5, 0.8 ) // end the nuke before reaper gets destroyed, so it won't deal friendly fire
+	SuperSpectre_SetNukeExplosionDamageEffect( 
+		reaper, 		// current reaper
+		5, 				// explosion count
+		0.8, 			// explosion duration, end the nuke before reaper gets destroyed, so it won't deal friendly fire
+		85, 			// damage
+		700, 			// damage heavy armor
+		330, 			// inner radius
+		430, 			// outer radius
+		SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
+		50000,			// explosion force
+		DF_RAGDOLL | DF_EXPLOSION			// script damage flags
+	)
 	SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath( reaper, true ) // clean up their ticks using a modified way
 	//SuperSpectre_SetSpawnerTickMaxCount( reaper, 8 ) // spawn 8 ticks per reaper
 

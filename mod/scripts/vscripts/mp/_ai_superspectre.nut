@@ -21,7 +21,7 @@ global function SuperSpectre_SetNukeDeathThreshold
 global function SuperSpectre_SetForcedKilledByTitans // other than this the reaper will be killed by titans, won't ever try to nuke
 global function SuperSpectre_SetSelfAsNukeAttacker // the nuke's attacker will always be the reaper
 global function SuperSpectre_SetDropBatteryOnDeath
-global function SuperSpectre_SetNukeExplosionCountAndDuration
+global function SuperSpectre_SetNukeExplosionDamageEffect
 global function SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath // ticks will go explode if their owner reaper nuke or gibbed
 global function SuperSpectre_SetSpawnerTickMaxCount // decides how many ticks this reaper can own
 //
@@ -54,6 +54,13 @@ struct ReaperNukeDamage
 {
 	int count = 8
 	float duration = 1.0
+	int damage = 85 //[$mp]
+	int damageHeavyArmor = 700
+	int innerRadius = 330
+	int outerRadius = 430
+	int explosionFlags = SF_ENVEXPLOSION_MASK_BRUSHONLY
+	int explosionForce = 50000
+	int damageFlags = DF_RAGDOLL | DF_EXPLOSION | DF_BYPASS_SHIELD | DF_SKIPS_DOOMED_STATE
 }
 
 struct
@@ -305,12 +312,33 @@ void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, 
 		else
 			explosionOwner = GetTeamEnt( team )
 
-		RadiusDamage_DamageDefSimple(
-			damagedef_reaper_nuke,
-			origin,								// origin
-			explosionOwner,						// owner
-			inflictor,							// inflictor
-			0 )									// dist from attacker
+		if ( ReaperHasNukeDamageOverride( reaper ) ) // nuke damage effect override
+		{
+			ReaperNukeDamage nukeStruct = GetReaperNukeDamageOverride( reaper )
+			RadiusDamage( 
+				origin,								// origin
+				explosionOwner,						// owner
+				inflictor,							// inflictor
+				nukeStruct.damage,					// normal damage
+				nukeStruct.damageHeavyArmor,		// heavy armor damage
+				nukeStruct.innerRadius,				// inner radius
+				nukeStruct.outerRadius,				// outer radius
+				nukeStruct.explosionFlags,			// flags
+				0,									// distanceFromAttacker
+				nukeStruct.explosionForce,			// explosionForce
+				nukeStruct.damageFlags,				// scriptDamageFlags
+				damagedef_reaper_nuke				// scriptDamageSourceIdentifier
+			)
+		}
+		else // vanilla behavior
+		{
+			RadiusDamage_DamageDefSimple(
+				damagedef_reaper_nuke,
+				origin,								// origin
+				explosionOwner,						// owner
+				inflictor,							// inflictor
+				0 )									// dist from attacker
+		}
 
 		// modified to have constant explosion interval
 		//wait RandomFloatRange( 0.01, 0.21 )
@@ -908,7 +936,7 @@ void function SuperSpectre_SetDropBatteryOnDeath( entity ent, bool dropBatt )
 	file.reaperDropBattOnDeath[ ent ] = dropBatt
 }
 
-void function SuperSpectre_SetNukeExplosionCountAndDuration( entity ent, int count, float duration )
+void function SuperSpectre_SetNukeExplosionDamageEffect( entity ent, int count, float duration, int damage, int damageHeavyArmor, int innerRadius, int outerRadius, int explosionFlags, int explosionForce, int damageFlags )
 {
 	ReaperNukeDamage nukeStruct
 	if ( !( ent in file.reaperNukeDamageOverrides ) )
@@ -916,6 +944,13 @@ void function SuperSpectre_SetNukeExplosionCountAndDuration( entity ent, int cou
 	
 	nukeStruct.count = count
 	nukeStruct.duration = duration
+	nukeStruct.damage = damage
+	nukeStruct.damageHeavyArmor = damageHeavyArmor
+	nukeStruct.innerRadius = innerRadius
+	nukeStruct.outerRadius = outerRadius
+	nukeStruct.explosionFlags = explosionFlags
+	nukeStruct.explosionForce = explosionForce
+	nukeStruct.damageFlags = damageFlags
 	file.reaperNukeDamageOverrides[ ent ] = nukeStruct
 }
 
