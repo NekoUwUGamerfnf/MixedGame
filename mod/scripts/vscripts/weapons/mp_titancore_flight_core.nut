@@ -102,7 +102,7 @@ void function PROTO_FlightCore( entity titan, float flightTime, entity weapon )
 		{
 			//print( weaponToRestore )
 			bool willRestoreWeapon = expect bool( storedWeapon.shouldRestore ) // IsValid( weaponToRestore ) 
-			print( willRestoreWeapon )
+			//print( willRestoreWeapon )
 			if ( IsValid( titan ) && titan.IsPlayer() )
 			{
 				if ( IsAlive( titan ) && titan.IsTitan() )

@@ -19,6 +19,7 @@ global function TemporarilyNonSolidPlayer
 
 	// modified!!
 	global function TitanEject_SetSoulUseNPCPilotAsNukeAttacker
+	global function TitanEject_SetSoulNukeExplosionDamageOverride
 #endif
 
 global const TITAN_EJECT_SCREECH	= "titan_eject_screech"
@@ -38,14 +39,28 @@ global enum eCockpitState
 	Eject = 9
 }
 
+// modified settings override!!!
+struct TitanNukeDamage
+{
+	int count
+	float duration
+	int damage
+	int damageHeavyArmor
+	int innerRadius
+	int outerRadius
+	int explosionFlags
+	int explosionForce
+	int damageFlags
+}
+
 struct
 {
 	float titanVOEjectNotifyDist = 2000 * 2000
 
-	// modified!!!!
+	// modified settings override!!!!
 	table<entity, bool> soulUseNPCPilotAsNukeAttacker
+	table<entity, TitanNukeDamage> soulNukeDamageOverrides
 } file
-
 
 function TitanShared_Init()
 {
@@ -1048,6 +1063,20 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 		}
 	)
 
+	// modified settings override
+	entity titan = expect entity( e.titan )
+	entity soul
+	if ( IsValid( titan ) && titan.IsTitan() )
+		soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) && SoulHasNukeDamageOverride( soul ) ) // nuke damage effect override
+	{
+		TitanNukeDamage nukeStruct = GetSoulNukeDamageOverride( soul )
+		explosions = nukeStruct.count
+		time = nukeStruct.duration
+		waitPerExplosion = time / explosions
+	}
+	//
+
 	for ( int i = 0; i < explosions; i++ )
 	{
 		local normalDamage 		= baseNormalDamage
@@ -1071,15 +1100,37 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 		if ( outerRadius < innerRadius )
 			outerRadius = innerRadius
 
-		RadiusDamage_DamageDef( damagedef_nuclear_core,
-			origin,								// origin
-			explosionOwner,						// owner
-			inflictor,							// inflictor
-			normalDamage,						// normal damage
-			heavyArmorDamage,					// heavy armor damage
-			innerRadius,						// inner radius
-			outerRadius,						// outer radius
-			0 )									// dist from attacker
+		// modified settings override
+		if ( IsValid( soul ) && SoulHasNukeDamageOverride( soul ) ) // nuke damage effect override
+		{
+			TitanNukeDamage nukeStruct = GetSoulNukeDamageOverride( soul )
+			RadiusDamage( 
+				origin,								// origin
+				explosionOwner,						// owner
+				inflictor,							// inflictor
+				nukeStruct.damage,					// normal damage
+				nukeStruct.damageHeavyArmor,		// heavy armor damage
+				nukeStruct.innerRadius,				// inner radius
+				nukeStruct.outerRadius,				// outer radius
+				nukeStruct.explosionFlags,			// flags
+				0,									// distanceFromAttacker
+				nukeStruct.explosionForce,			// explosionForce
+				nukeStruct.damageFlags,				// scriptDamageFlags
+				damagedef_nuclear_core				// scriptDamageSourceIdentifier
+			)
+		}
+		else // vanilla behavior
+		{
+			RadiusDamage_DamageDef( damagedef_nuclear_core,
+				origin,								// origin
+				explosionOwner,						// owner
+				inflictor,							// inflictor
+				normalDamage,						// normal damage
+				heavyArmorDamage,					// heavy armor damage
+				innerRadius,						// inner radius
+				outerRadius,						// outer radius
+				0 )									// dist from attacker
+		}
 
 		wait waitPerExplosion
 	}
@@ -1334,5 +1385,38 @@ void function TitanEject_SetSoulUseNPCPilotAsNukeAttacker( entity soul, bool set
 	if ( !( soul in file.soulUseNPCPilotAsNukeAttacker ) )
 		file.soulUseNPCPilotAsNukeAttacker[ soul ] <- false // default value
 	file.soulUseNPCPilotAsNukeAttacker[ soul ] = setAs
+}
+
+void function TitanEject_SetSoulNukeExplosionDamageOverride( entity soul, int count, float duration, int damage, int damageHeavyArmor, int innerRadius, int outerRadius, int explosionFlags, int explosionForce, int damageFlags )
+{
+	TitanNukeDamage nukeStruct
+	if ( !( soul in file.soulNukeDamageOverrides ) )
+		file.soulNukeDamageOverrides[ soul ] <- nukeStruct // default
+	
+	nukeStruct.count = count
+	nukeStruct.duration = duration
+	nukeStruct.damage = damage
+	nukeStruct.damageHeavyArmor = damageHeavyArmor
+	nukeStruct.innerRadius = innerRadius
+	nukeStruct.outerRadius = outerRadius
+	nukeStruct.explosionFlags = explosionFlags
+	nukeStruct.explosionForce = explosionForce
+	nukeStruct.damageFlags = damageFlags
+	file.soulNukeDamageOverrides[ soul ] = nukeStruct
+}
+
+bool function SoulHasNukeDamageOverride( entity soul )
+{
+	if ( !( soul in file.soulNukeDamageOverrides ) )
+		return false // default is no overrides
+	return true
+}
+
+TitanNukeDamage function GetSoulNukeDamageOverride( entity soul )
+{
+	TitanNukeDamage defaultStruct
+	if ( !( soul in file.soulNukeDamageOverrides ) )
+		return defaultStruct
+	return file.soulNukeDamageOverrides[ soul ]
 }
 #endif

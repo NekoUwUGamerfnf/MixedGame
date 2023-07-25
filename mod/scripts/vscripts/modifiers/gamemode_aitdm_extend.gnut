@@ -62,23 +62,10 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
 
 	// scoring
-	AddDeathCallback( "player", ForceAddScoreForPlayerOrNPCKill )
-
-	// npc killed score event, using death callbacks for npc killing each other!
-	// these two can't be handle by scoreEvents
-	// now fixed by changing function IsValidNPCTarget() in _base_gametype.gnut. fuck respawn
-	AddDeathCallback( "npc_pilot_elite", ForceAddScoreForPlayerOrNPCKill )
-	AddDeathCallback( "npc_gunship", ForceAddScoreForPlayerOrNPCKill )
-
-	AddDeathCallback( "npc_marvin", ForceAddScoreForPlayerOrNPCKill )
-	AddDeathCallback( "npc_soldier", ForceAddScoreForPlayerOrNPCKill )
-	AddDeathCallback( "npc_spectre", ForceAddScoreForPlayerOrNPCKill )
-	AddDeathCallback( "npc_stalker", ForceAddScoreForPlayerOrNPCKill )
-	AddDeathCallback( "npc_prowler", ForceAddScoreForPlayerOrNPCKill )
-	AddDeathCallback( "npc_super_spectre", ForceAddScoreForPlayerOrNPCKill )
-	AddDeathCallback( "npc_drone", ForceAddScoreForPlayerOrNPCKill )
-	AddDeathCallback( "npc_titan", ForceAddScoreForPlayerOrNPCKill )
-	AddCallback_OnTitanDoomed( HandleTitanDoomedScore ) // for handling doomed health loss titans
+	AddCallback_OnPlayerKilled( HandleScoreForPlayerOrNPCKill )
+	AddCallback_OnNPCKilled( HandleScoreForPlayerOrNPCKill )
+	// modified callback in _score.nut: for handling doomed health loss titans
+	AddCallback_TitanDoomedScoreEvent( HandleTitanDoomedScore )
 
 	AddCallback_OnClientConnected( OnPlayerConnected )
 
@@ -321,7 +308,8 @@ const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.5
 
 void function BuffPilotDamage( entity victim, var damageInfo )
 {
-	if ( victim.GetArmorType() != ARMOR_TYPE_HEAVY ) // not a heavy armor target
+	// not a heavy armor target, hit by bullet
+	if ( victim.GetArmorType() != ARMOR_TYPE_HEAVY && DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET )
 	{
 		// make npc pilots powerful?
 		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * NPC_PILOT_DAMAGE_MULTIPLIER )
@@ -369,7 +357,7 @@ void function InitExtraSpawnerSettings()
 	ExtraSpawner_SetNPCWeapons( "npc_spectre", ["mp_weapon_mastiff", "mp_weapon_doubletake", "mp_weapon_hemlok_smg", "mp_weapon_hemlok"] )
 	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_spectre", ["mp_weapon_arc_launcher", "mp_weapon_defender"] )
 
-	ExtraSpawner_SetNPCWeapons( "npc_pilot_elite", ["mp_weapon_rspn101_og", "mp_weapon_r97", "mp_weapon_car", "mp_weapon_hemlok_smg", "mp_weapon_hemlok", "mp_weapon_g2", "mp_weapon_esaw", "mp_weapon_vinson"] )
+	ExtraSpawner_SetNPCWeapons( "npc_pilot_elite", ["mp_weapon_rspn101_og", "mp_weapon_r97", "mp_weapon_car", "mp_weapon_hemlok_smg", "mp_weapon_hemlok", "mp_weapon_g2", "mp_weapon_vinson"] )
 	ExtraSpawner_SetNPCGrenadeWeapons( "npc_pilot_elite", ["mp_weapon_thermite_grenade", "mp_weapon_grenade_emp"] )	
 
 	ExtraSpawner_SetNPCWeapons( "npc_stalker", ["mp_weapon_softball", "mp_weapon_smr"] ) // npcs can't shoot "mp_weapon_pulse_lmg"
@@ -414,9 +402,8 @@ void function OnPlayerConnected( entity player )
 
 //------------------------------------------------------
 
-void function ForceAddScoreForPlayerOrNPCKill( entity victim, var damageInfo )
+void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var damageInfo )
 {
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if( !IsValid( attacker ) )
 		return
 	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
@@ -570,8 +557,11 @@ void function AddAiTDMTeamScore( entity ent, int score )
 }
 
 // for handling doomed health loss titans
-void function HandleTitanDoomedScore( entity victim, var damageInfo )
+void function HandleTitanDoomedScore( entity victim, var damageInfo, bool firstDoom )
 {
+	if ( !firstDoom ) // only add score on first doom
+		return
+
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsValid( attacker ) )
 		return

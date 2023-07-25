@@ -37,6 +37,14 @@ global function ExtraSpawner_SpawnLegionWithBlisk
 global function ExtraSpawner_SpawnMonarchWithSarah
 global function ExtraSpawner_SpawnVanguardWithSarah
 
+// boss titan with intro
+global function ExtraSpawner_SpawnBossTitan_Ash
+global function ExtraSpawner_SpawnBossTitan_Viper
+global function ExtraSpawner_SpawnBossTitan_Richter
+global function ExtraSpawner_SpawnBossTitan_Slone
+global function ExtraSpawner_SpawnBossTitan_Kane
+global function ExtraSpawner_SpawnBossTitan_Blisk // seems unused and unfinished
+
 global function ExtraSpawner_SpawnCarePackageToGetWeapons
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetCarePackageWeapons
@@ -123,7 +131,9 @@ struct
 	table<entity, EmbarkedNPCTitanStruct> soulEmbarkedSettings
 	// for ExtraSpawner_SpawnTitanRandom() picking random titans
 	array<RandomTitanStruct> randomTitanList
-	// for making the npc as one of prowler squad
+	// for marking the npc as spawning from this file
+	table<entity, bool> npcSpawnFromExtraSpawner
+	// for marking the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
 	// scripted npc dialogue
 	table<entity, float> npcDialogueNextAllowedTime
@@ -168,6 +178,10 @@ void function ExtraAISpawner_Init()
 	// npc prowler: scale damage depend on model scale
 	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, ProwlerMeleeDamageModifier )
 
+	// convert imc stalkers to white ones
+	// this is hardcode and not vanilla behavior.. just want to add some funny stuff		
+	AddSpawnCallback( "npc_stalker", OnStalkerSpawned )
+
 	// for debugging
 	//MeleeSyncedNPC_EnableAll_Init()
 	//AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
@@ -176,6 +190,19 @@ void function ExtraAISpawner_Init()
 	//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
 	//AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
 	//AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
+	//AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
+}
+
+void function OnStalkerSpawned( entity stalker )
+{	
+	int team = stalker.GetTeam()
+	if ( team == TEAM_IMC && stalker in file.npcSpawnFromExtraSpawner )
+	{
+		stalker.SetValueForModelKey( $"models/Robots/stalker/robot_stalker.mdl" )
+		// the problem is we can't handle dropship condition, may break their animation
+		// maybe just modify aisettings file?
+		stalker.SetModel( $"models/Robots/stalker/robot_stalker.mdl" )
+	}
 }
 
 void function ProwlerPrecache()
@@ -517,17 +544,14 @@ void function NPCBisonLoadout( entity titan )
 	// execution_scorch_prime don't require weapons, no need to fix
 
 	// camo for prime titans
+	titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+	titan.SetCamo( 31 ) // default is white. best camo for bison
+
 	int team = titan.GetTeam()
 	if ( team == TEAM_IMC )
-	{
-		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
 		titan.SetCamo( 19 ) // shadow
-	}
 	if ( team == TEAM_MILITIA )
-	{
-		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
 		titan.SetCamo( 1 ) // forest
-	}
 }
 
 void function NPCBrute4Loadout( entity titan )
@@ -678,6 +702,29 @@ void function ExtraSpawner_RegisterToRandomTitanList( string setFile, string aiS
 	file.randomTitanList.append( newStruct )
 }
 
+void function SetupNPCPilotEmbarkedTitanNuke( entity titan )
+{
+	NPC_SetNuclearPayload( titan )
+
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		// modified function in sh_titan.gnut
+		TitanEject_SetSoulNukeExplosionDamageOverride( 
+			soul, 			// current soul
+			8, 				// explosion count
+			0.8, 			// explosion duration, end the nuke before titan gets destroyed, so it won't deal friendly fire
+			75, 			// damage
+			2500, 			// damage heavy armor
+			350, 			// inner radius
+			600, 			// outer radius
+			SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
+			0,				// explosion force
+			DF_RAGDOLL | DF_EXPLOSION			// script damage flags
+		)
+	}
+}
+
 //------------------------------------------------------
 
 bool function CC_SpawnPilotAndTitan( entity player, array<string> args )
@@ -724,6 +771,7 @@ bool function CC_SpawnAssassinPilot( entity player, array<string> args )
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 	entity pilot = CreateNPC( "npc_pilot_elite", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	SetSpawnOption_AISettings( pilot, "npc_pilot_elite_assassin" )
 	pilot.s.petTitan <- null // initializing
 	pilot.s.nextTitanRespawnAvailable <- null
@@ -749,6 +797,7 @@ bool function CC_SpawnSpecialistGrunt( entity player, array<string> args )
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	file.npcSpawnFromExtraSpawner[ grunt ] <- true
 	SetSpawnOption_AISettings( grunt, "npc_soldier_pve_specialist" )
 
 	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
@@ -772,6 +821,52 @@ bool function CC_SpawnPilotElite( entity player, array<string> args )
 	//pilot.GiveWeapon( "mp_weapon_defender" )
 	pilot.GiveWeapon( "mp_weapon_pulse_lmg" )
 	//pilot.GiveWeapon( "mp_weapon_hemlok" )
+	return true
+}
+
+bool function CC_SpawnBossTitanWithIntro( entity player, array<string> args )
+{
+	if ( !GetConVarBool( "sv_cheats" ) )
+	{
+		if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+			return false
+	}
+
+	if ( args.len() == 0 )
+		return true
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+	int team = TEAM_BOTH
+
+	string bossType = args[0].tolower()
+	switch ( bossType )
+	{
+		case "ash":
+			ExtraSpawner_SpawnBossTitan_Ash( pos, rot, team )
+			break
+		case "viper":
+			ExtraSpawner_SpawnBossTitan_Viper( pos, rot, team )
+			break
+		/*
+		// these intros can't be used in mp
+		case "richter":
+			ExtraSpawner_SpawnBossTitan_Richter( pos, rot, team )
+			break
+		case "slone":
+			ExtraSpawner_SpawnBossTitan_Slone( pos, rot, team )
+			break
+		case "kane":
+			ExtraSpawner_SpawnBossTitan_Kane( pos, rot, team )
+			break
+		// blisk intro seems unused and unfinished
+		case "blisk":
+			ExtraSpawner_SpawnBossTitan_Blisk( pos, rot, team )
+			break
+		*/
+	}
+
 	return true
 }
 
@@ -1289,6 +1384,8 @@ entity function CreateSoldier_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateSoldier( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
 	return npc
 }
 
@@ -1296,6 +1393,8 @@ entity function CreateSpectre_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateSpectre( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
 	return npc
 }
 
@@ -1303,6 +1402,8 @@ entity function CreateStalker_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateStalker( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
 	return npc
 }
 //
@@ -1323,6 +1424,7 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 		entity npc = CreateNPC( content, team, pos, <0,0,0> )
 		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
+		file.npcSpawnFromExtraSpawner[ npc ] <- true
 		DispatchSpawn( npc )
 		SetSquad( npc, squadName )
 		
@@ -1381,6 +1483,7 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// set up embarked behavior
@@ -1417,16 +1520,17 @@ void function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void 
 	SetSpawnOption_AISettings( titan, "npc_titan_buddy")
 	SetSpawnOption_Titanfall( titan )
 	SetSpawnOption_Warpfall( titan )
-	SetSpawnOption_NPCTitan( titan, TITAN_HENCH )
+	//SetSpawnOption_NPCTitan( titan, TITAN_HENCH ) // mp don't need boss titan setting
     titan.ai.titanSpawnLoadout.setFile = "titan_buddy"
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix mod
 	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
 	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
-	//titan.SetSkin(1)
+	//titan.SetSkin(1) // sarah skin
 	SetSquad( titan, squadName )
 
 	if ( titanHandler != null )
@@ -1450,6 +1554,7 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
@@ -1501,6 +1606,7 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.SetSkin( 6 ) // possibly be ash's skin?
@@ -1519,8 +1625,9 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
 	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
 	titan.SetBehaviorSelector( "behavior_titan_shotgun" ) // become smarter, since pilot has control of it
 	// nuke
-	NPC_SetNuclearPayload( titan ) // imc titans do nuke
-	TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
+	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	SetupNPCPilotEmbarkedTitanNuke( titan )
 	// set up embarked behavior, we may feature npc pilot disembarking in future?
 	SetTitanSoulEmbarkedSettings( titan, "npc_titan_stryder_leadwall", "behavior_titan_shotgun", "#BOSSNAME_ASH" )
 
@@ -1545,6 +1652,7 @@ entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int t
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	titan.SetSkin( 8 ) // possibly be blisk's skin?
@@ -1590,6 +1698,7 @@ entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int 
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// re-assign weapons
@@ -1643,6 +1752,7 @@ entity function ExtraSpawner_SpawnVanguardWithSarah( vector pos, vector rot, int
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
 	// sarah skin
@@ -1714,6 +1824,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 	{
 		entity spawnNpc = CreateNPC( content, team, pos, rot )
 
+		file.npcSpawnFromExtraSpawner[ spawnNpc ] <- true
 		DispatchSpawn( spawnNpc ) // never delay dispatchSpawn()
 		SetSquad( spawnNpc, squadName )
 
@@ -1827,6 +1938,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		{
 			npc = CreateNPC( content, team, pos, <0,0,0> )
 			ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+
+			file.npcSpawnFromExtraSpawner[ npc ] <- true
 			DispatchSpawn( npc )
 		}
 
@@ -1853,6 +1966,7 @@ entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int t
 {
 	entity npc = CreateSpecialistGrunt_NonSetup( team, pos, rot, aiSet )
 
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
 	DispatchSpawn( npc )
 	SetUpSpecialistGrunt( npc, aiSet )
 
@@ -1969,6 +2083,7 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 		if ( i >= 2 ) // small prowlers
 			npc.kv.modelscale = prowlerScale
 
+		file.npcSpawnFromExtraSpawner[ npc ] <- true
 		DispatchSpawn( npc )
 
 		if ( i < 2 ) // normal prowlers
@@ -2003,6 +2118,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 {
 	entity gunship = CreateNPC("npc_gunship", team, pos, rot )
 	HideName( gunship ) // won't make it's info target( or health bar ) teleport into battle
+	file.npcSpawnFromExtraSpawner[ gunship ] <- true
 	DispatchSpawn( gunship )
 	SetDefaultMPEnemyHighlight( gunship )
 	thread PlayAnim( gunship , "st_AngelCity_IMC_Win_ComeIn" ) // flying anim
@@ -2015,6 +2131,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	entity gunship2 = CreateNPC( "npc_gunship", team, spawnpoint, spawnang )
 	gunship2.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( gunship2 )
+	file.npcSpawnFromExtraSpawner[ gunship2 ] <- true
 	DispatchSpawn( gunship2 )
 
 	array<string> gunshipWeapons =
@@ -2144,6 +2261,7 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.s.nextTitanRespawnAvailable <- null
 
 	ExtraSpawner_ApplyNPCGrenadeWeapon( pilot ) // grenade have to be given before DispatchSpawn()
+	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
 
 	ExtraSpawner_SetUpNPCPilot( pilot )
@@ -2707,6 +2825,7 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SetSpawnOption_AISettings( reaper, reaperSettings )
 	
 	HideName( reaper ) // prevent flash a name onto it
+	file.npcSpawnFromExtraSpawner[ reaper ] <- true
 	DispatchSpawn( reaper )
 
 	reaper.WaitSignal( "WarpfallComplete" )
@@ -2721,7 +2840,18 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SuperSpectre_SetNukeDeathThreshold( reaper, 9999 ) // they'll always try to nuke
 	SuperSpectre_SetForcedKilledByTitans( reaper, false ) // they won't be disarmed by titans, always try to nuke
 	SuperSpectre_SetSelfAsNukeAttacker( reaper, true ) // the nuke's attacker will always be the reaper
-	SuperSpectre_SetNukeExplosionCountAndDuration( reaper, 5, 0.8 ) // end the nuke before reaper gets destroyed, so it won't deal friendly fire
+	SuperSpectre_SetNukeExplosionDamageEffect( 
+		reaper, 		// current reaper
+		5, 				// explosion count
+		0.8, 			// explosion duration, end the nuke before reaper gets destroyed, so it won't deal friendly fire
+		85, 			// damage
+		700, 			// damage heavy armor
+		330, 			// inner radius
+		430, 			// outer radius
+		SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
+		50000,			// explosion force
+		DF_RAGDOLL | DF_EXPLOSION			// script damage flags
+	)
 	SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath( reaper, true ) // clean up their ticks using a modified way
 	//SuperSpectre_SetSpawnerTickMaxCount( reaper, 8 ) // spawn 8 ticks per reaper
 
@@ -2791,4 +2921,374 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 
 		wait RandomFloatRange( 10.0, 20.0 )
 	}
+}
+
+// boss titan with intro
+entity function ExtraSpawner_SpawnBossTitan_Ash( vector pos, vector rot, int team )
+{
+	string setFile = "titan_stryder_leadwall"
+	string aiSet = "npc_titan_stryder_leadwall_bounty" // with a overlay
+	string executionRef = "execution_ronin_prime" // funny with MeleeSyncedNPC
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiSet )
+	// setup boss
+	titan.ai.bossCharacterName = "Ash"
+	titan.ai.bossTitanType = TITAN_MERC // set to titan_merc before DispatchSpawn() will play a intro
+
+    titan.ai.titanSpawnLoadout.setFile = setFile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	// we'll do intro, hide on spawn
+	HideName( titan )
+	titan.Hide()
+	DispatchSpawn( titan )
+
+	titan.SetSkin( 6 ) // possibly be ash's skin?
+	titan.SetDecal( 10 ) // nose art
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+
+	// ash settings!
+	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_ash.mdl", "艾許" )
+
+	titan.SetTitle( "#BOSSNAME_ASH" )
+	// amped behavior
+	// health settings. 4x health, 75% damage reduction ≈ 16x health, without annoying health bar
+	titan.SetMaxHealth( titan.GetMaxHealth() * 4 )
+	titan.SetHealth( titan.GetMaxHealth() )
+    TitanSoul_SetDoomedHealthOverride( titanSoul, 2500 * 4 ) // doomed health override
+	MpBossTitan_SetDamageScale( titan, 1.5 ) // they can deal higher damage
+	MpBossTitan_SetDamageReductionScale( titan, 0.75 )
+	MpBossTitan_SetTitanConversationStyle( titan, eBossTitanConvStyle.PLAY_TO_ALL ) // their conversation is played to all players
+	// attack settings
+	titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
+	// core ability
+	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+	// behavior
+	titan.SetBehaviorSelector( "behavior_titan_shotgun" ) // become smarter, since pilot has control of it
+	// nuke
+	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
+	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	SetupNPCPilotEmbarkedTitanNuke( titan )
+	// set up embarked behavior, we may feature npc pilot disembarking in future?
+	SetTitanSoulEmbarkedSettings( titan, "npc_titan_stryder_leadwall_bounty", "behavior_titan_shotgun", "#BOSSNAME_ASH" )
+
+	thread ExtraSpawner_TitanHandler( titan )
+
+	// show again after DispatchSpawn(), ShowName() is handled in intro
+	titan.Show()
+
+	return titan
+}
+
+entity function ExtraSpawner_SpawnBossTitan_Viper( vector pos, vector rot, int team )
+{
+	string setFile = "titan_stryder_sniper"
+	string aiSet = "npc_titan_stryder_sniper_bounty" // with a overlay
+	string executionRef = "execution_northstar_prime" // funny with MeleeSyncedNPC
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiSet )
+	// setup boss
+	titan.ai.bossCharacterName = "Viper"
+	titan.ai.bossTitanType = TITAN_MERC // set to titan_merc before DispatchSpawn() will play a intro
+
+    titan.ai.titanSpawnLoadout.setFile = setFile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	// we'll do intro, hide on spawn
+	HideName( titan )
+	titan.Hide()
+	DispatchSpawn( titan )
+
+	titan.SetSkin( 1 ) // possibly be viper's skin?
+	titan.SetDecal( 10 ) // nose art
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+
+	// viper settings!
+	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// use mp pilot model: pulse blade male
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/pilots/pilot_medium_reaper_m.mdl", "毒蛇" )
+
+	titan.SetTitle( "#BOSSNAME_VIPER" )
+	// amped behavior
+	// health settings. 4x health, 75% damage reduction ≈ 16x health, without annoying health bar
+	titan.SetMaxHealth( titan.GetMaxHealth() * 4 )
+	titan.SetHealth( titan.GetMaxHealth() )
+	TitanSoul_SetDoomedHealthOverride( titanSoul, 2500 * 4 ) // doomed health override
+	MpBossTitan_SetDamageScale( titan, 1.5 ) // they can deal higher damage
+	MpBossTitan_SetDamageReductionScale( titan, 0.75 )
+	MpBossTitan_SetTitanConversationStyle( titan, eBossTitanConvStyle.PLAY_TO_ALL ) // their conversation is played to all players
+	// attack settings
+	titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
+	// core ability
+	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+	// behavior
+	titan.SetBehaviorSelector( "behavior_titan_sniper" ) // become smarter, since pilot has control of it
+	// nuke
+	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
+	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	SetupNPCPilotEmbarkedTitanNuke( titan )
+	// set up embarked behavior, we may feature npc pilot disembarking in future?
+	SetTitanSoulEmbarkedSettings( titan, "npc_titan_stryder_sniper_bounty", "behavior_titan_sniper", "#BOSSNAME_VIPER" )
+
+	thread ExtraSpawner_TitanHandler( titan )
+
+	// show again after DispatchSpawn(), ShowName() is handled in intro
+	titan.Show()
+
+	return titan
+}
+
+
+
+// -------------------------------------------------------------------------- //
+// -------------------------- BELOW ARE UNFINISHED -------------------------- //
+// -------------------------------------------------------------------------- //
+
+entity function ExtraSpawner_SpawnBossTitan_Richter( vector pos, vector rot, int team )
+{
+	string setFile = "titan_atlas_tracker"
+	string aiSet = "npc_titan_atlas_tracker_bounty" // with a overlay
+	string executionRef = "execution_tone_prime" // funny with MeleeSyncedNPC
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiSet )
+	// setup boss
+	titan.ai.bossCharacterName = "Richter"
+	titan.ai.bossTitanType = TITAN_MERC // set to titan_merc before DispatchSpawn() will play a intro
+
+    titan.ai.titanSpawnLoadout.setFile = setFile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	// we'll do intro, hide on spawn
+	HideName( titan )
+	titan.Hide()
+	DispatchSpawn( titan )
+
+	//titan.SetSkin( 8 ) // unknown
+	//titan.SetDecal( 12 ) // nose art
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+
+	// richter settings!
+	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// cloak model is not suitable for npc usage, temp replace with: grapple male
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/pilots/pilot_medium_geist_m.mdl", "裏赫特" )
+
+	titan.SetTitle( "#BOSSNAME_RICHTER" )
+	// amped behavior
+	// health settings. 4x health, 75% damage reduction ≈ 16x health, without annoying health bar
+	titan.SetMaxHealth( titan.GetMaxHealth() * 4 )
+	titan.SetHealth( titan.GetMaxHealth() )
+	MpBossTitan_SetDamageScale( titan, 1.5 ) // they can deal higher damage
+	MpBossTitan_SetDamageReductionScale( titan, 0.75 )
+	// attack settings
+	titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
+	// core ability
+	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+	// behavior
+	titan.SetBehaviorSelector( "behavior_titan_long_range" ) // become smarter, since pilot has control of it
+	// nuke
+	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
+	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	SetupNPCPilotEmbarkedTitanNuke( titan )
+	// set up embarked behavior, we may feature npc pilot disembarking in future?
+	SetTitanSoulEmbarkedSettings( titan, "npc_titan_atlas_tracker_bounty", "behavior_titan_long_range", "#BOSSNAME_RICHTER" )
+
+	thread ExtraSpawner_TitanHandler( titan )
+
+	// show again after DispatchSpawn(), ShowName() is handled in intro
+	titan.Show()
+
+	return titan
+}
+
+entity function ExtraSpawner_SpawnBossTitan_Slone( vector pos, vector rot, int team )
+{
+	string setFile = "titan_atlas_stickybomb"
+	string aiSet = "npc_titan_atlas_stickybomb_bounty" // with a overlay
+	string executionRef = "execution_ion" // funny with MeleeSyncedNPC. execution_ion_prime is bad for npc executions
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiSet )
+	// setup boss
+	titan.ai.bossCharacterName = "Slone"
+	titan.ai.bossTitanType = TITAN_MERC // set to titan_merc before DispatchSpawn() will play a intro
+
+    titan.ai.titanSpawnLoadout.setFile = setFile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	// we'll do intro, hide on spawn
+	HideName( titan )
+	titan.Hide()
+	DispatchSpawn( titan )
+
+	//titan.SetSkin( 8 ) // unknown
+	//titan.SetDecal( 12 ) // nose art
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+
+	// slone settings!
+	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// temp replace model with: holopilot female
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/pilots/pilot_medium_stalker_f.mdl", "斯隆" )
+
+	titan.SetTitle( "#BOSSNAME_SLONE" )
+	// amped behavior
+	// health settings. 4x health, 75% damage reduction ≈ 16x health, without annoying health bar
+	titan.SetMaxHealth( titan.GetMaxHealth() * 4 )
+	titan.SetHealth( titan.GetMaxHealth() )
+	MpBossTitan_SetDamageScale( titan, 1.5 ) // they can deal higher damage
+	MpBossTitan_SetDamageReductionScale( titan, 0.75 )
+	// attack settings
+	titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
+	// core ability
+	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+	// behavior
+	titan.SetBehaviorSelector( "behavior_titan" ) // become smarter, since pilot has control of it
+	// nuke
+	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
+	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	SetupNPCPilotEmbarkedTitanNuke( titan )
+	// set up embarked behavior, we may feature npc pilot disembarking in future?
+	SetTitanSoulEmbarkedSettings( titan, "npc_titan_atlas_stickybomb_bounty", "behavior_titan", "#BOSSNAME_SLONE" )
+
+	thread ExtraSpawner_TitanHandler( titan )
+
+	// show again after DispatchSpawn(), ShowName() is handled in intro
+	titan.Show()
+
+	return titan
+}
+
+entity function ExtraSpawner_SpawnBossTitan_Kane( vector pos, vector rot, int team )
+{
+	string setFile = "titan_ogre_meteor"
+	string aiSet = "npc_titan_ogre_meteor_bounty" // with a overlay
+	string executionRef = "execution_scorch_prime" // funny with MeleeSyncedNPC
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiSet )
+	// setup boss
+	titan.ai.bossCharacterName = "Kane"
+	titan.ai.bossTitanType = TITAN_MERC // set to titan_merc before DispatchSpawn() will play a intro
+
+    titan.ai.titanSpawnLoadout.setFile = setFile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	// we'll do intro, hide on spawn
+	HideName( titan )
+	titan.Hide()
+	DispatchSpawn( titan )
+
+	//titan.SetSkin( 8 ) // unknown
+	//titan.SetDecal( 12 ) // nose art
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+
+	// kane settings!
+	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// a-wall model is not suitable for npc usage. temp replace with: davis
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/pilots/sp_medium_stalker_m.mdl", "凱恩" )
+
+	titan.SetTitle( "#BOSSNAME_KANE" )
+	// amped behavior
+	// health settings. 4x health, 75% damage reduction ≈ 16x health, without annoying health bar
+	titan.SetMaxHealth( titan.GetMaxHealth() * 4 )
+	titan.SetHealth( titan.GetMaxHealth() )
+	MpBossTitan_SetDamageScale( titan, 1.5 ) // they can deal higher damage
+	MpBossTitan_SetDamageReductionScale( titan, 0.75 )
+	// attack settings
+	titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
+	// core ability
+	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+	// behavior
+	titan.SetBehaviorSelector( "behavior_titan_ogre_meteor" ) // become smarter, since pilot has control of it
+	// nuke
+	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
+	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	SetupNPCPilotEmbarkedTitanNuke( titan )
+	// set up embarked behavior, we may feature npc pilot disembarking in future?
+	SetTitanSoulEmbarkedSettings( titan, "npc_titan_ogre_meteor_bounty", "behavior_titan_ogre_meteor", "#BOSSNAME_KANE" )
+
+	thread ExtraSpawner_TitanHandler( titan )
+
+	// show again after DispatchSpawn(), ShowName() is handled in intro
+	titan.Show()
+
+	return titan
+}
+
+// blisk intro seems unused and unfinished
+entity function ExtraSpawner_SpawnBossTitan_Blisk( vector pos, vector rot, int team )
+{
+	string setFile = "titan_ogre_minigun"
+	string aiSet = "npc_titan_ogre_minigun_bounty" // with a overlay
+	string executionRef = "execution_legion_prime" // funny with MeleeSyncedNPC
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiSet )
+	// setup boss
+	titan.ai.bossCharacterName = "Blisk"
+	titan.ai.bossTitanType = TITAN_MERC // set to titan_merc before DispatchSpawn() will play a intro
+
+    titan.ai.titanSpawnLoadout.setFile = setFile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	// we'll do intro, hide on spawn
+	HideName( titan )
+	titan.Hide()
+	DispatchSpawn( titan )
+
+	titan.SetSkin( 8 ) // possibly be blisk's skin?
+	titan.SetDecal( 12 ) // nose art
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	titanSoul.soul.titanLoadout.titanExecution = executionRef
+
+	// blisk settings!
+	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_blisk.mdl", "布里斯克" )
+
+	titan.SetTitle( "#BOSSNAME_BLISK" )
+	// amped behavior
+	// health settings. 4x health, 75% damage reduction ≈ 16x health, without annoying health bar
+	titan.SetMaxHealth( titan.GetMaxHealth() * 4 )
+	titan.SetHealth( titan.GetMaxHealth() )
+	MpBossTitan_SetDamageScale( titan, 1.5 ) // they can deal higher damage
+	MpBossTitan_SetDamageReductionScale( titan, 0.75 )
+	// attack settings
+	titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
+	// core ability
+	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+	// behavior
+	titan.SetBehaviorSelector( "behavior_titan_ogre_minigun" ) // become smarter, since pilot has control of it
+	// nuke
+	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
+	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
+	SetupNPCPilotEmbarkedTitanNuke( titan )
+	// set up embarked behavior, we may feature npc pilot disembarking in future?
+	SetTitanSoulEmbarkedSettings( titan, "npc_titan_ogre_minigun_bounty", "behavior_titan_ogre_minigun", "#BOSSNAME_BLISK" )
+
+	thread ExtraSpawner_TitanHandler( titan )
+
+	// show again after DispatchSpawn(), ShowName() is handled in intro
+	titan.Show()
+
+	return titan
 }

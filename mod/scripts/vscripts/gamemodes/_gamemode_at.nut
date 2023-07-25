@@ -12,8 +12,8 @@ global function RateSpawnpoints_AT
 
 // Bank settings
 const float AT_BANKS_OPEN_DURATION = 45.0   // Bank open time
-const int   AT_BANK_DEPOSIT_RATE = 10       // Amount deposited per second
-const int   AT_BANK_DEPOSIT_RADIUS = 256    // bank radius for depositing
+const int AT_BANK_DEPOSIT_RATE = 10       // Amount deposited per tick
+const int AT_BANK_DEPOSIT_RADIUS = 256    // bank radius for depositing
 const float AT_BANK_FORCE_CLOSE_DELAY = 4.0 // If all bonus money has been deposited close the banks after this constant early
 
 // TODO: The reference function no longer exists, check if this still holds true
@@ -34,10 +34,15 @@ const array<string> AT_DISABLE_SCOREEVENTS =
 
 // Wave settings
 // General
-const int   AT_AI_TEAM = TEAM_BOTH               // Allow AI to attack and be attacked by both player teams
-const float AT_FIRST_WAVE_START_DELAY = 10.0     // First wave has an extra delay before begining
-const float AT_WAVE_TRANSITION_DELAY = 5.0       // Time between each wave and banks opening/closing
-const float AT_WAVE_END_ANNOUNCEMENT_DELAY = 1.0 // Extra wait before announcing wave cleaned
+const int AT_AI_TEAM = TEAM_BOTH               		// Allow AI to attack and be attacked by both player teams
+const float AT_FIRST_WAVE_START_DELAY = 10.0     	// First wave has an extra delay before begining
+const float AT_WAVE_TRANSITION_DELAY = 5.0       	// Time between each wave and banks opening/closing
+const float AT_WAVE_START_DELAY = 2.0 				// Extra wait before we start a wave
+const float AT_WAVE_END_ANNOUNCEMENT_DELAY = 1.0 	// Extra wait before announcing wave cleaned
+const float AT_BANK_OPENING_DELAY = 4.0
+
+// Spawn settings
+const float AT_CAMP_SPAWNPOINTS_SEARCH_RADIUS_SCALE = 0.5 // search spawnpoints in decreased percentage of camp's actual radius
 
 // Squad settings
 const int AT_DROPPOD_SQUADS_ALLOWED_ON_FIELD = 4 // default is 4 droppod squads on field, won't use if AT_USE_TOTAL_ALLOWED_ON_FIELD_CHECK turns on // TODO: verify this
@@ -79,8 +84,9 @@ const float AT_PLAYER_HUD_MESSAGE_COOLDOWN = 2.5
 // might teleport them into the map while trying to correct their position
 // This obviously breaks bounty hunt where the objective is to kill ALL ai
 // so we try to cleanup the camps after a set amount of time of inactivity
-const int   AT_CAMP_BORED_NPCS_LEFT_TO_START_CLEANUP = 3
-const float AT_CAMP_BORED_CLEANUP_WAIT = 60.0
+const int   AT_CAMP_BORED_NPCS_LEFT_TO_START_CLEANUP = 4
+const float AT_CAMP_BORED_CLEANUP_WAIT = 20.0
+
 struct 
 {
 	array<entity> banks 
@@ -355,13 +361,15 @@ void function OnEntitiesDidLoad()
 					// TODO: verify this on all vanilla maps before release
 					for ( int i = 0; i < 9; i++ )
 						campStruct.phaseAllowed.append( expect string( info_target.kv[ "phase_" + ( i + 1 ) ] ) == "1" )
-					
+
+					// scale down spawnpoint search radius
+					float spawnSearchRadius = campStruct.radius * AT_CAMP_SPAWNPOINTS_SEARCH_RADIUS_SCALE
 					// Get droppod spawns within the camp
 					foreach ( entity spawnpoint in SpawnPoints_GetDropPod() )
 					{
 						vector campPos = info_target.GetOrigin()
 						vector spawnPos = spawnpoint.GetOrigin()
-						if ( Distance( campPos, spawnPos ) < campStruct.radius )
+						if ( Distance( campPos, spawnPos ) < spawnSearchRadius )
 							campStruct.dropPodSpawnPoints.append( spawnpoint )
 					}
 					
@@ -370,7 +378,7 @@ void function OnEntitiesDidLoad()
 					{
 						vector campPos = info_target.GetOrigin()
 						vector spawnPos = spawnpoint.GetOrigin()
-						if ( Distance( campPos, spawnPos ) < campStruct.radius )
+						if ( Distance( campPos, spawnPos ) < spawnSearchRadius )
 							campStruct.titanSpawnPoints.append( spawnpoint )
 					}
 				
@@ -790,7 +798,7 @@ void function AT_GameLoop_Threaded()
 			}
 		}
 		
-		wait AT_WAVE_TRANSITION_DELAY
+		wait AT_WAVE_START_DELAY
 		
 		// Run the wave
 		thread AT_CampSpawnThink( waveId, isBossWave )
@@ -829,7 +837,7 @@ void function AT_GameLoop_Threaded()
 			)
 		}
 
-		wait AT_WAVE_TRANSITION_DELAY
+		wait AT_BANK_OPENING_DELAY
 		
 		// banking phase
 		SetGlobalNetBool( "preBankPhase", false )
@@ -1046,7 +1054,7 @@ void function CampProgressThink( int spawnId, int totalNPCsToSpawn )
 			foreach( int handle in file.campScriptEntArrays[spawnId] )
 			{
 				array<entity> entities = GetScriptManagedEntArray( handle )
-				entities.removebyvalue( null )
+				ArrayRemoveDead( entities )
 				foreach ( entity ent in entities )
 				{
 					if ( IsAlive( ent ) && ent.IsNPC() )
@@ -1365,7 +1373,7 @@ void function PlayerUploadingBonus_Threaded( entity bank, entity player )
 int function GetScriptManagedNPCArrayLength_Alive( int scriptManagerId )
 {
 	array<entity> entities = GetScriptManagedEntArray( scriptManagerId )
-	entities.removebyvalue( null )
+	ArrayRemoveDead( entities )
 	int npcsAlive = 0
 	foreach ( entity ent in entities )
 	{

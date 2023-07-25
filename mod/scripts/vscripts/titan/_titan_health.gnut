@@ -30,6 +30,9 @@ global function DoomedHealthThink
 global function UndoomTitan
 global function RestoreTitan
 
+// vanilla missing callback
+global function AddCallback_OnTitanUndoomed
+
 // modified for modded titan doom state
 global function TitanHealth_SetSoulInfiniteDoomedState
 global function TitanHealth_GetSoulInfiniteDoomedState // for score events
@@ -68,6 +71,9 @@ const float TITAN_HEALTH_HISTORY_FALLOFF_END = 4.0
 struct
 {
   	float earn_meter_titan_multiplier
+
+	// vanilla missing callbacks
+	array<void functionref( entity, int )> titanUndoomedCallbacks
  
 	// modified to get rid of respawn's hardcode
 	table<entity, float> soulCoreBuilderMultiplier
@@ -89,6 +95,9 @@ void function TitanHealth_Init()
 	RegisterSignal( "TitanUnDoomed" )
 	RegisterSignal( "StopShieldRegen" )
 	RegisterSignal( "WeakTitanHealthInitialized" )
+
+	// vanilla missing
+	RegisterSignal( "DoomedHealthThink" )
 
 	file.earn_meter_titan_multiplier = GetCurrentPlaylistVarFloat( "earn_meter_titan_multiplier", 1.0 )
 
@@ -134,7 +143,14 @@ void function UndoomTitan( entity titan, int numSegments )
 
 	titan.Signal( "TitanUnDoomed" )
 	UndoomTitan_Body( titan )
-	thread TitanShieldRegenThink( soul )
+	thread TitanShieldRegenThink( soul ) // restart regen
+
+	// vanilla missing functions
+	titan.ClearDoomed() // disable doomed animation
+	soul.Signal( "TitanUnDoomed" ) // disable doomed health loss
+	// vanilla missing callback
+	foreach ( callbackFunc in file.titanUndoomedCallbacks )
+		callbackFunc( titan, numSegments )
 }
 
 void function RestoreTitan( entity titan, float percent = 0.625 )
@@ -651,6 +667,11 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 
 	titanSoul.EndSignal( "OnDestroy" )
 	titanSoul.EndSignal( "OnTitanDeath" )
+	// vanilla missing: disabling doomed health loss on certain condition
+	titanSoul.Signal( "DoomedHealthThink" )
+	titanSoul.EndSignal( "DoomedHealthThink" )
+	// vanilla missing: disabling doomed health loss on undoomed
+	titanSoul.EndSignal( "TitanUnDoomed" )
 
 	float tickRate = 0.15
 	float maxDoomedHealth = GetTitanSoulDoomedHealth( titanSoul )
@@ -779,6 +800,8 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 
 		// needs to update attacker and inflictor, if attacker turns to invalid, it will automatically assign to worldspawn
 		// if worldspawn triggering some damageSourceIdCallback(mostly ttf2 ones, like scorch's and legion's weapons), game's gonna crash
+		// EDIT: health loss should always be self damage. otherwise player can earn extra core meter from it
+		/*
 		entity healthLossAttacker = expect entity( lastAttackInfo.attacker )
 		entity healthLossInflictor = expect entity( lastAttackInfo.inflictor )
 		bool attackerValid = IsValid( healthLossAttacker ) && !IsWorldSpawn( healthLossAttacker )
@@ -786,19 +809,28 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 			healthLossAttacker = soulOwner // attacker invalid, turns to self damage
 		if ( attackerValid && !IsValid( healthLossInflictor ) ) // attacker valid but inflictor invalid
 			healthLossInflictor = healthLossAttacker // re-assign attacker as inflictor
+		*/
+
+		entity lastAttacker = expect entity( lastAttackInfo.attacker )
+		bool attackerValid = IsValid( lastAttacker ) && !IsWorldSpawn( lastAttacker )
+		entity healthLossAttacker = soulOwner
 
 		// killshot: add proper obit
 		bool isKillshot = dmgAmount >= soulOwner.GetHealth()
 		if ( isKillshot && !soulOwner.IsInvulnerable() ) // defensive fix
 		{
-			if ( attackerValid ) // get attacker validation before we re-assign attacker
+			if ( attackerValid ) // get attacker validation
+			{
+				healthLossAttacker = lastAttacker // attacker valid! re-assign for proper score event and obit
 				extraDeathInfo.damageSourceId = lastAttackInfo.damageSourceId
+			}
 			else // attacker invalid or has been re-assigned
 				extraDeathInfo.damageSourceId = damagedef_suicide
 		}
 
 		//soulOwner.TakeDamage( dmgAmount, expect entity( lastAttackInfo.attacker ), expect entity( lastAttackInfo.inflictor ), extraDeathInfo )
-		soulOwner.TakeDamage( dmgAmount, healthLossAttacker, healthLossInflictor, extraDeathInfo )
+		//soulOwner.TakeDamage( dmgAmount, healthLossAttacker, healthLossInflictor, extraDeathInfo )
+		soulOwner.TakeDamage( dmgAmount, healthLossAttacker, healthLossAttacker, extraDeathInfo )
 		//print( "Doomded health loss dmgAmount: " + string( dmgAmount ) )
 
 		wait tickRate
@@ -1148,6 +1180,12 @@ void function AddCreditToTitanCoreBuilder( entity titan, float credit )
 	if ( !IsAlive( titan ) )
 		return
 
+	// vanilla missing check for titan core weapon avaibility
+	entity coreWeapon = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+	if ( !IsValid( coreWeapon ) )
+		return
+	//
+
 	if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_COREMETER ) )
 		credit *= 1.10
 
@@ -1239,6 +1277,12 @@ void function Titan_MonarchCleanup( entity soul, var damageInfo )
 	titan.SetBodygroup( statesIndex, 2 )
 }
 
+
+// vanilla missing callback
+void function AddCallback_OnTitanUndoomed( void functionref( entity, int ) callbackFunc )
+{
+	file.titanUndoomedCallbacks.append( callbackFunc )
+}
 
 // modded function
 const float NPC_PILOT_EJECTING_DELAY = 5.0

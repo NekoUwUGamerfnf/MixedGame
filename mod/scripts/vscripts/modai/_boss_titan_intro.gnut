@@ -1,0 +1,959 @@
+// From campaign, make it a server-side version
+global function MP_Boss_Titans_Intro_Init
+
+global function MpBossTitan_NoIntroSetup
+global function MpBossTitan_PlayBossTitanIntro
+
+// utility
+global function MpBossTitan_GetAnimationPilotProp
+
+// callbacks
+global function AddCallback_BossTitanIntroFinished
+
+const float SLAMZOOM_TIME = 1.0 // from _ai_boss_titan.gnut
+
+// debug
+const bool BOSS_TITAN_INTRO_DEBUG_PRINT = false
+
+// from sh_ai_boss_titan.gnut
+global struct BossTitanIntroData
+{
+    // exists in BossTitanData in sp, needs to be here for mp
+    string introAnimTitan
+	string introAnimPilot
+	//string introAnimTitanRef // should be removed for mp
+	string titanCameraAttachment
+    //
+
+    // below maybe no need for mp?
+	//string waitToStartFlag 	= ""
+	//bool waitForLookat 		= true
+	//bool lookatDoTrace 		= false
+	//float lookatDegrees 	= 30
+	//float lookatMinDist 	= 5100
+
+    // these are no use for mp I guess
+    // these variables are script driven, while other boss titan variables are csv(datatable) driven
+	//entity parentRef 		= null
+	//string parentAttach 	= ""
+	//bool doCockpitDisplay 	= true
+	//bool checkpointOnlyIfPlayerTitan = true
+
+    // mp specific
+    void functionref( entity ) introExtraFunction = null
+    bool pilotModelRemoved = false
+    float animForceStopTime = -1
+    // may need a "attachToTitan" or something?
+}
+
+struct
+{
+    // from sh_ai_boss_titan.gnut
+    table< string, BossTitanIntroData > bossTitanIntros
+
+    entity introPlayingTitan
+    table<entity, entity> bossTitanPilotProp
+    table<entity, float> titanIntroStartTime
+    array<entity> titanIntroActiveCameras
+    // callbacks
+    array<void functionref( entity )> introFinishedCallbacks
+} file
+
+void function MP_Boss_Titans_Intro_Init()
+{
+    if ( IsLobby() )
+		return
+
+    // initialize data(needs modded rpak)
+    InitBossTitanIntroData()
+
+    // connected player blend to intro
+    AddCallback_OnClientConnected( OnClientConnected )
+
+    // from _ai_boss_titan.gnut
+    FlagInit( "BossTitanViewFollow" )
+    RegisterSignal( "BossTitanStartAnim" )
+	RegisterSignal( "BossTitanIntroEnded" )
+}
+
+//  ___ _   _ ___ _____ ___    _    _     ___ __________     ____    _  _____  _    
+// |_ _| \ | |_ _|_   _|_ _|  / \  | |   |_ _|__  / ____|   |  _ \  / \|_   _|/ \   
+//  | ||  \| || |  | |  | |  / _ \ | |    | |  / /|  _|     | | | |/ _ \ | | / _ \  
+//  | || |\  || |  | |  | | / ___ \| |___ | | / /_| |___    | |_| / ___ \| |/ ___ \ 
+// |___|_| \_|___| |_| |___/_/   \_\_____|___/____|_____|   |____/_/   \_\_/_/   \_\
+
+// initialize data(needs modded rpak)
+void function InitBossTitanIntroData()
+{
+    // fill boss fields
+    // I can't handle datatable importing, let's just fill it by hand
+    /*
+	var dataTable = GetDataTable( $"datatable/titan_bosses.rpak" )
+	for ( int i = 0; i < GetDatatableRowCount( dataTable ); i++ )
+	{
+		string bossName	= GetDataTableString( dataTable, i, GetDataTableColumnByName( dataTable, "bossCharacter" ) )
+		print( "bossName: " + bossName )
+        BossTitanIntroData introData = AddBossTitanIntro( bossName )
+
+		introData.titanCameraAttachment	= GetDataTableString( dataTable, i, GetDataTableColumnByName( dataTable, "titanCameraAttachment" ) )
+		introData.introAnimTitan 		= GetDataTableString( dataTable, i, GetDataTableColumnByName( dataTable, "introAnimTitan" ) )
+		introData.introAnimPilot 		= GetDataTableString( dataTable, i, GetDataTableColumnByName( dataTable, "introAnimPilot" ) )
+
+        // below maybe no need for mp?
+        //introData.introAnimTitanRef 	= GetDataTableString( dataTable, i, GetDataTableColumnByName( dataTable, "introAnimTitanRef" ) )
+		//introData.waitToStartFlag 	= GetDataTableString( dataTable, i, GetDataTableColumnByName( dataTable, "waitToStartFlag" ) )
+		//introData.waitForLookat 	= GetDataTableBool( dataTable, i, GetDataTableColumnByName( dataTable, "waitForLookat" ) )
+		//introData.lookatDoTrace 	= GetDataTableBool( dataTable, i, GetDataTableColumnByName( dataTable, "lookatDoTrace" ) )
+		//introData.lookatDegrees 	= GetDataTableFloat( dataTable, i, GetDataTableColumnByName( dataTable, "lookatDegrees" ) )
+		//introData.lookatMinDist 	= GetDataTableFloat( dataTable, i, GetDataTableColumnByName( dataTable, "lookatMinDist" ) )
+	
+        // mp specific, do unused generic animation for model missing intros. may need tweak on animation length( introData.animForceStopTime )
+        // there are many boss_intro animations in pete_scripted_boss_intros.mdl:
+        // "pt_beacon_boss_intro" // richter?
+        // "pt_sewers_boss_intro" // kane?
+        // "pt_ht_boss_intro" // seems same as "pt_beacon_boss_intro"
+        // "pt_lt_boss_intro" // seems same as "pt_beacon_boss_intro"
+        // "pt_boomtown_boss_intro" // ash?
+        // maybe I should check which one is the best for each boss?
+        switch ( bossName )
+        {
+            case "Viper":
+                //introData.pilotModelRemoved = true
+                introData.introAnimPilot = "pt_ht_boss_intro" // seems same as "pt_beacon_boss_intro"
+                break
+            case "Richter":
+                //introData.pilotModelRemoved = true
+                introData.introAnimPilot = "pt_beacon_boss_intro" // richter fight is in beacon
+                break
+            case "Slone":
+                //introData.pilotModelRemoved = true
+                introData.introAnimPilot = "pt_lt_boss_intro" // seems same as "pt_beacon_boss_intro"
+                break
+            case "Kane":
+                //introData.pilotModelRemoved = true
+                introData.introAnimPilot = "pt_sewers_boss_intro" // kane fight is in sewers
+                break
+        }
+    }
+    */
+
+    BossTitanIntroData introData
+    ///////////
+	/// Ash ///
+	///////////
+    introData = AddBossTitanIntro( "Ash" )
+    introData.titanCameraAttachment	= "vehicle_driver_eyes"
+    introData.introAnimTitan 		= "lt_boomtown_boss_intro"
+    introData.introAnimPilot 		= "pt_boomtown_boss_intro"
+    introData.introExtraFunction    = AshFight_BossFightIntro
+    RegisterSignal( "AshEnteredPhaseShift" ) // signals required by intro
+
+    /////////////
+	/// Viper ///
+	/////////////
+    introData = AddBossTitanIntro( "Viper" )
+    introData.titanCameraAttachment	= "vehicle_driver_eyes"
+    introData.introAnimTitan 		= "lt_s2s_boss_intro"
+    introData.introAnimPilot 		= "pt_ht_boss_intro" // temp replacement. mp don't have animation
+    introData.pilotModelRemoved     = true // we remove pilot for this intro, since they never showed up
+    introData.introExtraFunction    = ViperFight_BossFightIntro // WIP
+    RegisterSignal( "DoCore" ) // signals required by intro
+
+    ///////////////
+	/// Richter ///
+	///////////////
+    introData = AddBossTitanIntro( "Richter" )
+    introData.titanCameraAttachment	= "vehicle_driver_eyes"
+    introData.introAnimTitan 		= "mt_richter_taunt_mt"
+    introData.introAnimPilot 		= "" // temp replacement. mp don't have animation
+    introData.pilotModelRemoved     = true // maybe do scripted model in extra function?
+    introData.introExtraFunction    = RichterFight_BossFightIntro
+
+    /////////////
+	/// Slone ///
+	/////////////
+    introData = AddBossTitanIntro( "Slone" )
+    introData.titanCameraAttachment	= "vehicle_driver_eyes"
+    introData.introAnimTitan 		= "mt_injectore_room_slone"
+    introData.introAnimPilot 		= "" // temp replacement. mp don't have animation
+    introData.pilotModelRemoved     = true // maybe do scripted model in extra function?
+    introData.introExtraFunction    = SloneFight_BossFightIntro
+
+    ////////////
+	/// Kane ///
+	////////////
+    introData = AddBossTitanIntro( "Kane" )
+    introData.titanCameraAttachment	= "vehicle_driver_eyes"
+    introData.introAnimTitan 		= "ht_Kane_boss_intro_ht"
+    introData.introAnimPilot 		= "" // temp replacement. mp don't have animation
+    introData.pilotModelRemoved     = true // maybe do scripted model in extra function?
+    introData.introExtraFunction    = KaneFight_BossFightIntro
+
+    /////////////
+	/// Blisk ///
+	/////////////
+    // seems unused and unfinished
+    introData = AddBossTitanIntro( "Blisk" )
+    introData.titanCameraAttachment	= "" // datatable don't contain this
+    introData.introAnimTitan 		= "at_dismount_stand"
+    introData.introAnimPilot 		= "pt_beacon_boss_intro"
+    //introData.introExtraFunction    = 
+}
+
+// from sh_ai_boss_titan.gnut
+BossTitanIntroData function AddBossTitanIntro( string bossName )
+{
+    BossTitanIntroData bossTitanIntroData
+	file.bossTitanIntros[ bossName ] <- bossTitanIntroData
+    return bossTitanIntroData
+}
+
+BossTitanIntroData function GetBossTitanIntroData( string bossName )
+{
+	Assert( bossName in file.bossTitanIntros )
+	return file.bossTitanIntros[ bossName ]
+}
+
+void function OnClientConnected( entity player )
+{
+    // connected player blend to intro
+    thread WaitForPlayerRespawnThenDoIntroCamera( player )
+}
+
+void function WaitForPlayerRespawnThenDoIntroCamera( entity player )
+{
+    player.EndSignal( "OnDestroy" )
+    player.WaitSignal( "OnRespawned" )
+    if ( Flag( "BossTitanViewFollow" ) )
+        thread BossTitanPlayerView( player, true ) // use other's existing camera
+}
+
+void function MpBossTitan_NoIntroSetup( entity titan )
+{
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+
+	// Wait until player sees the boss titan
+	waitthread WaitForHotdropToEnd( titan )
+	titan.WaitSignal( "OnSeeEnemy" )
+
+ 	if ( MpBossTitan_TitanVDUEnabled( titan ) )
+		MpBossTitan_ConversationNoIntro( titan )
+
+    // add via AddCallback_BossTitanIntroFinished()
+	//AddEntityCallback_OnDamaged( titan, OnBossTitanDamaged )
+	//AddTitanCallback_OnHealthSegmentLost( titan, OnBossTitanLostSegment )
+    foreach ( void functionref( entity ) callbackFunc in file.introFinishedCallbacks )
+        callbackFunc( titan )
+}
+
+void function MpBossTitan_PlayBossTitanIntro( entity titan, BossTitanIntroData ornull introData = null )
+{
+	Assert( titan.IsNPC() )
+	Assert( titan.ai.bossCharacterName != "" )
+
+	if ( introData == null )
+	{
+		BossTitanIntroData defaultData = GetBossTitanIntroData( titan.ai.bossCharacterName )
+		introData = defaultData
+	}
+
+	expect BossTitanIntroData( introData )
+
+    // player movement limiter cleanup table
+    table<entity, bool> playerHasLimitedMove = {}
+
+    OnThreadEnd
+    (
+        function(): ( titan, playerHasLimitedMove )
+        {
+            file.introPlayingTitan = null
+
+            if ( IsValid( titan ) )
+            {
+                if ( titan in file.titanIntroStartTime )
+                    delete file.titanIntroStartTime[ titan ]
+            }
+
+            foreach ( entity player, bool movementLimit in playerHasLimitedMove )
+            {
+                if ( !IsValid( player ) )
+                    continue
+                if ( !movementLimit )
+                    continue
+
+                MovementUnlockForBossTitanIntro( player )
+            }
+        }
+    )
+
+	titan.EndSignal( "OnDeath" )
+    titan.EndSignal( "OnDestroy" ) // mp specific
+
+	HideCrit( titan )
+	titan.SetValidHealthBarTarget( false )
+	titan.SetInvulnerable()
+    // disable sensing
+    titan.SetNoTarget( true )
+	titan.EnableNPCFlag( NPC_IGNORE_ALL )
+
+    // wait for hot dropping. it's a bad idea to hotdrop the boss titan
+	while ( titan.e.isHotDropping )
+		WaitFrame()
+
+	HideName( titan )
+	titan.kv.allowshoot = 0
+    titan.Hide()
+    FreezeNPC( titan ) // freeze it, we do wait
+
+    // wait for at least one player alive..
+    #if BOSS_TITAN_INTRO_DEBUG_PRINT
+        print( "Waiting for at least one player alive" )
+    #endif
+    while ( GetPlayerArray_Alive().len() == 0 )
+        WaitFrame()
+
+    // wait for all players embarked
+    #if BOSS_TITAN_INTRO_DEBUG_PRINT
+        print( "Waiting for all players embarked" )
+    #endif
+    bool embarkWaitingEnd = true
+    while ( true )
+    {
+        if ( !embarkWaitingEnd )
+        {
+            WaitFrame()
+            embarkWaitingEnd = true
+        }
+
+        foreach ( entity player in GetPlayerArray_Alive() )
+        {
+            if( IsPlayerDisembarking( player ) || IsPlayerEmbarking( player ) )
+                embarkWaitingEnd = false
+        }
+
+        if ( embarkWaitingEnd )
+            break
+    }
+
+    // wait for other titan's intro end
+    #if BOSS_TITAN_INTRO_DEBUG_PRINT
+        print( "Waiting for other titan's intro end" )
+    #endif
+    while ( IsValid( file.introPlayingTitan ) )
+    {
+        WaitFrame()
+    }
+
+    // done waiting!
+    file.introPlayingTitan = titan
+    file.titanIntroStartTime[ titan ] <- Time() // mark as titan playing intro
+    UnfreezeNPC( titan ) // unfreeze
+    titan.Show()
+    // freeze all npcs except the boss
+    thread FreezeNPCsForBossTitanIntro( titan )
+
+	// Create a ref node to animate on
+	vector refPos
+	vector refAngles
+
+    refPos = titan.GetOrigin()
+
+    // we try to get closest player's pos
+    entity closestPlayer = GetClosest( GetPlayerArray_Alive(), refPos )
+    if ( IsValid( closestPlayer ) )
+    {
+        vector vecToPlayer = Normalize( closestPlayer.GetOrigin() - titan.GetOrigin() )
+        refAngles = VectorToAngles( vecToPlayer )
+        refAngles = FlattenAngles( refAngles )
+    }
+
+	entity ref = CreateScriptRef( refPos, refAngles )
+
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul.soul.bubbleShield ) )
+		soul.soul.bubbleShield.Destroy()
+
+    // Freeze player and clear up the screen
+    foreach ( entity player in GetPlayerArray_Alive() )
+    {
+        MovementLockForBossTitanIntro( player )
+        playerHasLimitedMove[ player ] <- true // mark as player's movement being limited
+    }
+
+	// Do special player view movement
+	FlagSet( "BossTitanViewFollow" ) // we set later when player started camera lock
+
+	// Animate the boss titan
+    entity pilot
+    if ( !introData.pilotModelRemoved ) // model may not exist on mp
+    {
+        pilot = CreatePropDynamic( MpBossTitan_GetBossCharacterModel( titan ) )
+        SetAnimationPilotProp( titan, pilot ) // set it to titan's pilot prop
+    }
+	//SetTeam( pilot, TEAM_IMC ) // don't reset team for mp
+
+	string pilotAnimName = introData.introAnimPilot
+	string titanAnimName = introData.introAnimTitan
+    // run intro extra function
+    if ( introData.introExtraFunction != null )
+        thread introData.introExtraFunction( titan )
+
+	float introDuration = 6.0
+
+	Assert( titan.Anim_HasSequence( titanAnimName ), "Your boss titan does not have an intro animation set, or it is missing." )
+
+	introDuration = titan.GetSequenceDuration( titanAnimName )
+    // pilot model may not exist on mp, we need to skip pilot show up animations
+    if ( introData.animForceStopTime > 0 )
+        introDuration = introData.animForceStopTime
+
+	svGlobal.levelEnt.Signal( "BossTitanStartAnim" )
+
+    if ( IsValid( pilot ) ) // model may not exist on mp
+        thread PlayAnim( pilot, pilotAnimName, ref, 0.0 )
+    thread PlayAnim( titan, titanAnimName, ref, 0.0 )
+
+    foreach ( entity player in GetPlayerArray_Alive() )
+	    thread BossTitanPlayerView( player, false, titan, ref, introData.titanCameraAttachment )
+
+	wait introDuration - SLAMZOOM_TIME
+
+	// Player view returns to normal
+	FlagClear( "BossTitanViewFollow" )
+    //pilot.Destroy() // move here?
+
+	wait SLAMZOOM_TIME
+
+	// Return the player screen and movement back to normal
+    foreach ( entity player, bool movementLimit in playerHasLimitedMove )
+    {
+        if ( !IsValid( player ) ) // player may disconnted
+            continue
+        MovementUnlockForBossTitanIntro( player )
+        playerHasLimitedMove[ player ] = false // mark as player has been cleaned up movement limit
+    }
+
+    if ( IsValid( pilot ) )
+	    pilot.Destroy() // maybe move up?
+
+	if ( IsValid( titan ) )
+	{
+		titan.ClearInvulnerable()
+		titan.Solid()
+        // add via AddCallback_BossTitanIntroFinished()
+		//AddEntityCallback_OnDamaged( titan, OnBossTitanDamaged )
+		//AddTitanCallback_OnHealthSegmentLost( titan, OnBossTitanLostSegment )
+		ShowName( titan )
+		titan.SetValidHealthBarTarget( true )
+		ShowCrit( titan )
+		titan.Signal( "BossTitanIntroEnded" )
+        // run callbacks
+        foreach ( void functionref( entity ) callbackFunc in file.introFinishedCallbacks )
+            callbackFunc( titan )
+	}
+
+	wait 1.5 // removed checkpoint think
+
+	titan.kv.allowshoot = 1
+	MpBossTitan_ConversationPostIntro( titan, MpBossTitan_TitanVDUEnabled( titan ) )
+
+    // re-enable sensing
+    titan.SetNoTarget( false )
+    titan.DisableNPCFlag( NPC_IGNORE_ALL )
+
+    #if BOSS_TITAN_INTRO_DEBUG_PRINT
+        print( "Boss titan intro fully finished!" )
+    #endif
+}
+
+// freeze all npcs except the boss
+void function FreezeNPCsForBossTitanIntro( entity titan )
+{
+    // init endsignals
+    titan.EndSignal( "OnDeath" )
+    titan.EndSignal( "OnDestroy" )
+    titan.EndSignal( "BossTitanIntroEnded" )
+
+    table<entity, bool> npcBeingFrozen
+
+    OnThreadEnd
+    (
+        function(): ( npcBeingFrozen )
+        {
+            foreach ( entity npc, bool frozen in npcBeingFrozen )
+            {
+                if ( !IsAlive( npc ) )
+                    continue
+
+                if ( frozen )
+                    UnfreezeNPC( npc )
+            }
+        }
+    )
+
+    while ( true )
+    {
+        foreach ( entity npc in GetNPCArray() )
+        {
+            if ( !IsAlive( npc ) )
+                continue
+            // main check
+            if ( npc == titan )
+                continue
+
+            if ( npc.ContextAction_IsBusy() ) // context action check. animation npcs should be set to busy!
+                continue
+
+            if ( !NPCIsFrozen( npc ) )
+            {
+                if ( !( npc in npcBeingFrozen ) )
+                    npcBeingFrozen[npc] <- true
+                FreezeNPC( npc )
+            }
+        }
+
+        WaitFrame()
+    }
+}
+
+void function MovementLockForBossTitanIntro( entity player )
+{
+    #if BOSS_TITAN_INTRO_DEBUG_PRINT
+        print( "Locking movement for player: " + string( player ) )
+    #endif
+    player.Hide()
+    player.SetVelocity( <0,0,0> )
+    player.FreezeControlsOnServer()
+    //player.SetNoTarget( true )
+    player.SetInvulnerable()
+}
+
+void function MovementUnlockForBossTitanIntro( entity player )
+{
+    #if BOSS_TITAN_INTRO_DEBUG_PRINT
+        print( "Unlocking movement for player: " + string( player ) )
+    #endif
+    player.UnfreezeControlsOnServer()
+    //player.SetNoTarget( false )
+    player.ClearInvulnerable()
+    player.Show()
+}
+
+void function BossTitanPlayerView( entity player, bool useExistingMover, entity titan = null, entity ref = null, string titanCameraAttachment = "" )
+{
+    // fix for titans
+    if ( !IsValid( titan ) && !IsValid( GetNewestIntroTitan() ) )
+        return
+
+    if ( !IsValid( titan ) )
+        titan = GetNewestIntroTitan()
+
+    EmitSoundOnEntityOnlyToPlayer( player, player, "Menu_CampaignSummary_TitanUnlocked" )
+
+	player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" ) // mp specific
+
+    titan.EndSignal( "OnDeath" )
+    titan.EndSignal( "OnDestroy" ) // mp specific
+
+    if ( useExistingMover ) // use exsiting mover for new connected player
+    {
+        // save things for later we restore
+        table settingsToRestore = {
+            moverStartAng = player.CameraAngles()
+        }
+
+        entity camera = FindBestActiveIntroCamera( titan )
+        if ( !IsValid( camera ) ) // camera invalid!
+            return
+        camera.EndSignal( "OnDestroy" ) // camera gets destroyed when it finished play
+        player.SetViewEntity( camera, true )
+        player.SetPredictionEnabled( false )
+
+        OnThreadEnd
+        (
+            function(): ( player, settingsToRestore )
+            {
+                if ( IsValid( player ) )
+                {
+                    player.SetPredictionEnabled( true )
+                    player.ClearParent()
+                    player.ClearViewEntity()
+
+                    ClearPlayerAnimViewEntity( player )
+                    player.SnapEyeAngles( expect vector( settingsToRestore.moverStartAng ) )
+
+                    // clean up
+                    ClearBossTitanViewPlayerEffect( player )
+                    MovementUnlockForBossTitanIntro( player )
+
+                    EmitSoundOnEntityOnlyToPlayer( player, player, "UI_Lobby_RankChip_Disable" )
+                }
+            }
+        )
+
+        
+        MovementLockForBossTitanIntro( player ) // needs to fix movement lock
+        BossTitanViewPlayerEffect( player ) // add effect
+
+        WaitForever()
+    }
+    else // normal behavior
+    {
+        bool hasTitanCameraAttachment = titanCameraAttachment != ""
+
+        vector moverStartPos = player.CameraPosition()
+
+        vector camFeetDiff = < 0,0,-185 >//player.GetOrigin() - player.CameraPosition()
+
+        vector moverStartAng = player.CameraAngles()
+        entity mover = CreateScriptMover( moverStartPos, moverStartAng )
+
+        // player.SnapEyeAngles( moverStartAng )
+        // player.SetParent( mover, "", true )
+        // ViewConeZero( player )
+
+        entity camera = CreateEntity( "point_viewcontrol" )
+        camera.kv.spawnflags = 56 // infinite hold time, snap to goal angles, make player non-solid
+
+        camera.SetOrigin( player.CameraPosition() )
+        camera.SetAngles( player.CameraAngles() )
+        DispatchSpawn( camera )
+        UpdateTitanIntroActiveCamera( camera ) // add to camera array
+
+        camera.SetParent( mover, "", false )
+
+        OnThreadEnd(
+        function() : ( player, titan, mover, camera )
+            {
+                if ( IsValid( camera ) )
+                {
+                    camera.Destroy()
+                }
+
+                mover.Destroy()
+
+                if ( IsValid( player ) )
+                {
+                    player.ClearParent()
+                    player.ClearViewEntity()
+                    RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+                    RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+                }
+            }
+        )
+
+        // Slam Zoom In
+        float slamZoomTime = SLAMZOOM_TIME
+        float slamZoomTimeAccel = 0.3
+        float slamZoomTimeDecel = 0.3
+        vector viewOffset = < 200, 100, 160 >
+
+        vector viewPos = ref.GetOrigin() + ( AnglesToForward( ref.GetAngles() ) * viewOffset.x ) + ( AnglesToRight( ref.GetAngles() ) * viewOffset.y ) + ( AnglesToUp( ref.GetAngles() ) * viewOffset.z )
+        vector viewAngles = ref.GetAngles() + <0,180,0>
+        if ( hasTitanCameraAttachment )
+        {
+            WaitFrame()
+            int titanCameraAttachmentID = titan.LookupAttachment( titanCameraAttachment )
+            viewPos = titan.GetAttachmentOrigin( titanCameraAttachmentID )
+            viewAngles = titan.GetAttachmentAngles( titanCameraAttachmentID )
+        }
+
+        float blendTime = 0.5
+        float waittime = 0.3
+        float moveTime = slamZoomTime - blendTime - waittime
+
+        float startTime = Time()
+
+        player.SetVelocity( < 0,0,0 > )
+        player.MakeInvisible()
+        HolsterAndDisableWeapons( player )
+
+        wait waittime // wait for the AI to blend into the anim
+
+        AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+        AddCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+
+        mover.SetOrigin( player.CameraPosition() )
+        mover.SetAngles( player.CameraAngles() )
+        player.SetViewEntity( camera, true )
+
+        player.SetPredictionEnabled( false )
+        OnThreadEnd(
+        function() : ( player )
+            {
+                if ( IsValid( player ) )
+                    player.SetPredictionEnabled( true )
+            }
+        )
+
+        while ( Time() - startTime < moveTime )
+        {
+            if ( hasTitanCameraAttachment )
+            {
+                int titanCameraAttachmentID = titan.LookupAttachment( titanCameraAttachment )
+                viewPos = titan.GetAttachmentOrigin( titanCameraAttachmentID )
+                viewAngles = titan.GetAttachmentAngles( titanCameraAttachmentID )
+            }
+            mover.NonPhysicsMoveTo( viewPos, moveTime - (Time() - startTime), 0, 0 )
+            mover.NonPhysicsRotateTo( viewAngles, moveTime - (Time() - startTime), 0, 0 )
+            wait 0.1
+        }
+
+        if ( hasTitanCameraAttachment )
+        {
+            mover.SetParent( titan, titanCameraAttachment, false, blendTime )
+        }
+
+        wait 0.5
+
+        int tagID = titan.LookupAttachment( "CHESTFOCUS" )
+        while ( Flag( "BossTitanViewFollow" ) )
+        {
+            vector lookVec = Normalize( titan.GetAttachmentOrigin( tagID ) - mover.GetOrigin() )
+            vector angles = VectorToAngles( lookVec )
+            if ( !hasTitanCameraAttachment )
+                mover.NonPhysicsRotateTo( angles, 0.2, 0.0, 0.0 )
+            WaitFrame()
+        }
+
+        // Slam Zoom Out
+
+        mover.ClearParent()
+
+        startTime = Time()
+        while ( Time() - startTime < slamZoomTime )
+        {
+            moverStartPos = player.GetOrigin() - camFeetDiff
+            moverStartAng = FlattenAngles( player.GetAngles() )
+            mover.NonPhysicsMoveTo( moverStartPos, slamZoomTime - (Time() - startTime), 0, 0 )
+            mover.NonPhysicsRotateTo( moverStartAng, slamZoomTime - (Time() - startTime), 0, 0 )
+            wait 0.1
+        }
+
+        // mover.NonPhysicsMoveTo( moverStartPos, slamZoomTime, slamZoomTimeDecel, slamZoomTimeAccel )
+        // mover.NonPhysicsRotateTo( moverStartAng, slamZoomTime, slamZoomTimeDecel, slamZoomTimeAccel )
+        // wait slamZoomTime
+
+        ClearPlayerAnimViewEntity( player )
+        player.SnapEyeAngles( moverStartAng )
+        DeployAndEnableWeapons( player )
+        player.MakeVisible()
+
+        EmitSoundOnEntityOnlyToPlayer( player, player, "UI_Lobby_RankChip_Disable" )
+    }
+}
+
+void function BossTitanViewPlayerEffect( entity player )
+{
+    // adding screen effect
+    AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+    AddCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+
+    // limit movement
+    player.SetVelocity( < 0,0,0 > )
+    player.MakeInvisible()
+    HolsterAndDisableWeapons( player )
+}
+
+void function ClearBossTitanViewPlayerEffect( entity player )
+{
+    RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+    RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+    player.MakeVisible()
+    DeployAndEnableWeapons( player )
+}
+
+entity function GetNewestIntroTitan()
+{
+    entity newTitan
+    float curIntroStartTime = -1
+    foreach ( entity titan, float startTime in file.titanIntroStartTime )
+    {
+        if ( !IsAlive( titan ) )
+            continue
+
+        if ( curIntroStartTime == -1 || startTime < curIntroStartTime ) // we update on first loop or finding other intro titans
+        {
+            newTitan = titan
+            curIntroStartTime = startTime
+        }
+    }
+
+    //print( "Newest intro titan: " + string( newTitan ) )
+    return newTitan
+}
+
+void function UpdateTitanIntroActiveCamera( entity newCamera )
+{
+    ArrayRemoveInvalid( file.titanIntroActiveCameras )
+    if ( !file.titanIntroActiveCameras.contains( newCamera ) )
+        file.titanIntroActiveCameras.append( newCamera )
+}
+
+entity function FindBestActiveIntroCamera( entity titan )
+{
+    ArrayRemoveInvalid( file.titanIntroActiveCameras )
+    vector origin = titan.GetOrigin()
+    if ( file.titanIntroActiveCameras.len() > 0 )
+    {
+        entity camera = GetClosest( file.titanIntroActiveCameras, origin )
+        //print( "Active intro camera: " + string( camera ) )
+        return camera
+    }
+
+    return null
+}
+
+void function SetAnimationPilotProp( entity titan, entity prop )
+{
+    if ( !( titan in file.bossTitanPilotProp ) )
+        file.bossTitanPilotProp[ titan ] <- null
+    file.bossTitanPilotProp[ titan ] = prop
+}
+
+entity function MpBossTitan_GetAnimationPilotProp( entity titan )
+{
+    if ( !( titan in file.bossTitanPilotProp ) )
+        return null
+    return file.bossTitanPilotProp[ titan ]
+}
+
+// callbacks
+void function AddCallback_BossTitanIntroFinished( void functionref( entity ) callbackFunc )
+{
+    if ( !file.introFinishedCallbacks.contains( callbackFunc ) )
+        file.introFinishedCallbacks.append( callbackFunc )
+}
+
+
+//  ____  _____ _____ _   _   _ _   _____     ___ _   _ _____ ____   ___  ____  
+// |  _ \| ____|  ___/ \ | | | | | |_   _|   |_ _| \ | |_   _|  _ \ / _ \/ ___| 
+// | | | |  _| | |_ / _ \| | | | |   | |      | ||  \| | | | | |_) | | | \___ \ 
+// | |_| | |___|  _/ ___ \ |_| | |___| |      | || |\  | | | |  _ <| |_| |___) |
+// |____/|_____|_|/_/   \_\___/|_____|_|     |___|_| \_| |_| |_| \_\\___/|____/ 
+
+// from sp_boomtown_end.nut
+void function AshFight_BossFightIntro( entity titan )
+{
+    titan.EndSignal( "OnDestroy" )
+
+    //titan.SetTitle( "#BOSSNAME_ASH" )
+	//HideName( titan )
+    titan.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS )
+
+	// Store off Ash's weapon and give it back later in the animation
+	entity weapon = titan.GetActiveWeapon()
+	array<string> mods = weapon.GetMods()
+	string weaponName = weapon.GetWeaponClassName()
+	titan.TakeActiveWeapon()
+
+	// Get spawn a dummy weapon model that is holstered
+	string attachTag    = "RIFLE_HOLSTER"
+	asset weaponModel   = weapon.GetModelName()
+	int attachID 		= titan.LookupAttachment( attachTag )
+	vector attachPos    = titan.GetAttachmentOrigin( attachID )
+	vector attachAngles = titan.GetAttachmentAngles( attachID )
+	entity dummyGun	    = CreatePropDynamic( weaponModel, attachPos, attachAngles )
+	dummyGun.SetParent( titan, attachTag, false, 0 )
+
+    // mp adding: want to hide pilot prop for a phase shift intro
+    entity pilot = MpBossTitan_GetAnimationPilotProp( titan )
+    if ( IsValid( pilot ) )
+        pilot.Hide()
+
+    titan.WaitSignal( "StopPhaseShift" ) // signal works for animevent phase shift
+    if ( IsValid( pilot ) )
+        pilot.Show()
+
+    WaitSignal( titan, "AshEnteredPhaseShift" )
+
+	PhaseShift( titan, 0, 1.5 )
+    // want to hide pilot prop for phase shift
+    if ( IsValid( pilot ) )
+        pilot.Hide()
+
+	wait 1.0
+
+    // Re-enable real weapon & destroy the dummy prop
+	titan.GiveWeapon( weaponName, mods )
+	dummyGun.Destroy()
+
+    //titan.SetTitle( "#BOSSNAME_ASH" )
+	//ShowName( titan )
+}
+
+// WIP: add ViperCoreThink() from sp_s2s.nut
+void function ViperFight_BossFightIntro( entity titan )
+{
+    /*
+    titan.WaitSignal( "DoCore" )
+    bool firstTime = true
+    if ( GetPlayerArray_Alive().len() > 0 )
+        titan.SetEnemy( GetClosest( GetPlayerArray_Alive(), titan.GetOrigin() ) )
+    // defined in modweapons/titan_boss/sp_weapon_viperbossrockets_s2s.nut
+	//thread ViperCoreThink( titan, firstTime )
+    ViperCoreThink_Once( titan )
+    */
+}
+
+// WIP: do scripted prop think(use some animations similar, or use idle animation) and dialogue fix
+void function RichterFight_BossFightIntro( entity titan )
+{
+
+}
+
+// WIP: do scripted prop think(use some animations similar, or use idle animation) and dialogue fix
+// play together with blisk titan model. maybe... slone intro will spawn blisk, blisk intro will spawn slone?
+void function SloneFight_BossFightIntro( entity titan )
+{
+
+}
+
+// WIP: needs to figure out ref usage
+void function KaneFight_BossFightIntro( entity titan )
+{
+    /*
+    titan.EndSignal( "OnDestroy" )
+
+    // Spawn militia titan
+    entity militiaTitan = CreateNPCTitan( "npc_titan_atlas", 3, titan.GetOrigin(), titan.GetAngles() )
+	SetSpawnOption_AISettings( militiaTitan , "npc_titan_atlas_tracker" )
+	DispatchSpawn( militiaTitan )
+
+	militiaTitan.SetSkin( 2 ) // militia skin
+	militiaTitan.SetInvulnerable()
+	militiaTitan.ContextAction_SetBusy() // won't be freezed by intro
+	militiaTitan.EnableNPCFlag( NPC_IGNORE_ALL )
+	militiaTitan.SetNoTarget( true )
+	militiaTitan.SetAIObstacle( true )
+	Highlight_ClearFriendlyHighlight( militiaTitan )
+	DisableTitanRodeo( militiaTitan )
+	HideName( militiaTitan )
+
+    DoomTitan( militiaTitan ) // maybe just instant set it to doomed state bodygroup?
+
+    //militia:  origin < -4391.29, -6446.53, 3322 > angles < 0, -90, 0 >
+	//ref:      origin < -4658.18, -6594.47, 3322 > angles < 0, 0, 0 >
+	//kane:     origin < -4401.29, -6605.44, 3322 > angles < 0, 90, 0 >
+    vector refPos = titan.GetOrigin()
+    vector refAngles = titan.GetAngles()
+    refAngles.y = ClampAngle( refAngles.y + 180 )
+    entity ref = CreateScriptRef( refPos, refAngles )
+    thread PlayAnim( militiaTitan, "mt_Kane_boss_intro_mt", ref )
+
+    // Spawn the militia pilot
+	entity pilot = CreatePropDynamic( $"models/humans/pilots/sp_medium_reaper_m.mdl", militiaTitan.GetOrigin(), militiaTitan.GetAngles(), 6, 20000 )
+	thread PlayAnim( pilot, "pt_Kane_boss_intro_pilot", ref )
+
+    WaitSignal( titan, "BossTitanIntroEnded" )
+    thread PlayAnim( militiaTitan, "mt_Kane_boss_intro_mt_idle", ref )
+
+    int fx = GetParticleSystemIndex( $"xo_exp_death" )
+	StartParticleEffectInWorld( fx, < -4391, -6446, 3322 >, <0, 0, 0> ) // Play fx exactly where we need it to cover the model delete.
+    militiaTitan.Destroy()
+
+    ref.Destroy()
+    */
+}

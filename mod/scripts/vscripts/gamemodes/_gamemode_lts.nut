@@ -134,13 +134,15 @@ int function CheckTitanHealthForDraw()
 		{
 			// doomed is counted as 0 health
 			militiaHealth += titan.GetTitanSoul().IsDoomed() ? 0.0 : GetHealthFrac( titan )
-			militiaTitans++
+			if ( !( "noLongerCountsForLTS" in titan.s ) ) // in sh_titan.gnut. nuke titan don't cound as lts scoring
+				militiaTitans++
 		}
 		else
 		{
 			// doomed is counted as 0 health in this
 			imcHealth += titan.GetTitanSoul().IsDoomed() ? 0.0 : GetHealthFrac( titan )
-			imcTitans++
+			if ( !( "noLongerCountsForLTS" in titan.s ) ) // in sh_titan.gnut. nuke titan don't cound as lts scoring
+				imcTitans++
 		}
 	}
 	

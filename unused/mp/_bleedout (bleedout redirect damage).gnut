@@ -18,15 +18,19 @@ global function Bleedout_AllowInterruptSelfRes
 // new utilities
 global function Bleedout_IsPlayerBleeding
 global function Bleedout_GetLastAttacker
-global function Bleedout_GetLastDamageTable
-global function Bleedout_GetRevivingFriendly
+global function Bleedout_GetLastAttackerWeapon
+
+//global function Bleedout_SetPlayerDyingFunction // for modifying...
+//global function Bleedout_GetLastDamageInfo // no idea now
+//global function Bleedout_IsRevivingFriendly // no idea how to make it
 
 struct
 {
 	table<entity,bool> isBleeding
 	table<entity, entity> IsGettingFirstAidFrom
 	table<entity, entity> lastAttacker
-	table<entity, table> lastDamageTable
+	table<entity, entity> lastAttackerWeapon
+	//table<entity, var> lastDamageInfo // no idea now
 	// victim, attacker, damageInfo
 	array<void functionref( entity, entity, var )> Callbacks_OnPlayerStartBleedout 
 	// playerToRes, playerHealer
@@ -61,18 +65,14 @@ void function Bleedout_Init()
 	AddDeathCallback( "player", OnPlayerKilled )
 	// modified callback in _codecallbacks.gnut
 	AddCallback_ShouldPlayDamageChatter( BleedoutDamageChatter )
-	// modified callback in _codecallbacks_common.gnut
-	AddCallback_OnSendingEntityKilledEvent( BleedoutEntityKilledEvent )
-	// modified function in _base_gametype.gnut, for handling score event
-	AddCallback_PlayerOrNPCKilledAttackerOverride( BleedoutScoreEventAttacker )
 }
 
 void function Bleedout_OnClientConnected( entity player )
 {
 	file.isBleeding[ player ] <- false
 	file.IsGettingFirstAidFrom[ player ] <- null
-	file.lastAttacker[ player ] <- null
-	file.lastDamageTable[ player ] <- {}
+	file.lastAttacker[ player ] <- svGlobal.worldspawn
+	file.lastAttackerWeapon[ player ] <- null
 }
 
 void function Bleedout_OnClientDisconnected( entity player )
@@ -81,13 +81,20 @@ void function Bleedout_OnClientDisconnected( entity player )
 	delete file.isBleeding[ player ]
 	delete file.IsGettingFirstAidFrom[ player ]
 	delete file.lastAttacker[ player ]
-	delete file.lastDamageTable[ player ]
 	*/
 }
 
 void function OnPlayerKilled( entity victim, var damageInfo )
 {
 	file.isBleeding[ victim ] = false // make sure this is cleared
+}
+
+// new callback
+bool function BleedoutDamageChatter( entity victim, entity attacker, var damageInfo, table resultTable, bool shouldPlayChatter )
+{
+	shouldPlayChatter = !Bleedout_IsPlayerBleeding( victim )
+
+	return shouldPlayChatter
 }
 
 void function Bleedout_AddCallback_OnPlayerStartBleedout( void functionref(entity, entity, var) callback )
@@ -122,7 +129,8 @@ bool function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	player.Signal( "BleedOut_OnStartDying" )
 
 	file.lastAttacker[ player ] = attacker
-	file.lastDamageTable[ player ] = GetDamageTableFromInfo( damageInfo )
+	file.lastAttackerWeapon[ player ] = DamageInfo_GetWeapon( damageInfo )
+	//file.lastDamageInfo[ player ] = damageInfo // no idea now
 	
 	player.ClearParent() // cancel rodeo or some other things
 	player.Anim_Stop() // interupt current executions etc.
@@ -201,8 +209,9 @@ void function PlayerDying( entity player )
 					StatusEffect_Stop( player, id )
 
 				file.isBleeding[ player ] = false
-				file.lastAttacker[ player ] = null
-				file.lastDamageTable[ player ] = {}
+				file.lastAttacker[ player ] = svGlobal.worldspawn
+				file.lastAttackerWeapon[ player ] = null
+				//file.lastDamageInfo[ player ] = null  // no idea now
 
 				player.UnforceCrouch()
 				player.SetTitle( "" )
@@ -459,9 +468,9 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 	waitthread TrackContinuousUse( playerHealer, playerToRes, firstAidTime, true )
 
 	file.isBleeding[ playerToRes ] = false
-	file.lastAttacker[ playerToRes ] = null
-	file.lastDamageTable[ playerToRes ] = {}
-
+	file.lastAttacker[ playerToRes ] = svGlobal.worldspawn
+	file.lastAttackerWeapon[ playerToRes ] = null
+	//file.lastDamageInfo[ playerToRes ] = null // no idea now
 	if ( IsPilotEliminationBased() )
 		ClearPlayerEliminated( playerToRes )
 
@@ -710,78 +719,23 @@ entity function Bleedout_GetLastAttacker( entity player )
 	return file.lastAttacker[player]
 }
 
-table function Bleedout_GetLastDamageTable( entity player )
+entity function Bleedout_GetLastAttackerWeapon( entity player )
 {
-	if( !( player in file.lastDamageTable ) )
-		return {}
-	return file.lastDamageTable[player]
+	if( !( player in file.lastAttackerWeapon ) )
+		return null
+	return file.lastAttackerWeapon[player]
 }
 
-entity function Bleedout_GetRevivingFriendly( entity player )
-{
-	foreach ( entity playerToRes, entity playerHealer in file.IsGettingFirstAidFrom )
-	{
-		if ( playerHealer == player )
-			return playerToRes
-	}
+// no idea now
+//var function Bleedout_GetLastDamageInfo( entity player )
+//{
+//	if( !( player in file.lastDamageInfo ) )
+//		return null
+//	return file.lastDamageInfo[player]
+//}
 
-	return null
-}
-
-// new callback functions
-bool function BleedoutDamageChatter( entity victim, entity attacker, var damageInfo, table resultTable, bool shouldPlayChatter )
-{
-	if ( !Riff_PlayerBleedout() ) // not enabling bleedout
-		return shouldPlayChatter // return default value
-
-	return !Bleedout_IsPlayerBleeding( victim )
-}
-
-void function BleedoutEntityKilledEvent( entity victim, var damageInfo, table entityKilledEventTable )
-{
-	if ( !Riff_PlayerBleedout() ) // not enabling bleedout
-		return
-
-	if ( victim.IsPlayer() )
-	{
-		entity desiredAttacker = Bleedout_GetLastAttacker( victim )
-		if ( IsValid( desiredAttacker ) ) // last attacker still valid!
-		{
-			int attackerEHandle = desiredAttacker.GetEncodedEHandle()
-			int eventAttackerEHandle = expect int( entityKilledEventTable.attackerEHandle )
-			if ( attackerEHandle != eventAttackerEHandle ) // bleedout player killed by others?
-			{
-				// re-assign attacker and damage source!
-				entityKilledEventTable.attackerEHandle = attackerEHandle
-				entityKilledEventTable.damageSourceId = eDamageSourceId.bleedout
-			}
-		}
-	}
-}
-
-entity function BleedoutScoreEventAttacker( entity victim, entity attacker, var damageInfo )
-{
-	if ( !Riff_PlayerBleedout() ) // not enabling bleedout
-		return attacker // return default value
-
-	if ( victim.IsPlayer() )
-	{
-		entity desiredAttacker = Bleedout_GetLastAttacker( victim )
-		//print( "desiredAttacker in BleedoutScoreEventAttacker(): " + string( desiredAttacker ) )
-		if ( IsValid( desiredAttacker ) ) // last attacker still valid!
-		{
-			// try to remove headshot score event
-			int damageType = DamageInfo_GetCustomDamageType( damageInfo )
-			if ( damageType & DF_HEADSHOT )
-			{
-				DamageInfo_SetCustomDamageType( damageInfo, damageType & (~DF_HEADSHOT) )
-				TryHeadshotDeathFX( victim ) // fix effect
-			}
-			if ( desiredAttacker.IsPlayer() )
-				AddPlayerScore( attacker, "PilotAssist", victim ) // add assist score for current attacker
-			return desiredAttacker
-		}
-	}
-
-	return attacker // return default value
-}
+// no idea
+//bool function Bleedout_IsRevivingFriendly( entity player )
+//{
+//	return 
+//}
