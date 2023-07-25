@@ -1,0 +1,637 @@
+// From campaign, make it a server-side and mp-only version
+#if MP
+global function Multiplayer_BossTitan_Init
+
+// add more shared utilities. mostly from sh_ai_boss_titan.gnut
+global function MpBossTitan_Register
+global function MpBossTitan_Deregister
+global function MpBossTitan_GetNearbyBossForPlayer
+global function MpBossTitan_IsGenericTitan
+
+// callbacks
+global function AddCallback_OnMpBossTitanRegister
+global function AddCallback_OnMpBosstitanDeregister
+
+// remove globalize, mp has no-where used it
+global function MpBossTitan_TitanVDUEnabled
+global function MpBossTitan_TitanIsBoss
+global function MpBossTitan_GetBossCharacterModel
+
+// titan settings
+global function MpBossTitan_SetDamageScale
+global function MpBossTitan_SetDamageReductionScale
+
+// use in-file callbacks instead of globalizing functions everywhere
+//global function BossTitanRetreat
+//global function BossTitanAdvance
+//global function IsMercTitan
+//global function GetMercCharacterID
+
+// why are these consts have to be globalized?
+//global const float BOSS_TITAN_CORE_DAMAGE_SCALER_LOW = 0.6
+//global const float BOSS_TITAN_CORE_DAMAGE_SCALER = 0.5
+
+// from sh_ai_boss_titan.gnut
+global struct BossTitanData
+{
+	int bossID
+	string bossTitle
+	// should be in struct BossTitanIntroData for mp
+	//string introAnimTitan
+	//string introAnimPilot
+	//string introAnimTitanRef
+	//string titanCameraAttachment
+	asset characterModel
+}
+
+struct
+{
+	// callbacks
+	array<void functionref( entity )> bossTitanRegisterCallbacks
+	array<void functionref( entity )> bossTitanDeregisterCallbacks
+	// titan settings
+	table<entity, float> bossTitanDamageScale
+	table<entity, float> bossTitanDamageReductionScale
+
+	// from sh_ai_boss_titan.gnut
+	table< string, BossTitanData > bossTitans
+} file
+
+void function Multiplayer_BossTitan_Init()
+{
+	//if ( IsMultiplayer() )
+	//	return
+	if ( IsLobby() )
+		return
+
+	// initialize data(needs modded rpak)
+	InitBossTitanData()
+
+	AddDamageByCallback( "npc_titan", OnNpcTitanDealDamage )
+	AddSpawnCallback( "npc_titan", NPCTitanSpawned )
+	AddDeathCallback( "npc_titan", OnBossTitanDeath )
+	AddCallback_OnTitanDoomed( OnBossTitanDoomed )
+	AddCallback_OnTitanHealthSegmentLost( OnTitanLostSegment )
+
+	AddSyncedMeleeServerCallback( GetSyncedMeleeChooser( "titan", "titan" ), OnBossTitanExecuted )
+
+	PrecacheParticleSystem( $"P_VDU_mflash" )
+
+	// signals from sh_ai_boss_titan
+	RegisterSignal( "DeregisterBossTitan" )
+
+	// modified callbacks in _conversation_schedule.gnut
+	AddCallback_CodeDialogue( eCodeDialogueID.TAKE_COVER_FROM_ENEMY, BossTitanRetreat )
+	AddCallback_CodeDialogue( eCodeDialogueID.CHASE_ENEMY, BossTitanAdvance )
+
+	AddCallback_BossTitanIntroFinished( OnBossTitanIntroFinished )
+	// modified callback in sh_titancore_utility.gnut
+	AddCallback_OnTitanCoreUsed( OnTitanCoreUsed )
+}
+
+
+
+//  ___ _   _ ___ _____ ___    _    _     ___ __________     ____    _  _____  _    
+// |_ _| \ | |_ _|_   _|_ _|  / \  | |   |_ _|__  / ____|   |  _ \  / \|_   _|/ \   
+//  | ||  \| || |  | |  | |  / _ \ | |    | |  / /|  _|     | | | |/ _ \ | | / _ \  
+//  | || |\  || |  | |  | | / ___ \| |___ | | / /_| |___    | |_| / ___ \| |/ ___ \ 
+// |___|_| \_|___| |_| |___/_/   \_\_____|___/____|_____|   |____/_/   \_\_/_/   \_\
+
+// initialize data(needs modded rpak)
+void function InitBossTitanData()
+{
+	// fill boss fields
+	// I can't handle datatable importing, let's just fill it by hand
+	/*
+	var dataTable = GetDataTable( $"datatable/titan_bosses.rpak" )
+	for ( int i = 0; i < GetDatatableRowCount( dataTable ); i++ )
+	{
+		string bossName	= GetDataTableString( dataTable, i, GetDataTableColumnByName( dataTable, "bossCharacter" ) )
+		print( "bossName: " + bossName )
+		BossTitanData bossTitanData = AddBossTitan( bossName )
+
+		bossTitanData.bossTitle 			= GetDataTableString( dataTable, i, GetDataTableColumnByName( dataTable, "bossTitle" ) )
+		bossTitanData.characterModel 		= GetDataTableAsset( dataTable, i, GetDataTableColumnByName( dataTable, "pilotModel" ) )
+		print( "characterModel: " + string( bossTitanData.characterModel ) )
+
+		// mp specific replacement model
+        switch ( bossName )
+        {
+			// only sp pilot models included pete_scripted_boss_intros.mdl, which contains generic intro animatioins
+            case "Viper":
+                //bossTitanData.characterModel = $"models/humans/pilots/pilot_medium_reaper_m.mdl" // PulseBlade Male
+                bossTitanData.characterModel = $"models/humans/pilots/sp_medium_stalker_m.mdl"
+				break
+            case "Richter":
+                //bossTitanData.characterModel = $"models/humans/pilots/pilot_heavy_drex_m.mdl" // Cloak Male
+                bossTitanData.characterModel = $"models/humans/pilots/sp_medium_stalker_m.mdl"
+				break
+            case "Slone":
+                //bossTitanData.characterModel = $"models/humans/pilots/pilot_medium_stalker_f.mdl" // Holopilot Female
+                bossTitanData.characterModel = $"models/humans/pilots/sp_medium_geist_f.mdl"
+				break
+            case "Kane":
+                //bossTitanData.characterModel = $"models/humans/pilots/pilot_heavy_roog_m.mdl" // A-Wall Male
+                bossTitanData.characterModel = $"models/humans/pilots/sp_medium_stalker_m.mdl"
+				break
+        }
+	}
+	*/
+
+	BossTitanData bossTitanData
+	///////////
+	/// Ash ///
+	///////////
+	bossTitanData = AddBossTitan( "Ash" )
+	bossTitanData.bossTitle = "#BOSSNAME_ASH"
+	bossTitanData.characterModel = $"models/Humans/heroes/imc_hero_ash.mdl"
+
+	/////////////
+	/// Viper ///
+	/////////////
+	bossTitanData = AddBossTitan( "Viper" )
+	bossTitanData.bossTitle = "#BOSSNAME_VIPER"
+	//bossTitanData.characterModel = $"models/humans/heroes/imc_hero_viper.mdl"
+	// temp replacement. mp don't have viper model, in intro just let them use idle animation
+	// sp models do included pete_scripted_boss_intros.mdl, but it has no suitable animation
+	bossTitanData.characterModel = $"models/humans/pilots/pilot_medium_reaper_m.mdl" // PulseBlade Male
+
+	///////////////
+	/// Richter ///
+	///////////////
+	bossTitanData = AddBossTitan( "Richter" )
+	bossTitanData.bossTitle = "#BOSSNAME_RICHTER"
+	//bossTitanData.characterModel = $"models/humans/heroes/imc_hero_richter.mdl"
+	// temp replacement. mp don't have richter model, in intro just let them use idle animation
+	// sp models do included pete_scripted_boss_intros.mdl, but it has no suitable animation
+	bossTitanData.characterModel = $"models/humans/pilots/pilot_heavy_drex_m.mdl" // Cloak Male
+
+	/////////////
+	/// Slone ///
+	/////////////
+	bossTitanData = AddBossTitan( "Slone" )
+	bossTitanData.bossTitle = "#BOSSNAME_SLONE"
+	//bossTitanData.characterModel = $"models/Humans/heroes/imc_hero_slone.mdl"
+	// temp replacement. mp don't have slone model, in intro just let them use idle animation
+	// sp models do included pete_scripted_boss_intros.mdl, but it has no suitable animation
+	bossTitanData.characterModel = $"models/humans/pilots/pilot_medium_stalker_f.mdl" // Holopilot Female
+
+	////////////
+	/// Kane ///
+	////////////
+	bossTitanData = AddBossTitan( "Kane" )
+	bossTitanData.bossTitle = "#BOSSNAME_KANE"
+	//bossTitanData.characterModel = $"models/Humans/heroes/imc_hero_kane.mdl"
+	// temp replacement. mp don't have kane model, in intro just let them use idle animation
+	// sp models do included pete_scripted_boss_intros.mdl, but it has no suitable animation
+	bossTitanData.characterModel = $"models/humans/pilots/pilot_heavy_roog_m.mdl" // A-Wall Male
+
+	/////////////
+	/// Blisk ///
+	/////////////
+	bossTitanData = AddBossTitan( "Blisk" )
+	bossTitanData.bossTitle = "#BOSSNAME_BLISK"
+	bossTitanData.characterModel = $"models/Humans/heroes/imc_hero_blisk.mdl"
+}
+
+BossTitanData function AddBossTitan( string bossName )
+{
+	Assert( !( bossName in file.bossTitans ) )
+	BossTitanData bossTitanData
+	bossTitanData.bossID = file.bossTitans.len()
+	file.bossTitans[ bossName ] <- bossTitanData
+	return bossTitanData
+}
+
+
+
+//   ____    _    _     _     ____    _    ____ _  ______  
+//  / ___|  / \  | |   | |   | __ )  / \  / ___| |/ / ___| 
+// | |     / _ \ | |   | |   |  _ \ / _ \| |   | ' /\___ \ 
+// | |___ / ___ \| |___| |___| |_) / ___ \ |___| . \ ___) |
+//  \____/_/   \_\_____|_____|____/_/   \_\____|_|\_\____/ 
+
+void function OnBossTitanExecuted( SyncedMeleeChooser actions, SyncedMelee action, entity attacker, entity victim )
+{
+	if ( victim.IsNPC() && IsVDUTitan( victim ) && MpBossTitan_TitanVDUEnabled( victim ) )
+	{
+		if ( IsMercTitan( victim ) )
+		{
+			string name = victim.ai.bossCharacterName == "" ? "Generic1" : victim.ai.bossCharacterName
+			MpBossTitan_ConversationDeath( victim, name )
+		}
+	}
+}
+
+void function OnBossTitanDeath( entity titan, var damageInfo )
+{
+	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	if ( damageSourceId == eDamageSourceId.titan_execution ) // executions handled in OnBossTitanExecuted()
+		return
+
+	entity soul = titan.GetTitanSoul()
+	if ( soul.IsEjecting() ) // boss pilot is not dying, they ejected
+		return
+
+	if ( IsVDUTitan( titan ) && MpBossTitan_TitanVDUEnabled( titan ) )
+	{
+		if ( IsMercTitan( titan ) )
+		{
+			string name = titan.ai.bossCharacterName == "" ? "Generic1" : titan.ai.bossCharacterName
+			MpBossTitan_ConversationDeath( titan, name )
+		}
+	}
+}
+
+void function OnBossTitanDoomed( entity titan, var damageInfo )
+{
+	if ( IsVDUTitan( titan ) && MpBossTitan_TitanVDUEnabled( titan ) )
+	{
+		if ( IsMercTitan( titan ) )
+			MpBossTitan_ConversationDoomed( titan )
+	}
+}
+
+void function OnNpcTitanDealDamage( entity titan, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( IsValid( attacker ) )
+	{
+		if ( attacker in file.bossTitanDamageScale )
+			DamageInfo_ScaleDamage( damageInfo, file.bossTitanDamageScale[ attacker ] )
+	}
+}
+
+// hardcoded hell
+const float BOSS_TITAN_CORE_DAMAGE_SCALER_LOW = 0.6
+const float BOSS_TITAN_CORE_DAMAGE_SCALER = 0.5
+
+void function OnBossTitanCoreMitigation( entity titan, var damageInfo )
+{
+	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	switch ( damageSourceID )
+	{
+		case eDamageSourceId.mp_titancore_salvo_core:
+			DamageInfo_ScaleDamage( damageInfo, BOSS_TITAN_CORE_DAMAGE_SCALER_LOW )
+			return
+
+		// case eDamageSourceId.mp_titancore_laser_cannon: laser core handles this in mp_titanweapon_lasercannon.nut
+		case eDamageSourceId.mp_titancore_flame_wave:
+		case eDamageSourceId.mp_titancore_flame_wave_secondary:
+		case eDamageSourceId.mp_titancore_shift_core:
+		case eDamageSourceId.mp_titanweapon_flightcore_rockets:
+		case eDamageSourceId.mp_titancore_amp_core:
+		case damagedef_nuclear_core:
+			DamageInfo_ScaleDamage( damageInfo, BOSS_TITAN_CORE_DAMAGE_SCALER )
+			return
+	}
+
+	// SMART CORE
+	array<string> weaponMods = GetWeaponModsFromDamageInfo( damageInfo )
+	if ( weaponMods.contains( "Smart_Core" ) )
+	{
+		DamageInfo_ScaleDamage( damageInfo, BOSS_TITAN_CORE_DAMAGE_SCALER )
+		// DamageInfo_ScaleDamage( damageInfo, BOSS_TITAN_CORE_DAMAGE_SCALER_LOW )
+		return
+	}
+}
+
+// won't influence shield damage
+void function BossTitanDamageReduction( entity titan, var damageInfo )
+{
+	if ( titan in file.bossTitanDamageReductionScale )
+	{
+		float damage = DamageInfo_GetDamage( damageInfo )
+		float damageTaken = 1.0 - file.bossTitanDamageReductionScale[ titan ]
+		DamageInfo_ScaleDamage( damageInfo, damageTaken )
+
+		/* // seems no need. coremeter is calculated earlier than postdamage
+		entity attacker = DamageInfo_GetAttacker( damageInfo )
+		if ( IsValid( attacker ) && attacker.IsTitan() )
+		{
+			float damageReduced = damage * file.bossTitanDamageReductionScale[ titan ]
+			// add reduced damage, player can still receive normal amount titancore meter
+			AddCreditToTitanCoreBuilderForTitanDamageInflicted( attacker, damageReduced )
+		}
+		*/
+	}
+}
+
+void function NPCTitanSpawned( entity titan )
+{
+	switch ( titan.ai.bossTitanType )
+	{
+		// remove for mp
+		//case TITAN_WEAK:
+		//case TITAN_HENCH:
+			//break
+
+		case TITAN_BOSS: // titan: generic boss
+			MpBossTitan_Register( titan )
+
+			// add damage reduction
+			//if ( titan.ai.bossTitanType == TITAN_BOSS ) // does this ever meaningful?
+			AddEntityCallback_OnDamaged( titan, OnBossTitanCoreMitigation )
+
+			// remove for mp
+			//if ( titan.HasKey( "skip_boss_intro" ) && titan.GetValueForKey( "skip_boss_intro" ) == "1" )
+			//	return
+			thread MpBossTitan_NoIntroSetup( titan ) // setup dialogue stuff
+			break
+
+		case TITAN_MERC: // titan: mercenary
+			// remove for mp, these should be decided by spawn function
+			// TODO: This SetSkin() call should move to MpBossTitan_Register() when the above TITAN_BOSS stuff is cleaned up/removed.
+			//titan.SetSkin( 1 ) // all titan models have a boss titan version of the skin at index 1
+
+			//print( "RUNNING MpBossTitan_Register()" )
+			MpBossTitan_Register( titan )
+			//ApplyTitanDamageState( titan ) // remove for mp
+
+			// add damage reduction
+			AddEntityCallback_OnDamaged( titan, OnBossTitanCoreMitigation )
+			AddEntityCallback_OnPostDamaged( titan, BossTitanDamageReduction )
+
+			// remove for mp
+			//if ( titan.HasKey( "skip_boss_intro" ) && titan.GetValueForKey( "skip_boss_intro" ) == "1" )
+			//	return
+
+			// remove for mp
+			//if ( !titan.ai.bossTitanPlayIntro )
+			//	return
+
+			//print( "RUNNING MpBossTitan_PlayBossTitanIntro()" )
+			thread MpBossTitan_PlayBossTitanIntro( titan )
+			break
+
+		// case TITAN_WEAK:
+			// MakeLowHealthTitan( titan )
+			// break
+
+		// nessie: comment out for mp
+		//case TITAN_AUTO:
+			//if ( !IsMultiplayer() && GetMapName() == "sp_hub_timeshift" || GetMapName() == "sp_timeshift_spoke02" )
+			//	MakeLowHealthTitan( titan )
+			//break
+		default:
+			return
+	}
+}
+
+// after fnished intro, add other dialogue callbacks
+void function OnBossTitanIntroFinished( entity bossTitan )
+{
+	AddEntityCallback_OnDamaged( bossTitan, OnBossTitanDamaged )
+	AddTitanCallback_OnHealthSegmentLost( bossTitan, OnBossTitanLostSegment )
+}
+
+void function OnBossTitanDamaged( entity titan, var damageInfo )
+{
+}
+
+void function OnBossTitanLostSegment( entity titan, entity attacker )
+{
+	if ( !titan.IsNPC() || !MpBossTitan_TitanVDUEnabled( titan ) )
+		return
+
+	if ( IsMercTitan( titan ) )
+		MpBossTitan_ConversationLostSegment( titan, GetTitanCurrentRegenTab( titan ) )
+}
+
+bool function IsVDUTitan( entity titan )
+{
+	//Assert( IsSingleplayer() )
+
+	//if ( titan.GetTeam() != TEAM_IMC )
+	//	return false
+
+	if ( !titan.IsNPC() )
+		return false
+
+	switch ( titan.ai.bossTitanType )
+	{
+		case TITAN_AUTO:
+		case TITAN_WEAK:
+			return false
+
+		case TITAN_HENCH:
+		case TITAN_MERC:
+		case TITAN_BOSS:
+			return true
+	}
+
+	Assert( 0, "Unknown boss titan type " + titan.ai.bossTitanType )
+	unreachable
+}
+
+bool function MpBossTitan_TitanIsBoss( entity titan )
+{
+	//Assert( IsSingleplayer() )
+
+	//if ( titan.GetTeam() != TEAM_IMC )
+	//	return false
+
+	switch ( titan.ai.bossTitanType )
+	{
+		case TITAN_MERC:
+		case TITAN_BOSS:
+			return true
+	}
+
+	return false
+}
+
+// from sh_ai_boss_titan.gnut
+asset function MpBossTitan_GetBossCharacterModel( entity titan )
+{
+	string character = titan.ai.bossCharacterName
+	return file.bossTitans[ character ].characterModel
+}
+
+string function GetBossNameFromID( int bossID )
+{
+	foreach ( name, data in file.bossTitans )
+	{
+		if ( data.bossID == bossID )
+			return name
+	}
+
+	return ""
+}
+
+void function OnTitanLostSegment( entity titan, entity attacker )
+{
+	entity player
+
+	if ( !titan.IsPlayer() )
+		player = titan.GetBossPlayer()
+	else
+		player = titan
+
+	if ( !IsValid( player ) )
+		return
+
+	if ( !IsValid( attacker ) )
+		return
+
+	if ( !attacker.IsNPC() || !IsVDUTitan( attacker ) || !MpBossTitan_TitanVDUEnabled( attacker ) )
+		return
+
+	MpBossTitan_ConversationTookPlayerSegment( player, GetSegmentHealthForTitan( titan ) )
+}
+
+void function BossTitanRetreat( entity titan )
+{
+	if ( !IsVDUTitan( titan ) || !MpBossTitan_TitanVDUEnabled( titan ) )
+		return
+
+	MpBossTitan_ConversationRetreat( titan )
+}
+
+void function BossTitanAdvance( entity titan )
+{
+	if ( !IsVDUTitan( titan ) || !MpBossTitan_TitanVDUEnabled( titan ) )
+		return
+
+	MpBossTitan_ConversationAdvance( titan )
+}
+
+void function OnTitanCoreUsed( entity titan, entity coreWeapon )
+{
+	if ( IsVDUTitan( titan ) && MpBossTitan_TitanVDUEnabled( titan ) )
+	{
+		entity enemy = titan.GetEnemy()
+		if ( IsValid( enemy ) && enemy.IsPlayer() )
+			MpBossTitan_ConversationUseCoreAbility( titan )
+	}
+	else if ( titan.IsPlayer() )
+		MpBossTitan_ConversationPlayerUseCoreAbility( titan )
+}
+
+//  _   _ _____ ___ _     ___ _______   __
+// | | | |_   _|_ _| |   |_ _|_   _\ \ / /
+// | | | | | |  | || |    | |  | |  \ V / 
+// | |_| | | |  | || |___ | |  | |   | |  
+//  \___/  |_| |___|_____|___| |_|   |_|  
+
+bool function IsMercTitan( entity titan )
+{
+	//if ( IsMultiplayer() )
+	//	return false
+	//if ( titan.GetTeam() != TEAM_IMC )
+	//	return false
+	return titan.ai.bossTitanType == TITAN_MERC
+}
+
+bool function MpBossTitan_TitanVDUEnabled( entity titan )
+{
+	return titan.ai.bossTitanVDUEnabled
+}
+
+entity function MpBossTitan_GetNearbyBossForPlayer( entity player )
+{
+	int team = player.GetTeam()
+	vector origin = player.GetOrigin()
+
+    array<entity> bossTitans
+    foreach ( entity titan in GetNPCArrayByClass( "npc_titan" ) )
+    {
+        if ( !IsAlive( titan ) )
+            continue
+        if ( team == titan.GetTeam() ) // same team titan
+            continue
+
+        if ( MpBossTitan_TitanIsBoss( titan ) )
+            bossTitans.append( titan )
+    }
+
+	entity bossTitan
+	if ( bossTitans.len() > 0 )
+		bossTitan = GetClosest( bossTitans, origin )
+
+	return bossTitan // may return a null
+}
+
+bool function MpBossTitan_IsGenericTitan( entity titan )
+{
+	string name = titan.ai.bossCharacterName
+
+	string generic = "Generic"
+	return ( name.len() >= generic.len() && name.slice( 0,generic.len() ) == "Generic" )
+}
+
+//  _____ ___ _____  _    _   _     ____  _____ _____ _____ ___ _   _  ____ ____  
+// |_   _|_ _|_   _|/ \  | \ | |   / ___|| ____|_   _|_   _|_ _| \ | |/ ___/ ___| 
+//   | |  | |  | | / _ \ |  \| |   \___ \|  _|   | |   | |  | ||  \| | |  _\___ \ 
+//   | |  | |  | |/ ___ \| |\  |    ___) | |___  | |   | |  | || |\  | |_| |___) |
+//   |_| |___| |_/_/   \_\_| \_|   |____/|_____| |_|   |_| |___|_| \_|\____|____/ 
+
+void function MpBossTitan_SetDamageScale( entity titan, float damage )
+{
+	if ( !( titan in file.bossTitanDamageScale ) ) // not registered
+		return
+
+	file.bossTitanDamageScale[ titan ] = damage
+}
+
+void function MpBossTitan_SetDamageReductionScale( entity titan, float damageReduction )
+{
+	if ( !( titan in file.bossTitanDamageReductionScale ) ) // not registered
+		return
+
+	file.bossTitanDamageReductionScale[ titan ] = damageReduction
+}
+
+//  ____  _____ ____ ___ ____ _____ _____ ____  ___ _   _  ____     _   _ _______        __    ____   ___  ____ ____  
+// |  _ \| ____/ ___|_ _/ ___|_   _| ____|  _ \|_ _| \ | |/ ___|   | \ | | ____\ \      / /   | __ ) / _ \/ ___/ ___| 
+// | |_) |  _|| |  _ | |\___ \ | | |  _| | |_) || ||  \| | |  _    |  \| |  _|  \ \ /\ / /    |  _ \| | | \___ \___ \ 
+// |  _ <| |__| |_| || | ___) || | | |___|  _ < | || |\  | |_| |   | |\  | |___  \ V  V /     | |_) | |_| |___) |__) |
+// |_| \_\_____\____|___|____/ |_| |_____|_| \_\___|_| \_|\____|   |_| \_|_____|  \_/\_/      |____/ \___/|____/____/ 
+
+void function MpBossTitan_Register( entity bossTitan )
+{
+	string name = bossTitan.ai.bossCharacterName == "" ? GetGenericPilotName() : bossTitan.ai.bossCharacterName
+	bossTitan.ai.bossCharacterName = name
+
+	// init in-file table
+	file.bossTitanDamageReductionScale[ bossTitan ] <- 0.0
+
+	// run callbacks
+	foreach ( void functionref( entity ) callbackFunc in file.bossTitanRegisterCallbacks )
+		callbackFunc( bossTitan )
+}
+
+const int NUM_VOICES = 8 // total of 8 voice packs for generic titans
+
+string function GetGenericPilotName()
+{
+	return "Generic" + RandomIntRange( 1, NUM_VOICES + 1 )
+}
+
+// should never use deregister. it's not implement good enough, can't handle most things like removing entity callbacks
+void function MpBossTitan_Deregister( entity bossTitan )
+{
+	bossTitan.Signal( "DeregisterBossTitan" )
+	bossTitan.ai.bossTitanType = TITAN_AUTO
+
+	// clean up in-file table
+	if ( bossTitan in file.bossTitanDamageReductionScale )
+		delete file.bossTitanDamageReductionScale[ bossTitan ]
+
+	// run callbacks
+	foreach ( void functionref( entity ) callbackFunc in file.bossTitanDeregisterCallbacks )
+		callbackFunc( bossTitan )
+}
+
+void function AddCallback_OnMpBossTitanRegister( void functionref( entity ) callbackFunc )
+{
+	if ( !file.bossTitanRegisterCallbacks.contains( callbackFunc ) )
+		file.bossTitanRegisterCallbacks.append( callbackFunc )
+}
+
+void function AddCallback_OnMpBosstitanDeregister( void functionref( entity ) callbackFunc )
+{
+	if ( !file.bossTitanDeregisterCallbacks.contains( callbackFunc ) )
+		file.bossTitanDeregisterCallbacks.append( callbackFunc )
+}
+#endif // MP
