@@ -375,13 +375,21 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 
 	e.player <- null
 	e.npcPilot <- null
-	bool ejectTitanHasNpcPilot = false
+	// modified, make it be in table
+	//bool ejectTitanHasNpcPilot = false
+	e.ejectTitanHasNpcPilot <- false
 	if ( ejectTitan.IsPlayer() )
 		e.player = ejectTitan
 
 	#if NPC_TITAN_PILOT_PROTOTYPE
 		if ( TitanHasNpcPilot( ejectTitan ) )
-			ejectTitanHasNpcPilot = true
+		{
+			// modified, make it be in table
+			//ejectTitanHasNpcPilot = true
+			e.ejectTitanHasNpcPilot = true
+			// vanilla missing. this can fix titan firing weapon during animation
+			ejectTitan.kv.allowShoot = 0
+		}
 	#endif
 
 	e.nukeFX <- []
@@ -451,6 +459,19 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 					if ( !e.hasNuclearCore ) // don't have a nuclear core at start
 						TakePassive( ejectTitan, ePassives.PAS_BUILD_UP_NUCLEAR_CORE ) // take the passive off player
 				}
+				// vanilla missing npc pilot logic
+				#if NPC_TITAN_PILOT_PROTOTYPE
+					if ( expect bool( e.ejectTitanHasNpcPilot ) )
+					{
+						// vanilla missing: npc pilot ejecting protection
+						expect entity( e.npcPilot )
+						if ( IsAlive( e.npcPilot ) )
+							thread ClearEjectInvulnerability( e.npcPilot )
+						// vanilla missing: give back weapon usage after ejecting
+						if ( IsAlive( ejectTitan ) )
+							ejectTitan.kv.allowShoot = 1
+					}
+				#endif
 			}
 			else if ( IsValid( ejectTitan ) )
 			{
@@ -661,8 +682,16 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 	}
 
 	#if NPC_TITAN_PILOT_PROTOTYPE
-		if ( ejectTitanHasNpcPilot )
+		// modified, make it be in table
+		//if ( ejectTitanHasNpcPilot )
+		if ( expect bool( e.ejectTitanHasNpcPilot ) )
+		{
 			e.npcPilot = NpcTitanBecomesPilot( ejectTitan )
+			// vanilla missing: npc pilot ejecting protection
+			expect entity( e.npcPilot )
+			if ( IsAlive( e.npcPilot ) )
+				e.npcPilot.SetInvulnerable()
+		}
 	#endif
 
 	vector titanOrigin = titan.GetOrigin()
@@ -761,23 +790,28 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		if ( IsAlive( rider ) && e.player.GetTeam() != rider.GetTeam() )
 			thread LookAtEachOther( rider, expect entity( e.player ) )
 	}
-	else if ( ejectTitanHasNpcPilot && IsAlive( expect entity( e.npcPilot ) ) )
-	{
-		//speed *= 0.6 //magic number, too slow so removed it
-		vector velocity = < 0, 0, speed > //straight up
-		e.npcPilot.SetOrigin( titan.GetOrigin() + Vector(0,0,300) )
-		e.npcPilot.SetAngles( titan.GetAngles() )
-		// don't really have such animation
-		//e.npcPilot.Anim_ScriptedPlay( "running_jump_F_float" )
-		e.npcPilot.SetVelocity( velocity )
-
-		// modified here: use npc pilot as nuke attacker
-		if ( soul in file.soulUseNPCPilotAsNukeAttacker )
+	// modified version of npc pilot ejecting
+	#if NPC_TITAN_PILOT_PROTOTYPE
+		// modified, make it be in table
+		//else if ( ejectTitanHasNpcPilot && IsAlive( expect entity( e.npcPilot ) ) )
+		else if ( expect bool( e.ejectTitanHasNpcPilot ) && IsAlive( expect entity( e.npcPilot ) ) )
 		{
-			if ( file.soulUseNPCPilotAsNukeAttacker[ soul ] )
-				e.overrideAttacker = e.npcPilot
+			//speed *= 0.6 //vanilla magic number, too slow so modified to removed it
+			vector velocity = < 0, 0, speed > //straight up
+			e.npcPilot.SetOrigin( titan.GetOrigin() + Vector(0,0,300) )
+			e.npcPilot.SetAngles( titan.GetAngles() )
+			// don't really have such animation
+			//e.npcPilot.Anim_ScriptedPlay( "running_jump_F_float" )
+			e.npcPilot.SetVelocity( velocity )
+
+			// modified here: use npc pilot as nuke attacker
+			if ( soul in file.soulUseNPCPilotAsNukeAttacker )
+			{
+				if ( file.soulUseNPCPilotAsNukeAttacker[ soul ] )
+					e.overrideAttacker = e.npcPilot
+			}
 		}
-	}
+	#endif
 
 	if ( IsValid( e.player ) )
 		TitanEjectVO( expect entity( e.player ), titanOrigin )
