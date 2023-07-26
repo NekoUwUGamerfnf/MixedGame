@@ -1,7 +1,5 @@
-// basically a copy of gruntmode. with only npcs spawns, players are still pilots
-
 untyped
-global function Modded_Gamemode_AITdm_Extended_Init
+global function Modded_Gamemode_GruntMode_Init
 
 // npc counts
 const int SQUADS_PER_TEAM = 5
@@ -10,33 +8,55 @@ const int SQUADS_PER_TEAM_HIGH_LEVEL = 3 // maybe do reduced squad if we have re
 const int REAPERS_PER_TEAM = 2 // was 2, reduced reaper spawn since we're using tick spawner reapers
 
 const int MARVINS_PER_TEAM = 0
-const int PROWLERS_PER_TEAM = 0
-const int PROWLER_SQUADS_PER_TEAM = 1 // prowler squad: 2 cqb prowler with 3 small prowlers
+const int PROWLERS_PER_TEAM = 3
+const int PROWLER_SQUADS_PER_TEAM = 0 // prowler squad: 2 cqb prowler with 3 small prowlers
 const int PILOTS_PER_TEAM = 3
 
 const int TITANS_PER_TEAM = 0
 const int GUNSHIPS_PER_TEAM = 0 // was 2, removed until I figure out how to make gunships attacking
 
-// escalator default value
-const int LEVEL_SPECTRES = 80
-const int LEVEL_STALKERS = 150
-const int LEVEL_REAPERS = 230
-const int LEVEL_GUNSHIPS = 280 // unused
-const int LEVEL_TITANS = 320
+const float AIRDROP_INTERVAL = 40.0 // fixed! ->// time for each air drops, current hardcoded( for airdrops now dissolves only after certain time )
+
+// escalator
+const int LEVEL_SPECTRES = 50
+const int LEVEL_STALKERS = 100
+const int LEVEL_REAPERS = 180
+const int LEVEL_GUNSHIPS = 200
+const int LEVEL_TITANS = 250
 
 // scores
-const int PLAYER_SCORE_AMOUNT = 5
+const int PLAYER_SCORE_AMOUNT = 3
+const int PLAYER_SPECIALIST_SCORE_AMOUNT = 5
 const int PILOT_SCORE_AMOUNT = 5
 const int GUNSHIP_SCORE_AMOUNT = 5
 const int MARVIN_SCORE_AMOUNT = 1
 const int GRUNT_SCORE_AMOUNT = 1
-const int SPECTRE_SCORE_AMOUNT = 1
+const int SPECTRE_SCORE_AMOUNT = 2
 const int STALKER_SCORE_AMOUNT = 2
 const int PROWLER_SCORE_AMOUNT = 2
 const int SMALL_PROWLER_SCORE_AMOUNT = 1
 const int REAPER_SCORE_AMOUNT = 5
 const int DRONE_SCORE_AMOUNT = 0
 const int TITAN_SCORE_AMOUNT = 10
+
+const array<string> GRUNT_MODE_PLAYLIST =
+[
+	"mp_glitch",
+    "mp_colony02",
+    "mp_wargames",
+    "mp_eden",
+    "mp_drydock",
+    "mp_black_water_canal",
+    "mp_thaw",
+    "mp_grave",
+    "mp_homestead",
+    "mp_forwardbase_kodai",
+    "mp_angel_city",
+    "mp_relic02",
+    "mp_rise",
+    "mp_complex3",
+    "mp_crashsite3"
+]
 
 struct
 {
@@ -54,12 +74,15 @@ struct
 } file
 
 
-void function Modded_Gamemode_AITdm_Extended_Init()
+void function Modded_Gamemode_GruntMode_Init()
 {
+	BecomesGruntMode_Init() // init everything
+
 	SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
 
 	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
 	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
+	AddCallback_GameStateEnter( eGameState.Postmatch, OnGamePostmatch )
 
 	// scoring
 	AddCallback_OnPlayerKilled( HandleScoreForPlayerOrNPCKill )
@@ -73,311 +96,19 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 
-    // game settings
-	Highlight_SetCustomHighlightFunction( AiTDMExtend_Highlight ) // highlight handle for phase shift and such
-    // npc executions
-	//MeleeSyncedNPC_EnableAll_Init() // npc executions for fun
-	MeleeSyncedNPC_AllowNPCTitanExecutions( true )
-	MeleeSyncedNPC_AllowNPCPilotExecutions( true )
-	MeleeSyncedNPC_AllowNPCGruntExecutions( true ) // spectres don't have neck snap attacker sequence, they'll try pilot executions, which is bad
-	MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs( true ) // pilot models don't have syncedMeleeData initialized, so let them use mp pilot executions
+	ClassicMP_ForceDisableEpilogue( true )
+	Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
+	Riff_ForceTitanAvailability( eTitanAvailability.Never )
 
-    // ai configs
-	AddSpawnCallback( "npc_soldier", GruntConfig )
-	AddSpawnCallback( "npc_pilot_elite", PilotConfig )
-	AddSpawnCallback( "npc_marvin", MarvinConfig )
-	AddSpawnCallback( "npc_prowler", ProwlerConfig )
-	AddSpawnCallback( "npc_spectre", SpectreConfig )
-	AddSpawnCallback( "npc_stalker", StalkerConfig )
-	AddSpawnCallback( "npc_super_spectre", ReaperConfig )
-	AddSpawnCallback( "npc_titan", TitanConfig )
-	AddSpawnCallback( "npc_drone", DroneConfig )
-	AddSpawnCallback( "npc_gunship", GunshipConfig )
-	AddSpawnCallback( "npc_dropship", DropshipConfig )
-	AddSpawnCallback( "npc_frag_drone", TickConfig )
-	AddSpawnCallback( "npc_turret_sentry", TurretConfig )
-
-	// ai damages
-	AddDamageByCallback( "npc_pilot_elite", BuffPilotDamage )
-	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, NerfProwlerMelee )
+	// so you're likely no need to wait so freaking long, !!! tempfix specific
+	SetWaitingForPlayersMaxDuration( 1.0 )
+    ClassicMP_SetCustomIntro( ClassicMP_GruntModeIntro_Setup, GRUNTMODE_INTRO_LENGTH )
 }
-
-void function AiTDMExtend_Highlight( entity ent )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( ent, "sp_enemy_pilot" )
-	ent.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	// highlights think
-	string className = ent.GetClassName()
-	switch ( className )
-	{
-		case "npc_pilot_elite":
-			ent.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
-			Highlight_SetEnemyHighlight( ent, "enemy_player" )
-			break
-		case "npc_super_spectre":
-		case "npc_gunship":
-			ent.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
-			Highlight_SetEnemyHighlight( ent, "enemy_titan" )
-			break
-
-		default:
-			// default highlight setting
-			if ( ent.IsTitan() )
-				Highlight_SetEnemyHighlight( ent, "enemy_player" )
-			else
-				Highlight_SetEnemyHighlight( ent, "enemy_player" )
-			break
-	}
-}
-
-////////////////////////////////
-///// NPC CONFIG FUNCTIONS /////
-////////////////////////////////
-
-// hardcoded here
-const array<string> GRUNTMODE_SPECIALIST_GRUNTS =
-[
-	"npc_soldier_shield_captain",
-	"npc_soldier_pve_specialist",
-	"npc_soldier_sidearm"
-]
-void function GruntConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	// hardcoded here
-	string aiSetName = soldier.GetAISettingsName()
-	bool isSpecialistGrunt = GRUNTMODE_SPECIALIST_GRUNTS.contains( aiSetName )
-	if ( !isSpecialistGrunt ) // normal grunts
-	{
-		soldier.SetMaxHealth( 80 )
-		soldier.SetHealth( 80 )
-	}
-	
-	thread GruntTitleThink( soldier ) // specialist grunts may spawn from dropship, do a think here
-
-	Melee_SetHumanSizedDoClassicExecution( soldier, true ) // grunts uses classic neck snap
-}
-
-void function GruntTitleThink( entity soldier )
-{
-	soldier.EndSignal( "OnDestroy" )
-	soldier.EndSignal( "OnDeath" )
-
-	float endTime = Time() + 5
-	while ( Time() <= endTime )
-	{
-		WaitFrame()
-		string aiSetName = soldier.GetAISettingsName()
-		bool isSpecialistGrunt = GRUNTMODE_SPECIALIST_GRUNTS.contains( aiSetName )
-		if ( !isSpecialistGrunt )
-			continue
-		WaitFrame() // they may get a title from spawn function, we wait a frame before changing again
-		soldier.SetTitle( GetMilitiaTitle() ) // funny in _ai_soldiers.gnut
-		return
-	}
-}
-
-void function PilotConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-}
-
-void function MarvinConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	soldier.SetMaxHealth( 300 )
-	soldier.SetHealth( 300 )
-
-	soldier.SetNoTarget( true ) // don't want other npcs targeting them
-}
-
-void function ProwlerConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	// so they won't block teammates( won't work )
-	soldier.kv.CollisionGroup = TRACE_COLLISION_GROUP_PLAYER
-}
-
-void function SpectreConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	soldier.SetMaxHealth( 190 )
-	soldier.SetHealth( 190 )
-}
-
-void function StalkerConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	soldier.SetMaxHealth( 280 )
-	soldier.SetHealth( 280 )
-}
-
-void function ReaperConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	// even stronger
-	soldier.SetMaxHealth( 5000 ) // was 5500, we have 2 reapers now...
-	soldier.SetHealth( 5000 )
-}
-
-void function TitanConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-}
-
-void function DroneConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-}
-
-void function GunshipConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-	// lower health since they'll become noTarget
-	soldier.SetMaxHealth( 5500 )
-	soldier.SetHealth( 5500 )
-
-	//soldier.SetNoTarget( true ) // don't want other npcs targeting them
-}
-
-void function DropshipConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	soldier.SetNoTarget( true ) // don't want other npcs targeting them
-}
-
-void function TickConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-
-	// enemy highlight
-	Highlight_SetEnemyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 2, 0, < 2,0,0 > )
-}
-
-void function TurretConfig( entity soldier )
-{
-	// friendly highlight
-	Highlight_SetFriendlyHighlight( soldier, "sp_enemy_pilot" )
-	soldier.Highlight_SetParam( 1, 0, < 2,2,2 > )
-}
-
-////////////////////////////////////
-///// NPC CONFIG FUNCTIONS END /////
-////////////////////////////////////
-
-
-////////////////////////////////
-///// NPC DAMAGE FUNCTIONS /////
-////////////////////////////////
-
-const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.5
-
-void function BuffPilotDamage( entity victim, var damageInfo )
-{
-	// not a heavy armor target, hit by bullet
-	if ( victim.GetArmorType() != ARMOR_TYPE_HEAVY && DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET )
-	{
-		// make npc pilots powerful?
-		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * NPC_PILOT_DAMAGE_MULTIPLIER )
-	}
-}
-
-const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.6
-
-void function NerfProwlerMelee( entity victim, var damageInfo )
-{
-	bool nerfDamage = false
-	// prowler's craw damage is 80, pounce damage is 100
-	if ( victim.IsPlayer() ) // nerf it's damage agains players
-		nerfDamage = true
-
-	if ( victim.IsNPC() )
-	{
-		// a npc owned by player, do reduce damage
-		if ( IsValid( victim.GetBossPlayer() ) )
-			nerfDamage = true
-		if ( IsValid( victim.GetOwner() ) )
-			nerfDamage = true
-	}
-
-	if ( nerfDamage )
-		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * NPC_PROWLER_DAMAGE_MULTIPLIER )
-}
-
-////////////////////////////////////
-///// NPC DAMAGE FUNCTIONS END /////
-////////////////////////////////////
-
-
-
-//////////////////////////////////////////
-///// EXTRASPAWNER SETTINGS FUNCTION /////
-//////////////////////////////////////////
-
-void function InitExtraSpawnerSettings()
-{
-	ExtraSpawner_SetNPCWeapons( "npc_soldier", ["mp_weapon_rspn101", "mp_weapon_lmg", "mp_weapon_shotgun", "mp_weapon_r97", "mp_weapon_dmr"] )
-	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_rocket_launcher", "mp_weapon_mgl"] )
-	ExtraSpawner_SetNPCGrenadeWeapons( "npc_soldier", ["mp_weapon_frag_grenade", "mp_weapon_thermite_grenade", "mp_weapon_grenade_electric_smoke"] )
-	
-	ExtraSpawner_SetNPCWeapons( "npc_spectre", ["mp_weapon_mastiff", "mp_weapon_doubletake", "mp_weapon_hemlok_smg", "mp_weapon_hemlok"] )
-	ExtraSpawner_SetNPCAntiTitanWeapons( "npc_spectre", ["mp_weapon_arc_launcher", "mp_weapon_defender"] )
-
-	ExtraSpawner_SetNPCWeapons( "npc_pilot_elite", ["mp_weapon_rspn101_og", "mp_weapon_r97", "mp_weapon_car", "mp_weapon_hemlok_smg", "mp_weapon_hemlok", "mp_weapon_g2", "mp_weapon_vinson"] )
-	ExtraSpawner_SetNPCGrenadeWeapons( "npc_pilot_elite", ["mp_weapon_thermite_grenade", "mp_weapon_grenade_emp"] )	
-
-	ExtraSpawner_SetNPCWeapons( "npc_stalker", ["mp_weapon_softball", "mp_weapon_smr"] ) // npcs can't shoot "mp_weapon_pulse_lmg"
-
-	//AiDrone_SetDroneSpawnedByNPCRandomType( true ) // modified function in _ai_drone.nut, specialist grunts will spawn random drones
-	AiDrone_SetDroneSpawnedByNPCForceDie( true ) // modified function in _ai_drone.nut, drones spawned by npcs will be destroyed right after it's owner's death
-
-	Wallrun_EnableProtectionForRodeoPlayerAgainstNPCs( false ) // modified function in class_wallrun.gnut. disable damage immune against npcs while rodeoing
-}
-
-//////////////////////////////////////////////
-///// EXTRASPAWNER SETTINGS FUNCTION END /////
-//////////////////////////////////////////////
 
 //------------------------------------------------------
 
 void function OnPrematchStart()
 {
-    InitExtraSpawnerSettings() // npc weapon settings or something...
-
 	thread StratonHornetDogfightsIntense()
 }
 
@@ -395,9 +126,25 @@ void function OnPlaying()
 	TryCleanupBoredNPCGameLong()
 }
 
+void function OnGamePostmatch()
+{
+	if ( GetCurrentPlaylistVarInt( "gruntmode_auto_map", 1 ) != 0 )
+	{
+		array<string> curPlayList = GRUNT_MODE_PLAYLIST
+		int mapIndex = curPlayList.find( GetMapName() )
+		mapIndex += 1 // next map index
+		if( mapIndex == curPlayList.len() ) // reached last map?
+			mapIndex = 0
+		string nextMap = curPlayList[mapIndex]
+
+		ServerCommand( "map " + nextMap )
+	}
+}
+
 void function OnPlayerConnected( entity player )
 {
 	Remote_CallFunction_NonReplay( player, "ServerCallback_AITDM_OnPlayerConnected" )
+	Chat_ServerPrivateMessage( player, "每次以随机的兵种重生\n娱乐性质服务器，请多多包容其余玩家\n由于npc数目过多，卡顿属正常现象", false, false )
 }
 
 //------------------------------------------------------
@@ -602,7 +349,7 @@ bool function ShouldSpawnDropship()
 	return RandomInt( 3 ) == 0 // 33% chance of choose to spawn a dropship
 }
 
-string function GetSpecialistGruntLeader()
+string function GetGruntModeSpecialistGruntLeader()
 {
 	// 20% chance of spawning a shield captain
 	bool spawnShieldCaptain = RandomInt( 5 ) == 0
@@ -687,6 +434,8 @@ bool function ReachedPlayerCheckAmount()
 
 void function SpawnIntroBatch( int team )
 {
+	thread SpawnerWeapons( team )
+
 	array<entity> dropPodNodes = GetEntArrayByClass_Expensive( "info_spawnpoint_droppod_start" )
 	array<entity> dropShipNodes = GetValidIntroDropShipSpawn( dropPodNodes )  
 	
@@ -758,12 +507,12 @@ void function SpawnIntroBatch( int team )
 			if ( ShouldSpawnSpecialistSquad() )
 			{
 				array< entity > points = GetZiplineDropshipSpawns()
-				string leaderSet = GetSpecialistGruntLeader()
+				string leaderSet = GetGruntModeSpecialistGruntLeader()
 				int leaderHealth = GetSpecialistLeaderHealth( team, leaderSet )
-				thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, leaderSet, leaderHealth )
+				thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, leaderSet, leaderHealth, SquadHandler )
 			}
 			else
-				thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass )
+				thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, SquadHandler )
 
 			pods--
 		}
@@ -776,12 +525,12 @@ void function SpawnIntroBatch( int team )
 			if ( ShouldSpawnSpecialistSquad() )
 			{
 				array< entity > points = GetZiplineDropshipSpawns()
-				string leaderSet = GetSpecialistGruntLeader()
+				string leaderSet = GetGruntModeSpecialistGruntLeader()
 				int leaderHealth = GetSpecialistLeaderHealth( team, leaderSet )
-				thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, leaderSet, leaderHealth )
+				thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, leaderSet, leaderHealth, SquadHandler )
 			}
 			else
-				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4 )
+				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, SquadHandler )
 			
 			ships--
 		}
@@ -847,7 +596,7 @@ void function Spawner( int team )
 				array< entity > points = GetZiplineDropshipSpawns()
 				
 				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
-				string leaderSet = GetSpecialistGruntLeader()
+				string leaderSet = GetGruntModeSpecialistGruntLeader()
 				// add health depending on what npc it spawning with
 				int leaderHealth = GetSpecialistLeaderHealth( team, ent )
 				//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
@@ -855,14 +604,14 @@ void function Spawner( int team )
 				if ( ShouldSpawnDropship() )
 				{
 					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", 4, leaderSet, leaderHealth )
+					thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", 4, leaderSet, leaderHealth, SquadHandler )
 					wait 6 // dropship may take some time to really spawn a squad
 					continue
 				}
 				
 				points = SpawnPoints_GetDropPod()
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, ent, leaderSet, leaderHealth )
+				thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, ent, leaderSet, leaderHealth, SquadHandler )
 				wait 5 // they'll spawn upon droppod touch ground, wait 5s
 			}
 			else
@@ -874,14 +623,14 @@ void function Spawner( int team )
 				if ( ShouldSpawnDropship() )
 				{
 					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, 4 )
+					thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, 4, SquadHandler )
 					wait 6 // dropship may take some time to really spawn a squad
 					continue
 				}
 
 				points = SpawnPoints_GetDropPod()
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent )
+				thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent, SquadHandler )
 				wait 5 // they'll spawn upon droppod touch ground, wait 5s
 			}
 		}
@@ -923,7 +672,7 @@ void function SpawnerExtend( int team )
 			if ( titanCount < TITANS_PER_TEAM )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team, true )
+				thread ExtraSpawner_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team, true, TitanHandler )
 				wait 8 // wait 8s on succesful titan spawn
 			}
 		}
@@ -937,7 +686,7 @@ void function SpawnerExtend( int team )
 			if ( pilotCount < PILOTS_PER_TEAM )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				//entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team )
+				//entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team, TitanHandler )
 				if ( ShouldSpawnBossTitan() ) 
 					thread GetBossTitanSpawnFunc( -1 )( node.GetOrigin(), node.GetAngles(), team ) // get bosstitan spawn func without team check
 				else
@@ -972,7 +721,7 @@ void function SpawnerExtend( int team )
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				//thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent )
 				// spawn 1 prowler per droppod
-				thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, ent, 1 )
+				thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, ent, 1, SquadHandler )
 				wait 5 // they'll spawn upon droppod touch ground, wait 5s
 			}
 		}
@@ -986,10 +735,32 @@ void function SpawnerExtend( int team )
 			{
 				entity node = points[ GetSpawnPointIndex( points, team ) ]
 				//print( "RUNNING ExtraSpawner_SpawnProwlerSquadDropPod()" )
-				thread ExtraSpawner_SpawnProwlerSquadDropPod( node.GetOrigin(), node.GetAngles(), team )
+				thread ExtraSpawner_SpawnProwlerSquadDropPod( node.GetOrigin(), node.GetAngles(), team, SquadHandler )
 				wait 5 // they'll spawn upon droppod touch ground, wait 5s
 			}
 		}
+	}
+}
+
+void function SpawnerWeapons( int team )
+{
+	//svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+	wait 10 // initial wait
+
+	while( GetGameState() == eGameState.Playing )
+	{
+		wait AIRDROP_INTERVAL
+
+		foreach( entity player in GetPlayerArrayOfTeam( team ) )
+		{
+			NSSendLargeMessageToPlayer( player, "補給艙運送中! ", "補充重火力與武器彈藥，並獲取一把榴彈兵武器", 15, "rui/callsigns/callsign_69_col" )
+			//NSSendLargeMessageToPlayer( player, "Delivering Care Package!", "Refill ordnance and weapon ammo, also get a grenadier weapon", 15, "rui/callsigns/callsign_69_col" )
+		}
+		array< entity > points = SpawnPoints_GetDropPod()
+
+		entity node = points[ GetSpawnPointIndex( points, team ) ]
+		//waitthread SpawnReaperDorpsWeapons( node.GetOrigin(), node.GetAngles(), WEAPONS, MODS )
+		ExtraSpawner_SpawnCarePackageToGetWeapons( node.GetOrigin(), node.GetAngles(), AIRDROP_INTERVAL - 10 ) // carepackages will take 10s to drop
 	}
 }
 
@@ -1050,7 +821,9 @@ void function Escalate( int team )
 
 int function GetSpawnPointIndex( array< entity > points, int team )
 {
-	entity zone = DecideSpawnZone_Generic( points, team )
+	// modified: make a new function so ai gamemodes don't have to re-decide for each spawn
+	//entity zone = DecideSpawnZone_Generic( points, team )
+	entity zone = GetCurrentSpawnZoneForTeam( team )
 
 	if ( IsValid( zone ) )
 	{
@@ -1069,6 +842,167 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 
 //------------------------------------------------------
 
+// tells infantry where to go
+// In vanilla there seem to be preset paths ai follow to get to the other teams vone and capture it
+// AI can also flee deeper into their zone suggesting someone spent way too much time on this
+void function SquadHandler( array<entity> guys )
+{
+	int team = guys[0].GetTeam()
+	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
+	foreach ( entity guy in guys )
+	{
+		if ( hasHeavyArmorWeapon ) // found heavy armor weapon
+			break
+
+		foreach ( entity weapon in guy.GetMainWeapons() )
+		{
+			if ( !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required ) )
+			{
+				hasHeavyArmorWeapon = true
+				break
+			}
+		}
+	}
+	//print( "hasHeavyArmorWeapon: " + string( hasHeavyArmorWeapon ) )
+
+	array<entity> points
+	vector point
+
+	// Setup AI
+	foreach ( guy in guys )
+	{
+		// add map
+		AddMinimapForNPC( guy, true )
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+	}
+	
+	// Every 5 - 15 secs get a closest target and go to them
+	while ( true )
+	{
+		WaitFrame() // wait a frame each loop
+
+		foreach ( guy in guys )
+		{
+			// remove dead guys
+			ArrayRemoveDead( guys )
+			// Stop func if our squad has been killed off
+			if ( guys.len() == 0 )
+				return
+		}
+
+		// Get point and send our whole squad to it
+		points = []
+		if ( hasHeavyArmorWeapon )
+		{
+			points.extend( GetNPCArrayOfEnemies( team ) )
+			points.extend( GetPlayerArrayOfEnemies_Alive( team ) ) // also find players since they're also grunts
+		}
+		else // no heavy armor weapon?
+		{
+			foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+			{
+				if ( npc.GetArmorType() != ARMOR_TYPE_HEAVY ) // only search for npcs with light armor
+					points.append( npc )
+			}
+			foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
+			{
+				if ( !player.IsTitan() ) // only search for npcs with light armor
+					points.append( player )
+			}
+		}
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 ) // can't find any points here
+			continue
+
+		// get nearest enemy and send our full squad to it
+		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		if ( !IsAlive( enemy ) )
+			continue
+		point = enemy.GetOrigin()
+		foreach ( guy in guys )
+		{
+			if ( IsAlive( guy ) )
+			{
+				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
+				if ( clampedPos == null )
+					continue
+				expect vector( clampedPos )
+				guy.AssaultPoint( clampedPos )
+			}
+		}
+
+		wait RandomFloatRange(5.0,15.0)
+	}
+}
+
+// handle a single npc
+void function NPCHandler( entity npc )
+{
+	SquadHandler( [npc] )
+}
+
+// handle titans
+void function TitanHandler( entity titan )
+{
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	
+	int team = titan.GetTeam()
+	while ( GetNPCArrayOfEnemies( team ).len() == 0 )
+		WaitFrame()
+
+	array<entity> points = GetNPCArrayOfEnemies( team )
+	
+	vector point
+	point = points[ RandomInt( points.len() ) ].GetOrigin()
+	
+	array<entity> players = GetPlayerArrayOfEnemies( team )
+	
+	// Setup AI
+	titan.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	titan.AssaultPoint( point )
+	titan.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+	AddMinimapForNPC( titan, false )
+	
+	// Every 5 - 15 secs change AssaultPoint
+	while ( true )
+	{	
+		WaitFrame() // wait a frame each loop
+		
+		// Check if alive
+		if ( !IsAlive( titan ) )
+			return
+		
+		// Get point and send guy to it
+		points = GetNPCArrayOfEnemies( titan.GetTeam() )
+		if ( points.len() == 0 )
+			continue
+			
+		point = points[ RandomInt( points.len() ) ].GetOrigin()
+		
+		titan.AssaultPoint( point )
+		wait RandomFloatRange(5.0,15.0)
+	}
+}
+
+// npc minimap and spawn checks
+void function AddMinimapForNPC( entity guy, bool isHumanSized )
+{
+	if ( !IsAlive( guy ) )
+		return
+	
+	// map
+	guy.Minimap_AlwaysShow( TEAM_IMC, null )
+	guy.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	foreach ( entity player in GetPlayerArray() )
+		guy.Minimap_AlwaysShow( 0, player )
+	guy.Minimap_SetHeightTracking( true )
+
+	if ( isHumanSized )
+		guy.Minimap_SetCustomState( eMinimapObject_npc.AI_TDM_AI )
+}
+
 // Award for hacking
 void function OnSpectreLeeched( entity spectre, entity player )
 {
@@ -1078,6 +1012,44 @@ void function OnSpectreLeeched( entity spectre, entity player )
 	AddTeamScore( player.GetTeam(), 1 )
 	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 )
 	player.SetPlayerNetInt("AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+}
+
+void function ReaperHandler( entity reaper )
+{
+	int team = reaper.GetTeam()
+	array<entity> points
+
+	// show on enmey radar
+	AddMinimapForNPC( reaper, false )
+	
+	reaper.AssaultSetGoalRadius( 500 ) // goal radius
+	
+	// Every 10 - 20 secs get a closest target and go to them
+	while( true )
+	{
+		WaitFrame() // always wait before each loop!
+
+		// Check if alive
+		if ( !IsAlive( reaper ) )
+			return
+
+		points = [] // clean up last point
+		points.extend( GetNPCArrayOfEnemies( team ) )
+		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		if ( points.len() == 0 )
+			continue
+
+		entity enemy = GetClosest2D( points, reaper.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), reaper )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		reaper.AssaultPoint( clampedPos )
+
+		wait RandomFloatRange( 10.0, 20.0 )
+	}
 }
 
 // ticks clean up

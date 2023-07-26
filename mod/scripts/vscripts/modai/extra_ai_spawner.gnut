@@ -45,6 +45,16 @@ global function ExtraSpawner_SetCarePackageWeaponModsMultiple
 
 global function ExtraSpawner_SpawnReaperCanLaunchTicks
 
+// npc handlers
+// default handlers
+global function ExtraSpawner_SquadHandler
+global function ExtraSpawner_TitanHandler
+global function ExtraSpawner_PilotHandler
+global function ExtraSpawner_ReaperHandler
+// handler overrides
+global function ExtraSpawner_SetSquadHandlerFunc
+global function ExtraSpawner_SetNPCHandlerFunc
+
 // these are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
@@ -130,6 +140,9 @@ struct
 	// scripted npc dialogue
 	table<entity, float> npcDialogueNextAllowedTime
 	table<entity, string> npcLastDialogue
+	// npc handler func
+	void functionref( array<entity> ) squadHandlerFunc
+	table< string, void functionref( entity ) > npcHandlerFuncs
 
 	// care package
 	array<entity> usedplayer = []
@@ -144,6 +157,7 @@ void function ExtraAISpawner_Init()
 	InitCarePackageDefaultSettings()
 	InitDefaultNPCWeapons()
 	InitDefaultTitanList()
+	InitDefaultNPCHandlerFunctions()
 	// prowler
 	ProwlerPrecache()
 	// care package
@@ -474,6 +488,21 @@ void function KilledNPCPilotScoreEvent( entity pilot, var damageInfo )
 }
 */
 
+void function InitDefaultNPCHandlerFunctions()
+{
+	file.squadHandlerFunc = ExtraSpawner_SquadHandler
+	file.npcHandlerFuncs[ "npc_pilot_elite" ] <- ExtraSpawner_PilotHandler
+	file.npcHandlerFuncs[ "npc_titan" ] <- ExtraSpawner_TitanHandler
+	file.npcHandlerFuncs[ "npc_super_spectre" ] <- ExtraSpawner_ReaperHandler
+}
+
+void functionref( entity ) function GetNPCHandlerForClass( string className )
+{
+	if ( !( className in file.npcHandlerFuncs ) )
+		return null
+	return file.npcHandlerFuncs[ className ]
+}
+
 void function ExtraSpawner_SetNPCWeapons( string npcClass, array<string> weapons )
 {
 	if ( !( npcClass in file.npcMainWeaponsTable ) )
@@ -560,6 +589,18 @@ void function SetupNPCPilotEmbarkedTitanNuke( entity titan )
 			DF_RAGDOLL | DF_EXPLOSION			// script damage flags
 		)
 	}
+}
+
+void function ExtraSpawner_SetSquadHandlerFunc( void functionref( array<entity> ) handler )
+{
+	file.squadHandlerFunc = handler
+}
+
+void function ExtraSpawner_SetNPCHandlerFunc( string npcClass, void functionref( entity ) handler )
+{
+	if ( !( npcClass in file.npcHandlerFuncs ) )
+		file.npcHandlerFuncs[ npcClass ] <- null
+	file.npcHandlerFuncs[ npcClass ] = handler
 }
 
 // copied from cl_replacement_titan_hud.gnut
@@ -892,7 +933,7 @@ void function AddMinimapForNPC( entity guy, bool isHumanSized )
 }
 
 // so you can set up a titan without have to make a npc pilot embarking it
-// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
 void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int team, int pilotHealth = 250, bool pilotInvulnerable = false, asset pilotModel = $"", string pilotTitle = "鐵馭" )
 {
 	entity titanSoul = titan.GetTitanSoul()
@@ -1033,6 +1074,8 @@ void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, stri
 	
 	if ( squadHandler != null )
 		thread squadHandler( guys )
+	else if ( file.squadHandlerFunc != null ) // default handler
+		thread file.squadHandlerFunc( guys )
 }
 
 entity functionref( int, vector, vector ) function GetDropshipSpawnFunc( string content )
@@ -1079,11 +1122,10 @@ entity function CreateStalker_GrenadeSetup( int team, vector origin, vector angl
 }
 //
 
-void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, string content /*( ͡° ͜ʖ ͡°)*/, void functionref( array<entity> guys ) squadHandler = null )
+void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, string content, void functionref( array<entity> guys ) squadHandler = null, int droppodFlags = 0 )
 {
 	entity pod = CreateDropPod( pos, <0,0,0> )
-	
-	InitFireteamDropPod( pod )
+	InitFireteamDropPod( pod, droppodFlags )
 	
 	// wait for launch
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
@@ -1111,6 +1153,102 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 
 	if ( squadHandler != null )
 		thread squadHandler( guys )
+	else if ( file.squadHandlerFunc != null ) // default handler
+		thread file.squadHandlerFunc( guys )
+}
+
+// default handler!
+// tells infantry where to go
+// In vanilla there seem to be preset paths ai follow to get to the other teams vone and capture it
+// AI can also flee deeper into their zone suggesting someone spent way too much time on this
+void function ExtraSpawner_SquadHandler( array<entity> guys )
+{
+	int team = guys[0].GetTeam()
+	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
+	foreach ( entity guy in guys )
+	{
+		if ( hasHeavyArmorWeapon ) // found heavy armor weapon
+			break
+
+		foreach ( entity weapon in guy.GetMainWeapons() )
+		{
+			if ( !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required ) )
+			{
+				hasHeavyArmorWeapon = true
+				break
+			}
+		}
+	}
+	//print( "hasHeavyArmorWeapon: " + string( hasHeavyArmorWeapon ) )
+
+	array<entity> points
+	vector point
+
+	// Setup AI
+	foreach ( guy in guys )
+	{
+		// add map
+		AddMinimapForNPC( guy, true )
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+	}
+
+	// Every 5 - 15 secs get a closest target and go to them
+	while ( true )
+	{
+		WaitFrame() // wait a frame each loop
+
+		foreach ( guy in guys )
+		{
+			// remove dead guys
+			ArrayRemoveDead( guys )
+			// Stop func if our squad has been killed off
+			if ( guys.len() == 0 )
+				return
+		}
+
+		// Get point and send our whole squad to it
+		points = []
+		if ( hasHeavyArmorWeapon )
+		{
+			points.extend( GetNPCArrayOfEnemies( team ) )
+			foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) ) // also find titan players if they have heavy armor weapon
+			{
+				if ( player.IsTitan() ) // only search for npcs with light armor
+					points.append( player )
+			}
+		}
+		else
+		{
+			foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+			{
+				if ( npc.GetArmorType() != ARMOR_TYPE_HEAVY ) // only search for npcs with light armor
+					points.append( npc )
+			}
+		}
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 ) // can't find any points here
+			continue
+
+		// get nearest enemy and send our full squad to it
+		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		if ( !IsAlive( enemy ) )
+			continue
+		point = enemy.GetOrigin()
+		foreach ( guy in guys )
+		{
+			if ( IsAlive( guy ) )
+			{
+				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
+				if ( clampedPos == null )
+					continue
+				expect vector( clampedPos )
+				guy.AssaultPoint( clampedPos )
+			}
+		}
+
+		wait RandomFloatRange(5.0,15.0)
+	}
 }
 
 entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team, bool standUp = true, void functionref( entity titan ) titanHandler = null )
@@ -1176,6 +1314,8 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
+	else if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 
 	return titan
 }
@@ -1244,7 +1384,7 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
 	thread NPCTitanHotdrops( titan, true )
 
 	// jack cooper settings!
-	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_jack.mdl", "傑克庫柏" ) 
 
 	titan.SetTitle( "#NPC_BT_NAME" )
@@ -1254,7 +1394,9 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
 	// set up embarked behavior, we may feature npc pilot disembarking in future?
 	SetTitanSoulEmbarkedSettings( titan, "npc_titan_buddy", "behavior_titan", "#NPC_BT_NAME" )
 
-	thread ExtraSpawner_TitanHandler( titan )
+	// titan handler
+	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 
 	return titan
 }
@@ -1286,7 +1428,7 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
 	thread NPCTitanHotdrops( titan, true )
 
 	// ash settings!
-	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_ash.mdl", "艾許" )
 
 	titan.SetTitle( "#BOSSNAME_ASH" )
@@ -1300,7 +1442,9 @@ entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team
 	// set up embarked behavior, we may feature npc pilot disembarking in future?
 	SetTitanSoulEmbarkedSettings( titan, "npc_titan_stryder_leadwall", "behavior_titan_shotgun", "#BOSSNAME_ASH" )
 
-	thread ExtraSpawner_TitanHandler( titan )
+	// titan handler
+	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 
 	return titan
 }
@@ -1332,7 +1476,7 @@ entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int t
 	thread NPCTitanHotdrops( titan, true )
 
 	// blisk settings!
-	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_blisk.mdl", "布里斯克" )
 
 	titan.SetTitle( "#BOSSNAME_BLISK" )
@@ -1345,7 +1489,9 @@ entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int t
 	// set up embarked behavior, we may feature npc pilot disembarking in future?
 	SetTitanSoulEmbarkedSettings( titan, "npc_titan_ogre_minigun", "behavior_titan_ogre_minigun", "#BOSSNAME_BLISK" )
 
-	thread ExtraSpawner_TitanHandler( titan )
+	// titan handler
+	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 
 	return titan
 }
@@ -1389,7 +1535,7 @@ entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int 
 	thread NPCTitanHotdrops( titan, true )
 
 	// sarah settings!
-	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_sarah.mdl", "莎拉" )
 
 	titan.SetTitle( "#FACTION_LEADER_NAME_SARAH" )
@@ -1399,7 +1545,9 @@ entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int 
 	// set up embarked behavior, we may feature npc pilot disembarking in future?
 	SetTitanSoulEmbarkedSettings( titan, "npc_titan_atlas_vanguard_boss_fd", "behavior_titan", "#FACTION_LEADER_NAME_SARAH" )
 
-	thread ExtraSpawner_TitanHandler( titan )
+	// titan handler
+	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 
 	return titan
 }
@@ -1447,7 +1595,7 @@ entity function ExtraSpawner_SpawnVanguardWithSarah( vector pos, vector rot, int
 	thread NPCTitanHotdrops( titan, true )
 
 	// sarah settings!
-	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_sarah.mdl", "莎拉" )
 
 	titan.SetTitle( "#FACTION_LEADER_NAME_SARAH" )
@@ -1457,7 +1605,9 @@ entity function ExtraSpawner_SpawnVanguardWithSarah( vector pos, vector rot, int
 	// set up embarked behavior, we may feature npc pilot disembarking in future?
 	SetTitanSoulEmbarkedSettings( titan, "npc_titan_buddy", "behavior_titan", "#FACTION_LEADER_NAME_SARAH" )
 
-	thread ExtraSpawner_TitanHandler( titan )
+	// titan handler
+	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 
 	return titan
 }
@@ -1467,7 +1617,7 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 	entity titan = ExtraSpawner_SpawnTitanRandom( pos, rot, team )
 
 	// titan won't have a soul until they DispatchSpawn()
-	// can't use localized string as pilotTitle for they will eject and reset autotitan's title
+	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
 	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1000, false, $"", "鐵馭" )
 	
 	titan.SetTitle( "#NPC_PILOT" )
@@ -1475,14 +1625,17 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
 	ApplySoulSettingsForNpcPilotEmbarking( titan ) // become smarter, since pilot has control of it
 
-	thread ExtraSpawner_TitanHandler( titan ) // forced handler
+	// forced titan handler
+	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
+
 	return titan
 }
 
 void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, string content, int amount, void functionref( array<entity> guys ) squadHandler = null )
 {
 	entity pod = CreateDropPod( pos, <0,0,0> )
-	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
+	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // fast dissolving, try not to stuck npcs inside
 	
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
@@ -1510,6 +1663,8 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 
 	if ( squadHandler != null )
 		thread squadHandler( guys )
+	else if ( file.squadHandlerFunc != null ) // default handler
+		thread file.squadHandlerFunc( guys )
 }
 
 void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot, int team, string content, int count, string leaderAiSet = "npc_soldier_pve_specialist", int leaderHealth = 350, void functionref( array<entity> guys ) squadHandler = null )
@@ -1569,6 +1724,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 	
 	if ( squadHandler != null )
 		thread squadHandler( guys )
+	else if ( file.squadHandlerFunc != null ) // default handler
+		thread file.squadHandlerFunc( guys )
 }
 
 // spawn a normal specialist grunt here, we setup them up later, since DispatchSpawn() is done in CreateNPCSForDropship()
@@ -1586,11 +1743,10 @@ entity function CreateSpecialistGrunt_NonSetup( int team, vector origin, vector 
 	return npc
 }
 
-void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, int team, string content, string leaderAiSet = "npc_soldier_pve_specialist", int leaderHealth = 350, void functionref( array<entity> guys ) squadHandler = null )
+void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, int team, string content, string leaderAiSet = "npc_soldier_pve_specialist", int leaderHealth = 350, void functionref( array<entity> guys ) squadHandler = null, int droppodFlags = 0 )
 {
 	entity pod = CreateDropPod( pos, <0,0,0> )
-	
-	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
+	InitFireteamDropPod( pod, droppodFlags ) // eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS
 
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
@@ -1628,6 +1784,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 
 	if ( squadHandler != null )
 		thread squadHandler( guys )
+	else if ( file.squadHandlerFunc != null ) // default handler
+		thread file.squadHandlerFunc( guys )
 }
 
 entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int team, string aiSet = "npc_soldier_pve_specialist", int maxHealth = 350 )
@@ -1735,8 +1893,7 @@ void function WaitForShieldCaptainDrop( entity npc )
 void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int team, void functionref( array<entity> guys ) squadHandler = null )
 {
 	entity pod = CreateDropPod( pos, <0,0,0> )
-	
-	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
+	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // fast dissolving, try not to stuck prowlers inside
 
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
@@ -1778,6 +1935,8 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 	
 	if ( squadHandler != null )
 		thread squadHandler( guys )
+	else if ( file.squadHandlerFunc != null ) // default handler
+		thread file.squadHandlerFunc( guys )
 }
 
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
@@ -1916,7 +2075,11 @@ void function StandUnboardedTitan( entity titan, bool doHandler = false )
 	thread PlayAnimGravity( titan, "at_hotdrop_quickstand" )
 	titan.ClearInvulnerable()
 	if ( doHandler )
-		thread ExtraSpawner_TitanHandler( titan )
+	{
+		// titan handler
+		if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+			thread GetNPCHandlerForClass( "npc_titan" )( titan )
+	}
 }
 
 entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
@@ -1993,7 +2156,9 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 					pilot.Signal( "StopRunsToEmbark" ) // pilot will still embark if they reached titan
 					if( titan.ContextAction_IsBusy() ) // embarking?
 						return
-					thread ExtraSpawner_PilotHandler( pilot ) // titan will follow the pilot
+					// don't start titan handler. titan will follow the pilot
+					if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
+						thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
 					pilot.SetNPCMoveSpeedScale( 1.25 ) // reset move speed
 					pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
 
@@ -2059,6 +2224,10 @@ function OnNpcPilotBecomesTitan( pilot, titan )
 	expect entity( pilot )
 	expect entity( titan )
 
+	// only handle titans spawn from this file
+	if ( !( titan in file.npcSpawnFromExtraSpawner ) )
+		return
+
 	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
 	ApplySoulSettingsForNpcPilotEmbarking( titan ) // become smarter, since pilot has control of it
 
@@ -2081,13 +2250,21 @@ void function DelayedTitanHandler( entity titan )
 {
 	wait 1
 	if ( IsAlive( titan ) )
-		thread ExtraSpawner_TitanHandler( titan )
+	{
+		// titan handler
+		if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+			thread GetNPCHandlerForClass( "npc_titan" )( titan )
+	}
 }
 
 function OnNpcTitanBecomesPilot( pilot, titan )
 {
 	expect entity( pilot )
 	expect entity( titan )
+
+	// only handle titans spawn from this file
+	if ( !( titan in file.npcSpawnFromExtraSpawner ) )
+		return
 
 	ExtraSpawner_SetUpNPCPilot( pilot )
 	thread DelayedPilotHandler( pilot )
@@ -2125,7 +2302,9 @@ void function DelayedPilotHandler( entity pilot )
 	if( IsAlive( pilot ) )
 	{
 		//pilot.ClearInvulnerable()
-		thread ExtraSpawner_PilotHandler( pilot )
+		// pilot handler
+		if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
+			thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
 	}
 }
 
@@ -2200,6 +2379,9 @@ void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
         return
 	if( !TitanHasNpcPilot( attacker ) )
 		return
+	// only handle npcs from this file
+	if ( !( attacker in file.npcSpawnFromExtraSpawner ) )
+		return
 	
 	// may no need to handle ronin sword, since ronin sometimes try to step on enemies
 	int damageSource = eDamageSourceId.melee_titan_punch // default value
@@ -2217,8 +2399,11 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
         return
 	if( !attacker.IsNPC() )
 		return
-	
-	float damageScale = float( attacker.kv.modelscale )
+
+	float modelScale = float( attacker.kv.modelscale )
+	float damageScale = 1.0
+	if ( modelScale < 1 )
+		damageScale = modelScale * 0.75 // take less damage from smaller prowlers
 	DamageInfo_ScaleDamage( damageInfo, damageScale )
 }
 
@@ -2520,7 +2705,9 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath( reaper, true ) // clean up their ticks using a modified way
 	//SuperSpectre_SetSpawnerTickMaxCount( reaper, 8 ) // spawn 8 ticks per reaper
 
-	thread ExtraSpawner_ReaperHandler( reaper )
+	// reaper handler
+	if ( GetNPCHandlerForClass( "npc_super_spectre" ) != null )
+		thread GetNPCHandlerForClass( "npc_super_spectre" )( reaper )
 }
 
 void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType )
