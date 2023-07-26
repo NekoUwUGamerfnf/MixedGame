@@ -10,11 +10,15 @@ global function ExtraSpawner_SpawnNPCInDropPod
 global function ExtraSpawner_SpawnSpecialistGruntDropShip
 global function ExtraSpawner_SpawnSpecialistGruntDropPod
 global function ExtraSpawner_SpawnProwlerSquadDropPod
-global function ExtraSpawner_SpawnTitanRandom
+// titan spawn
+global function ExtraSpawner_SpawnTitan
 global function ExtraSpawner_SpawnTitanBT
+global function ExtraSpawner_SpawnBossTitan
+// unused spawn
 global function ExtraSpawner_SpawnGunShip
 // modded titan func
-global function ExtraSpawner_RegisterToRandomTitanList
+global function ExtraSpawner_RegisterToTitanSpawnList
+global function ExtraSpawner_RegisterToBossTitanSpawnList
 
 global function ExtraSpawner_SpawnPilotElite
 global function ExtraSpawner_SpawnPilotCanEmbark
@@ -29,13 +33,6 @@ global function ExtraSpawner_ApplyNPCWeapons
 global function ExtraSpawner_ApplyNPCGrenadeWeapon // grenade have to be given before DispatchSpawn()
 global function ExtraSpawner_ApplyNPCExtraWeaponMods
 global function ExtraSpawner_SetUpNPCPilot
-
-// boss titans
-global function ExtraSpawner_SpawnBTWithCooper
-global function ExtraSpawner_SpawnRoninWithAsh
-global function ExtraSpawner_SpawnLegionWithBlisk
-global function ExtraSpawner_SpawnMonarchWithSarah
-global function ExtraSpawner_SpawnVanguardWithSarah
 
 global function ExtraSpawner_SpawnCarePackageToGetWeapons
 // these settings should be done in prematch, don't do it right after levelLoad
@@ -97,8 +94,8 @@ const table<string, string> HACK_NPC_ORDNANCE_AISET =
 */
 //
 
-// for ExtraSpawner_SpawnTitanRandom() picking random titans
-struct RandomTitanStruct
+// for ExtraSpawner_SpawnTitan() picking random titans
+struct TitanSpawnStruct
 {
 	string setFile = ""
 	string aiSet = ""
@@ -112,6 +109,25 @@ struct RandomTitanStruct
 	// team skin
 	int imcSkinIndex = -1
 	int mltSkinIndex = -1
+}
+
+// for ExtraSpawner_SpawnBossTitan() picking random titans
+struct BossTitanSpawnStruct
+{
+	string bossName = ""
+
+	string setFile = ""
+	string aiSet = ""
+	string behavior = ""
+	string executionRef = "" // funny with MeleeSyncedNPC
+	string bossTitle = ""
+	string pilotTitle = ""
+	asset characterModel = $""
+
+	void functionref( entity ) loadoutFunction = null
+	// skin
+	int skinIndex = -1
+	int decalIndex = -1
 }
 
 // after being embarked by npcs
@@ -131,8 +147,10 @@ struct
 	table< string, array<string> > npcExtraWeaponModsTable
 	// npc titan settings
 	table<entity, EmbarkedNPCTitanStruct> soulEmbarkedSettings
-	// for ExtraSpawner_SpawnTitanRandom() picking random titans
-	array<RandomTitanStruct> randomTitanList
+	// for ExtraSpawner_SpawnTitan() picking random titans
+	table<string, TitanSpawnStruct> titanSpawnList
+	// for ExtraSpawner_SpawnBossTitan() picking random titans
+	table<string, BossTitanSpawnStruct> bossTitanSpawnList
 	// for marking the npc as spawning from this file
 	table<entity, bool> npcSpawnFromExtraSpawner
 	// for marking the npc as one of prowler squad
@@ -157,6 +175,7 @@ void function ExtraAISpawner_Init()
 	InitCarePackageDefaultSettings()
 	InitDefaultNPCWeapons()
 	InitDefaultTitanList()
+	InitDefaultBossTitanList()
 	InitDefaultNPCHandlerFunctions()
 	// prowler
 	ProwlerPrecache()
@@ -190,7 +209,7 @@ void function ExtraAISpawner_Init()
 }
 
 void function OnStalkerSpawned( entity stalker )
-{	
+{
 	int team = stalker.GetTeam()
 	if ( team == TEAM_IMC && stalker in file.npcSpawnFromExtraSpawner )
 	{
@@ -328,8 +347,9 @@ void function InitDefaultNPCWeapons()
 void function InitDefaultTitanList()
 {
 	// ion
-	ExtraSpawner_RegisterToRandomTitanList
+	ExtraSpawner_RegisterToTitanSpawnList
 	(
+		"ion",											// spawn name. unique
 		"titan_atlas_stickybomb",						// setFile
 		"npc_titan_auto_atlas_stickybomb",				// aiSet
 		"execution_ion",								// executionRef, npc ion can't use prime executions
@@ -343,8 +363,9 @@ void function InitDefaultTitanList()
 	)
 
 	// scorch
-	ExtraSpawner_RegisterToRandomTitanList
+	ExtraSpawner_RegisterToTitanSpawnList
 	(
+		"scorch",										// spawn name. unique
 		"titan_ogre_meteor",							// setFile
 		"npc_titan_auto_ogre_meteor",					// aiSet
 		"execution_scorch",								// executionRef, prime execution leave for modded titans
@@ -358,8 +379,9 @@ void function InitDefaultTitanList()
 	)
 
 	// northstar
-	ExtraSpawner_RegisterToRandomTitanList
+	ExtraSpawner_RegisterToTitanSpawnList
 	(
+		"northstar",									// spawn name. unique
 		"titan_stryder_sniper",							// setFile
 		"npc_titan_auto_stryder_sniper",				// aiSet
 		"execution_northstar",							// executionRef, prime execution leave for modded titans
@@ -373,8 +395,9 @@ void function InitDefaultTitanList()
 	)
 
 	// ronin
-	ExtraSpawner_RegisterToRandomTitanList
+	ExtraSpawner_RegisterToTitanSpawnList
 	(
+		"ronin",										// spawn name. unique
 		"titan_stryder_leadwall",						// setFile
 		"npc_titan_auto_stryder_leadwall",				// aiSet
 		"execution_ronin",								// executionRef, prime execution leave for modded titans
@@ -383,13 +406,14 @@ void function InitDefaultTitanList()
 		"behavior_titan_shotgun",						// embarkedBehavior
 		"#NPC_TITAN_STRYDER_LEADWALL",					// embarkedTitle
 		null, 											// no loadout function
-		0,												// imc team skinIndex
+		-1,												// imc team skinIndex, -1 means don't reset
 		3												// mlt team skinIndex
 	)
 
 	// tone
-	ExtraSpawner_RegisterToRandomTitanList
+	ExtraSpawner_RegisterToTitanSpawnList
 	(
+		"tone",											// spawn name. unique
 		"titan_atlas_tracker",							// setFile
 		"npc_titan_auto_atlas_tracker",					// aiSet
 		"execution_tone",								// executionRef, prime execution leave for modded titans
@@ -398,13 +422,14 @@ void function InitDefaultTitanList()
 		"behavior_titan_long_range",					// embarkedBehavior
 		"#NPC_TITAN_ATLAS_TRACKER",						// embarkedTitle
 		null, 											// no loadout function
-		0,												// imc team skinIndex
+		-1,												// imc team skinIndex, -1 means don't reset
 		1												// mlt team skinIndex
 	)
 
 	// legion
-	ExtraSpawner_RegisterToRandomTitanList
+	ExtraSpawner_RegisterToTitanSpawnList
 	(
+		"legion",										// spawn name. unique
 		"titan_ogre_minigun",							// setFile
 		"npc_titan_auto_ogre_minigun",					// aiSet
 		"execution_legion",								// executionRef, prime execution leave for modded titans
@@ -418,8 +443,9 @@ void function InitDefaultTitanList()
 	)
 
 	// monarch
-	ExtraSpawner_RegisterToRandomTitanList
+	ExtraSpawner_RegisterToTitanSpawnList
 	(
+		"monarch",										// spawn name. unique
 		"titan_atlas_vanguard",							// setFile
 		"npc_titan_auto_atlas_vanguard",				// aiSet
 		"execution_vanguard",							// executionRef, kit execution leave for modded titans
@@ -428,13 +454,14 @@ void function InitDefaultTitanList()
 		"behavior_titan",								// embarkedBehavior
 		"#NPC_TITAN_ATLAS_VANGUARD",					// embarkedTitle
 		null, 											// no loadout function
-		0,												// imc team skinIndex
+		-1,												// imc team skinIndex, -1 means don't reset
 		3												// mlt team skinIndex
 	)
 
 	// brute
-	ExtraSpawner_RegisterToRandomTitanList
+	ExtraSpawner_RegisterToTitanSpawnList
 	(
+		"brute",										// spawn name. unique
 		"titan_stryder_sniper",							// setFile
 		"npc_titan_auto_stryder_sniper",				// aiSet, rocketeer stryder don't have a autotitan aiSet
 		"execution_northstar_prime",					// executionRef, this one don't require weapons
@@ -487,6 +514,249 @@ void function KilledNPCPilotScoreEvent( entity pilot, var damageInfo )
 	AddPlayerScore( attacker, "EliminatePilot", pilot )
 }
 */
+
+void function InitDefaultBossTitanList()
+{
+	// slone
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"slone",										// spawn name. unique
+		"titan_atlas_stickybomb",						// setFile
+		"Slone",										// boss name
+		"npc_titan_atlas_stickybomb",					// aiSet
+		"behavior_titan",								// titan behavior
+		"execution_vanguard_kit",						// executionRef, npc ion can't use prime executions, just let them use battery thief
+		"#BOSSNAME_SLONE",								// boss title
+		"斯隆",											// pilot title. can't use localized string
+		$"models/humans/pilots/pilot_heavy_roog_m.mdl",		// character model, use mp pilot model: holopilot female
+		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for bosses that has no pilot model for mp
+		3,												// skin index, unsure
+		1												// decal index
+	)
+
+	// kane
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"scorch",										// spawn name. unique
+		"Kane",											// boss name
+		"titan_ogre_meteor",							// setFile
+		"npc_titan_ogre_meteor",						// aiSet
+		"behavior_titan_ogre_meteor",					// titan behavior
+		"execution_scorch_prime",						// executionRef
+		"#BOSSNAME_KANE",								// boss title
+		"肯恩",											// pilot title. can't use localized string
+		$"models/humans/pilots/pilot_heavy_roog_m.mdl",		// character model, use mp pilot model: a-wall male
+		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for bosses that has no pilot model for mp
+		3,												// skin index, unsure
+		1												// decal index
+	)
+
+	// viper
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"viper",									// spawn name. unique
+		"Viper",										// boss name
+		"titan_stryder_sniper",							// setFile
+		"npc_titan_stryder_sniper",						// aiSet
+		"behavior_titan_sniper",						// titan behavior
+		"execution_northstar_prime",					// executionRef
+		"#BOSSNAME_VIPER",								// boss title
+		"毒蛇",											// pilot title. can't use localized string
+		$"models/humans/pilots/pilot_medium_reaper_m.mdl",		// character model, use mp pilot model: pulse blade male
+		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for bosses that has no pilot model for mp
+		1,												// skin index, unsure
+		10												// decal index
+	)
+
+	// ash
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"ash",											// spawn name. unique
+		"Ash",											// boss name
+		"titan_stryder_leadwall",						// setFile
+		"npc_titan_stryder_leadwall",					// aiSet
+		"behavior_titan_shotgun",						// titan behavior
+		"execution_ronin_prime",						// executionRef
+		"#BOSSNAME_ASH",								// boss title
+		"艾許",											// pilot title. can't use localized string
+		$"models/Humans/heroes/imc_hero_ash.mdl",		// character model
+		BossLoadout_Generic_IMCBoss, 					// generic loadout function for imc bosses
+		6,												// skin index
+		10												// decal index
+	)
+
+	// richter
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"richter",										// spawn name. unique
+		"Richter",										// boss name
+		"titan_atlas_tracker",							// setFile
+		"npc_titan_atlas_tracker",						// aiSet
+		"behavior_titan_long_range",					// titan behavior
+		"execution_tone_prime",							// executionRef
+		"#BOSSNAME_RICHTER",							// boss title
+		"里赫特",										// pilot title. can't use localized string
+		$"models/humans/pilots/pilot_heavy_drex_m.mdl",		// character model, use mp pilot model: cloak male
+		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for bosses that has no pilot model for mp
+		5,												// skin index, unsure
+		13												// decal index
+	)
+
+	// blisk
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"blisk",										// spawn name. unique
+		"Blisk",										// boss name
+		"titan_ogre_minigun",							// setFile
+		"npc_titan_ogre_minigun",						// aiSet
+		"behavior_titan_ogre_minigun",					// titan behavior
+		"execution_legion_prime",						// executionRef
+		"#BOSSNAME_BLISK",								// boss title
+		"布里斯克",										// pilot title. can't use localized string
+		$"models/Humans/heroes/imc_hero_blisk.mdl",		// character model
+		BossLoadout_Generic_IMCBoss, 					// generic loadout function for imc bosses
+		8,												// skin index, unsure
+		12												// decal index
+	)
+
+	// jack
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"jack",											// spawn name. unique
+		"",												// boss name. leave empty if this is not a valid boss titan
+		"titan_buddy",									// setFile
+		"npc_titan_buddy",								// aiSet
+		"behavior_titan",								// titan behavior
+		"execution_bt",									// executionRef
+		"#NPC_BT_NAME",									// boss title
+		"傑克庫柏",										// pilot title. can't use localized string
+		$"models/humans/heroes/mlt_hero_jack.mdl",		// character model
+		BossLoadout_Jack, 								// loadout function
+		-1,												// skin index, -1 means don't reset
+		-1												// decal index, -1 means don't reset
+	)
+
+	// sarah
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"sarah",										// spawn name. unique
+		"",												// boss name. leave empty if this is not a valid boss titan
+		"titan_buddy",									// setFile
+		"npc_titan_buddy",								// aiSet
+		"behavior_titan",								// titan behavior
+		"execution_bt",									// executionRef
+		"#FACTION_LEADER_NAME_SARAH",					// boss title
+		"莎拉",											// pilot title. can't use localized string
+		$"models/humans/heroes/mlt_hero_sarah.mdl",		// character model
+		BossLoadout_Sarah, 								// loadout function
+		2,												// skin index
+		0												// decal index
+	)
+
+	/*
+	// sarah, monarch variant
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"sarah_monarch",								// spawn name. unique
+		"",												// boss name. leave empty if this is not a valid boss titan
+		"titan_atlas_vanguard",							// setFile
+		"npc_titan_atlas_vanguard_boss_fd",				// aiSet
+		"behavior_titan",								// titan behavior
+		"execution_vanguard_kit",						// executionRef
+		"#FACTION_LEADER_NAME_SARAH",					// boss title
+		"莎拉",											// pilot title. can't use localized string
+		$"models/humans/heroes/mlt_hero_sarah.mdl",		// character model
+		BossLoadout_SarahMonarch, 						// loadout function
+		-1,												// skin index, -1 means don't reset
+		-1												// decal index, -1 means don't reset
+	)
+	*/
+}
+//
+
+// generic loadout function for bosses that has no pilot model for mp
+void function BossLoadout_Generic_NoModelForMP( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		// disable their ejecting, so players won't easily notice that they have no proper model
+		TitanHealth_SetSoulNPCPilotEjectDelay( soul, -1 ) // -1 means never eject
+	}
+
+	// nuke. imc titans do nuke
+	SetupNPCPilotEmbarkedTitanNuke( titan )
+}
+
+// generic loadout function for imc bosses
+void function BossLoadout_Generic_IMCBoss( entity titan )
+{
+	// nuke. imc titans do nuke
+	SetupNPCPilotEmbarkedTitanNuke( titan )
+}
+
+void function BossLoadout_Jack( entity titan )
+{
+	// bt require a "squad" to spawn
+	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "ZiplineTable" ) )
+	SetSquad( titan, squadName )
+
+	// re-assign weapons
+	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
+	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["arc_rounds"] ) // use the arc-rounds monarch xo16
+	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix weapon mod
+	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
+
+	// game behavior settings
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		MeleeSyncedTitan_SetSoulCanBeExecuted( soul, false ) // cannot execute BT, they don't have enough animations
+		Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // bt don't have battery on hatch, don't allow removing
+	}
+}
+
+void function BossLoadout_Sarah( entity titan )
+{
+	// bt require a "squad" to spawn
+	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "ZiplineTable" ) )
+	SetSquad( titan, squadName )
+
+	// re-assign weapons
+	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
+	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["battle_rifle", "battle_rifle_icon", "fd_vanguard_utility_2"] )
+	titan.TakeOffhandWeapon( OFFHAND_ORDNANCE )
+	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["missile_racks"] )
+	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
+	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL )
+	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
+
+	// game behavior settings
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		MeleeSyncedTitan_SetSoulCanBeExecuted( soul, false ) // cannot execute BT, they don't have enough animations
+		Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // bt don't have battery on hatch, don't allow removing
+	}
+}
+
+void function BossLoadout_SarahMonarch( entity titan )
+{
+	// re-assign weapons
+	titan.GetMainWeapons()[0].SetMods( ["battle_rifle", "battle_rifle_icon", "fd_vanguard_utility_2"] )
+	titan.TakeOffhandWeapon( OFFHAND_ORDNANCE )
+	//titan.GiveOffhandWeapon( "mp_titanweapon_shoulder_rockets", OFFHAND_ORDNANCE, ["upgradeCore_MissileRack_Vanguard"] )
+	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["missile_racks"] )
+	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
+	//titan.GiveOffhandWeapon( "mp_titanweapon_stun_laser", OFFHAND_SPECIAL, ["energy_field_energy_transfer"] )
+	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL )
+	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
+	titan.GiveOffhandWeapon( "mp_titanability_smoke", OFFHAND_ANTIRODEO )
+	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
+	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["npc_bt_balance"] )
+}
 
 void function InitDefaultNPCHandlerFunctions()
 {
@@ -551,9 +821,16 @@ void function ExtraSpawner_SetCarePackageWeaponModsMultiple( table< string, arra
 	file.carePackageWeaponMods = weaponModsTable
 }
 
-void function ExtraSpawner_RegisterToRandomTitanList( string setFile, string aiSet, string executionRef = "", string embarkedAiSet = "", string embarkedBehavior = "", string embarkedTitle = "", void functionref( entity ) loadoutFunction = null, int imcSkinIndex = -1, int mltSkinIndex = -1 )
+void function ExtraSpawner_RegisterToTitanSpawnList( string spawnName, string setFile, string aiSet, string executionRef = "", string embarkedAiSet = "", string embarkedBehavior = "", string embarkedTitle = "", void functionref( entity ) loadoutFunction = null, int imcSkinIndex = -1, int mltSkinIndex = -1 )
 {
-	RandomTitanStruct newStruct
+	// spawn name needs to be unique
+	if ( spawnName in file.titanSpawnList )
+	{
+		print( "[EXTRA SPAWNER] Titan with name \"" + spawnName + "\" has already been registered!" )
+		return
+	}
+
+	TitanSpawnStruct newStruct
 	newStruct.setFile = setFile
 	newStruct.aiSet = aiSet
 	newStruct.executionRef = executionRef // funny with MeleeSyncedNPC
@@ -561,11 +838,42 @@ void function ExtraSpawner_RegisterToRandomTitanList( string setFile, string aiS
 	newStruct.embarkedAiSet = embarkedAiSet
 	newStruct.embarkedBehavior = embarkedBehavior
 	newStruct.embarkedTitle = embarkedTitle
+	// loadout
 	newStruct.loadoutFunction = loadoutFunction
+	// skin
 	newStruct.imcSkinIndex = imcSkinIndex
 	newStruct.mltSkinIndex = mltSkinIndex
 
-	file.randomTitanList.append( newStruct )
+	file.titanSpawnList[ spawnName ] <- newStruct
+	print( "[EXTRA SPAWNER] Registered titan spawn: " + spawnName )
+}
+
+void function ExtraSpawner_RegisterToBossTitanSpawnList( string spawnName, string bossName, string setFile, string aiSet, string behavior = "", string executionRef = "", string bossTitle = "", string pilotTitle = "", asset characterModel = $"", void functionref( entity ) loadoutFunction = null, int skinIndex = -1, int decalIndex = -1 )
+{
+	// spawn name needs to be unique
+	if ( spawnName in file.bossTitanSpawnList )
+	{
+		print( "[EXTRA SPAWNER] Boss titan with name \"" + spawnName + "\" has already been registered!" )
+		return
+	}
+
+	BossTitanSpawnStruct newStruct
+	newStruct.bossName = bossName
+	newStruct.setFile = setFile
+	newStruct.aiSet = aiSet
+	newStruct.behavior = behavior
+	newStruct.executionRef = executionRef // funny with MeleeSyncedNPC
+	newStruct.bossTitle = bossTitle
+	newStruct.pilotTitle = pilotTitle
+	newStruct.characterModel = characterModel
+	// loadout
+	newStruct.loadoutFunction = loadoutFunction
+	// skin
+	newStruct.skinIndex = skinIndex
+	newStruct.decalIndex = decalIndex
+
+	file.bossTitanSpawnList[ spawnName ] <- newStruct
+	print( "[EXTRA SPAWNER] Registered Boss titan spawn: " + spawnName )
 }
 
 void function SetupNPCPilotEmbarkedTitanNuke( entity titan )
@@ -1101,6 +1409,7 @@ entity function CreateSoldier_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateSoldier( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+
 	file.npcSpawnFromExtraSpawner[ npc ] <- true
 
 	return npc
@@ -1110,6 +1419,7 @@ entity function CreateSpectre_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateSpectre( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+
 	file.npcSpawnFromExtraSpawner[ npc ] <- true
 
 	return npc
@@ -1119,6 +1429,7 @@ entity function CreateStalker_GrenadeSetup( int team, vector origin, vector angl
 {
 	entity npc = CreateStalker( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+
 	file.npcSpawnFromExtraSpawner[ npc ] <- true
 
 	return npc
@@ -1142,6 +1453,7 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 
 		file.npcSpawnFromExtraSpawner[ npc ] <- true
 		DispatchSpawn( npc )
+
 		SetSquad( npc, squadName )
 		
 		ExtraSpawner_ApplyNPCWeapons( npc )
@@ -1254,10 +1566,14 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 	}
 }
 
-entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team, bool standUp = true, void functionref( entity titan ) titanHandler = null )
+entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool standUp = true, void functionref( entity titan ) titanHandler = null, string spawnName = "" )
 {
+	array<string> registeredTitans
+	foreach ( string titanName, TitanSpawnStruct titanStruct in file.titanSpawnList )
+		registeredTitans.append( titanName )
+
 	// can't find any titan
-	if ( file.randomTitanList.len() <= 0 )
+	if ( registeredTitans.len() <= 0 )
 		return
 
 	string setFile = ""
@@ -1273,7 +1589,12 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
 	int mltSkinIndex = -1
 
 	// get a registered titan
-	RandomTitanStruct currentTitan = file.randomTitanList[ RandomInt( file.randomTitanList.len() ) ] // 
+	// leaving spawn name to "" meaning we'll pick a random one
+	// we also try to pick a random titan if given spawn name not found
+	if ( spawnName == "" || !registeredTitans.contains( spawnName ) )
+		spawnName = registeredTitans[ RandomInt( registeredTitans.len() ) ]
+
+	TitanSpawnStruct currentTitan = file.titanSpawnList[ spawnName ]
 	setFile 			= currentTitan.setFile
 	aiSet 				= currentTitan.aiSet
 	executionRef 		= currentTitan.executionRef
@@ -1302,9 +1623,9 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
 	SetTitanSoulEmbarkedSettings( titan, embarkedAiSet, embarkedBehavior, embarkedTitle )
 
 	// update team specific skin
-	if ( team == TEAM_IMC && imcSkinIndex != -1 )
+	if ( team == TEAM_IMC && imcSkinIndex > -1 )
 		titan.SetSkin( imcSkinIndex )
-	if ( team == TEAM_MILITIA && mltSkinIndex != -1 )
+	if ( team == TEAM_MILITIA && mltSkinIndex > -1 )
 		titan.SetSkin( mltSkinIndex )
 
 	// titan won't have a soul until they DispatchSpawn()
@@ -1323,7 +1644,125 @@ entity function ExtraSpawner_SpawnTitanRandom( vector pos, vector rot, int team,
 	return titan
 }
 
-void function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void functionref( entity titan ) titanHandler = null )
+entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, string spawnName = "", int titanType = TITAN_AUTO )
+{
+	array<string> registeredTitans
+	foreach ( string titanName, BossTitanSpawnStruct titanStruct in file.bossTitanSpawnList )
+		registeredTitans.append( titanName )
+
+	// can't find any titan
+	if ( registeredTitans.len() <= 0 )
+		return
+
+	string bossName = ""
+
+	string setFile = ""
+	string aiSet = ""
+	string behavior = ""
+	string executionRef = "" // funny with MeleeSyncedNPC
+	string bossTitle = ""
+	string pilotTitle = ""
+	asset characterModel = $""
+	
+	void functionref( entity ) loadoutFunction = null
+	int skinIndex = -1
+	int decalIndex = -1
+
+	// get a registered titan
+	// leaving spawn name to "" meaning we'll pick a random one
+	// we also try to pick a random titan if given spawn name not found
+	if ( spawnName == "" || !registeredTitans.contains( spawnName ) )
+		spawnName = registeredTitans[ RandomInt( registeredTitans.len() ) ]
+
+	BossTitanSpawnStruct currentTitan = file.bossTitanSpawnList[ spawnName ]
+	bossName			= currentTitan.bossName
+	setFile 			= currentTitan.setFile
+	aiSet 				= currentTitan.aiSet
+	behavior 			= currentTitan.behavior
+	executionRef 		= currentTitan.executionRef
+	bossTitle 			= currentTitan.bossTitle
+	pilotTitle			= currentTitan.pilotTitle
+	characterModel 		= currentTitan.characterModel
+
+	loadoutFunction		= currentTitan.loadoutFunction
+	skinIndex 			= currentTitan.skinIndex
+	decalIndex 			= currentTitan.decalIndex
+
+	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	SetSpawnOption_AISettings( titan, aiSet )
+
+	// setup boss
+	titan.ai.bossCharacterName = bossName
+	titan.ai.bossTitanType = titanType // set to TITAN_MERC before DispatchSpawn() will play a intro
+
+    titan.ai.titanSpawnLoadout.setFile = setFile
+    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
+	// we'll do intro, hide on spawn
+	if ( titanType == TITAN_MERC )
+	{
+		HideName( titan )
+		titan.Hide()
+	}
+
+	file.npcSpawnFromExtraSpawner[ titan ] <- true
+	DispatchSpawn( titan )
+
+	if ( skinIndex > -1 )
+		titan.SetSkin( skinIndex )
+	if ( decalIndex > -1 )
+		titan.SetDecal( decalIndex ) // nose art
+	// titan won't have a soul until they DispatchSpawn()
+	entity titanSoul = titan.GetTitanSoul()
+	if ( executionRef != "" )
+		titan.GetTitanSoul().soul.titanLoadout.titanExecution = executionRef
+	if ( loadoutFunction != null ) // modded titan!!
+		loadoutFunction( titan )
+
+	// pilot settings!
+	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, characterModel, pilotTitle )
+
+	// merc boss titan behavior
+	if ( titanType == TITAN_MERC )
+	{
+		// amped behavior
+		// health settings. 4x health, 75% damage reduction ≈ 16x health, without annoying health bar
+		titan.SetMaxHealth( titan.GetMaxHealth() * 4 )
+		titan.SetHealth( titan.GetMaxHealth() )
+		MpBossTitan_SetDamageScale( titan, 1.5 ) // they can deal higher damage
+		MpBossTitan_SetDamageReductionScale( titan, 0.75 )
+		// attack settings
+		titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
+		// core ability
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+	}
+	else // normal embarked titan behavior
+		ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
+
+	titan.SetTitle( bossTitle ) // update title
+	titan.SetBehaviorSelector( behavior ) // become smarter, since pilot has control of it
+
+	// set up embarked behavior, we may feature npc pilot disembarking in future?
+	SetTitanSoulEmbarkedSettings( titan, setFile, behavior, bossTitle )
+
+	// titan spawn with intro don't have to hotdrop
+	if ( titanType != TITAN_MERC )
+		thread NPCTitanHotdrops( titan, true )
+
+	// we'll do intro, show again after DispatchSpawn(). ShowName() is handled in intro
+	if ( titanType == TITAN_MERC )
+		titan.Show()
+
+	// titan handler
+	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
+
+	return titan
+}
+
+entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void functionref( entity titan ) titanHandler = null )
 {
 	foreach ( entity player in GetPlayerArray() )
 	{
@@ -1337,8 +1776,10 @@ void function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void 
 	//SetSpawnOption_NPCTitan( titan, TITAN_HENCH ) // mp don't need boss titan setting
     titan.ai.titanSpawnLoadout.setFile = "titan_buddy"
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
+
 	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
+
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix mod
@@ -1388,7 +1829,7 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
 
 	// jack cooper settings!
 	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_jack.mdl", "Jack" ) 
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_jack.mdl", "傑克庫柏" ) 
 
 	titan.SetTitle( "#NPC_BT_NAME" )
 	// amped behavior
@@ -1404,224 +1845,13 @@ entity function ExtraSpawner_SpawnBTWithCooper( vector pos, vector rot, int team
 	return titan
 }
 
-entity function ExtraSpawner_SpawnRoninWithAsh( vector pos, vector rot, int team )
+entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int team, string spawnName = "" )
 {
-	string setFile = "titan_stryder_leadwall"
-	string aiSet = "npc_titan_stryder_leadwall"
-	string executionRef = "execution_ronin_prime" // funny with MeleeSyncedNPC
-
-	// titanfall indicator
-	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
-	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
-	thread HotDrop_Spawnpoint( pos, team, 5.0, false, damagedef_titan_fall )
-
-	entity titan = CreateNPC( "npc_titan", team, pos, rot )
-	SetSpawnOption_AISettings( titan, aiSet )
-    titan.ai.titanSpawnLoadout.setFile = setFile
-    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
-
-	file.npcSpawnFromExtraSpawner[ titan ] <- true
-	DispatchSpawn( titan )
-
-	titan.SetSkin( 6 ) // possibly be ash's skin?
-	titan.SetDecal( 10 ) // nose art
-	// titan won't have a soul until they DispatchSpawn()
-	entity titanSoul = titan.GetTitanSoul()
-	titanSoul.soul.titanLoadout.titanExecution = executionRef
-	thread NPCTitanHotdrops( titan, true )
-
-	// ash settings!
-	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_ash.mdl", "Ash" )
-
-	titan.SetTitle( "#BOSSNAME_ASH" )
-	// amped behavior
-	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
-	titan.SetBehaviorSelector( "behavior_titan_shotgun" ) // become smarter, since pilot has control of it
-	// nuke
-	//NPC_SetNuclearPayload( titan ) // imc titans do nuke
-	//TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // modified function in sh_titan.gnut
-	SetupNPCPilotEmbarkedTitanNuke( titan )
-	// set up embarked behavior, we may feature npc pilot disembarking in future?
-	SetTitanSoulEmbarkedSettings( titan, "npc_titan_stryder_leadwall", "behavior_titan_shotgun", "#BOSSNAME_ASH" )
-
-	// titan handler
-	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
-		thread GetNPCHandlerForClass( "npc_titan" )( titan )
-
-	return titan
-}
-
-entity function ExtraSpawner_SpawnLegionWithBlisk( vector pos, vector rot, int team )
-{
-	string setFile = "titan_ogre_minigun"
-	string aiSet = "npc_titan_ogre_minigun"
-	string executionRef = "execution_legion_prime" // funny with MeleeSyncedNPC
-
-	// titanfall indicator
-	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
-	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
-	thread HotDrop_Spawnpoint( pos, team, 5.0, false, damagedef_titan_fall )
-
-	entity titan = CreateNPC( "npc_titan", team, pos, rot )
-	SetSpawnOption_AISettings( titan, aiSet )
-    titan.ai.titanSpawnLoadout.setFile = setFile
-    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
-
-	file.npcSpawnFromExtraSpawner[ titan ] <- true
-	DispatchSpawn( titan )
-
-	titan.SetSkin( 8 ) // possibly be blisk's skin?
-	titan.SetDecal( 12 ) // nose art
-	// titan won't have a soul until they DispatchSpawn()
-	entity titanSoul = titan.GetTitanSoul()
-	titanSoul.soul.titanLoadout.titanExecution = executionRef
-	thread NPCTitanHotdrops( titan, true )
-
-	// blisk settings!
-	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/Humans/heroes/imc_hero_blisk.mdl", "Blisk" )
-
-	titan.SetTitle( "#BOSSNAME_BLISK" )
-	// amped behavior
-	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
-	titan.SetBehaviorSelector( "behavior_titan_ogre_minigun" ) // become smarter, since pilot has control of it
-	// nuke
-	NPC_SetNuclearPayload( titan ) // imc titans do nuke
-	TitanEject_SetSoulUseNPCPilotAsNukeAttacker( titanSoul, true ) // re-assign nuke attacker
-	// set up embarked behavior, we may feature npc pilot disembarking in future?
-	SetTitanSoulEmbarkedSettings( titan, "npc_titan_ogre_minigun", "behavior_titan_ogre_minigun", "#BOSSNAME_BLISK" )
-
-	// titan handler
-	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
-		thread GetNPCHandlerForClass( "npc_titan" )( titan )
-
-	return titan
-}
-
-entity function ExtraSpawner_SpawnMonarchWithSarah( vector pos, vector rot, int team )
-{
-	// actually this should be "titan_buddy", but buddies won't show health bar stuffs, maybe not that funny
-	string setFile = "titan_atlas_vanguard"
-	string aiSet = "npc_titan_atlas_vanguard_boss_fd"
-	string executionRef = "execution_vanguard_kit" // funny with MeleeSyncedNPC
-
-	// titanfall indicator
-	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
-	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
-	thread HotDrop_Spawnpoint( pos, team, 5.0, false, damagedef_titan_fall )
-
-	entity titan = CreateNPC( "npc_titan", team, pos, rot )
-	SetSpawnOption_AISettings( titan, aiSet )
-    titan.ai.titanSpawnLoadout.setFile = setFile
-    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
-
-	file.npcSpawnFromExtraSpawner[ titan ] <- true
-	DispatchSpawn( titan )
-
-	// re-assign weapons
-	titan.GetMainWeapons()[0].SetMods( ["battle_rifle", "battle_rifle_icon", "fd_vanguard_utility_2"] )
-	titan.TakeOffhandWeapon( OFFHAND_ORDNANCE )
-	//titan.GiveOffhandWeapon( "mp_titanweapon_shoulder_rockets", OFFHAND_ORDNANCE, ["upgradeCore_MissileRack_Vanguard"] )
-	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["missile_racks"] )
-	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
-	//titan.GiveOffhandWeapon( "mp_titanweapon_stun_laser", OFFHAND_SPECIAL, ["energy_field_energy_transfer"] )
-	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL )
-	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
-	titan.GiveOffhandWeapon( "mp_titanability_smoke", OFFHAND_ANTIRODEO )
-	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
-	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT )
-
-	// titan won't have a soul until they DispatchSpawn()
-	entity titanSoul = titan.GetTitanSoul()
-	titanSoul.soul.titanLoadout.titanExecution = executionRef
-	thread NPCTitanHotdrops( titan, true )
-
-	// sarah settings!
-	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_sarah.mdl", "Sarah" )
-
-	titan.SetTitle( "#FACTION_LEADER_NAME_SARAH" )
-	// amped behavior
-	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
-	titan.SetBehaviorSelector( "behavior_titan" ) // become smarter, since pilot has control of it
-	// set up embarked behavior, we may feature npc pilot disembarking in future?
-	SetTitanSoulEmbarkedSettings( titan, "npc_titan_atlas_vanguard_boss_fd", "behavior_titan", "#FACTION_LEADER_NAME_SARAH" )
-
-	// titan handler
-	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
-		thread GetNPCHandlerForClass( "npc_titan" )( titan )
-
-	return titan
-}
-
-// another version
-entity function ExtraSpawner_SpawnVanguardWithSarah( vector pos, vector rot, int team )
-{
-	string setFile = "titan_buddy"
-	string aiSet = "npc_titan_buddy"
-	string executionRef = "execution_bt" // funny with MeleeSyncedNPC
-
-	// titanfall indicator
-	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
-	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
-	thread HotDrop_Spawnpoint( pos, team, 5.0, false, damagedef_titan_fall )
-
-	entity titan = CreateNPC( "npc_titan", team, pos, rot )
-	SetSpawnOption_AISettings( titan, aiSet )
-    titan.ai.titanSpawnLoadout.setFile = setFile
-    OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
-
-	file.npcSpawnFromExtraSpawner[ titan ] <- true
-	DispatchSpawn( titan )
-
-	// sarah skin
-	titan.SetSkin( 2 )
-	// re-assign weapons
-	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
-	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["battle_rifle", "battle_rifle_icon", "fd_vanguard_utility_2"] )
-	titan.TakeOffhandWeapon( OFFHAND_ORDNANCE )
-	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["missile_racks"] )
-	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
-	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL )
-	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
-
-	// titan won't have a soul until they DispatchSpawn()
-	entity titanSoul = titan.GetTitanSoul()
-	titanSoul.soul.titanLoadout.titanExecution = executionRef // "execution_bt" now handle in melee_synced_titan to use random execution
-	MeleeSyncedTitan_SetSoulCanBeExecuted( titanSoul, false ) // cannot execute BT, they don't have enough animations
-	// bt require a "squad" to spawn
-	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "ZiplineTable" ) )
-	SetSquad( titan, squadName )
-	Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // so bt won't be able to remove battery
-
-	thread NPCTitanHotdrops( titan, true )
-
-	// sarah settings!
-	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, $"models/humans/heroes/mlt_hero_sarah.mdl", "Sarah" )
-
-	titan.SetTitle( "#FACTION_LEADER_NAME_SARAH" )
-	// amped behavior
-	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
-	titan.SetBehaviorSelector( "behavior_titan" ) // become smarter, since pilot has control of it
-	// set up embarked behavior, we may feature npc pilot disembarking in future?
-	SetTitanSoulEmbarkedSettings( titan, "npc_titan_buddy", "behavior_titan", "#FACTION_LEADER_NAME_SARAH" )
-
-	// titan handler
-	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
-		thread GetNPCHandlerForClass( "npc_titan" )( titan )
-
-	return titan
-}
-
-entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int team )
-{
-	entity titan = ExtraSpawner_SpawnTitanRandom( pos, rot, team )
+	entity titan = ExtraSpawner_SpawnTitan( pos, rot, team, true, null, spawnName )
 
 	// titan won't have a soul until they DispatchSpawn()
 	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1000, false, $"", "Pilot" )
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1000, false, $"", "鐵馭" )
 	
 	titan.SetTitle( "#NPC_PILOT" )
 	// apply amped behaviors
@@ -1650,6 +1880,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 
 		file.npcSpawnFromExtraSpawner[ spawnNpc ] <- true
 		DispatchSpawn( spawnNpc ) // never delay dispatchSpawn()
+
 		SetSquad( spawnNpc, squadName )
 
 		spawnNpc.SetParent( pod, "ATTACH", true )
@@ -1797,6 +2028,7 @@ entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int t
 
 	file.npcSpawnFromExtraSpawner[ npc ] <- true
 	DispatchSpawn( npc )
+
 	SetUpSpecialistGrunt( npc, aiSet )
 
 	npc.SetMaxHealth( maxHealth )
@@ -1861,7 +2093,7 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			else
 				npc.SetModel( $"models/humans/grunts/imc_grunt_lmg.mdl" )
 
-			npc.SetTitle( "Sniper Grunt" )
+			npc.SetTitle( "狙擊步兵" )
 			// stronger behavior
 			npc.SetBehaviorSelector( "behavior_sp_soldier" ) // they'll switch to pistol if needed
 			npc.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
@@ -1948,17 +2180,21 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	HideName( gunship ) // won't make it's info target( or health bar ) teleport into battle
 	file.npcSpawnFromExtraSpawner[ gunship ] <- true
 	DispatchSpawn( gunship )
+
 	SetDefaultMPEnemyHighlight( gunship )
 	thread PlayAnim( gunship , "st_AngelCity_IMC_Win_ComeIn" ) // flying anim
     WaittillAnimDone( gunship )
 	ShowName( gunship ) // show info target again
+
 	vector spawnpoint = gunship.GetOrigin()
 	vector spawnang = gunship.GetAngles()
 	if ( IsValid( gunship ) )
 		gunship.Destroy()
+
 	entity gunship2 = CreateNPC( "npc_gunship", team, spawnpoint, spawnang )
 	gunship2.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( gunship2 )
+
 	file.npcSpawnFromExtraSpawner[ gunship2 ] <- true
 	DispatchSpawn( gunship2 )
 
@@ -1975,7 +2211,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	gunship2.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // they can shoot very nice
 }
 
-void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team )
+void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team, string spawnName = "" )
 {
 	// a dummy pod for getting droppod impact time
 	float podLaunchTime = expect float ( GetDropPodAnimDuration() )
@@ -1993,7 +2229,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	thread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
 	wait 3 // send titan a little bit later
-	entity titan = ExtraSpawner_SpawnTitanForPilot( pilot, pos, rot )
+	entity titan = ExtraSpawner_SpawnTitanForPilot( pilot, pos, rot, spawnName )
 	// now using my own embarking function
 	local embarkSet = FindBestEmbarkForNpcAnim( pilot, titan ) // passing a same embark set
 	pilot.SetNPCMoveSpeedScale( 1.8 ) // want this pilot run to titan's start point faster
@@ -2023,7 +2259,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	thread PilotSpawnProtection( pilot, titan, 15 ) // at least don't let players kill pilots while their titans're not landing
 
 	NpcPilotSetPetTitan( pilot, titan )
-	titan.SetTitle( pilot.GetTitle() + " 's Auto-Titan" )
+	titan.SetTitle( pilot.GetTitle() + " 的自動泰坦" )
 	titan.WaitSignal( "TitanHotDropComplete" )
 	
 	// now using my own embarking function
@@ -2093,6 +2329,7 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.s.nextTitanRespawnAvailable <- null
 
 	ExtraSpawner_ApplyNPCGrenadeWeapon( pilot ) // grenade have to be given before DispatchSpawn()
+
 	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
 
@@ -2101,7 +2338,7 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	pilot.SetModel( modelAsset )
 	pilot.SetMaxHealth( 1000 )
 	pilot.SetHealth( 1000 )
-	pilot.SetTitle( "Pilot" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
+	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
 
 	ExtraSpawner_ApplyNPCWeapons( pilot )
 
@@ -2184,10 +2421,10 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 	wait delay
 }
 
-entity function ExtraSpawner_SpawnTitanForPilot( entity pilot, vector pos, vector rot )
+entity function ExtraSpawner_SpawnTitanForPilot( entity pilot, vector pos, vector rot, string spawnName = "" )
 {
 	// reworked to use an existing function
-	entity titan = ExtraSpawner_SpawnTitanRandom( pos, rot, pilot.GetTeam(), false ) // the titan will wait before standing up
+	entity titan = ExtraSpawner_SpawnTitan( pos, rot, pilot.GetTeam(), false, null, spawnName ) // the titan will wait before standing up, and it will use default titan handler
 	NpcPilotSetPetTitan( pilot, titan )
 	thread PetTitanOwnerLifeTimeCheck( titan, pilot ) // avoid titan being stuck in the sky! this happens if pilot died while titan dropping
 
@@ -2278,7 +2515,7 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		if( !IsValid( titanSoul ) ) // defensive fix for titan.Destroy() situations
 			return
 		if ( pilot.GetTitle() != "" )
-			titan.SetTitle( pilot.GetTitle() + " 's Auto-Titan" ) // update title for disembarking or ejecting
+			titan.SetTitle( pilot.GetTitle() + " 的自動泰坦" ) // update title for disembarking or ejecting
 
 		bool isEjecting = titanSoul.IsEjecting()
 		if( isEjecting )
@@ -2678,6 +2915,7 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SetSpawnOption_AISettings( reaper, reaperSettings )
 	
 	HideName( reaper ) // prevent flash a name onto it
+
 	file.npcSpawnFromExtraSpawner[ reaper ] <- true
 	DispatchSpawn( reaper )
 
