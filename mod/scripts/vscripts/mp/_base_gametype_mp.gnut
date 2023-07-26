@@ -29,7 +29,11 @@ global function IsPlayerDeathsHidden // new added
 global function SetPlayerRespawnForced
 global function AddCallback_ShouldPlayerDoForcedRespawn // add a callback func to check whether we trigger forced respawn
 global function ForcedRespawn_SetDisabledForPlayer // disable forced respawn for certain player
-global function SetLateJoinRespawnEnabled
+global function SetPlayerRespawnDelayForced // force a player to follow certain respawn delay. can be used for spawnwaves
+global function ResetPlayerRespawnDelay // reset respawn delay to default value: playlistvar "respawn_delay"
+global function GetPlayerRespawnDelay
+
+global function SetLateJoinRespawnEnabled // respawn the player if they join mid-game in a elimination gamemode
 
 global function SetGamemodeAnnouncementEnabled
 
@@ -57,6 +61,7 @@ struct
 	bool forcedRespawn = true
 	array<bool functionref( entity, table, bool )> shouldDoForcedRespawnCallbacks
 	table<entity, bool> playerDisableForcedRespawn
+	table<entity, float> playerRespawnDelay
 
 	bool enableLateRespawn = true
 	array<string> respawnedPlayerUIDs = []
@@ -149,6 +154,8 @@ void function CodeCallback_OnClientConnectionStarted( entity player )
 
 	// modified
 	file.playerDeathHintAllowedTime[ player ] <- 0.0
+	file.playerDisableForcedRespawn[ player ] <- false
+	file.playerRespawnDelay[ player ] <- GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 )
 
 	Assert( !player._entityVars )
 	InitEntityVars( player )
@@ -586,8 +593,10 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	if ( RespawnsEnabled() )
 	{
 		// is it a good idea to do respawn code in postdeaththread? fuck if i know lol
-		float respawnDelay = max( 0, GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 ) - deathcamLength )
-	
+		// add modified respawn delay think
+		//float respawnDelay = max( 0, GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 ) - deathcamLength )
+		float respawnDelay = max( 0, GetPlayerRespawnDelay( player ) - deathcamLength )	
+
 		print( "respawn delay " + respawnDelay )
 		
 		UpdateNextRespawnTime( player, Time() + respawnDelay )
@@ -1023,8 +1032,6 @@ void function AddCallback_ShouldPlayerDoForcedRespawn( bool functionref( entity,
 
 void function ForcedRespawn_SetDisabledForPlayer( entity player, bool disable )
 {
-	if ( !( player in file.playerDisableForcedRespawn ) )
-		file.playerDisableForcedRespawn[ player ] <- false // default value
 	file.playerDisableForcedRespawn[ player ] = disable
 }
 
@@ -1054,6 +1061,24 @@ bool function ShouldForceRespawnPlayer_FromDamageTable( entity victim, table dam
 
 	// default value
 	return true
+}
+
+
+// force a player to follow certain respawn delay. can be used for spawnwaves
+void function SetPlayerRespawnDelayForced( entity player, float respawnDelay )
+{
+	file.playerRespawnDelay[ player ] = respawnDelay
+}
+
+// reset respawn delay to default value: playlistvar "respawn_delay"
+void function ResetPlayerRespawnDelay( entity player )
+{
+	file.playerRespawnDelay[ player ] = GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 )
+}
+
+float function GetPlayerRespawnDelay( entity player )
+{
+	return file.playerRespawnDelay[ player ]
 }
 
 void function SetLateJoinRespawnEnabled( bool enabled )
