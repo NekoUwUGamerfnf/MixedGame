@@ -271,7 +271,12 @@ void function RodeoTitan_Init()
 		RegisterSignal( "ClassicRodeoThink" )
 		RegisterSignal( "RodeoSequenceThink" )
 		RegisterSignal( "RodeoWeakPointThink" )
+
+		RegisterSignal( "RodeoBatteryRemoval" )
 		RegisterSignal( "ApplyBatteryToTitan" )
+		RegisterSignal( "PlayerAppliesBatteryPack" )
+		RegisterSignal( "PlayerRemovesBatteryPack" )
+		RegisterSignal( "PlayerThrowsGrenadeInHatch" )
 
 		AddSpawnCallback( "player", ClassicRodeo_InitPlayerSettings )
 		AddSpawnCallback( "npc_titan", ClassicRodeo_InitTitanSettings )
@@ -466,25 +471,31 @@ void function RodeoBatteryRemoval( entity pilot )
 		bool playerHadBattery = PlayerHasBattery( pilot )
 		bool classicRodeo = ClassicRodeo_IsEnabled()
 
+		// for classic rodeo
 		if ( !playerHadBattery )
 		{
-			/* // move down so we can decide whether we add score
 			AddPlayerScore( pilot, "PilotBatteryStolen", pilot ) // not using titan as association entity, don't know weather good
-			entity battery = Rodeo_CreateBatteryPack( titan )
-			Rodeo_PilotPicksUpBattery( pilot, battery )
-			thread BatteryThiefHighlight( pilot )
+			if( !classicRodeo || ClassicRodeo_GetSoulBatteryCount( soul ) >= 1 ) // check for classic rodeo throwing grenades
+			{
+				entity battery = Rodeo_CreateBatteryPack( titan ) // this also make batteries a owner, so titans can't instant pick them back if "pickUpAllowed"
+				Rodeo_PilotPicksUpBattery( pilot, battery )
+				// modified here!!
+				//thread BatteryThiefHighlight( pilot )
+				if ( file.batteryThiefHighlightEnable )
+					thread BatteryThiefHighlight( pilot )
+			}
+
 			if ( titan.IsPlayer() )
 			{
 				EmitSoundOnEntityOnlyToPlayer( titan, titan, TITAN_GOT_BATTERY_RIPPED_SOUND ) //Consider playing this in world once we get sounds that aren't just notification beeps
 			}
-			*/	
 		}
 
 		// checks for grenade damage
 		bool isGrenadeDamage = PlayerHasBattery( pilot )
 		if( classicRodeo && ClassicRodeo_GetSoulBatteryCount( soul ) >= 1 )
 			isGrenadeDamage = false // check for classicRodeo conditions: if victimTitan has battery left, then it must be a batteryRemoval rodeo
-
+		
 		bool shouldThrowOff = true // default: always throw rider off
 		if ( classicRodeo ) // classic rodeo condition
 		{
@@ -495,14 +506,12 @@ void function RodeoBatteryRemoval( entity pilot )
 				shouldThrowOff = false
 		}
 
-		//print( "isGrenadeDamage: " + string( isGrenadeDamage ) )
-		//print( "shouldThrowOff: " + string( shouldThrowOff ) )
-		//print( "ClassicRodeo_GetSoulBatteryCount( soul ): " + string( ClassicRodeo_GetSoulBatteryCount( soul ) ) )
-
 		if( classicRodeo )
 		{
-			if( ClassicRodeo_GetSoulBatteryCount( soul ) >= 1 )
-			{
+			//print( "Signaled \"RodeoBatteryRemoval\"!" )
+			pilot.Signal( "RodeoBatteryRemoval" ) // for throwing off pilots after throwing grenades
+			if( playerHadBattery && ClassicRodeo_GetSoulBatteryCount( soul ) >= 1 )
+			{ 
 				// additional battery
 				AddPlayerScore( pilot, "PilotBatteryStolen", pilot )
 				entity battery = Rodeo_CreateBatteryPack( titan )
@@ -521,20 +530,6 @@ void function RodeoBatteryRemoval( entity pilot )
 				ClassicRodeo_SetSoulBatteryCount( soul, 0 )
 			else
 				ClassicRodeo_RemoveSoulBattery( soul )
-		}
-		else if ( !isGrenadeDamage ) // vanilla score event
-		{
-			AddPlayerScore( pilot, "PilotBatteryStolen", pilot ) // not using titan as association entity, don't know weather good
-			entity battery = Rodeo_CreateBatteryPack( titan ) // this also make batteries a owner, so titans can't instant pick them back if "pickUpAllowed"
-			Rodeo_PilotPicksUpBattery( pilot, battery )
-			// modified here!!
-			//thread BatteryThiefHighlight( pilot )
-			if ( file.batteryThiefHighlightEnable )
-				thread BatteryThiefHighlight( pilot )
-			if ( titan.IsPlayer() )
-			{
-				EmitSoundOnEntityOnlyToPlayer( titan, titan, TITAN_GOT_BATTERY_RIPPED_SOUND ) //Consider playing this in world once we get sounds that aren't just notification beeps
-			}
 		}
 
 		if( shouldThrowOff )
@@ -1259,8 +1254,14 @@ void function PlayerRemovesBatteryPack( entity rodeoPilot, entity rodeoTitan, en
 		{
 			if( ClassicRodeo_IsPlayerRemovingBatteryPack( rodeoPilot ) ) // defensive fix
 				return
+			ViewConeZeroInstant( rodeoPilot ) // player try to look around will mess up animEvents!
+			rodeoPilot.AnimViewEntity_SetLerpOutTime( 0.4 ) // blend out the clear anim view entity
+			rodeoPilot.Anim_Stop() // clean up last?
 			file.playerRemovingBatteryPack[rodeoPilot] = true
+			rodeoPilot.EndSignal( "RodeoOver" ) // this is also needed to let player jump off rodeo any time
 			titanSoul.EndSignal( "ApplyBatteryToTitan" ) // modified condition, player applied a new battery to their titan
+			rodeoPilot.Signal( "PlayerRemovesBatteryPack" ) // defensive fix
+			rodeoPilot.EndSignal( "PlayerRemovesBatteryPack" )
 		}
 	#endif // MP
 
@@ -1391,7 +1392,14 @@ void function PlayerThrowsGrenadeInHatch( entity rodeoPilot, entity rodeoTitan, 
 			if( ClassicRodeo_IsPlayerThrowingGrenadeInHatch( rodeoPilot ) ) // defensive fix
 				return
 			file.playerThrowingGrenadeInHatch[rodeoPilot] = true
+			ViewConeZeroInstant( rodeoPilot ) // player try to look around will mess up animEvents!
+			//rodeoPilot.AnimViewEntity_SetLerpOutTime( 0.4 ) // blend out the clear anim view entity
+			rodeoPilot.Anim_Stop() // clean up last?
+			rodeoPilot.EndSignal( "RodeoOver" ) // this is also needed to let player jump off rodeo any time
+			rodeoPilot.EndSignal( "RodeoBatteryRemoval" ) // check for classic rodeo! end animation after throwing one grenade
 			titanSoul.EndSignal( "ApplyBatteryToTitan" ) // modified condition, player applied a new battery to their titan
+			rodeoPilot.Signal( "PlayerThrowsGrenadeInHatch" ) // stop player last thread, prevent dealing damage multiple times
+			rodeoPilot.EndSignal( "PlayerThrowsGrenadeInHatch" )
 		}
 	#endif
 
@@ -1499,7 +1507,13 @@ void function PlayerAppliesBatteryPack( entity rodeoPilot, entity rodeoTitan, en
 		{
 			if( ClassicRodeo_IsPlayerApplyingBatteryPack( rodeoPilot ) ) // defensive fix
 				return
+			ViewConeZeroInstant( rodeoPilot ) // player try to look around will mess up animEvents!
+			rodeoPilot.AnimViewEntity_SetLerpOutTime( 0.4 ) // blend out the clear anim view entity
+			rodeoPilot.Anim_Stop() // clean up last?
 			file.playerApplyingBatteryPack[rodeoPilot] = true
+			rodeoPilot.EndSignal( "RodeoOver" ) // this is also needed to let player jump off rodeo any time
+			rodeoPilot.Signal( "PlayerAppliesBatteryPack" ) // defensive fix
+			rodeoPilot.EndSignal( "PlayerAppliesBatteryPack" )
 		}
 	#endif // MP
 
@@ -2432,6 +2446,8 @@ void function Rodeo_ApplyBatteryToTitan( entity battery, entity titan, bool owne
 		// classic rodeo battery!
 		if( ClassicRodeo_IsEnabled() )
 		{
+			titan.Signal( "ApplyBatteryToTitan" )
+			soul.Signal( "ApplyBatteryToTitan" ) // soul also signal this
 			if( ClassicRodeo_GetSoulBatteryCount( soul ) == 0 ) // no battery before applying
 				ClassicRodeo_TryMoveBatteryUp( soul )
 			
@@ -2447,16 +2463,7 @@ void function Rodeo_ApplyBatteryToTitan( entity battery, entity titan, bool owne
 			}
 
 			if( shouldAddBatteryCount ) 
-			{
-				// if we add battery count and the soul has no battery at start
-				// we do signals to remove weakpoint and reset battery removal animation
-				if ( ClassicRodeo_GetSoulBatteryCount( soul ) < 1 )
-				{
-					titan.Signal( "ApplyBatteryToTitan" )
-					soul.Signal( "ApplyBatteryToTitan" ) // soul also signal this
-				}
 				ClassicRodeo_AddSoulBattery( soul )
-			}
 		}
 	#endif
 
@@ -3466,6 +3473,7 @@ void function ClassicRodeo_WeakPointThink( entity rodeoPilot, entity titanSoul, 
 
 void function ClassicRodeo_TryRemoveNewAppliedBattery( entity rodeoPilot, entity titanSoul, RodeoPackageStruct rodeoPackage )
 {
+	//rodeoPilot.EndSignal( "PlayerRemovesBatteryPack" ) // no need to use this endsignal
 	//ClassicRodeo_TryMoveBatteryUp( titanSoul ) // moveUp function, has been handle in Rodeo_ApplyBatteryToTitan()
 	wait CLASSIC_RODEO_SEQUENCE_START_DELAY // wait till panel animation done
 	entity rodeoTitan = titanSoul.GetTitan()
