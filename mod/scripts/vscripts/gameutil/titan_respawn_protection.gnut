@@ -350,14 +350,6 @@ void function MonitorBubbleLifetime( entity player, entity bubbleShield )
 	DestroyBubbleShield( bubbleShield )
 }
 
-// vortex weapons won't signal "OnPrimaryAttack", so it requires some hardcode
-const array<string> VORTEX_WEAPONS =
-[
-    "mp_titanweapon_vortex_shield",
-    "mp_titanweapon_vortex_shield_ion",
-    "mp_titanweapon_heat_shield",
-]
-
 void function CheckPlayerChargeWeapon( entity player )
 {
     player.EndSignal( "OnDeath" )
@@ -370,7 +362,8 @@ void function CheckPlayerChargeWeapon( entity player )
         if ( IsValid( activeWeapon ) )
         {
             string className = activeWeapon.GetWeaponClassName()
-            if ( VORTEX_WEAPONS.contains( className ) )
+            // vortex weapons won't signal "OnPrimaryAttack", so it requires some checks
+            if ( IsValid( activeWeapon.GetWeaponUtilityEntity() ) )
             {
                 player.Signal( "OnPrimaryAttack" ) // manually signal this, end protection
                 return
@@ -515,8 +508,27 @@ void function PlayerSuicide( entity player )
     player.EndSignal( "OnDestroy" )
     player.EndSignal( "OnRespawned" )
 
-    player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } ) // this damageSource won't trigger titan explosion effects
-    PlayerChangeToSpectatorClass( player ) // prevent a crash with going from titan => pilot on respawn
+    // maybe a better way to do suicide... can this prevent player from being killed right after entering doom?
+    bool forceRagdollBeforeSuicide = player.e.forceRagdollDeath
+    bool silentDeathBeforeSuicide = "silentDeath" in player.s
+    // disable death sound and stuffs
+    player.e.forceRagdollDeath = true
+    if ( !silentDeathBeforeSuicide )
+        player.s.silentDeath <- true
+    // prevent a crash with going from titan => pilot on respawn
+    // also prevents player from emitting a titan downed VO to other players
+    SoulDies( player.GetTitanSoul(), null )
+    PlayerChangeToSpectatorClass( player )
+    player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = damagedef_suicide } )
+    // clean up
+    player.e.forceRagdollDeath = forceRagdollBeforeSuicide
+    if ( !silentDeathBeforeSuicide )
+        delete player.s.silentDeath
+
+    // eDamageSourceId.round_end may cause player to be killed right after entering doom?
+    //player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } ) // this damageSource won't trigger titan explosion effects
+    //PlayerChangeToSpectatorClass( player ) // prevent a crash with going from titan => pilot on respawn
+    
     WaitFrame() // wait a frame so other death functions can set up
     if ( player.GetPlayerGameStat( PGS_DEATHS ) ) // done before ReplacePlayerAsTitan() since it signals "OnRespawned"
         player.AddToPlayerGameStat( PGS_DEATHS, -1 ) // remove the death count
