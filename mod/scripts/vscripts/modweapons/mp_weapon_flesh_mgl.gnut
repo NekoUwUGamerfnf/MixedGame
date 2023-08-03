@@ -1,0 +1,112 @@
+// MGL that can attract flesh targets
+global function MpWeaponFleshMGL_Init
+
+global function OnWeaponPrimaryAttack_weapon_flesh_mgl
+global function OnProjectileCollision_weapon_flesh_mgl
+
+#if SERVER
+global function OnWeaponNpcPrimaryAttack_weapon_flesh_mgl
+#endif
+
+void function MpWeaponFleshMGL_Init()
+{
+
+}
+
+void function OnWeaponPrimaryAttack_weapon_flesh_mgl( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    entity player = weapon.GetWeaponOwner()
+
+	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+	//vector bulletVec = ApplyVectorSpread( attackParams.dir, player.GetAttackSpreadAngle() * 2.0 )
+	//attackParams.dir = bulletVec
+
+	if ( IsServer() || weapon.ShouldPredictProjectiles() )
+		FireGrenade( weapon, attackParams )
+}
+
+#if SERVER
+var function OnWeaponNpcPrimaryAttack_weapon_flesh_mgl( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+	FireGrenade( weapon, attackParams, true )
+}
+#endif // #if SERVER
+
+void function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, bool isNPCFiring = false )
+{
+    // mostly keep same as mgl does, in case we don't desync
+	vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
+	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0, damageTypes.explosive, damageTypes.explosive, !isNPCFiring, true, false )
+
+	if ( nade )
+	{
+		entity weaponOwner = weapon.GetWeaponOwner()
+		#if SERVER
+			EmitSoundOnEntity( nade, "Weapon_MGL_Grenade_Emitter" )
+			// will set proj.onlyAllowSmartPistolDamage = true, which makes us cannot destroy it by normal weapons
+			Grenade_Init( nade, weapon )
+		#endif
+
+		if( weapon.HasMod( "nessie_mgl" ) ) // nessie mgl support
+			nade.SetModel( $"models/domestic/nessy_doll.mdl" )
+
+		if ( weapon.HasMod( "flesh_magnetic" ) )
+		{
+			#if SERVER
+				GiveProjectileFakeMagnetic( nade ) // modified function in modutility/_fake_magnetic_ammo.gnut
+			#endif
+		}
+
+		//thread MagneticFlight( nade, MGL_MAGNETIC_FORCE )
+	}
+}
+
+void function OnProjectileCollision_weapon_flesh_mgl( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+    if ( !IsValid( hitEnt ) )
+		return
+
+    array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
+
+	if( mods.contains( "magnetic_rollers" ) )
+	{
+#if SERVER
+		if( projectile.proj.projectileBounceCount == 0 )
+		{
+			if( hitEnt.IsNPC() || hitEnt.IsPlayer() )
+				return
+			GiveProjectileFakeMagnetic( projectile, 95 )
+			projectile.proj.projectileBounceCount++
+			return
+		}
+		projectile.proj.projectileBounceCount++
+#endif
+	}
+
+    if ( ( hitEnt.IsNPC() || hitEnt.IsPlayer() ) && hitEnt.GetTeam() != projectile.GetTeam() )
+    {
+#if SERVER
+        // visual fix for client hitting near target, hardcoded
+        TryFixMGLImpactEffect( projectile, pos, "exp_mgl" )
+#endif
+        projectile.ExplodeForCollisionCallback( normal )
+        return
+    }
+
+}
+
+#if SERVER
+bool function TryFixMGLImpactEffect( entity projectile, vector pos, string effectTable = "exp_mgl" )
+{
+	float creationTime = projectile.GetProjectileCreationTime()
+	float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
+	if ( Time() < maxFixTime )
+	{
+		PlayImpactFXTable( pos, projectile, effectTable, SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+		return true
+	}
+
+	return false
+}
+#endif

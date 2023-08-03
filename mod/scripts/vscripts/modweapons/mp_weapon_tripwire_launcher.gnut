@@ -1,0 +1,317 @@
+// a modified version of mp_weapon_zipline.nut
+// only contains it's laser mine functions
+// no NPC firing support!
+untyped // for env_laser.s.parents
+global function MpWeaponTripwireLauncher_Init
+global function OnWeaponPrimaryAttack_weapon_tripwire_launcher
+global function OnProjectileCollision_weapon_tripwire_launcher
+
+const float TRIPWIRE_LIFE_TIME = 30
+
+struct
+{
+    table<entity, entity> playerActiveTripwireNode
+} file
+
+void function MpWeaponTripwireLauncher_Init()
+{
+#if SERVER
+    AddCallback_OnClientConnected( OnClientConnected )
+#endif
+}
+
+#if SERVER
+void function OnClientConnected( entity player )
+{
+    file.playerActiveTripwireNode[ player ] <- null
+}
+#endif
+
+void function OnWeaponPrimaryAttack_weapon_tripwire_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+    entity player = weapon.GetWeaponOwner()
+
+	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+	//vector bulletVec = ApplyVectorSpread( attackParams.dir, player.GetAttackSpreadAngle() * 2.0 )
+	//attackParams.dir = bulletVec
+
+	if ( IsServer() || weapon.ShouldPredictProjectiles() )
+		FireGrenade( weapon, attackParams )
+}
+
+void function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, bool isNPCFiring = false )
+{
+    // mostly keep same as mgl does, in case we don't desync
+	vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
+	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0, damageTypes.explosive, damageTypes.explosive, !isNPCFiring, true, false )
+
+	if ( nade )
+	{
+		entity weaponOwner = weapon.GetWeaponOwner()
+		#if SERVER
+			EmitSoundOnEntity( nade, "Weapon_MGL_Grenade_Emitter" )
+			// will set proj.onlyAllowSmartPistolDamage = true, which makes us cannot destroy it by normal weapons
+			Grenade_Init( nade, weapon )
+
+            nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_tripwire ) // damage source. maybe registering a new one could be better
+		#endif
+	}
+}
+
+// functions from mp_weapon_zipline.nut
+bool function CanTetherEntities( entity startEnt, entity endEnt )
+{
+	if ( Distance( startEnt.GetOrigin(), endEnt.GetOrigin() ) > 1024 )
+		return false
+
+	TraceResults traceResult = TraceLine( startEnt.GetOrigin(), endEnt.GetOrigin(), [], TRACE_MASK_NPCWORLDSTATIC, TRACE_COLLISION_GROUP_NONE )
+	if ( traceResult.fraction < 1 )
+		return false
+
+	entity startEntParent = startEnt.GetParent()
+	entity endEntParent = endEnt.GetParent()
+
+	// sadly, this is broken right now.
+	if ( startEntParent.IsTitan() && endEntParent.IsTitan() )
+		return false
+
+	return true
+}
+
+void function OnProjectileCollision_weapon_tripwire_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+    entity owner = projectile.GetOwner()
+    if ( !IsValid( owner ) )
+        return
+
+    if ( !owner.IsPlayer() )
+    {
+        projectile.GrenadeExplode( projectile.GetForwardVector() )
+        return
+    }
+
+    // only stick with world
+    if( !hitEnt.IsWorld() )
+        return
+
+    bool didStick = PlantStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+    if ( !didStick )
+    {
+        #if SERVER
+            projectile.Destroy()
+        #endif
+        return
+    }
+
+    #if SERVER
+        //projectile.SetAbsAngles( AnglesCompose( projectile.GetAngles(), Vector(-90,0,0) ) )
+
+        Assert( IsValid( projectile ) )
+        vector origin = projectile.GetOrigin()
+
+        vector endOrigin = origin - Vector( 0.0, 0.0, 32.0 )
+        vector surfaceAngles = projectile.proj.savedAngles
+        vector oldUpDir = AnglesToUp( surfaceAngles )
+
+        TraceResults traceResult = TraceLine( origin, endOrigin, [], TRACE_MASK_SOLID, TRACE_COLLISION_GROUP_NONE )
+        if ( traceResult.fraction < 1.0 )
+        {
+            vector forward = AnglesToForward( projectile.proj.savedAngles )
+            surfaceAngles = AnglesOnSurface( traceResult.surfaceNormal, forward )
+
+            vector newUpDir = AnglesToUp( surfaceAngles )
+            if ( DotProduct( newUpDir, oldUpDir ) < 0.55 )
+                surfaceAngles = projectile.proj.savedAngles
+        }
+
+        projectile.SetAngles( surfaceAngles )
+
+		EmitSoundOnEntity( projectile, "Wpn_LaserTripMine_Land" )
+
+		// fix
+		entity activeTripwireNode = file.playerActiveTripwireNode[ owner ]
+        //print( "activeTripwireNode: " + string( activeTripwireNode ) )
+		if ( IsValid( activeTripwireNode ) )
+		{
+			if ( CanTetherEntities( activeTripwireNode, projectile ) )
+			{
+                //print( "planting tripwire!" )
+				array<entity> tripwireEnts = [activeTripwireNode, projectile]
+
+                // a targetName is required for env_laser to connect
+                SetTargetName( activeTripwireNode, UniqueString( "rope_startpoint" ) )
+				SetTargetName( projectile, UniqueString( "rope_endpoint" ) )
+
+				EmitSoundOnEntityOnlyToPlayer( owner, owner, "Explo_TripleThreat_MagneticAttract" )
+
+                entity laserBeam = PROTO_EnvBeam( owner, activeTripwireNode, projectile )
+                foreach( entity attatch in tripwireEnts )
+                {
+                    // make them able to be attacked
+                    attatch.proj.onlyAllowSmartPistolDamage = false // so player can destroy the grenade with bullets
+                    thread TrapDestroyOnDamage( attatch )
+                    thread TrapDestroyOnRoundEnd( owner, attatch )
+                }
+                thread ExplodeAfterDelay( tripwireEnts, TRIPWIRE_LIFE_TIME )
+                thread TrackDestroyableTripwireLifeTime( tripwireEnts, laserBeam, owner )
+
+                // successfully deployed!
+				file.playerActiveTripwireNode[ owner ] = null
+			}
+			else
+			{
+				activeTripwireNode.Destroy() // destroy last useless node
+				file.playerActiveTripwireNode[ owner ] = projectile
+			}
+		}
+		else // no node valid! add current projectile as node
+		{
+			file.playerActiveTripwireNode[ owner ] = projectile
+		}
+	#endif
+}
+
+#if SERVER
+entity function PROTO_EnvBeam( entity owner, entity startEnt, entity endEnt )
+{
+	entity env_laser = CreateEntity( "env_laser" )
+	env_laser.kv.LaserTarget = endEnt.GetTargetName()
+	env_laser.kv.rendercolor = "150 100 15"
+	env_laser.kv.rendercolorFriendly = "15 100 150"
+	env_laser.kv.renderamt = 255
+	env_laser.kv.width = 2
+	env_laser.SetValueForTextureKey( $"sprites/laserbeam.spr" )
+	env_laser.kv.TextureScroll = 35
+	env_laser.kv.damage = "0"
+	env_laser.kv.dissolvetype = -1//-1 to 2 - none, energy, heavy elec, light elec
+	env_laser.kv.spawnflags = 1// 32 end sparks
+	env_laser.SetOrigin( startEnt.GetOrigin() )
+	env_laser.SetAngles( startEnt.GetAngles() )
+	env_laser.ConnectOutput( "OnTouchedByEntity", OnTouchedByEntity )
+	env_laser.SetParent( startEnt )
+	env_laser.s.parents <- [startEnt, endEnt]
+
+	SetTeam( env_laser, owner.GetTeam() )
+
+	DispatchSpawn( env_laser )
+
+	return env_laser
+}
+
+void function OnTouchedByEntity( entity self, entity activator, entity caller, var value )
+{
+	if ( self.GetTeam() == activator.GetTeam() && !FriendlyFire_ShouldTripWireSearchForFriendly() )
+		return
+
+	foreach ( ent in self.s.parents )
+	{
+		if( IsValid(ent) )
+		{
+			//ent.GrenadeExplode( <0,0,0> )
+			// fix for grenade damage radius
+                ent.GrenadeExplode( ent.GetForwardVector() )
+		}
+	}
+
+	// removing debug print
+	//printt( "touch", self, activator, caller, value )
+}
+
+// modified functions for tripwire_launcher
+// a copy of TrapExplodeOnDamage()
+void function TrapDestroyOnDamage( entity trapEnt )
+{
+	EndSignal( trapEnt, "OnDestroy" )
+
+	trapEnt.SetDamageNotifications( true )
+
+	var results
+	entity attacker
+	entity inflictor
+
+	while ( true )
+	{
+		if ( !IsValid( trapEnt ) )
+			return
+
+		results = WaitSignal( trapEnt, "OnDamaged" )
+		attacker = expect entity( results.activator )
+		inflictor = expect entity( results.inflictor )
+
+		if ( IsValid( inflictor ) && inflictor == trapEnt )
+			continue
+
+		bool shouldDamageTrap = false
+		if ( IsValid( attacker ) )
+		{
+			if ( trapEnt.GetTeam() == attacker.GetTeam() )
+			{
+				shouldDamageTrap = false
+			}
+			else
+			{
+				shouldDamageTrap = true
+			}
+		}
+
+		if ( shouldDamageTrap )
+			break
+	}
+
+	if ( !IsValid( trapEnt ) )
+		return
+
+	trapEnt.Destroy()
+}
+
+void function TrackDestroyableTripwireLifeTime( array<entity> tripwireEnts, entity laserBeam, entity owner )
+{
+	foreach ( entity ent in tripwireEnts )
+		ent.EndSignal( "OnDestroy" ) // ends thread when one of the tripwire node gets destroyed
+	owner.EndSignal( "OnDestroy" )
+
+	OnThreadEnd
+	(
+		function():( tripwireEnts, laserBeam, owner )
+		{
+            //print( "RUNNING OnThreadEnd() in TrackDestroyableTripwireLifeTime()" )
+			// owner invalid!
+			if ( !IsValid( owner ) )
+			{
+				if ( IsValid( laserBeam ) )
+					laserBeam.Destroy()
+				foreach ( entity ent in tripwireEnts )
+				{
+					if ( IsValid( ent ) )
+						ent.Destroy()
+				}
+			}
+
+			// owner still valid, maybe one of the tripwire node destroyed
+			ArrayRemoveInvalid( tripwireEnts )
+			foreach ( entity ent in tripwireEnts )
+			{
+				// detonate another tripwire node
+				if ( IsValid( ent ) )
+					ent.GrenadeExplode( ent.GetForwardVector() )
+			}
+			if ( IsValid( laserBeam ) )
+				laserBeam.Destroy()
+		}
+	)
+
+	WaitForever()
+}
+
+void function ExplodeAfterDelay( array<entity> ents, delay )
+{
+	foreach ( ent in ents )
+		ent.EndSignal( "OnDestroy" ) // stop timer when one of the node is destroyed
+
+	wait delay
+
+	foreach ( ent in ents )
+		ent.GrenadeExplode( ent.GetForwardVector() )
+}
+//
+#endif
