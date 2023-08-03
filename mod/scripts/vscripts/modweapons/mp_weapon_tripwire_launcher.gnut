@@ -80,67 +80,69 @@ bool function CanTetherEntities( entity startEnt, entity endEnt )
 
 void function OnProjectileCollision_weapon_tripwire_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	#if SERVER
-		entity owner = projectile.GetOwner()
-		if ( !IsValid( owner ) )
-			return
+    entity owner = projectile.GetOwner()
+    if ( !IsValid( owner ) )
+        return
 
-		if ( !owner.IsPlayer() )
+    if ( !owner.IsPlayer() )
+    {
+        projectile.GrenadeExplode( projectile.GetForwardVector() )
+        return
+    }
+
+    // only stick with world
+    if( !hitEnt.IsWorld() )
+        return
+
+    bool didStick = PlantStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
+    if ( !didStick )
+    {
+        #if SERVER
+            projectile.Destroy()
+        #endif
+        return
+    }
+
+    #if SERVER
+        //projectile.SetAbsAngles( AnglesCompose( projectile.GetAngles(), Vector(-90,0,0) ) )
+
+        Assert( IsValid( projectile ) )
+        vector origin = projectile.GetOrigin()
+
+        vector endOrigin = origin - Vector( 0.0, 0.0, 32.0 )
+        vector surfaceAngles = projectile.proj.savedAngles
+        vector oldUpDir = AnglesToUp( surfaceAngles )
+
+        TraceResults traceResult = TraceLine( origin, endOrigin, [], TRACE_MASK_SOLID, TRACE_COLLISION_GROUP_NONE )
+        if ( traceResult.fraction < 1.0 )
         {
-            projectile.GrenadeExplode( projectile.GetForwardVector() )
-			return
+            vector forward = AnglesToForward( projectile.proj.savedAngles )
+            surfaceAngles = AnglesOnSurface( traceResult.surfaceNormal, forward )
+
+            vector newUpDir = AnglesToUp( surfaceAngles )
+            if ( DotProduct( newUpDir, oldUpDir ) < 0.55 )
+                surfaceAngles = projectile.proj.savedAngles
         }
 
-		// only stick with world
-		if( !hitEnt.IsWorld() )
-			return
-
-		bool didStick = PlantStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
-		if ( !didStick )
-		{
-			projectile.Destroy()
-			return
-		}
-
-		//projectile.SetAbsAngles( AnglesCompose( projectile.GetAngles(), Vector(-90,0,0) ) )
-
-		Assert( IsValid( projectile ) )
-		vector origin = projectile.GetOrigin()
-
-		vector endOrigin = origin - Vector( 0.0, 0.0, 32.0 )
-		vector surfaceAngles = projectile.proj.savedAngles
-		vector oldUpDir = AnglesToUp( surfaceAngles )
-
-		TraceResults traceResult = TraceLine( origin, endOrigin, [], TRACE_MASK_SOLID, TRACE_COLLISION_GROUP_NONE )
-		if ( traceResult.fraction < 1.0 )
-		{
-			vector forward = AnglesToForward( projectile.proj.savedAngles )
-			surfaceAngles = AnglesOnSurface( traceResult.surfaceNormal, forward )
-
-			vector newUpDir = AnglesToUp( surfaceAngles )
-			if ( DotProduct( newUpDir, oldUpDir ) < 0.55 )
-				surfaceAngles = projectile.proj.savedAngles
-		}
-
-		projectile.SetAngles( surfaceAngles )
+        projectile.SetAngles( surfaceAngles )
 
 		EmitSoundOnEntity( projectile, "Wpn_LaserTripMine_Land" )
 
 		// fix
 		entity activeTripwireNode = file.playerActiveTripwireNode[ owner ]
-        print( "activeTripwireNode: " + string( activeTripwireNode ) )
+        //print( "activeTripwireNode: " + string( activeTripwireNode ) )
 		if ( IsValid( activeTripwireNode ) )
 		{
 			if ( CanTetherEntities( activeTripwireNode, projectile ) )
 			{
-                print( "planting tripwire!" )
+                //print( "planting tripwire!" )
 				array<entity> tripwireEnts = [activeTripwireNode, projectile]
 
                 // a targetName is required for env_laser to connect
                 SetTargetName( activeTripwireNode, UniqueString( "rope_startpoint" ) )
 				SetTargetName( projectile, UniqueString( "rope_endpoint" ) )
 
-				EmitSoundOnEntityOnlyToPlayer( owner, owner, "Explo_TripleThreat_MagneticAttract")
+				EmitSoundOnEntityOnlyToPlayer( owner, owner, "Explo_TripleThreat_MagneticAttract" )
 
                 entity laserBeam = PROTO_EnvBeam( owner, activeTripwireNode, projectile )
                 foreach( entity attatch in tripwireEnts )
@@ -272,7 +274,7 @@ void function TrackDestroyableTripwireLifeTime( array<entity> tripwireEnts, enti
 	(
 		function():( tripwireEnts, laserBeam, owner )
 		{
-            print( "RUNNING OnThreadEnd() in TrackDestroyableTripwireLifeTime()" )
+            //print( "RUNNING OnThreadEnd() in TrackDestroyableTripwireLifeTime()" )
 			// owner invalid!
 			if ( !IsValid( owner ) )
 			{
