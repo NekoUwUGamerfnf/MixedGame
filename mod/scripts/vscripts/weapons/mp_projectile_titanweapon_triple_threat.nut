@@ -2,7 +2,8 @@ untyped
 
 
 global function OnProjectileCollision_titanweapon_triple_threat
-
+// new adding, fix sound for ttf2
+global function OnProjectileExplode_titanweapon_triplethreat
 
 void function OnProjectileCollision_titanweapon_triple_threat( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
@@ -64,3 +65,15 @@ function TripleThreatProximityTrigger( entity nade )
 	}
 }
 #endif // SERVER
+
+
+// new adding, fix sound for ttf2
+void function OnProjectileExplode_titanweapon_triplethreat( entity projectile )
+{
+#if SERVER
+	//print( "Running here" )
+	//for( int i = 0; i < 30; i ++ ) // stack the sound!!! don't work well
+	//	EmitSoundAtPosition( TEAM_UNASSIGNED, projectile.GetOrigin(), "Explo_TripleThreat_Impact_3P" )
+	EmitSoundAtPosition( TEAM_UNASSIGNED, projectile.GetOrigin(), "Explo_40mm_Impact_3P" )
+#endif
+}
