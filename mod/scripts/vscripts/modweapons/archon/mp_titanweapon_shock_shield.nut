@@ -53,7 +53,7 @@ function MpTitanweaponShockShield_Init()
 		// modified callback in _codecallbacks.gnut
 		AddCallback_WeaponMod_DamageSourceIdOverride( 
 			"mp_titanweapon_vortex_shield",					// weapon name
-			"shock_shield",									// weapon mod
+			"archon_shock_shield",							// weapon mod
 			eDamageSourceId.mp_titanweapon_shock_shield		// damageSourceId override
 		)
 
@@ -444,12 +444,6 @@ void function ShockShieldOnDamage( entity ent, var damageInfo )
 	vector pos = DamageInfo_GetDamagePosition( damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	vector origin = DamageInfo_GetDamagePosition( damageInfo )
-
-	entity weapon = DamageInfo_GetWeapon( damageInfo )
-	if( !IsValid( weapon ) )
-		return
-	if( !weapon.HasMod( "shock_shield" ) )
-		return
 
 	if ( ent.IsPlayer() || ent.IsNPC() )
 	{

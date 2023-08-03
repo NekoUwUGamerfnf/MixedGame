@@ -132,7 +132,8 @@ function ArchonCannon_Init()
 	PrecacheParticleSystem( $"P_impact_exp_emp_med_air" )
 
 	#if CLIENT
-		AddDestroyCallback( "mp_titanweapon_arc_cannon_archon", ClientDestroyCallback_ArchonCannon_Stop )
+		//AddDestroyCallback( "mp_titanweapon_arc_cannon_archon", ClientDestroyCallback_ArchonCannon_Stop )
+		AddDestroyCallback( "mp_titanweapon_sniper", ClientDestroyCallback_ArchonCannon_Stop )
 	#else
 		level._arcCannonTargetsArrayID <- CreateScriptManagedEntArray()
 	#endif
@@ -318,24 +319,22 @@ function FireArchonCannon( entity weapon, WeaponPrimaryAttackParams attackParams
 	float newVolume = GraphCapped( charge, 0.25, 1.0, 0.0, 1.0 )
 
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+	//print( "charge: " + string( charge ) )
 
+	// firing effect
+	weapon.PlayWeaponEffect( $"wpn_muzzleflash_arc_cannon_fp", $"wpn_muzzleflash_arc_cannon", "muzzle_flash" )
 
-	if ( weapon.HasMod( "static_feedback" ))
-	{
-		weapon.PlayWeaponEffect( $"wpn_muzzleflash_arc_cannon_fp", $"wpn_muzzleflash_arc_cannon", "muzzle_flash" )
-	}
-	else{
-		weapon.PlayWeaponEffect( $"wpn_muzzleflash_arc_cannon_fp", $"wpn_muzzleflash_arc_cannon", "muzzle_flash" )
-	}
-
-
+	// sound effects
 	weapon.EmitWeaponSound_1p3p( "weapon_electric_smoke_electrocute_titan_1p", "weapon_electric_smoke_electrocute_titan_3p")
 	weapon.EmitWeaponSound_1p3p( "weapon_batterygun_firestart_1p", "weapon_batterygun_fire_energydrained_3p")
-	if (weapon.GetWeaponClassName() == "mp_titanweapon_arc_cannon")
+	//if (weapon.GetWeaponClassName() == "mp_titanweapon_arc_cannon_archon")
+	if ( weapon.HasMod( "arc_cannon" ) ) // arc cannon firing
 	{
-		weapon.EmitWeaponSound_1p3p( "MegaTurret_Laser_Fire_3P", "MegaTurret_Laser_Fire_3P")
+		if ( charge >= ARCHON_CANNON_DAMAGE_CHARGE_RATIO ) // firing with high charge frac, do a extra sound
+			weapon.EmitWeaponSound_1p3p( "MegaTurret_Laser_Fire_3P", "MegaTurret_Laser_Fire_3P")
 	}
-	if (weapon.GetWeaponClassName() == "mp_titanweapon_shock_shield")
+	//if (weapon.GetWeaponClassName() == "mp_titanweapon_shock_shield")
+	if ( weapon.HasMod( "archon_shock_shield" ) ) // shock shield firing
 	{
 		weapon.EmitWeaponSound_1p3p( "weapon_sidewinder_fire_1p", "weapon_sidewinder_fire_3p")
 	}
@@ -493,7 +492,8 @@ function FireArcNoTargets( entity weapon, WeaponPrimaryAttackParams attackParams
 		#if SERVER
 			entity vortexWeapon = vortexHit.vortex.GetOwnerWeapon()
 			string className = IsValid( vortexWeapon ) ? vortexWeapon.GetWeaponClassName() : ""
-			if ( vortexWeapon && ( className == "mp_titanweapon_vortex_shield" || className == "mp_titanweapon_vortex_shield_ion" || className == "mp_titanweapon_shock_shield" ) )
+			//if ( vortexWeapon && ( className == "mp_titanweapon_vortex_shield" || className == "mp_titanweapon_vortex_shield_ion" || className == "mp_titanweapon_shock_shield" ) )
+			if ( vortexWeapon && ( className == "mp_titanweapon_vortex_shield" || className == "mp_titanweapon_vortex_shield_ion" || vortexWeapon.HasMod( "archon_shock_shield" ) ) )
 			{
 				float amount = expect float ( chargeFrac ) * weapon.GetWeaponSettingFloat( eWeaponVar.vortex_drain )
                 if ( amount <= 0.0 )
@@ -758,7 +758,8 @@ function ZapTarget( zapInfo, target, beamStartPos, beamEndPos, chainNum = 1 )
 				float dist = Distance( owner.GetOrigin(), target.GetOrigin() )
 				maxDamageAmount = GraphCapped( dist, farDist, nearDist, damageMin, damageMax )
 				float arcWeaponCharge = GraphCapped( zapInfo.chargeFrac, 0, chargeRatio/*0.85*/, 0, 1 )
-				if ( owner.IsNPC() || weapon.GetWeaponClassName() == "mp_titanweapon_shock_shield")
+				//if ( owner.IsNPC() || weapon.GetWeaponClassName() == "mp_titanweapon_shock_shield" )
+				if ( owner.IsNPC() || weapon.HasMod( "archon_shock_shield" ) )
 				{
 					damageAmount = maxDamageAmount
 					//print("DAMAGE OUTPUT: " + damageAmount)
@@ -1195,7 +1196,10 @@ function CreateClientArcBeam( weapon, endPos, lifeDuration, target )
 
 void function ClientDestroyCallback_ArchonCannon_Stop( entity ent )
 {
-	ArchonCannon_Stop( ent )
+	if ( !IsValid( ent ) )
+		return
+	if ( ent.HasMod( "archon_arc_cannon" ) )
+		ArchonCannon_Stop( ent )
 }
 #endif // CLIENT
 

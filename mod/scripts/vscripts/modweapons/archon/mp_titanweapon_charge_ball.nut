@@ -136,12 +136,6 @@ void function OnWeaponChargeEnd_MpTitanWeaponChargeBall( entity weapon )
 
 void function ChargeBallOnDamage( entity ent, var damageInfo )
 {
-	entity weapon = DamageInfo_GetWeapon( damageInfo )
-	if( !IsValid( weapon ) )
-		return
-	if( !weapon.HasMod( "charge_ball" ) )
-		return
-
 	const ARC_TITAN_EMP_DURATION			= 0.35
 	const ARC_TITAN_EMP_FADEOUT_DURATION	= 0.35
 

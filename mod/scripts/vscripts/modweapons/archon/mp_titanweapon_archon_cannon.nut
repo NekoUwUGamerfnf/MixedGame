@@ -211,9 +211,6 @@ void function ArchonCannonOnDamage( entity ent, var damageInfo )
 	entity weapon = DamageInfo_GetWeapon( damageInfo )
 	if( !IsValid( weapon ) )
 		return
-	if( !weapon.HasMod( "arc_cannon" ) )
-		return
-
 	float damageMultiplier = DamageInfo_GetDamage( damageInfo ) / weapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
 
 	if ( ent.IsPlayer() || ent.IsNPC() )

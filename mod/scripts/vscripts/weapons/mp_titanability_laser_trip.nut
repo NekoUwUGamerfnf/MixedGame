@@ -83,7 +83,7 @@ array<entity> function GetLaserPylonsInRadius( vector origin, float radius )
 void function OnWeaponOwnerChanged_titanweapon_laser_trip( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 	// modded weapon
-	if( weapon.HasMod( "tesla_node" ) )
+	if( weapon.HasMod( "archon_tesla_node" ) )
 		return OnWeaponOwnerChanged_titanweapon_Arc_pylon( weapon, changeParams )
 	
 	// vanilla behavior
@@ -108,7 +108,7 @@ var function OnWeaponNPCPrimaryAttack_titanweapon_laser_trip( entity weapon, Wea
 var function OnWeaponPrimaryAttack_titanweapon_laser_trip( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// modded weapon
-	if( weapon.HasMod( "tesla_node" ) )
+	if( weapon.HasMod( "archon_tesla_node" ) )
 		return OnWeaponPrimaryAttack_titanweapon_Arc_pylon( weapon, attackParams )
 	
 	// vanilla behavior
