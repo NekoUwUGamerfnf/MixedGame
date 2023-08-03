@@ -442,6 +442,7 @@ void function StormCore_DamagedTarget( entity target, var damageInfo )
 	//OnBallLightningDamage( target, damageInfo )
 
     entity attacker = DamageInfo_GetAttacker( damageInfo )
+	//print( "storm core attacker: " + string( attacker ) )
 	if( !IsValid( attacker ) )
 		return
 
