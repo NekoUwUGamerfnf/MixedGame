@@ -262,39 +262,77 @@ function EndVortex( entity weapon )
 
 bool function OnWeaponVortexHitBullet_titanweapon_shock_shield( entity weapon, entity vortexSphere, var damageInfo )
 {
-	if ( weapon.HasMod( "shield_only" ) )
-			return true
-
-		#if CLIENT
-			return true
-		#else
-			if ( !ValidateVortexImpact( vortexSphere ) )
-				return false
-
-			entity attacker				= DamageInfo_GetAttacker( damageInfo )
-			vector origin				= DamageInfo_GetDamagePosition( damageInfo )
-			int damageSourceID			= DamageInfo_GetDamageSourceIdentifier( damageInfo )
-			entity attackerWeapon		= DamageInfo_GetWeapon( damageInfo )
-			if ( PROTO_ATTurretsEnabled() && !IsValid( attackerWeapon ) )
-				return true
-			string attackerWeaponName	= attackerWeapon.GetWeaponClassName()
-			int damageType				= DamageInfo_GetCustomDamageType( damageInfo )
-
-			return TryVortexAbsorb( vortexSphere, attacker, origin, damageSourceID, attackerWeapon, attackerWeaponName, "hitscan", null, damageType, false )
-
-
-
-		#endif
-}
-
-bool function OnWeaponVortexHitProjectile_titanweapon_shock_shield( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos )
-{
-	if ( weapon.HasMod( "shield_only" ) )
-		return true
+	// modified: always absorb bullets, never show them on viewmodel
+	//if ( weapon.HasMod( "shield_only" ) )
+	//	return true
 
 	#if CLIENT
 		return true
 	#else
+		// modified: always absorb bullets, never show them on viewmodel
+		if ( !ValidateVortexImpact( vortexSphere ) )
+			return false
+
+		entity attacker				= DamageInfo_GetAttacker( damageInfo )
+		vector origin				= DamageInfo_GetDamagePosition( damageInfo )
+		int damageSourceID			= DamageInfo_GetDamageSourceIdentifier( damageInfo )
+		entity attackerWeapon		= DamageInfo_GetWeapon( damageInfo )
+		string attackerWeaponName	= attackerWeapon.GetWeaponClassName()
+
+		local impactData = Vortex_CreateImpactEventData( weapon, attacker, origin, damageSourceID, attackerWeaponName, "hitscan" )
+		VortexDrainedByImpact( weapon, attackerWeapon, null, null )
+		if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
+			return true
+		// generic shield ping FX, modified to globalize this function
+        Vortex_SpawnShieldPingFX( weapon, impactData )
+
+		return true
+
+		/* // moblin script behavior
+		if ( !ValidateVortexImpact( vortexSphere ) )
+			return false
+
+		entity attacker				= DamageInfo_GetAttacker( damageInfo )
+		vector origin				= DamageInfo_GetDamagePosition( damageInfo )
+		int damageSourceID			= DamageInfo_GetDamageSourceIdentifier( damageInfo )
+		entity attackerWeapon		= DamageInfo_GetWeapon( damageInfo )
+		if ( PROTO_ATTurretsEnabled() && !IsValid( attackerWeapon ) )
+			return true
+		string attackerWeaponName	= attackerWeapon.GetWeaponClassName()
+		int damageType				= DamageInfo_GetCustomDamageType( damageInfo )
+
+		return TryVortexAbsorb( vortexSphere, attacker, origin, damageSourceID, attackerWeapon, attackerWeaponName, "hitscan", null, damageType, false )
+		*/
+
+	#endif
+}
+
+bool function OnWeaponVortexHitProjectile_titanweapon_shock_shield( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos )
+{
+	// modified: always absorb bullets, never show them on viewmodel
+	//if ( weapon.HasMod( "shield_only" ) )
+	//	return true
+
+	#if CLIENT
+		return true
+	#else
+		// modified: always absorb bullets, never show them on viewmodel
+		if ( !ValidateVortexImpact( vortexSphere, projectile ) )
+			return false
+
+		int damageSourceID = projectile.ProjectileGetDamageSourceID()
+		string weaponName = projectile.ProjectileGetWeaponClassName()
+
+		local impactData = Vortex_CreateImpactEventData( weapon, attacker, contactPos, damageSourceID, weaponName, "projectile" )
+		VortexDrainedByImpact( weapon, projectile, projectile, null )
+		if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
+			return true
+		// generic shield ping FX, modified to globalize this function
+        Vortex_SpawnShieldPingFX( weapon, impactData )
+
+		return true
+
+		/* // moblin script behavior
 		if ( !ValidateVortexImpact( vortexSphere, projectile ) )
 			return false
 
@@ -302,6 +340,7 @@ bool function OnWeaponVortexHitProjectile_titanweapon_shock_shield( entity weapo
 		string weaponName = projectile.ProjectileGetWeaponClassName()
 
 		return TryVortexAbsorb( vortexSphere, attacker, contactPos, damageSourceID, projectile, weaponName, "projectile", projectile, null, weapon.HasMod( "burn_mod_titan_vortex_shield" ) )
+		*/
 	#endif
 }
 
@@ -311,7 +350,7 @@ var function OnWeaponPrimaryAttack_titanweapon_shock_shield( entity weapon, Weap
 	string attackSound3p = "Vortex_Shield_Deflect_Amped"
 	
 	weapon.EmitWeaponSound_1p3p( attackSound1p, attackSound3p )
-	thread OnShieldDestroyed(weapon, attackParams)
+	thread OnShieldDestroyed(weapon, attackParams) // bug: npc can't fire arc
 
 	DestroyVortexSphereFromVortexWeapon( weapon )  // sphere ent holds networked ammo count, destroy it after predicted firing is done
 
