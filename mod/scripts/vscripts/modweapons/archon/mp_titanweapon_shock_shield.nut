@@ -51,11 +51,13 @@ function MpTitanweaponShockShield_Init()
 		// adding a new damageSourceId. it's gonna transfer to client automatically
 		RegisterWeaponDamageSource( "mp_titanweapon_shock_shield", "Shock Shield" )
 		// modified callback in _codecallbacks.gnut
+		/* // now hardcode a damageSourceId in _archon_cannon.nut
 		AddCallback_WeaponMod_DamageSourceIdOverride( 
 			"mp_titanweapon_vortex_shield",					// weapon name
 			"archon_shock_shield",							// weapon mod
 			eDamageSourceId.mp_titanweapon_shock_shield		// damageSourceId override
 		)
+		*/
 
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_shock_shield, ShockShieldOnDamage )
 	#endif
