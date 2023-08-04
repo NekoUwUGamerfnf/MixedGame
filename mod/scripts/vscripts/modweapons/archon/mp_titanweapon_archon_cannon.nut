@@ -190,12 +190,6 @@ var function OnWeaponNpcPrimaryAttack_titanweapon_archon_cannon( entity weapon, 
 
 void function ArchonCannonOnDamage( entity ent, var damageInfo )
 {
-	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	if ( !IsValid( inflictor ) )
-		return
-	if( inflictor.IsProjectile() )
-		return
-		
 	vector pos = DamageInfo_GetDamagePosition( damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
