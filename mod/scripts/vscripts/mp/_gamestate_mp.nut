@@ -393,7 +393,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 
 	bool doReplay = Replay_IsEnabled() 
 					&& IsRoundWinningKillReplayEnabled() 
-					&& IsValid( replayAttacker ) && IsValid( replayVictim ) // new adding victim check
+					&& IsValid( replayAttacker )
 					&& !ClassicMP_ShouldRunEpilogue()
 					&& Time() - file.roundWinningKillReplayTime <= ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY 
 					&& winningTeam != TEAM_UNASSIGNED
@@ -553,7 +553,8 @@ void function PlayerWatchesRoundWinningKillReplay( entity player, int inflictorE
 	int attackerEhandle = replayAttacker.GetEncodedEHandle()
 	int attackerIndex = replayAttacker.GetIndexForEntity()
 	// setup here before victim gets destroyed
-	player.SetKillReplayVictim( replayVictim )
+	if ( IsValid( replayVictim ) ) // victim can be invalid if we're only using attacker view
+		player.SetKillReplayVictim( replayVictim )
 
 	player.FreezeControlsOnServer()
 	ScreenFadeToBlackForever( player, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME )
@@ -615,7 +616,7 @@ void function GameStateEnter_SwitchingSides_Threaded()
 
 	bool doReplay = Replay_IsEnabled() 
 					&& IsRoundWinningKillReplayEnabled() 
-					&& IsValid( replayAttacker ) && IsValid( replayVictim ) // new adding victim check
+					&& IsValid( replayAttacker )
 					&& !IsRoundBased() // for roundbased modes, we've already done the replay
 					&& Time() - file.roundWinningKillReplayTime <= SWITCHING_SIDES_DELAY
 	
@@ -695,7 +696,8 @@ void function PlayerWatchesSwitchingSidesKillReplay( entity player, int inflicto
 		int attackerEhandle = replayAttacker.GetEncodedEHandle()
 		int attackerIndex = replayAttacker.GetIndexForEntity()
 		// setup victim before it gets destroyed
-		player.SetKillReplayVictim( replayVictim )
+		if ( IsValid( replayVictim ) ) // victim can be invalid if we're only using attacker view
+			player.SetKillReplayVictim( replayVictim )
 
 		ScreenFadeToBlackForever( player, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME ) // automatically cleared 
 		wait ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME
