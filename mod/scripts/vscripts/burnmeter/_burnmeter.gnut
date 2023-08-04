@@ -18,6 +18,7 @@ global function BurnMeter_TryRewardReadyMessage
 
 // new utility
 global function BurnMeter_ApplyWeaponAmpForDuration
+global function BurnMeter_PhaseRewind
 
 // nessie modify
 global function Burnmeter_SetRewardsDisabled
@@ -31,12 +32,12 @@ global function Burnmeter_GetDefaultReplaceReward // shared with sh_burnmeter.gn
 global function Burnmeter_SetRewardDisableNotification // for modded_burnmeter_items.gnut
 
 // phase rewind
-const float PHASE_REWIND_LENGTH = 2.0
-// taken from wraith portal in apex, assuming it's the same as tf2's
-// 0.1 can be too fast for ttf2 scripts
-const float PHASE_REWIND_PATH_SNAPSHOT_INTERVAL = 0.2 // mainly controlled by this const, the higher the rewind path will be longer
-const int PHASE_REWIND_MAX_SNAPSHOTS = int( PHASE_REWIND_LENGTH / PHASE_REWIND_PATH_SNAPSHOT_INTERVAL ) - 1
-const int PHASE_REWIND_DATA_MAX_POSITIONS = int( PHASE_REWIND_LENGTH * 10 ) + 1 // hardcoded but maybe good
+// taken from r5-s3 sh_phase_shift.gnut
+const float RECONSTRUCT_REWIND_TICK = 0.1
+const int RECONSTRUCT_REWIND_COUNT = 100
+const float RECONSTRUCT_END_HOLD_TIME = 0.1
+// burnmeter rewind effect
+const float PHASE_REWIND_DURATION = 2.0
 
 // amped weapons
 const float AMPED_WEAPONS_LENGTH = 30.0
@@ -98,16 +99,24 @@ void function BurnMeter_Init()
 	AddCallback_GameStateEnter( eGameState.Playing, InitBurncardsForIntroPlayers )
 	AddCallback_OnClientConnected( OnClientConnected )
 
-	//AddCallback_OnPlayerRespawned( StartPhaseRewindLifetime )
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
-	//AddCallback_OnTitanBecomesPilot( RemoveAmpedWeaponsForTitanPilot ) // shouldn't do this. "StopAmpedWeapons" is signaled on each weapon when StoreWeapons() in _titan_transfer.gnut, which means we need to run a thread for each amped weapons, but not player
 
 	// necessary signals
 	RegisterSignal( "StopAmpedWeapons" )
 
 	// modified
 	RegisterSignal( "PlayerAmpedWeaponsThink" )
-	RegisterSignal( "WaitForBurnCardAnim" )
+
+	// phase rewind
+	// taken from r5-s3 sh_phase_shift.gnut
+	RegisterSignal( "StartTrackingPositions" )
+	RegisterSignal( "EndTrackingPositions" )
+	RegisterSignal( "PhaseRewindCrouchPlayer" )
+	RegisterSignal( "PhaseRewindStop" )
+
+	AddCallback_OnTitanBecomesPilot( TitanBecomesPilot_TryStartTrackingPositions )
+	AddCallback_OnPilotBecomesTitan( PilotBecomesTitan_EndTrackingPositions )
+	AddCallback_OnPlayerRespawned( OnPlayerRespawn_TryStartTrackingPositions )
 }
 
 void function BurnMeter_SetBoostLimit( string burnRef, int limit )
@@ -221,9 +230,6 @@ void function InitPlayerBurncards( entity player )
 	string ref = GetSelectedBurncardRefFromWeaponOrPlayer( null, player )
 	BurnReward reward = BurnReward_GetByRef( ref )
 	player.SetPlayerNetInt( TOP_INVENTORY_ITEM_BURN_CARD_ID, reward.id )
-
-	if ( IsAlive( player ) )
-		thread PhaseRewindLifetime( player )
 }
 
 void function InitBurncardsForIntroPlayers()
@@ -249,57 +255,20 @@ void function InitBurncardsForLateJoiner( entity player )
 void function OnPlayerRespawned( entity player )
 {
 	BurnMeter_TryRewardReadyMessage( player )
-	StartPhaseRewindLifetime( player )
+	OnPlayerRespawn_TryStartTrackingPositions( player )
 }
 
 bool function BurnMeter_TryRewardReadyMessage( entity player )
 {
+	if ( player.IsTitan() ) // titan player only have smoke, should be handled by JFS_PlayerEarnMeter_CoreRewardUpdate()
+		return false
 	if ( Time() >= file.playerRewardReadyMessageTime[ player ] )
 	{
 		Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", Time() - player.s.respawnTime )
-		file.playerRewardReadyMessageTime[ player ] = Time() + 6.0 // shortest wait time in ServerCallback_RewardReadyMessage()
+		file.playerRewardReadyMessageTime[ player ] = Time() + 8.0 // shortest wait time in ServerCallback_RewardReadyMessage()
 		return true
 	}
 	return false
-}
-
-void function StartPhaseRewindLifetime( entity player )
-{
-	thread PhaseRewindLifetime( player )
-}
-
-void function PhaseRewindLifetime( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnDeath" )
-
-	OnThreadEnd( function() : ( player )
-	{
-		player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions.clear()
-	})
-
-	while ( true )
-	{
-		PhaseRewindData rewindData
-		rewindData.origin = player.GetOrigin()
-		rewindData.angles = < 0, player.EyeAngles().y, 0 >
-		rewindData.velocity = player.GetVelocity()
-		rewindData.wasInContextAction = player.ContextAction_IsActive()
-		rewindData.wasCrouched = player.IsCrouched() && player.IsOnGround()
-
-		if ( player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions.len() >= PHASE_REWIND_DATA_MAX_POSITIONS )
-		{
-			// shift all snapshots left
-			for ( int i = 0; i < PHASE_REWIND_DATA_MAX_POSITIONS - 1; i++ )
-				player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions[ i ] = player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions[ i + 1 ]
-
-			player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions[ PHASE_REWIND_DATA_MAX_POSITIONS - 1 ] = rewindData
-		}
-		else
-			player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions.append( rewindData )
-
-		wait PHASE_REWIND_PATH_SNAPSHOT_INTERVAL
-	}
 }
 
 void function RunBurnCardUseFunc( entity player, string itemRef )
@@ -475,25 +444,13 @@ void function ApplyWeaponAmpForDuration_Threaded( entity weapon, float duration 
 	// needed to display amped weapon time left
 	weapon.SetScriptFlags0( weapon.GetScriptFlags0() | WEAPONFLAG_AMPED )
 	if ( duration >= 0 ) // apply timer if duration >= 0
+	{
 		weapon.SetScriptTime0( Time() + duration )
-
-	if ( duration >= 0 )
 		wait duration
-	else
+	}
+	else // duration < 0, it means infinite duration
 		WaitForever()
 }
-
-// shouldn't do this. "StopAmpedWeapons" is signaled on each weapon when StoreWeapons() in _titan_transfer.gnut, which means we need to run a thread for each amped weapons, but not player
-/*
-void function RemoveAmpedWeaponsForTitanPilot( entity player, entity titan )
-{
-	foreach ( entity weapon in player.GetMainWeapons() )
-	{
-		foreach ( string mod in GetWeaponBurnMods( weapon.GetWeaponClassName() ) )
-			weapon.RemoveMod( mod )
-	}
-}
-*/
 
 void function PlayerUsesSmartPistolBurncard( entity player )
 {
@@ -619,106 +576,230 @@ void function PlayerUsesMaphackBurncardThreaded( entity player )
 
 void function PlayerUsesPhaseRewindBurncard( entity player )
 {
-	thread PlayerUsesPhaseRewindBurncardThreaded( player )
+	BurnMeter_PhaseRewind( player, PHASE_REWIND_DURATION )
 }
 
-void function PlayerUsesPhaseRewindBurncardThreaded( entity player )
+// taken from r5-s3
+void function BurnMeter_PhaseRewind( entity player, float rewindDuration = -1 ) // -1 means shift all nodes
 {
-	player.EndSignal( "OnDestroy" )
+	if ( PhaseShift( player, 0.0, 999 ) )
+		thread BurnMeter_PhaseRewind_threaded( player, rewindDuration )
+}
+
+void function BurnMeter_PhaseRewind_threaded( entity player, float rewindDuration )
+{
 	player.EndSignal( "OnDeath" )
 
-	entity mover = CreateScriptMover( player.GetOrigin(), player.GetAngles() )
-	player.SetParent( mover, "REF" )
-
-	OnThreadEnd( function() : ( player, mover )
-	{
-		CancelPhaseShift( player )
-		player.DeployWeapon()
-		player.SetPredictionEnabled( true )
-		player.ClearParent()
-		ViewConeFree( player )
-		mover.Destroy()
-	})
-
-	array<PhaseRewindData> positions = clone player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions
-
-	array<PhaseRewindData> tempArray
-	int segment = positions.len() / PHASE_REWIND_MAX_SNAPSHOTS
-	for( int i = 0; i < PHASE_REWIND_MAX_SNAPSHOTS; i++ )
-	{
-		if( positions.len() <= segment * i )
-			break
-		tempArray.append( positions[ segment * i ] )
-	}
-	positions = tempArray
-
-	vector startOrigin = player.GetOrigin()
-	ViewConeZero( player )
-	player.HolsterWeapon()
 	player.SetPredictionEnabled( false )
-	PhaseShift( player, 0.0, positions.len() * PHASE_REWIND_PATH_SNAPSHOT_INTERVAL * 1.5 )
+	HolsterAndDisableWeapons( player )
+
+	entity mover = CreateScriptMover( player.GetOrigin(), player.GetAngles() )
+
+	PhaseRewindData rewindData
+	rewindData.origin = player.GetOrigin()
+	rewindData.angles = player.GetAngles()
+	rewindData.wasInContextAction = player.ContextAction_IsActive()
+	rewindData.wasCrouched = player.IsCrouched()
+
+	vector originAtStart = player.GetOrigin()
+
+	OnThreadEnd(
+		function() : ( player, mover, rewindData, originAtStart )
+		{
+			if ( IsValid( player ) )
+			{
+				player.SetPredictionEnabled( true )
+				CancelPhaseShift( player )
+				DeployAndEnableWeapons( player )
+				player.ClearParent()
+				player.SetVelocity( <0, 0, 10> )
+				player.SetOrigin( rewindData.origin )
+				player.SetAngles( rewindData.angles )
+				// if ( rewindData.wasCrouched )
+				// {
+				// 	thread PhaseRewindCrouchPlayer( player )
+				// }
+
+				player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions.clear()
+				player.p.burnCardPhaseRewindStruct.phaseRetreatShouldSave = true
+
+				/* // removed
+				if ( rewindData.wasInContextAction && !PutEntityInSafeSpot( player, null, null, originAtStart, player.GetOrigin() ) )
+					//Only do PutEntityInSafeSpot check() if the last saved position they were in a context action, since context actions can put you in normally illegal spots, e.g. behind geo. If you do the PutEntityInSafeSpot() check all the time you get false positives if you always use start position as safe starting spot
+				{
+					player.TakeDamage( player.GetHealth() + 1, player, player, { damageSourceId = eDamageSourceId.phase_shift, scriptType = DF_GIB | DF_BYPASS_SHIELD | DF_SKIPS_DOOMED_STATE } )
+				}
+				*/
+
+				// always fix position after rewind
+				PutPhaseRewindedPlayerInSafeSpot( player, 1 )
+			}
+
+			// destroy mover goes first
+			//if ( IsValid( mover ) )
+			//	mover.Destroy()
+		}
+	)
+
+	player.p.burnCardPhaseRewindStruct.phaseRetreatShouldSave = false
+
+	WaitEndFrame() // wait for the last save
+
 	EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_phaserewind_1p" )
 	EmitSoundOnEntityExceptToPlayer( player, player, "pilot_phaserewind_3p" )
 
-	for ( int i = positions.len() - 1; i > -1; i-- )
-	{
-		// should looks better?
-		player.UnforceCrouch()
-		player.UnforceStand()
-		if( positions[ i ].wasCrouched )
-			player.ForceCrouch() // make player's view lower
-		else
-			player.ForceStand()
-		float moveTime = PHASE_REWIND_PATH_SNAPSHOT_INTERVAL + 0.1
-		player.SetVelocity( -positions[ i ].velocity )
-		mover.NonPhysicsMoveTo( positions[ i ].origin, moveTime, 0, 0 )
-		mover.NonPhysicsRotateTo( positions[ i ].angles, moveTime, 0, 0 )
-		wait PHASE_REWIND_PATH_SNAPSHOT_INTERVAL
-	}
-	player.SetVelocity( <0, 0, 0> )
-	player.UnforceCrouch() // clean up!
-	player.UnforceStand()
-	if( positions[0].wasCrouched )
-		thread PhaseRewindForceCrouch( player )
-	// always set player to the right position
-	player.SetOrigin( positions[0].origin )
+	player.SetParent( mover, "REF", false )
+	ViewConeZeroInstant( player )
+	array<PhaseRewindData> savedPositions = player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions
 
-	// fix position after rewind
-	PutPhaseRewindedPlayerInSafeSpot( player, 1 )
+	bool rewindEndAfterTime = rewindDuration >= 0 // duration < 0 meaning phase all ticks( 60ticks, 6s )
+	float rewindEndTime = Time() + rewindDuration
+	for ( int i = savedPositions.len() - 1; i >= 0; i-- )
+	{
+		mover.NonPhysicsMoveTo( savedPositions[i].origin, RECONSTRUCT_REWIND_TICK, 0, 0 )
+		mover.NonPhysicsRotateTo( savedPositions[i].angles, RECONSTRUCT_REWIND_TICK, 0, 0 )
+		rewindData.origin = savedPositions[i].origin
+		rewindData.angles = savedPositions[i].angles
+		player.SetVelocity( savedPositions[i].velocity )
+		rewindData.velocity = savedPositions[i].velocity
+		rewindData.wasInContextAction = savedPositions[i].wasInContextAction
+		rewindData.wasCrouched = savedPositions[i].wasCrouched
+		//printt( "wasCrouched?" + rewindData.wasCrouched )
+		if ( rewindData.wasCrouched )
+		{
+			//printt( "PhaseRewindCrouchPlayer" )
+			thread PhaseRewindCrouchPlayer( player )
+		}
+
+		WaitFrame()
+
+		// modified rewind endTime
+		if ( rewindEndAfterTime && Time() > rewindEndTime )
+			return
+	}
 }
 
-void function PhaseRewindForceCrouch( entity player )
+void function PhaseRewindCrouchPlayer( entity player )
 {
-	// make player crouch
+	Signal( player, "PhaseRewindCrouchPlayer" )
+	EndSignal( player, "OnDeath" )
+	EndSignal( player, "PhaseRewindCrouchPlayer" )
 	player.ForceCrouch()
+	OnThreadEnd(
+		function() : ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				player.UnforceCrouch()
+			}
+		}
+	)
 	wait 0.2
-	if( IsValid( player ) )
-		player.UnforceCrouch()
 }
 
 void function PutPhaseRewindedPlayerInSafeSpot( entity player, int severity )
 {
 	vector baseOrigin = player.GetOrigin()
 
-    if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x, baseOrigin.y+severity, baseOrigin.z >, baseOrigin ) )
+    if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x, baseOrigin.y + severity, baseOrigin.z >, baseOrigin ) )
         return
 
-    if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x, baseOrigin.y-severity, baseOrigin.z >, baseOrigin ) )
+    if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x, baseOrigin.y - severity, baseOrigin.z >, baseOrigin ) )
         return
  
-    if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x+severity, baseOrigin.y, baseOrigin.z >, baseOrigin ) )
+    if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x + severity, baseOrigin.y, baseOrigin.z >, baseOrigin ) )
         return
 
-	if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x-severity, baseOrigin.y, baseOrigin.z >, baseOrigin ) )
+	if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x - severity, baseOrigin.y, baseOrigin.z >, baseOrigin ) )
         return
 
-	if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x, baseOrigin.y, baseOrigin.z+severity >, baseOrigin ) )
+	if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x, baseOrigin.y, baseOrigin.z + severity >, baseOrigin ) )
         return
 
-	if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x, baseOrigin.y, baseOrigin.z-severity >, baseOrigin ) )
+	if( PutEntityInSafeSpot( player, player, null, < baseOrigin.x, baseOrigin.y, baseOrigin.z - severity >, baseOrigin ) )
         return
 
-    return PutPhaseRewindedPlayerInSafeSpot( player, severity+5 )
+    return PutPhaseRewindedPlayerInSafeSpot( player, severity + severity )
+}
+
+void function TitanBecomesPilot_TryStartTrackingPositions( entity playerPilot, entity npcTitan )
+{
+	TryStartTrackingPositions( playerPilot )
+}
+
+void function PilotBecomesTitan_EndTrackingPositions( entity playerTitan, entity npcTitan )
+{
+	EndTrackingPositions( playerTitan )
+}
+
+void function OnPlayerRespawn_TryStartTrackingPositions( entity player )
+{
+	TryStartTrackingPositions( player )
+}
+
+void function TryStartTrackingPositions( entity player )
+{
+	if ( player.IsTitan() )
+		return
+
+	if ( !IsAlive( player ) )
+		return
+
+	if ( player.IsPhaseShifted() )
+		//Might already be phase rewinded, don't clear out phaseRetreatSavedPositions array
+		return
+
+	thread StartTrackingPositions( player )
+}
+
+void function EndTrackingPositions( entity player )
+{
+	player.Signal( "EndTrackingPositions" )
+}
+
+void function StartTrackingPositions( entity player )
+{
+	player.EndSignal( "EndTrackingPositions" )
+	player.Signal( "StartTrackingPositions" )
+	player.EndSignal( "StartTrackingPositions" )
+	player.EndSignal( "OnDeath" )
+
+	OnThreadEnd(
+		function() : ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions.clear()
+			}
+		}
+	)
+
+	int maxSaves = 60
+
+	while ( 1 )
+	{
+		if ( player.p.burnCardPhaseRewindStruct.phaseRetreatShouldSave && !player.IsTitan() )
+		{
+			vector origin = player.GetOriginOutOfTraversal()
+			vector angles = player.GetAngles()
+			angles = <0, player.CameraAngles().y, 0>
+
+			PhaseRewindData data
+			data.origin = origin
+			data.angles = angles
+			data.velocity = player.GetVelocity()
+			data.wasInContextAction = player.ContextAction_IsActive()
+			data.wasCrouched = player.IsCrouched()
+
+			// printt( "----------" + data.wasCrouched + "----------" )
+
+			player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions.append( data )
+			if ( player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions.len() > maxSaves )
+				player.p.burnCardPhaseRewindStruct.phaseRetreatSavedPositions.remove( 0 )
+		}
+		// wait RECONSTRUCT_REWIND_SAVE_TICK
+		WaitFrame()
+	}
 }
 
 void function PlayerUsesNukeTitanBurncard( entity player )

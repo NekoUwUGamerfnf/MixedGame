@@ -600,7 +600,7 @@ bool function IsValid_ThisFrame( entity ent )
 	return expect bool( ent.IsValidInternal() )
 }
 
-bool function IsAlive( entity ent, bool ignoreHackedDeath = false )
+bool function IsAlive( entity ent )
 {
 	if ( ent == null )
 		return false
