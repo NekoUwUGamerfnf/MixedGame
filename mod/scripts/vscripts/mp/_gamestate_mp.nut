@@ -310,9 +310,7 @@ void function GameStateEnter_Playing_Threaded()
 			else if ( file.suddenDeathBased && winningTeam == TEAM_UNASSIGNED ) // suddendeath if we draw and suddendeath is enabled and haven't switched sides
 				SetGameState( eGameState.SuddenDeath )
 			else
-			{
 				SetWinner( winningTeam, file.timeoutWinningReason, file.timeoutLosingReason )
-			}
 		}
 
 		WaitFrame()
@@ -1229,11 +1227,11 @@ void function AddTeamScore( int team, int amount )
 	{
 		if ( file.switchSidesBased && !file.hasSwitchedSides )
 			SetGameState( eGameState.SwitchingSides )
-		else if ( GetGameState() == eGameState.SuddenDeath )
-			SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
 		else // default
 			SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
 	}
+	else if ( GetGameState() == eGameState.SuddenDeath ) // in sudden death, game ends when a team earns score
+		SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
 }
 
 void function SetTimeoutWinnerDecisionFunc( int functionref() callback )
