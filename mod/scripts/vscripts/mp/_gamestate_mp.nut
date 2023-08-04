@@ -340,26 +340,12 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	if( IsFFAGame() )
 		winningTeam = GetWinningTeamWithFFASupport()
 
-	foreach ( entity player in GetPlayerArray() )
-	{
-		int announcementSubstr
-		if ( winningTeam > TEAM_UNASSIGNED )
-			announcementSubstr = player.GetTeam() == winningTeam ? file.announceRoundWinnerWinningSubstr : file.announceRoundWinnerLosingSubstr
-		else // draw
-			announcementSubstr = GetStringID( "#GENERIC_DRAW_ANNOUNCEMENT" )
-
-		if ( IsRoundBased() )
-			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceRoundWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME, GameRules_GetTeamScore2( TEAM_MILITIA ), GameRules_GetTeamScore2( TEAM_IMC ) )
-		else
-			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME )
-	}
-
-	// scoreEvents
+	// match ending think
 	bool isMatchEnd = true
 	// SetTeamScore() should be done after announced winner
 	if ( IsRoundBased() )
 	{
-		isMatchEnd = false // default will be false!
+		isMatchEnd = false // round based default will be false!
 		if ( winningTeam > TEAM_UNASSIGNED )
 		{
 			GameRules_SetTeamScore( winningTeam, GameRules_GetTeamScore( winningTeam ) + 1 )
@@ -371,6 +357,20 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 			if ( highestScore >= roundScoreLimit )
 				isMatchEnd = true
 		}
+	}
+
+	foreach ( entity player in GetPlayerArray() )
+	{
+		int announcementSubstr
+		if ( winningTeam > TEAM_UNASSIGNED )
+			announcementSubstr = player.GetTeam() == winningTeam ? file.announceRoundWinnerWinningSubstr : file.announceRoundWinnerLosingSubstr
+		else // draw
+			announcementSubstr = GetStringID( "#GENERIC_DRAW_ANNOUNCEMENT" )
+
+		if ( !isMatchEnd && IsRoundBased() ) // round based will do winner announcement if match ends
+			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceRoundWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME, GameRules_GetTeamScore2( TEAM_MILITIA ), GameRules_GetTeamScore2( TEAM_IMC ) )
+		else
+			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME )
 	}
 	
 	if ( isMatchEnd )
@@ -1222,10 +1222,16 @@ void function AddTeamScore( int team, int amount )
 
 	//int score = GameRules_GetTeamScore( team ) // moved up to make use of it
 	score = GameRules_GetTeamScore( team ) // update score earned
-	if ( score >= scoreLimit || GetGameState() == eGameState.SuddenDeath )
-		SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
-	else if ( ( file.switchSidesBased && !file.hasSwitchedSides ) && score >= ( scoreLimit.tofloat() / 2.0 ) )
-		SetGameState( eGameState.SwitchingSides )
+
+	if ( score >= scoreLimit ) // score limit reached!
+	{
+		if ( file.switchSidesBased && !file.hasSwitchedSides )
+			SetGameState( eGameState.SwitchingSides )
+		else if ( GetGameState() == eGameState.SuddenDeath )
+			SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
+		else // default
+			SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
+	}
 }
 
 void function SetTimeoutWinnerDecisionFunc( int functionref() callback )
