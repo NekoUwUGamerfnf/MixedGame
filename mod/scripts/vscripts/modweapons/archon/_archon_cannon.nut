@@ -182,13 +182,6 @@ function ArchonCannon_ChargeBegin( entity weapon )
 
 	file.isCharging = true
 	// using charge sound in Key/Values
-	//if( !weapon.HasMod( "capacitor" ) ) // only emit sound if no capacitor mod
-	//{ //1p sound is done by Key/Values
-		//if( weapon.HasMod( "arc_cannon_charge_sound" ) )
-		//	weapon.EmitWeaponSound_1p3p( "", "Weapon_EnergySyphon_Charge_3P" )
-		//if( weapon.HasMod( "archon_arc_cannon_charge_sound" ) )
-		//	weapon.EmitWeaponSound_1p3p( "", "MegaTurret_Laser_ChargeUp_3P" )
-	//}
 	#if SERVER
 		entity weaponOwner = weapon.GetWeaponOwner()
 		// client sound fix, hardcoded
@@ -328,7 +321,7 @@ function FireArchonCannon( entity weapon, WeaponPrimaryAttackParams attackParams
 	weapon.EmitWeaponSound_1p3p( "weapon_electric_smoke_electrocute_titan_1p", "weapon_electric_smoke_electrocute_titan_3p")
 	weapon.EmitWeaponSound_1p3p( "weapon_batterygun_firestart_1p", "weapon_batterygun_fire_energydrained_3p")
 	//if (weapon.GetWeaponClassName() == "mp_titanweapon_arc_cannon_archon")
-	if ( weapon.HasMod( "arc_cannon" ) ) // arc cannon firing
+	if ( weapon.HasMod( "archon_arc_cannon" ) ) // arc cannon firing
 	{
 		if ( charge >= ARCHON_CANNON_DAMAGE_CHARGE_RATIO ) // firing with high charge frac, do a extra sound
 			weapon.EmitWeaponSound_1p3p( "MegaTurret_Laser_Fire_3P", "MegaTurret_Laser_Fire_3P")

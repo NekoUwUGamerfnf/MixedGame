@@ -103,7 +103,7 @@ function DelayedArchonCannonStart( entity weapon, entity weaponOwner )
 
 void function OnWeaponDeactivate_titanweapon_archon_cannon( entity weapon )
 {
-	if( !weapon.HasMod( "arc_cannon" ) )
+	if( !weapon.HasMod( "archon_arc_cannon" ) )
 		return
 	ArchonCannon_ChargeEnd( weapon, weapon.GetOwner() )
 	ArchonCannon_Stop( weapon )
@@ -111,7 +111,7 @@ void function OnWeaponDeactivate_titanweapon_archon_cannon( entity weapon )
 
 void function OnWeaponReload_titanweapon_archon_cannon( entity weapon, int milestoneIndex )
 {
-	if( !weapon.HasMod( "arc_cannon" ) )
+	if( !weapon.HasMod( "archon_arc_cannon" ) )
 		return
 	local reloadTime = weapon.GetWeaponInfoFileKeyField( "reload_time" )
 	thread ArchonCannon_HideIdleEffect( weapon, reloadTime ) //constant seems to help it sync up better
@@ -143,7 +143,7 @@ void function OnWeaponOwnerChanged_titanweapon_archon_cannon( entity weapon, Wea
 
 bool function OnWeaponChargeBegin_titanweapon_archon_cannon( entity weapon )
 {
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 	{
 		local stub = "this is here to suppress the untyped message.  This can go away when the .s. usage is removed from this file."
 		#if SERVER
@@ -162,7 +162,7 @@ bool function OnWeaponChargeBegin_titanweapon_archon_cannon( entity weapon )
 
 void function OnWeaponChargeEnd_titanweapon_archon_cannon( entity weapon )
 {
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 	{
 		#if SERVER
 		weaponData.isCharging = false

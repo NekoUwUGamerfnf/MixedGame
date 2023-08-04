@@ -26,7 +26,7 @@ struct {
 void function OnWeaponActivate_titanweapon_sniper( entity weapon )
 {
 	// modded weapon
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 		return OnWeaponActivate_titanweapon_archon_cannon( weapon )
 	//
 	
@@ -37,7 +37,7 @@ void function OnWeaponActivate_titanweapon_sniper( entity weapon )
 var function OnWeaponPrimaryAttack_titanweapon_sniper( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// modded weapon
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 		return OnWeaponPrimaryAttack_titanweapon_archon_cannon( weapon, attackParams )
 	//
 
@@ -124,7 +124,7 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 
 var function OnWeaponNpcPrimaryAttack_titanweapon_sniper( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 		return OnWeaponNpcPrimaryAttack_titanweapon_archon_cannon( weapon, attackParams )
 	
 	return FireSniper( weapon, attackParams, false )
@@ -135,7 +135,7 @@ var function OnWeaponNpcPrimaryAttack_titanweapon_sniper( entity weapon, WeaponP
 bool function OnWeaponChargeLevelIncreased_titanweapon_sniper( entity weapon )
 {
 	// no behavior
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 		return false // no behavior
 
 	#if CLIENT
@@ -275,7 +275,7 @@ int function GetTitanSniperChargeLevel( entity weapon )
 void function OnWeaponStartZoomIn_titanweapon_sniper( entity weapon )
 {
 	// modded weapon
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 		return // no behavior
 		
 	#if SERVER
@@ -292,7 +292,7 @@ void function OnWeaponStartZoomIn_titanweapon_sniper( entity weapon )
 void function OnWeaponStartZoomOut_titanweapon_sniper( entity weapon )
 {
 	// modded weapon
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 		return // no behavior
 
 	#if SERVER
@@ -309,7 +309,7 @@ void function OnWeaponStartZoomOut_titanweapon_sniper( entity weapon )
 void function OnWeaponOwnerChanged_titanweapon_sniper( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 	// modded weapon
-	if( weapon.HasMod( "arc_cannon" ) )
+	if( weapon.HasMod( "archon_arc_cannon" ) )
 		return OnWeaponOwnerChanged_titanweapon_archon_cannon( weapon, changeParams )
 	//
 	
