@@ -108,7 +108,9 @@ global const ArchonCannonTargetClassnames = {
 	[ "script_mover" ] 			= true,
 	[ "turret" ] 				= true,
 
-	[ "npc_pilot_elite" ]		= true, // modified
+	// modified targets
+	[ "npc_pilot_elite" ]		= true, 
+	[ "npc_gunship" ]			= true,
 }
 
 struct {
@@ -306,6 +308,8 @@ function Archon_ConvertTitanShieldIntoBonusCharge( entity soul, entity weapon )
 
 function FireArchonCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	entity owner = weapon.GetWeaponOwner()
+
 	local weaponScriptScope = weapon.GetScriptScope()
 	local baseCharge = GetWeaponChargeFrac( weapon ) // + GetOverchargeBonusChargeFraction()
 	local charge = clamp( baseCharge * ( 1 / GetArchonCannonChargeFraction( weapon ) ), 0.0, 1.0 )
@@ -323,7 +327,7 @@ function FireArchonCannon( entity weapon, WeaponPrimaryAttackParams attackParams
 	//if (weapon.GetWeaponClassName() == "mp_titanweapon_arc_cannon_archon")
 	if ( weapon.HasMod( "archon_arc_cannon" ) ) // arc cannon firing
 	{
-		if ( charge >= ARCHON_CANNON_DAMAGE_CHARGE_RATIO ) // firing with high charge frac, do a extra sound
+		if ( owner.IsNPC() || charge >= ARCHON_CANNON_DAMAGE_CHARGE_RATIO ) // npc firing or player firing with high charge frac, do a extra sound
 			weapon.EmitWeaponSound_1p3p( "MegaTurret_Laser_Fire_3P", "MegaTurret_Laser_Fire_3P")
 	}
 	//if (weapon.GetWeaponClassName() == "mp_titanweapon_shock_shield")
@@ -339,7 +343,8 @@ function FireArchonCannon( entity weapon, WeaponPrimaryAttackParams attackParams
 	Assert( attachmentIndex >= 0 )
 	local muzzleOrigin = weapon.GetAttachmentOrigin( attachmentIndex )
 
-	entity owner 				= weapon.GetWeaponOwner()
+	// move owner up for we handle sound
+	//entity owner 				= weapon.GetWeaponOwner()
 	local coneHeight 			= weapon.GetMaxDamageFarDist()
 
 	local angleToAxis 			= 2 // set this too high and auto-titans using it will error on FindVisibleEntitiesInCone

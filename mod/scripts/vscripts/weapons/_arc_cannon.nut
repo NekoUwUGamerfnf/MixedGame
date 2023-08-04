@@ -107,6 +107,10 @@ global const ArcCannonTargetClassnames = {
 	[ "rpg_missile" ] 			= true,
 	[ "script_mover" ] 			= true,
 	[ "turret" ] 				= true,
+
+	// modified targets
+	[ "npc_pilot_elite" ]		= true, 
+	[ "npc_gunship" ]			= true,
 }
 
 struct {
@@ -261,6 +265,8 @@ function ConvertTitanShieldIntoBonusCharge( entity soul, entity weapon )
 
 function FireArcCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	entity owner = weapon.GetWeaponOwner()
+
 	local weaponScriptScope = weapon.GetScriptScope()
 	local baseCharge = GetWeaponChargeFrac( weapon ) // + GetOverchargeBonusChargeFraction()
 	local charge = clamp( baseCharge * ( 1 / GetArcCannonChargeFraction( weapon ) ), 0.0, 1.0 )
@@ -272,7 +278,7 @@ function FireArcCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 	// Northstar missing: fix sound!!!
 	weapon.EmitWeaponSound_1p3p( "weapon_electric_smoke_electrocute_titan_1p", "weapon_electric_smoke_electrocute_titan_3p")
 	weapon.EmitWeaponSound_1p3p( "weapon_batterygun_firestart_1p", "weapon_batterygun_fire_energydrained_3p")
-	if ( charge >= ARC_CANNON_DAMAGE_CHARGE_RATIO ) // firing with high charge frac, do a extra sound
+	if ( owner.IsNPC() || charge >= ARC_CANNON_DAMAGE_CHARGE_RATIO ) // npc firing or player firing with high charge frac, do a extra sound
 		weapon.EmitWeaponSound_1p3p( "MegaTurret_Laser_Fire_3P", "MegaTurret_Laser_Fire_3P")
 
 	local attachmentName = "muzzle_flash"
