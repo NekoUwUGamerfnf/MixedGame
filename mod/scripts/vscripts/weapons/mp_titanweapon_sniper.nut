@@ -14,6 +14,13 @@ global function OnWeaponOwnerChanged_titanweapon_sniper
 global function OnWeaponNpcPrimaryAttack_titanweapon_sniper
 #endif // #if SERVER
 
+// modified callbacks
+global function OnWeaponDeactivate_titanweapon_sniper
+global function OnWeaponReload_titanweapon_sniper
+global function OnWeaponChargeBegin_titanweapon_sniper
+global function OnWeaponChargeEnd_titanweapon_sniper
+//
+
 const INSTANT_SHOT_DAMAGE 				= 1200
 //const INSTANT_SHOT_MAX_CHARGES		= 2 // can't change this without updating crosshair
 //const INSTANT_SHOT_TIME_PER_CHARGE	= 0
@@ -363,3 +370,31 @@ void function TitanSniperKnockBack( entity victim, var damageInfo, float dotBase
 	PushEntWithVelocity( victim, velocity )
 }
 #endif
+
+// modified callbacks
+void function OnWeaponDeactivate_titanweapon_sniper( entity weapon )
+{
+	if ( weapon.HasMod( "archon_arc_cannon" ) )
+		return OnWeaponDeactivate_titanweapon_archon_cannon( weapon )
+}
+
+void function OnWeaponReload_titanweapon_sniper( entity weapon, int milestoneIndex )
+{
+	if ( weapon.HasMod( "archon_arc_cannon" ) )
+		return OnWeaponReload_titanweapon_archon_cannon( weapon, milestoneIndex )
+}
+
+bool function OnWeaponChargeBegin_titanweapon_sniper( entity weapon )
+{
+	if ( weapon.HasMod( "archon_arc_cannon" ) )
+		return OnWeaponChargeBegin_titanweapon_archon_cannon( weapon )
+
+	return true
+}
+
+void function OnWeaponChargeEnd_titanweapon_sniper( entity weapon )
+{
+	if ( weapon.HasMod( "archon_arc_cannon" ) )
+		return OnWeaponChargeEnd_titanweapon_archon_cannon( weapon )
+}
+//
