@@ -14,6 +14,7 @@ void function Archon_Init()
 	MpTitanweaponChargeBall_Init()
 	MpTitanAbilityArcPylon_Init()
 	MpTitanWeaponStormWave_Init()
+	MpTitanweaponStormBall_Init()
 	
 	//prevent player earning coremeter by emp core 
 	#if SERVER

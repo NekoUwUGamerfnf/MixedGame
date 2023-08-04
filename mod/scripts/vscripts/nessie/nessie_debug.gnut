@@ -1,25 +1,33 @@
 untyped
+
+const bool DEBUG_ONLY_COMMANDS = true // otherwise we'll enable all debugging things, maybe messy
+
 global function NessieDebug_Init
+
+#if !DEBUG_ONLY_COMMANDS
 //global function DebugParticle
 
-//global function SpawnHoloPulseAtPosition
-//global function SpawnWeaponEntity_CountLifeTime
-//global function PlayAnimGestureFromScript
-//global function CreateViewEntityForPlayer
-//global function StartTitanShieldHealthRegen
+global function SpawnHoloPulseAtPosition
+global function SpawnWeaponEntity_CountLifeTime
+global function PlayAnimGestureFromScript
+global function CreateViewEntityForPlayer
+global function StartTitanShieldHealthRegen
 
-//global function TTF1_WeaponUsage
-//global function CreateHumanGib
-//global function CreatePeteMri
-//global function CreateWeaponDrop
+global function TTF1_WeaponUsage
+global function CreateHumanGib
+global function CreatePeteMri
+global function CreateWeaponDrop
 
 // testing!
 //global function BecomeFakeBarker
 
-const bool DEBUG_ONLY_COMMANDS = true // otherwise we'll enable all debugging things, maybe messy
+global function NukeIncomingEffectForPlayer
+#endif
 
-array<string> nessieDebugger = ["1007270968017"]
-table< string, int > playerAttackCountTable
+const array<string> NESSIE_DEBUGGERS = // we use BATTERY_SPAWNERS more often...
+[
+	"1007270968017"
+]
 
 const asset DEBUGGING_PARTICLE = $"P_plasma_exp_LG" // to control
 
@@ -33,10 +41,14 @@ const asset FX_BLOODSPRAY_DECAL_LRG                = $"P_deathfx_human_decal_LRG
 struct
 {
 	int dropshipSpawnIndex = 0
+	table< string, int > playerAttackCountTable
 } file
 
 void function NessieDebug_Init()
 {
+	//AddClientCommandCallback( "doomedtitan", CC_SpawnDoomedTitan )
+	//AddClientCommandCallback( "doomedpilottitan", CC_SpawnDoomedPilotTitan )
+
 	//AddClientCommandCallback( "ragdoll", BeARagdoll )
 	//AddClientCommandCallback( "fakedeath", FakeYourDeath )
 
@@ -77,8 +89,7 @@ void function NessieDebug_Init()
 
 	//AddClientCommandCallback( "usablePropPhysics", CC_CreateUsablePropPhysics )
 
-	if ( !DEBUG_ONLY_COMMANDS )
-	{
+	#if !DEBUG_ONLY_COMMANDS
 		// new test things
 		// these has been turn to unused
 		//MeleeSyncedHuman_EnableRandomExecutions( true ) 
@@ -136,6 +147,9 @@ void function NessieDebug_Init()
 		PrecacheParticleSystem( FX_BLOODSPRAY_DECAL_MED )
 		PrecacheParticleSystem( FX_BLOODSPRAY_DECAL_LRG )
 
+		// nuke
+		RegisterSignal( "NukeIncomingEffect" )
+
 		//Riff_ForceTitanAvailability( eTitanAvailability.Never )
 		//Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
 		//AddCallback_OnPlayerRespawned( OnPlayerRespawned )
@@ -143,13 +157,61 @@ void function NessieDebug_Init()
 
 		AddCallback_OnClientConnected( OnClientConnected )
 		//HoldingUp_Props_Init()
-	}
+	#endif // !DEBUG_ONLY_COMMANDS
 }
 
 
 ///////////////////////////
 ///// CLIENT COMMANDS /////
 ///////////////////////////
+
+bool function CC_SpawnDoomedTitan( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector angs = player.EyeAngles()
+	entity titan = CreateOgre( TEAM_BOTH, pos, angs )
+	DispatchSpawn( titan )
+
+	titan.TakeDamage( titan.GetMaxHealth() + 1, null, null, 0 ) 
+	//DoomTitan( titan )
+	print( "[NESSIE] " + player.GetPlayerName() + " spawned a doomed titan!" )
+	return true
+}
+
+bool function CC_SpawnDoomedPilotTitan( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector angs = player.EyeAngles()
+	entity titan = CreateOgre( TEAM_BOTH, pos, angs )
+	SetSpawnOption_AISettings( titan, "npc_titan_ogre_minigun" )
+	DispatchSpawn( titan )
+
+	titan.TakeDamage( titan.GetMaxHealth() + 1, null, null, 0 ) 
+	//DoomTitan( titan )
+	print( "[NESSIE] " + player.GetPlayerName() + " spawned a doomed npc pilot titan!" )
+
+	entity titanSoul = titan.GetTitanSoul()
+	if ( !IsValid( titanSoul ) )
+		return true
+
+	// mark as having a pilot valid
+	titanSoul.soul.seatedNpcPilot.isValid				= true
+	titanSoul.soul.seatedNpcPilot.team 					= TEAM_BOTH
+
+	titanSoul.soul.seatedNpcPilot.modelAsset 			= $"models/humans/pilots/pilot_medium_geist_m.mdl"
+	titanSoul.soul.seatedNpcPilot.title 				= "PILOT"
+
+	titanSoul.soul.seatedNpcPilot.isInvulnerable		= false
+
+	titanSoul.soul.seatedNpcPilot.health				= 250
+
+	return true
+}
 
 bool function BeARagdoll( entity player, array<string> args )
 {
@@ -724,7 +786,7 @@ entity function CreatePeteMri( vector origin = < 0,0,0 >, vector angles = < 0,0,
 	prop.SetOrigin( origin )
 	prop.SetAngles( angles )
 
-	//thread RGB_Hightlight( prop )
+	//thread RGB_Highlight( prop )
 
 	return prop
 }
@@ -805,14 +867,14 @@ void function PlayerAttackCounter( entity player )
 	OnThreadEnd(
 		function(): ( uid )
 		{
-			print( playerAttackCountTable[ uid ] )
+			print( file.playerAttackCountTable[ uid ] )
 		}
 	)
 
 	while( true )
 	{
 		player.WaitSignal( "OnPrimaryAttack" )
-		playerAttackCountTable[ uid ] += 1
+		file.playerAttackCountTable[ uid ] += 1
 	}
 }
 
@@ -852,7 +914,7 @@ void function OnClientConnected( entity player )
 	//AddButtonPressedPlayerInputCallback( player, IN_DUCK, ShowEntityStats )
 	//AddButtonPressedPlayerInputCallback( player, IN_USE, TEMP_PlayAnimGestureFromScript )
 	//AddButtonPressedPlayerInputCallback( player, IN_USE, DebugParticle )
-	//playerAttackCountTable[ player.GetUID() ] <- 0
+	file.playerAttackCountTable[ player.GetUID() ] <- 0
 }
 
 void function CallbackFuncCornerUs( entity player )

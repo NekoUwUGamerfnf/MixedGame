@@ -44,6 +44,10 @@ global function TitanHealth_GetSoulEnableShieldRegen // shared with _utility.gnu
 global function TitanHealth_SetSoulShieldRegenDelay
 global function TitanHealth_SetSoulShieldRegenTime
 global function TitanHealth_SetSoulShieldDamageReductionScale
+// npc pilot
+#if NPC_TITAN_PILOT_PROTOTYPE
+global function TitanHealth_SetSoulNPCPilotEjectDelay
+#endif
 
 // debug
 const bool TITAN_SCRIPTED_SHIELD_REGEN_DEBUG = false
@@ -85,6 +89,9 @@ struct
 	table<entity, float> soulShieldRegenDelay
 	table<entity, float> soulShieldRegenTime
 	table<entity, float> soulShieldDamageReductionScale // 1.0 in ttf2
+
+	// npc pilot
+	table<entity, float> soulNPCPilotEjectDelay
 } file
 
 void function TitanHealth_Init()
@@ -704,8 +711,12 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 	if ( isInfiniteDoom )
 	{
 		//printt( soulOwner.GetHealth() )
-		soulOwner.SetHealth( doomedHealth )
+		//soulOwner.SetHealth( doomedHealth ) // set health should be done after SetMaxHealth()
 		soulOwner.SetMaxHealth( maxDoomedHealth )
+		// anti-crash
+		if ( doomedHealth > maxDoomedHealth )
+			doomedHealth = maxDoomedHealth
+		soulOwner.SetHealth( doomedHealth )
 		//soulOwner.SetHealthPerSegment( 0 )
 
 		soulOwner.ClearDoomed() // disable doomed animation
@@ -733,8 +744,12 @@ void function DoomedHealthThink( entity titanSoul, var damageInfo )
 	}
 
 	// doomed health loss version
-	soulOwner.SetHealth( doomedHealth )
+	//soulOwner.SetHealth( doomedHealth ) // set health should be done after SetMaxHealth()
 	soulOwner.SetMaxHealth( maxDoomedHealth )
+	// anti-crash
+	if ( doomedHealth > maxDoomedHealth )
+		doomedHealth = maxDoomedHealth
+	soulOwner.SetHealth( doomedHealth )
 	//soulOwner.SetHealthPerSegment( 0 )
 
 	// vanilla missing!
@@ -1284,9 +1299,42 @@ void function AddCallback_OnTitanUndoomed( void functionref( entity, int ) callb
 	file.titanUndoomedCallbacks.append( callbackFunc )
 }
 
+// modified default shield modifier
+void function TitanShieldModifier( entity ent, var damageInfo, ShieldDamageModifier shieldModifier )
+{
+	if ( !IsValid( ent ) || !ent.IsTitan() )
+		return
+	entity soul = ent.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	// taken from Titan_NPCTookDamage() and Titan_PlayerTookDamage(), removed #if MP
+	// checking whether this is a damage using non-titan-damage weapon
+	bool critHit = false
+	if ( CritWeaponInDamageInfo( damageInfo ) )
+		critHit = IsCriticalHit( DamageInfo_GetAttacker( damageInfo ), ent, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageType( damageInfo ) )
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( HeavyArmorCriticalHitRequired( damageInfo ) && CritWeaponInDamageInfo( damageInfo ) && !critHit && IsValid( attacker ) && !attacker.IsTitan())
+		return
+
+	if ( soul in file.soulShieldDamageReductionScale )
+	{
+		shieldModifier.permanentDamageFrac = 1.0 - file.soulShieldDamageReductionScale[ soul ]
+
+		// specific damage, removed for now
+		//print( "IsRodeoDamage(): " + string( IsRodeoDamage( soul, damageInfo ) ) )
+		//print( "IsRodeoDamageFromBatteryPack(): " + string( IsRodeoDamageFromBatteryPack( soul, damageInfo ) ) )
+		//if ( IsRodeoDamage( soul, damageInfo ) )
+		//	shieldModifier.permanentDamageFrac = 1.0 // take full damage from rodeo
+	}
+}
+
+
 // modded function
+#if NPC_TITAN_PILOT_PROTOTYPE
 const float NPC_PILOT_EJECTING_DELAY = 5.0
-const float NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS = 3.0 // pilots do fast eject if they have health loss. 3s ~half health
+const float NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS_FRAC = 0.6 // pilots do fast eject if they have health loss
 
 void function NpcPilotEjectingThink( entity titan )
 {
@@ -1298,9 +1346,13 @@ void function NpcPilotEjectingThink( entity titan )
 	entity soul = titan.GetTitanSoul()
 	soul.EndSignal( "OnDestroy" )
 
-	float ejectDelay = NPC_PILOT_EJECTING_DELAY
+	float ejectDelay = GetSoulNPCPilotEjectDelay( soul )
+	if ( ejectDelay < 0 ) // delay smaller than 0 consider as never eject!
+		return
+
 	if ( !TitanHealth_GetSoulInfiniteDoomedState( soul ) )
-		ejectDelay = NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS
+		ejectDelay *= NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS_FRAC
+
 	wait ejectDelay
 
 	while( titan.Anim_IsActive() || TitanCoreInUse( titan ) )
@@ -1315,6 +1367,7 @@ void function NpcPilotEjectingThink( entity titan )
 
 	thread TitanEjectPlayer( titan )
 }
+#endif
 
 // modded titan core builder multiplier, get rid of respawn's hardcode
 void function TitanHealth_SetTitanCoreBuilderMultiplier( entity titan, float multiplier )
@@ -1399,33 +1452,19 @@ void function TitanHealth_SetSoulShieldDamageReductionScale( entity titanSoul, f
 	file.soulShieldDamageReductionScale[ titanSoul ] = damageReduction
 }
 
-// shield modifier
-void function TitanShieldModifier( entity ent, var damageInfo, ShieldDamageModifier shieldModifier )
+// npc pilot
+#if NPC_TITAN_PILOT_PROTOTYPE
+void function TitanHealth_SetSoulNPCPilotEjectDelay( entity titanSoul, float ejectDelay )
 {
-	if ( !IsValid( ent ) || !ent.IsTitan() )
-		return
-	entity soul = ent.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return
-
-	// taken from Titan_NPCTookDamage() and Titan_PlayerTookDamage(), removed #if MP
-	// checking whether this is a damage using non-titan-damage weapon
-	bool critHit = false
-	if ( CritWeaponInDamageInfo( damageInfo ) )
-		critHit = IsCriticalHit( DamageInfo_GetAttacker( damageInfo ), ent, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageType( damageInfo ) )
-
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( HeavyArmorCriticalHitRequired( damageInfo ) && CritWeaponInDamageInfo( damageInfo ) && !critHit && IsValid( attacker ) && !attacker.IsTitan())
-		return
-
-	if ( soul in file.soulShieldDamageReductionScale )
-	{
-		shieldModifier.permanentDamageFrac = 1.0 - file.soulShieldDamageReductionScale[ soul ]
-
-		// specific damage, removed for now
-		//print( "IsRodeoDamage(): " + string( IsRodeoDamage( soul, damageInfo ) ) )
-		//print( "IsRodeoDamageFromBatteryPack(): " + string( IsRodeoDamageFromBatteryPack( soul, damageInfo ) ) )
-		//if ( IsRodeoDamage( soul, damageInfo ) )
-		//	shieldModifier.permanentDamageFrac = 1.0 // take full damage from rodeo
-	}
+	if ( !( titanSoul in file.soulNPCPilotEjectDelay ) )
+		file.soulNPCPilotEjectDelay[ titanSoul ] <- NPC_PILOT_EJECTING_DELAY // default value
+	file.soulNPCPilotEjectDelay[ titanSoul ] <- ejectDelay
 }
+
+float function GetSoulNPCPilotEjectDelay( entity soul )
+{
+	if ( !( soul in file.soulNPCPilotEjectDelay ) )
+		return NPC_PILOT_EJECTING_DELAY // default value
+	return file.soulNPCPilotEjectDelay[ soul ]
+}
+#endif

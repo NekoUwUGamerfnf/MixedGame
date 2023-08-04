@@ -475,7 +475,7 @@ void function CodeCallback_MapInit() {
 
 void function AddMapProp( asset a, vector pos, vector ang, bool mantle, int fade)
 {
-    entity e = CreatePropDynamicLightweight(a, pos, ang, SOLID_VPHYSICS, 6000.0)
+    entity e = CreatePropDynamic(a, pos, ang, SOLID_VPHYSICS, 6000.0)
     
     if(mantle) e.AllowMantle()
     e.SetScriptName( "editor_placed_prop" )

@@ -685,7 +685,7 @@ string function GetGrenadeProjectileSound( weapon )
 
 
 // modified functions
-
+// return entity vairant: keep same as Grenade_OnWeaponToss_() does
 entity function Grenade_OnWeaponToss_ReturnEntity( entity weapon, WeaponPrimaryAttackParams attackParams, float directionScale )
 {
 	weapon.EmitWeaponSound_1p3p( GetGrenadeThrowSound_1p( weapon ), GetGrenadeThrowSound_3p( weapon ) )

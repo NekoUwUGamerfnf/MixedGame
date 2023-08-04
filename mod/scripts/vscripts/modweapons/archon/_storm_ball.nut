@@ -438,20 +438,11 @@ function DelayDestroyBolt( entity bolt )
 
 void function StormCore_DamagedTarget( entity target, var damageInfo )
 {
-	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	if ( !IsValid( inflictor ) )
-		return
-	if ( !inflictor.IsProjectile() )
-		return
-
-	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
-	if ( !mods.contains( "storm_core" ) ) // not storm core!
-		return
-	
 	// this will cause a projectile with no ball lightning dealing no damage!
 	//OnBallLightningDamage( target, damageInfo )
 
     entity attacker = DamageInfo_GetAttacker( damageInfo )
+	//print( "storm core attacker: " + string( attacker ) )
 	if( !IsValid( attacker ) )
 		return
 

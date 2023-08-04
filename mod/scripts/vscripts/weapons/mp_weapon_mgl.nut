@@ -1,5 +1,8 @@
 
 global function OnWeaponActivate_weapon_mgl
+// modified callbacks
+global function OnWeaponDeactivate_weapon_mgl
+//
 global function OnWeaponPrimaryAttack_weapon_mgl
 global function OnProjectileCollision_weapon_mgl
 
@@ -18,7 +21,18 @@ void function OnWeaponActivate_weapon_mgl( entity weapon )
 #if CLIENT
 	UpdateViewmodelAmmo( false, weapon )
 #endif // #if CLIENT
+
+	// modded weapon
+	if( weapon.HasMod( "tripwire_launcher" ) )
+		return OnWeaponActivate_weapon_zipline( weapon )
 }
+
+// modified callbacks
+void function OnWeaponDeactivate_weapon_mgl( entity weapon )
+{
+
+}
+//
 
 #if CLIENT
 void function OnClientAnimEvent_weapon_mgl( entity weapon, string name )
@@ -29,6 +43,14 @@ void function OnClientAnimEvent_weapon_mgl( entity weapon, string name )
 
 var function OnWeaponPrimaryAttack_weapon_mgl( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "tripwire_launcher" ) )
+		return OnWeaponPrimaryAttack_weapon_tripwire_launcher( weapon, attackParams )
+	if ( weapon.HasMod( "flesh_magnetic" ) || weapon.HasMod( "magnetic_rollers" ) )
+		return OnWeaponPrimaryAttack_weapon_flesh_mgl( weapon, attackParams )
+	//
+
+	// vanilla behavior
 	entity player = weapon.GetWeaponOwner()
 
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
@@ -44,6 +66,11 @@ var function OnWeaponPrimaryAttack_weapon_mgl( entity weapon, WeaponPrimaryAttac
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_weapon_mgl( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "flesh_magnetic" ) || weapon.HasMod( "magnetic_rollers" ) )
+		return OnWeaponNpcPrimaryAttack_weapon_flesh_mgl( weapon, attackParams )
+	// vanilla behavior
+
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 	FireGrenade( weapon, attackParams, true )
 }
@@ -65,79 +92,32 @@ void function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams
 			//InitMagnetic needs to be after the team is set on both client and server.
 			SetTeam( nade, weaponOwner.GetTeam() )
 		#endif
+
+		// nessie modified MGL
 		if( weapon.HasMod( "nessie_mgl" ) )
 			nade.SetModel( $"models/domestic/nessy_doll.mdl" )
-		if( weapon.HasMod( "tripwire_launcher" ) )
-		{
-			#if SERVER
-				nade.proj.onlyAllowSmartPistolDamage = false // so player can destroy the grenade with bullets
-				nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_tripwire )
-			#endif
-		}
-		else if( weapon.HasMod( "magnetic_rollers" ) )
-			return
-		else if( weapon.HasMod( "flesh_magnetic" ) )
-		{
-			#if SERVER
-				GiveProjectileFakeMagnetic( nade )
-			#endif
-		}
-		else
-			nade.InitMagnetic( MGL_MAGNETIC_FORCE, "Explo_MGL_MagneticAttract" )
-
+		
+		nade.InitMagnetic( MGL_MAGNETIC_FORCE, "Explo_MGL_MagneticAttract" )
 		//thread MagneticFlight( nade, MGL_MAGNETIC_FORCE )
 	}
 }
 
 void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	if ( !IsValid( hitEnt ) )
-		return
+	// modded weapon
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
-	if( mods.contains( "magnetic_rollers" ) )
-	{
-#if SERVER
-		if( projectile.proj.projectileBounceCount == 0 )
-		{
-			if( hitEnt.IsNPC() || hitEnt.IsPlayer() )
-				return
-			GiveProjectileFakeMagnetic( projectile, 95 )
-			projectile.proj.projectileBounceCount++
-			return
-		}
-		projectile.proj.projectileBounceCount++
-#endif
-		if ( ( hitEnt.IsNPC() || hitEnt.IsPlayer() ) && hitEnt.GetTeam() != projectile.GetTeam() )
-		{
-#if SERVER
-			TryFixMGLImpactEffect( projectile, pos, "exp_mgl" )
-#endif
-			projectile.ExplodeForCollisionCallback( normal )
-			return
-		}
-	}
-	else if( mods.contains( "flesh_magnetic" ) )
-	{
-		if ( ( hitEnt.IsNPC() || hitEnt.IsPlayer() ) && hitEnt.GetTeam() != projectile.GetTeam() )
-		{
-#if SERVER
-			// visual fix for client hitting near target, hardcoded
-			TryFixMGLImpactEffect( projectile, pos, "exp_mgl" )
-#endif
-			projectile.ExplodeForCollisionCallback( normal )
-			return
-		}
-	}
-
 	if( mods.contains( "tripwire_launcher" ) )
-	{
-		return OnProjectileCollision_weapon_zipline( projectile, pos, normal, hitEnt, hitbox, isCritical )
-		// cannot create frag entity
-		//return OnProjectileCollision_weapon_tripwire( projectile, pos, normal, hitEnt, hitbox, isCritical )
-	}
+		return OnProjectileCollision_weapon_tripwire_launcher( projectile, pos, normal, hitEnt, hitbox, isCritical )
+	else if ( mods.contains( "flesh_magnetic" ) || mods.contains( "magnetic_rollers" ) )
+		return OnProjectileCollision_weapon_flesh_mgl( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
-	else if ( IsMagneticTarget( hitEnt ) )
+
+	// vanilla behavior
+	if ( !IsValid( hitEnt ) )
+		return
+
+	if ( IsMagneticTarget( hitEnt ) )
 	{
 		if ( hitEnt.GetTeam() != projectile.GetTeam() )
 		{
@@ -145,18 +125,3 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 		}
 	}
 }
-
-#if SERVER
-bool function TryFixMGLImpactEffect( entity projectile, vector pos, string effectTable = "exp_mgl" )
-{
-	float creationTime = projectile.GetProjectileCreationTime()
-	float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
-	if ( Time() < maxFixTime )
-	{
-		PlayImpactFXTable( pos, projectile, effectTable, SF_ENVEXPLOSION_INCLUDE_ENTITIES )
-		return true
-	}
-
-	return false
-}
-#endif

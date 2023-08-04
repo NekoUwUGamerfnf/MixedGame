@@ -32,11 +32,14 @@ void function MpTitanWeaponFlameWave_Init()
 
 void function OnWeaponActivate_titancore_flame_wave( entity weapon )
 {
-	if( weapon.HasMod( "storm_core" ) )
+	// modded weapon
+	if( weapon.HasMod( "archon_storm_core" ) )
 		return OnWeaponActivate_titancore_storm_wave( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnWeaponActivate_titancore_ground_slam( weapon )
+	//
 
+	// vanilla behavior
 	weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
 	OnAbilityCharge_TitanCore( weapon )
 }
@@ -44,11 +47,14 @@ void function OnWeaponActivate_titancore_flame_wave( entity weapon )
 
 bool function OnAbilityCharge_FlameWave( entity weapon )
 {
-	if( weapon.HasMod( "storm_core" ) )
+	// modded weapon
+	if( weapon.HasMod( "archon_storm_core" ) )
 		return OnAbilityCharge_StormWave( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnAbilityCharge_GoundSlam( weapon )
+	//
 
+	// vanilla behavior
 	entity owner = weapon.GetWeaponOwner()
 	#if SERVER
 		float chargeTime = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
@@ -70,11 +76,14 @@ bool function OnAbilityCharge_FlameWave( entity weapon )
 
 void function OnAbilityChargeEnd_FlameWave( entity weapon )
 {
-	if( weapon.HasMod( "storm_core" ) )
+	// modded weapon
+	if( weapon.HasMod( "archon_storm_core" ) )
 		return OnAbilityChargeEnd_StormWave( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnAbilityChargeEnd_GoundSlam( weapon )
+	//
 
+	// vanilla behavior
 	entity owner = weapon.GetWeaponOwner()
 	#if SERVER
 		if ( owner.IsPlayer() )
@@ -88,11 +97,14 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 
 var function OnWeaponPrimaryAttack_titancore_flame_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if( weapon.HasMod( "storm_core" ) )
+	// modded weapon
+	if( weapon.HasMod( "archon_storm_core" ) )
 		return OnWeaponPrimaryAttack_titancore_storm_wave( weapon, attackParams )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnWeaponPrimaryAttack_titancore_ground_slam( weapon, attackParams )
+	//
 
+	// vanilla behavior
 	OnAbilityStart_TitanCore( weapon )
 
 	#if SERVER

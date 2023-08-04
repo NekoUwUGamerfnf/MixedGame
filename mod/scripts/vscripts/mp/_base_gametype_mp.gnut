@@ -29,7 +29,11 @@ global function IsPlayerDeathsHidden // new added
 global function SetPlayerRespawnForced
 global function AddCallback_ShouldPlayerDoForcedRespawn // add a callback func to check whether we trigger forced respawn
 global function ForcedRespawn_SetDisabledForPlayer // disable forced respawn for certain player
-global function SetLateJoinRespawnEnabled
+global function SetPlayerRespawnDelayForced // force a player to follow certain respawn delay. can be used for spawnwaves
+global function ResetPlayerRespawnDelay // reset respawn delay to default value: playlistvar "respawn_delay"
+global function GetPlayerRespawnDelay
+
+global function SetLateJoinRespawnEnabled // respawn the player if they join mid-game in a elimination gamemode
 
 global function SetGamemodeAnnouncementEnabled
 
@@ -57,6 +61,7 @@ struct
 	bool forcedRespawn = true
 	array<bool functionref( entity, table, bool )> shouldDoForcedRespawnCallbacks
 	table<entity, bool> playerDisableForcedRespawn
+	table<entity, float> playerRespawnDelay
 
 	bool enableLateRespawn = true
 	array<string> respawnedPlayerUIDs = []
@@ -149,6 +154,8 @@ void function CodeCallback_OnClientConnectionStarted( entity player )
 
 	// modified
 	file.playerDeathHintAllowedTime[ player ] <- 0.0
+	file.playerDisableForcedRespawn[ player ] <- false
+	file.playerRespawnDelay[ player ] <- GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 )
 
 	Assert( !player._entityVars )
 	InitEntityVars( player )
@@ -506,6 +513,16 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	table replayTracker = { validTime = null }
 	if ( shouldDoReplay )
 		thread TrackDestroyTimeForReplay( attacker, replayTracker )
+
+	// fix for replay duration
+	float timeSinceAttackerSpawned = Time() - 2 // seems to get the killreplay to end around the actual kill
+	if ( IsValid( attacker ) )
+	{
+		if ( attacker.IsPlayer() && "respawnTime" in attacker.s ) // player
+			timeSinceAttackerSpawned = Time() - expect float ( attacker.s.respawnTime )
+		else if ( attacker.IsNPC() ) // npc
+			timeSinceAttackerSpawned = Time() - attacker.ai.spawnTime
+	}
 	
 	player.StartObserverMode( OBS_MODE_DEATHCAM )
 	if ( ShouldSetObserverTarget( attacker ) )
@@ -552,16 +569,18 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		player.watchingKillreplayEndTime = Time() + replayLength		
 		float beforeTime = GetKillReplayBeforeTime( player, methodOfDeath )
 		
-		//replayTracker.validTime <- null // are you serious? you're overwriting replayTracker's valid time from TrackDestroyTimeForReplay()
+		//replayTracker.validTime <- null // don't overwrite replayTracker's valid time from TrackDestroyTimeForReplay()
 		
+		/* // move up before "wait deathcamLength" to fix for npc killreplay duration
 		float respawnTime = Time() - 2 // seems to get the killreplay to end around the actual kill
 		if ( "respawnTime" in attacker.s )
 			respawnTime = Time() - expect float ( attacker.s.respawnTime )
+		*/
 
 		// modified over here, add support for modified death cam length
 		//thread PlayerWatchesKillReplayWrapper( player, attacker, respawnTime, timeOfDeath, beforeTime, replayTracker )		
 		// try to do delayed replay
-		thread DelayedPlayerWatchesKillReplayWrapper( player, inflictorEHandle, attackerIndex, respawnTime, timeOfDeath, beforeTime, replayTracker, replayStartDelay )
+		thread DelayedPlayerWatchesKillReplayWrapper( player, inflictorEHandle, attackerIndex, timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker, replayStartDelay )
 	}
 
 	// BecomeRagdoll() seems weird with short deathCam
@@ -574,8 +593,10 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	if ( RespawnsEnabled() )
 	{
 		// is it a good idea to do respawn code in postdeaththread? fuck if i know lol
-		float respawnDelay = max( 0, GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 ) - deathcamLength )
-	
+		// add modified respawn delay think
+		//float respawnDelay = max( 0, GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 ) - deathcamLength )
+		float respawnDelay = max( 0, GetPlayerRespawnDelay( player ) - deathcamLength )	
+
 		print( "respawn delay " + respawnDelay )
 		
 		UpdateNextRespawnTime( player, Time() + respawnDelay )
@@ -776,7 +797,8 @@ void function PlayerWatchesKillReplayWrapper( entity player, int inflictorEHandl
 	if ( player.GetPlayerSettings() != "spectator" )
 		PlayerClassChangeToSpectator( player )
 
-	player.SetPredictionEnabled( false )
+	//player.SetPredictionEnabled( false )
+	player.SetPredictionEnabled( true ) // should we enable prediction on killreplay?
 	//PlayerWatchesKillReplay( player, attacker.GetEncodedEHandle(), attacker.GetIndexForEntity(), timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker )
 	PlayerWatchesKillReplay( player, inflictorEHandle, attackerIndex, timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker )
 }
@@ -825,11 +847,14 @@ void function RespawnAsTitan( entity player, bool manualPosition = false )
 	// do titanfall scoreevent
 	if ( !level.firstTitanfall )
 	{
-		AddPlayerScore( player, "FirstTitanfall", player )
+		if ( Riff_SpawnAsTitan() == 0 )	// only add score if we're not always spawn as titan
+		{
+			AddPlayerScore( player, "FirstTitanfall", player )
 
-		#if HAS_STATS
-		UpdatePlayerStat( player, "misc_stats", "titanFallsFirst" )
-		#endif
+			#if HAS_STATS
+				UpdatePlayerStat( player, "misc_stats", "titanFallsFirst" )
+			#endif
+		}
 
 		level.firstTitanfall = true
 	}
@@ -960,7 +985,8 @@ int function CalculateTitanDamageTaken( entity victim, var damageInfo )
 	if ( GetDoomedState( victim ) )
 	{
 		// consider this is a undoomed killshot, in _titan_health.gnut HandleKillShot() we set damage to health - 1, should add 1 more to score
-		if ( healthLeft - 1 == damageAmount && doomedTime == currentTime ) 
+		// if ( healthLeft - 1 == damageAmount && doomedTime == currentTime ) 
+		if ( doomedTime == currentTime ) 
 			damageAmount += 1
 		// consider this is a doomed killshot, cap to max health
 		else if ( healthLeft <= damageAmount )
@@ -1011,8 +1037,6 @@ void function AddCallback_ShouldPlayerDoForcedRespawn( bool functionref( entity,
 
 void function ForcedRespawn_SetDisabledForPlayer( entity player, bool disable )
 {
-	if ( !( player in file.playerDisableForcedRespawn ) )
-		file.playerDisableForcedRespawn[ player ] <- false // default value
 	file.playerDisableForcedRespawn[ player ] = disable
 }
 
@@ -1042,6 +1066,24 @@ bool function ShouldForceRespawnPlayer_FromDamageTable( entity victim, table dam
 
 	// default value
 	return true
+}
+
+
+// force a player to follow certain respawn delay. can be used for spawnwaves
+void function SetPlayerRespawnDelayForced( entity player, float respawnDelay )
+{
+	file.playerRespawnDelay[ player ] = respawnDelay
+}
+
+// reset respawn delay to default value: playlistvar "respawn_delay"
+void function ResetPlayerRespawnDelay( entity player )
+{
+	file.playerRespawnDelay[ player ] = GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 )
+}
+
+float function GetPlayerRespawnDelay( entity player )
+{
+	return file.playerRespawnDelay[ player ]
 }
 
 void function SetLateJoinRespawnEnabled( bool enabled )

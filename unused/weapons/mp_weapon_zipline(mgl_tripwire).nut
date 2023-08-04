@@ -4,6 +4,7 @@ untyped
 global function MpWeaponZipline_Init
 global function OnWeaponActivate_weapon_zipline
 global function OnWeaponDeactivate_weapon_zipline
+global function OnWeaponAttemptOffhandSwitch_weapon_zipline
 global function OnWeaponPrimaryAttack_weapon_zipline
 global function OnProjectileCollision_weapon_zipline
 
@@ -16,6 +17,8 @@ const ZIPLINE_END_MODEL = $"models/industrial/grappling_hook_end.mdl"
 
 const ZIPLINE_DIST_MIN = 350
 const ZIPLINE_DIST_MAX = 6000
+
+const ZIPLINE_LIFE_TIME = 30
 
 struct
 {
@@ -35,6 +38,8 @@ function MpWeaponZipline_Init()
 
 void function OnWeaponActivate_weapon_zipline( entity weapon )
 {
+	if( !weapon.HasMod( "tripwire_launcher" ) )
+		return
 	entity owner = weapon.GetWeaponOwner()
 	if ( !("activeZiplineBolt" in owner.s) ) // TODO: initialize this elsewhere...
 		owner.s.activeZiplineBolt <- null
@@ -42,9 +47,21 @@ void function OnWeaponActivate_weapon_zipline( entity weapon )
 
 void function OnWeaponDeactivate_weapon_zipline( entity weapon )
 {
+	if( !weapon.HasMod( "tripwire_launcher" ) )
+		return
 	entity owner = weapon.GetWeaponOwner()
 	if ( IsValid( owner ) )
-		owner.s.activeZiplineBolt = null
+		owner.s.activeZiplineBolt <- null
+}
+
+bool function OnWeaponAttemptOffhandSwitch_weapon_zipline( entity weapon )
+{
+	entity owner = weapon.GetWeaponOwner()
+
+	if ( owner.IsPhaseShifted() )
+		return false
+
+	return true
 }
 
 #if SERVER
@@ -57,6 +74,12 @@ var function OnWeaponNpcPrimaryAttack_weapon_zipline( entity weapon, WeaponPrima
 var function OnWeaponPrimaryAttack_weapon_zipline( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+
+	entity owner = weapon.GetWeaponOwner()
+
+	EmitSoundOnEntity( owner, "Wpn_TetherTrap_Deploy_3P" )
+	if ( !("activeZiplineBolt" in owner.s) ) // TODO: initialize this elsewhere...
+		owner.s.activeZiplineBolt <- null
 
 	bool shouldCreateProjectile = false
 	if ( IsServer() || weapon.ShouldPredictProjectiles() )
@@ -111,6 +134,17 @@ void function DeleteAfterDelay( array<entity> ents, delay )
 	{
 		if ( IsValid( ent ) )
 			ent.Destroy()
+	}
+}
+
+void function ExplodeAfterDelay( array<entity> ents, delay )
+{
+	wait delay
+
+	foreach ( ent in ents )
+	{
+		if ( IsValid( ent ) )
+			ent.GrenadeExplode( <0,0,0> )
 	}
 }
 
@@ -200,6 +234,47 @@ array<entity> function CreateGunZipline( vector startPos, vector endPos )
 	return ropeEnts
 }
 
+array<entity> function CreateZipLine( vector start, vector end, int autoDetachDistance = 150, float ziplineMoveSpeedScale = 1.0 )
+{
+	string midpointName = UniqueString( "rope_midpoint" )
+	string endpointName = UniqueString( "rope_endpoint" )
+
+	entity rope_start = CreateEntity( "move_rope" )
+	rope_start.kv.NextKey = midpointName
+	rope_start.kv.MoveSpeed = 0
+	rope_start.kv.ZiplineMoveSpeedScale = ziplineMoveSpeedScale
+	rope_start.kv.Slack = 0
+	rope_start.kv.Subdiv = 0
+	rope_start.kv.Width = "2"
+	rope_start.kv.TextureScale = "1"
+	rope_start.kv.RopeMaterial = "cable/zipline.vmt"
+	rope_start.kv.PositionInterpolator = 2
+	rope_start.kv.Zipline = "1"
+	rope_start.kv.ZiplineAutoDetachDistance = string( autoDetachDistance )
+	rope_start.kv.ZiplineSagEnable = "0"
+	rope_start.kv.ZiplineSagHeight = "0"
+	rope_start.SetOrigin( start )
+
+	entity rope_mid = CreateEntity( "keyframe_rope" )
+	SetTargetName( rope_mid, midpointName )
+	rope_start.kv.NextKey = endpointName
+	rope_mid.SetOrigin( ( start + end ) * 0.5 )
+	//rope_mid.SetOrigin( start )
+
+	entity rope_end = CreateEntity( "keyframe_rope" )
+	SetTargetName( rope_end, endpointName )
+	rope_end.SetOrigin( end )
+
+	// Dispatch spawn entities
+	DispatchSpawn( rope_start )
+	DispatchSpawn( rope_mid )
+	DispatchSpawn( rope_end )
+
+	array<entity> ropeEnts = [ rope_start, rope_mid, rope_end ]
+
+	return ropeEnts
+}
+
 #endif
 
 bool function CanTetherEntities( entity startEnt, entity endEnt )
@@ -231,6 +306,10 @@ void function OnProjectileCollision_weapon_zipline( entity projectile, vector po
 		if ( !owner.IsPlayer() )
 			return
 
+		//for mgl tripwire
+		if( !hitEnt.IsWorld() )
+			return
+
 		bool didStick = PlantStickyGrenade( projectile, pos, normal, hitEnt, hitbox )
 		if ( !didStick )
 		{
@@ -239,7 +318,29 @@ void function OnProjectileCollision_weapon_zipline( entity projectile, vector po
 			return
 		}
 
-		projectile.SetAbsAngles( AnglesCompose( projectile.GetAngles(), Vector(-90,0,0) ) )
+		//projectile.SetAbsAngles( AnglesCompose( projectile.GetAngles(), Vector(-90,0,0) ) )
+
+		Assert( IsValid( projectile ) )
+		vector origin = projectile.GetOrigin()
+
+		vector endOrigin = origin - Vector( 0.0, 0.0, 32.0 )
+		vector surfaceAngles = projectile.proj.savedAngles
+		vector oldUpDir = AnglesToUp( surfaceAngles )
+
+		TraceResults traceResult = TraceLine( origin, endOrigin, [], TRACE_MASK_SOLID, TRACE_COLLISION_GROUP_NONE )
+		if ( traceResult.fraction < 1.0 )
+		{
+			vector forward = AnglesToForward( projectile.proj.savedAngles )
+			surfaceAngles = AnglesOnSurface( traceResult.surfaceNormal, forward )
+
+			vector newUpDir = AnglesToUp( surfaceAngles )
+			if ( DotProduct( newUpDir, oldUpDir ) < 0.55 )
+				surfaceAngles = projectile.proj.savedAngles
+		}
+
+		projectile.SetAngles( surfaceAngles )
+
+		EmitSoundOnEntity( projectile, "Wpn_LaserTripMine_Land" )
 
 		// TODO first person representation
 		// - duplicate entities, not parented to the hitbox
@@ -265,9 +366,13 @@ void function OnProjectileCollision_weapon_zipline( entity projectile, vector po
 				if ( startEnt.IsTitan() || endEnt.IsTitan() )
 				{
 					if ( startEnt.IsTitan() )
+					{
 						ziplineEnts.extend( CreateRopeWithEnts( activeZiplineBolt, projectile ) )
+					}
 					else
+					{
 						ziplineEnts.extend( CreateRopeWithEnts( projectile, activeZiplineBolt ) )
+					}
 				}
 				else
 				{
@@ -276,7 +381,17 @@ void function OnProjectileCollision_weapon_zipline( entity projectile, vector po
 
 				EmitSoundOnEntityOnlyToPlayer( owner, owner, "Explo_TripleThreat_MagneticAttract")
 
-				thread DeleteAfterDelay( ziplineEnts, 60.0 )
+				if( Vortex_GetRefiredProjectileMods( projectile ).contains( "tripwire_launcher" ) ) // modded refire behavior
+				{
+					foreach( entity attatch in ziplineEnts )
+					{
+						thread TrapDestroyOnDamage( attatch )
+						thread TrapDestroyOnRoundEnd( owner, attatch )
+					}
+					thread ExplodeAfterDelay( ziplineEnts, ZIPLINE_LIFE_TIME )
+				}
+				else
+					thread DeleteAfterDelay( ziplineEnts, 60.0 )
 				owner.s.activeZiplineBolt = null
 			}
 			else
@@ -294,6 +409,51 @@ void function OnProjectileCollision_weapon_zipline( entity projectile, vector po
 }
 
 #if SERVER
+//fix so it can be destroyed now
+void function TrapDestroyOnDamage( entity trapEnt )
+{
+	EndSignal( trapEnt, "OnDestroy" )
+
+	trapEnt.SetDamageNotifications( true )
+
+	var results
+	entity attacker
+	entity inflictor
+
+	while ( true )
+	{
+		if ( !IsValid( trapEnt ) )
+			return
+
+		results = WaitSignal( trapEnt, "OnDamaged" )
+		attacker = expect entity( results.activator )
+		inflictor = expect entity( results.inflictor )
+
+		if ( IsValid( inflictor ) && inflictor == trapEnt )
+			continue
+
+		bool shouldDamageTrap = false
+		if ( IsValid( attacker ) )
+		{
+			if ( trapEnt.GetTeam() == attacker.GetTeam() )
+			{
+				shouldDamageTrap = false
+			}
+			else
+			{
+				shouldDamageTrap = true
+			}
+		}
+
+		if ( shouldDamageTrap )
+			break
+	}
+
+	if ( !IsValid( trapEnt ) )
+		return
+
+	trapEnt.Destroy()
+}
 
 entity function PROTO_EnvBeam( entity owner, entity startEnt, entity endEnt )
 {
@@ -328,7 +488,8 @@ void function OnTouchedByEntity( entity self, entity activator, entity caller, v
 
 	foreach ( ent in self.s.parents )
 	{
-		ent.GrenadeExplode( <0,0,0> )
+		if( IsValid(ent) )
+			ent.GrenadeExplode( <0,0,0> )
 	}
 
 	printt( "touch", self, activator, caller, value )

@@ -244,16 +244,11 @@ void function OnArcPylonField_DamagedEntity( entity target, var damageInfo )
 		return
 
 	entity titan = DamageInfo_GetAttacker( damageInfo )
-	entity weapon = DamageInfo_GetWeapon( damageInfo )
 	float outputDamage = DamageInfo_GetDamage( damageInfo )
 
 	//print("TESLA DAMAGE: " + outputDamage)
 
 	if ( !IsValid( titan ) )
-		return
-	if( !IsValid( weapon ) )
-		return
-	if( !weapon.HasMod( "tesla_node" ) )
 		return
 
 	local className = target.GetClassName()

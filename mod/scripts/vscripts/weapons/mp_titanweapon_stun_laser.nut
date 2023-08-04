@@ -49,7 +49,7 @@ bool function OnWeaponAttemptOffhandSwitch_titanweapon_stun_laser( entity weapon
 var function OnWeaponPrimaryAttack_titanweapon_stun_laser( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// modded weapon
-	if( weapon.HasMod( "charge_ball" ) )
+	if( weapon.HasMod( "archon_charge_ball" ) )
 		return OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall( weapon, attackParams )
 	//
 	

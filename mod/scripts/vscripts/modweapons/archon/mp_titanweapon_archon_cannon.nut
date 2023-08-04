@@ -103,16 +103,12 @@ function DelayedArchonCannonStart( entity weapon, entity weaponOwner )
 
 void function OnWeaponDeactivate_titanweapon_archon_cannon( entity weapon )
 {
-	if( !weapon.HasMod( "arc_cannon" ) )
-		return
 	ArchonCannon_ChargeEnd( weapon, weapon.GetOwner() )
 	ArchonCannon_Stop( weapon )
 }
 
 void function OnWeaponReload_titanweapon_archon_cannon( entity weapon, int milestoneIndex )
 {
-	if( !weapon.HasMod( "arc_cannon" ) )
-		return
 	local reloadTime = weapon.GetWeaponInfoFileKeyField( "reload_time" )
 	thread ArchonCannon_HideIdleEffect( weapon, reloadTime ) //constant seems to help it sync up better
 }
@@ -143,32 +139,26 @@ void function OnWeaponOwnerChanged_titanweapon_archon_cannon( entity weapon, Wea
 
 bool function OnWeaponChargeBegin_titanweapon_archon_cannon( entity weapon )
 {
-	if( weapon.HasMod( "arc_cannon" ) )
-	{
-		local stub = "this is here to suppress the untyped message.  This can go away when the .s. usage is removed from this file."
-		#if SERVER
-		//if ( weapon.HasMod( "fastpacitor_push_apart" ) )
-		//	weapon.GetWeaponOwner().StunMovementBegin( weapon.GetWeaponSettingFloat( eWeaponVar.charge_time ) )
-		#endif
-		#if SERVER
-		weaponData.isCharging = true
-		#endif
-		//thread UpdateWeaponChargeTracker( weapon )
-		ArchonCannon_ChargeBegin( weapon )
-	}
+	local stub = "this is here to suppress the untyped message.  This can go away when the .s. usage is removed from this file."
+	#if SERVER
+	//if ( weapon.HasMod( "fastpacitor_push_apart" ) )
+	//	weapon.GetWeaponOwner().StunMovementBegin( weapon.GetWeaponSettingFloat( eWeaponVar.charge_time ) )
+	#endif
+	#if SERVER
+	weaponData.isCharging = true
+	#endif
+	//thread UpdateWeaponChargeTracker( weapon )
+	ArchonCannon_ChargeBegin( weapon )
 
 	return true
 }
 
 void function OnWeaponChargeEnd_titanweapon_archon_cannon( entity weapon )
 {
-	if( weapon.HasMod( "arc_cannon" ) )
-	{
-		#if SERVER
-		weaponData.isCharging = false
-		#endif
-		ArchonCannon_ChargeEnd( weapon, weapon )
-	}
+	#if SERVER
+	weaponData.isCharging = false
+	#endif
+	ArchonCannon_ChargeEnd( weapon, weapon )
 }
 
 var function OnWeaponPrimaryAttack_titanweapon_archon_cannon( entity weapon, WeaponPrimaryAttackParams attackParams )
@@ -192,6 +182,7 @@ var function OnWeaponNpcPrimaryAttack_titanweapon_archon_cannon( entity weapon, 
 	local fireRate = weapon.GetWeaponInfoFileKeyField( "fire_rate" )
 	thread ArchonCannon_HideIdleEffect( weapon, fireRate )
 
+	//print( "NPC try to fire archon cannon!!!" )
 	return FireArchonCannon( weapon, attackParams )
 }
 #endif // #if SERVER
@@ -199,21 +190,12 @@ var function OnWeaponNpcPrimaryAttack_titanweapon_archon_cannon( entity weapon, 
 
 void function ArchonCannonOnDamage( entity ent, var damageInfo )
 {
-	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	if ( !IsValid( inflictor ) )
-		return
-	if( inflictor.IsProjectile() )
-		return
-		
 	vector pos = DamageInfo_GetDamagePosition( damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
 	entity weapon = DamageInfo_GetWeapon( damageInfo )
 	if( !IsValid( weapon ) )
 		return
-	if( !weapon.HasMod( "arc_cannon" ) )
-		return
-
 	float damageMultiplier = DamageInfo_GetDamage( damageInfo ) / weapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
 
 	if ( ent.IsPlayer() || ent.IsNPC() )

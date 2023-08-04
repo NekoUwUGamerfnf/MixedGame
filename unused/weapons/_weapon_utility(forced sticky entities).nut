@@ -852,16 +852,17 @@ bool function PlantStickyGrenade( entity ent, vector pos, vector normal, entity 
 	#endif
 
 	// fix for map props
-	local entClassname
-	if ( IsServer() )
-		entClassname = hitEnt.GetClassName()
-	else
-		entClassname = hitEnt.GetSignifierName() // Can return null
 	//if ( !hitEnt.IsWorld() && (!hitEnt.IsTitan() || !allowEntityStick) )
-	if ( !hitEnt.IsWorld() && 
-		 (!hitEnt.IsTitan() || !allowEntityStick) &&
-		 !( entClassname in level.stickyClasses ) // new adding check
-		)
+		//return false
+	if ( !IsValid( hitEnt ) )
+		return false
+	if( hitEnt.GetClassName() == "script_mover" ) // better not stick to movers
+		return false
+
+	if( hitEnt.IsProjectile() )
+		return false
+
+	if( IsPilot( hitEnt ) )
 		return false
 
 	// SetOrigin might be causing the ent to get markedForDeletion.
@@ -921,17 +922,14 @@ bool function PlantSuperStickyGrenade( entity ent, vector pos, vector normal, en
 	#endif
 
 	// fix for map props
-	local entClassname
-	if ( IsServer() )
-		entClassname = hitEnt.GetClassName()
-	else
-		entClassname = hitEnt.GetSignifierName() // Can return null
 	//if ( !hitEnt.IsWorld() && !hitEnt.IsPlayer() && !hitEnt.IsNPC() )
-	if ( !hitEnt.IsWorld() && 
-		 !hitEnt.IsPlayer() && 
-		 !hitEnt.IsNPC() &&
-		 !( entClassname in level.stickyClasses ) // new adding check
-		)
+		//return false
+	if ( !IsValid( hitEnt ) )
+		return false
+	if( hitEnt.GetClassName() == "script_mover" ) // better not stick to movers
+		return false
+	
+	if( hitEnt.IsProjectile() )
 		return false
 
 	ent.SetVelocity( Vector( 0, 0, 0 ) )
@@ -1019,9 +1017,10 @@ bool function EntityCanHaveStickyEnts( entity stickyEnt, entity ent )
 	else
 		entClassname = ent.GetSignifierName() // Can return null
 
-	//print( "entClassname: " + string( entClassname ) )
-	if ( !( entClassname in level.stickyClasses ) && !ent.IsNPC() )
-		return false
+	print( "entClassname: " + string( entClassname ) )
+	// fix for map props
+	//if ( !( entClassname in level.stickyClasses ) && !ent.IsNPC() )
+	//	return false
 
 	#if CLIENT
 	if ( stickyEnt instanceof C_Projectile )

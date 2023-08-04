@@ -355,12 +355,6 @@ bool function OnWeaponAttemptOffhandSwitch_titanweapon_Arc_pylon( entity weapon 
 #if SERVER
 void function ArcPylon_DamagedPlayerOrNPC( entity ent, var damageInfo )
 {
-	entity weapon = DamageInfo_GetWeapon( damageInfo )
-	if( !IsValid( weapon ) )
-		return
-	if( !weapon.HasMod( "tesla_node" ) )
-		return
-
 	if ( ent.IsPlayer() )
 	{
 		if ( ent.IsTitan() )

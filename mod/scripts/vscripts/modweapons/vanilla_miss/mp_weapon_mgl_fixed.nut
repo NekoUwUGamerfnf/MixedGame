@@ -6,8 +6,8 @@ void function MpWeaponMGL_Init()
 #if SERVER
     // burnmod blacklist
     ModdedBurnMods_AddDisabledMod( "tripwire_launcher" )
-	ModdedBurnMods_AddDisabledMod( "flesh_magnetic" )
-    ModdedBurnMods_AddDisabledMod( "magnetic_rollers" )
+	//ModdedBurnMods_AddDisabledMod( "flesh_magnetic" )
+    //ModdedBurnMods_AddDisabledMod( "magnetic_rollers" )
 
     // vortex refire override
 	Vortex_AddImpactDataOverride_WeaponMod( 
