@@ -280,6 +280,8 @@ function FireArcCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 	weapon.EmitWeaponSound_1p3p( "weapon_batterygun_firestart_1p", "weapon_batterygun_fire_energydrained_3p")
 	if ( owner.IsNPC() || charge >= ARC_CANNON_DAMAGE_CHARGE_RATIO ) // npc firing or player firing with high charge frac, do a extra sound
 		weapon.EmitWeaponSound_1p3p( "MegaTurret_Laser_Fire_3P", "MegaTurret_Laser_Fire_3P")
+	if ( owner.IsNPC() ) // for npcs, stop charge effect upon firing
+		weapon.StopWeaponEffect( $"wpn_arc_cannon_charge_fp", $"wpn_arc_cannon_charge" )
 
 	local attachmentName = "muzzle_flash"
 	local attachmentIndex = weapon.LookupAttachment( attachmentName )
