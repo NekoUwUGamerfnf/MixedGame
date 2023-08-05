@@ -23,8 +23,6 @@ function MpWeaponSmartPistol_Init()
 	// we've added burnmod support for smart pistol, no need to add blacklist for unlimited ammo
     //ModdedBurnMods_AddDisabledMod( "smart_pistol_unlimited_ammo" )
 	ModdedBurnMods_AddDisabledMod( "fake_smart_xo16" )
-	// adding fake model for fake weapons
-	RegisterSignal( "DestroyFakeModel" )
 
 	// damageSourceId callbacks
 	AddCallback_WeaponMod_DamageSourceIdOverride( 
@@ -32,6 +30,9 @@ function MpWeaponSmartPistol_Init()
 		"fake_smart_xo16",									// weapon mod
 		eDamageSourceId.mp_titanweapon_xo16_vanguard		// damageSourceId override
 	)
+
+	// adding fake model for fake weapons
+	RegisterSignal( "DestroyFakeModel" )
 #endif
 }
 
