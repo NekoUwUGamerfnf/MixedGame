@@ -68,21 +68,31 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 			vector attackDir = attackParams.dir + upVec + rightVec
 			float projectileSpeed = 2800
 
-			if ( weapon.GetWeaponClassName() == "mp_weapon_shotgun_doublebarrel" )
-				{
+			// remove all meaningless codes...
+			//if ( weapon.GetWeaponClassName() == "mp_weapon_shotgun_doublebarrel" )
+			//	{
 					attackDir = attackParams.dir
 					projectileSpeed = 3800
-				}
+			//	}
 
 			entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackDir, projectileSpeed, damageTypes.largeCaliber | DF_SHOTGUN, damageTypes.largeCaliber | DF_SHOTGUN, playerFired, index )
 			if ( bolt )
 			{
 				bolt.kv.gravity = 0.4 // 0.09
 
-				if ( weapon.GetWeaponClassName() == "mp_weapon_shotgun_doublebarrel" )
+				// remove all meaningless codes...
+				//if ( weapon.GetWeaponClassName() == "mp_weapon_shotgun_doublebarrel" )
 					bolt.SetProjectileLifetime( RandomFloatRange( 1.0, 1.3 ) )
-				else
-					bolt.SetProjectileLifetime( RandomFloatRange( 0.50, 0.65 ) )
+				//else
+				//	bolt.SetProjectileLifetime( RandomFloatRange( 0.50, 0.65 ) )
+
+				// modded npc weapon!!!
+				if ( weapon.HasMod( "projectile_shotgun_npc" ) )
+				{
+					// fix effect
+					StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"P_mastiff_proj" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+					EmitSoundOnEntity( bolt, "wpn_leadwall_projectile_crackle" )
+				}
 			}
 		}
 	}
