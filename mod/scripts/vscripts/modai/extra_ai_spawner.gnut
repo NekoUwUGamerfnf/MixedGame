@@ -81,21 +81,6 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	*/
 ]
 
-// extrame HACK here! make use of unused aisettings for set up npc ordnances
-/* // we try to use npc.kv.grenadeWeaponName instead
-const table<string, string> HACK_NPC_ORDNANCE_AISET =
-{
-	["mp_weapon_frag_grenade"]				= "npc_soldier",
-
-	["mp_weapon_thermite_grenade"]			= "npc_soldier_bish",
-	["mp_weapon_grenade_gravity"]			= "npc_soldier_blisk",
-	["mp_weapon_grenade_emp"]				= "npc_soldier_pve_eliteguard",
-	["mp_weapon_grenade_electric_smoke"]	= "npc_soldier_pve_sandbox",
-	["mp_weapon_satchel"]					= "npc_soldier_spyglass", // satchel is missing npc logic
-}
-*/
-//
-
 // for ExtraSpawner_SpawnTitan() picking random titans
 struct TitanSpawnStruct
 {
@@ -217,7 +202,8 @@ void function ExtraAISpawner_Init()
 	//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
 	//AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
 	//AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
-	AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
+	//AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
+	//AddClientCommandCallback( "pistol_grunt", CC_SpawnTestPistolGrunt )
 }
 
 void function OnStalkerSpawned( entity stalker )
@@ -1115,7 +1101,6 @@ bool function CC_SpawnAssassinPilot( entity player, array<string> args )
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 	entity pilot = CreateNPC( "npc_pilot_elite", GetPlayerAISpawnTeam( player, args ), pos, rot )
-	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	SetSpawnOption_AISettings( pilot, "npc_pilot_elite_assassin" )
 	pilot.s.petTitan <- null // initializing
 	pilot.s.nextTitanRespawnAvailable <- null
@@ -1142,7 +1127,6 @@ bool function CC_SpawnSpecialistGrunt( entity player, array<string> args )
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
-	file.npcSpawnFromExtraSpawner[ grunt ] <- true
 	SetSpawnOption_AISettings( grunt, "npc_soldier_pve_specialist" )
 
 	file.npcSpawnFromExtraSpawner[ grunt ] <- true
@@ -1189,6 +1173,36 @@ bool function CC_SpawnBossTitanWithIntro( entity player, array<string> args )
 
 	string bossType = args[0].tolower()
 	ExtraSpawner_SpawnBossTitan( pos, rot, team, bossType, TITAN_MERC )
+
+	return true
+}
+
+bool function CC_SpawnTestPistolGrunt( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	grunt.SetBehaviorSelector( "behavior_sp_soldier" ) // they'll switch to pistol if needed
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_smart_pistol" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_wingman" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_autopistol" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_semipistol" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_alternator_smg" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_wingman_n" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_pistol" )
+	SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_doublebarrel_tfo" )
+
+	file.npcSpawnFromExtraSpawner[ grunt ] <- true
+	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
+
+	//grunt.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	grunt.GetMainWeapons()[0].AddMod( "projectile_shotgun_npc" )
+
+	//grunt.SetModel( $"models/robots/spectre/imc_spectre.mdl" )
 
 	return true
 }
@@ -2198,7 +2212,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 
 		// hardcoded here, setup grunt weapon specific
 		bool sniperGrunt = isLeader && leaderAiSet == "npc_soldier_sidearm"
-		bool replaceAllWeapons = !sniperGrunt
+		bool guardGrunt = isLeader && leaderAiSet == "npc_soldier_pve_eliteguard"
+		bool replaceAllWeapons = !sniperGrunt && !guardGrunt
 		//print( "sniperGrunt: " + string( sniperGrunt ) )
 		ExtraSpawner_ApplyNPCWeapons( guy, replaceAllWeapons )
 
@@ -2253,7 +2268,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		SetSquad( npc, squadName )
 		// hardcoded here, setup grunt weapon specific
 		bool sniperGrunt = isLeader && leaderAiSet == "npc_soldier_sidearm"
-		bool replaceAllWeapons = !sniperGrunt
+		bool guardGrunt = isLeader && leaderAiSet == "npc_soldier_pve_eliteguard"
+		bool replaceAllWeapons = !sniperGrunt && !guardGrunt
 		//print( "sniperGrunt: " + string( sniperGrunt ) )
 		ExtraSpawner_ApplyNPCWeapons( npc, replaceAllWeapons )
 		
@@ -2357,6 +2373,38 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			string sideArmName = SNIPER_VALID_SIDEARMS[ RandomInt( SNIPER_VALID_SIDEARMS.len() ) ]
 			entity sideArm = npc.GiveWeapon( sideArmName )
 			//sideArm.AddMod( "npc_sniper_grunt" ) // removed, which is overpowered
+
+			break
+
+		case "npc_soldier_pve_eliteguard": // elite guard grunt
+			if ( team == TEAM_MILITIA )
+				npc.SetModel( $"models/humans/grunts/mlt_grunt_shotgun.mdl" )
+			else
+				npc.SetModel( $"models/humans/grunts/imc_grunt_shotgun.mdl" )
+
+			npc.SetTitle( "菁英護衛" )
+
+			// this should be a external const, but we can't assign things if it being a const
+			table< string, array<string> > guardValidWeaponMods
+			guardValidWeaponMods[ "mp_weapon_smart_pistol" ] <- []
+			guardValidWeaponMods["mp_weapon_shotgun_doublebarrel_tfo"] <- ["projectile_shotgun_npc"] // modified shotgun variant that only suitable for npcs
+
+			// special weapons, hardcoded!
+			// take off existing main weapons, or sometimes they'll have a archer
+			foreach ( entity weapon in npc.GetMainWeapons() )
+				npc.TakeWeaponNow( weapon.GetWeaponClassName() )
+
+			// assign specific weapon and mods
+			array<string> validWeapons
+			foreach ( weapon, mods in guardValidWeaponMods )
+				validWeapons.append( weapon )
+
+			string weaponToChoose = validWeapons[ RandomInt( validWeapons.len() ) ]
+			array<string> mods = guardValidWeaponMods[ weaponToChoose ]
+			npc.GiveWeapon( weaponToChoose, mods )
+			npc.SetActiveWeaponByName( weaponToChoose )
+
+			npc.EnableNPCFlag( NPC_NO_WEAPON_DROP ) // elite guard grunts never drops weapon
 
 			break
 	}
