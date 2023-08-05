@@ -142,7 +142,7 @@ void function OnWeaponStartZoomOut_weapon_smart_pistol( entity weapon )
 #if SERVER
 // modified content: adding fake model for fake weapons
 // can't get eWeaponVar.playermodel... currently hardcode
-table< string, asset > FAKE_MODEL_MODS =
+const table< string, asset > FAKE_MODEL_MODS =
 {
 	["fake_smart_xo16"] = $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl"
 }
