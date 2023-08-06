@@ -316,7 +316,10 @@ void function UpgradeCoreThink( entity weapon, float coreDuration )
 	EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Monarch_Smart_Core_ActiveLoop_1P" )
 	EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Monarch_Smart_Core_Activated_3P" )
 	entity soul = owner.GetTitanSoul()
-	soul.SetShieldHealth( soul.GetShieldHealthMax() )
+	//soul.SetShieldHealth( soul.GetShieldHealthMax() )
+	// upgrade core should only regen 2500 points of shield even when shield value is modified
+    // hardcoded!
+    soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + 2500 ) )
 
 	OnThreadEnd(
 	function() : ( weapon, owner, soul )
