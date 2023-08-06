@@ -16,24 +16,6 @@ function MpWeaponSmartPistol_Init()
 {
 	PrecacheParticleSystem( $"P_smartpistol_lockon_FP" )
 	PrecacheParticleSystem( $"P_smartpistol_lockon" )
-
-	// modified condition
-#if SERVER
-	// burnmod blacklist
-	// we've added burnmod support for smart pistol, no need to add blacklist for unlimited ammo
-    //ModdedBurnMods_AddDisabledMod( "smart_pistol_unlimited_ammo" )
-	ModdedBurnMods_AddDisabledMod( "fake_smart_xo16" )
-
-	// damageSourceId callbacks
-	AddCallback_WeaponMod_DamageSourceIdOverride( 
-		"mp_weapon_smart_pistol",							// weapon name
-		"fake_smart_xo16",									// weapon mod
-		eDamageSourceId.mp_titanweapon_xo16_vanguard		// damageSourceId override
-	)
-
-	// adding fake model for fake weapons
-	RegisterSignal( "DestroyFakeModel" )
-#endif
 }
 
 void function OnWeaponActivate_weapon_smart_pistol( entity weapon )
