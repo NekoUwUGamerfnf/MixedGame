@@ -16,7 +16,6 @@ function MpWeaponSmartPistol_Init()
 {
 	PrecacheParticleSystem( $"P_smartpistol_lockon_FP" )
 	PrecacheParticleSystem( $"P_smartpistol_lockon" )
-#endif
 }
 
 void function OnWeaponActivate_weapon_smart_pistol( entity weapon )
