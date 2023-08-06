@@ -81,21 +81,6 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	*/
 ]
 
-// extrame HACK here! make use of unused aisettings for set up npc ordnances
-/* // we try to use npc.kv.grenadeWeaponName instead
-const table<string, string> HACK_NPC_ORDNANCE_AISET =
-{
-	["mp_weapon_frag_grenade"]				= "npc_soldier",
-
-	["mp_weapon_thermite_grenade"]			= "npc_soldier_bish",
-	["mp_weapon_grenade_gravity"]			= "npc_soldier_blisk",
-	["mp_weapon_grenade_emp"]				= "npc_soldier_pve_eliteguard",
-	["mp_weapon_grenade_electric_smoke"]	= "npc_soldier_pve_sandbox",
-	["mp_weapon_satchel"]					= "npc_soldier_spyglass", // satchel is missing npc logic
-}
-*/
-//
-
 // for ExtraSpawner_SpawnTitan() picking random titans
 struct TitanSpawnStruct
 {
@@ -1895,7 +1880,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 
 		// hardcoded here, setup grunt weapon specific
 		bool sniperGrunt = isLeader && leaderAiSet == "npc_soldier_sidearm"
-		bool replaceAllWeapons = !sniperGrunt
+		bool guardGrunt = isLeader && leaderAiSet == "npc_soldier_pve_eliteguard"
+		bool replaceAllWeapons = !sniperGrunt && !guardGrunt
 		//print( "sniperGrunt: " + string( sniperGrunt ) )
 		ExtraSpawner_ApplyNPCWeapons( guy, replaceAllWeapons )
 
@@ -1950,7 +1936,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		SetSquad( npc, squadName )
 		// hardcoded here, setup grunt weapon specific
 		bool sniperGrunt = isLeader && leaderAiSet == "npc_soldier_sidearm"
-		bool replaceAllWeapons = !sniperGrunt
+		bool guardGrunt = isLeader && leaderAiSet == "npc_soldier_pve_eliteguard"
+		bool replaceAllWeapons = !sniperGrunt && !guardGrunt
 		//print( "sniperGrunt: " + string( sniperGrunt ) )
 		ExtraSpawner_ApplyNPCWeapons( npc, replaceAllWeapons )
 		
@@ -2039,7 +2026,7 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			else
 				npc.SetModel( $"models/humans/grunts/imc_grunt_lmg.mdl" )
 
-			npc.SetTitle( "狙擊步兵" )
+			npc.SetTitle( "Sniper Grunt" )
 			// stronger behavior
 			npc.SetBehaviorSelector( "behavior_sp_soldier" ) // they'll switch to pistol if needed
 			npc.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
@@ -2054,6 +2041,38 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			string sideArmName = SNIPER_VALID_SIDEARMS[ RandomInt( SNIPER_VALID_SIDEARMS.len() ) ]
 			entity sideArm = npc.GiveWeapon( sideArmName )
 			//sideArm.AddMod( "npc_sniper_grunt" ) // removed, which is overpowered
+
+			break
+
+		case "npc_soldier_pve_eliteguard": // elite guard grunt
+			if ( team == TEAM_MILITIA )
+				npc.SetModel( $"models/humans/grunts/mlt_grunt_shotgun.mdl" )
+			else
+				npc.SetModel( $"models/humans/grunts/imc_grunt_shotgun.mdl" )
+
+			npc.SetTitle( "Elite Guard" )
+
+			// this should be a external const, but we can't assign things if it being a const
+			table< string, array<string> > guardValidWeaponMods
+			guardValidWeaponMods[ "mp_weapon_smart_pistol" ] <- []
+			guardValidWeaponMods["mp_weapon_shotgun_doublebarrel"] <- ["projectile_shotgun_npc"] // modified shotgun variant that only suitable for npcs
+
+			// special weapons, hardcoded!
+			// take off existing main weapons, or sometimes they'll have a archer
+			foreach ( entity weapon in npc.GetMainWeapons() )
+				npc.TakeWeaponNow( weapon.GetWeaponClassName() )
+
+			// assign specific weapon and mods
+			array<string> validWeapons
+			foreach ( weapon, mods in guardValidWeaponMods )
+				validWeapons.append( weapon )
+
+			string weaponToChoose = validWeapons[ RandomInt( validWeapons.len() ) ]
+			array<string> mods = guardValidWeaponMods[ weaponToChoose ]
+			npc.GiveWeapon( weaponToChoose, mods )
+			npc.SetActiveWeaponByName( weaponToChoose )
+
+			npc.EnableNPCFlag( NPC_NO_WEAPON_DROP ) // elite guard grunts never drops weapon
 
 			break
 	}
@@ -2722,7 +2741,7 @@ void function ExtraSpawner_SpawnCarePackageToGetWeapons_Threaded( vector pos, ve
 
 	pod.SetUsable()
 	pod.SetUsableByGroup( "pilot" )
-	pod.SetUsePrompts( "按住 %use% 以獲取武器", "按下 %use% 獲取武器" )
+	pod.SetUsePrompts( "Hold %use% To Get Weapon", "Press %use% To Get Weapon" )
 	AddCallback_OnUseEntity( pod , GiveAirDropWeapon )
 
 	HighlightDropPod( pod )
@@ -2762,8 +2781,7 @@ function GiveAirDropWeapon( pod , player )
 
 	if( file.usedplayer.contains( player ) )
 	{
-		//SendHudMessage(player, "Once Robbed Weapon from Care Package\nPlease Wait for Next Delivery",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-		SendHudMessage( player, "已獲取本次補給艙\n請等待下一輪",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+		SendHudMessage( player, "Once Robbed Care Package\nPlease Wait for Next Delivery",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
 		return
 	}
     //DropModdedWeapons( WEAPONS, pos, MODS )
@@ -2772,8 +2790,7 @@ function GiveAirDropWeapon( pod , player )
 	//GiveModdedWeapons( player, WEAPONS, MODS )
 	GiveModdedWeapons( player, file.carePackageWeapons )
 	RestorePlayerAmmo( player )
-    //SendHudMessage(player, "Got Weapon from Care Package",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-    SendHudMessage( player, "已從補給艙補充彈藥",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+    SendHudMessage( player, "Got Weapon Ammo from Care Package",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
 	file.usedplayer.append( player )
 	player.Signal( "PlayerUsedCarePackage" )
 }
