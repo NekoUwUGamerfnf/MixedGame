@@ -16,23 +16,6 @@ function MpWeaponSmartPistol_Init()
 {
 	PrecacheParticleSystem( $"P_smartpistol_lockon_FP" )
 	PrecacheParticleSystem( $"P_smartpistol_lockon" )
-
-	// modified condition
-#if SERVER
-	// burnmod blacklist
-	// we've added burnmod support for smart pistol, no need to add blacklist for unlimited ammo
-    //ModdedBurnMods_AddDisabledMod( "smart_pistol_unlimited_ammo" )
-	ModdedBurnMods_AddDisabledMod( "fake_smart_xo16" )
-
-	// damageSourceId callbacks
-	AddCallback_WeaponMod_DamageSourceIdOverride( 
-		"mp_weapon_smart_pistol",							// weapon name
-		"fake_smart_xo16",									// weapon mod
-		eDamageSourceId.mp_titanweapon_xo16_vanguard		// damageSourceId override
-	)
-
-	// adding fake model for fake weapons
-	RegisterSignal( "DestroyFakeModel" )
 #endif
 }
 
@@ -56,21 +39,12 @@ void function OnWeaponActivate_weapon_smart_pistol( entity weapon )
 #if SERVER
 	weapon.s.locking = true
 	weapon.s.lockStartTime = Time()
-
-	// modified content: adding fake model for fake weapons
-	CreateFakeModelForSmartPistol( weapon )
 #endif
 }
 
 void function OnWeaponDeactivate_weapon_smart_pistol( entity weapon )
 {
 	weapon.StopWeaponEffect( $"P_smartpistol_lockon_FP", $"P_smartpistol_lockon" )
-
-#if SERVER
-	// modified content: adding fake model for fake weapons
-	// now handled by looping think "TrackFakeModelLifeTime()"
-	//weapon.Signal( "DestroyFakeModel" )
-#endif
 }
 
 var function OnWeaponPrimaryAttack_weapon_smart_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
@@ -138,90 +112,3 @@ void function OnWeaponStartZoomOut_weapon_smart_pistol( entity weapon )
 	}
 
 }
-
-#if SERVER
-// modified content: adding fake model for fake weapons
-// can't get eWeaponVar.playermodel... currently hardcode
-const table< string, asset > FAKE_MODEL_MODS =
-{
-	["fake_smart_xo16"] = $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl"
-}
-
-void function CreateFakeModelForSmartPistol( entity weapon )
-{
-	//print( "RUNNING CreateFakeModelForSmartPistol()" )
-	entity owner = weapon.GetWeaponOwner()
-	//print( "weapon owner: " + string( owner ) )
-	if ( !IsValid( owner ) )
-		return
-	if ( owner.LookupAttachment( "PROPGUN" ) == -1 )
-		return
-
-	string fakeModelMod = ""
-	array<string> mods = weapon.GetMods()
-	foreach ( mod in mods )
-	{
-		if ( mod.find( "fake_" ) != null )
-		{
-			//print( "Found fakemodel mod!" )
-			fakeModelMod = mod
-			break
-		}
-	}
-
-	if ( fakeModelMod == "" )
-	{
-		//print( "Can't find fakemodel mod!" )
-		return
-	}
-
-	// can't get eWeaponVar.playermodel... currently hardcode
-	asset model = FAKE_MODEL_MODS[ fakeModelMod ]
-	entity prop = CreatePropDynamic( model, owner.GetOrigin(), owner.GetAngles() )
-	prop.SetParent( owner, "PROPGUN" )
-	prop.Highlight_SetInheritHighlight( true ) // setup highlight
-	//print( "Creating fake model!" )
-
-	thread TrackFakeModelLifeTime( weapon, owner, prop )
-}
-
-void function TrackFakeModelLifeTime( entity weapon, entity owner, entity prop )
-{
-	prop.EndSignal( "OnDestroy" )
-
-	owner.EndSignal( "OnDeath" )
-	owner.EndSignal( "OnDestroy" )
-	weapon.Signal( "DestroyFakeModel" )
-	weapon.EndSignal( "OnDestroy" )
-	weapon.EndSignal( "DestroyFakeModel" )
-
-	OnThreadEnd
-	(
-		function(): ( prop )
-		{
-			if ( IsValid( prop ) )
-			{
-				//print( "Destroying fake model!" )
-				prop.Destroy()
-			}
-		}
-	)
-
-	while ( true )
-	{
-		entity activeWeapon = owner.GetActiveWeapon()
-		if ( !IsValid( activeWeapon ) )
-			return
-		if ( activeWeapon.IsWeaponOffhand() ) // offhand weapon case
-		{
-			var keepMainWeaponModel = activeWeapon.GetWeaponInfoFileKeyField( "offhand_keep_primary_in_hand" )
-			if ( keepMainWeaponModel == null || !keepMainWeaponModel )
-				return
-		}
-		else if ( activeWeapon != weapon ) // main weapon case
-			return
-
-		WaitFrame()
-	}
-}
-#endif
