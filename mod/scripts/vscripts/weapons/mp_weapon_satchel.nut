@@ -12,6 +12,12 @@ global function AddCallback_OnSatchelPlanted
 const MAX_SATCHELS_IN_WORLD = 3  // if more than this are thrown, the oldest one gets cleaned up
 const SATCHEL_THROW_POWER = 620
 
+// rework callbacks to make it typed!!
+struct
+{
+	array< void functionref( entity player, entity satchel, table collisionParams ) > onSatchelPlantedCallbacks
+} file
+
 function MpWeaponSatchel_Init()
 {
 	SatchelPrecache()
@@ -155,11 +161,17 @@ void function OnProjectileCollision_weapon_satchel( entity weapon, vector pos, v
 		EmitAISoundWithOwner( player, SOUND_PLAYER, 0, player.GetOrigin(), 1000, 0.2 )
 
 		// Added via AddCallback_OnSatchelPlanted
-		if ( "onSatchelPlanted" in level )
-		{
-			foreach ( callbackFunc in level.onSatchelPlanted )
-				callbackFunc( player, collisionParams )
-		}
+		// rework to make it typed！！
+		#if MP
+			foreach ( callbackFunc in file.onSatchelPlantedCallbacks )
+				callbackFunc( player, weapon, collisionParams )
+		#else // vanilla behavior(save for SP)
+			if ( "onSatchelPlanted" in level )
+			{
+				foreach ( callbackFunc in level.onSatchelPlanted )
+					callbackFunc( player, collisionParams )
+			}
+		#endif // MP
 
 		//if player is rodeoing a Titan and we stickied the satchel onto the Titan, set lastAttackTime accordingly
 		if ( result )
@@ -186,6 +198,13 @@ void function OnProjectileCollision_weapon_satchel( entity weapon, vector pos, v
 	#endif
 }
 
+// rework to make it typed！！
+#if MP
+void function AddCallback_OnSatchelPlanted( void functionref( entity player, entity satchel, table collisionParams ) callbackFunc )
+{
+	file.onSatchelPlantedCallbacks.append( callbackFunc )
+}
+#else // vanilla behavior(save for SP)
 function AddCallback_OnSatchelPlanted( callbackFunc )
 {
 	if ( !( "onSatchelPlanted" in level ) )
@@ -197,3 +216,4 @@ function AddCallback_OnSatchelPlanted( callbackFunc )
 
 	level.onSatchelPlanted.append( callbackFunc )
 }
+#endif // MP
