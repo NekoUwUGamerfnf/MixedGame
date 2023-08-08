@@ -366,6 +366,7 @@ entity function NpcPilotCallsInTitan( entity pilot, vector origin, vector angles
 	//reset the next titan callin timer
 	NpcResetNextTitanRespawnAvailable( pilot )
 
+	// below are hardcoded!!!
 	int randomindex = RandomInt( 7 )
 	string titanSetFile = ""
 	string titanSettings = ""
@@ -509,9 +510,10 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
-	titan.EndSignal( "OnDestroy" )
 	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
 
+	/* // move to actual embarking animation
 	OnThreadEnd(
 		function () : ( titan, pilot )
 		{
@@ -525,6 +527,7 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 			}
 		}
 	)
+	*/
 
 	local titanSubClass = GetSoulTitanSubClass( titan.GetTitanSoul() )
 	local embarkSet = FindBestEmbark( pilot, titan )
@@ -561,6 +564,30 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 
 	if ( IsCloaked( pilot ) )
 		pilot.SetCloakDuration( 0, 0, 1.5 )
+
+	// since we've removed invulnerable for titan, needs to handle titan killed condition
+	table result = {
+		embarkSucceeded = false
+	}
+
+	OnThreadEnd
+	(
+		function(): ( pilot, titan, result )
+		{
+			if ( IsAlive( titan ) )
+			{
+				if ( titan.ContextAction_IsBusy() )
+					titan.ContextAction_ClearBusy()
+			}
+
+			if ( !result.embarkSucceeded ) // function didn't reach last line
+			{
+				if ( !IsAlive( titan ) && IsAlive( pilot ) ) // titan killed but pilot still alive
+					pilot.Die( null, null, { damageSourceId = damagedef_suicide, scriptType = DF_RAGDOLL } ) // kill the pilot!
+			}
+		}
+	)
+	//
 	
 	// this fucks things up
 	//pilot.SetParent( titan, "hijack", false, 0.5 ) //the time is just in case their not exactly at the right starting position
@@ -578,12 +605,13 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 	thread FirstPersonSequence( sequence, pilot, titan )
 	waitthread PlayAnimGravity( titan, titanAnim )
 
-	if ( !isInvulnerable || IsMultiplayer() ) // always clear it if mp
+	if ( !isInvulnerable || IsMultiplayer() ) // due pilot embarked and going to be destroyed, always clear it if mp
 		pilot.ClearInvulnerable()
 
 	// adding here: mark the titan as stand
 	SetStanceStand( titan.GetTitanSoul() )
-		
+	result.embarkSucceeded = true // mark as embark succeeded
+
 	NpcPilotBecomesTitan( pilot, titan )
 }
 
@@ -615,9 +643,32 @@ function __NpcPilotDisembarksTitan( pilot, titan )
 	if ( pilot.GetTitle() != "" )
 		titan.SetTitle( pilot.GetTitle() + " 的自動泰坦" )
 
-	local isInvulnerable = pilot.IsInvulnerable()
-	pilot.SetInvulnerable()
-	titan.SetInvulnerable()
+	// moved down
+	//local isInvulnerable = pilot.IsInvulnerable()
+	//pilot.SetInvulnerable()
+	//titan.SetInvulnerable()
+
+	// since we've removed invulnerable for titan, needs to handle titan killed condition
+	pilot.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	table result = {
+		disembarkSucceeded = false
+	}
+
+	OnThreadEnd
+	(
+		function(): ( pilot, titan, result )
+		{
+			if ( !result.disembarkSucceeded ) // function didn't reach last line
+			{
+				if ( !IsAlive( titan ) && IsAlive( pilot ) ) // titan killed but pilot still alive
+					pilot.Die( null, null, { damageSourceId = damagedef_suicide, scriptType = DF_RAGDOLL } ) // kill the pilot!
+			}
+		}
+	)
+	//
 
 	local pilot3pAnim, pilot3pAudio, titanDisembarkAnim
 	local titanSubClass = GetSoulTitanSubClass( titan.GetTitanSoul() )
@@ -636,20 +687,43 @@ function __NpcPilotDisembarksTitan( pilot, titan )
 		pilot3pAudio = titanSubClass + "_Disembark_Kneeling_3P"
 	}
 
+	// invulnerable done here, titan never get invulnerable.
+	local isInvulnerable = pilot.IsInvulnerable()
+	pilot.SetInvulnerable()
+
+	// build firstPersonSequence struct
+	// taken from sh_titan_embark.gnut
+	FirstPersonSequenceStruct sequence
+	sequence.blendTime = 0
+	sequence.teleport = true
+	sequence.attachment = "hijack"
+	sequence.thirdPersonAnim = expect string( pilot3pAnim )
+	// no fp anim for npc pilots
+	local titanAnim = titanDisembarkAnim
+
 //	pilot.SetParent( titan, "hijack" )
 	//EmitSoundOnEntity( titan, pilot3pAudio )
-	thread PlayAnim( titan, titanDisembarkAnim )
-	waitthread PlayAnim( pilot, pilot3pAnim, titan, "hijack" )
+	// should use firstPersonSequence instead of PlayAnim
+	//thread PlayAnim( titan, titanDisembarkAnim )
+	//waitthread PlayAnim( pilot, pilot3pAnim, titan, "hijack" )
+	thread PlayAnimGravity( titan, titanAnim )
+	waitthread FirstPersonSequence( sequence, pilot, titan ) // pilot anim is shorter, wait for it
 
-	//pilot.ClearParent()
-	titan.ContextAction_ClearBusy()
-	pilot.ContextAction_ClearBusy()
-	if ( !isInvulnerable || IsMultiplayer() ) // always clear it if mp
+	pilot.ClearParent() // clear parent from titan
+
+	if ( titan.ContextAction_IsBusy() )
+		titan.ContextAction_ClearBusy()
+	if ( pilot.ContextAction_IsBusy() )
+		pilot.ContextAction_ClearBusy()
+	if ( !isInvulnerable )
 		pilot.ClearInvulnerable()
-	titan.ClearInvulnerable()
+	//titan.ClearInvulnerable()
 
 	if ( !standing )
 		SetStanceKneel( titan.GetTitanSoul() )
+
+	// for handling titan killed condition
+	result.disembarkSucceeded = true // mark as embark succeeded
 }
 
 void function NpcPilotBecomesTitan( entity pilot, entity titan )
@@ -684,9 +758,9 @@ void function NpcPilotBecomesTitan( entity pilot, entity titan )
 
 	titan.SetTitle( titanSoul.soul.seatedNpcPilot.title )
 
-	thread DelayedDestroyBubble( titan )
+	thread DelayedDestroyBubble( titan ) // adding this behavior for a fix
 
-	if( !IsMultiplayer() )
+	if( !IsMultiplayer() ) // remove this behavior for mp
 		thread __TitanPilotRodeoCounter( titan )
 
 	ScriptCallback_OnNpcPilotBecomesTitan( pilot, titan )
@@ -779,7 +853,7 @@ entity function NpcTitanBecomesPilot( entity titan )
 
 	UpdateEnemyMemoryFromTeammates( pilot )
 
-	if( !IsMultiplayer() )
+	if( !IsMultiplayer() ) // remove this behavior for mp
 		thread __TitanStanceThink( pilot, titan )
 
 	ScriptCallback_OnNpcTitanBecomesPilot( pilot, titan )

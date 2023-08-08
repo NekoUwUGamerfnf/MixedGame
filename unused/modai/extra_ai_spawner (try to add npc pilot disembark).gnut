@@ -145,7 +145,8 @@ struct
 	// for marking the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
 	// scripted npc dialogue
-	table<entity, float> npcDialogueNextAllowedTimeOnPlayer
+	table<entity, float> npcDialogueNextAllowedTime
+	table<entity, string> npcLastDialogue
 	// npc handler func
 	void functionref( array<entity> ) squadHandlerFunc
 	table< string, void functionref( entity ) > npcHandlerFuncs
@@ -179,7 +180,6 @@ void function ExtraAISpawner_Init()
 	// npc pilot thin
 	RegisterSignal( "EmbarkedNPCTitanThink" )
 
-	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
 	//RegisterSignal( "ForceStartMove" ) // the signal as been deleted
 	
@@ -199,12 +199,17 @@ void function ExtraAISpawner_Init()
 	// convert imc stalkers to white ones
 	// this is hardcode and not vanilla behavior.. just want to add some funny stuff		
 	AddSpawnCallback( "npc_stalker", OnStalkerSpawned )
-}
 
-void function OnClientConnected( entity player )
-{
-	// scripted npc dialogue
-	file.npcDialogueNextAllowedTimeOnPlayer[ player ] <- 0.0
+	// for debugging
+	//MeleeSyncedNPC_EnableAll_Init()
+	AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
+	//AddClientCommandCallback( "tickreaper", CC_SpawnReaperCanLaunchTicks )
+	//AddClientCommandCallback( "gunship", CC_SpawnGunShip )
+	//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
+	//AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
+	//AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
+	//AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
+	//AddClientCommandCallback( "pistol_grunt", CC_SpawnTestPistolGrunt )
 }
 
 void function OnStalkerSpawned( entity stalker )
@@ -472,6 +477,51 @@ void function InitDefaultTitanList()
 		6,												// imc team skinIndex
 		8												// mlt team skinIndex
 	)
+
+	// bison
+	ExtraSpawner_RegisterToTitanSpawnList
+	(
+		"bison",										// spawn name. unique
+		"titan_ogre_meteor",							// setFile
+		"npc_titan_auto_ogre_scorch_prime",				// aiSet
+		"execution_scorch_prime",						// executionRef, this one don't require weapons
+		// after being embarked by npcs
+		"npc_titan_ogre_fighter",						// embarkedAiSet, core aiset handled by titan core
+		"behavior_titan_melee",							// embarkedBehavior, core behavior handled by titan core
+		"#NPC_TITAN_OGRE_FIGHTER",						// embarkedTitle
+		NPCBisonLoadout
+	)
+
+	/*
+	// modded weapon titans
+	// brute4
+	ExtraSpawner_RegisterToTitanSpawnList
+	(
+		"brute4_modded",								// spawn name. unique
+		"titan_stryder_sniper",							// setFile
+		"npc_titan_auto_stryder_northstar_prime",		// aiSet
+		"execution_northstar_prime",					// executionRef, this one don't require weapons
+		// after being embarked by npcs
+		"npc_titan_stryder_rocketeer",					// embarkedAiSet
+		"behavior_titan_shotgun",						// embarkedBehavior, hover ability is bind together with "behavior_titan_rocketeer", use shotgun instead
+		"#NPC_TITAN_AUTO_ATLAS_ROCKETEER",				// embarkedTitle
+		NPCBrute4Loadout
+	)
+
+	// archon, WIP. sometimes crashes client when shock ball hits player, also mostly can't fire arc cannon
+	ExtraSpawner_RegisterToTitanSpawnList
+	(
+		"archon_modded",								// spawn name. unique
+		"titan_atlas_stickybomb",						// setFile
+		"npc_titan_auto_atlas_ion_prime",				// aiSet
+		"execution_ion_prime",							// executionRef, fixed npc ion using prime executions, but the chest laser will shot from behind!
+		// after being embarked by npcs
+		"npc_titan_atlas_stickybomb",					// embarkedAiSet
+		"behavior_titan",								// embarkedBehavior
+		"#NPC_TITAN_AUTO_STRYDER_ARC",					// embarkedTitle
+		NPCArchonLoadout
+	)
+	*/
 }
 //
 
@@ -480,14 +530,14 @@ void function NPCBruteLoadout( entity titan )
 {
 	TakeAllWeapons( titan )
 	//Weapon
-	titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream" )
+	titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["brute_rocket"] )
 	//Defence
 	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex"] )
 	// Utility
 	titan.GiveOffhandWeapon( "mp_titanability_hover", OFFHAND_ANTIRODEO )
 	//Offence
 	//titan.GiveOffhandWeapon( "mp_titanweapon_shoulder_rockets", OFFHAND_ORDNANCE )
-	titan.GiveOffhandWeapon( "mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE )
+	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["brute4_grenade_launcher"] )
 	//Titan Core
 	titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT )
 	//Melee
@@ -499,6 +549,109 @@ void function NPCBruteLoadout( entity titan )
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 		MeleeSyncedTitan_SetSoulShouldReplaceLoadoutOnExecution( soul, true ) // required for executions behave nicely
+}
+
+void function NPCBisonLoadout( entity titan )
+{
+	TakeAllWeapons( titan )
+	//Weapon, npc bison is not smart enough, give them a main weapon
+	titan.GiveWeapon( "mp_titanweapon_triplethreat", ["bison_triplethreat"] )
+	//Defence
+	titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_bubble_shield", "molting_dome", "bison_dome"] )
+	//Tactical
+	//titan.GiveOffhandWeapon( "mp_titanability_laser_trip", OFFHAND_ANTIRODEO )
+	titan.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ANTIRODEO )
+	//Offence
+	//titan.GiveOffhandWeapon( "mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE, ["pas_northstar_cluster", "fd_twin_cluster"] )
+	titan.GiveOffhandWeapon( "mp_titanweapon_homing_rockets", OFFHAND_ORDNANCE, ["burn_mod_titan_homing_rockets", "fighter_rockets"] )
+	//Titan Core
+	titan.GiveOffhandWeapon( "mp_titancore_shift_core", OFFHAND_EQUIPMENT, ["berserker_core"] )
+	//Melee
+	titan.GiveOffhandWeapon( "melee_titan_punch_scorch", OFFHAND_MELEE )
+
+	titan.SetTitle( "#NPC_TITAN_AUTO_OGRE_FIGHTER" )
+
+	// execution_scorch_prime don't require weapons, no need to fix
+
+	// camo for prime titans
+	titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+	titan.SetCamo( 31 ) // default is white. best camo for bison
+
+	int team = titan.GetTeam()
+	if ( team == TEAM_IMC )
+		titan.SetCamo( 19 ) // shadow
+	if ( team == TEAM_MILITIA )
+		titan.SetCamo( 1 ) // forest
+}
+
+void function NPCBrute4Loadout( entity titan )
+{
+	TakeAllWeapons( titan )
+	//Weapon
+	titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["brute4_rocket_launcher"])
+	//Defence
+	titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_bubble_shield"] )
+	//Tactical
+	titan.GiveOffhandWeapon( "mp_titanability_rocketeer_ammo_swap", OFFHAND_ANTIRODEO )
+	//Offence
+	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["brute4_grenade_launcher"] )
+	//Titan Core
+	titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT, ["brute4_barrage_core"] )
+	//Melee
+	titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
+
+	titan.SetTitle( "#NPC_TITAN_AUTO_ATLAS_ROCKETEER" )
+
+	// execution_northstar_prime don't require weapons, no need to fix
+
+	// camo for prime titans
+	int team = titan.GetTeam()
+	if ( team == TEAM_IMC )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 19 ) // shadow
+	}
+	if ( team == TEAM_MILITIA )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 1 ) // forest
+	}
+}
+
+void function NPCArchonLoadout( entity titan )
+{
+	TakeAllWeapons( titan )
+	//Weapon
+	titan.GiveWeapon ( "mp_titanweapon_sniper", ["archon_arc_cannon"])
+	//Defence
+	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "archon_shock_shield"] )
+	//Tactical
+	titan.GiveOffhandWeapon( "mp_titanability_laser_trip", OFFHAND_ANTIRODEO, ["archon_tesla_node"] )
+	//Offence
+	titan.GiveOffhandWeapon( "mp_titanweapon_stun_laser", OFFHAND_ORDNANCE, ["archon_charge_ball"] )
+	//Titan Core
+	titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT, ["archon_storm_core"] )
+	//Melee
+	titan.GiveOffhandWeapon( "melee_titan_punch_ion", OFFHAND_MELEE )
+
+	titan.SetTitle( "#NPC_TITAN_AUTO_STRYDER_ARC" )
+
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+		MeleeSyncedTitan_SetSoulShouldReplaceLoadoutOnExecution( soul, true ) // required for executions behave nicely
+
+	// camo for prime titans
+	int team = titan.GetTeam()
+	if ( team == TEAM_IMC )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 19 ) // shadow
+	}
+	if ( team == TEAM_MILITIA )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 1 ) // forest
+	}
 }
 
 // npc pilot score event, better be added by gamemodes
@@ -705,6 +858,7 @@ void function BossLoadout_Jack( entity titan )
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["arc_rounds"] ) // use the arc-rounds monarch xo16
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix weapon mod
 	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
 
 	// game behavior settings
 	entity soul = titan.GetTitanSoul()
@@ -729,6 +883,7 @@ void function BossLoadout_Sarah( entity titan )
 	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
 	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL )
 	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
 
 	// game behavior settings
 	entity soul = titan.GetTitanSoul()
@@ -752,7 +907,7 @@ void function BossLoadout_SarahMonarch( entity titan )
 	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
 	titan.GiveOffhandWeapon( "mp_titanability_smoke", OFFHAND_ANTIRODEO )
 	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
-	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT )
+	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["npc_bt_balance"] )
 }
 
 void function InitDefaultNPCHandlerFunctions()
@@ -917,6 +1072,173 @@ void function ExtraSpawner_StopDefaultHandler( entity npc )
 	npc.Signal( "StopDefaultHandler" )
 }
 
+//------------------------------------------------------
+
+bool function CC_SpawnPilotAndTitan( entity player, array<string> args )
+{   
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+    Point dropPoint = GetTitanReplacementPoint( player )
+	thread ExtraSpawner_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+	return true
+}
+
+bool function CC_SpawnReaperCanLaunchTicks( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	Point dropPoint = GetTitanReplacementPoint( player )
+    thread ExtraSpawner_SpawnReaperCanLaunchTicks( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+    return true
+}
+
+bool function CC_SpawnGunShip( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	Point dropPoint = GetTitanReplacementPoint( player )
+    thread ExtraSpawner_SpawnGunShip( dropPoint.origin + < 0,0,100 >, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+    return true
+}
+
+bool function CC_SpawnAssassinPilot( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+	entity pilot = CreateNPC( "npc_pilot_elite", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	SetSpawnOption_AISettings( pilot, "npc_pilot_elite_assassin" )
+	pilot.s.petTitan <- null // initializing
+	pilot.s.nextTitanRespawnAvailable <- null
+
+	// many things below should have a reference in _ai_pilots.gnut, for npc pilots ejecting
+	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
+	pilot.SetValueForModelKey( modelAsset )
+	pilot.SetModel( modelAsset )//
+
+	file.npcSpawnFromExtraSpawner[ pilot ] <- true
+	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
+	pilot.SetModel( modelAsset )
+	ExtraSpawner_SetUpNPCPilot( pilot )
+
+	return true
+}
+
+bool function CC_SpawnSpecialistGrunt( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	SetSpawnOption_AISettings( grunt, "npc_soldier_pve_specialist" )
+
+	file.npcSpawnFromExtraSpawner[ grunt ] <- true
+	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
+
+	grunt.SetModel( $"models/robots/spectre/imc_spectre.mdl" )
+
+	return true
+}
+
+bool function CC_SpawnPilotElite( entity player, array<string> args )
+{   
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+	
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+   
+	entity pilot = ExtraSpawner_SpawnPilotElite( pos, rot, GetPlayerAISpawnTeam( player, args ) )
+    TakeAllWeapons( pilot )
+	//pilot.GiveWeapon( "mp_titanweapon_sniper", ["archon_arc_cannon"] )
+	//pilot.GiveWeapon( "mp_weapon_defender" )
+	pilot.GiveWeapon( "mp_weapon_pulse_lmg" )
+	//pilot.GiveWeapon( "mp_weapon_hemlok" )
+	return true
+}
+
+bool function CC_SpawnBossTitanWithIntro( entity player, array<string> args )
+{
+	if ( !GetConVarBool( "sv_cheats" ) )
+	{
+		if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+			return false
+	}
+
+	if ( args.len() == 0 )
+		return true
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+	int team = TEAM_BOTH
+
+	string bossType = args[0].tolower()
+	ExtraSpawner_SpawnBossTitan( pos, rot, team, bossType, TITAN_MERC )
+
+	return true
+}
+
+bool function CC_SpawnTestPistolGrunt( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	grunt.SetBehaviorSelector( "behavior_sp_soldier" ) // they'll switch to pistol if needed
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_smart_pistol" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_wingman" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_autopistol" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_semipistol" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_alternator_smg" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_wingman_n" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_pistol" )
+	SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_doublebarrel_tfo" )
+
+	file.npcSpawnFromExtraSpawner[ grunt ] <- true
+	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
+
+	//grunt.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
+	grunt.GetMainWeapons()[0].AddMod( "projectile_shotgun_npc" )
+
+	//grunt.SetModel( $"models/robots/spectre/imc_spectre.mdl" )
+
+	return true
+}
+
+// utility
+int function GetPlayerAISpawnTeam( entity player, array<string> args )
+{
+	int team = TEAM_UNASSIGNED
+	if( IsFFAGame() )
+		team = TEAM_BOTH // so this ai won't have any teammates
+    else
+		team = GetOtherTeam( player.GetTeam() )
+
+	if( args.len() > 0 )
+	{
+		if( args[0] == "sameteam" ) // spawn as teammate
+			team = player.GetTeam()
+	}
+
+	return team
+}
+
+//------------------------------------------------------
+
 // copied from cl_replacement_titan_hud.gnut
 void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, bool hasFriendlyWarning = false, int damageDef = -1 )
 {
@@ -925,7 +1247,7 @@ void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, boo
 
 	int index = GetParticleSystemIndex( $"P_ar_titan_droppoint" )
 
-	if( hasFriendlyWarning ) // also warn friendly players, if we enabled friendly fire...
+	if( hasFriendlyWarning || FriendlyFire_IsEnabled() ) // also warn friendly players, if we enabled friendly fire...
 	{
 		entity effectFriendly = StartParticleEffectInWorld_ReturnEntity( index, origin, surfaceNormal )
 		SetTeam( effectFriendly, team )
@@ -948,7 +1270,8 @@ void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, boo
 	{
 		damageAreaInfo = CreateEntity( "info_target" )
 		DispatchSpawn( damageAreaInfo )
-		AI_CreateDangerousArea_DamageDef( damageDef, damageAreaInfo, team, true, true )
+		int dangerousTeam = FriendlyFire_IsEnabled() ? TEAM_BOTH : team // add friendlyfire support: if we enabled friendlyfire, this dangerous area will work for friendly npcs
+		AI_CreateDangerousArea_DamageDef( damageDef, damageAreaInfo, dangerousTeam, true, true )
 	}
 
 	wait impactTime
@@ -1130,54 +1453,79 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 	{
 		string dialogueType = "bc_switchingToAT"
 		string dialoguePrefix = "diag_imc_grunt"
-		float dialogueRange = GRUNT_CHATTER_MP_RANGE
 		int gruntVariants = 6 // 1~6
 		int dialogueVariants = 2 // 1~2
 		float debounce = 20.0
 		// charge rifle specific
 		if ( weaponToChange == "mp_weapon_defender" )
 			dialogueType = "bc_usingChargeRifle"
-		TryGruntDialogue( guy, dialogueType, dialoguePrefix, dialogueRange, gruntVariants, dialogueVariants, debounce )
+		TryGruntDialogue( guy, dialogueType, dialoguePrefix, gruntVariants, dialogueVariants, debounce )
 	}
 }
 
 // grunt dialogue is mostly a format of prefix + gruntNum + "_" + type + "_0" + dialogueNum
-void function TryGruntDialogue( entity guy, string dialogueType, string dialoguePrefix, float dialogueRange, int gruntVariants, int dialogueVariants, float debounce = 20.0 )
+bool function TryGruntDialogue( entity guy, string dialogueType, string dialoguePrefix, int gruntVariants, int dialogueVariants, float debounce = 20.0 )
 {
 	string gruntNum = string( RandomInt( gruntVariants ) + 1 )
 	string dialogueNum = string( RandomInt( dialogueVariants ) + 1 )
 	string builtDialogue = dialoguePrefix + gruntNum + "_" + dialogueType + "_0" + dialogueNum
 
-	return TryScriptedNPCDialogue( guy, builtDialogue, dialogueRange, debounce )
-}
-
-void function TryScriptedNPCDialogue( entity guy, string dialogue, float dialogueRange, float debounce )
-{
-	array<entity> playersInRange
-	foreach ( entity player in GetPlayerArray_Alive() )
-	{
-		if ( Distance( player.GetOrigin(), guy.GetOrigin() ) < dialogueRange )
-			playersInRange.append( player )
-	}
-
-	foreach ( entity player in playersInRange )
-		TryScriptedNPCDialogueOnPlayer( player, guy, dialogue, debounce )
+	return TryScriptedNPCDialogue( guy, builtDialogue, debounce )
 }
 
 // scripted npc dialogue, simply just emit a sound for npc
-bool function TryScriptedNPCDialogueOnPlayer( entity player, entity guy, string dialogue, float debounce )
+const float NPC_DISABLE_NEXT_DIALOGUE_DISTANCE = 2048 // npcs within this range will also be set in dialogue cooldown, so they mostly won't talk too much
+bool function TryScriptedNPCDialogue( entity guy, string dialogue, float debounce )
 {
-	// limit checks
-	if ( Time() < file.npcDialogueNextAllowedTimeOnPlayer[ player ] )
-		return false
+	// init
+	InitScriptedNPCDialogue( guy )
 
-	//print( "NPC " + string( guy ) + " is playing scripted dialogue: " + dialogue + " to player: " + string( player ) )
+	// limit checks
+	if ( Time() < file.npcDialogueNextAllowedTime[ guy ] )
+		return false
+	if ( file.npcLastDialogue[ guy ] != "" )
+		StopSoundOnEntity( guy, file.npcLastDialogue[ guy ] )
+
+	//print( "NPC " + string( guy ) + " is playing scripted dialogue: " + dialogue )
 
 	EmitSoundOnEntity( guy, dialogue )
+	//file.npcDialogueNextAllowedTime[ guy ] = Time() + debounce
+	// apply debounce to all npcs around them, prevent being annoying!
+	foreach ( entity otherGuy in GetNPCArray() )
+	{
+		if ( Distance2D( guy.GetOrigin(), otherGuy.GetOrigin() ) < NPC_DISABLE_NEXT_DIALOGUE_DISTANCE )
+		{
+			// init
+			InitScriptedNPCDialogue( otherGuy )
+			file.npcDialogueNextAllowedTime[ otherGuy ] = Time() + debounce
+			//print( "Applying dialogue debounce to " + string( otherGuy ) + ". Debounce is: " + string( debounce ) )
+		}
+	}
+	file.npcLastDialogue[ guy ] = dialogue
 
-	file.npcDialogueNextAllowedTimeOnPlayer[ player ] = Time() + debounce
 	thread TrackDialogueSpeakerDeath( guy, dialogue, debounce )
 	return true
+}
+
+array<entity> function GetSquadMatesForNPC( entity guy )
+{
+	array<entity> squad
+	string squadName = expect string( guy.kv.squadname )
+	if ( squadName == "" )
+		return squad
+
+	squad = GetNPCArrayBySquad( squadName )
+	squad.removebyvalue( guy ) // remove guy itself
+	ArrayRemoveDead( squad ) // remove dead guys
+	return squad
+}
+
+void function InitScriptedNPCDialogue( entity guy )
+{
+	if ( !( guy in file.npcDialogueNextAllowedTime ) )
+		file.npcDialogueNextAllowedTime[ guy ] <- 0.0
+	if ( !( guy in file.npcLastDialogue ) )
+		file.npcLastDialogue[ guy ] <- ""
 }
 
 void function TrackDialogueSpeakerDeath( entity guy, string dialogue, float debounce )
@@ -1762,11 +2110,14 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix mod
 	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
 	//titan.SetSkin(1) // sarah skin
 	SetSquad( titan, squadName )
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
+
+	return titan
 }
 
 entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int team, string spawnName = "" )
@@ -2120,6 +2471,8 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 		
 		npc.SetParent( pod, "ATTACH", true )
 		guys.append( npc )
+
+		file.isProwlerSquadmate[ npc ] <- true // mark the prowler as prowler squadmate, for handling it's damage scale
 	}
 	
 	// if npcs spawned from here, we assume they don't have deploy animations, just clear parent for them
@@ -2460,7 +2813,86 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
 	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
+
+	// modified version of TitanNPC_Think()
+	// hard to control.... removed
+	//thread EmbarkedNPCTitanThink( titan )
 }
+
+/*
+void function EmbarkedNPCTitanThink( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	titan.Signal( "EmbarkedNPCTitanThink" )
+	titan.EndSignal( "EmbarkedNPCTitanThink" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	soul.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		WaitFrame() // always wait a frame each loop
+		if ( !TitanHasNpcPilot( titan ) ) // npc pilot become invalid!
+			return
+		// Rodeo counter: titan have no enemy in sight, but got a rodeo pilot
+		bool shouldCounterRodeo = ( !IsAlive( titan.GetEnemy() ) && IsAlive( GetRodeoPilot( titan ) ) )
+		if ( shouldCounterRodeo )
+			waitthread EmbarkedTitanRodeoCounter( titan )
+	}
+}
+
+void function EmbarkedTitanRodeoCounter( entity titan )
+{
+	entity rider = GetRodeoPilot( titan )
+	if ( !IsAlive( rider ) )
+		return
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	SetStanceKneel( soul ) // make soul kneels
+	entity pilot = NpcPilotDisembarksTitan( titan )
+	ExtraSpawner_StopDefaultHandler( pilot )
+	thread NPCPilotAssaultRodeoPilot( pilot, titan )
+	WaittillAnimDone( titan )
+	thread PlayAnim( titan, "at_MP_embark_idle_blended" )
+
+	// wait till rodeo pilot's death
+	while ( IsAlive( GetRodeoPilot( titan ) ) )
+		WaitFrame()
+
+	// return to titan
+	local embarkSet = FindBestEmbarkForNpcAnim( pilot, titan )
+	waitthread ExtraSpawner_NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet ) // passing a same embark set
+	waitthread NpcPilotEmbarksTitan( pilot, titan )
+}
+
+void function NPCPilotAssaultRodeoPilot( entity pilot, entity titan )
+{
+	pilot.EndSignal( "OnDeath" )
+	pilot.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		WaitFrame() // always wait before each loop
+
+		if ( !IsAlive( GetRodeoPilot( titan ) ) )
+			return
+
+		vector ornull clampedPos = NavMesh_ClampPointForAI( GetRodeoPilot( titan ).GetOrigin(), pilot )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		pilot.AssaultPoint( clampedPos )
+		wait RandomFloatRange( 2.0, 5.0 ) // random wait
+	}
+}
+*/
 
 function OnNpcTitanBecomesPilot( pilot, titan )
 {
@@ -2489,7 +2921,7 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		bool isEjecting = titanSoul.IsEjecting()
 		if( isEjecting )
 			thread NPCPilotEjectingAnimation( pilot )
-		else // not ejecting, reset to normal behavior, no feature now..
+		else // not ejecting, reset to normal behavior. this never happens cause there're no logic about npc pilot disembarking
 		{
 			titan.kv.WeaponProficiency = eWeaponProficiency.AVERAGE
 			//titan.SetCanBeMeleeExecuted( true ) // npc synced melee ignores this
@@ -2595,6 +3027,9 @@ void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
 
 void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 {
+	if ( !( victim in file.isProwlerSquadmate ) ) // npc is not a prowler squad member!
+		return
+
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
     if( !IsValid( attacker ) )
         return
