@@ -53,6 +53,8 @@ global function ExtraSpawner_ReaperHandler
 // handler overrides
 global function ExtraSpawner_SetSquadHandlerFunc
 global function ExtraSpawner_SetNPCHandlerFunc
+// disabling default handlers
+global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
 
 // these are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
@@ -173,6 +175,10 @@ void function ExtraAISpawner_Init()
 	PrecacheModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
 	// npc bt
 	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
+	// npc handlers
+	RegisterSignal( "StopDefaultHandler" )
+	// npc pilot thin
+	RegisterSignal( "EmbarkedNPCTitanThink" )
 
 	// this should be in _ai_pilots.gnut
 	//RegisterSignal( "ForceStartMove" ) // the signal as been deleted
@@ -196,7 +202,7 @@ void function ExtraAISpawner_Init()
 
 	// for debugging
 	//MeleeSyncedNPC_EnableAll_Init()
-	//AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
+	AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
 	//AddClientCommandCallback( "tickreaper", CC_SpawnReaperCanLaunchTicks )
 	//AddClientCommandCallback( "gunship", CC_SpawnGunShip )
 	//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
@@ -1058,6 +1064,12 @@ void function ExtraSpawner_SetNPCHandlerFunc( string npcClass, void functionref(
 	if ( !( npcClass in file.npcHandlerFuncs ) )
 		file.npcHandlerFuncs[ npcClass ] <- null
 	file.npcHandlerFuncs[ npcClass ] = handler
+}
+
+// can't stop squad handler
+void function ExtraSpawner_StopDefaultHandler( entity npc )
+{
+	npc.Signal( "StopDefaultHandler" )
 }
 
 //------------------------------------------------------
@@ -2656,6 +2668,12 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 
 void function ExtraSpawner_SetUpNPCPilot( entity pilot )
 {
+	// initializing
+	if ( !( "petTitan" in pilot.s ) )
+		pilot.s.petTitan <- null
+	if ( !( "nextTitanRespawnAvailable" in pilot.s ) )
+		pilot.s.nextTitanRespawnAvailable <- null
+
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_FLEE ) // hardcoded!
 	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
 	pilot.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot perfectly
@@ -2783,7 +2801,9 @@ function OnNpcPilotBecomesTitan( pilot, titan )
 	// kinda annoying to have a info target all around them.
 	//titan.SetAISettings( titan.GetAISettingsName() + "_bounty" ) // so they will show up a health bar, letting players know they're npc pilot controled
 	//Highlight_ClearEnemyHighlight( titan ) // this resets highlights in modified sh_highlights
-	thread DelayedTitanHandler( titan )
+	// titan handler
+	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 }
 
 void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
@@ -2793,18 +2813,86 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
 	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
+
+	// modified version of TitanNPC_Think()
+	// hard to control.... removed
+	//thread EmbarkedNPCTitanThink( titan )
 }
 
-void function DelayedTitanHandler( entity titan )
+/*
+void function EmbarkedNPCTitanThink( entity titan )
 {
-	wait 1
-	if ( IsAlive( titan ) )
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	titan.Signal( "EmbarkedNPCTitanThink" )
+	titan.EndSignal( "EmbarkedNPCTitanThink" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	soul.EndSignal( "OnDestroy" )
+
+	while ( true )
 	{
-		// titan handler
-		if ( GetNPCHandlerForClass( "npc_titan" ) != null )
-			thread GetNPCHandlerForClass( "npc_titan" )( titan )
+		WaitFrame() // always wait a frame each loop
+		if ( !TitanHasNpcPilot( titan ) ) // npc pilot become invalid!
+			return
+		// Rodeo counter: titan have no enemy in sight, but got a rodeo pilot
+		bool shouldCounterRodeo = ( !IsAlive( titan.GetEnemy() ) && IsAlive( GetRodeoPilot( titan ) ) )
+		if ( shouldCounterRodeo )
+			waitthread EmbarkedTitanRodeoCounter( titan )
 	}
 }
+
+void function EmbarkedTitanRodeoCounter( entity titan )
+{
+	entity rider = GetRodeoPilot( titan )
+	if ( !IsAlive( rider ) )
+		return
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	SetStanceKneel( soul ) // make soul kneels
+	entity pilot = NpcPilotDisembarksTitan( titan )
+	ExtraSpawner_StopDefaultHandler( pilot )
+	thread NPCPilotAssaultRodeoPilot( pilot, titan )
+	WaittillAnimDone( titan )
+	thread PlayAnim( titan, "at_MP_embark_idle_blended" )
+
+	// wait till rodeo pilot's death
+	while ( IsAlive( GetRodeoPilot( titan ) ) )
+		WaitFrame()
+
+	// return to titan
+	local embarkSet = FindBestEmbarkForNpcAnim( pilot, titan )
+	waitthread ExtraSpawner_NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet ) // passing a same embark set
+	waitthread NpcPilotEmbarksTitan( pilot, titan )
+}
+
+void function NPCPilotAssaultRodeoPilot( entity pilot, entity titan )
+{
+	pilot.EndSignal( "OnDeath" )
+	pilot.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		WaitFrame() // always wait before each loop
+
+		if ( !IsAlive( GetRodeoPilot( titan ) ) )
+			return
+
+		vector ornull clampedPos = NavMesh_ClampPointForAI( GetRodeoPilot( titan ).GetOrigin(), pilot )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		pilot.AssaultPoint( clampedPos )
+		wait RandomFloatRange( 2.0, 5.0 ) // random wait
+	}
+}
+*/
 
 function OnNpcTitanBecomesPilot( pilot, titan )
 {
@@ -2818,7 +2906,9 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 	// if titan is spawned by extraSpawner, pilot should also be marked
 	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	ExtraSpawner_SetUpNPCPilot( pilot )
-	thread DelayedPilotHandler( pilot )
+	// pilot handler
+	if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
+		thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
 
 	if ( IsValid( titan ) ) // disembarking, unfortunatelly this is not featured
 	{
@@ -2836,6 +2926,8 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 			titan.kv.WeaponProficiency = eWeaponProficiency.AVERAGE
 			//titan.SetCanBeMeleeExecuted( true ) // npc synced melee ignores this
 			titan.SetBehaviorSelector( "behavior_mp_auto_titan" )
+			if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
+				titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, true ) // restore synced melee for auto-titans
 			TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.0 ) // reset core build speed to normal
 		}
 
@@ -2843,19 +2935,6 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		//string aiSetFile = titan.GetAISettingsName()
 		//titan.SetAISettings( aiSetFile.slice( 0, aiSetFile.len() - 7 ) ) // not ejecting, back to normal health bar
 		//Highlight_ClearEnemyHighlight( titan ) // this resets highlights in modified sh_highlights
-	}
-}
-
-void function DelayedPilotHandler( entity pilot )
-{
-	//pilot.SetInvulnerable() // protection
-	wait 1
-	if( IsAlive( pilot ) )
-	{
-		//pilot.ClearInvulnerable()
-		// pilot handler
-		if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
-			thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
 	}
 }
 
@@ -2965,7 +3044,11 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 }
 
 void function ExtraSpawner_PilotHandler( entity pilot )
-{	
+{
+	// Signals for controlling
+	pilot.Signal( "StopDefaultHandler" )
+	pilot.EndSignal( "StopDefaultHandler" )
+
 	// Setup AI, no need for now
 	//pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 	int team = pilot.GetTeam()
@@ -3006,6 +3089,10 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 
 void function ExtraSpawner_TitanHandler( entity titan )
 {
+	// Signals for controlling
+	titan.Signal( "StopDefaultHandler" )
+	titan.EndSignal( "StopDefaultHandler" )
+
 	int team = titan.GetTeam()
 	array<entity> points
 
@@ -3296,6 +3383,10 @@ void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType
 // Same as SquadHandler, just for reapers
 void function ExtraSpawner_ReaperHandler( entity reaper )
 {
+	// Signals for controlling
+	reaper.Signal( "StopDefaultHandler" )
+	reaper.EndSignal( "StopDefaultHandler" )
+
 	int team = reaper.GetTeam()
 	array<entity> points
 
