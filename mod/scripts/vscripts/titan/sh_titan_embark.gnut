@@ -59,8 +59,10 @@ struct
 	vector smallDisembarkFailSafeTeleportVector = < 400, 400, 200 >
 	vector largeDisembarkFailSafeTeleportVector = < 600, 600, 600 >
 
-	// northstar version is not good, add a modified check
+	// northstar version of fp embark is not good enough, add a modified check
 	table<entity, bool> soulDoFirstPersonEmbark
+	// modified utility for getting a pilot's embarking titan
+	table<entity, entity> playerEmbarkingTitan
 } file
 
 function TitanEmbark_Init()
@@ -119,8 +121,19 @@ function TitanEmbark_Init()
 
 		AddCallback_OnTitanBecomesPilot( TitanBecomesPilot_UpdateRodeoRiderHud )
 		AddCallback_OnPilotBecomesTitan( PilotBecomesTitan_UpdateRodeoRiderHud )
+
+		// modified callback
+		AddCallback_OnClientConnected( OnClientConnected )
 	#endif
 }
+
+#if SERVER
+void function OnClientConnected( entity player )
+{
+	// modified utility for getting a pilot's embarking titan
+	file.playerEmbarkingTitan[ player ] <- null
+}
+#endif
 
 void function OverrideCockpitLightFX( asset fx )
 {
@@ -305,7 +318,8 @@ function RefreshTitanEmbarkActions()
 		{
 			firstPersonKneelingAlias = "ptpov_mount_kneel_left"
 			thirdPersonKneelingAlias = "pt_mount_kneel_left"
-			firstPersonStandingAlias = "ptpov_mount_stand_front"
+			//firstPersonStandingAlias = "ptpov_mount_stand_front"
+			firstPersonStandingAlias = "ptpov_mount_stand_left" // respawn messed this?
 			thirdPersonStandingAlias = "pt_mount_stand_left"
 			titanKneelingAnim = "at_mount_kneel_left"
 			titanStandingAnim = "at_mount_stand_left"
@@ -337,7 +351,8 @@ function RefreshTitanEmbarkActions()
 		{
 			firstPersonKneelingAlias = "ptpov_mount_kneel_right"
 			thirdPersonKneelingAlias = "pt_mount_kneel_right"
-			firstPersonStandingAlias = "ptpov_mount_stand_front"
+			//firstPersonStandingAlias = "ptpov_mount_stand_front"
+			firstPersonStandingAlias = "ptpov_mount_stand_right" // respawn messed this?
 			thirdPersonStandingAlias = "pt_mount_stand_right"
 			titanKneelingAnim = "at_mount_kneel_right"
 			titanStandingAnim = "at_mount_stand_right"
@@ -681,6 +696,8 @@ function PlayerEmbarksTitan( entity player, entity titan, table embark )
 				player.SetCinematicEventFlags( player.GetCinematicEventFlags() & (~CE_FLAG_EMBARK) )
 				TitanEmbark_PlayerCleanup( player )
 				player.p.isEmbarking = false
+				// modified utility for getting a pilot's embarking titan
+				file.playerEmbarkingTitan[ player ] = null
 
 				if ( IsAlive( player ) )
 				{
@@ -703,6 +720,8 @@ function PlayerEmbarksTitan( entity player, entity titan, table embark )
 	// track the embarking player so we can kill him if the titan dies
 	titan.s.embarkingPlayer <- player
 	player.p.isEmbarking = true
+	// modified utility for getting a pilot's embarking titan
+	file.playerEmbarkingTitan[ player ] = titan
 
 	#if HAS_STATS
 	UpdatePlayerStat( player, "misc_stats", "titanEmbarks", 1 )
@@ -742,11 +761,8 @@ bool function ShouldDoRegularEmbark( entity titan )
 
 	// mp forced bt embarking
 	//if ( IsSingleplayer() && GetSoulPlayerSettings( soul ) == "titan_buddy" )
-	if( titan.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
-	{
-		//return titan.GetNPCState() == "combat" || titan.GetNPCState() == "alert"
-		return false
-	}
+	if ( titan.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
+		return titan.GetNPCState() == "combat" || titan.GetNPCState() == "alert"
 
 	return true
 }
@@ -914,30 +930,53 @@ function TitanEmbark_PlayerEmbarks( entity player, entity titan, table e )
 
 	local hasViewCone
 
-	// string thirdPersonAudio
-	// string firstPersonAudio
+	// modified: adding audio back. we play it only when we needed( eg. when kneeling embark )
+	string thirdPersonAudio
+	string firstPersonAudio
 
 	if ( standing )
 	{
 		sequence.firstPersonAnim = GetAnimFromAlias( settings, e.animSet.firstPersonStandingAlias )
 		sequence.thirdPersonAnim = GetAnimFromAlias( settings, e.animSet.thirdPersonStandingAlias )
 		hasViewCone = false
-		// thirdPersonAudio = GetAudioFromAlias( settings, e.audioSet.thirdPersonStandingAudioAlias )
-		// firstPersonAudio = GetAudioFromAlias( settings, e.audioSet.firstPersonStandingAudioAlias )
-
+		//thirdPersonAudio = GetAudioFromAlias( settings, e.audioSet.thirdPersonStandingAudioAlias )
+		//firstPersonAudio = GetAudioFromAlias( settings, e.audioSet.firstPersonStandingAudioAlias )
+		// modified: adding audio back. we play it only when we needed( eg. when kneeling embark )
+		thirdPersonAudio = settings + "_" + e.audioSet.thirdPersonStandingAudioAlias
+		firstPersonAudio = settings + "_" + e.audioSet.firstPersonStandingAudioAlias
 	}
 	else
 	{
 		sequence.firstPersonAnim = GetAnimFromAlias( settings, e.animSet.firstPersonKneelingAlias )
 		sequence.thirdPersonAnim = GetAnimFromAlias( settings, e.animSet.thirdPersonKneelingAlias )
 		hasViewCone = true
-		// thirdPersonAudio = GetAudioFromAlias( settings, e.audioSet.thirdPersonKneelingAudioAlias )
-		// firstPersonAudio = GetAudioFromAlias( settings, e.audioSet.firstPersonKneelingAudioAlias )
+		//thirdPersonAudio = GetAudioFromAlias( settings, e.audioSet.thirdPersonKneelingAudioAlias )
+		//firstPersonAudio = GetAudioFromAlias( settings, e.audioSet.firstPersonKneelingAudioAlias )
+		// modified: adding audio back. we play it only when we needed( eg. when kneeling embark )
+		thirdPersonAudio = settings + "_" + e.audioSet.thirdPersonKneelingAudioAlias
+		firstPersonAudio = settings + "_" + e.audioSet.firstPersonKneelingAudioAlias
 	}
 
 	sequence.thirdPersonAnimIdle = "pt_mount_idle"
 
 	bool doFirstPersonAnim = true
+	// modified: adding audio back. we play it only when we needed( eg. when kneeling embark )
+	bool doEmbarkAudio = false
+
+	// northstar version of fp embark is not good enough, add a modified check
+	if ( ShouldDoFirstPersonEmbark( titan ) && sequence.thirdPersonAnim.find( "fast" ) == null )
+	{
+		// atlas titans still have fp embark left
+		if ( TitanHasFPEmbarkAnimation( titan, sequence.thirdPersonAnim ) )
+		{
+			string animName = sequence.thirdPersonAnim.slice( 3, sequence.thirdPersonAnim.len() )
+			//print( "animName: " + animName )
+			sequence.firstPersonAnim = "ptpov_" + animName
+		}
+	}
+	//print( "sequence.firstPersonAnim: " + sequence.firstPersonAnim )
+	//print( "sequence.thirdPersonAnim: " + sequence.thirdPersonAnim )
+	//
 
 	if ( sequence.firstPersonAnim == "" )
 	{// if there is no first person anim, then there must be a third person camera
@@ -975,15 +1014,29 @@ function TitanEmbark_PlayerEmbarks( entity player, entity titan, table e )
 	)
 
 	#if MP
-		if ( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 && !doFirstPersonAnim )
+		// northstar version of fp embark is not good enough, add a modified check
+		if ( ShouldDoFirstPersonEmbark( titan ) && !doFirstPersonAnim )
+		{
+			// phase embark is dizzy! don't do fake FP if we're doing a phase embark, only do screen effect
+			if ( sequence.thirdPersonAnim.find( "fast" ) != null )
+			{
+				// make player can see themselves and their titan during phase
+				player.SetForceVisibleInPhaseShift( true )
+				titan.SetForceVisibleInPhaseShift( true )
+			}
+			else
+				thread FakeFirstPersonSequence( player )
+		}
+		// northstar version of fp embark
+		else if ( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 && !doFirstPersonAnim )
 			FirstPersonSequenceForce1P( sequence, player, titan )
-		// northstar version is not good, add a modified check
-		else if( ShouldDoFirstPersonEmbark( titan ) && !doFirstPersonAnim && sequence.thirdPersonAnim.find( "fast" ) == null )
-			thread FakeFirstPersonSequence( player )
 	#endif
 
 	thread FirstPersonSequence( sequence, player, titan )
-	// EmitDifferentSoundsOnEntityForPlayerAndWorld( firstPersonAudio, thirdPersonAudio, titan, player )
+	//EmitDifferentSoundsOnEntityForPlayerAndWorld( firstPersonAudio, thirdPersonAudio, titan, player )
+	// modified: adding audio back. we play it only when we needed( eg. when kneeling embark )
+	if ( doEmbarkAudio )
+		EmitDifferentSoundsOnEntityForPlayerAndWorld( firstPersonAudio, thirdPersonAudio, titan, player )
 
 	float animDuration = player.GetSequenceDuration( sequence.thirdPersonAnim )
 
@@ -1028,6 +1081,55 @@ function TitanEmbark_PlayerEmbarks( entity player, entity titan, table e )
 	titan.Destroy()
 }
 
+// MODIFIED and HARDCODED
+const array<string> FP_EMBARK_TITAN_SUBCLASSES =
+[
+	// atlas titans still have some fp embark animation left
+	"atlas",
+]
+
+const array<string> FP_EMBARK_ANIM_ALIASES =
+[
+	// atlas
+	// standing 
+	// standing front have weird anim view
+	//"mount_stand_front",
+	// standing left and right embark don't have a proper anim view attachment
+	//"mount_stand_right",
+	//"mount_stand_left",
+	"mount_atlas_stand_behind",
+	"mount_atlas_above_right",
+	// standing above left have wrong anim view attachment movement
+	//"mount_atlas_above_left",
+	"mount_atlas_stand_airgrab",
+
+	// kneeling
+	"mount_atlas_kneel_front",
+	"mount_atlas_kneel_right",
+	"mount_atlas_kneel_left",
+	"mount_atlas_kneel_behind",
+	"mount_atlas_kneel_above_right",
+	"mount_atlas_kneel_above_left",
+	"mount_atlas_kneel_airgrab",
+]
+
+bool function TitanHasFPEmbarkAnimation( entity titan, string thirdPersonAnim )
+{
+	entity soul = titan.GetTitanSoul()
+	string subClass = GetSoulTitanSubClass( soul )
+	//print( "subClass: " + subClass )
+	if ( !FP_EMBARK_TITAN_SUBCLASSES.contains( subClass ) )
+		return false
+	string animName = thirdPersonAnim.slice( 3, thirdPersonAnim.len() )
+	//print( "animName: " + animName )
+	if ( !FP_EMBARK_ANIM_ALIASES.contains( animName ) )
+		return false
+
+	// all checks passed
+	//print( "this titan has FP embark animation!" )
+	return true
+}
+
 void function Embark_DelayedFadeOut( entity player, entity titan, float delay )
 {
 	if ( !IsAlive( player ) )
@@ -1041,7 +1143,7 @@ void function Embark_DelayedFadeOut( entity player, entity titan, float delay )
 		
 	wait delay - EMBARK_FADE_TIME
 
-	// northstar version is not good, add a modified check
+	// northstar version is not good enough, add a modified check
 	//if ( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 0 )
 	if( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 0 || ShouldDoFirstPersonEmbark( titan ) )
 	{
@@ -1121,9 +1223,12 @@ void function PhaseEmbarkPhaseStart( entity player )
 	PlayPhaseShiftDisappearFX( player )
 	EmitSoundOnEntity( player, "pilot_phaseembark_activate_3p" )
 	
-	// northstar version is not good, add a modified check
-	//if ( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 )
-	if( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 || ShouldDoFirstPersonEmbark( player ) )
+	// northstar version of fp embark is not good enough, add a modified check
+	// phase embark is dizzy! we only keep phase screen effect
+	entity titan = file.playerEmbarkingTitan[ player ] // get player's embarking titan
+	if ( IsValid( titan ) && ShouldDoFirstPersonEmbark( titan ) )
+		FirstPersonPhaseEmbarkThink( player, titan )
+	else if( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 )
 		player.PhaseShiftBegin( 0.0, 0.2 )
 	
 	thread PhaseEmbarkPhaseCleanup( player )
@@ -1146,15 +1251,62 @@ void function PhaseEmbarkPhaseCleanup( player )
 	WaitSignal( player, "PhaseEmbarkPhaseStop" )
 }
 
+// modified
+// phase embark is dizzy!
+void function FirstPersonPhaseEmbarkThink( entity player, entity titan )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	// make player can see themselves and their titan during phase
+	// SetForceVisibleInPhaseShift() now setup in TitanEmbark_PlayerEmbarks(), so it can actually take effect
+	//player.SetForceVisibleInPhaseShift( true )
+	//titan.SetForceVisibleInPhaseShift( true )
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		if ( IsValid( soul.soul.batteryContainer ) )
+			soul.soul.batteryContainer.SetForceVisibleInPhaseShift( true )
+	}
+
+	player.PhaseShiftBegin( 0.0, 0.5 ) // adding a screen color correction for player
+
+	OnThreadEnd
+	(
+		function(): ( player, titan )
+		{
+			//print( "RUNNING OnThreadEnd() in FirstPersonPhaseEmbarkThink()" )
+			if ( IsValid( player ) )
+			{
+				player.PhaseShiftCancel()
+				player.SetForceVisibleInPhaseShift( false )
+			}
+			if ( IsValid( titan ) )
+			{
+				titan.SetForceVisibleInPhaseShift( false )
+				entity soul = titan.GetTitanSoul()
+				if ( IsValid( soul ) )
+				{
+					if ( IsValid( soul.soul.batteryContainer ) )
+						soul.soul.batteryContainer.SetForceVisibleInPhaseShift( false )
+				}
+			}
+		}
+	)
+
+	player.WaitSignal( "PhaseEmbarkPhaseStop" )
+}
+//
+
 void function PhaseEmbarkPhaseStop( entity player )
 {
 	Signal( player, "PhaseEmbarkPhaseStop" )
 	PlayPhaseShiftDisappearFX( player )
 	EmitSoundOnEntity( player, "pilot_phaseembark_end_3p" )
 	
-	// northstar version is not good, add a modified check
-	//if ( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 )
-	if( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 || ShouldDoFirstPersonEmbark( player ) )
+	if( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 )
 		player.PhaseShiftCancel()
 }
 
@@ -1289,7 +1441,9 @@ function TitanEmbark_TitanEmbarks( player, titan, e )
 	}
 	else
 	{
-		animation = "at_mount_kneel_without_standing"
+		// respawn really messed this up. guess only northstar can have titans stuck inside of building
+		//animation = "at_mount_kneel_without_standing"
+		animation = e.animSet.titanKneelingAnim
 		alignFront = false
 //		waittillAnimDone = false
 	}
