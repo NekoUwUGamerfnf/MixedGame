@@ -1,6 +1,7 @@
 untyped
 global function BTReplace_Init
 
+#if SERVER
 global function BTReplace_Enabled_Init
 global function BTReplace_SetEnabled
 
@@ -8,8 +9,10 @@ struct
 {
 	bool btReplaceEnable = false
 
+	table<entity, bool> soulIsFakeBT
 	table<entity, float> btLastPrimaryAmmo
 } file
+#endif // SERVER
 
 void function BTReplace_Init() 
 {
@@ -17,11 +20,17 @@ void function BTReplace_Init()
 	PrecacheParticleSystem( $"P_BT_eye_SM" )
 	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
 
-	AddSpawnCallback( "npc_titan", OnTitanSpawned )
-	AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
-	AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
+	#if SERVER
+		RegisterSignal( "PendingEjectingVoiceline" )
+		AddSpawnCallback( "npc_titan", OnTitanSpawned )
+		AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
+		AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
+	#else // CLIENT
+		AddCreateCallback( "npc_titan", FakeBTClientSideSetup )
+	#endif // SERVER
 }
 
+#if SERVER
 // main settings
 void function BTReplace_Enabled_Init()
 {
@@ -49,7 +58,7 @@ void function OnTitanSpawned( entity titan )
 	//entity soul = titan.GetTitanSoul()
 	
 	SetBTLoadout( titan )
-	SetAutoTitanTitle( titan )
+	//SetAutoTitanTitle( titan ) // remove auto-titan title setup for now
 	thread EjectingVoiceline( titan ) // try enable voiceline every time
 }
 
@@ -76,9 +85,11 @@ void function SetBTLoadout( entity titan )
 	
 	if ( !IsValid( soul ) || !IsValid( player ) ) //Anti Crash 2
 		return
+	if ( soul in file.soulIsFakeBT ) // titan is already a BT?
+		return
 
 	// replace "frontier monarch" with fake bt
-	bool btReplace = titan.GetModelName() == $"models/titans/medium/titan_medium_vanguard.mdl" && titan.GetCamo() == -1 && titan.GetSkin() == 3
+	bool btReplace = TitanShouldReplaceAsFakeBT( titan )
 	//print( "btReplace: " + string( btReplace ) )
 	if ( !btReplace )
 		return
@@ -95,6 +106,9 @@ void function SetBTLoadout( entity titan )
 
 	if( isTitanDropping )
 	{
+		file.soulIsFakeBT[ soul ] <- true // mark as we're using fake bt
+		FakeBTSettingsOverrideSetup( titan ) // setup settings override
+
 		// Moved to titan_health.gnut, no more infinite doom
 		if( !( soul in file.btLastPrimaryAmmo ) )
 			file.btLastPrimaryAmmo[ soul ] <- 0.0
@@ -208,15 +222,15 @@ void function SetBTOffhands( entity player )
 {
 	if( !IsValid(player) )
 		return
-		
-	if ( player.GetModelName() != $"models/titans/buddy/titan_buddy.mdl" ) // not a btmodel we marked here
+
+	entity soul = player.GetTitanSoul()
+	if( !IsValid( soul ) )
+		return
+	if ( !( soul in file.soulIsFakeBT ) ) // soul is not being setup as bt
 		return
 		
 	entity mainweapon = player.GetActiveWeapon()
 	table<int,float> cooldowns = GetWeaponCooldownsForTitanLoadoutSwitch( player )
-	entity soul = player.GetTitanSoul()
-	if( !IsValid( soul ) )
-		return
 
 	if( IsTitanCoreFiring( player ) ) // firing core ability
 		return
@@ -323,7 +337,10 @@ void function UpdateBTOffhands( entity player )
 	if( !IsValid(player) )
 		return
 		
-	if ( player.GetModelName() != $"models/titans/buddy/titan_buddy.mdl" ) // not a btmodel we marked here
+	entity soul = player.GetTitanSoul()
+	if( !IsValid( soul ) )
+		return
+	if ( !( soul in file.soulIsFakeBT ) ) // soul is not being setup as bt
 		return
 
 	player.EndSignal( "DisembarkingTitan" )
@@ -359,10 +376,14 @@ void function EjectingVoiceline( entity titan )
 		return
 	entity player = GetPetTitanOwner(titan)
 	// Voicelines
-	if( titan.GetModelName() != $"models/titans/buddy/titan_buddy.mdl")
+	entity soul = player.GetTitanSoul()
+	if( !IsValid( soul ) )
+		return
+	if ( !( soul in file.soulIsFakeBT ) ) // soul is not being setup as bt
 		return
 
-	entity soul = titan.GetTitanSoul()
+	soul.Signal( "PendingEjectingVoiceline" ) // end last thread
+	soul.EndSignal( "PendingEjectingVoiceline" )
 	soul.EndSignal( "OnDestroy" )
 	player.WaitSignal( "TitanEjectionStarted" )
 	if( IsValid(player) )
@@ -372,14 +393,49 @@ void function EjectingVoiceline( entity titan )
 	}
 }
 
+/* // remove auto-titan title setup for now
 void function SetAutoTitanTitle( entity titan )
 {
 	if( IsValid(titan) && titan.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
 		titan.SetTitle( "SB-7274" )
 }
+*/
 
 void function SetPlayerTitanTitle( entity player )
 {
-	if( IsValid(player) && player.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
-		player.SetTitle( "SB-7274" )
+	entity soul = player.GetTitanSoul()
+	if( !IsValid( soul ) )
+		return
+	if ( !( soul in file.soulIsFakeBT ) ) // soul is not being setup as bt
+		return
+
+	player.SetTitle( "SB-7274" )
+}
+#endif // SERVER
+
+#if CLIENT
+void function FakeBTClientSideSetup( entity titan )
+{
+	thread FakeBTClientSideSetup_Threaded( titan )
+}
+
+void function FakeBTClientSideSetup_Threaded( entity titan )
+{
+	wait 1.0 // wait for server DispatchSpawn()
+
+	if ( TitanShouldReplaceAsFakeBT( titan ) )
+		FakeBTSettingsOverrideSetup( titan )
+}
+#endif
+
+// shared functions
+bool function TitanShouldReplaceAsFakeBT( entity titan )
+{
+	return titan.GetModelName() == $"models/titans/medium/titan_medium_vanguard.mdl" && titan.GetCamo() == -1 && titan.GetSkin() == 3
+}
+
+void function FakeBTSettingsOverrideSetup( entity titan )
+{
+	SetTitanSoulCharacterNameOverride( titan.GetTitanSoul(), "bt" )
+	TitanSoul_SetSoulPlayerSettingsOverride( titan.GetTitanSoul(), "titan_buddy" )
 }
