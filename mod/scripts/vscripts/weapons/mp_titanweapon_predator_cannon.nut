@@ -267,6 +267,7 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 	int damageType = DF_BULLET | DF_STOPS_TITAN_REGEN | DF_GIB
 	if ( weapon.HasMod( "Smart_Core" ) )
 	{
+		// note: fix for npc firing smart ammo done in sh_smart_ammo.gnut!
 		return SmartAmmo_FireWeapon( weapon, attackParams, damageType, damageTypes.largeCaliber | DF_STOPS_TITAN_REGEN )
 	}
 	else
