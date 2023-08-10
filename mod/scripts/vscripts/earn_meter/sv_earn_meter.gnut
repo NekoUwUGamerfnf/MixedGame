@@ -42,6 +42,10 @@ global function PlayerEarnMeter_Enabled
 
 // modified!!! for managing titan's offhand smoke
 global function PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled
+global function PlayerEarnMeter_GetSoulEarnMeterSmokeEnabled // shared with sv_earn_meter_mp.gnut
+// THIS WON'T WORK AT ALL. npc can have smoke but they'll never use them. just saving here
+global function PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage
+global function PlayerEarnMeter_IsSoulNPCTitanEarnMeterSmokeUsageEnabled
 
 global struct EarnMeterThresholdEarnedStruct
 {
@@ -62,6 +66,9 @@ struct
 
 	// modified!!! for managing titan's offhand smoke
 	table<entity, bool> soulEarnMeterSmokeEnabled
+	// modified!!! for adding npc electric smoke usage
+	// THIS WON'T WORK AT ALL. npc can have smoke but they'll never use them. just saving here
+	table<entity, bool> soulEnableNPCEarnMeterSmokeUsage
 } file
 
 void function Sv_EarnMeter_Init()
@@ -76,6 +83,13 @@ void function Sv_EarnMeter_Init()
 
 	file.earn_meter_pilot_multiplier = PlayerEarnMeter_GetPilotMultiplier()
 	file.earn_meter_pilot_overdrive = PlayerEarnMeter_GetPilotOverdriveEnum()
+
+	// modified checks due we added npc electric smoke usage
+	// THIS WON'T WORK AT ALL. npc can have smoke but they'll never use them. just saving here
+	#if MP
+		AddCallback_OnTitanBecomesPilot( OnClassChangeBecomePilot )
+		AddCallback_OnPilotBecomesTitan( OnClassChangeBecomeTitan )
+	#endif // MP
 }
 
 float function PlayerEarnMeter_GetPilotMultiplier()
@@ -490,13 +504,10 @@ void function JFS_PlayerEarnMeter_CoreRewardUpdate( entity titan, float starting
 void function GiveOffhandElectricSmoke( entity titan )
 {
 	entity soul = titan.GetTitanSoul()
-	// modified to manage modded titan's smoke
-	if ( soul in file.soulEarnMeterSmokeEnabled ) // add via PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled()
-	{
-		if( !file.soulEarnMeterSmokeEnabled[ soul ] )
-			return
-	}
-	
+	// modified here: add controllable titan offhand smoke usage
+	if ( !PlayerEarnMeter_GetSoulEarnMeterSmokeEnabled( soul ) )
+		return
+
 	//entity soul = titan.GetTitanSoul() // moved up
 	bool hasAntiRodeoKit = IsValid( soul ) && SoulHasPassive( soul, ePassives.PAS_ANTI_RODEO )
 	if ( titan.GetOffhandWeapon( OFFHAND_INVENTORY ) != null )
@@ -523,6 +534,17 @@ void function GiveOffhandElectricSmoke( entity titan )
 			weapon.SetMods( mods )
 		}
 	}
+
+	// modified here: update npc smoke usage
+	if ( !titan.IsPlayer() )
+	{
+		entity rewardSmoke = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
+		if ( IsValid( rewardSmoke ) )
+		{
+			// only allow smoke usage for npcs if settings enabled, so it won't waste smoke
+			rewardSmoke.AllowUse( PlayerEarnMeter_IsSoulNPCTitanEarnMeterSmokeUsageEnabled( soul ) )
+		}
+	}
 }
 
 void function PlayerEarnMeter_SetEnabled( bool enabled )
@@ -535,10 +557,92 @@ bool function PlayerEarnMeter_Enabled()
 	return file.earnMeterEnabled
 }
 
-// modified!!! for managing titan's boost smoke
+
+// modified checks due we added npc electric smoke usage
+// THIS WON'T WORK AT ALL. npc can have smoke but they'll never use them. just saving here
+#if MP
+void function OnClassChangeBecomePilot( entity player, entity titan )
+{
+	entity soul = titan.GetTitanSoul() // soul has been transfered to auto-titan
+
+	entity titanSmoke = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
+	if ( IsValid( titanSmoke ) )
+	{
+		// only allow smoke usage for npcs if settings enabled, so it won't waste smoke
+		titanSmoke.AllowUse( PlayerEarnMeter_IsSoulNPCTitanEarnMeterSmokeUsageEnabled( soul ) )
+	}
+}
+
+void function OnClassChangeBecomeTitan( entity player, entity titan )
+{
+	entity soul = player.GetTitanSoul() // soul has been transfered to pilot
+
+	entity playerSmoke = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
+	if ( IsValid( playerSmoke ) )
+		playerSmoke.AllowUse( true ) // player can always use their smoke
+}
+#endif
+
+// modified!!! for managing titan's reward smoke
 void function PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( entity titanSoul, bool enabled )
 {
 	if ( !( titanSoul in file.soulEarnMeterSmokeEnabled ) )
-		file.soulEarnMeterSmokeEnabled[ titanSoul ] <- true // default value
+		file.soulEarnMeterSmokeEnabled[ titanSoul ] <- ANTI_RODEO_SMOKE_ENABLED // default value
 	file.soulEarnMeterSmokeEnabled[ titanSoul ] = enabled
+
+	// update smoke icon
+	entity player
+	entity titan = titanSoul.GetTitan()
+	if ( IsValid( titan ) )
+	{
+		if ( titan.IsPlayer() )
+			player = titan
+		else if ( IsValid( GetPetTitanOwner( titan ) ) )
+			player = GetPetTitanOwner( titan )
+	}
+	if ( IsValid( player ) )
+	{
+		if ( !PlayerEarnMeter_GetSoulEarnMeterSmokeEnabled( titanSoul ) )
+			PlayerEarnMeter_SetRewardUsed( player )
+		else if( SoulTitanCore_GetNextAvailableTime( titanSoul ) < CORE_SMOKE_FRAC )
+			PlayerEarnMeter_EnableReward( player )
+	}
+}
+
+bool function PlayerEarnMeter_GetSoulEarnMeterSmokeEnabled( entity soul )
+{
+	// modified to manage modded titan's smoke
+	if ( soul in file.soulEarnMeterSmokeEnabled ) // add via PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled()
+		return file.soulEarnMeterSmokeEnabled[ soul ]
+
+	return ANTI_RODEO_SMOKE_ENABLED // vanilla behavior
+}
+
+// THIS WON'T WORK AT ALL. npc can have smoke but they'll never use them. just saving here
+void function PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( entity titanSoul, bool enabled )
+{
+	if ( !( titanSoul in file.soulEnableNPCEarnMeterSmokeUsage ) )
+		file.soulEnableNPCEarnMeterSmokeUsage[ titanSoul ] <- false // default value: vanilla never allow npc titan smoke usage
+	file.soulEnableNPCEarnMeterSmokeUsage[ titanSoul ] = enabled
+
+	// update smoke usage
+	entity titan = titanSoul.GetTitan()
+	if ( IsValid( titan ) && !titan.IsPlayer() )
+	{
+		entity rewardSmoke = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
+		if ( IsValid( rewardSmoke ) )
+		{
+			// only allow smoke usage for npcs if settings enabled, so it won't waste smoke
+			rewardSmoke.AllowUse( PlayerEarnMeter_IsSoulNPCTitanEarnMeterSmokeUsageEnabled( titanSoul ) )
+		}
+	}
+}
+
+bool function PlayerEarnMeter_IsSoulNPCTitanEarnMeterSmokeUsageEnabled( entity soul )
+{
+	// modified to manage modded titan's smoke
+	if ( soul in file.soulEnableNPCEarnMeterSmokeUsage ) // add via PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage()
+		return file.soulEnableNPCEarnMeterSmokeUsage[ soul ]
+
+	return ANTI_RODEO_SMOKE_ENABLED // vanilla behavior: never allow npc titan smoke usage
 }
