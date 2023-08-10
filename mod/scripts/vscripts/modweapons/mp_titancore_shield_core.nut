@@ -22,8 +22,6 @@ void function Shield_Core_Init()
 
 bool function OnCoreCharge_Shield_Core( entity weapon )
 {
-	if( !weapon.HasMod( "shield_core" ) )
-		return false
 	if ( !OnAbilityCharge_TitanCore( weapon ) )
 		return false
 
@@ -32,8 +30,6 @@ bool function OnCoreCharge_Shield_Core( entity weapon )
 
 void function OnCoreChargeEnd_Shield_Core( entity weapon )
 {
-	if( !weapon.HasMod( "shield_core" ) )
-		return
 #if SERVER
 	OnAbilityChargeEnd_TitanCore( weapon )
 #endif

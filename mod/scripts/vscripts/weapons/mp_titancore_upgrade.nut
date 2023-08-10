@@ -1,5 +1,9 @@
 global function UpgradeCore_Init
 global function OnWeaponPrimaryAttack_UpgradeCore
+// modified callbacks
+global function OnCoreCharge_UpgradeCore
+global function OnCoreChargeEnd_UpgradeCore
+//
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_UpgradeCore
 #endif
@@ -347,6 +351,23 @@ void function UpgradeCoreThink( entity weapon, float coreDuration )
 }
 #endif
 
+// modified callbacks
+bool function OnCoreCharge_UpgradeCore( entity weapon )
+{
+	// modded weapon
+	if( weapon.HasMod( "shield_core" ) )
+		return OnCoreCharge_Shield_Core( weapon )
+
+	return true
+}
+
+void function OnCoreChargeEnd_UpgradeCore( entity weapon )
+{
+	// modded weapon
+	if( weapon.HasMod( "shield_core" ) )
+		return OnCoreChargeEnd_Shield_Core( weapon )
+}
+//
 
 #if CLIENT
 void function ServerCallback_VanguardUpgradeMessage( int upgradeID )
