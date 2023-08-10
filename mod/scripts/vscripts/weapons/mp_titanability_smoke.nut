@@ -63,6 +63,10 @@ var function OnWeaponNpcPrimaryAttack_titanability_smoke( entity weapon, WeaponP
 void function TitanSmokescreen( entity ent, entity weapon )
 {
 	SmokescreenStruct smokescreen
+	// modified: smoke dangerous area team
+	// breaks vanilla behavior, but surly makes npcs behave better
+	smokescreen.dangerousAreaTeam = FriendlyFire_IsEnabled() ? TEAM_INVALID : ent.GetTeam()
+	//
 	if ( weapon.HasMod( "burn_mod_titan_smoke" ) )
 	{
 		smokescreen.lifetime = 12.0
@@ -74,6 +78,9 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	if ( HasHealingSmoke( ent ) )
 	{
 		smokescreen.smokescreenFX = FX_ELECTRIC_SMOKESCREEN_HEAL
+		// modified: smoke healing team
+		// healing smoke is always safe against friendly targets
+		smokescreen.dangerousAreaTeam = ent.GetTeam()
 	}
 	#endif
 	smokescreen.isElectric = true
@@ -124,6 +131,8 @@ void function TitanSmokescreen( entity ent, entity weapon )
 
 void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 {
+	// rework checks. vanilla DO have good enough check functions but respawn never used them
+	/*
 	if ( !target.IsTitan() )
 		return
 
@@ -139,22 +148,13 @@ void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 	if ( !IsValid( weapon ) )
 		return
 
-	bool hasHealSmoke = weapon.HasMod( "fd_vanguard_utility_1" ) || weapon.HasMod( "fd_vanguard_utility_2" )
-	// friendly fire support
-	bool friendlyFireOn = FriendlyFire_IsEnabled()
-	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
-	//if ( attacker.GetTeam() == target.GetTeam() )
-	if ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) || attacker == target )
+	if ( attacker.GetTeam() == target.GetTeam() )
 	{
-		// reworked check
-		//if ( ( attacker == target && weapon.HasMod( "fd_vanguard_utility_1" ) ) || weapon.HasMod( "fd_vanguard_utility_2" ) )
-		if ( hasHealSmoke )
+		if ( ( attacker == target && weapon.HasMod( "fd_vanguard_utility_1" ) ) || weapon.HasMod( "fd_vanguard_utility_2" ) )
 		{
-			// healing condition
 			entity soul = target.GetTitanSoul()
 			if ( IsValid( soul ) )
 			{
-				DamageInfo_SetDamage( damageInfo, 0 )
 				int shieldRestoreAmount = 35
 				int actualShieldRestoreAmount = minint( soul.GetShieldHealthMax()-soul.GetShieldHealth(), shieldRestoreAmount )
 				soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
@@ -178,10 +178,16 @@ void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 			}
 		}
 
-		// default ff protection now handled by smokescreen.nut: TitanElectricSmoke_DamagedPlayerOrNPC()
-		//DamageInfo_SetDamage( damageInfo, 0 )
+		DamageInfo_SetDamage( damageInfo, 0 )
 		return
 	}
+	*/
+	// reworked checks
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+	if ( TryElectricSmokeTargetHeal( attacker, target ) )
+		DamageInfo_SetDamage( damageInfo, 0 ) // always set damage to 0 if heal functioning
 }
 
 void function AddSmokeHealCallback( void functionref(entity,entity,int) func )
@@ -200,5 +206,53 @@ bool function HasHealingSmoke( entity attacker )
 		return false
 
 	return ( weapon.HasMod( "fd_vanguard_utility_1" ) || weapon.HasMod( "fd_vanguard_utility_2" ))
+}
+
+// modified functions
+bool function SmokeCanHealTarget( entity attacker, entity target )
+{
+	if ( !target.IsTitan() )
+		return false
+	entity soul = target.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	if ( !HasHealingSmoke( attacker ) )
+		return false
+
+	entity weapon = attacker.GetMainWeapons()[0] // safe to use, validation checks done in HasHealingSmoke()
+	if ( !IsValid( weapon ) )
+		return false
+
+	// friendly fire support
+	bool friendlyFireOn = FriendlyFire_IsEnabled()
+	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
+	if ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) || attacker == target )
+	{
+		// monarch upgrade 1: can only heal self
+		if ( weapon.HasMod( "fd_vanguard_utility_1" ) && attacker == target )
+			return true
+		// monarch upgrade 2: can heal all teammates
+		if ( weapon.HasMod( "fd_vanguard_utility_2" ) )
+			return true
+	}
+
+	return false // default is cannot heal target
+}
+
+bool function TryElectricSmokeTargetHeal( entity attacker, entity target )
+{
+	// healing condition
+	if ( !SmokeCanHealTarget( attacker, target ) ) // main checks
+		return false
+
+	entity soul = target.GetTitanSoul() // safe to use, validation checks done in SmokeCanHealTarget()
+
+	int shieldRestoreAmount = 35
+	int actualShieldRestoreAmount = minint( soul.GetShieldHealthMax()-soul.GetShieldHealth(), shieldRestoreAmount )
+	soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
+
+	if ( file.smokeHealCallback != null && actualShieldRestoreAmount > 0 )
+		file.smokeHealCallback( attacker, target, actualShieldRestoreAmount )
+	return true // healing succeeded
 }
 #endif // SERVER
