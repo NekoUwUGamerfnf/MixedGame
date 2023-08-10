@@ -209,7 +209,7 @@ void function ExtraAISpawner_Init()
 	//AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
 	//AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
 	//AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
-	//AddClientCommandCallback( "pistol_grunt", CC_SpawnTestPistolGrunt )
+	//AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 }
 
 void function OnClientConnected( entity player )
@@ -1092,8 +1092,13 @@ bool function CC_SpawnPilotAndTitan( entity player, array<string> args )
 	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
 		return false
 
+	string spawnName = ""
+	if ( args.len() > 0 )
+		spawnName = args[0]
+	// if spawn name invalid, we will spawn a random titan
+
     Point dropPoint = GetTitanReplacementPoint( player )
-	thread ExtraSpawner_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ) )
+	thread ExtraSpawner_SpawnPilotCanEmbark( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args ), spawnName )
 	return true
 }
 
@@ -1212,14 +1217,14 @@ bool function CC_SpawnTestPistolGrunt( entity player, array<string> args )
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
 	grunt.SetBehaviorSelector( "behavior_sp_soldier" ) // they'll switch to pistol if needed
-	//SetSpawnOption_Weapon( grunt, "mp_weapon_smart_pistol" )
+	SetSpawnOption_Weapon( grunt, "mp_weapon_smart_pistol" )
 	//SetSpawnOption_Weapon( grunt, "mp_weapon_wingman" )
 	//SetSpawnOption_Weapon( grunt, "mp_weapon_autopistol" )
 	//SetSpawnOption_Weapon( grunt, "mp_weapon_semipistol" )
 	//SetSpawnOption_Weapon( grunt, "mp_weapon_alternator_smg" )
 	//SetSpawnOption_Weapon( grunt, "mp_weapon_wingman_n" )
 	//SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_pistol" )
-	SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_doublebarrel_tfo" )
+	//SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_doublebarrel_tfo" )
 
 	file.npcSpawnFromExtraSpawner[ grunt ] <- true
 	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
@@ -2811,7 +2816,13 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	//titan.SetCanBeMeleeExecuted( false ) // code synced melee ignores this
 	if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
-	TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
+	// soul settings
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
+		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, true ) // allow this npc titan use reward electric smoke
+	}
 }
 
 function OnNpcTitanBecomesPilot( pilot, titan )
@@ -2842,19 +2853,28 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		if( isEjecting )
 			thread NPCPilotEjectingAnimation( pilot )
 		else // not ejecting, reset to normal behavior. this never happens cause there're no logic about npc pilot disembarking
-		{
-			titan.kv.WeaponProficiency = eWeaponProficiency.AVERAGE
-			//titan.SetCanBeMeleeExecuted( true ) // npc synced melee ignores this
-			titan.SetBehaviorSelector( "behavior_mp_auto_titan" )
-			if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
-				titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, true ) // restore synced melee for auto-titans
-			TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.0 ) // reset core build speed to normal
-		}
+			ExtraSpawner_SetUpNPCDisembarkedTitan( titan )
 
 		// kinda annoying to have a info target all around them.
 		//string aiSetFile = titan.GetAISettingsName()
 		//titan.SetAISettings( aiSetFile.slice( 0, aiSetFile.len() - 7 ) ) // not ejecting, back to normal health bar
 		//Highlight_ClearEnemyHighlight( titan ) // this resets highlights in modified sh_highlights
+	}
+}
+
+void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
+{
+	titan.kv.WeaponProficiency = eWeaponProficiency.AVERAGE
+	//titan.SetCanBeMeleeExecuted( true ) // npc synced melee ignores this
+	titan.SetBehaviorSelector( "behavior_mp_auto_titan" )
+	if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
+		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, true ) // restore synced melee for auto-titans
+	// soul settings
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.0 ) // reset core build speed to normal
+		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, false ) // disable npc titan reward electric smoke usage
 	}
 }
 
