@@ -76,11 +76,8 @@ void function OnWeaponDeactivate_weapon_smart_pistol( entity weapon )
 var function OnWeaponPrimaryAttack_weapon_smart_pistol( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	int damageFlags = weapon.GetWeaponDamageFlags()
-	// fix for npc firing smart ammo!!!
-	if ( !weapon.SmartAmmo_IsEnabled() )
-		return weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, damageFlags )
-	else
-		return SmartAmmo_FireWeapon( weapon, attackParams, damageFlags, damageFlags )
+	// note: fix for npc firing smart ammo done in sh_smart_ammo.gnut!
+	return SmartAmmo_FireWeapon( weapon, attackParams, damageFlags, damageFlags )
 }
 
 function SmartWeaponFireSound( entity weapon, target )
