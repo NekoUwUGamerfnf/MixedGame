@@ -65,7 +65,7 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	SmokescreenStruct smokescreen
 	// modified: smoke dangerous area team
 	// breaks vanilla behavior, but surly makes npcs behave better
-	smokescreen.dangerousAreaTeam = FriendlyFire_IsEnabled() ? TEAM_INVALID : ent.GetTeam()
+	smokescreen.dangerousAreaTeam = ent.GetTeam()
 	//
 	if ( weapon.HasMod( "burn_mod_titan_smoke" ) )
 	{
@@ -78,9 +78,6 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	if ( HasHealingSmoke( ent ) )
 	{
 		smokescreen.smokescreenFX = FX_ELECTRIC_SMOKESCREEN_HEAL
-		// modified: smoke healing team
-		// healing smoke is always safe against friendly targets
-		smokescreen.dangerousAreaTeam = ent.GetTeam()
 	}
 	#endif
 	smokescreen.isElectric = true
@@ -223,10 +220,7 @@ bool function SmokeCanHealTarget( entity attacker, entity target )
 	if ( !IsValid( weapon ) )
 		return false
 
-	// friendly fire support
-	bool friendlyFireOn = FriendlyFire_IsEnabled()
-	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
-	if ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) || attacker == target )
+	if ( attacker.GetTeam() == target.GetTeam() || attacker == target )
 	{
 		// monarch upgrade 1: can only heal self
 		if ( weapon.HasMod( "fd_vanguard_utility_1" ) && attacker == target )
