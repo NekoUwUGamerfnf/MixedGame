@@ -41,6 +41,13 @@ global struct SmokescreenStruct
 	int dpsTitan = 2200
 
 	array<vector> fxOffsets
+
+	// modified to add: better handle damage flags
+	int explosionFlags = SF_ENVEXPLOSION_MASK_BRUSHONLY
+	int scriptDamageFlags = DF_ELECTRICAL | DF_NO_HITBEEP
+	// add controllable dangerous area team
+	// somehow breaks vanilla behavior but whatever
+	int dangerousAreaTeam = -1
 }
 
 struct SmokescreenFXStruct
@@ -197,7 +204,13 @@ void function SmokescreenAffectsEntitiesInArea( SmokescreenStruct smokescreen, S
 	if ( smokescreen.dangerousAreaRadius != -1.0 )
 		dangerousAreaRadius = smokescreen.dangerousAreaRadius
 
-	AI_CreateDangerousArea_Static( aiDangerTarget, smokescreen.weaponOrProjectile, dangerousAreaRadius, TEAM_INVALID, true, true, fxInfo.center )
+	// modified to add: better handle damage flags and controllable dangerous area team
+	// somehow breaks vanilla behavior but whatever
+	//AI_CreateDangerousArea_Static( aiDangerTarget, smokescreen.weaponOrProjectile, dangerousAreaRadius, TEAM_INVALID, true, true, fxInfo.center )
+	int dangerousAreaTeam = TEAM_INVALID
+	if ( smokescreen.dangerousAreaTeam != -1 )
+		dangerousAreaTeam = smokescreen.dangerousAreaTeam
+	AI_CreateDangerousArea_Static( aiDangerTarget, smokescreen.weaponOrProjectile, dangerousAreaRadius, dangerousAreaTeam, true, true, fxInfo.center )
 
 	OnThreadEnd(
 		function () : ( aiDangerTarget )
@@ -226,10 +239,14 @@ void function SmokescreenAffectsEntitiesInArea( SmokescreenStruct smokescreen, S
 			dpsTitan,																// damageHeavyArmor
 			smokescreen.damageInnerRadius,											// innerRadius
 			smokescreen.damageOuterRadius,											// outerRadius
-			SF_ENVEXPLOSION_MASK_BRUSHONLY,	// flags
+			// modified to add: better handle damage flags
+			smokescreen.explosionFlags,												// flags
+			//SF_ENVEXPLOSION_MASK_BRUSHONLY,											// flags
 			0.0,																	// distanceFromAttacker
 			0.0,																	// explosionForce
-			DF_ELECTRICAL | DF_NO_HITBEEP,											// scriptDamageFlags
+			// modified to add: better handle damage flags
+			//DF_ELECTRICAL | DF_NO_HITBEEP,											// scriptDamageFlags
+			smokescreen.scriptDamageFlags,											// scriptDamageFlags
 			smokescreen.damageSource )												// scriptDamageSourceIdentifier
 
 			wait tickRate
