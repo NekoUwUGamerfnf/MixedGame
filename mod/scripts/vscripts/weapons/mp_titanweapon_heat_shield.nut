@@ -26,6 +26,12 @@ const asset HEAT_SHIELD_IMPACT_HUMAN 	= $"P_wpn_HeatSheild_burn_human"
 const ACTIVATION_COST_FRAC = 0.05
 const int HEAT_SHIELD_FOV = 120
 
+// fix for thermite sound, prevent too many sounds playing together
+struct
+{
+	table<entity, float> entNextHeatShieldDamagedSoundAllowedTime
+} file
+
 function MpTitanAbilityHeatShield_Init()
 {
 	HeatShieldPrecache()
@@ -294,6 +300,17 @@ void function HeatShield_DamagedEntity( entity victim, var damageInfo )
 
 	if ( DamageInfo_GetDamage( damageInfo ) > 0 )
 	{
+		// fix for thermite sound, prevent too many sounds playing together
+		if ( !( victim in file.entNextHeatShieldDamagedSoundAllowedTime ) )
+			file.entNextHeatShieldDamagedSoundAllowedTime[ victim ] <- 0.0
+
+		if ( file.entNextHeatShieldDamagedSoundAllowedTime[ victim ] > Time() )
+		{
+			//print( "ent " + string( ent ) + " in thermite sound cooldown!" )
+			return
+		}
+		//
+
 		if ( victim.IsTitan() )
 		{
 			int index = victim.LookupAttachment( "exp_torso_front" )
@@ -322,6 +339,11 @@ void function HeatShield_DamagedEntity( entity victim, var damageInfo )
 				EmitSoundOnEntity( victim, "heat_shield_burn_human_3p" )
 			}
 		}
+
+		// fix for thermite sound
+		// add random interval for next sound
+		file.entNextHeatShieldDamagedSoundAllowedTime[ victim ] = Time() + RandomFloatRange( 0.15, 0.25 )
+		//
 	}
 }
 
