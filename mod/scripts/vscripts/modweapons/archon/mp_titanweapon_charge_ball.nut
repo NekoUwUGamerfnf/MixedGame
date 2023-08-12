@@ -198,20 +198,11 @@ entity function FireArchonChargeBall( entity weapon, vector pos, vector dir, boo
 			entity ballLightning = expect entity( bolt.s.ballLightning )
 
 			ballLightning.e.ballLightningData.damage = damage
-
-			// fix for charge balls
-			thread DelayedStartParticleSystem( bolt )
 		#endif
+
+		// fix for trail effect, so clients without scripts installed can see the trail
+		StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"P_wpn_arcball_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+
 		return bolt
 	}
 }
-
-// trail fix
-#if SERVER
-void function DelayedStartParticleSystem( entity bolt )
-{
-    WaitFrame()
-    if( IsValid( bolt ) )
-        StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"P_wpn_arcball_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-}
-#endif

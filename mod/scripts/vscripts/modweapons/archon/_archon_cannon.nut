@@ -186,15 +186,6 @@ function ArchonCannon_ChargeBegin( entity weapon )
 	// using charge sound in Key/Values
 	#if SERVER
 		entity weaponOwner = weapon.GetWeaponOwner()
-		// client sound fix, hardcoded
-		string chargeSound = weapon.GetWeaponSettingString( eWeaponVar.charge_sound_3p )
-		if( !weapon.HasMod( "capacitor" ) )
-		{
-			if( weaponOwner.IsPlayer() )
-				EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, chargeSound )
-			else // npc sound
-				EmitSoundOnEntity( weapon, chargeSound )
-		}
 		if ( weapon.HasMod( "overcharge" ) )
 		{
 			entity weaponOwner = weapon.GetWeaponOwner()
@@ -204,6 +195,13 @@ function ArchonCannon_ChargeBegin( entity weapon )
 				thread Archon_ConvertTitanShieldIntoBonusCharge( soul, weapon )
 			}
 		}
+
+		// client sound fix, hardcoded
+		string chargeSound = weapon.GetWeaponSettingString( eWeaponVar.charge_sound_3p )
+		if( weaponOwner.IsPlayer() )
+			EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "MegaTurret_Laser_ChargeUp_3P" )
+		else // npc sound
+			EmitSoundOnEntity( weapon, "MegaTurret_Laser_ChargeUp_3P" )
 	#endif
 
 	#if CLIENT
@@ -228,9 +226,7 @@ function ArchonCannon_ChargeEnd( entity weapon, entity player = null )
 			weapon.Signal( ARCHON_CANNON_SIGNAL_CHARGEEND )
 
 		// client sound fix, hardcoded
-		string chargeSound = weapon.GetWeaponSettingString( eWeaponVar.charge_sound_3p )
-		if( !weapon.HasMod( "capacitor" ) )
-			StopSoundOnEntity( weapon, chargeSound )
+		StopSoundOnEntity( weapon, "MegaTurret_Laser_ChargeUp_3P" )
 	#endif
 
 	#if CLIENT
