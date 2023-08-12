@@ -97,7 +97,8 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 
 	#if SERVER
 		// anim fix for titanpick
-		thread TEMP_FlameWallAnimFix( weaponOwner )
+		if ( weaponOwner.IsPlayer() )
+			thread TEMP_FlameWallAnimFix( weaponOwner )
 	#endif
 
 	return weapon.GetWeaponInfoFileKeyField( "ammo_min_to_fire" )

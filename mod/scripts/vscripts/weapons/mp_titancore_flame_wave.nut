@@ -87,16 +87,21 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 	entity owner = weapon.GetWeaponOwner()
 	#if SERVER
 		if ( owner.IsPlayer() )
+		{
 			owner.SetTitanDisembarkEnabled( true )
+			// anim fix for titanpick
+			TEMP_FlameWaveAnimFix( owner )
+		}
+
 		OnAbilityChargeEnd_TitanCore( weapon )
-		
-		// anim fix for titanpick
-		TEMP_FlameWaveAnimFix( owner )
 	#endif // #if SERVER
 }
 
 var function OnWeaponPrimaryAttack_titancore_flame_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// debug
+	print( "RUNNING OnWeaponPrimaryAttack_titancore_flame_wave()" )
+
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
 		return OnWeaponPrimaryAttack_titancore_storm_wave( weapon, attackParams )
