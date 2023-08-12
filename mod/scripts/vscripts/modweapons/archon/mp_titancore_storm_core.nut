@@ -36,6 +36,9 @@ void function MpTitanWeaponStormWave_Init()
 
 void function OnWeaponActivate_titancore_storm_wave( entity weapon )
 {
+	// debug
+	//print( "RUNNING OnWeaponActivate_titancore_storm_wave()" )
+
 	weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
 	OnAbilityCharge_TitanCore( weapon )
 }
@@ -86,6 +89,9 @@ void function OnAbilityChargeEnd_StormWave( entity weapon )
 
 var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// debug
+	//print( "RUNNING OnWeaponPrimaryAttack_titancore_storm_wave()" )
+
 	OnAbilityStart_TitanCore( weapon )
 
 	#if CLIENT

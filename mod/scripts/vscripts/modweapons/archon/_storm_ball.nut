@@ -133,6 +133,8 @@ var function OnWeaponPrimaryAttack_titanweapon_storm_ball( entity weapon, Weapon
 void function FireStormBall( entity weapon, vector pos, vector dir, bool shouldPredict, float damage = BALL_LIGHTNING_DAMAGE )
 {
 	entity owner = weapon.GetWeaponOwner()
+	// debug
+	//print( "Firing storm ball! owner is: " + string( owner ) )
 
 	float speed = 1000.0
 

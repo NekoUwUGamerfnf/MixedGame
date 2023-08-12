@@ -100,7 +100,7 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 var function OnWeaponPrimaryAttack_titancore_flame_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// debug
-	print( "RUNNING OnWeaponPrimaryAttack_titancore_flame_wave()" )
+	//print( "RUNNING OnWeaponPrimaryAttack_titancore_flame_wave()" )
 
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
