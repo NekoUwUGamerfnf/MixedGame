@@ -1,8 +1,8 @@
 untyped
 global function MpTitanweaponChargeBall_Init
-global function OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall
-global function OnWeaponChargeBegin_MpTitanWeaponChargeBall
-global function OnWeaponChargeEnd_MpTitanWeaponChargeBall
+global function OnWeaponPrimaryAttack_titanweapon_charge_ball
+global function OnWeaponChargeBegin_titanweapon_charge_ball
+global function OnWeaponChargeEnd_titanweapon_charge_ball
 
 const CHARGEBALL_CHARGE_FX_1P = $"wpn_arc_cannon_charge_fp"
 const CHARGEBALL_CHARGE_FX_3P = $"wpn_arc_cannon_charge"
@@ -29,7 +29,7 @@ void function MpTitanweaponChargeBall_Init()
 	#endif
 }
 
-var function OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponPrimaryAttack_titanweapon_charge_ball( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	entity weaponOwner = weapon.GetWeaponOwner()
 
@@ -105,32 +105,34 @@ var function OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall( entity weapon
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
 
-bool function OnWeaponChargeBegin_MpTitanWeaponChargeBall( entity weapon )
+bool function OnWeaponChargeBegin_titanweapon_charge_ball( entity weapon )
 {
 	local stub = "this is here to suppress the untyped message.  This can go away when the .s. usage is removed from this file."
-	weapon.EmitWeaponSound("Weapon_EnergySyphon_Charge_3P")
+	// sound already handled by mp_titanweapon_stun_laser
+	//weapon.EmitWeaponSound("Weapon_EnergySyphon_Charge_3P")
 
 	#if CLIENT
 		if ( !IsFirstTimePredicted() )
 			return true
 	#endif
 
-
+	// effect already handled by mp_titanweapon_stun_laser
 	//entity weaponOwner = weapon.GetWeaponOwner()
 	//weapon.PlayWeaponEffect( CHARGEBALL_CHARGE_FX_1P, CHARGEBALL_CHARGE_FX_3P, "muzzle_flash" )
 
 	return true
 }
 
-void function OnWeaponChargeEnd_MpTitanWeaponChargeBall( entity weapon )
+void function OnWeaponChargeEnd_titanweapon_charge_ball( entity weapon )
 {
-	weapon.StopWeaponSound("Weapon_EnergySyphon_Charge_3P")
+	// sound already handled by mp_titanweapon_stun_laser
+	//weapon.StopWeaponSound("Weapon_EnergySyphon_Charge_3P")
 	#if CLIENT
 		if ( !IsFirstTimePredicted() )
 			return
 	#endif
 
-
+	// effect already handled by mp_titanweapon_stun_laser
 	//weapon.StopWeaponEffect( CHARGEBALL_CHARGE_FX_1P, CHARGEBALL_CHARGE_FX_3P )
 }
 
