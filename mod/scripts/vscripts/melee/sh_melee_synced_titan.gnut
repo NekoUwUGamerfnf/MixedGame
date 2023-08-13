@@ -12,9 +12,18 @@ global function MeleeSyncedTitan_SetExecutionRefLoadoutReplaceCallback
 global function MeleeSyncedTitan_ExecutionRefHasLoadoutReplaceCallback
 global function MeleeSyncedTitan_RunLoadoutReplaceCallbackForRef
 
+// mostly for core weapon mods, remove them when loadout replacing
+global function MeleeSyncedTitan_AddModToRemoveOnLoadoutReplace
+
 struct ExecutionSavedLoadout
 {
-	entity savedPrimaryWeaponEnt
+	// can't just store a primary weapon entity, as TakeWeapon_NoDelete() will leave a weapon model in titan's hand
+	string primary = "" // primary weapon
+	array<string> primaryMods = []
+	int primaryAmmo
+	int primarySkin
+	int primaryCamo
+
 	entity replacedPrimaryEnt
 
 	table<int, entity> savedOffhandWeaponEnts
@@ -25,6 +34,8 @@ struct
 	table< string, array<void functionref( entity, entity )> > titanExecutionRefCallbacks
 	table< string, void functionref( entity ) > titanExecutionRefLoadoutReplaceCallback
 	table<entity, ExecutionSavedLoadout> titanExecutionSavedLoadout
+
+	array<string> modsToRemoveOnLoadoutReplace
 } file
 #endif
 
@@ -302,19 +313,30 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	// FIRST we take all weapons
 	// primary weapon
 	entity primaryToSave
+	string primaryNameToSave
+	array<string> primaryModsToSave
 	array<entity> mainWeapons = guy.GetMainWeapons()
 	if ( mainWeapons.len() > 0 )
 		primaryToSave = mainWeapons[0]
+	if ( IsValid( primaryToSave ) )
+	{
+		primaryNameToSave = primaryToSave.GetWeaponClassName()
+		primaryModsToSave = primaryToSave.GetMods()
+	}
+
 	// save skin&camo for later we apply to temp weapon
 	int skinIndex = -1
 	int camoIndex = -1
 	if ( IsValid( primaryToSave ) && primary != "" )
 	{
-		// save skin&camo for later we apply to temp weapon
-		skinIndex = primaryToSave.GetSkin()
-		camoIndex = primaryToSave.GetCamo()
+		savedLoadout.primary = primaryNameToSave
+		savedLoadout.primaryMods = primaryModsToSave
+		try { savedLoadout.primaryAmmo = primaryToSave.GetWeaponPrimaryClipCount() } // some weapon don't have clip so try-catch it
+		catch (ex) {}
+		savedLoadout.primarySkin = primaryToSave.GetSkin()
+		savedLoadout.primaryCamo = primaryToSave.GetCamo()
 
-		savedLoadout.savedPrimaryWeaponEnt = guy.TakeWeapon_NoDelete( primaryToSave.GetWeaponClassName() )
+		primaryToSave.Destroy() // so we can take off exact primary weapon
 		primarySaved = true // mark as primary saved
 	}
 
@@ -364,10 +386,8 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	{
 		entity newWeapon = guy.GiveWeapon( primary, primaryMods )
 		// also apply skin to temp weapon
-		if ( skinIndex > -1 )
-			newWeapon.SetSkin( skinIndex )
-		if ( camoIndex > -1 )
-			newWeapon.SetCamo( camoIndex )
+		newWeapon.SetSkin( savedLoadout.primarySkin )
+		newWeapon.SetCamo( savedLoadout.primaryCamo )
 
 		guy.SetActiveWeaponByName( primary )
 		savedLoadout.replacedPrimaryEnt = newWeapon // for later we clean up
@@ -407,12 +427,19 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 				ExecutionSavedLoadout savedLoadout = file.titanExecutionSavedLoadout[ guy ]
 				// restore weapons
 				// primary 
-				entity replacedWeapon = savedLoadout.replacedPrimaryEnt
-				if ( IsValid( replacedWeapon ) )
-					replacedWeapon.Destroy() // so we can take off exact primary weapon
-				entity previousWeapon = savedLoadout.savedPrimaryWeaponEnt
-				if ( IsValid( previousWeapon ) )
-					guy.GiveExistingWeapon( previousWeapon )
+				if ( savedLoadout.primary != "" ) // do savedast primary
+				{
+					entity replacedWeapon = savedLoadout.replacedPrimaryEnt
+					if ( IsValid( IsValid( replacedWeapon ) ) )
+						replacedWeapon.Destroy() // so we can take off exact primary weapon
+					entity newWeapon = guy.GiveWeapon( savedLoadout.primary, savedLoadout.primaryMods )
+					guy.SetActiveWeaponByName( savedLoadout.primary )
+					newWeapon.SetSkin( savedLoadout.primarySkin )
+					newWeapon.SetCamo( savedLoadout.primaryCamo )
+					RemoveInvalidModsForWeapon( newWeapon ) // remove mods that shouldn't be retained through execution
+					try { newWeapon.SetWeaponPrimaryClipCount( savedLoadout.primaryAmmo ) } // some weapon don't have clip so try-catch it
+					catch (ex) {}
+				}
 				// offhand weapons
 				for ( int i = 0; i < OFFHAND_COUNT; i++ )
 				{
@@ -421,6 +448,7 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 					{
 						guy.TakeOffhandWeapon( i )
 						guy.GiveExistingOffhandWeapon( previousOffhand, i )
+						RemoveInvalidModsForWeapon( previousOffhand ) // remove mods that shouldn't be retained through execution
 					}
 				}
 
@@ -492,5 +520,26 @@ void function MeleeSyncedTitan_RunLoadoutReplaceCallbackForRef( string ref, enti
 		return
 	//PrintFunc()
 	file.titanExecutionRefLoadoutReplaceCallback[ ref ]( attacker )
+}
+
+void function MeleeSyncedTitan_AddModToRemoveOnLoadoutReplace( string mod )
+{
+	if ( !file.modsToRemoveOnLoadoutReplace.contains( mod ) )
+		file.modsToRemoveOnLoadoutReplace.append( mod )
+}
+
+void function RemoveInvalidModsForWeapon( entity weapon )
+{
+	array<string> mods = weapon.GetMods()
+    array<string> replaceArray
+    foreach( string mod in mods )
+    {
+        if ( file.modsToRemoveOnLoadoutReplace.contains( mod ) ) // skip illegal mod
+            continue
+
+        replaceArray.append( mod )
+    }
+
+	weapon.SetMods( replaceArray )
 }
 #endif
