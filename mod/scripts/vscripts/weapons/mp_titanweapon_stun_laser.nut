@@ -50,7 +50,7 @@ var function OnWeaponPrimaryAttack_titanweapon_stun_laser( entity weapon, Weapon
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_charge_ball" ) )
-		return OnWeaponPrimaryAttack_weapon_MpTitanWeaponChargeBall( weapon, attackParams )
+		return OnWeaponPrimaryAttack_titanweapon_charge_ball( weapon, attackParams )
 	//
 	
 	// vanilla behavior

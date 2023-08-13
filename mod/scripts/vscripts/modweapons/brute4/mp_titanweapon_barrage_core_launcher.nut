@@ -45,6 +45,12 @@ var function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams,
 			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titancore_barrage_core_launcher ) // change damageSourceID
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
+
+			// fix for trail effect, so clients without scripts installed can see the trail
+			// start from server-side, so clients that already installed scripts won't see multiple trail effect stacking together
+			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"Rocket_Smoke_SMALL_Titan_mod" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_sonar_titan_AMP" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_frag_softball_elec_burn" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 		#else
 			entity weaponOwner = weapon.GetWeaponOwner()
 			SetTeam( nade, weaponOwner.GetTeam() )

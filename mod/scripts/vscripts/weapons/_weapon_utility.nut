@@ -690,6 +690,9 @@ var function OnWeaponPrimaryAttack_EPG( entity weapon, WeaponPrimaryAttackParams
 #if SERVER
 var function OnWeaponPrimaryAttack_GenericBoltWithDrop_NPC( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// debug
+	//print( "RUNNING OnWeaponPrimaryAttack_GenericBoltWithDrop_NPC()" )
+
 	return FireGenericBoltWithDrop( weapon, attackParams, false )
 }
 #endif // #if SERVER

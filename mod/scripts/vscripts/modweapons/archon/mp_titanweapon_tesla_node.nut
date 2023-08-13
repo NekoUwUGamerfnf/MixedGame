@@ -46,6 +46,9 @@ const int SHARED_ENERGY_RESTORE_AMOUNT = 350
 struct
 {
 	int ArcPylonsIdx
+
+	// zap sound handle
+	table<entity, float> nextPylonZapSoundTime
 } file;
 
 void function MpTitanAbilityArcPylon_Init()
@@ -357,10 +360,20 @@ void function ArcPylon_DamagedPlayerOrNPC( entity ent, var damageInfo )
 {
 	if ( ent.IsPlayer() )
 	{
-		if ( ent.IsTitan() )
-		 	EmitSoundOnEntityOnlyToPlayer( ent, ent, "titan_rocket_explosion_3p_vs_1p" )
-		else
-		 	EmitSoundOnEntityOnlyToPlayer( ent, ent, "flesh_explo_med_3p_vs_1p" )
+		// better handle zap sound, so player won't receive annoying sound
+		float currentTime = Time()
+		if ( !( ent in file.nextPylonZapSoundTime ) )
+			file.nextPylonZapSoundTime[ ent ] <- Time()
+
+		if ( file.nextPylonZapSoundTime[ ent ] <= currentTime )
+		{
+			if ( ent.IsTitan() )
+				EmitSoundOnEntityOnlyToPlayer( ent, ent, "titan_rocket_explosion_3p_vs_1p" )
+			else
+				EmitSoundOnEntityOnlyToPlayer( ent, ent, "flesh_explo_med_3p_vs_1p" )
+
+			file.nextPylonZapSoundTime[ ent ] = currentTime + RandomFloatRange( 0.5, 0.8 ) // delay next sound time
+		}
 	}
 
 	// this will cause a projectile with no ball lightning dealing no damage!

@@ -31,11 +31,17 @@ void function MpTitanWeaponStormWave_Init()
 	    RegisterWeaponDamageSource( "mp_titancore_storm_core", "Storm Core" )
 
 		//AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_storm_core, StormWave_DamagedPlayerOrNPC )
+	
+		//prevent player earning coremeter by storm core 
+		GameModeRulesRegisterTimerCreditException( eDamageSourceId.mp_titancore_storm_core )
 	#endif
 }
 
 void function OnWeaponActivate_titancore_storm_wave( entity weapon )
 {
+	// debug
+	//print( "RUNNING OnWeaponActivate_titancore_storm_wave()" )
+
 	weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
 	OnAbilityCharge_TitanCore( weapon )
 }
@@ -74,18 +80,21 @@ void function OnAbilityChargeEnd_StormWave( entity weapon )
 		if ( owner.IsPlayer() )
 		{
 			owner.Server_TurnOffhandWeaponsDisabledOff() // may need a little fix for animation
-			TEMP_StormWaveAnimFix( owner )
+			HandlePlayerStormCoreAnim( owner )
 		}
 
+		// atlas npc titans can't use storm core properly, adding fix
 		if ( owner.IsNPC() && IsAlive( owner ) )
-		{
-			owner.Anim_Stop()
-		}
+			HandleNPCTitanStormCoreUsage( owner, weapon )
+
 	#endif // #if SERVER
 }
 
 var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// debug
+	//print( "RUNNING OnWeaponPrimaryAttack_titancore_storm_wave()" )
+
 	OnAbilityStart_TitanCore( weapon )
 
 	#if CLIENT
@@ -113,17 +122,85 @@ var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPr
 }
 
 #if SERVER
-void function TEMP_StormWaveAnimFix( entity player )
+void function HandleNPCTitanStormCoreUsage( entity npc, entity weapon )
 {
-	// for titan pick: only ogre titans has such animations
-	entity soul = player.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return
-	string titanType = GetSoulTitanSubClass( soul )
-	if ( titanType == "ogre" ) // ogres can recover from animation, no need to fix
+	// for titan pick: atlas titans don't have proper anim event for core usage
+	if ( !ShouldFixAnimForTitan( npc ) )
 		return
 
-	player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, 0.1 ) // temp fix
-	// fadein, fadeout, blendtime
+	// build fake attack params
+	vector attackPos = npc.EyePosition()
+	int attachId = -1
+	if ( npc.LookupAttachment( "CHESTFOCUS" ) > 0 )
+		attachId = npc.LookupAttachment( "CHESTFOCUS" )
+	else if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
+		attachId = npc.LookupAttachment( "PROPGUN" )
+
+	if ( attachId > 0 )
+		attackPos = npc.GetAttachmentOrigin( attachId )
+
+	vector attackDir = npc.GetForwardVector()
+	attachId = -1
+	if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
+		attachId = npc.LookupAttachment( "PROPGUN" )
+
+	if ( attachId > 0 )
+	{
+		attackDir = npc.GetAttachmentAngles( attachId )
+		attackDir.x = -30 // move up attack angle a little bit
+		attackDir.z = 0
+		attackDir = AnglesToForward( attackDir )
+	}
+
+	WeaponPrimaryAttackParams npcAttackParams
+	npcAttackParams.pos = attackPos
+	npcAttackParams.dir = attackDir
+
+	// remove core frac
+	entity soul = npc.GetTitanSoul()
+	SoulTitanCore_SetExpireTime( soul, Time() )
+	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
+	// run primaryattack function
+	OnWeaponPrimaryAttack_titancore_storm_wave( weapon, npcAttackParams )
+	// stop animation after delay
+	thread StopOffhandAnimationAfterDelay( npc, 0.8 ) // give anim a little time( 0.8s )
+}
+
+void function HandlePlayerStormCoreAnim( entity player )
+{
+	// for titan pick: atlas titans don't have proper anim event for core usage
+	if ( !ShouldFixAnimForTitan( player ) )
+		return
+
+	thread StopOffhandAnimationAfterDelay( player, 0.5 ) // give anim a little time( 0.5s )
+}
+
+bool function ShouldFixAnimForTitan( entity titan )
+{
+	if ( !titan.IsTitan() )
+		return false
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	string titanType = GetSoulTitanSubClass( soul )
+	if ( titanType != "atlas" ) // only atlas titans can't recover from animation
+		return false
+
+	// all checks passes
+	return true
+}
+
+void function StopOffhandAnimationAfterDelay( entity titan, float delay )
+{
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	if ( titan.IsPlayer() ) // player specific: no need to fix anim if they disembark
+    	titan.EndSignal( "DisembarkingTitan" )
+
+	wait delay
+	if ( titan.IsPlayer() )
+		titan.Anim_StopGesture( 0 )
+	else
+		titan.Anim_Stop()
 }
 #endif

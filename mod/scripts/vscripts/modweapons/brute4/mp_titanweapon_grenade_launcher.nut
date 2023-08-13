@@ -58,6 +58,9 @@ var function OnWeaponNpcPrimaryAttack_titanweapon_grenade_launcher( entity weapo
 
 function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isNPCFiring = false )
 {
+	// all clients can hear the firing sound from script
+	weapon.EmitWeaponSound_1p3p( "Weapon_Softball_Fire_1P", "Weapon_Softball_Fire_3P" )
+
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 	vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
 
@@ -65,15 +68,6 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 
 	entity weaponOwner = weapon.GetWeaponOwner()
 	weaponOwner.Signal( "KillBruteShield" )
-
-	#if SERVER
-	// fix for clients that not installed
-	string fireSound = weapon.GetWeaponSettingString( eWeaponVar.fire_sound_1_player_3p )
-	if( weaponOwner.IsPlayer() )
-		EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, fireSound )
-	else
-		EmitSoundOnEntity( weapon, fireSound )
-	#endif
 
 	vector bulletVec = ApplyVectorSpread( attackParams.dir, (weaponOwner.GetAttackSpreadAngle() - 1.0) * 2 )
 
@@ -86,6 +80,10 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_grenade_launcher ) // change damageSourceID
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
+
+			// fix for trail effect, so clients without scripts installed can see the trail
+			// start from server-side, so clients that already installed scripts won't see multiple trail effect stacking together
+			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"weapon_40mm_projectile" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 		#else
 			SetTeam( nade, weaponOwner.GetTeam() )
 		#endif

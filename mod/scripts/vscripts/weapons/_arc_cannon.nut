@@ -181,6 +181,16 @@ function ArcCannon_ChargeBegin( entity weapon )
 				thread ConvertTitanShieldIntoBonusCharge( soul, weapon )
 			}
 		}
+
+		// client sound fix for npc archon arc cannon, hardcoded
+		entity weaponOwner = weapon.GetWeaponOwner()
+		if ( weapon.HasMod( "archon_arc_cannon_npc" ) )
+		{
+			if( weaponOwner.IsPlayer() )
+				EmitSoundOnEntityExceptToPlayer( weapon, weaponOwner, "MegaTurret_Laser_ChargeUp_3P" )
+			else // npc sound
+				EmitSoundOnEntity( weapon, "MegaTurret_Laser_ChargeUp_3P" )
+		}
 	#endif
 
 	#if CLIENT
@@ -201,6 +211,10 @@ function ArcCannon_ChargeEnd( entity weapon, entity player = null )
 	#if SERVER
 		if ( IsValid( weapon ) )
 			weapon.Signal( ARC_CANNON_SIGNAL_CHARGEEND )
+
+		// client sound fix for npc archon arc cannon, hardcoded
+		if ( weapon.HasMod( "archon_arc_cannon_npc" ) )
+			StopSoundOnEntity( weapon, "MegaTurret_Laser_ChargeUp_3P" )
 	#endif
 
 	#if CLIENT

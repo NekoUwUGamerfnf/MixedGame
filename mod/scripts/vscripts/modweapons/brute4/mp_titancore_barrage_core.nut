@@ -7,7 +7,7 @@ void function BarrageCore_Init()
 {
 #if SERVER
 	// adding a new damageSourceId. it's gonna transfer to client automatically
-	RegisterWeaponDamageSource( "mp_titancore_barrage_core_launcher", "Barrage Core" )
+	RegisterWeaponDamageSource( "mp_titancore_barrage_core_launcher", "Barrage Core" ) // "Barrage Core Cluster", limited to 1 space-bar usage...
 
 	// vortex refire override
 	Vortex_AddImpactDataOverride_WeaponMod( 

@@ -40,12 +40,32 @@ global function rodeodebug
 //
 //-----------------------------------------------------------------------------
 
+// modified settings override
+#if SERVER
+// in case we want to hide player's jetpack flame but we don't want to make them use stealth rodeo
+global function Rodeo_SetStealthMovementDisabledForPlayer
+global function Rodeo_PlayerDoStealthMovement
+#endif
+
+// modified settings override
+struct
+{
+	table<entity, bool> playerRodeoStealthMovement
+} file
+//
+
 function Rodeo_Init()
 {
 	RodeoShared_Init()
 	RodeoTitan_Init()
 	RegisterSignal( "RodeoPointOfNoReturn" )
 	AddCallback_OnTitanDoomed( OnTitanDoomed_Rodeo )
+
+	// modified settings override
+	#if SERVER
+		AddCallback_OnClientConnected( OnClientConnected )
+	#endif
+	//
 }
 
 
@@ -300,7 +320,9 @@ void function PlayerClimbsIntoRodeoPosition( entity player, entity rodeoTarget, 
 			Assert( 0, "Unhandled rodeo method " + rodeoPackage.method )
 	}
 
-	if ( !PlayerHasPassive( player, ePassives.PAS_STEALTH_MOVEMENT ) )
+	// modified settings override, in case we want to hide player's jetpack flame but we don't want to make them use stealth rodeo
+	//if ( !PlayerHasPassive( player, ePassives.PAS_STEALTH_MOVEMENT ) )
+	if ( !Rodeo_PlayerDoStealthMovement( player ) )
 		EmitDifferentSoundsOnEntityForPlayerAndWorld( rodeoPackage.cockpitSound, rodeoPackage.worldSound, player, rodeoTarget )
 
 	string titanType
@@ -543,3 +565,26 @@ void function OnTitanDoomed_Rodeo( entity titan, var damageInfo )
 
 	Remote_CallFunction_NonReplay( rodeoPilot, "ServerCallback_UpdateRodeoRiderHud" )
 }
+
+
+// modified settings override
+#if SERVER
+void function OnClientConnected( entity player )
+{
+	file.playerRodeoStealthMovement[ player ] <- true // vanilla always enable stealth movement if player has passive
+}
+
+void function Rodeo_SetStealthMovementDisabledForPlayer( entity player, bool disable )
+{
+	file.playerRodeoStealthMovement[ player ] = !disable
+}
+
+bool function Rodeo_PlayerDoStealthMovement( entity player )
+{
+	if ( !PlayerHasPassive( player, ePassives.PAS_STEALTH_MOVEMENT ) )
+		return false
+
+	return file.playerRodeoStealthMovement[ player ] // return settings override
+}
+#endif
+//
