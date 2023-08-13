@@ -65,7 +65,11 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	SmokescreenStruct smokescreen
 	// modified: smoke dangerous area team
 	// breaks vanilla behavior, but surly makes npcs behave better
-	smokescreen.dangerousAreaTeam = FriendlyFire_IsEnabled() ? TEAM_INVALID : ent.GetTeam()
+	#if MP
+	// HACK: only ability smoke do specific dangerous area team
+	// burnmeter reward smoke can't be used by npcs so no need add team for them, which can also help keeping vanilla behavior
+	if ( weapon.GetWeaponClassName() == "mp_titanability_smoke" ) 
+		smokescreen.dangerousAreaTeam = FriendlyFire_IsEnabled() ? TEAM_INVALID : ent.GetTeam()
 	//
 	if ( weapon.HasMod( "burn_mod_titan_smoke" ) )
 	{
@@ -78,9 +82,13 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	if ( HasHealingSmoke( ent ) )
 	{
 		smokescreen.smokescreenFX = FX_ELECTRIC_SMOKESCREEN_HEAL
-		// modified: smoke healing team
+		// modified: smoke dangerous area team
 		// healing smoke is always safe against friendly targets
-		smokescreen.dangerousAreaTeam = ent.GetTeam()
+		// HACK: only ability smoke do specific dangerous area team
+		// burnmeter reward smoke can't be used by npcs so no need add team for them, which can also help keeping vanilla behavior
+		if ( weapon.GetWeaponClassName() == "mp_titanability_smoke" ) 
+			smokescreen.dangerousAreaTeam = ent.GetTeam()
+		//
 	}
 	#endif
 	smokescreen.isElectric = true
