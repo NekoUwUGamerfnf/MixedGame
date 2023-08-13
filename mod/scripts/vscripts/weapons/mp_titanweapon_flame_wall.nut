@@ -43,7 +43,7 @@ void function OnWeaponActivate_titancore_flame_wall( entity weapon )
 {
 	weapon.EmitWeaponSound_1p3p( "flamewall_start_1p", "flamewall_start_3p" )
 
-	// fix for non-ogre npc titan usage
+	// fix for atlas npc titan usage
 #if SERVER
 	entity owner = weapon.GetWeaponOwner()
 	if ( owner.IsNPC() )
@@ -273,7 +273,7 @@ void function FlameWall_DamagedTarget( entity ent, var damageInfo )
 #if SERVER
 void function HandleNPCTitanFlameWallUsage( entity npc, entity weapon )
 {
-	// for titan pick: only ogre titans has such animations
+	// for titan pick: atlas titans don't have proper anim event for core usage
 	if ( !ShouldFixAnimForTitan( npc ) )
 		return
 
@@ -315,7 +315,7 @@ void function HandleNPCTitanFlameWallUsage( entity npc, entity weapon )
 
 void function HandlePlayerFlameWallAnim( entity player )
 {
-	// for titan pick: only ogre titans has such animations
+	// for titan pick: atlas titans don't have proper anim event for core usage
 	if ( !ShouldFixAnimForTitan( player ) )
 		return
 

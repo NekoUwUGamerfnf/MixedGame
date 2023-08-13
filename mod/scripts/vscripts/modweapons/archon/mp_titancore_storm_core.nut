@@ -80,7 +80,7 @@ void function OnAbilityChargeEnd_StormWave( entity weapon )
 			HandlePlayerStormCoreAnim( owner )
 		}
 
-		// non-ogre npc titans can't use storm core properly, adding fix
+		// atlas npc titans can't use storm core properly, adding fix
 		if ( owner.IsNPC() && IsAlive( owner ) )
 			HandleNPCTitanStormCoreUsage( owner, weapon )
 
@@ -121,7 +121,7 @@ var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPr
 #if SERVER
 void function HandleNPCTitanStormCoreUsage( entity npc, entity weapon )
 {
-	// for titan pick: only ogre titans has such animations
+	// for titan pick: atlas titans don't have proper anim event for core usage
 	if ( !ShouldFixAnimForTitan( npc ) )
 		return
 
@@ -163,7 +163,7 @@ void function HandleNPCTitanStormCoreUsage( entity npc, entity weapon )
 
 void function HandlePlayerStormCoreAnim( entity player )
 {
-	// for titan pick: only ogre titans has such animations
+	// for titan pick: atlas titans don't have proper anim event for core usage
 	if ( !ShouldFixAnimForTitan( player ) )
 		return
 

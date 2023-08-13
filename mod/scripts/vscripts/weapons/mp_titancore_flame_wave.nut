@@ -93,7 +93,7 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 			HandlePlayerFlameCoreAnim( owner )
 		}
 
-		// non-ogre npc titans can't use flame core properly, adding fix
+		// atlas npc titans can't use flame core properly, adding fix
 		if ( owner.IsNPC() && IsAlive( owner ) )
 			HandleNPCTitanFlameCoreUsage( owner, weapon )
 
@@ -322,7 +322,7 @@ void function ZeroDamageAndClearInflictorArray( entity ent, var damageInfo )
 #if SERVER
 void function HandleNPCTitanFlameCoreUsage( entity npc, entity weapon )
 {
-	// for titan pick: only ogre titans has such animations
+	// for titan pick: atlas titans don't have proper anim event for core usage
 	if ( !ShouldFixAnimForTitan( npc ) )
 		return
 
@@ -364,7 +364,7 @@ void function HandleNPCTitanFlameCoreUsage( entity npc, entity weapon )
 
 void function HandlePlayerFlameCoreAnim( entity player )
 {
-	// for titan pick: only ogre titans has such animations
+	// for titan pick: atlas titans don't have proper anim event for core usage
 	if ( !ShouldFixAnimForTitan( player ) )
 		return
 
