@@ -31,6 +31,9 @@ void function MpTitanWeaponStormWave_Init()
 	    RegisterWeaponDamageSource( "mp_titancore_storm_core", "Storm Core" )
 
 		//AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_storm_core, StormWave_DamagedPlayerOrNPC )
+	
+		//prevent player earning coremeter by storm core 
+		GameModeRulesRegisterTimerCreditException( eDamageSourceId.mp_titancore_storm_core )
 	#endif
 }
 
@@ -154,7 +157,9 @@ void function HandleNPCTitanStormCoreUsage( entity npc, entity weapon )
 	npcAttackParams.dir = attackDir
 
 	// remove core frac
-	SoulTitanCore_SetNextAvailableTime( npc.GetTitanSoul(), 0.0 )
+	entity soul = npc.GetTitanSoul()
+	SoulTitanCore_SetExpireTime( soul, Time() )
+	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
 	// run primaryattack function
 	OnWeaponPrimaryAttack_titancore_storm_wave( weapon, npcAttackParams )
 	// stop animation after delay

@@ -355,7 +355,9 @@ void function HandleNPCTitanFlameCoreUsage( entity npc, entity weapon )
 	npcAttackParams.dir = attackDir
 
 	// remove core frac
-	SoulTitanCore_SetNextAvailableTime( npc.GetTitanSoul(), 0.0 )
+	entity soul = npc.GetTitanSoul()
+	SoulTitanCore_SetExpireTime( soul, Time() )
+	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
 	// run primaryattack function
 	OnWeaponPrimaryAttack_titancore_flame_wave( weapon, npcAttackParams )
 	// stop animation after delay
