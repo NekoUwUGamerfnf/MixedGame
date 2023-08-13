@@ -70,6 +70,7 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	// burnmeter reward smoke can't be used by npcs so no need add team for them, which can also help keeping vanilla behavior
 	if ( weapon.GetWeaponClassName() == "mp_titanability_smoke" ) 
 		smokescreen.dangerousAreaTeam = ent.GetTeam()
+	#endif // MP
 	//
 	if ( weapon.HasMod( "burn_mod_titan_smoke" ) )
 	{
