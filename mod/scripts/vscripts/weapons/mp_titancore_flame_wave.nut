@@ -379,7 +379,7 @@ bool function ShouldFixAnimForTitan( entity titan )
 	if ( !IsValid( soul ) )
 		return false
 	string titanType = GetSoulTitanSubClass( soul )
-	if ( titanType == "ogre" ) // ogres can recover from animation, no need to fix
+	if ( titanType != "atlas" ) // only atlas titans can't recover from animation
 		return false
 
 	// all checks passes
