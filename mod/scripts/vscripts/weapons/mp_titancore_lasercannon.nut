@@ -1,6 +1,8 @@
 global function LaserCannon_Init
 
-global function OnWeaponPrimaryAttack_LaserCannon // modified function
+// modified callbacks
+global function OnWeaponPrimaryAttack_LaserCannon
+//
 
 global function OnAbilityStart_LaserCannon
 global function OnAbilityEnd_LaserCannon
@@ -86,12 +88,13 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 }
 #endif
 
-// modified function
+// modified callbacks
 var function OnWeaponPrimaryAttack_LaserCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	if ( weapon.HasMod( "tesla_core" ) )
 		return OnAbilityStart_Tesla_Core( weapon, attackParams )
 }
+//
 
 bool function OnAbilityCharge_LaserCannon( entity weapon )
 {
