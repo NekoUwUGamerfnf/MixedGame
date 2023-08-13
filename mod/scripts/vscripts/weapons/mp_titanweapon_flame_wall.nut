@@ -42,14 +42,23 @@ void function MpTitanweaponFlameWall_Init()
 void function OnWeaponActivate_titancore_flame_wall( entity weapon )
 {
 	weapon.EmitWeaponSound_1p3p( "flamewall_start_1p", "flamewall_start_3p" )
+
+	// fix for non-ogre npc titan usage
+#if SERVER
+	entity owner = weapon.GetWeaponOwner()
+	if ( owner.IsNPC() )
+		HandleNPCTitanFlameWallUsage( owner, weapon )
+#endif
 }
 
 var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	entity weaponOwner = weapon.GetOwner()
-
-	if( weapon.HasMod( "wrecking_ball" ) && weaponOwner.IsPlayer() )
+	// modded weapon
+	if( weapon.HasMod( "wrecking_ball" ) )
 		return OnWeaponPrimaryAttack_weapon_wrecking_ball( weapon, attackParams )
+
+	// vanilla behavior
+	entity weaponOwner = weapon.GetOwner()
 		
 	bool shouldPredict = weapon.ShouldPredictProjectiles()
 	#if CLIENT
@@ -98,7 +107,7 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 	#if SERVER
 		// anim fix for titanpick
 		if ( weaponOwner.IsPlayer() )
-			thread TEMP_FlameWallAnimFix( weaponOwner )
+			HandlePlayerFlameWallAnim( weaponOwner )
 	#endif
 
 	return weapon.GetWeaponInfoFileKeyField( "ammo_min_to_fire" )
@@ -113,6 +122,7 @@ var function OnWeaponNpcPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAtt
 
 void function OnProjectileCollision_FlameWall( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	// vanilla has no specific behavior, this is modded only
 	array<string> mods = projectile.ProjectileGetMods()
 	if( mods.contains( "wrecking_ball" ) )
 		return OnProjectileCollision_weapon_wrecking_ball( projectile, pos, normal, hitEnt, hitbox, isCritical )
@@ -258,24 +268,134 @@ void function FlameWall_DamagedTarget( entity ent, var damageInfo )
 }
 #endif
 
+
 // modified functions
 #if SERVER
-void function TEMP_FlameWallAnimFix( entity player )
+void function HandleNPCTitanFlameWallUsage( entity npc, entity weapon )
 {
 	// for titan pick: only ogre titans has such animations
-	entity soul = player.GetTitanSoul()
-	if ( !IsValid( soul ) )
+	if ( !ShouldFixAnimForTitan( npc ) )
 		return
+
+	// build fake attack params
+	vector attackPos = npc.EyePosition()
+	int attachId = -1
+	if ( npc.LookupAttachment( "CHESTFOCUS" ) > 0 )
+		attachId = npc.LookupAttachment( "CHESTFOCUS" )
+	else if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
+		attachId = npc.LookupAttachment( "PROPGUN" )
+
+	if ( attachId > 0 )
+		attackPos = npc.GetAttachmentOrigin( attachId )
+
+	vector attackDir = npc.GetForwardVector()
+	attachId = -1
+	if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
+		attachId = npc.LookupAttachment( "PROPGUN" )
+
+	if ( attachId > 0 )
+	{
+		attackDir = npc.GetAttachmentAngles( attachId )
+		attackDir.x = 0
+		attackDir.z = 0
+		attackDir = AnglesToForward( attackDir )
+	}
+
+	WeaponPrimaryAttackParams npcAttackParams
+	npcAttackParams.pos = attackPos
+	npcAttackParams.dir = attackDir
+
+	// run primaryattack function
+	OnWeaponPrimaryAttack_FlameWall( weapon, npcAttackParams )
+	// stop animation after delay
+	thread StopOffhandAnimationAfterDelay( npc, 0.3 ) // give anim a little time( 0.3s )
+	// due npc can't fire properly, they'll still have weapon ready. do a hack to handle their weapon cooldown
+	thread RestoreNPCOffhandAfterCooldown( npc, weapon, 0.3 )
+}
+
+void function HandlePlayerFlameWallAnim( entity player )
+{
+	// for titan pick: only ogre titans has such animations
+	if ( !ShouldFixAnimForTitan( player ) )
+		return
+
+	thread StopOffhandAnimationAfterDelay( player, 0.5 ) // give anim a little time( 0.5s )
+}
+
+bool function ShouldFixAnimForTitan( entity titan )
+{
+	if ( !titan.IsTitan() )
+		return false
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
 	string titanType = GetSoulTitanSubClass( soul )
 	if ( titanType == "ogre" ) // ogres can recover from animation, no need to fix
-		return
+		return false
 
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-    player.EndSignal( "DisembarkingTitan" )
+	// all checks passes
+	return true
+}
 
-	wait 0.5 // give anim a little time
-	player.Anim_PlayGesture( "ACT_MP_STAND_IDLE", 0.1, 0.1, 0.1 ) // temp fix
-	// fadein, fadeout, blendtime
+void function StopOffhandAnimationAfterDelay( entity titan, float delay )
+{
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	if ( titan.IsPlayer() ) // player specific: no need to fix anim if they disembark
+    	titan.EndSignal( "DisembarkingTitan" )
+
+	wait delay
+	if ( titan.IsPlayer() )
+		titan.Anim_StopGesture( 0 )
+	else
+		titan.Anim_Stop()
+}
+
+void function RestoreNPCOffhandAfterCooldown( entity owner, entity weapon, float startDelay )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "player_embarks_titan" ) // embarking a titan restore the weapon immediately
+	weapon.EndSignal( "OnDestroy" )
+
+	wait startDelay
+
+	float minCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
+	float maxCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
+
+	// take off weapon and store it
+	table results = {
+		offhandSlot = -1
+	}
+	for ( int i = 0; i < OFFHAND_COUNT; i++ )
+	{
+		entity otherWeapon = owner.GetOffhandWeapon( i )
+		if ( otherWeapon == weapon )
+		{
+			weapon = owner.TakeOffhandWeapon_NoDelete( i )
+			results.offhandSlot = i
+			break
+		}
+	}
+
+	//string weaponName = weapon.GetWeaponClassName()
+	//array<string> weaponMods = weapon.GetMods()
+
+	OnThreadEnd
+	(
+		function(): ( owner, weapon, results )
+		{
+			//print( "weapon: " + string( weapon ) )
+			if ( IsValid( weapon ) )
+			{
+				if ( IsAlive( owner ) )
+					owner.GiveExistingOffhandWeapon( weapon, expect int( results.offhandSlot ) )
+				else // owner died
+					weapon.Destroy() // clean up weapon
+			}
+		}
+	)
+
+	wait RandomFloatRange( minCooldown, maxCooldown )
 }
 #endif
