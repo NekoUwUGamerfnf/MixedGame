@@ -388,14 +388,23 @@ void function RestoreNPCOffhandAfterCooldown( entity owner, entity weapon, float
 			//print( "weapon: " + string( weapon ) )
 			if ( IsValid( weapon ) )
 			{
-				if ( IsAlive( owner ) )
-					owner.GiveExistingOffhandWeapon( weapon, expect int( results.offhandSlot ) )
-				else // owner died
+				int slot = expect int( results.offhandSlot )
+				if ( IsAlive( owner ) && !IsValid( owner.GetOffhandWeapon( slot ) ) )
+					owner.GiveExistingOffhandWeapon( weapon, slot )
+				else // owner died or being given another weapon
 					weapon.Destroy() // clean up weapon
 			}
 		}
 	)
 
-	wait RandomFloatRange( minCooldown, maxCooldown )
+	float cooldownTime = RandomFloatRange( minCooldown, maxCooldown )
+	float maxWaitTime = Time() + cooldownTime
+	int slot = expect int( results.offhandSlot )
+	// we end thread if player being given another offhand in the same slot
+	while ( Time() < maxWaitTime )
+	{
+		if ( IsValid( owner.GetOffhandWeapon( slot ) ) )
+			break
+	}
 }
 #endif
