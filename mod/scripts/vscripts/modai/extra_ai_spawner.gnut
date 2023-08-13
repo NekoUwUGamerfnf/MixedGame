@@ -34,11 +34,15 @@ global function ExtraSpawner_ApplyNPCGrenadeWeapon // grenade have to be given b
 global function ExtraSpawner_ApplyNPCExtraWeaponMods
 global function ExtraSpawner_SetUpNPCPilot
 
+// wrapped care package functions
 global function ExtraSpawner_SpawnCarePackageToGetWeapons
+global function ExtraSpawner_SpawnCarePackageToRefillAmmo
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetCarePackageWeapons
 global function ExtraSpawner_SetCarePackageWeaponMods
 global function ExtraSpawner_SetCarePackageWeaponModsMultiple
+// raw care package function
+global function ExtraSpawner_SpawnCarePackage
 
 // tick reaper funcs
 global function ExtraSpawner_SpawnReaperCanLaunchTicks
@@ -151,7 +155,7 @@ struct
 	table< string, void functionref( entity ) > npcHandlerFuncs
 
 	// care package
-	array<entity> usedplayer = []
+	array<entity> carePackageUsedPlayers = []
 	array<string> carePackageWeapons
 	// now allowing every weapon to have a custom mod
 	table< string, array<string> > carePackageWeaponMods
@@ -494,7 +498,8 @@ void function NPCBruteLoadout( entity titan )
 	titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
 
 	//titan.SetBehaviorSelector( "behavior_titan_rocketeer" ) // default behavior, being set after embarking
-	titan.SetTitle( "#NPC_TITAN_AUTO_STRYDER_ROCKET" )
+	// title should be setup by npc pilot's spawn func
+	//titan.SetTitle( "#NPC_TITAN_AUTO_STRYDER_ROCKET" )
 
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
@@ -527,10 +532,10 @@ void function InitDefaultBossTitanList()
 		"execution_vanguard_kit",						// executionRef, npc ion can't use prime executions, just let them use battery thief
 		"#BOSSNAME_SLONE",								// boss title
 		"斯隆",											// pilot title. can't use localized string
-		$"models/humans/pilots/pilot_heavy_roog_m.mdl",		// character model, use mp pilot model: holopilot female
+		$"models/humans/pilots/pilot_medium_reaper_f.mdl",		// character model, use mp pilot model: pulse blade female
 		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for bosses that has no pilot model for mp
-		3,												// skin index, unsure
-		1												// decal index
+		7,												// skin index, unsure
+		11												// decal index
 	)
 
 	// kane
@@ -544,7 +549,7 @@ void function InitDefaultBossTitanList()
 		"execution_scorch_prime",						// executionRef
 		"#BOSSNAME_KANE",								// boss title
 		"肯恩",											// pilot title. can't use localized string
-		$"models/humans/pilots/pilot_heavy_roog_m.mdl",		// character model, use mp pilot model: a-wall male
+		$"models/humans/pilots/pilot_medium_stalker_m.mdl",		// character model, use mp pilot model: holopilot male
 		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for bosses that has no pilot model for mp
 		3,												// skin index, unsure
 		1												// decal index
@@ -563,7 +568,7 @@ void function InitDefaultBossTitanList()
 		"毒蛇",											// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_medium_reaper_m.mdl",		// character model, use mp pilot model: pulse blade male
 		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for bosses that has no pilot model for mp
-		1,												// skin index, unsure
+		5,												// skin index, unsure
 		10												// decal index
 	)
 
@@ -597,7 +602,7 @@ void function InitDefaultBossTitanList()
 		"里赫特",										// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_heavy_drex_m.mdl",		// character model, use mp pilot model: cloak male
 		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for bosses that has no pilot model for mp
-		5,												// skin index, unsure
+		4,												// skin index, unsure
 		13												// decal index
 	)
 
@@ -1056,15 +1061,6 @@ void function ExtraSpawner_ApplyNPCExtraWeaponMods( entity npc )
 	}
 }
 
-// modified, since WT_ANTITITAN won't work in r2, hardcoded
-const array<string> ANTI_TITAN_WEAPONS =
-[
-	"mp_weapon_defender",
-	"mp_weapon_rocket_launcher",
-	"mp_weapon_arc_launcher", // can't be used by npcs if vanilla
-	"mp_weapon_mgl"
-]
-
 void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 {
 	// every npc has this, but we'll save ones who have better proficiency
@@ -1076,52 +1072,50 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		return
 
 	array<entity> weapons = guy.GetMainWeapons()
-	// sniper grunt debug: don't know why they get a incorrect weapon cycle
-	/* // fixed: adding active weaponName check in foreach()
-	if ( guy.GetAISettingsName() == "npc_soldier_sidearm" )
-	{
-		foreach ( entity weapon in weapons )
-			print( "weapon: " + weapon.GetWeaponClassName() )
-	}
-	*/
-
 	// do we have a weapon to switch to?
 	if ( weapons.len() < 2 )
 		return
 
 	entity activeWeapon = guy.GetActiveWeapon()
-	string acitveWeaponName = ""
-	if ( IsValid( activeWeapon ) )
-		acitveWeaponName = activeWeapon.GetWeaponClassName()
+	if ( !IsValid( activeWeapon ) ) // must be disabled weapon, no need to do following checks
+		return
+
+	string acitveWeaponName = activeWeapon.GetWeaponClassName()
+	bool antiTitanActive = activeWeapon != weapons[0] && !activeWeapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+
 	bool isHeavyArmorTarget = enemy.GetArmorType() == ARMOR_TYPE_HEAVY
 
 	string weaponToChange = ""
-	if( isHeavyArmorTarget )
+	if ( isHeavyArmorTarget && !antiTitanActive )
 	{
 		// first try to find an appropriate weapon
 		foreach ( entity weapon in weapons )
 		{
 			string className = weapon.GetWeaponClassName()
-			bool isAntiTitan = ANTI_TITAN_WEAPONS.contains( className )
-			if( isAntiTitan )
+			bool isMainWeapon = weapon == weapons[0]
+			bool isAntiTitan = !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+			if ( isAntiTitan && !isMainWeapon )
 			{
 				if ( acitveWeaponName == className ) // already holding this weapon
 					return
 				weaponToChange = className
+				break
 			}
 		}
 	}
-	else // light unit, switch off anti-titans
+	else if ( antiTitanActive ) // light unit, switch off anti-titans
 	{
 		foreach ( entity weapon in weapons )
 		{
 			string className = weapon.GetWeaponClassName()
-			bool isPrimary = !ANTI_TITAN_WEAPONS.contains( className )
-			if( isPrimary )
+			bool isMainWeapon = weapon == weapons[0]
+			bool isAntiTitan = !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+			if ( isMainWeapon || !isAntiTitan )
 			{
 				if ( acitveWeaponName == className ) // already holding this weapon
 					return
 				weaponToChange = className
+				break
 			}
 		}
 	}
@@ -2054,6 +2048,7 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			//sideArm.AddMod( "npc_sniper_grunt" ) // removed, which is overpowered
 
 			npc.EnableNPCFlag( NPC_NO_WEAPON_DROP ) // due sniper grunts have specific weapon, make them never drop weapons
+			npc.DisableNPCFlag( NPC_CROUCH_COMBAT ) // pistol activity don't have crouch animations, disable crouch combat
 
 			break
 
@@ -2088,6 +2083,7 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			npc.SetActiveWeaponByName( weaponToChoose )
 
 			npc.EnableNPCFlag( NPC_NO_WEAPON_DROP ) // elite guard grunts never drops weapon
+			npc.DisableNPCFlag( NPC_CROUCH_COMBAT ) // pistol activity don't have crouch animations, disable crouch combat
 
 			break
 	}
@@ -2502,7 +2498,7 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 	if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
 		thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
 
-	if ( IsValid( titan ) ) // disembarking, unfortunatelly this is not featured
+	if ( IsValid( titan ) )
 	{
 		entity titanSoul = titan.GetTitanSoul()
 		if( !IsValid( titanSoul ) ) // defensive fix for titan.Destroy() situations
@@ -2753,15 +2749,27 @@ const float CARE_PACKAGE_LIFETIME = 30
 const float CARE_PACKAGE_WAITTIME = 5
 void function ExtraSpawner_SpawnCarePackageToGetWeapons( vector pos, vector rot, float lifeTime = CARE_PACKAGE_LIFETIME, float waitTime = CARE_PACKAGE_WAITTIME )
 {
-	//thread DropWeaponAlert( pos, 500, 200 )
-	thread CarePackage_SpawnPoint( pos, 10 )
-	thread ExtraSpawner_SpawnCarePackageToGetWeapons_Threaded( pos, rot, lifeTime, waitTime )
+	ExtraSpawner_SpawnCarePackage( pos, rot, CarePackage_GiveWeapon, "獲取武器", lifeTime, waitTime )
 }
 
-void function ExtraSpawner_SpawnCarePackageToGetWeapons_Threaded( vector pos, vector rot, float lifeTime, float waitTime )
+// care package variant: ammo refill only
+void function ExtraSpawner_SpawnCarePackageToRefillAmmo( vector pos, vector rot, float lifeTime = CARE_PACKAGE_LIFETIME, float waitTime = CARE_PACKAGE_WAITTIME )
 {
-	file.usedplayer.clear()
+	ExtraSpawner_SpawnCarePackage( pos, rot, CarePackage_RefillAmmo, "補充彈藥", lifeTime, waitTime )
+}
+
+void function ExtraSpawner_SpawnCarePackage( vector pos, vector rot, useFunction, string usePrompt, float lifeTime, float waitTime )
+{
+	//thread DropWeaponAlert( pos, 500, 200 )
+	thread CarePackage_SpawnPoint( pos, waitTime + 5 ) // care package takes 5s to drop
+	thread ExtraSpawner_SpawnCarePackage_Threaded( pos, rot, useFunction, usePrompt, lifeTime, waitTime )
+}
+
+void function ExtraSpawner_SpawnCarePackage_Threaded( vector pos, vector rot, useFunction, string usePrompt, float lifeTime, float waitTime )
+{
 	wait waitTime
+
+	file.carePackageUsedPlayers.clear()
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	pod.EndSignal( "OnDestroy" )
 	Highlight_SetOwnedHighlight( pod, "friendly_ai" )
@@ -2773,8 +2781,8 @@ void function ExtraSpawner_SpawnCarePackageToGetWeapons_Threaded( vector pos, ve
 
 	pod.SetUsable()
 	pod.SetUsableByGroup( "pilot" )
-	pod.SetUsePrompts( "按住 %use% 以獲取武器", "按下 %use% 獲取武器" )
-	AddCallback_OnUseEntity( pod , GiveAirDropWeapon )
+	pod.SetUsePrompts( "按住 %use% 以" + usePrompt, "按下 %use% 以" + usePrompt )
+	AddCallback_OnUseEntity( pod, useFunction )
 
 	HighlightDropPod( pod )
 	pod.SetModel( CAREPACKAGE_MODEL )
@@ -2786,6 +2794,7 @@ void function ExtraSpawner_SpawnCarePackageToGetWeapons_Threaded( vector pos, ve
 	pod.NotSolid() // clear collision
 	DisableDropPodHighlight( pod )
 	pod.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+	EmitSoundAtPosition( TEAM_UNASSIGNED, pod.GetOrigin(), "droppod_dissolve" )
 }
 
 // copied from cl_replacement_titan_hud.gnut
@@ -2806,26 +2815,29 @@ void function CarePackage_SpawnPoint( vector origin, float impactTime )
 		EffectStop( targetEffect )
 }
 
-function GiveAirDropWeapon( pod , player )
+function CarePackage_GiveWeapon( pod , player )
 {
 	expect entity( player )
 	vector pos = player.GetOrigin()
 
-	if( file.usedplayer.contains( player ) )
+	if( file.carePackageUsedPlayers.contains( player ) )
 	{
 		//SendHudMessage(player, "Once Robbed Weapon from Care Package\nPlease Wait for Next Delivery",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
 		SendHudMessage( player, "已獲取本次補給艙\n請等待下一輪",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
 		return
 	}
+
     //DropModdedWeapons( WEAPONS, pos, MODS )
 	if( player.GetMainWeapons().len() == 3 )
 		player.DropWeapon( player.GetMainWeapons()[2] ) // was [1], for the newest version, drop the grenadier!
 	//GiveModdedWeapons( player, WEAPONS, MODS )
 	GiveModdedWeapons( player, file.carePackageWeapons )
 	RestorePlayerAmmo( player )
+
     //SendHudMessage(player, "Got Weapon from Care Package",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
     SendHudMessage( player, "已從補給艙補充彈藥",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
-	file.usedplayer.append( player )
+
+	file.carePackageUsedPlayers.append( player )
 	player.Signal( "PlayerUsedCarePackage" )
 }
 
@@ -2838,6 +2850,25 @@ void function GiveModdedWeapons( entity player, array<string> weapons )
 		mods = file.carePackageWeaponMods[weaponName]
 	player.GiveWeapon( weaponName, mods )
 	player.SetActiveWeaponByName( weaponName )
+}
+
+function CarePackage_RefillAmmo( pod , player )
+{
+	expect entity( player )
+
+	if( file.carePackageUsedPlayers.contains( player ) )
+	{
+		//SendHudMessage(player, "Once Robbed Weapon from Care Package\nPlease Wait for Next Delivery",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
+		SendHudMessage( player, "已獲取本次補給艙\n請等待下一輪",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+		return
+	}
+
+	RestorePlayerAmmo( player )
+    //SendHudMessage(player, "Got Weapon from Care Package",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
+    SendHudMessage( player, "已從補給艙補充彈藥",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+
+	file.carePackageUsedPlayers.append( player )
+	player.Signal( "PlayerUsedCarePackage" )
 }
 
 void function RestorePlayerAmmo( entity player )
