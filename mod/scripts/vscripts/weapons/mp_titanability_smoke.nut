@@ -66,9 +66,6 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	// modified: smoke dangerous area team
 	// breaks vanilla behavior, but surly makes npcs behave better
 	#if MP
-	// HACK: only ability smoke do specific dangerous area team
-	// burnmeter reward smoke can't be used by npcs so no need add team for them, which can also help keeping vanilla behavior
-	if ( weapon.GetWeaponClassName() == "mp_titanability_smoke" ) 
 		smokescreen.dangerousAreaTeam = ent.GetTeam()
 	#endif // MP
 	//
