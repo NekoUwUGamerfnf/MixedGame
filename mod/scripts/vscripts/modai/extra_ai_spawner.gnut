@@ -63,20 +63,25 @@ global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
 // these are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
+// debug
+//global function PrintPrimaryAttackSignal
+
 // basically medium animation pilots!
 const array<asset> NPC_PILOT_ALLOWED_MODELS = 
 [ 
-	// note that only grunt models have proper animation for a npc
+	// note that only sp pilots and grunt models have proper animation for a npc
+	/* // now leaving only sp pilot models
 	$"models/humans/pilots/pilot_medium_stalker_m.mdl", 
 	$"models/humans/pilots/pilot_medium_stalker_f.mdl", 
 	$"models/humans/pilots/pilot_medium_geist_m.mdl", 
 	$"models/humans/pilots/pilot_medium_geist_f.mdl", 
 	$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
 	$"models/humans/pilots/pilot_medium_reaper_f.mdl",
+	*/
 	$"models/humans/pilots/sp_medium_geist_f.mdl", 
 	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
-	$"models/humans/pilots/sp_medium_stalker_m.mdl" 
-	/* // now leaving only mp pilot models, for others maybe spawn with their unique titans( like jack in bt, ash in ronin )
+	$"models/humans/pilots/sp_medium_stalker_m.mdl", 
+	/* // now leaving only pilot models, for others maybe spawn with their unique titans( like jack in bt, ash in ronin )
 	$"models/humans/grunts/mlt_grunt_lmg.mdl", 
 	$"models/humans/grunts/imc_grunt_lmg.mdl", 
 	$"models/humans/grunts/imc_grunt_shield_captain.mdl", 
@@ -133,6 +138,7 @@ struct EmbarkedNPCTitanStruct
 
 struct
 {
+	// modifiable variables( through functions )
 	// npc weapons, should we add a struct to set up mods for them?
 	table< string, array<string> > npcMainWeaponsTable
 	table< string, array<string> > npcAntiTitanWeaponsTable
@@ -144,21 +150,22 @@ struct
 	table<string, TitanSpawnStruct> titanSpawnList
 	// for ExtraSpawner_SpawnBossTitan() picking random titans
 	table<string, BossTitanSpawnStruct> bossTitanSpawnList
+	// npc handler func
+	void functionref( array<entity> ) squadHandlerFunc
+	table< string, void functionref( entity ) > npcHandlerFuncs
+	// care package, now allowing every weapon to have a custom mod array
+	array<string> carePackageWeapons
+	table< string, array<string> > carePackageWeaponMods
+
+	// in-file only variables
+	// care package, for limiting player care package usages
+	array<entity> carePackageUsedPlayers = []
 	// for marking the npc as spawning from this file
 	table<entity, bool> npcSpawnFromExtraSpawner
 	// for marking the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
 	// scripted npc dialogue
 	table<entity, float> npcDialogueNextAllowedTimeOnPlayer
-	// npc handler func
-	void functionref( array<entity> ) squadHandlerFunc
-	table< string, void functionref( entity ) > npcHandlerFuncs
-
-	// care package
-	array<entity> carePackageUsedPlayers = []
-	array<string> carePackageWeapons
-	// now allowing every weapon to have a custom mod
-	table< string, array<string> > carePackageWeaponMods
 } file
 
 void function ExtraAISpawner_Init()
@@ -180,8 +187,8 @@ void function ExtraAISpawner_Init()
 	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
 	// npc handlers
 	RegisterSignal( "StopDefaultHandler" )
-	// npc pilot thin
-	RegisterSignal( "EmbarkedNPCTitanThink" )
+	// npc pilot think
+	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -206,7 +213,7 @@ void function ExtraAISpawner_Init()
 
 	// for debugging
 	//MeleeSyncedNPC_EnableAll_Init()
-	//AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
+	AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
 	//AddClientCommandCallback( "tickreaper", CC_SpawnReaperCanLaunchTicks )
 	//AddClientCommandCallback( "gunship", CC_SpawnGunShip )
 	//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
@@ -306,9 +313,9 @@ void function InitDefaultNPCWeapons()
 		"mp_weapon_rspn101_og", 
 		"mp_weapon_r97", 
 		"mp_weapon_car",
-		"mp_weapon_alternator_smg",
-		"mp_weapon_vinson" ,
-		"mp_weapon_epg",
+		//"mp_weapon_alternator_smg",
+		"mp_weapon_vinson",
+		//"mp_weapon_epg",
 		//"mp_weapon_smr",
 		//"mp_weapon_defender",
 		//"mp_weapon_mgl",
@@ -1261,7 +1268,7 @@ bool function CC_SpawnFakeMLTSpectre( entity player, array<string> args )
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 
 	entity spectre = CreateNPC( "npc_spectre", GetPlayerAISpawnTeam( player, args ), pos, rot )
-	SetSpawnOption_Weapon( spectre, "mp_weapon_pulse_lmg" )
+	//SetSpawnOption_Weapon( spectre, "mp_weapon_pulse_lmg" )
 	spectre.SetBehaviorSelector( "behavior_stalker" ) // so they don't do spectre specific behaviors, which they're missing animations
 	spectre.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT ) // can stalker sprint?
 	spectre.DisableNPCFlag( NPC_CROUCH_COMBAT ) // pistol activity don't have crouch animations, disable crouch combat
@@ -1269,12 +1276,15 @@ bool function CC_SpawnFakeMLTSpectre( entity player, array<string> args )
 	file.npcSpawnFromExtraSpawner[ spectre ] <- true
 	DispatchSpawn( spectre )
 
+	spectre.SetShieldHealthMax( 5000 )
+	spectre.SetShieldHealth( 5000 )
 	spectre.SetMaxHealth( 5000 )
 	spectre.SetHealth( 5000 )
 	// use stalker head
 	spectre.SetModel( $"models/Robots/stalker/robot_stalker.mdl" )
 	spectre.SetNPCMoveSpeedScale( 1.5 ) // stalkers always walk, make them do it faster
-	thread PrintColdWarNPCPrimaryAttack( spectre )
+	//thread PrintColdWarNPCPrimaryAttack( spectre )
+	//thread PrintPrimaryAttackSignal( spectre )
 
 	return true
 }
@@ -1296,6 +1306,25 @@ void function PrintColdWarNPCPrimaryAttack( entity npc )
 			print( "currentAmmo: " + string( currentAmmo ) )
 		lastAmmo = currentAmmo
 		WaitFrame()
+	}
+}
+
+void function PrintPrimaryAttackSignal( entity npc )
+{
+	npc.EndSignal( "OnDeath" )
+	npc.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		table result = WaitSignal( npc, "OnPrimaryAttack" )
+		print( "=========================================" )
+		print( "OnPrimaryAttack signal print" )
+		foreach ( key, value in result )
+		{
+			print( "key: " + string( key ) )
+			print( "value: " + string( value ) )
+		}
+		print( "=========================================" )
 	}
 }
 
@@ -2875,6 +2904,74 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	{
 		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
 		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, true ) // allow this npc titan use reward electric smoke
+	}
+
+	// start specific think, for anti-rodeo countermeasure
+	thread EmbarkedNPCTitanRodeoCounter( titan )
+}
+
+// Rodeo counter: force inventory smoke to fire when getting rodeo hit recently
+const string RODEO_COUNTER_SMOKE_WEAPON = "mp_titanability_smoke"
+const float RODEO_COUNTER_DELAY = 0.5 // titan will wait this amount of time before deploying the smoke
+const float RODEO_COUNTER_COOLDOWN_MIN = 6.0 // next smoke will need at least this amount of time to deploy
+const float RODEO_COUNTER_COOLDOWN_MAX = 10.0
+
+void function EmbarkedNPCTitanRodeoCounter( entity titan )
+{
+	//print( "RUNNING EmbarkedNPCTitanRodeoCounter()" )
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	titan.Signal( "EmbarkedNPCTitanRodeoCounter" )
+	titan.EndSignal( "EmbarkedNPCTitanRodeoCounter" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	soul.EndSignal( "OnDestroy" )
+	// being embarked by player: end npc titan think
+	titan.EndSignal( "player_embarks_titan" )
+
+	float beingRodeoedTime = -1
+	float lastTickRodeoHitTime = 0
+	float smokeDeployAllowedTime = -1
+
+	while ( true )
+	{
+		WaitFrame() // always wait a frame each loop
+
+		titan = soul.GetTitan() // update titan
+		if ( !TitanHasNpcPilot( titan ) ) // npc pilot become invalid!
+			return
+
+		entity rodeoPilot = GetRodeoPilot( titan )
+		float rodeoHitTime = soul.GetLastRodeoHitTime()
+		if ( rodeoHitTime != 0 && lastTickRodeoHitTime == 0 ) // rodeo target updated!
+			beingRodeoedTime = Time()
+		else if ( rodeoHitTime == 0 ) // rodeo target detached
+			beingRodeoedTime = -1
+		lastTickRodeoHitTime = rodeoHitTime
+
+		//print( "beingRodeoedTime: " + string( beingRodeoedTime ) )
+		// Rodeo counter: force inventory smoke to fire when getting rodeo hit recently
+		if ( IsAlive( rodeoPilot ) && beingRodeoedTime != -1 )
+		{
+			// delay is enough!
+			if ( Time() > smokeDeployAllowedTime && Time() > beingRodeoedTime + RODEO_COUNTER_DELAY )
+			{
+				entity rewardSmoke = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
+				if ( IsValid( rewardSmoke ) && rewardSmoke.GetWeaponPrimaryAmmoCount() > 0 )
+				{
+					WeaponPrimaryAttackParams emptyParams // smoke don't need attack params
+					OnWeaponNpcPrimaryAttack_titanability_smoke( rewardSmoke, emptyParams )
+					// ammo management
+					rewardSmoke.SetWeaponPrimaryAmmoCount( rewardSmoke.GetWeaponPrimaryAmmoCount() - 1 )
+					// when ammo runs out, we take away the weapon
+					if ( rewardSmoke.GetWeaponPrimaryAmmoCount() == 0 )
+						titan.TakeOffhandWeapon( OFFHAND_INVENTORY )
+					smokeDeployAllowedTime = Time() + RandomFloatRange( RODEO_COUNTER_COOLDOWN_MIN, RODEO_COUNTER_COOLDOWN_MAX ) // delay next smoke allowed time
+				}
+			}
+		}
 	}
 }
 
