@@ -147,7 +147,7 @@ void function HandleNPCTitanStormCoreUsage( entity npc, entity weapon )
 	if ( attachId > 0 )
 	{
 		attackDir = npc.GetAttachmentAngles( attachId )
-		attackDir.x = -30 // move up attack angle a little bit
+		attackDir.x = -20 // move up attack angle a little bit
 		attackDir.z = 0
 		attackDir = AnglesToForward( attackDir )
 	}
