@@ -24,6 +24,22 @@ global const float FLAME_WALL_THERMITE_DURATION = 5.2
 global const float PAS_SCORCH_FIREWALL_DURATION = 5.2
 global const float SP_FLAME_WALL_DURATION_SCALE = 1.75
 
+// for titan pick: atlas titans don't have proper anim event for flamewave usage
+// using a fake cooldown system for them
+struct FlameWallSavedOffhand
+{
+	string weaponName
+	array<string> weaponMods
+	int offhandSlot
+}
+
+#if SERVER
+struct
+{
+	table<entity, FlameWallSavedOffhand> npcFlameWallSavedOffhand
+} file
+#endif
+
 void function MpTitanweaponFlameWall_Init()
 {
 	PrecacheParticleSystem( FLAME_WALL_FX )
@@ -273,7 +289,7 @@ void function FlameWall_DamagedTarget( entity ent, var damageInfo )
 #if SERVER
 void function HandleNPCTitanFlameWallUsage( entity npc, entity weapon )
 {
-	// for titan pick: atlas titans don't have proper anim event for core usage
+	// for titan pick: atlas titans don't have proper anim event for flamewave usage
 	if ( !ShouldFixAnimForTitan( npc ) )
 		return
 
@@ -315,7 +331,7 @@ void function HandleNPCTitanFlameWallUsage( entity npc, entity weapon )
 
 void function HandlePlayerFlameWallAnim( entity player )
 {
-	// for titan pick: atlas titans don't have proper anim event for core usage
+	// for titan pick: atlas titans don't have proper anim event for flamewall usage
 	if ( !ShouldFixAnimForTitan( player ) )
 		return
 
@@ -356,55 +372,61 @@ void function RestoreNPCOffhandAfterCooldown( entity owner, entity weapon, float
 	owner.EndSignal( "OnDeath" )
 	owner.EndSignal( "OnDestroy" )
 	owner.EndSignal( "player_embarks_titan" ) // embarking a titan restore the weapon immediately
-	weapon.EndSignal( "OnDestroy" )
 
 	wait startDelay
+
+	if ( !IsValid( weapon ) )
+		return
 
 	float minCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
 	float maxCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
 
-	// take off weapon and store it
-	table results = {
-		offhandSlot = -1
-	}
+	// store weapon data
+	FlameWallSavedOffhand offhandSaver
+	offhandSaver.weaponName = weapon.GetWeaponClassName()
+	offhandSaver.weaponMods = weapon.GetMods()
+	file.npcFlameWallSavedOffhand[ owner ] <- offhandSaver
+
+	// get offhand slot
+	int weaponSlot = -1
 	for ( int i = 0; i < OFFHAND_COUNT; i++ )
 	{
 		entity otherWeapon = owner.GetOffhandWeapon( i )
 		if ( otherWeapon == weapon )
 		{
-			weapon = owner.TakeOffhandWeapon_NoDelete( i )
-			results.offhandSlot = i
+			weaponSlot = i
 			break
 		}
 	}
-
-	//string weaponName = weapon.GetWeaponClassName()
-	//array<string> weaponMods = weapon.GetMods()
+	offhandSaver.offhandSlot = weaponSlot
 
 	OnThreadEnd
 	(
-		function(): ( owner, weapon, results )
+		function(): ( owner )
 		{
 			//print( "weapon: " + string( weapon ) )
-			if ( IsValid( weapon ) )
+			if ( IsValid( owner ) )
 			{
-				int slot = expect int( results.offhandSlot )
-				if ( IsAlive( owner ) && !IsValid( owner.GetOffhandWeapon( slot ) ) )
-					owner.GiveExistingOffhandWeapon( weapon, slot )
-				else // owner died or being given another weapon
-					weapon.Destroy() // clean up weapon
+				FlameWallSavedOffhand offhandSaver = file.npcFlameWallSavedOffhand[ owner ]
+				if ( !IsValid( owner.GetOffhandWeapon( offhandSaver.offhandSlot ) ) )
+					owner.GiveOffhandWeapon( offhandSaver.weaponName, offhandSaver.offhandSlot, offhandSaver.weaponMods )
+
+				delete file.npcFlameWallSavedOffhand[ owner ]
 			}
 		}
 	)
 
+	// take off weapon
+	owner.TakeOffhandWeapon( weaponSlot )
+	// add fake cooldown
 	float cooldownTime = RandomFloatRange( minCooldown, maxCooldown )
 	float maxWaitTime = Time() + cooldownTime
-	int slot = expect int( results.offhandSlot )
 	// we end thread if player being given another offhand in the same slot
 	while ( Time() < maxWaitTime )
 	{
-		if ( IsValid( owner.GetOffhandWeapon( slot ) ) )
+		if ( IsValid( owner.GetOffhandWeapon( weaponSlot ) ) )
 			break
+		WaitFrame()
 	}
 }
 #endif
