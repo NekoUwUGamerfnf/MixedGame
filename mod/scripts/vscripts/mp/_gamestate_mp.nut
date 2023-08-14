@@ -5,6 +5,8 @@ global function SetGameState
 global function GameState_EntitiesDidLoad
 global function WaittillGameStateOrHigher
 global function AddCallback_OnRoundEndCleanup
+// new adding
+global function AddCallback_OnMatchEndCleanup
 
 global function SetShouldUsePickLoadoutScreen
 global function SetSwitchSidesBased
@@ -69,6 +71,8 @@ struct {
 	float roundWinningKillReplayHealthFrac
 	
 	array<void functionref()> roundEndCleanupCallbacks
+	// new adding
+	array<void functionref()> matchEndCleanupCallbacks
 
 	// modified
 	float waitingForPlayersMaxDuration = 20.0
@@ -107,10 +111,12 @@ void function PIN_GameStart()
 	AddCallback_OnPlayerKilled( OnPlayerKilled )
 	AddDeathCallback( "npc_titan", OnTitanKilled )
 
+	RegisterSignal( "CleanUpEntitiesForRoundEnd" )
+
 	// sudden death may need this
 	AddCallback_OnClientDisconnected( OnClientDisconnected )
-	
-	RegisterSignal( "CleanUpEntitiesForRoundEnd" )
+	// new adding
+	RegisterSignal( "CleanUpEntitiesForMatchEnd" )
 }
 
 void function SetGameState( int newState )
@@ -461,7 +467,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		if ( killcamsWereEnabled ) // reset last
 			SetKillcamsEnabled( true )
 	}
-	else if ( IsRoundBased() ) // no replay roundBased
+	else if ( IsRoundBased() && !isMatchEnd ) // no replay roundBased, match not ending yet
 	{
 		// these numbers are temp and should really be based on consts of some kind
 		foreach( entity player in GetPlayerArray() )
@@ -1016,6 +1022,12 @@ void function AddCallback_OnRoundEndCleanup( void functionref() callback )
 	file.roundEndCleanupCallbacks.append( callback )
 }
 
+// new adding
+void function AddCallback_OnMatchEndCleanup( void functionref() callback )
+{
+	file.matchEndCleanupCallbacks.append( callback )
+}
+
 void function CleanUpEntitiesForRoundEnd()
 {
 	// this function should clean up any and all entities that need to be removed between rounds, ideally at a point where it isn't noticable to players
@@ -1037,6 +1049,7 @@ void function CleanUpEntitiesForRoundEnd()
 	{
 		if ( !IsValid( npc ) || !IsAlive( npc ) )
 			continue
+		npc.BecomeRagdoll( < 0,0,0 >, false ) // drop weapons immediately			
 		// kill rather than destroy, as destroying will cause issues with children which is an issue especially for dropships and titans
 		npc.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } )
 	}
@@ -1049,29 +1062,27 @@ void function CleanUpEntitiesForRoundEnd()
 	
 	// allow other scripts to clean stuff up too
 	svGlobal.levelEnt.Signal( "CleanUpEntitiesForRoundEnd" ) 
+	// Added via AddCallback_OnRoundEndCleanup()
 	foreach ( void functionref() callback in file.roundEndCleanupCallbacks )
 		callback()
 	
 	SetPlayerDeathsHidden( false )
 }
 
-// don't let players die if there're not roundbased!
+// don't let players die if we're not roundbased!
 void function CleanUpEntitiesForMatchEnd()
 {
-	// this function should clean up any and all entities that need to be removed between rounds, ideally at a point where it isn't noticable to players
-	SetPlayerDeathsHidden( true ) // hide death sounds and such so people won't notice they're dying
-	
 	foreach ( entity player in GetPlayerArray() )
 	{
 		ClearTitanAvailable( player )
 		PROTO_CleanupTrackedProjectiles( player )
-		player.SetPlayerNetInt( "batteryCount", 0 ) 
 	}
 
 	foreach ( entity npc in GetNPCArray() )
 	{
 		if ( !IsValid( npc ) || !IsAlive( npc ) )
 			continue
+		npc.BecomeRagdoll( < 0,0,0 >, false ) // drop weapons immediately
 		// kill rather than destroy, as destroying will cause issues with children which is an issue especially for dropships and titans
 		npc.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } )
 	}
@@ -1083,8 +1094,9 @@ void function CleanUpEntitiesForMatchEnd()
 		battery.Destroy()
 	
 	// allow other scripts to clean stuff up too
-	svGlobal.levelEnt.Signal( "CleanUpEntitiesForRoundEnd" ) 
-	foreach ( void functionref() callback in file.roundEndCleanupCallbacks )
+	svGlobal.levelEnt.Signal( "CleanUpEntitiesForRoundEnd" )
+	// Added via AddCallback_OnMatchEndCleanup()
+	foreach ( void functionref() callback in file.matchEndCleanupCallbacks )
 		callback()
 }
 
