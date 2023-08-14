@@ -1655,7 +1655,9 @@ void function TurretStateWatcher( TurretSiteStruct turretSite )
 	overlayState.kv.solid = SOLID_VPHYSICS
 	DispatchSpawn( overlayState )
 
-	svGlobal.levelEnt.EndSignal( "CleanUpEntitiesForRoundEnd" ) // end dialogues is good
+	// end dialogues after game end is good
+	svGlobal.levelEnt.EndSignal( "CleanUpEntitiesForRoundEnd" )
+	svGlobal.levelEnt.EndSignal( "CleanUpEntitiesForMatchEnd" )
 	mapIcon.EndSignal( "OnDestroy" ) // mapIcon should be valid all time, tracking it
 	batteryPort.EndSignal( "OnDestroy" ) // also track this
 	overlayState.EndSignal( "OnDestroy" )
