@@ -4,6 +4,9 @@ global function MpTitanAbilitySmoke_Init
 #if SERVER
 	global function OnWeaponNpcPrimaryAttack_titanability_smoke
 	global function AddSmokeHealCallback
+
+	// modified callback for monitor npc smoke usage
+	global function AddCallback_OnNPCDeployElectricSmoke
 #endif
 
 const SHIELD_BODY_FX			= $"P_xo_armor_body_CP"
@@ -50,6 +53,10 @@ var function OnWeaponPrimaryAttack_titanability_smoke( entity weapon, WeaponPrim
 struct
 {
 	void functionref(entity,entity,int) smokeHealCallback
+
+	// modified callback for monitor npc smoke usage
+	// added via AddCallback_OnNPCDeployElectricSmoke()
+	array<void functionref( entity npc, entity weapon )> onNPCDeployElectricSmokeCallbacks
 } file
 
 var function OnWeaponNpcPrimaryAttack_titanability_smoke( entity weapon, WeaponPrimaryAttackParams attackParams )
@@ -57,7 +64,14 @@ var function OnWeaponNpcPrimaryAttack_titanability_smoke( entity weapon, WeaponP
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 	entity npc = weapon.GetWeaponOwner()
 	if ( IsAlive( npc ) )
+	{
 		TitanSmokescreen( npc, weapon )
+
+		// modified callback for monitor npc smoke usage
+		// added via AddCallback_OnNPCDeployElectricSmoke()
+		foreach ( callbackFunc in file.onNPCDeployElectricSmokeCallbacks )
+			callbackFunc( npc, weapon )
+	}
 }
 
 void function TitanSmokescreen( entity ent, entity weapon )
@@ -66,7 +80,10 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	// modified: smoke dangerous area team
 	// breaks vanilla behavior, but surly makes npcs behave better
 	#if MP
-		smokescreen.dangerousAreaTeam = ent.GetTeam()
+	// HACK: only ability smoke do specific dangerous area team
+	// burnmeter reward smoke can't be used by npcs so no need add team for them, which can also help keeping vanilla behavior
+	if ( weapon.GetWeaponClassName() == "mp_titanability_smoke" ) 
+		smokescreen.dangerousAreaTeam = FriendlyFire_IsEnabled() ? TEAM_INVALID : ent.GetTeam()
 	#endif // MP
 	//
 	if ( weapon.HasMod( "burn_mod_titan_smoke" ) )
@@ -80,6 +97,13 @@ void function TitanSmokescreen( entity ent, entity weapon )
 	if ( HasHealingSmoke( ent ) )
 	{
 		smokescreen.smokescreenFX = FX_ELECTRIC_SMOKESCREEN_HEAL
+		// modified: smoke dangerous area team
+		// healing smoke is always safe against friendly targets
+		// HACK: only ability smoke do specific dangerous area team
+		// burnmeter reward smoke can't be used by npcs so no need add team for them, which can also help keeping vanilla behavior
+		if ( weapon.GetWeaponClassName() == "mp_titanability_smoke" ) 
+			smokescreen.dangerousAreaTeam = ent.GetTeam()
+		//
 	}
 	#endif
 	smokescreen.isElectric = true
@@ -222,7 +246,10 @@ bool function SmokeCanHealTarget( entity attacker, entity target )
 	if ( !IsValid( weapon ) )
 		return false
 
-	if ( attacker.GetTeam() == target.GetTeam() || attacker == target )
+	// friendly fire support
+	bool friendlyFireOn = FriendlyFire_IsEnabled()
+	bool forceHeal = FriendlyFire_IsMonarchForcedHealthEnabled()
+	if ( attacker.GetTeam() == target.GetTeam() || ( friendlyFireOn && forceHeal ) || attacker == target )
 	{
 		// monarch upgrade 1: can only heal self
 		if ( weapon.HasMod( "fd_vanguard_utility_1" ) && attacker == target )
@@ -252,3 +279,12 @@ bool function TryElectricSmokeTargetHeal( entity attacker, entity target )
 	return true // healing succeeded
 }
 #endif // SERVER
+
+
+// modified callback for monitor npc smoke usage
+#if SERVER
+void function AddCallback_OnNPCDeployElectricSmoke( void functionref( entity npc, entity weapon ) callbackFunc )
+{
+	file.onNPCDeployElectricSmokeCallbacks.append( callbackFunc )
+}
+#endif
