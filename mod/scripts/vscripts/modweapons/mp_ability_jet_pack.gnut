@@ -27,8 +27,9 @@ const float HOVER_SOUND_DURATION = 2.2 // should relap a sound if ends, no need 
 const int JET_PACK_AMMO_REDUCE_PER_BURST = 25
 const int JET_PACK_AMMO_REDUCE_PER_TICK = 3
 
+const bool JET_PACK_FREEFALL_SOUND_ENABLED = false
 // weapon management
-const bool JET_PACK_ENABLE_WEAPON_AFTER_GLIDE = false
+const float JET_PACK_WEAPON_DEPLOY_DELAY = 0.0 // no delay for deploying weapon
 
 // for passive_jetpack! less effective since you still have tacticals normally
 const int JET_PACK_AMMO_REDUCE_PER_BURST_PASSIVE = 55
@@ -42,12 +43,14 @@ const float JET_PACK_LIFT_SPEED_HORIZONTAL_GRUNT = 150 // actual behaviors not t
 const float JET_PACK_LIFT_ACCELERATION_HORIZONTAL_GRUNT = 900 // higher for better control
 const float JET_PACK_DEACCELERATETION_HORIZONTAL_GRUNT = 30 // takes 5 ticks(.5s) to de-accelerate if player have no input
 const float JET_PACK_DEACCELERATETION_VERTICAL_GRUNT = 30 // takes 5 ticks(.5s) to de-accelerate if player try to hover
-const float JET_PACK_GLIDE_DURATION_GRUNT = 0.3
+const float JET_PACK_GLIDE_GRAVITY_SCALE_GRUNT = 0.7 // bit higher gravity scale
+const float JET_PACK_GLIDE_DURATION_GRUNT = 0.8 // longer glide to make controll dizzier
 
 const int JET_PACK_AMMO_REDUCE_PER_BURST_GRUNT = 40 // higher so player won't have bad looping sound
 const int JET_PACK_AMMO_REDUCE_PER_TICK_GRUNT = 5
 
-const bool JET_PACK_ENABLE_WEAPON_AFTER_GLIDE_GRUNT = true // player needs to wait for glide end before theyt can pull out weapon
+const bool JET_PACK_FREEFALL_SOUND_ENABLED_GRUNT = true // emit freefall sound after lifting
+const float JET_PACK_WEAPON_DEPLOY_DELAY_GRUNT = 0.4  // player needs to wait for 0.3s before they can pull out weapon
 
 // use this function to add callback to movements
 // AddPlayerMovementEventCallback( entity player, int playerMovementEvent, void functionref( entity player ) callbackFunc )
@@ -69,6 +72,8 @@ void function MpAbilityJetPack_Init()
     RegisterSignal( "StartGlideThink" )
     RegisterSignal( "StartFreeFallSound" )
     RegisterSignal( "ConsumeJetPackAmmo" ) // this should signal a table, but it requires file to be untyped
+    RegisterSignal( "ManageWeaponDeployment" )
+
     /* //jet pack ammo table:
         table
         {
@@ -239,9 +244,12 @@ void function JetPackActivateThink( entity player, entity weapon )
                 EmitSoundOnEntityExceptToPlayer( player, player, "Boost_Hover_End_3P" )
 
                 player.kv.gravity = 0.0 // defensive fix
-                thread JetPackGlideThink( player, weapon ) // do need a glide, or player will fall very fast
-                // annoying sound, no need to play
-                //thread JumpJetFreeFallSound( player )
+                if ( IsValid( weapon ) )
+                {
+                    thread JetPackGlideThink( player, weapon ) // do need a glide, or player will fall very fast
+                    thread ManageJetPackPlayerWeaponDeployment( player, weapon )
+                    thread JumpJetFreeFallSound( player, weapon )
+                }
 
                 // recover behavior
                 RestorePlayerPermanentAirSpeed( player )
@@ -294,6 +302,12 @@ void function JetPackActivateThink( entity player, entity weapon )
         //entity fxSmokeRight = PlayFXOnEntity( $"wpn_grenade_frag_softball", player, "vent_right_out" )
         //fx.append( fxSmokeRight )
     }
+
+    // clean up jumpjet sound
+    StopSoundOnEntity( player, "jumpjet_jet_body_1p" )
+    StopSoundOnEntity( player, "jumpjet_jet_body_3p" )
+    StopSoundOnEntity( player, "jumpjet_freefall_body_1p" )
+    StopSoundOnEntity( player, "jumpjet_freefall_body_3p" )
 
     EmitSoundOnEntityOnlyToPlayer( player, player, "Boost_Hover_Start_1P" )
     EmitSoundOnEntityExceptToPlayer( player, player, "Boost_Hover_Start_3P" )
@@ -465,62 +479,106 @@ void function JetPackGlideThink( entity player, entity weapon )
     weapon.EndSignal( "JetPackLift" )
 
     // weapon management
-    bool enableWeaponAfterGlide = JET_PACK_ENABLE_WEAPON_AFTER_GLIDE
     float glideDuration = JET_PACK_GLIDE_DURATION
+    float glideGravity = JET_PACK_GLIDE_GRAVITY_SCALE
     bool isGruntJet = weapon.HasMod( "gm_flyer" )
     if ( isGruntJet )
     {
-        enableWeaponAfterGlide = JET_PACK_ENABLE_WEAPON_AFTER_GLIDE_GRUNT
         glideDuration = JET_PACK_GLIDE_DURATION_GRUNT
-    }
-
-    if ( !enableWeaponAfterGlide ) // enable weapon right after lift
-    {
-        player.DeployWeapon()
-        player.Server_TurnOffhandWeaponsDisabledOff()
+        glideGravity = JET_PACK_GLIDE_GRAVITY_SCALE_GRUNT
     }
     
     float startTime = Time()
     float endTime = startTime + glideDuration
-    player.kv.gravity = JET_PACK_GLIDE_GRAVITY_SCALE
-    while( true )
+    player.kv.gravity = glideGravity
+    while ( true )
     {
         if( player.IsOnGround() )
             break
         if( endTime < Time() )
             break
-        player.kv.gravity = JET_PACK_GLIDE_GRAVITY_SCALE // defensive fix
+        player.kv.gravity = glideGravity // defensive fix
 
         WaitFrame()
     }
 
     if( IsValid( player ) ) // don't reset gravity if triggered another "StartGlideThink"
-    {
         RestorePlayerPermanentGravity( player )
-
-        if ( enableWeaponAfterGlide ) // enable weapon after glide
-        {
-            player.DeployWeapon()
-            player.Server_TurnOffhandWeaponsDisabledOff()
-        }
-    }
 }
 
-void function JumpJetFreeFallSound( entity player )
+void function ManageJetPackPlayerWeaponDeployment( entity player, entity weapon )
 {
+    float weaponDeployDelay = JET_PACK_WEAPON_DEPLOY_DELAY
+    bool isGruntJet = weapon.HasMod( "gm_flyer" )
+    if ( isGruntJet )
+        weaponDeployDelay = JET_PACK_WEAPON_DEPLOY_DELAY_GRUNT
+
+    if ( weaponDeployDelay <= 0 ) // delay is lower than 0!
+    {
+        player.DeployWeapon()
+        player.Server_TurnOffhandWeaponsDisabledOff()
+        return
+    }
+
+    player.EndSignal( "OnDestroy" )
+    player.Signal( "ManageWeaponDeployment" )
+    player.EndSignal( "ManageWeaponDeployment" )
+    // stop weapon deploy think when another lift started
+    weapon.EndSignal( "JetPackBurst" )
+    weapon.EndSignal( "JetPackLift" )
+
+    // wait for delay
+    wait weaponDeployDelay
+
+    player.DeployWeapon()
+    player.Server_TurnOffhandWeaponsDisabledOff()
+}
+
+void function JumpJetFreeFallSound( entity player, entity weapon )
+{
+    bool emitSound = JET_PACK_FREEFALL_SOUND_ENABLED
+    bool isGruntJet = weapon.HasMod( "gm_flyer" )
+    if ( isGruntJet )
+        emitSound = JET_PACK_FREEFALL_SOUND_ENABLED_GRUNT
+
+    if ( !emitSound )
+        return
+
+    player.EndSignal( "OnDestroy" )
     player.Signal( "StartFreeFallSound" )
     player.EndSignal( "StartFreeFallSound" )
-    StopSoundOnEntity( player, "jumpjet_freefall_body_1p" )
-    EmitSoundOnEntityOnlyToPlayer( player, player, "jumpjet_freefall_body_1p" )
-    while( true )
-    {
-        if( player.IsOnGround() )
-            break
+    // end thread when weapon start new burst or lift
+    weapon.EndSignal( "JetPackBurst" )
+    weapon.EndSignal( "JetPackLift" )
 
+    // wait for player's vertical speed lowered
+    while ( player.GetVelocity().z >= 0 )
         WaitFrame()
-    }
-    if( IsValid( player ) )
-        StopSoundOnEntity( player, "jumpjet_freefall_body_1p" )
+
+    // player already on ground?
+    if ( player.IsOnGround() )
+        return
+
+    // start sound 
+    StopSoundOnEntity( player, "jumpjet_freefall_body_1p" )
+    StopSoundOnEntity( player, "jumpjet_freefall_body_3p" )
+    EmitSoundOnEntityOnlyToPlayer( player, player, "jumpjet_freefall_body_1p" )
+    EmitSoundOnEntityExceptToPlayer( player, player, "jumpjet_freefall_body_3p" )
+
+    OnThreadEnd
+    (
+        function(): ( player )
+        {
+            if ( IsValid( player ) )
+            {
+                StopSoundOnEntity( player, "jumpjet_freefall_body_1p" )
+                StopSoundOnEntity( player, "jumpjet_freefall_body_3p" )
+            }
+        }
+    )
+
+    while ( !player.IsOnGround() )
+        WaitFrame()
 }
 
 void function JetPackAmmoThink( entity weapon )
