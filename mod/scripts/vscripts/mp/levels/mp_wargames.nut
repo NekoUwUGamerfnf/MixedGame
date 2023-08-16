@@ -62,25 +62,34 @@ void function AddEvacNodes()
 // dissolve effects
 void function WargamesOnPlayerKilled( entity deadEnt, entity attacker, var damageInfo )
 {
-	if( Wargames_IsPlayerDissolveDisabled() ) // defined in custom_damage_effect.gnut
-		return
-
-	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY ) // we don't dissolve heavy armor units
-		return
-	
 	WargamesDissolveDeadEntity( deadEnt, damageInfo )
 }
 
 void function WargamesOnNPCKilled( entity deadEnt, entity attacker, var damageInfo )
 {
-	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY ) // we don't dissolve heavy armor units
-		return
-	
 	WargamesDissolveDeadEntity( deadEnt, damageInfo )
 }
 
-void function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
+bool function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
 {
+	// player specific settings. defined in levels_util.gnut
+	if( deadEnt.IsPlayer() && Wargames_IsPlayerDissolveDisabled() )
+		return
+
+	// we don't dissolve heavy armor units
+	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY )
+		return
+
+	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+	damageType = damageType | ~DF_DISSOLVE // remove any dissolving that could happen to player
+	DamageInfo_SetCustomDamageType( damageInfo, damageType )
+
+	thread DelayedDissolveDeadEntity( deadEnt )
+}
+
+void function DelayedDissolveDeadEntity( entity deadEnt )
+{
+	WaitEndFrame() // wait for next frame so we don't mess up ragdolls
 	if ( deadEnt.IsPlayer() || GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
 	{
 		deadEnt.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 0 )
