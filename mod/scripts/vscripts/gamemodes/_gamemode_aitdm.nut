@@ -464,23 +464,94 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 	return RandomInt( points.len() )
 }
 
-// no need to tell infantry where to go, as native code seems can make them moving around
-// if we force infantry to go around, they can stuck inside droppods forever
-// only setup map icon stuffs for them
+// tells infantry where to go
+// In vanilla there seem to be preset paths ai follow to get to the other teams vone and capture it
+// AI can also flee deeper into their zone suggesting someone spent way too much time on this
 void function SquadHandler( array<entity> guys )
 {
+	int team = guys[0].GetTeam()
+	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
+	foreach ( entity guy in guys )
+	{
+		if ( hasHeavyArmorWeapon ) // found heavy armor weapon
+			break
+
+		foreach ( entity weapon in guy.GetMainWeapons() )
+		{
+			if ( !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required ) )
+			{
+				hasHeavyArmorWeapon = true
+				break
+			}
+		}
+	}
+	//print( "hasHeavyArmorWeapon: " + string( hasHeavyArmorWeapon ) )
+
+	array<entity> points
+	vector point
+	
 	// Setup AI, first assault point
 	foreach ( guy in guys )
 	{
-		// show the squad enemy radar
-		guy.Minimap_AlwaysShow( TEAM_IMC, null )
-		guy.Minimap_AlwaysShow( TEAM_MILITIA, null )
-		foreach ( entity player in GetPlayerArray() )
-			guy.Minimap_AlwaysShow( 0, player )
-		guy.Minimap_SetHeightTracking( true )
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultPoint( point )
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 
-		guy.Minimap_SetCustomState( eMinimapObject_npc.AI_TDM_AI ) // aitdm specific npc map state
+		// show the squad enemy radar
+		array<entity> players = GetPlayerArrayOfEnemies( team )
+		foreach ( player in players )
+			guy.Minimap_AlwaysShow( 0, player )
 		//thread AITdm_CleanupBoredNPCThread( guy )
+	}
+	
+	// Every 5 - 15 secs get a closest target and go to them. search for only light armor
+	while ( true )
+	{
+		WaitFrame() // wait a frame each loop
+
+		foreach ( guy in guys )
+		{
+			// remove dead guys
+			ArrayRemoveDead( guys )
+			// Stop func if our squad has been killed off
+			if ( guys.len() == 0 )
+				return
+		}
+
+		// Get point and send our whole squad to it
+		points = []
+		if ( hasHeavyArmorWeapon )
+			points.extend( GetNPCArrayOfEnemies( team ) )
+		else
+		{
+			foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+			{
+				if ( npc.GetArmorType() != ARMOR_TYPE_HEAVY ) // only search for npcs with light armor
+					points.append( npc )
+			}
+		}
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 ) // can't find any points here
+			continue
+
+		// get nearest enemy and send our full squad to it
+		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		if ( !IsAlive( enemy ) )
+			continue
+		point = enemy.GetOrigin()
+		foreach ( guy in guys )
+		{
+			if ( IsAlive( guy ) )
+			{
+				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
+				if ( clampedPos == null )
+					continue
+				expect vector( clampedPos )
+				guy.AssaultPoint( clampedPos )
+			}
+		}
+
+		wait RandomFloatRange(5.0,15.0)
 	}
 }
 
@@ -495,10 +566,46 @@ void function OnSpectreLeeched( entity spectre, entity player )
 	player.SetPlayerNetInt("AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
 }
 
-// Call squad handler just for one entity
+// Same as SquadHandler, just for reapers
 void function ReaperHandler( entity reaper )
 {
-	SquadHandler( [reaper] )
+	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+	foreach ( player in players )
+		reaper.Minimap_AlwaysShow( 0, player )
+	
+	int team = reaper.GetTeam()
+	array<entity> points
+	
+	reaper.AssaultSetGoalRadius( 500 ) // goal radius
+	
+	// Every 10 - 20 secs get a closest target and go to them. search for both players and npcs
+	while( true )
+	{
+		WaitFrame() // always wait before each loop!
+
+		// Check if alive
+		if ( !IsAlive( reaper ) )
+			return
+
+		points = [] // clean up last point
+		points.extend( GetNPCArrayOfEnemies( team ) )
+		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 )
+			continue
+
+		entity enemy = GetClosest2D( points, reaper.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), reaper )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		reaper.AssaultPoint( clampedPos )
+
+		wait RandomFloatRange( 10.0, 20.0 )
+	}
+	// thread AITdm_CleanupBoredNPCThread( reaper )
 }
 
 // Currently unused as this is handled by SquadHandler

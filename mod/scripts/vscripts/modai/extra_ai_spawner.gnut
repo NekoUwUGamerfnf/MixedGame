@@ -57,6 +57,8 @@ global function ExtraSpawner_ReaperHandler
 // handler overrides
 global function ExtraSpawner_SetSquadHandlerFunc
 global function ExtraSpawner_SetNPCHandlerFunc
+// disabling default handlers
+global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
 
 // these are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
@@ -183,6 +185,8 @@ void function ExtraAISpawner_Init()
 	PrecacheModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
 	// npc bt
 	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
+	// npc handlers
+	RegisterSignal( "StopDefaultHandler" )
 	// npc pilot think
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
 
@@ -1095,6 +1099,12 @@ void function ExtraSpawner_SetNPCHandlerFunc( string npcClass, void functionref(
 	file.npcHandlerFuncs[ npcClass ] = handler
 }
 
+// can't stop squad handler
+void function ExtraSpawner_StopDefaultHandler( entity npc )
+{
+	npc.Signal( "StopDefaultHandler" )
+}
+
 //------------------------------------------------------
 
 bool function CC_SpawnPilotAndTitan( entity player, array<string> args )
@@ -1874,16 +1884,96 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 }
 
 // default handler!
-// no need to tell infantry where to go, as native code seems can make them moving around
-// if we force infantry to go around, they can stuck inside droppods forever
-// only setup map icon stuffs for them
+// tells infantry where to go
+// In vanilla there seem to be preset paths ai follow to get to the other teams vone and capture it
+// AI can also flee deeper into their zone suggesting someone spent way too much time on this
 void function ExtraSpawner_SquadHandler( array<entity> guys )
 {
+	int team = guys[0].GetTeam()
+	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
+	foreach ( entity guy in guys )
+	{
+		if ( hasHeavyArmorWeapon ) // found heavy armor weapon
+			break
+
+		foreach ( entity weapon in guy.GetMainWeapons() )
+		{
+			if ( !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required ) )
+			{
+				hasHeavyArmorWeapon = true
+				break
+			}
+		}
+	}
+	//print( "hasHeavyArmorWeapon: " + string( hasHeavyArmorWeapon ) )
+
+	array<entity> points
+	vector point
+
 	// Setup AI
 	foreach ( guy in guys )
 	{
 		// add map
 		AddMinimapForNPC( guy )
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+	}
+
+	// Every 5 - 15 secs get a closest target and go to them
+	while ( true )
+	{
+		WaitFrame() // wait a frame each loop
+
+		foreach ( guy in guys )
+		{
+			// remove dead guys
+			ArrayRemoveDead( guys )
+			// Stop func if our squad has been killed off
+			if ( guys.len() == 0 )
+				return
+		}
+
+		// Get point and send our whole squad to it
+		points = []
+		if ( hasHeavyArmorWeapon )
+		{
+			points.extend( GetNPCArrayOfEnemies( team ) )
+			foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) ) // also find titan players if they have heavy armor weapon
+			{
+				if ( player.IsTitan() ) // only search for npcs with light armor
+					points.append( player )
+			}
+		}
+		else
+		{
+			foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+			{
+				if ( npc.GetArmorType() != ARMOR_TYPE_HEAVY ) // only search for npcs with light armor
+					points.append( npc )
+			}
+		}
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 ) // can't find any points here
+			continue
+
+		// get nearest enemy and send our full squad to it
+		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		if ( !IsAlive( enemy ) )
+			continue
+		point = enemy.GetOrigin()
+		foreach ( guy in guys )
+		{
+			if ( IsAlive( guy ) )
+			{
+				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
+				if ( clampedPos == null )
+					continue
+				expect vector( clampedPos )
+				guy.AssaultPoint( clampedPos )
+			}
+		}
+
+		wait RandomFloatRange(5.0,15.0)
 	}
 }
 
@@ -3054,22 +3144,112 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 	DamageInfo_ScaleDamage( damageInfo, damageScale )
 }
 
-// no need to tell the npc where to go, as native code seems can make them moving around
-// if we force a npc to go around, they can stuck in some place forever
-// only setup map icon stuffs for them
 void function ExtraSpawner_PilotHandler( entity pilot )
 {
+	// Signals for controlling
+	pilot.Signal( "StopDefaultHandler" )
+	pilot.EndSignal( "StopDefaultHandler" )
+
+	// Setup AI, no need for now
+	//pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	int team = pilot.GetTeam()
+	array<entity> points
+
+	pilot.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 	// show on enemy radar, unfortunatelly cl_minimap won't track npc_pilot_elite
 	AddMinimapForNPC( pilot )
+	
+	// Every 5 - 15 secs get a closest target and go to them
+	while ( true )
+	{	
+		WaitFrame() // always wait a frame before each loop
+		
+		// Check if alive
+		if ( !IsAlive( pilot ) )
+			return
+		
+		// Get point and send guy to it
+		points = [] // clean up last points
+		points.extend( GetNPCArrayOfEnemies( team ) )
+		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		if ( points.len() == 0 )
+			continue
+
+		entity enemy = GetClosest2D( points, pilot.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), pilot )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		pilot.AssaultPoint( clampedPos )
+
+		wait RandomFloatRange( 5.0, 15.0 ) // random wait
+	}
 }
 
-// no need to tell the npc where to go, as native code seems can make them moving around
-// if we force a npc to go around, they can stuck in some place forever
-// only setup map icon stuffs for them
 void function ExtraSpawner_TitanHandler( entity titan )
 {
+	// Signals for controlling
+	titan.Signal( "StopDefaultHandler" )
+	titan.EndSignal( "StopDefaultHandler" )
+
+	int team = titan.GetTeam()
+	array<entity> points
+
+	titan.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 	// show on enemy radar
 	AddMinimapForNPC( titan )
+	
+	// Every 10 - 20 secs get a closest target and go to them
+	while ( true )
+	{	
+		WaitFrame() // always wait a frame before each loop
+
+		// Check if alive
+		if ( !IsAlive( titan ) )
+			return
+		
+		// Get point and send guy to it
+		points = [] // clean up last points
+		// we mostly search for heavy armor targets
+		bool foundHeavyArmorTarget = false
+		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+		{
+			if ( npc.GetArmorType() == ARMOR_TYPE_HEAVY )
+			{
+				points.append( npc )
+				foundHeavyArmorTarget = true
+			}
+		}
+		foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
+		{
+			if ( player.IsTitan() )
+			{
+				points.append( player )
+				foundHeavyArmorTarget = true
+			}
+		}
+		if ( !foundHeavyArmorTarget ) // can't find any heavyarmor target!
+		{
+			// use all targets instead
+			points.extend( GetNPCArrayOfEnemies( team ) )
+			points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		}
+		if ( points.len() == 0 ) // no points valid!
+			continue
+
+		entity enemy = GetClosest2D( points, titan.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), titan )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		titan.AssaultPoint( clampedPos )
+
+		wait RandomFloatRange( 10.0, 20.0 ) // random wait
+	}
 }
 
 const float CARE_PACKAGE_LIFETIME = 30
@@ -3336,11 +3516,46 @@ void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType
 	}
 }
 
-// no need to tell the npc where to go, as native code seems can make them moving around
-// if we force a npc to go around, they can stuck in some place forever
-// only setup map icon stuffs for them
+// Same as SquadHandler, just for reapers
 void function ExtraSpawner_ReaperHandler( entity reaper )
 {
+	// Signals for controlling
+	reaper.Signal( "StopDefaultHandler" )
+	reaper.EndSignal( "StopDefaultHandler" )
+
+	int team = reaper.GetTeam()
+	array<entity> points
+
 	// show on enmey radar
 	AddMinimapForNPC( reaper )
+	
+	reaper.AssaultSetGoalRadius( 500 ) // goal radius
+	
+	// Every 10 - 20 secs get a closest target and go to them
+	while( true )
+	{
+		WaitFrame() // always wait before each loop!
+
+		// Check if alive
+		if ( !IsAlive( reaper ) )
+			return
+
+		points = [] // clean up last point
+		points.extend( GetNPCArrayOfEnemies( team ) )
+		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 )
+			continue
+
+		entity enemy = GetClosest2D( points, reaper.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), reaper )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+		reaper.AssaultPoint( clampedPos )
+
+		wait RandomFloatRange( 10.0, 20.0 )
+	}
 }
