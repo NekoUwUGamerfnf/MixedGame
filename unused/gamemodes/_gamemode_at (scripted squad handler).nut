@@ -1489,6 +1489,34 @@ void function AT_HandleSquadSpawn( array<entity> guys, AT_WaveOrigin campData, i
 		// tracking lifetime
 		AddToScriptManagedEntArray( scriptManagerId, guy )
 		thread AT_TrackNPCLifeTime( guy, spawnId, aiType )
+
+		thread AT_ForceAssaultAroundCamp( guy, campData )
+	}
+}
+
+void function AT_ForceAssaultAroundCamp( entity guy, AT_WaveOrigin campData )
+{
+	guy.EndSignal( "OnDestroy" )
+	guy.EndSignal( "OnDeath" )
+
+	// goal check
+	vector ornull goalPos = NavMesh_ClampPointForAI(campData.origin, guy)
+	goalPos = goalPos == null ? campData.origin : goalPos
+	expect vector(goalPos)
+
+	float goalRadius = campData.radius / 4
+	float guyGoalRadius = guy.GetMinGoalRadius()
+	if ( guyGoalRadius > goalRadius ) // this npc cannot use forced goal radius?
+		goalRadius = guyGoalRadius
+	
+	while( true )
+	{
+		guy.AssaultPoint( goalPos )
+		guy.AssaultSetGoalRadius( goalRadius )
+		guy.AssaultSetFightRadius( 0 ) 
+		guy.AssaultSetArrivalTolerance( int(goalRadius) )
+
+		wait RandomFloatRange( 1, 5 )
 	}
 }
 
@@ -1556,6 +1584,8 @@ void function AT_HandleReaperSpawn( entity reaper, AT_WaveOrigin campData, int s
 	// tracking lifetime
 	AddToScriptManagedEntArray( scriptManagerId, reaper )
 	thread AT_TrackNPCLifeTime( reaper, spawnId, "npc_super_spectre" )
+
+	thread AT_ForceAssaultAroundCamp( reaper, campData )
 }
 
 void function AT_BountyTitanEvent( AT_WaveOrigin campData, int spawnId, AT_SpawnData data )
