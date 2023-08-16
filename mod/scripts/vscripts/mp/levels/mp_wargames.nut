@@ -72,27 +72,36 @@ void function WargamesOnNPCKilled( entity deadEnt, entity attacker, var damageIn
 
 bool function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
 {
-	// player specific settings. defined in levels_util.gnut
-	if( deadEnt.IsPlayer() && Wargames_IsPlayerDissolveDisabled() )
-		return
-
 	// we don't dissolve heavy armor units
 	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY )
-		return
+		return false
+
+	// player specific settings. defined in levels_util.gnut
+	if( deadEnt.IsPlayer() && Wargames_IsPlayerDissolveDisabled() )
+		return false
 
 	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
 	damageType = damageType | ~DF_DISSOLVE // remove any dissolving that could happen to player
 	DamageInfo_SetCustomDamageType( damageInfo, damageType )
 
 	thread DelayedDissolveDeadEntity( deadEnt )
+
+	return true // dissolving succeeded
 }
 
 void function DelayedDissolveDeadEntity( entity deadEnt )
 {
-	WaitEndFrame() // wait for next frame so we don't mess up ragdolls
-	if ( deadEnt.IsPlayer() || GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
+	WaitFrame() // wait for next frame so we don't mess up ragdolls( seems can't fix )
+
+	// entity validation and player respawn check
+	if ( !IsValid( deadEnt ) || IsAlive( deadEnt ) )
+		return
+
+	// we never do dissolve during other gamestates, otherwise we may hide the entity forever
+	// player dissolving cleanup handled by EnsureWargamesDeathEffectIsClearedForPlayer()
+	if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
 	{
-		deadEnt.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 0 )
+		deadEnt.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 500 )
 		EmitSoundAtPosition( TEAM_UNASSIGNED, deadEnt.GetOrigin(), "Object_Dissolve" )
 		
 		if ( deadEnt.IsPlayer() )
