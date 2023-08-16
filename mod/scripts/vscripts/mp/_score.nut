@@ -555,7 +555,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	// ai(extended)
 	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "KillProwler", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillDrone", 0.00, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "KillDrone", 0.00, 0.02, 0.5 )
 }
 
 void function ScoreEvent_SetupEarnMeterValuesForTitanModes()
