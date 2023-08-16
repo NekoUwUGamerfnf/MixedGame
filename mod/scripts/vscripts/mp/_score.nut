@@ -551,7 +551,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.02, 0.02 )
 	ScoreEvent_SetEarnMeterValues( "KillHackedSpectre", 0.02, 0.02, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.05, 0.10, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.10, 0.10, 0.5 )
 	// ai(extended)
 	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "KillProwler", 0.02, 0.02, 0.5 )
