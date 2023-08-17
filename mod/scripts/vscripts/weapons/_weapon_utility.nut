@@ -805,10 +805,12 @@ bool function PlantStickyEntity( entity ent, table collisionParams, vector angle
 			else
 				ent.SetParent( collisionParams.hitEnt )
 
-			if ( collisionParams.hitEnt.IsPlayer() )
-			{
+			// modified: remove player only disappering parent check. 
+			// breaks vanilla behavior but whatever, this is better for npc combats
+			//if ( collisionParams.hitEnt.IsPlayer() )
+			//{
 				thread HandleDisappearingParent( ent, expect entity( collisionParams.hitEnt ) )
-			}
+			//}
 		}
 	}
 	else
@@ -885,10 +887,12 @@ bool function PlantStickyGrenade( entity ent, vector pos, vector normal, entity 
 		else // Hit a func_brush
 			ent.SetParent( hitEnt )
 
-		if ( hitEnt.IsPlayer() )
-		{
+		// modified: remove player only disappering parent check. 
+		// breaks vanilla behavior but whatever, this is better for npc combats
+		//if ( hitEnt.IsPlayer() )
+		//{
 			thread HandleDisappearingParent( ent, hitEnt )
-		}
+		//}
 	}
 
 	#if CLIENT
@@ -952,10 +956,12 @@ bool function PlantSuperStickyGrenade( entity ent, vector pos, vector normal, en
 			else // Hit a func_brush
 				ent.SetParent( hitEnt )
 
-			if ( hitEnt.IsPlayer() )
-			{
+			// modified: remove player only disappering parent check. 
+			// breaks vanilla behavior but whatever, this is better for npc combats
+			//if ( hitEnt.IsPlayer() )
+			//{
 				thread HandleDisappearingParent( ent, hitEnt )
-			}
+			//}
 		}
 	}
 
