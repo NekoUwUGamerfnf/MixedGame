@@ -80,7 +80,7 @@ struct {
 
 	bool pickLoadoutEnable = false
 	float pickLoadoutDuration = 10.0
-	float titanSelectionMenuDuration = 20.0
+	float titanSelectionMenuDuration = 30.0
 	bool scoreEventDialogue = true
 } file
 
