@@ -1030,6 +1030,7 @@ void function AddCallback_OnMatchEndCleanup( void functionref() callback )
 void function CleanUpEntitiesForRoundEnd()
 {
 	// this function should clean up any and all entities that need to be removed between rounds, ideally at a point where it isn't noticable to players
+	bool deathsIsHidden = IsPlayerDeathsHidden() // new adding function
 	SetPlayerDeathsHidden( true ) // hide death sounds and such so people won't notice they're dying
 	
 	foreach ( entity player in GetPlayerArray() )
@@ -1047,15 +1048,17 @@ void function CleanUpEntitiesForRoundEnd()
 	foreach ( entity npc in GetNPCArray() )
 	{
 		if ( !IsValid( npc ) || !IsAlive( npc ) )
-			continue
-		npc.BecomeRagdoll( < 0,0,0 >, false ) // drop weapons immediately			
+			continue	
 		// kill rather than destroy, as destroying will cause issues with children which is an issue especially for dropships and titans
+		// this also happens when npc.BecomeRagdoll() as ragdoll a npc meaning destroy them on server
+		npc.e.forceRagdollDeath = true // proper way to make a npc become ragdoll on death, handled by HandleDeathPackage()
 		npc.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } )
 	}
 	
 	// destroy weapons
 	ClearDroppedWeapons()
-		
+	
+	// clean up batteries
 	foreach ( entity battery in GetEntArrayByClass_Expensive( "item_titan_battery" ) )
 		battery.Destroy()
 	
@@ -1065,12 +1068,13 @@ void function CleanUpEntitiesForRoundEnd()
 	foreach ( void functionref() callback in file.roundEndCleanupCallbacks )
 		callback()
 	
-	SetPlayerDeathsHidden( false )
+	//SetPlayerDeathsHidden( false )
+	SetPlayerDeathsHidden( deathsIsHidden ) // restore death hidden effect
 }
 
-// don't let players die if we're not roundbased!
 void function CleanUpEntitiesForMatchEnd()
 {
+	// don't let players die if we're not roundbased! showing a better scoreboard
 	foreach ( entity player in GetPlayerArray() )
 	{
 		ClearTitanAvailable( player )
@@ -1081,19 +1085,21 @@ void function CleanUpEntitiesForMatchEnd()
 	{
 		if ( !IsValid( npc ) || !IsAlive( npc ) )
 			continue
-		npc.BecomeRagdoll( < 0,0,0 >, false ) // drop weapons immediately
 		// kill rather than destroy, as destroying will cause issues with children which is an issue especially for dropships and titans
+		// this also happens when npc.BecomeRagdoll() as ragdoll a npc meaning destroy them on server
+		npc.e.forceRagdollDeath = true // proper way to make a npc become ragdoll on death, handled by HandleDeathPackage()
 		npc.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } )
 	}
 	
 	// destroy weapons
 	ClearDroppedWeapons()
-		
+	
+	// clean up batteries
 	foreach ( entity battery in GetEntArrayByClass_Expensive( "item_titan_battery" ) )
 		battery.Destroy()
 	
 	// allow other scripts to clean stuff up too
-	svGlobal.levelEnt.Signal( "CleanUpEntitiesForRoundEnd" )
+	svGlobal.levelEnt.Signal( "CleanUpEntitiesForMatchEnd" )
 	// Added via AddCallback_OnMatchEndCleanup()
 	foreach ( void functionref() callback in file.matchEndCleanupCallbacks )
 		callback()
