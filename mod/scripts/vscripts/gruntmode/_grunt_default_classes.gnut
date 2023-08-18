@@ -337,7 +337,7 @@ void function BecomeEngineer( entity player )
 		player,
 		"mp_weapon_lstar",													// primary weapon
 		"mp_weapon_arc_launcher",											// secondary weapon
-		"mp_weapon_satchel",												// grenade
+		"",																	// grenade
 		$"models/humans/pilots/pilot_heavy_roog_f.mdl",						// imc player model
 		$"models/humans/pilots/pilot_heavy_roog_f.mdl",						// mlt player model
 		["disable_doublejump", "only_wallclimb"],							// class mods
@@ -347,27 +347,127 @@ void function BecomeEngineer( entity player )
 
 	player.GetMeleeWeapon().AddMod( "fake_human_melee" ) // model doesn't have grunt melee activity
 
-	PlayerInventory_PushInventoryItemByBurnRef( player, "burnmeter_ap_turret_weapon" ) // give one usage of turret
-	thread TrackEngineerDeath( player ) // death will clear player's turret item
+	thread EngineerThink( player ) // death will clear player's turret item
 
 	CreateIMCGruntHelmetForPlayer( player ) // give pilot model a grunt helmet
 }
 
-void function TrackEngineerDeath( entity player )
+// turret settings
+const string ENGINEER_TURRET_BURNMETER = "burnmeter_ap_turret_weapon"
+const int ENGINEER_TURRET_MAX_COUNT = 1
+
+void function EngineerThink( entity player )
 {
 	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
 
-	player.WaitSignal( "OnDeath" )
-	PlayerInventory_TakeAllInventoryItems( player ) // clear inventory
+	OnThreadEnd
+	(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+			{
+				RemoveEntityCallback_OnUseCarePackage( player, OnEngineerUseCarePackage )
+				PlayerInventory_TakeAllInventoryItems( player ) // clear inventory
+				foreach ( entity turret in GetGruntPlayerOwnedTurrets( player ) )
+				{
+					// kill player's existing turrets upon death
+					if ( IsAlive( turret ) )
+						turret.Die()
+				}
+			}
+		}
+	)
 
-	// kill player's existing turrets upon death
+	PlayerInventory_PushInventoryItemByBurnRef( player, ENGINEER_TURRET_BURNMETER ) // give one usage of turret
+	// carepackage refilling turret think
+	AddEntityCallback_OnUseCarePackage( player, OnEngineerUseCarePackage )
+
+	thread EngineerTurretsHandler( player )
+
+	player.WaitSignal( "OnDeath" ) // wait for player's death
+}
+
+void function OnEngineerUseCarePackage( entity player, entity pod )
+{
+	// refill turret if we have less turrets than max count
+	if ( PlayerInventory_CountBurnRef( player, ENGINEER_TURRET_BURNMETER ) < ENGINEER_TURRET_MAX_COUNT )
+		PlayerInventory_PushInventoryItemByBurnRef( player, ENGINEER_TURRET_BURNMETER ) // give one usage of turret
+}
+
+array<entity> function GetGruntPlayerOwnedTurrets( entity player )
+{
+	array<entity> turrets
 	foreach( entity turret in GetNPCArrayByClass( "npc_turret_sentry" ) )
 	{
 		if ( turret.GetBossPlayer() == player )
+			turrets.append( turret )
+	}
+
+	return turrets
+}
+
+void function EngineerTurretsHandler( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+
+	array<entity> handledTurrets
+	OnThreadEnd(
+		function(): ( player, handledTurrets )
 		{
-			if ( IsAlive( turret ) ) // don't kill a dying turret
-				turret.Die() // kill the turret
+			// player still valid!
+			if ( IsValid( player ) )
+			{
+				// find from all turrets
+				array<entity> turrets = GetGruntPlayerOwnedTurrets( player )
+				foreach ( entity turret in turrets )
+				{
+					if ( IsAlive( turret ) )
+						turret.Die()
+				}
+			}
+			else // player became invalid
+			{
+				// use our stored turrets
+				foreach( entity turret in handledTurrets )
+				{
+					if ( IsAlive( turret ) )
+						turret.Die()
+				}
+			}
+        }
+	)
+
+	while ( true )
+	{
+		ArrayRemoveDead( handledTurrets )
+
+		foreach ( entity turret in GetGruntPlayerOwnedTurrets( player ) )
+		{
+			if ( handledTurrets.contains( turret ) )
+				continue
+			
+			// debug
+			//print( "turret handled by engineer: " + string( turret ) )
+
+			handledTurrets.append( turret )
+			// update turret weapon mods
+			turret.GetMainWeapons()[0].AddMod( "gm_engineer_turret" )
 		}
+
+		// hit max turrets?
+		int overloadedTurreCount = handledTurrets.len() - ENGINEER_TURRET_MAX_COUNT
+		if ( overloadedTurreCount > 0 )
+		{
+			for ( int i = 0; i < overloadedTurreCount; i++ )
+			{
+				if ( IsAlive( handledTurrets[i] ) )
+					handledTurrets[i].Die()
+			}
+		}
+
+		WaitFrame()
 	}
 }
 
@@ -377,48 +477,31 @@ void function BecomeSpecialistGrunt( entity player )
 
 	SimpleClassLoadout(  
 		player,
-		"mp_weapon_car",													// primary weapon
+		"mp_weapon_lstar",													// primary weapon
 		"mp_weapon_mgl",													// secondary weapon
 		"",																	// grenade
-		$"models/humans/pilots/pilot_light_ged_m.mdl",						// imc player model
-		$"models/humans/pilots/pilot_light_ged_m.mdl",						// mlt player model
+		$"",																// imc player model
+		$"",																// mlt player model
 		["disable_doublejump", "only_wallclimb"],							// class mods
 		"特種步兵",																// title
-		"以特種步兵重生：携帶一架無人機(每15s重生)，按 USE 召喚至指定位置"	// respawn notification
+		"以特種步兵重生：可釋放兩架無人機"										// respawn notification
 	)
 
-	player.GetMainWeapons()[0].AddMod( "gm_specialist" ) // nerfed car
-	player.GetMeleeWeapon().AddMod( "fake_human_melee" ) // model doesn't have grunt melee activity
+	player.GetMeleeWeapon().AddMod( "fake_grunt_melee" ) // model doesn't have grunt melee activity
 	
-	//if( PlayerHasPassive( player, ePassives.PAS_ORDNANCE_PACK ) ) // prevent regen ticks
-	//	TakePassive( player, ePassives.PAS_ORDNANCE_PACK )
-	// drone spawning ability( two times usage ), but we can't use drone_spawner_anim since pilot_light_ged don't have that animation
-	//player.GiveOffhandWeapon( "mp_weapon_frag_drone", OFFHAND_SPECIAL, ["drone_spawner"] )
-	//thread TrackSpecialistGruntDeath( player ) // death will clear player's drones
+	// drone spawning ability( two times usage )
+	player.GiveOffhandWeapon( "mp_weapon_frag_drone", OFFHAND_SPECIAL, ["drone_spawner_anim"] )
+
+	player.SetModel( $"models/robots/spectre/imc_spectre.mdl" ) // safe to reset model
+	CreateMechanicalHeadForPlayer( player )
+	// attach a fake head to it
 
 	// doing a better check now!
 	thread SpecialistGruntThink( player )
 }
 
-/* // using drone spawner to track this
-void function TrackSpecialistGruntDeath( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-
-	player.WaitSignal( "OnDeath" )
-
-	// kill player's existing drones upon death
-	foreach( entity drone in GetNPCArrayByClass( "npc_drone" ) )
-	{
-		if ( drone.GetBossPlayer() == player )
-			drone.Die() // kill the drone
-	}
-}
-*/
-
 struct SpecialistGruntStruct
 {
-	array<entity> ownedDrones
 	float lastRecallTime
 	float lastNotifyTime
 }
@@ -428,13 +511,14 @@ struct
 	table< entity, SpecialistGruntStruct > classTable
 } specialistGrunt
 
+// drone recall
+const bool SPECIALIST_GRUNT_DRONE_RECALL_ENABLED = false
 const float SPECIALIST_GRUNT_RECALL_RANGE = 600
-const float SPECIALIST_GRUNT_DRONE_COOLDOWN = 15.0
-const int SPECIALIST_GRUNT_DRONE_COUNT = 1 // was 3
-const bool SPECIALIST_GRUNT_DRONE_RESPAWN = true // was false
-const int SPECIALIST_GRUNT_DRONE_HEALTH = 140 // was 90 with 3 drones
 const float SPECIALIST_GRUNT_RECALL_COOLDOWN = 3.0
 const float SPECIALIST_GRUNT_NOTIFICATION_COOLDOWN = 2.0
+// drone settings
+const int SPECIALIST_GRUNT_DRONE_HEALTH = 110
+const int SPECIALIST_GRUNT_DRONE_MAX_COUNT = 2
 
 void function SpecialistGruntThink( entity player )
 {
@@ -451,28 +535,114 @@ void function SpecialistGruntThink( entity player )
 	specialistGrunt.classTable[player].lastRecallTime = Time() - SPECIALIST_GRUNT_RECALL_COOLDOWN
 	specialistGrunt.classTable[player].lastNotifyTime = Time() - SPECIALIST_GRUNT_NOTIFICATION_COOLDOWN
 
-    AddButtonPressedPlayerInputCallback( player, IN_USE, SpecialistGruntRecallDrones )
-    AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, SpecialistGruntRecallDrones )
-    
+	if ( SPECIALIST_GRUNT_DRONE_RECALL_ENABLED )
+	{
+		AddButtonPressedPlayerInputCallback( player, IN_USE, SpecialistGruntRecallDrones )
+		AddButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, SpecialistGruntRecallDrones )
+	}
+
     OnThreadEnd(
         function(): ( player )
         {
             if ( IsValid( player ) )
             {
-                RemoveButtonPressedPlayerInputCallback( player, IN_USE, SpecialistGruntRecallDrones )
-                RemoveButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, SpecialistGruntRecallDrones )
+				if ( SPECIALIST_GRUNT_DRONE_RECALL_ENABLED )
+				{
+					RemoveButtonPressedPlayerInputCallback( player, IN_USE, SpecialistGruntRecallDrones )
+					RemoveButtonPressedPlayerInputCallback( player, IN_USE_AND_RELOAD, SpecialistGruntRecallDrones )
+				}
             }
         }
     )
 
-	thread SpecialistGruntDronesSpawner( player )
+	thread SpecialistGruntDronesHandler( player )
 
 	player.WaitSignal( "OnDeath" ) // wait for player's death
 }
 
+array<entity> function GetGruntPlayerOwnedDrones( entity player )
+{
+	array<entity> drones
+	foreach ( entity drone in GetNPCArrayByClass( "npc_drone" ) )
+	{
+		if ( IsAlive( drone ) && drone.GetBossPlayer() == player )
+			drones.append( drone )
+	}
+	return drones
+}
+
+void function SpecialistGruntDronesHandler( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+
+	array<entity> handledDrones
+	OnThreadEnd(
+		function(): ( player, handledDrones )
+		{
+			// player still valid!
+			if ( IsValid( player ) )
+			{
+				// find from all drones
+				array<entity> drones = GetGruntPlayerOwnedDrones( player )
+				foreach ( entity drone in drones )
+				{
+					if ( IsAlive( drone ) )
+						drone.Die()
+				}
+			}
+			else // player became invalid
+			{
+				// use our stored drones
+				foreach( entity drone in handledDrones )
+				{
+					if ( IsAlive( drone ) )
+						drone.Die()
+				}
+			}
+        }
+	)
+
+	while ( true )
+	{
+		ArrayRemoveDead( handledDrones )
+
+		foreach ( entity drone in GetGruntPlayerOwnedDrones( player ) )
+		{
+			if ( handledDrones.contains( drone ) )
+				continue
+			
+			// debug
+			//print( "drone handled by specialist grunt: " + string( drone ) )
+			
+			handledDrones.append( drone )
+			// update drone status
+			thread DisableDroneSound( drone ) // try to stop annoying sound
+			drone.SetMaxHealth( SPECIALIST_GRUNT_DRONE_HEALTH )
+			drone.SetHealth( drone.GetMaxHealth() )
+		}
+
+		// hit max drones?
+		int overloadedDroneCount = handledDrones.len() - SPECIALIST_GRUNT_DRONE_MAX_COUNT
+		if ( overloadedDroneCount > 0 )
+		{
+			for ( int i = 0; i < overloadedDroneCount; i++ )
+			{
+				if ( IsAlive( handledDrones[i] ) )
+					handledDrones[i].Die()
+			}
+		}
+
+		WaitFrame()
+	}
+}
+
 void function SpecialistGruntRecallDrones( entity player )
 {
-    array<entity> drones = specialistGrunt.classTable[player].ownedDrones
+	if ( player.Anim_IsActive() ) // doing some animations like drone spawning
+		return
+	
+	array<entity> drones = GetGruntPlayerOwnedDrones( player )
     float lastRecallTime = specialistGrunt.classTable[player].lastRecallTime
 	float lastNotifyTime = specialistGrunt.classTable[player].lastNotifyTime
     
@@ -487,7 +657,7 @@ void function SpecialistGruntRecallDrones( entity player )
 	{
 		if ( Time() - lastNotifyTime >= SPECIALIST_GRUNT_NOTIFICATION_COOLDOWN ) // notification cooldown
 		{
-			SendHudMessage( player, "無人機已全部死亡",  -1, -0.3, 255, 255, 0, 255, 0.15, 6, 1 )
+			SendHudMessage( player, "沒有無人機在場",  -1, -0.3, 255, 255, 0, 255, 0.15, 6, 1 )
 			specialistGrunt.classTable[player].lastNotifyTime = Time() // update
 		}
 		return
@@ -521,7 +691,6 @@ void function SpecialistGruntRecallDrones( entity player )
 		PlayDroneAppearFX( drone )
 		drone.SetOrigin( targetPos )
 		drone.SetAngles( targetAngs )
-		
 	}
 
 	// only play one sound
@@ -543,112 +712,16 @@ entity function PlayDroneAppearFX( entity ent )
 	return PlayFXOnEntity( effect, ent )
 }
 
-void function SpecialistGruntDronesSpawner( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnDeath" )
-
-    // wait for player landing
-    waitthread WaitForPlayerDropBeforeSpawnDrones( player )
-
-	for ( int i = 0; i < SPECIALIST_GRUNT_DRONE_COUNT; i++ )
-		CreateDroneForSpecialistGrunt( player ) // create respawning drones
-	// first spawn, play one sound
-	EmitSoundAtPosition( TEAM_UNASSIGNED, player.GetOrigin(), SHIFTER_END_SOUND_3P )
-
-	// OnThreadEnd() only triggers after delay, since this function won't do anything if player dies before drones spawn
-	OnThreadEnd(
-		function(): ( player )
-		{
-			array<entity> gruntDrones = specialistGrunt.classTable[player].ownedDrones
-			foreach( entity drone in gruntDrones )
-			{
-				if ( IsAlive( drone ) )
-					drone.Die()
-			}
-        }
-	)
-
-	WaitForever() // wait until player's death
-}
-
-entity function CreateDroneForSpecialistGrunt( entity player )
-{
-	entity drone = CreateNPC( "npc_drone", player.GetTeam(), player.GetOrigin(), player.GetAngles() )
-	
-	array<string> validDroneTypes = 
-	[ 
-		"npc_drone_beam", 
-		"npc_drone_rocket", 
-		"npc_drone_plasma" 
-	]
-	string dronename = validDroneTypes[ RandomInt( validDroneTypes.len() ) ]
-	
-	SetSpawnOption_AISettings( drone, dronename )
-	DispatchSpawn( drone )
-	// drone's health
-	drone.SetMaxHealth( SPECIALIST_GRUNT_DRONE_HEALTH )
-	drone.SetHealth( SPECIALIST_GRUNT_DRONE_HEALTH )
-
-	drone.SetOwner( player )
-	drone.SetBossPlayer( player )
-	// don't follow!! the drone will lost target
-	//NPCFollowsPlayer( drone, player )
-	Highlight_SetOwnedHighlight( drone, "friendly_ai" )
-
-	thread DisableDroneSound( drone ) // disable their annoying sounds!
-    // for player recalling their drones
-    specialistGrunt.classTable[player].ownedDrones.append( drone )
-
-	SendHudMessage( player, "無人機已重生",  -1, -0.3, 255, 255, 0, 255, 0.15, 6, 1 )
-	PlayDroneAppearFX( drone ) // phase out effect
-	if ( SPECIALIST_GRUNT_DRONE_RESPAWN )
-		thread TrackPlayerDroneRespawn( player, drone )
-
-	return drone
-}
-
-void function TrackPlayerDroneRespawn( entity player, entity drone )
-{
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-
-	drone.WaitSignal( "OnDeath", "OnDestroy" )
-	ArrayRemoveInvalid( specialistGrunt.classTable[player].ownedDrones )
-	if ( IsValid( drone ) )
-		specialistGrunt.classTable[player].ownedDrones.removebyvalue( drone )
-	bool hasDroneAlive = false
-	foreach ( entity drone in specialistGrunt.classTable[player].ownedDrones )
-	{
-		if ( IsAlive( drone ) )
-		{
-			hasDroneAlive = true
-			break
-		}
-	}
-	if ( !hasDroneAlive ) // drones are dead
-		SendHudMessage( player, "無人機已全部死亡",  -1, -0.3, 255, 255, 0, 255, 0.15, 6, 1 )
-	wait SPECIALIST_GRUNT_DRONE_COOLDOWN
-	CreateDroneForSpecialistGrunt( player )
-}
-
 void function DisableDroneSound( entity drone )
 {
 	drone.EndSignal( "OnDestroy" )
 	
-	WaitFrame()
+	WaitFrame() // initial wait
+	// wait for drone deploy animation end
+	while ( drone.Anim_IsActive() )
+		WaitFrame()
 	StopSoundOnEntity( drone, "Drone_Mvmt_Hover_Hero" )
 	StopSoundOnEntity( drone, "Drone_Mvmt_Hover" )
-}
-
-void function WaitForPlayerDropBeforeSpawnDrones( entity player )
-{
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnDestroy" )
-
-	WaitFrame() // wait this frame before player actually being set parented
-	while( IsValid( player.GetParent() ) ) // spawning from dropship or droppod
-		WaitFrame()
 }
 
 const int SHIELD_CAPTAIN_SHIELD_HEALTH = 100 // was 150
@@ -1374,8 +1447,12 @@ void function SimpleClassLoadout( entity player, string primary = "", string sec
 	thread HidePlayerNameForEnemy( player ) // sometimes detach a rodeo will show their name again, do a thread
 	GivePassive( player, ePassives.PAS_STEALTH_MOVEMENT ) // hide jetpack flame
 	Rodeo_SetStealthMovementDisabledForPlayer( player, true ) // disable stealth rodeo, so player will have jetpack modified only
-	if( PlayerHasPassive( player, ePassives.PAS_ENEMY_DEATH_ICONS ) ) // valid passives
-		TakePassive( player, ePassives.PAS_ENEMY_DEATH_ICONS ) // take it
+	
+	// take out passives that can still be valid for player
+	if( PlayerHasPassive( player, ePassives.PAS_ENEMY_DEATH_ICONS ) )
+		TakePassive( player, ePassives.PAS_ENEMY_DEATH_ICONS )
+	if( PlayerHasPassive( player, ePassives.PAS_ORDNANCE_PACK ) ) // prevent regen ticks
+		TakePassive( player, ePassives.PAS_ORDNANCE_PACK )
 
 	// using custom utility!
 	//player.SetGroundFrictionScale( 4.0 ) // prevent players getting speed from slide, but this still allow players slidehop
@@ -1478,6 +1555,57 @@ void function PlayHelmetDropFX( entity player )
 	vector fxOrg = player.GetAttachmentOrigin( tagID )
 	vector fxAng = player.GetAttachmentAngles( tagID )
 	PlayFX( headshotFX, fxOrg, fxAng, null )
+}
+
+void function CreateMechanicalHeadForPlayer( entity player )
+{
+	if ( player.LookupAttachment( "HEADSHOT" ) < 0 ) // invalid attachment?
+		return
+	// if mechanical, remove head bodygroup
+	if ( player.IsMechanical() )
+	{
+		// get the proper head bodygroup
+		int bodyGroupIndex = player.FindBodyGroup( "head" )
+		if ( bodyGroupIndex == -1 )
+			bodyGroupIndex = player.FindBodyGroup( "removableHead" )
+
+		player.SetBodygroup( bodyGroupIndex, 1 )
+	}
+
+	entity head = CreatePropDynamic( $"models/humans/pilots/pilot_light_ged_m_head_gib.mdl" )
+	head.SetParent( player, "HEADSHOT" )
+	head.Highlight_SetInheritHighlight( true ) // setup highlight
+	head.SetOrigin( < 0, 0, -7 > ) // tweak on position
+	DeathPackage_RemoveEntityHeadshotFXOverride( player ) // remove headshotFX override, we drop the head on getting headshot at
+
+	thread TrackHeadLifeTime( player, head )
+}
+
+void function TrackHeadLifeTime( entity player, entity head )
+{
+	head.EndSignal( "OnDestroy" )
+	table result = WaitSignal( player, "OnDeath", "OnDestroy", "PlayerEmbarkedTitan" )
+	
+	PlayMechanicalHeadRemoveFX( player )
+	head.Destroy()
+}
+
+void function PlayMechanicalHeadRemoveFX( entity player )
+{
+	// don't drop the head two times, just use a explosiopn fx
+	asset headBrokeFX = $"xo_damage_exp_2"
+	int tagID = player.LookupAttachment( "HEADSHOT" )
+	vector fxOrg = player.GetAttachmentOrigin( tagID )
+	vector fxAng = player.GetAttachmentAngles( tagID )
+	entity fx = PlayFX( headBrokeFX, fxOrg, fxAng, null )
+	thread FastStopFX( fx, 0.5 )
+}
+
+void function FastStopFX( entity fx, float delay )
+{
+	wait delay
+	if ( IsValid( fx ) )
+		EffectStop( fx )
 }
 
 void function ApplyMLTGruntCamo( entity player )
