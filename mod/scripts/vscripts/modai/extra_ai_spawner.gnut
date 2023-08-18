@@ -43,6 +43,9 @@ global function ExtraSpawner_SetCarePackageWeaponMods
 global function ExtraSpawner_SetCarePackageWeaponModsMultiple
 // raw care package function
 global function ExtraSpawner_SpawnCarePackage
+// carepackage callbacks
+global function AddEntityCallback_OnUseCarePackage
+global function RemoveEntityCallback_OnUseCarePackage
 
 // tick reaper funcs
 global function ExtraSpawner_SpawnReaperCanLaunchTicks
@@ -160,6 +163,7 @@ struct
 	// in-file only variables
 	// care package, for limiting player care package usages
 	array<entity> carePackageUsedPlayers = []
+	table< entity, array<void functionref( entity ent, entity package )> > entityCarePackageUsedCallbacks
 	// for marking the npc as spawning from this file
 	table<entity, bool> npcSpawnFromExtraSpawner
 	// for marking the npc as one of prowler squad
@@ -2883,6 +2887,31 @@ void function ExtraSpawner_SpawnCarePackage_Threaded( vector pos, vector rot, us
 	EmitSoundAtPosition( TEAM_UNASSIGNED, pod.GetOrigin(), "droppod_dissolve" )
 }
 
+void function AddEntityCallback_OnUseCarePackage( entity ent, void functionref( entity ent, entity package ) callbackFunc )
+{
+	if ( !( ent in file.entityCarePackageUsedCallbacks ) )
+		file.entityCarePackageUsedCallbacks[ ent ] <- []
+	if ( !file.entityCarePackageUsedCallbacks[ ent ].contains( callbackFunc ) )
+		file.entityCarePackageUsedCallbacks[ ent ].append( callbackFunc )
+}
+
+void function RemoveEntityCallback_OnUseCarePackage( entity ent, void functionref( entity ent, entity package ) callbackFunc )
+{
+	if ( !( ent in file.entityCarePackageUsedCallbacks ) )
+		return
+	if ( file.entityCarePackageUsedCallbacks[ ent ].contains( callbackFunc ) )
+		file.entityCarePackageUsedCallbacks[ ent ].removebyvalue( callbackFunc )
+}
+
+void function RunEntityCallback_OnUseCarePackage( entity ent, entity package )
+{
+	if ( !( ent in file.entityCarePackageUsedCallbacks ) )
+		return
+
+	foreach ( callbackFunc in file.entityCarePackageUsedCallbacks[ ent ] )
+		callbackFunc( ent, package )
+}
+
 // copied from cl_replacement_titan_hud.gnut
 void function CarePackage_SpawnPoint( vector origin, float impactTime )
 {
@@ -2903,6 +2932,7 @@ void function CarePackage_SpawnPoint( vector origin, float impactTime )
 
 function CarePackage_GiveWeapon( pod , player )
 {
+	expect entity( pod )
 	expect entity( player )
 	vector pos = player.GetOrigin()
 
@@ -2925,6 +2955,9 @@ function CarePackage_GiveWeapon( pod , player )
 
 	file.carePackageUsedPlayers.append( player )
 	player.Signal( "PlayerUsedCarePackage" )
+
+	// Added via AddEntityCallback_OnUseCarePackage()
+	RunEntityCallback_OnUseCarePackage( player, pod )
 }
 
 // now allowing every weapon to have a custom mod
@@ -2940,6 +2973,7 @@ void function GiveModdedWeapons( entity player, array<string> weapons )
 
 function CarePackage_RefillAmmo( pod , player )
 {
+	expect entity( pod )
 	expect entity( player )
 
 	if( file.carePackageUsedPlayers.contains( player ) )
@@ -2955,6 +2989,9 @@ function CarePackage_RefillAmmo( pod , player )
 
 	file.carePackageUsedPlayers.append( player )
 	player.Signal( "PlayerUsedCarePackage" )
+
+	// Added via AddEntityCallback_OnUseCarePackage()
+	RunEntityCallback_OnUseCarePackage( player, pod )
 }
 
 void function RestorePlayerAmmo( entity player )

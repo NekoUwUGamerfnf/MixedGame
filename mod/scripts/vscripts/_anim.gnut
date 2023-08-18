@@ -477,24 +477,15 @@ function __PlayAnim( guy, animation_name, reference = null, optionalTag = null, 
 	}
 	catch( ex ) // an error in try-catch will crash the game, should notice it
 	{
-		print( ex )
-		if ( !( "modelChangedForErrorAnim" in guy.s ) )
-			guy.s.modelChangedForErrorAnim <- false
-		if ( guy.s.modelChangedForErrorAnim ) // already doing a wrong animation?
-		{
-			print( "Reset animation model error! Not playing any animation" )
-			guy.Signal( "OnAnimationInterrupted" ) // mark this animation as interruped
-			return
-		}
-
-		asset modelName = GetBestModelNameForErrorAnim( guy )
-		asset orgModel = guy.GetModelName()
-		guy.SetModel( modelName )
-		print( "Model animation error in __PlayAnim()! Resetting to " + string( modelName ) )
-		guy.s.modelChangedForErrorAnim = true
+		// log print
+		//print( ex )
+		//asset modelName = GetBestModelNameForErrorAnim( guy )
+		//print( "Model animation error in __PlayAnim()! Resetting to " + string( modelName ) )
+		//print( "this animation is: " + animation_name )
+		
+		// error animation handle start
+		thread TrackErrorAnimationEnd( guy )
 		thread __PlayAnim( guy, animation_name, reference, optionalTag, blendTime )
-		print( "this animation is: " + animation_name )
-		thread TrackErrorAnimationEnd( guy, orgModel )
 	}
 
 }
@@ -531,29 +522,54 @@ asset function GetBestModelNameForErrorAnim( entity guy )
 	return modelName
 }
 
-void function TrackErrorAnimationEnd( guy, asset orgModel )
+void function TrackErrorAnimationEnd( guy )
 {
 	expect entity( guy )
 	if( !IsValid( guy ) )
 		return
+
+	if ( !( "modelChangedForErrorAnim" in guy.s ) )
+		guy.s.modelChangedForErrorAnim <- false
+	if ( guy.s.modelChangedForErrorAnim ) // already doing an error animation?
+	{
+		//print( "Reset animation model more than one time! Intterupting current animation" )
+		guy.Signal( "OnAnimationInterrupted" ) // mark this animation as interruped
+		return
+	}
+
+	asset modelName = GetBestModelNameForErrorAnim( guy )
+	asset modelToRecover = guy.GetModelName()
+	int bodygroupToRecover = guy.GetFullBodygroup()
+
+	guy.SetModel( modelName )
+	guy.s.modelChangedForErrorAnim = true
 
 	guy.Signal( "ErrorAnimStart" )
 	guy.EndSignal( "OnDestroy" )
 	guy.EndSignal( "OnAnimationInterrupted" )
 	guy.EndSignal( "OnAnimationDone" )
 
+	// store data into a table so we don't miss them
+	table results = {
+		orgModel = modelToRecover
+		orgBodygroup = bodygroupToRecover
+	}
+
 	OnThreadEnd(
-		function():( guy, orgModel )
+		function():( guy, results )
 		{
 			if( IsValid( guy ) )
 			{
-				if ( "modelChangedForErrorAnim" in guy.s )
-					guy.s.modelChangedForErrorAnim = false // clean up
-				// check if it's embarking
+				asset modelToRecover = expect asset( results.orgModel )
+				int bodygroupToRecover = expect int( results.orgBodygroup )
+
+				guy.s.modelChangedForErrorAnim = false // clean up
+
+				// player specific: check for embarking
 				if( guy.IsPlayer() && guy.p.isEmbarking )
-					thread TrackPlayerBecomePilot( guy, orgModel )
+					thread TrackPlayerBecomePilot( guy, modelToRecover, bodygroupToRecover )
 				else
-					thread DelayedResetGuyModel( guy, orgModel )
+					thread DelayedResetGuyModel( guy, modelToRecover, bodygroupToRecover )
 			}
 		}
 	)
@@ -561,7 +577,7 @@ void function TrackErrorAnimationEnd( guy, asset orgModel )
 	WaitForever()
 }
 
-void function TrackPlayerBecomePilot( entity player, asset orgModel )
+void function TrackPlayerBecomePilot( entity player, asset orgModel, int orgBodygroup )
 {
 	//print( "Error player has become titan, waiting for leaving.." )
 	player.EndSignal( "OnDeath" )
@@ -583,11 +599,12 @@ void function TrackPlayerBecomePilot( entity player, asset orgModel )
 	if( IsAlive( player ) )
 	{
 		player.SetModel( orgModel )
+		player.SetFullBodygroup( orgBodygroup )
 		//print( "Leaving titan! resetting model to " + string( orgModel ) )
 	}
 }
 
-void function DelayedResetGuyModel( entity guy, asset orgModel )
+void function DelayedResetGuyModel( entity guy, asset orgModel, int orgBodygroup )
 {
 	guy.EndSignal( "OnDestroy" )
 	//WaitFrame() // give 1 frame grace period, so it won't mess up most animations. guess it's no need if we have parent checks
@@ -595,7 +612,8 @@ void function DelayedResetGuyModel( entity guy, asset orgModel )
 		WaitFrame()
 
 	guy.SetModel( orgModel )
-	print( "Error animation end! resetting model to " + string( orgModel ) )
+	guy.SetFullBodygroup( orgBodygroup )
+	//print( "Error animation end! resetting model to " + string( orgModel ) )
 }
 //
 
@@ -1106,22 +1124,13 @@ function CalcSequenceBlendTime( FirstPersonSequenceStruct sequence, entity playe
 	}
 	catch( ex )
 	{
-		print( ex )
-		if ( !( "modelChangedForErrorAnim" in player.s ) )
-			player.s.modelChangedForErrorAnim <- false
-		if ( player.s.modelChangedForErrorAnim ) // already doing a wrong animation?
-		{
-			print( "Reset animation model error! Not calculating any blend time" )
-			player.Signal( "OnAnimationInterrupted" ) // mark this animation as interruped
-			return
-		}
-
-		asset modelName = GetBestModelNameForErrorAnim( player )
-		asset orgModel = player.GetModelName()
-		player.SetModel( modelName )
-		print( "Model animation error in CalcSequenceBlendTime()! resetting to " + string( modelName ) )
-		thread TrackErrorAnimationEnd( player, orgModel )
-
+		// log print
+		//print( ex )
+		//asset modelName = GetBestModelNameForErrorAnim( player )
+		//print( "Model animation error in CalcSequenceBlendTime()! resetting to " + string( modelName ) )
+		
+		// error animation handle start
+		thread TrackErrorAnimationEnd( player )
 		CalcSequenceBlendTime( sequence, player, ent )
 	}
 }
