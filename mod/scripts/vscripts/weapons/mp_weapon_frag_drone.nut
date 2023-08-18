@@ -2,9 +2,20 @@ global function OnProjectileCollision_weapon_frag_drone
 global function OnProjectileExplode_weapon_frag_drone
 global function OnWeaponAttemptOffhandSwitch_weapon_frag_drone
 
-global function OnWeaponTossPrep_weapon_frag_drone // modified
 global function OnWeaponTossReleaseAnimEvent_weapon_frag_drone
 global function MpWeaponFragDrone_Init
+
+// modified callbacks
+global function OnWeaponTossPrep_weapon_frag_drone
+global function OnWeaponPrimaryAttack_weapon_frag_drone
+
+// modified: drone_spawner_anm
+const array<string> VALID_DRONE_TYPES = 
+[ 
+	"npc_drone_beam", 
+	"npc_drone_rocket", 
+	"npc_drone_plasma" 
+]
 
 void function MpWeaponFragDrone_Init()
 {
@@ -16,32 +27,32 @@ void function MpWeaponFragDrone_Init()
 	#endif
 }
 
+// modified callbacks
 void function OnWeaponTossPrep_weapon_frag_drone( entity weapon, WeaponTossPrepParams prepParams )
 {
+	// vanilla behavior
+	Grenade_OnWeaponTossPrep( weapon, prepParams )
+}
+
+var function OnWeaponPrimaryAttack_weapon_frag_drone( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	// modded weapon
 	if( weapon.HasMod( "drone_spawner_anim" ) )
     {
 #if SERVER
 		entity owner = weapon.GetWeaponOwner()
-		array<string> validDroneTypes = 
-		[ 
-			"npc_drone_beam", 
-			"npc_drone_rocket", 
-			"npc_drone_plasma" 
-		]
-		entity drone = SpawnDroneFromPlayer( owner, validDroneTypes[ RandomInt( validDroneTypes.len() ) ] )
-		if( drone )
-		{
-			weapon.SetWeaponPrimaryClipCount( max( weapon.GetWeaponPrimaryClipCount() - weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot ), 0.0 ) )
-			return
-		}
-		// if no drone spawned, we redeploy main weapon instead of play frag drone's toss anim
-		owner.HolsterWeapon()
-		owner.DeployWeapon()
+		entity drone = SpawnDroneFromPlayer( owner, VALID_DRONE_TYPES[ RandomInt( VALID_DRONE_TYPES.len() ) ] )
+		
+		if( !IsValid( drone ) ) // drone spawn failed!
+			return 0
+
+		return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 #endif
 	}
-	else
-		Grenade_OnWeaponTossPrep( weapon, prepParams )
+
+	// vanilla has no behavior about this
 }
+//
 
 void function OnProjectileCollision_weapon_frag_drone( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
@@ -66,11 +77,10 @@ void function OnProjectileCollision_weapon_frag_drone( entity projectile, vector
 
 var function OnWeaponTossReleaseAnimEvent_weapon_frag_drone( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if( weapon.HasMod( "drone_spawner_anim" ) )
-		return 0
+	// modded weapons
 	if( weapon.HasMod( "emp_drone" ) )
 		return OnAbilityStart_EMPDrone( weapon, attackParams )
-	// modifying...
+
 	entity grenade = Grenade_OnWeaponToss_ReturnEntity( weapon, attackParams, 1.0 )
 	if( grenade )
 	{
@@ -80,7 +90,9 @@ var function OnWeaponTossReleaseAnimEvent_weapon_frag_drone( entity weapon, Weap
 			//grenade.SetAngles( grenade.GetAngles() + < RandomFloatRange( 7,11 ), 0, 0 > )
 		}
 	}
+	//
 	
+	// vanilla behavior
 	//Grenade_OnWeaponTossReleaseAnimEvent( weapon, attackParams )
 
 	#if SERVER && MP // TODO: should be BURNCARDS
@@ -103,60 +115,61 @@ void function OnProjectileExplode_weapon_frag_drone( entity projectile )
 
 		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
+		// modded weapons
 		if( mods.contains( "prowler_spawner" ) )
 			return DeployableToProwler( projectile )
 		else if( mods.contains( "drone_spawner" ) )
 			return TicksToDrones( projectile )
+		//
+
+		// vanilla behavior
+		int team = owner.GetTeam()
+
+		entity drone = CreateFragDroneCan( team, origin, < 0, projectile.GetAngles().y, 0 > )
+		if( mods.contains( "sp_tick_model" ) ) // modded condition
+			SetSpawnOption_AISettings( drone, "npc_frag_drone" )
+		else
+			SetSpawnOption_AISettings( drone, "npc_frag_drone_throwable" )
+		DispatchSpawn( drone )
+
+		vector ornull clampedPos = NavMesh_ClampPointForAIWithExtents( origin, drone, < 20, 20, 36 > )
+		if ( clampedPos != null )
+		{
+			expect vector( clampedPos )
+			drone.SetOrigin( clampedPos )
+		}
 		else
 		{
-			int team = owner.GetTeam()
-
-			entity drone = CreateFragDroneCan( team, origin, < 0, projectile.GetAngles().y, 0 > )
-			if( mods.contains( "sp_tick_model" ) )
-				SetSpawnOption_AISettings( drone, "npc_frag_drone" )
-			else
-				SetSpawnOption_AISettings( drone, "npc_frag_drone_throwable" )
-			DispatchSpawn( drone )
-
-			vector ornull clampedPos = NavMesh_ClampPointForAIWithExtents( origin, drone, < 20, 20, 36 > )
-			if ( clampedPos != null )
-			{
-				expect vector( clampedPos )
-				drone.SetOrigin( clampedPos )
-			}
-			else
-			{
-				thread DroneDeployFailedExplode( drone, owner )
-				return
-			}
-
-			int followBehavior = GetDefaultNPCFollowBehavior( drone )
-			if ( owner.IsPlayer() )
-			{
-				drone.SetBossPlayer( owner )
-				UpdateEnemyMemoryWithinRadius( drone, 1000 )
-			}
-			else if ( owner.IsNPC() )
-			{
-				entity enemy = owner.GetEnemy()
-				if ( IsAlive( enemy ) )
-					drone.SetEnemy( enemy )
-			}
-
-			if ( IsSingleplayer() && IsAlive( owner ) )
-			{
-				drone.InitFollowBehavior( owner, followBehavior )
-				drone.EnableBehavior( "Follow" )
-			}
-			else
-			{
-				drone.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_NEW_ENEMY_FROM_SOUND )
-			}
-
-			thread FragDroneDeplyAnimation( drone, 0.0, 0.1 )
-			thread WaitForEnemyNotification( drone )
-			thread FragDroneLifetime( drone )
+			thread DroneDeployFailedExplode( drone, owner )
+			return
 		}
+
+		int followBehavior = GetDefaultNPCFollowBehavior( drone )
+		if ( owner.IsPlayer() )
+		{
+			drone.SetBossPlayer( owner )
+			UpdateEnemyMemoryWithinRadius( drone, 1000 )
+		}
+		else if ( owner.IsNPC() )
+		{
+			entity enemy = owner.GetEnemy()
+			if ( IsAlive( enemy ) )
+				drone.SetEnemy( enemy )
+		}
+
+		if ( IsSingleplayer() && IsAlive( owner ) )
+		{
+			drone.InitFollowBehavior( owner, followBehavior )
+			drone.EnableBehavior( "Follow" )
+		}
+		else
+		{
+			drone.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_NEW_ENEMY_FROM_SOUND )
+		}
+
+		thread FragDroneDeplyAnimation( drone, 0.0, 0.1 )
+		thread WaitForEnemyNotification( drone )
+		thread FragDroneLifetime( drone )
 	#endif
 }
 
@@ -253,6 +266,8 @@ bool function OnWeaponAttemptOffhandSwitch_weapon_frag_drone( entity weapon )
 	return true
 }
 
+
+// modded weapon stuffs
 #if SERVER
 void function DeployableToProwler( entity grenade )
 {
@@ -282,13 +297,7 @@ void function TicksToDronesThreaded( entity tick )
 	vector tickang = tick.GetAngles()
 	int tickteam = tick.GetTeam()
 
-	array<string> validDroneTypes = 
-    [ 
-        "npc_drone_beam", 
-        "npc_drone_rocket", 
-        "npc_drone_plasma" 
-    ]
-	string dronename = validDroneTypes[ RandomInt( validDroneTypes.len() ) ]
+	string dronename = VALID_DRONE_TYPES[ RandomInt( VALID_DRONE_TYPES.len() ) ]
 
 	entity drone = CreateNPC("npc_drone" , tickteam , tickpos, tickang )
 	SetSpawnOption_AISettings( drone, dronename )

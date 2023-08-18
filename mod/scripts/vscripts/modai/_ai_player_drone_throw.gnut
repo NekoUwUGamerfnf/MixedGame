@@ -6,19 +6,30 @@ const array<asset> droneSpawnerAllowedModel =
 	// models that using medium pilot core animations
 	$"models/humans/grunts/mlt_grunt_lmg.mdl", 
 	$"models/humans/grunts/imc_grunt_lmg.mdl", 
+	$"models/humans/grunts/mlt_grunt_smg.mdl", 
+	$"models/humans/grunts/imc_grunt_smg.mdl", 
+	$"models/humans/grunts/mlt_grunt_shotgun.mdl", 
+	$"models/humans/grunts/imc_grunt_shotgun.mdl", 
+	$"models/humans/grunts/mlt_grunt_rifle.mdl", 
+	$"models/humans/grunts/imc_grunt_rifle.mdl", 
+
 	$"models/Humans/heroes/imc_hero_ash.mdl", 
 	$"models/humans/heroes/mlt_hero_jack.mdl", 
 	$"models/humans/heroes/mlt_hero_sarah.mdl", 
 	$"models/Humans/heroes/imc_hero_blisk.mdl", 
+
 	$"models/humans/pilots/sp_medium_geist_f.mdl", 
 	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
 	$"models/humans/pilots/sp_medium_stalker_m.mdl",
+
 	$"models/humans/pilots/pilot_medium_stalker_m.mdl",
 	$"models/humans/pilots/pilot_medium_stalker_f.mdl",
 	$"models/humans/pilots/pilot_medium_reaper_m.mdl",
 	$"models/humans/pilots/pilot_medium_reaper_f.mdl",
 	$"models/humans/pilots/pilot_medium_geist_m.mdl",
-	$"models/humans/pilots/pilot_medium_geist_f.mdl"
+	$"models/humans/pilots/pilot_medium_geist_f.mdl",
+
+	$"models/robots/spectre/imc_spectre.mdl",
 ]
 
 entity function SpawnDroneFromPlayer( entity player, string aiSettings )
@@ -29,6 +40,13 @@ entity function SpawnDroneFromPlayer( entity player, string aiSettings )
 		return null
 	if( player.IsTitan() )
 		return null
+
+	// generic check
+	if ( !PlayerCanSpawnDrone( player ) )
+	{
+		SendHudMessage( player, "接觸地面以釋放無人機", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
+		return null
+	}
 
 	vector origin = player.GetOrigin()
 	vector angles = player.GetAngles()
@@ -42,22 +60,19 @@ entity function SpawnDroneFromPlayer( entity player, string aiSettings )
 	//-------------------------------------------------------------------
 	// Make sure enough clearance to spawn drone, and get correct anim
 	//-------------------------------------------------------------------
-	if ( verticalClearance >= 256 && player.IsOnGround() && !player.IsWallRunning() )
+	if ( verticalClearance >= 256 )
 	{
 		spawnAnimDrone = "dr_activate_drone_spin"
 		spawnAnimSoldier = "pt_activate_drone_spin"
 	}
-	else if ( ( verticalClearance < 256 ) && player.IsOnGround() && !player.IsWallRunning() )
+	else if ( ( verticalClearance < 256 ) )
 	{
 		spawnAnimDrone = "dr_activate_drone_indoor"
 		spawnAnimSoldier = "pt_activate_drone_indoor"
 	}
-	else
-	{
-		SendHudMessage( player, "空中无法释放无人机", -1, -0.35, 255, 255, 100, 255, 0, 3, 0 )
-        return null
-	}
 
+	// drone throwing start
+	player.SetPredictionEnabled( false )
 	//------------------------------------------
 	// NPC throws drone into air
 	//------------------------------------------
@@ -67,6 +82,11 @@ entity function SpawnDroneFromPlayer( entity player, string aiSettings )
 
 	if ( !IsAlive( drone ) )
 		return null
+
+	// update owner right on spawn
+	drone.SetOwner( player )
+	drone.SetBossPlayer( player )
+	
 	asset playerModel = player.GetModelName()
 	if( !droneSpawnerAllowedModel.contains( playerModel ) )
 		thread PickRandomModelForSpawning( player, playerModel )
@@ -87,10 +107,28 @@ entity function SpawnDroneFromPlayer( entity player, string aiSettings )
 	return drone
 }
 
+bool function PlayerCanSpawnDrone( entity player )
+{
+	return player.IsOnGround() 
+		   && !player.IsWallRunning()
+		   && !player.IsTraversing()
+		   && !player.Anim_IsActive()
+}
+
 void function AnimProgessCheck( entity player )
 {
 	player.EndSignal( "OnAnimationDone" )
 	player.EndSignal( "OnDestroy" )
+
+	OnThreadEnd
+	(
+		function(): ( player )
+		{
+			if ( IsAlive( player ) )
+				player.SetPredictionEnabled( true )
+		}
+	)
+	
 	player.WaitSignal( "OnDeath" )
 	player.Anim_Stop()
 }
@@ -273,11 +311,7 @@ void function DroneThrow( entity player, entity drone, string spawnAnimDrone )
 	PlayAnimTeleport( drone, spawnAnimDrone, origin, angles )
 
 	if ( IsValid( player ) )
-	{
-		drone.SetOwner( player )
-		drone.SetBossPlayer( player )
 		NPCFollowsPlayer( drone, player )
-	}
 
 	drone.DisableNPCFlag( NPC_DISABLE_SENSING )
 }
