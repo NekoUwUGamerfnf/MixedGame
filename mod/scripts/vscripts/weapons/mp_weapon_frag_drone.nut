@@ -140,6 +140,9 @@ void function OnProjectileExplode_weapon_frag_drone( entity projectile )
 		}
 		else
 		{
+			// fix for northstar: if we can't find better pos, at least set a owner before tick explodes
+			//projectile.GrenadeExplode( Vector( 0, 0, 0 ) )
+			//drone.Signal( "SuicideSpectreExploding" )
 			thread DroneDeployFailedExplode( drone, owner )
 			return
 		}
@@ -197,6 +200,7 @@ void function DelayedExplode( entity projectile, float delay )
 	projectile.GrenadeExplode( Vector( 0, 0, 0 ) )
 }
 
+// fix for northstar: if we can't find better pos, at least set a owner before tick explodes
 void function DroneDeployFailedExplode( entity drone, entity owner )
 {
 	if ( owner.IsPlayer() )
