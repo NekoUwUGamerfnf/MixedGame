@@ -441,11 +441,15 @@ void function ADSLaserStart_Threaded( entity weapon )
 		return
 
 	entity viewModelEnt = owner.GetViewModelEntity()
-	if ( IsValid( viewModelEnt ) )
+	if ( IsValid( viewModelEnt ) && EntHasModelSet( viewModelEnt ) )
 	{
 		if ( !( viewModelEnt in file.rocketLaserTable ) )
 			file.rocketLaserTable[ viewModelEnt ] <- null
 		if ( IsValid( file.rocketLaserTable[ viewModelEnt ] ) ) // already has a laser valid
+			return
+		// get attachment validation
+		int attachID = viewModelEnt.LookupAttachment( "flashlight" )
+		if ( attachID <= 0 )
 			return
 		// make non_predicted client have proper fx
 		entity fx = PlayLoopFXOnEntity( $"P_wpn_lasercannon_aim", viewModelEnt, "flashlight" )
@@ -567,7 +571,11 @@ const float MUZZLE_MAX_DURATION = 2.0 // assume this is the fx's duration
 void function RocketMuzzleThink( entity weapon, entity owner )
 {
 	entity viewModelEnt = owner.GetViewModelEntity()
-	if ( !IsValid( viewModelEnt ) )
+	if ( !IsValid( viewModelEnt ) || !EntHasModelSet( viewModelEnt ) )
+		return
+	// get attachment validation
+	int attachID = viewModelEnt.LookupAttachment( "muzzle_flash" )
+	if ( attachID <= 0 )
 		return
 
 	// firstperson fx, force play it on vm
