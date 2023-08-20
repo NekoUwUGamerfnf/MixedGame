@@ -4,6 +4,12 @@ const float ROCKET_JUMPER_SELF_DAMAGE_SCALE = 0.45 // give most launchers 2 rock
 
 struct
 {
+    table< entity, array<entity> > projectileGivenSpeedBoostEntities
+
+    table<entity, bool> projectileSelfDamageReduced
+    table<entity, float> projectileSelfDamageValue
+    table<entity, bool> projectileAppliedAdditionalSelfDamage
+
     table<entity, bool> projectileHasDamagedOtherEntity
 } file
 
@@ -48,30 +54,43 @@ void function OnDamagedTarget_RocketJumper( entity ent, var damageInfo )
     if( !mods.contains( "rocket_jumper" ) )
         return // no jumper mod!
 
-    vector forceVec = DamageInfo_GetDamageForce( damageInfo )
-    ent.SetVelocity( ent.GetVelocity() + forceVec )
-    if ( ent.IsPlayer() )
-        thread RocketJumperVisualEffect( ent ) // trails and sound!
-    DamageInfo_SetDamageForce( damageInfo, < 0,0,0 > ) // only receive velocity from jumper
+    // only gain speed once for each entity
+    if ( !( inflictor in file.projectileGivenSpeedBoostEntities ) )
+        file.projectileGivenSpeedBoostEntities[ inflictor ] <- []
+
+    if ( !file.projectileGivenSpeedBoostEntities[ inflictor ].contains( ent ) )
+    {
+        // debug only
+        //print( "player gain speed from rocket jumper!" )
+
+        vector forceVec = DamageInfo_GetDamageForce( damageInfo )
+        ent.SetVelocity( ent.GetVelocity() + forceVec )
+        if ( ent.IsPlayer() )
+            thread RocketJumperVisualEffect( ent ) // trails and sound!
+        DamageInfo_SetDamageForce( damageInfo, < 0,0,0 > ) // only receive velocity from jumper
+
+        file.projectileGivenSpeedBoostEntities[ inflictor ].append( ent ) // mark as we've given speed boost once to this entity
+    }
 
     // self damage
+    // note: damage order is decided by spawn time( npc's creation time or player's respawn time )
+    // we can't always get the owner as the last victim, do some complicate checks
     if ( ent == attacker )
     {
-        // only do damage reduction if this projectile didn't damage any other entity
-        // note that if owner damaged other entities with the same projectile
-        // their self damage is always calculated at the last place
-        // we can get other damaged entities earlier
+        // projectile haven't damaged other entities
         if ( !( inflictor in file.projectileHasDamagedOtherEntity ) )
         {
             // debug only
             //print( "Projectile self damage has been reduced!" )
 
+            file.projectileSelfDamageValue[ inflictor ] <- DamageInfo_GetDamage( damageInfo ) // store damage taken
             DamageInfo_ScaleDamage( damageInfo, ROCKET_JUMPER_SELF_DAMAGE_SCALE )
+            file.projectileSelfDamageReduced[ inflictor ] <- true // mark as we've reduced owner self damage
         }
     }
     else // damaged other entities
     {
-        // mark as we've damaged other entity
+        // mark as we've damaged other entities
         if ( !( inflictor in file.projectileHasDamagedOtherEntity ) )
         {
             // debug only
@@ -79,10 +98,40 @@ void function OnDamagedTarget_RocketJumper( entity ent, var damageInfo )
 
             file.projectileHasDamagedOtherEntity[ inflictor ] <- true
         }
+
+        // owner has been damaged first
+        if ( inflictor in file.projectileSelfDamageReduced )
+        {
+            if ( !( inflictor in file.projectileAppliedAdditionalSelfDamage ) )
+            {
+                // debug only
+                //print( "Damaging owner again cause this projectile also damaged other entity!" )
+
+                // take away damage reduction by damaging the owner again
+                float damageDealtToOwner = file.projectileSelfDamageValue[ inflictor ] * ( 1 - ROCKET_JUMPER_SELF_DAMAGE_SCALE )
+                // debug only
+                //print( "damageDealtToOwner: " + string( damageDealtToOwner ) )
+
+                attacker.TakeDamage( 
+                    damageDealtToOwner, 
+                    attacker, 
+                    inflictor,
+                    // damage table
+                    {
+                        origin = DamageInfo_GetDamagePosition( damageInfo ), 
+                        force = DamageInfo_GetDamageForce( damageInfo ),
+                        scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+                        damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+                    }
+                )
+
+                file.projectileAppliedAdditionalSelfDamage[ inflictor ] <- true // mark as we've taken self damage protection away from owner
+            }
+        }
     }
 
     if( mods.contains( "grenadier_low_damage" ) ) // combo
-        DamageInfo_SetDamage( damageInfo, 0 )
+        DamageInfo_SetDamage( damageInfo, 0 ) // never damage any entity
 }
 
 void function RocketJumperVisualEffect( entity player )
@@ -162,7 +211,7 @@ void function RocketJumperVisualEffect( entity player )
     bool soundPlayed = false
     while( true )
     {
-        /* // annoying sound, no need to play
+        /* // annoying sound, no need to play for now
         print( player.GetVelocity().z )
         if( player.GetVelocity().z <= -100 && !soundPlayed ) // begin fast freefall
         {
