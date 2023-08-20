@@ -1,9 +1,13 @@
 global function WeaponMod_RocketJumper_Init
 
-const float ROCKET_JUMPER_SELF_DAMAGE_SCALE = 0.45 // give most launchers 2 rocket jump chance before killing the player
+const float ROCKET_JUMPER_SELF_DAMAGE_SCALE = 0.75 // same as jump_kit does
 
 struct
 {
+    table<entity, bool> projectileSelfDamageReduced
+    table<entity, float> projectileSelfDamageValue
+    table<entity, bool> projectileAppliedAdditionalSelfDamage
+
     table<entity, bool> projectileHasDamagedOtherEntity
 } file
 
@@ -22,7 +26,7 @@ void function WeaponMod_RocketJumper_Init()
 	    ModdedBurnMods_AddDisabledMod( "rocket_jumper" )
 
         // debug only
-        //AddDamageCallback( "npc_soldier", OnDamagedTarget_RocketJumper )
+        AddDamageCallback( "npc_soldier", OnDamagedTarget_RocketJumper )
     #endif
 }
 
@@ -32,7 +36,7 @@ void function OnDamagedTarget_RocketJumper( entity ent, var damageInfo )
 	if ( !IsValid( ent ) )
 		return
     // debug only
-    //print( "rocket jumper damaged:" + string( ent ) )
+    print( "rocket jumper damaged:" + string( ent ) )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsValid( attacker ) )
@@ -57,27 +61,52 @@ void function OnDamagedTarget_RocketJumper( entity ent, var damageInfo )
     // self damage
     if ( ent == attacker )
     {
-        // only do damage reduction if this projectile didn't damage any other entity
-        // note that if owner damaged other entities with the same projectile
-        // their self damage is always calculated at the last place
-        // we can get other damaged entities earlier
-        if ( !( inflictor in file.projectileHasDamagedOtherEntity ) )
+        if ( !( inflictor in file.projectileHasDamagedOtherEntity ) ) // projectile haven't damaged other entities
         {
             // debug only
-            //print( "Projectile self damage has been reduced!" )
+            print( "Projectile self damage has been reduced!" )
 
+            file.projectileSelfDamageValue[ inflictor ] <- DamageInfo_GetDamage( damageInfo ) // store damage taken
             DamageInfo_ScaleDamage( damageInfo, ROCKET_JUMPER_SELF_DAMAGE_SCALE )
+            file.projectileSelfDamageReduced[ inflictor ] <- true // mark as we've reduced owner self damage
         }
     }
     else // damaged other entities
     {
-        // mark as we've damaged other entity
-        if ( !( inflictor in file.projectileHasDamagedOtherEntity ) )
+        if ( inflictor in file.projectileSelfDamageReduced ) // owner has been damaged first
         {
-            // debug only
-            //print( "Projectile damaged other entity!" )
+            if ( !( inflictor in file.projectileAppliedAdditionalSelfDamage ) )
+            {
+                // debug only
+                print( "Damaging owner again cause this projectile also damaged other entity!" )
 
-            file.projectileHasDamagedOtherEntity[ inflictor ] <- true
+                // take away damage reduction by damaging the owner again
+                float damageDealtToOwner = file.projectileSelfDamageValue[ inflictor ] * ( 1 - ROCKET_JUMPER_SELF_DAMAGE_SCALE )
+                attacker.TakeDamage( 
+                    damageDealtToOwner, 
+                    attacker, 
+                    inflictor,
+                    // damage table
+                    {
+                        origin = DamageInfo_GetDamagePosition( damageInfo ), 
+                        force = DamageInfo_GetDamageForce( damageInfo ),
+                        scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+                        damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+                    }
+                )
+
+                file.projectileAppliedAdditionalSelfDamage[ inflictor ] <- true // mark as we've taken self damage protection away from owner
+            }
+        }
+        else // other entities got damaged first
+        {
+            if ( !( inflictor in file.projectileHasDamagedOtherEntity ) )
+            {
+                // debug only
+                print( "Projectile damaged other entity!" )
+
+                file.projectileHasDamagedOtherEntity[ inflictor ] <- true
+            }
         }
     }
 
