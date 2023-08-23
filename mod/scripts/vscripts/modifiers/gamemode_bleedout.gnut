@@ -562,7 +562,7 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
 	// done using Bleedout_PlayerMovementLimiter()
 	//Bleedout_DiableWallrunAndDoubleJump( player ) 
 
-	thread Bleedout_ScreenFadeThink( player )
+	thread Bleedout_VisualEffectThink( player )
 	thread Bleedout_EnemySpottingHighlight( player )
 	if( Bleedout_GetForceWeaponHolster() ) // if player is able to use a weapon, we don't enable incap shields
 	{
@@ -582,6 +582,9 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
 
 bool function PlayerCanEarnFromKnockdown( entity attacker, entity victim )
 {
+	if ( attacker == victim ) // self damage
+		return false
+	
 	if ( file.playerBeingKnockDownBy[ victim ].contains( attacker ) ) // only gain once for each knockdowner!
 		return false
 
@@ -1403,7 +1406,7 @@ void function Bleedout_IncapShieldThink( entity player )
 
 			if( !vortexShown )
 			{
-				//EmitSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
+				EmitSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
 				StopSoundOnEntity( player, "Hardcover_Shield_End_3P" )
 				EmitSoundOnEntity( vortexSphere, "Hardcover_Shield_Start_3P" )
 				HACK_ShowIncapShieldVortexSphere( vortexSphere, player ) // hacking function
@@ -1418,7 +1421,7 @@ void function Bleedout_IncapShieldThink( entity player )
 		else if( vortexShown )
 		{
 			//print( "Stopping Incap Shield" )
-			//StopSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
+			StopSoundOnEntity( vortexSphere, "ShieldWall_Loop" )
 			StopSoundOnEntity( vortexSphere, "Hardcover_Shield_Start_3P" )
 			EmitSoundOnEntity( player, "Hardcover_Shield_End_3P" ) // do sound on player since vortex has been hide
 			//StopIncapShieldWallFX( vortexSphere ) // no need for now!
@@ -2025,28 +2028,50 @@ void function TrackPlayerIncapShieldHealth( entity vortexSphere, entity player )
 }
 */
 
-void function Bleedout_ScreenFadeThink( entity player )
+void function Bleedout_VisualEffectThink( entity player )
 {
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "BleedOut_StopBleeding" )
 	player.EndSignal( "BleedOut_OnRevive" )
 
+	array<int> statusEffects = []
+
 	OnThreadEnd(
-		function(): ( player )
+		function(): ( player, statusEffects )
 		{
 			if( IsValid( player ) )
 			{
 				ScreenFade( player, 0, 0, 0, 125, 0.1, 0.1, FFADE_IN | FFADE_PURGE )
+				foreach ( int effect in statusEffects )
+					StatusEffect_Stop( player, effect )
+				// doesn't seem work
+				//player.nv.reviveBleedingOut = -1.0 //-1 means off
+				//SetEntityVar( player, "reviveBleedingOut", -1 )
 			}
 		}
 	)
 
 	float bleedingTime = Bleedout_GetBleedoutTime()
+	float screenFadeStartDelay = bleedingTime * 0.5
+	// bleedout DOF takes ~12s to fully apply
+	const BLEED_DOF_APPLY_DURATION = 12
+	float dofStartDelay = -1
+	if ( bleedingTime >= BLEED_DOF_APPLY_DURATION )
+		dofStartDelay = bleedingTime - BLEED_DOF_APPLY_DURATION
 
-	wait bleedingTime * 0.5
+	// text "Bleeding out"
+	float endTime = Time() + bleedingTime
+	// doesn't seem work
+	//player.nv.reviveBleedingOut = endTime
+	//SetEntityVar( player, "reviveBleedingOut", endTime )
 	
+	wait dofStartDelay
+	statusEffects.append( StatusEffect_AddEndless( player, eStatusEffect.bleedoutDOF, 1.0 ) )
+
+	wait ( dofStartDelay > 0 ? screenFadeStartDelay - dofStartDelay : screenFadeStartDelay )
 	ScreenFade( player, 0, 0, 0, 225, bleedingTime * 0.5, 999, FFADE_OUT | FFADE_PURGE )
+
 	WaitForever()
 }
 
