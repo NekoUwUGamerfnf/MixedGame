@@ -309,7 +309,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     WeaponDropFunctions curDropFuncs
     curDropFuncs = file.registeredWeaponDrop[ charaName ] // get this titan's dropFuncs
 
-    int skin = weapon.GetSkin()
+    int skin = weapon.GetSkin() // titan weapons don't have weapon skin in vanilla, will be replaced with WEAPON_SKIN_INDEX_CAMO
     int camo = weapon.GetCamo()
     entity weaponProp = curDropFuncs.weaponPropFunc( weapon, droppoint, dropangle ) //CreatePropDynamic( modelname, droppoint, dropangle, SOLID_VPHYSICS )
     
@@ -350,8 +350,19 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     try { weaponStruct.weaponAmmo = weapon.GetWeaponPrimaryClipCount() }
     catch(ex1) {}
     
+    // store skin and camo, add for weapon prop
+    if ( camo > 0 )
+        skin = WEAPON_SKIN_INDEX_CAMO // titan weapons don't have weapon skin in vanilla, use WEAPON_SKIN_INDEX_CAMO
+    else
+    {
+        skin = 0
+        camo = -1
+    }
     weaponStruct.weaponSkin = skin
     weaponStruct.weaponCamo = camo
+    // this sucks: prop-serverside or npc don't have correct camo, only prop-clientside can do with camo stuffs
+    //weaponProp.SetSkin( skin )
+    //weaponProp.SetCamo( camo )
 
     weaponStruct.loadoutFunction = curDropFuncs.loadoutFunction
 
