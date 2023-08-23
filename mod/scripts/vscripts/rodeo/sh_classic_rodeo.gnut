@@ -8,6 +8,16 @@ global function ClassicRodeo_SetRodeoAttackDamageScale
 global function CreateClassicRodeoWeakpoint
 
 // callbacks
+global struct RodeoWeakPointDamage
+{
+	int rodeoDamage = 0
+	float damageScale = 1.0
+	int damageSourceID = eDamageSourceId.rodeo
+	int damageTypes = DF_BYPASS_SHIELD | DF_CRITICAL
+
+	bool shouldMultiplyDamage = true
+}
+
 global function AddCallback_ClassicRodeo_WeakPointDamaged
 
 // debug
@@ -29,7 +39,7 @@ struct
 {
 	float classicRodeoAdditionalDamage = 1.5 // default additional damage value, should make it changable through playlistVars
 	// callbacks
-	array<void functionref( entity, var, table )> weakpointDamagedCallbacks
+	array<void functionref( entity, var, RodeoWeakPointDamage )> weakpointDamagedCallbacks
 } file
 #endif
 
@@ -111,22 +121,22 @@ void function OnRodeoWeakpointDamaged( entity weakPoint, var damageInfo )
 		print( "Rodeo Weakpoint damaged!" )
 	#endif // CLASSIC_RODEO_DEBUG
 
-	table weakpointDamage =
-	{
-		rodeoDamage = 0,
-		damageScale = 1.0,
-		damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo ),
-		damageTypes = DamageInfo_GetCustomDamageType( damageInfo ) | DF_BYPASS_SHIELD | DF_CRITICAL,
-		shouldMultiplyDamage = true,
-	}
+	// build struct
+	RodeoWeakPointDamage damageStruct
+	damageStruct.rodeoDamage = 0
+	damageStruct.damageScale = 1.0
+	damageStruct.damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	damageStruct.damageTypes = DamageInfo_GetCustomDamageType( damageInfo ) | DF_BYPASS_SHIELD | DF_CRITICAL
+	damageStruct.shouldMultiplyDamage = true
+
 	// figure out damage to deal to titan
 	// most weapons in ttf2 don't have damage_rodeo, let's use it's damage_near_value_titanarmor
 	entity attackerWeapon = DamageInfo_GetWeapon( damageInfo )
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	if ( IsValid( inflictor ) && inflictor.IsProjectile() )
 	{
-		weakpointDamage.rodeoDamage = inflictor.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
-		weakpointDamage.damageScale = inflictor.GetProjectileWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
+		damageStruct.rodeoDamage = inflictor.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+		damageStruct.damageScale = inflictor.GetProjectileWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
 	
 		// debug
 		#if CLASSIC_RODEO_DEBUG
@@ -139,8 +149,8 @@ void function OnRodeoWeakpointDamaged( entity weakPoint, var damageInfo )
 	// if weapon invalid it must be inflictor damage
 	if ( IsValid( attackerWeapon ) )
 	{
-		weakpointDamage.rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
-		weakpointDamage.damageScale = attackerWeapon.GetWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
+		damageStruct.rodeoDamage = attackerWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+		damageStruct.damageScale = attackerWeapon.GetWeaponSettingFloat( eWeaponVar.critical_hit_damage_scale )
 	
 		// debug
 		#if CLASSIC_RODEO_DEBUG
@@ -157,11 +167,11 @@ void function OnRodeoWeakpointDamaged( entity weakPoint, var damageInfo )
 	// not using these check now, since we have done hitbox changes, grenadiers can cause really high damage to player themselves
 	//bool canNormallyDamage = attackerWeapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
 	//if( canNormallyDamage )
-	//	weakpointDamage.shouldMultiplyDamage = false
+	//	damageStruct.shouldMultiplyDamage = false
 	
 	// can't get right condition. seems ttf2 doesn't implemented GetWeaponType()
 	//if( attackerWeapon.GetWeaponType() == WT_ANTITITAN ) // antiTitan weapons such as defender, can deal so much damage, so don't multiply it
-	//	weakpointDamage.shouldMultiplyDamage = false
+	//	damageStruct.shouldMultiplyDamage = false
 
 	// DEFAULT DAMAGE MODIFIERS
 	if( IsValid( inflictor ) )
@@ -172,9 +182,9 @@ void function OnRodeoWeakpointDamaged( entity weakPoint, var damageInfo )
 			if( inflictor.GetClassName() == "grenade" )
 			{
 				//print( "damaged by grenade!" )
-				weakpointDamage.shouldMultiplyDamage = false
+				damageStruct.shouldMultiplyDamage = false
 				if( ( "rodeoDamagedOnce" in inflictor.s ) && inflictor.s.rodeoDamagedOnce ) // prevent grenadiers like MGL from dealing damage twice as normal( explosion will have less damage )
-					weakpointDamage.rodeoDamage = inflictor.GetProjectileWeaponSettingInt( eWeaponVar.explosion_damage_heavy_armor )
+					damageStruct.rodeoDamage = inflictor.GetProjectileWeaponSettingInt( eWeaponVar.explosion_damage_heavy_armor )
 				else
 					inflictor.s.rodeoDamagedOnce <- true
 			}
@@ -185,43 +195,43 @@ void function OnRodeoWeakpointDamaged( entity weakPoint, var damageInfo )
 				if ( IsValid( ballLightning ) )
 				{
 					//print( "damaged by arcball!" )
-					weakpointDamage.rodeoDamage = int( ballLightning.e.ballLightningData.damage * 0.2 ) // titan will still take damage from arcball. rodeo damage should be lower
-					weakpointDamage.shouldMultiplyDamage = false
+					damageStruct.rodeoDamage = int( ballLightning.e.ballLightningData.damage * 0.2 ) // titan will still take damage from arcball. rodeo damage should be lower
+					damageStruct.shouldMultiplyDamage = false
 				}
 			}
 		}
 	}
 	// hardcoded modifiers
-	if ( NO_ADDITIONAL_DAMAGE_DAMAGESOURCES.contains( expect int( weakpointDamage.damageSourceID ) ) )
-		weakpointDamage.shouldMultiplyDamage = false
-	if ( ELECTRIC_SMOKE_DAMAGESOURCES.contains( expect int( weakpointDamage.damageSourceID ) ) )
+	if ( NO_ADDITIONAL_DAMAGE_DAMAGESOURCES.contains( damageStruct.damageSourceID ) )
+		damageStruct.shouldMultiplyDamage = false
+	if ( ELECTRIC_SMOKE_DAMAGESOURCES.contains( damageStruct.damageSourceID ) )
 	{
-		weakpointDamage.rodeoDamage = 0 // don't do additional damage for smokes
+		damageStruct.rodeoDamage = 0 // don't do additional damage for smokes
 		//rodeoDamage = 300 // electric smoke grenade's damage per tick
-		//weakpointDamage.shouldMultiplyDamage = false
+		//damageStruct.shouldMultiplyDamage = false
 	}
 
 	// run modified callbacks
-	foreach ( void functionref( entity, var, table ) callbackFunc in file.weakpointDamagedCallbacks )
-		callbackFunc( weakPoint, damageInfo, weakpointDamage )
+	foreach ( void functionref( entity, var, RodeoWeakPointDamage ) callbackFunc in file.weakpointDamagedCallbacks )
+		callbackFunc( weakPoint, damageInfo, damageStruct )
 	//
 
 	// calculate damage
-	if( weakpointDamage.shouldMultiplyDamage )
-		weakpointDamage.rodeoDamage = int( weakpointDamage.rodeoDamage * weakpointDamage.damageScale )
-	weakpointDamage.rodeoDamage = int( weakpointDamage.rodeoDamage * file.classicRodeoAdditionalDamage )
+	if( damageStruct.shouldMultiplyDamage )
+		damageStruct.rodeoDamage = int( damageStruct.rodeoDamage * damageStruct.damageScale )
+	damageStruct.rodeoDamage = int( damageStruct.rodeoDamage * file.classicRodeoAdditionalDamage )
 
 	// debug
 	#if CLASSIC_RODEO_DEBUG
-		print( "rodeoDamage:" + string( weakpointDamage.rodeoDamage ) )
+		print( "rodeoDamage:" + string( damageStruct.rodeoDamage ) )
 	#endif // CLASSIC_RODEO_DEBUG
 
-	if ( weakpointDamage.rodeoDamage <= 0 ) // no valid damage
+	if ( damageStruct.rodeoDamage <= 0 ) // no valid damage
 		return
 
-	int rodeoDamage = expect int( weakpointDamage.rodeoDamage )
-	int damageTypes = expect int( weakpointDamage.damageTypes )
-	int damageSourceID = expect int( weakpointDamage.damageSourceID )
+	int rodeoDamage = damageStruct.rodeoDamage
+	int damageTypes = damageStruct.damageTypes
+	int damageSourceID = damageStruct.damageSourceID
 	//print( file.classicRodeoAdditionalDamage )
 	//print( rodeoDamage )
 	// make sure DF_BYPASS_SHIELD is a thing for proper behaviour. DF_RODEO is added in CheckRodeoRiderHitsTitan() so no need to add again.
@@ -232,7 +242,7 @@ void function OnRodeoWeakpointDamaged( entity weakPoint, var damageInfo )
 	//attacker.NotifyDidDamage( weakPoint, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), DamageInfo_GetCustomDamageType( damageInfo ) | DF_CRITICAL, rodeoDamage, DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
 }
 
-void function AddCallback_ClassicRodeo_WeakPointDamaged( void functionref( entity, var, table ) callbackFunc )
+void function AddCallback_ClassicRodeo_WeakPointDamaged( void functionref( entity, var, RodeoWeakPointDamage ) callbackFunc )
 {
 	if ( !file.weakpointDamagedCallbacks.contains( callbackFunc ) )
 		file.weakpointDamagedCallbacks.append( callbackFunc )

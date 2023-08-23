@@ -78,7 +78,16 @@ global function EntityKilledCallback_IsDisabledDamageInfo
 global function EntityKilledEvent_SetDisabledForEntity // disable entityKilledEvent(mainly to display obit) for certain entity
 global function EntityKilledEvent_IsDisabledForEntity
 
-global function AddCallback_OnSendingEntityKilledEvent // so we can modify entity killed event easily
+// so we can modify entity killed event easily
+global function AddCallback_OnSendingEntityKilledEvent
+
+global struct EntityKilledEventStruct
+{
+	int attackerEHandle
+	int victimEHandle
+	int scriptDamageType
+	int damageSourceId
+}
 
 struct
 {
@@ -91,7 +100,7 @@ struct
 	array<bool functionref( entity, var, bool )> shouldRunEntityKilledCallbackChecks
 	table<entity, bool> entDisableEntityKilledEvent
 
-	array<void functionref( entity, var, table )> sendingEntityKilledEventCallbacks
+	array<void functionref( entity, var, EntityKilledEventStruct )> sendingEntityKilledEventCallbacks
 } file
 
 void function CodeCallback_DamageEntity( entity ent, var damageInfo )
@@ -275,24 +284,23 @@ void function SendEntityKilledEvent( entity ent, var damageInfo )
 	else
 		scriptDamageType = scriptDamageType & (~DF_HEADSHOT)
 
-	// modified: construct a table so we can modify it
-	table entityKilledEventTable =
-	{
-		attackerEHandle = attackerEHandle
-		victimEHandle = victimEHandle
-		scriptDamageType = scriptDamageType
-		damageSourceId = damageSourceId
-	}
+	// modified: use struct so we can modify settings
+	EntityKilledEventStruct eventStruct
+	eventStruct.attackerEHandle = attackerEHandle
+	eventStruct.victimEHandle = victimEHandle
+	eventStruct.scriptDamageType = scriptDamageType
+	eventStruct.damageSourceId = damageSourceId
+
 	// added via AddCallback_OnSendingEntityKilledEvent
 	foreach ( callbackFunc in file.sendingEntityKilledEventCallbacks )
-		callbackFunc( ent, damageInfo, entityKilledEventTable )
+		callbackFunc( ent, damageInfo, eventStruct )
 	//
 
-	// modified: get modified table to pass into remotecall
-	attackerEHandle = expect int( entityKilledEventTable.attackerEHandle )
-	victimEHandle = expect int( entityKilledEventTable.victimEHandle )
-	scriptDamageType = expect int( entityKilledEventTable.attackerEHandle )
-	damageSourceId = expect int( entityKilledEventTable.damageSourceId )
+	// get modified contents to pass into remotecall
+	attackerEHandle = eventStruct.attackerEHandle
+	victimEHandle = eventStruct.victimEHandle
+	scriptDamageType = eventStruct.attackerEHandle
+	damageSourceId = eventStruct.damageSourceId
 	//
 
 	foreach ( player in players )
@@ -954,7 +962,7 @@ void function EntityKilledEvent_SetDisabledForEntity( entity ent, bool disable )
 	file.entDisableEntityKilledEvent[ ent ] = disable
 }
 
-void function AddCallback_OnSendingEntityKilledEvent( void functionref( entity, var, table ) callbackFunc )
+void function AddCallback_OnSendingEntityKilledEvent( void functionref( entity, var, EntityKilledEventStruct ) callbackFunc )
 {
 	if ( !file.sendingEntityKilledEventCallbacks.contains( callbackFunc ) )
 		file.sendingEntityKilledEventCallbacks.append( callbackFunc )
