@@ -1,0 +1,197 @@
+global function WeaponMod_RocketJumper_Init
+
+const float ROCKET_JUMPER_SELF_DAMAGE_SCALE = 0.45 // give most launchers 2 rocket jump chance before killing the player
+
+struct
+{
+    table<entity, bool> projectileHasDamagedOtherEntity
+} file
+
+void function WeaponMod_RocketJumper_Init()
+{
+    #if SERVER
+        //AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_softball, OnDamagedTarget_RocketJumper )
+        //AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_epg, OnDamagedTarget_RocketJumper )
+        //AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_pulse_lmg, OnDamagedTarget_RocketJumper )
+        //AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_smr, OnDamagedTarget_RocketJumper )
+        AddDamageCallback( "player", OnDamagedTarget_RocketJumper ) // no handle for npcs now
+
+        RegisterSignal( "RocketJumperVisual" ) // for playing fx
+
+        // burnmod blacklist
+	    ModdedBurnMods_AddDisabledMod( "rocket_jumper" )
+
+        // debug only
+        //AddDamageCallback( "npc_soldier", OnDamagedTarget_RocketJumper )
+    #endif
+}
+
+#if SERVER
+void function OnDamagedTarget_RocketJumper( entity ent, var damageInfo )
+{
+	if ( !IsValid( ent ) )
+		return
+    // debug only
+    //print( "rocket jumper damaged:" + string( ent ) )
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if( !IsValid( inflictor ) )
+		return
+	if( !inflictor.IsProjectile() )
+		return
+
+    array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // modded weapon refire behavior
+    if( !mods.contains( "rocket_jumper" ) )
+        return // no jumper mod!
+
+    vector forceVec = DamageInfo_GetDamageForce( damageInfo )
+    ent.SetVelocity( ent.GetVelocity() + forceVec )
+    if ( ent.IsPlayer() )
+        thread RocketJumperVisualEffect( ent ) // trails and sound!
+    DamageInfo_SetDamageForce( damageInfo, < 0,0,0 > ) // only receive velocity from jumper
+
+    // self damage
+    if ( ent == attacker )
+    {
+        // only do damage reduction if this projectile didn't damage any other entity
+        // note that if owner damaged other entities with the same projectile
+        // NO... Following notes are wrong, the damage order is decided by entity index
+        // their self damage is always calculated at the last place
+        // we can get other damaged entities earlier
+        if ( !( inflictor in file.projectileHasDamagedOtherEntity ) )
+        {
+            // debug only
+            //print( "Projectile self damage has been reduced!" )
+
+            DamageInfo_ScaleDamage( damageInfo, ROCKET_JUMPER_SELF_DAMAGE_SCALE )
+        }
+    }
+    else // damaged other entities
+    {
+        // mark as we've damaged other entity
+        if ( !( inflictor in file.projectileHasDamagedOtherEntity ) )
+        {
+            // debug only
+            //print( "Projectile damaged other entity!" )
+
+            file.projectileHasDamagedOtherEntity[ inflictor ] <- true
+        }
+    }
+
+    if( mods.contains( "grenadier_low_damage" ) ) // combo
+        DamageInfo_SetDamage( damageInfo, 0 )
+}
+
+void function RocketJumperVisualEffect( entity player )
+{
+    player.EndSignal( "OnDeath" )
+    player.EndSignal( "OnDestroy" )
+    player.Signal( "RocketJumperVisual" )
+    player.EndSignal( "RocketJumperVisual" )
+
+    player.EndSignal( "StartPhaseShift" ) // phase shift should clean up jet effects!
+
+    array<entity> fxArray // saving fxs
+
+    OnThreadEnd(
+        function():( player, fxArray )
+        {
+            if( IsValid( player ) )
+            {
+                //StopSoundOnEntity( player, "jumpjet_freefall_body_1p" )
+            }
+            foreach( entity fx in fxArray )
+            {
+                if( IsValid( fx ) )
+                    EffectStop( fx )
+            }
+        }
+    )
+
+    if( player.LookupAttachment( "foot_L_sole" ) > 0 ) // has attachment?
+    {
+        // enemy left foot fx
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_DBL", "foot_L_sole", false ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_ON_trails", "foot_L_sole", false ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_ON", "foot_L_sole", false ) )
+        // friendly left foot fx
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_DBL", "foot_L_sole", true ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_ON_trails", "foot_L_sole", true ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_ON", "foot_L_sole", true ) )
+    }
+    else if( player.LookupAttachment( "vent_left" ) > 0 ) // no foot attachment, try play on vent
+    {
+        // enemy left vent fx
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_left", false ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_left", false ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_ON", "vent_left", false ) )
+        // friendly left vent fx
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_DBL", "vent_left", true ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_left", true ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_ON", "vent_left", true ) )
+    }
+
+    if( player.LookupAttachment( "foot_R_sole" ) > 0 ) // has attachment?
+    {
+        // enemy right foot fx
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_DBL", "foot_R_sole", false ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_ON_trails", "foot_R_sole", false ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_ON", "foot_R_sole", false ) )
+        // friendly right foot fx
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_DBL", "foot_R_sole", true ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_ON_trails", "foot_R_sole", true ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_ON", "foot_R_sole", true ) )
+    }
+    else if( player.LookupAttachment( "vent_right" ) > 0 ) // no foot attachment, try play on vent
+    {
+        // enemy right vent fx
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_DBL", "vent_right", false ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_ON_trails", "vent_right", false ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_enemy_jump_jet_ON", "vent_right", false ) )
+        // friendly right vent fx
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_DBL", "vent_right", true ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_ON_trails", "vent_right", true ) )
+        fxArray.append( CreateRocketJumperTrailForPlayer( player, $"P_team_jump_jet_ON", "vent_right", true ) )
+    }
+
+    wait 0.2 // magic number, mostly player can't instant leave ground after push, do a wait
+
+    bool soundPlayed = false
+    while( true )
+    {
+        /* // annoying sound, no need to play
+        print( player.GetVelocity().z )
+        if( player.GetVelocity().z <= -100 && !soundPlayed ) // begin fast freefall
+        {
+            EmitSoundOnEntityOnlyToPlayer( player, player, "jumpjet_freefall_body_1p" ) // play a sound
+            soundPlayed = true
+        }
+        */
+        if( player.IsOnGround() ) // touched ground
+            break
+
+        WaitFrame()
+    }
+}
+
+entity function CreateRocketJumperTrailForPlayer( entity player, asset particle, string attachment, bool isFriendly )
+{
+	int particleID = GetParticleSystemIndex( particle )
+	int attachID = player.LookupAttachment( attachment )
+	if( attachID <= 0 ) // no attachment valid, don't play fx for this model
+		return null
+	entity fx = StartParticleEffectOnEntity_ReturnEntity( player, particleID, FX_PATTACH_POINT_FOLLOW, attachID )
+	fx.SetOwner( player ) // never play this on firendlies
+    SetTeam( fx, player.GetTeam() )
+	if( isFriendly ) // player can see friendly fx( blue flames and trails )
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	else
+		fx.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
+
+	return fx
+}
+#endif
