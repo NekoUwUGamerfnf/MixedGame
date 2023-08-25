@@ -11,6 +11,12 @@ global function PlayerInventory_PopInventoryItem
 global function PlayerInventory_TakeAllInventoryItems
 global function PlayerInventory_CountBurnRef
 
+// modified utility
+global function PlayerInventory_GetItemStructByBurnRef
+global function PlayerInventory_GetInventoryItems
+global function PlayerInventory_ReplaceInventoryItemByBurnRef
+global function PlayerInventory_ReplaceAllInventoryItemTypeByBurnRef
+
 struct
 {
 	table<entity, array<InventoryItem> > playerInventoryStacks
@@ -21,6 +27,9 @@ void function Sv_ItemInventory_Init()
 	AddCallback_OnClientConnected( Sv_ItemInventory_OnClientConnected )
 	AddCallback_OnPlayerGetsNewPilotLoadout( Sv_ItemInventory_OnPlayerGetsNewPilotLoadout )
 	AddCallback_GameStateEnter( eGameState.Prematch, PrematchClearInventory )
+
+	// modified
+	RegisterSignal( "OnGiveInventoryItem" )
 }
 
 void function Sv_ItemInventory_OnClientConnected( entity player )
@@ -38,14 +47,17 @@ void function PrematchClearInventory()// vanilla behavior
 
 void function Sv_ItemInventory_OnPlayerGetsNewPilotLoadout( entity player, PilotLoadoutDef newPilotLoadout )
 {
+	PlayerInventory_UpdateActiveInventoryItem( player )
+}
+
+void function PlayerInventory_UpdateActiveInventoryItem( entity player )
+{
 	array<InventoryItem> playerInventoryStack = file.playerInventoryStacks[ player ]
-
-	if (playerInventoryStack.len() > 0) {
-		InventoryItem topInventoryItem = playerInventoryStack[playerInventoryStack.len() - 1]
-		thread PlayerInventory_GiveInventoryItem(player, topInventoryItem)
+	if ( playerInventoryStack.len() > 0 ) 
+	{
+		InventoryItem topInventoryItem = playerInventoryStack[ playerInventoryStack.len() - 1 ]
+		PlayerInventory_GiveInventoryItem( player, topInventoryItem, true ) // ignore last reward takeoff wait, force update
 	}
-
-	return
 }
 
 int function SvPlayerInventory_ItemCount( entity player )
@@ -78,15 +90,16 @@ int function PlayerInventory_CountBurnRef( entity player, string burnRef )
 
 void function PlayerInventory_TakeInventoryItem( entity player, bool ignoreWait = false )
 {
-	player.EndSignal( "OnDestroy" )
 	entity preExistingWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
-
 	if( !IsValid( preExistingWeapon ) )
 		return
-	preExistingWeapon.EndSignal( "OnDestroy" ) // anti-crash!
-
+	
 	if ( !ignoreWait )
+	{
+		player.EndSignal( "OnDestroy" )
+		preExistingWeapon.EndSignal( "OnDestroy" ) // anti-crash!
 		waitthread WaitForInventoryWeaponFireEnd( player, preExistingWeapon ) // wait until weapon's fire animation end
+	}
 
 	player.TakeWeaponNow( preExistingWeapon.GetWeaponClassName() )
 }
@@ -109,65 +122,73 @@ void function WaitForInventoryWeaponFireEnd( entity player, entity weapon )
 	}
 }
 
-void function PlayerInventory_GiveInventoryItem( entity player, InventoryItem inventoryItem )
+void function PlayerInventory_GiveInventoryItem( entity player, InventoryItem inventoryItem, bool ignoreWait = false )
 {
-	player.EndSignal( "OnDestroy" )
+	player.Signal( "OnGiveInventoryItem" ) // stop last inventory updating may in progress
+	if ( !ignoreWait )
+	{
+		player.EndSignal( "OnDestroy" ) // anti-crash
+		player.EndSignal( "OnGiveInventoryItem" ) // prevent multiple inventory updating in progress together
+	}
 
 	array<string> mods = []
-
-	if ( inventoryItem.itemType == eInventoryItemType.burnmeter ) {
-		mods.append( "burn_card_weapon_mod" )
+	if ( inventoryItem.itemType == eInventoryItemType.burnmeter ) 
+	{
+		mods.append( "burn_card_weapon_mod" ) // default mod for a burnmeter reward
 		if ( inventoryItem.burnReward.extraWeaponMod != "" )
 			mods.append( inventoryItem.burnReward.extraWeaponMod )
 	}
 
 	// ensure inventory slot isn't full to avoid crash
-	waitthread PlayerInventory_TakeInventoryItem( player )
-	entity preExistingWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY ) // defensive fix
-	if( IsValid( preExistingWeapon ) )
+	if ( !ignoreWait )
+		waitthread PlayerInventory_TakeInventoryItem( player ) // wait until player finished use then takeoff
+	else
+		PlayerInventory_TakeInventoryItem( player, true ) // ignore last reward takeoff wait, force update
+	
+	// defensive fix if PlayerInventory_TakeInventoryItem() had failed or reward has been recently pushed again
+	entity preExistingWeapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
+	if ( IsValid( preExistingWeapon ) )
 		player.TakeWeaponNow( preExistingWeapon.GetWeaponClassName() )
 
 	// start giving inventory
 	player.GiveOffhandWeapon( inventoryItem.weaponRef, OFFHAND_INVENTORY, mods )
 	if ( inventoryItem.itemType == eInventoryItemType.burnmeter ) // is inventory a burncard?
 	{
-		entity weapon = player.GetOffhandWeapon(OFFHAND_INVENTORY)
+		entity weapon = player.GetOffhandWeapon( OFFHAND_INVENTORY )
 		weapon.e.burnReward = inventoryItem.burnReward.ref // set up use effect
-		BurnMeter_TryRewardReadyMessage( player ) // do newly pushed reward annoucement to player
 	}
 }
 
 void function PlayerInventory_PushInventoryItem( entity player, InventoryItem inventoryItem )
 {
-	file.playerInventoryStacks[ player ].append(inventoryItem)
+	file.playerInventoryStacks[ player ].append( inventoryItem )
 	player.SetPlayerNetInt( "itemInventoryCount", file.playerInventoryStacks[ player ].len() )
 
-	thread PlayerInventory_GiveInventoryItem(player, inventoryItem)
+	PlayerInventory_GiveInventoryItem( player, inventoryItem, true ) // ignore last reward takeoff wait, force update
 }
 
 void function PlayerInventory_PushInventoryItemByBurnRef( entity player, string burnRef )
 {
-	InventoryItem inventoryItem
-	inventoryItem.itemType = eInventoryItemType.burnmeter
-	inventoryItem.burnReward = BurnReward_GetByRef( burnRef )
-	inventoryItem.weaponRef = inventoryItem.burnReward.weaponName
-
-	PlayerInventory_PushInventoryItem(player, inventoryItem)
+	PlayerInventory_PushInventoryItem( player, PlayerInventory_GetItemStructByBurnRef( burnRef ) )
 }
 
 void function PlayerInventory_PopInventoryItem( entity player )
 {
 	array<InventoryItem> playerInventoryStack = file.playerInventoryStacks[ player ]
 
-	if (playerInventoryStack.len() > 0) {
+	if ( playerInventoryStack.len() > 0 ) 
+	{
 		InventoryItem topInventoryItem = playerInventoryStack.pop()
 		player.SetPlayerNetInt( "itemInventoryCount", playerInventoryStack.len() )
 
-		if (playerInventoryStack.len() > 0) {
-			InventoryItem nextInventoryItem = playerInventoryStack[playerInventoryStack.len() - 1]
-			thread PlayerInventory_GiveInventoryItem(player, nextInventoryItem)
-		} else {
-			waitthread PlayerInventory_TakeInventoryItem( player )
+		if ( playerInventoryStack.len() > 0 ) 
+		{
+			InventoryItem nextInventoryItem = playerInventoryStack[ playerInventoryStack.len() - 1 ]
+			thread PlayerInventory_GiveInventoryItem( player, nextInventoryItem )
+		} 
+		else 
+		{
+			thread PlayerInventory_TakeInventoryItem( player )
 		}
 	}
 
@@ -177,7 +198,7 @@ void function PlayerInventory_PopInventoryItem( entity player )
 void function PlayerInventory_TakeAllInventoryItems( entity player )
 {
 	file.playerInventoryStacks[ player ].clear()
-	thread PlayerInventory_TakeInventoryItem( player, true ) // ignore waiting caused by mp_ability_burncardweapon
+	PlayerInventory_TakeInventoryItem( player, true ) // ignore waiting caused by mp_ability_burncardweapon
 	player.SetPlayerNetInt( "itemInventoryCount", 0 )
 	return
 }
@@ -195,4 +216,40 @@ void function PlayerInventory_StartCriticalSection( entity player )
 void function PlayerInventory_EndCriticalSectionForWeaponOnEndFrame( entity weapon )
 {
 
+}
+
+
+// modified utility
+InventoryItem function PlayerInventory_GetItemStructByBurnRef( string burnRef )
+{
+	InventoryItem inventoryItem
+	inventoryItem.itemType = eInventoryItemType.burnmeter
+	inventoryItem.burnReward = BurnReward_GetByRef( burnRef )
+	inventoryItem.weaponRef = inventoryItem.burnReward.weaponName
+
+	return inventoryItem
+}
+
+array<InventoryItem> function PlayerInventory_GetInventoryItems( entity player )
+{
+	return file.playerInventoryStacks[ player ]
+}
+
+void function PlayerInventory_ReplaceInventoryItemByBurnRef( entity player, string burnRef, int inventoryIndex )
+{
+	if ( file.playerInventoryStacks[ player ].len() < inventoryIndex - 1 )
+		return
+
+	file.playerInventoryStacks[ player ][ inventoryIndex ] = PlayerInventory_GetItemStructByBurnRef( burnRef )
+	PlayerInventory_UpdateActiveInventoryItem( player )
+}
+
+void function PlayerInventory_ReplaceAllInventoryItemTypeByBurnRef( entity player, string burnRef, string burnRefToReplace )
+{
+	foreach ( int index, item in file.playerInventoryStacks[ player ] )
+	{
+		if ( item.burnReward.ref == burnRefToReplace )
+			file.playerInventoryStacks[ player ][ index ] = PlayerInventory_GetItemStructByBurnRef( burnRef )
+	}
+	PlayerInventory_UpdateActiveInventoryItem( player )
 }
