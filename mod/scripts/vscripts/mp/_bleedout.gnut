@@ -2,7 +2,9 @@
 global function Bleedout_Init
 global function Bleedout_StartPlayerBleedout
 global function Bleedout_AddCallback_OnPlayerStartBleedout
-global function Bleedout_AddCallback_OnPlayerGiveFirstAid
+global function Bleedout_AddCallback_OnPlayerAttemptRescue
+global function Bleedout_AddCallback_OnPlayerBeenRevived
+
 global function Bleedout_ShouldAIMissBleedingPlayer
 
 const asset FX_BLOODTRAIL = $"skit_blood_decal_LG"
@@ -30,7 +32,9 @@ struct
 	// victim, attacker, damageInfo
 	array<void functionref( entity, entity, var )> Callbacks_OnPlayerStartBleedout 
 	// playerToRes, playerHealer
-	array<void functionref( entity, entity )> Callbacks_OnPlayerGiveFirstAid 
+	array<void functionref( entity, entity )> Callbacks_OnPlayerAttempRescue
+	array<void functionref( entity, entity )> Callbacks_OnPlayerBeenRevived 
+	
 	int firstAidAttemptID = 0 //The ID that identifies the first aid attempt. Used to distinguish between simultainous healing attempts on the client
 
 	// modified
@@ -92,12 +96,23 @@ void function OnPlayerKilled( entity victim, var damageInfo )
 
 void function Bleedout_AddCallback_OnPlayerStartBleedout( void functionref(entity, entity, var) callback )
 {
-	file.Callbacks_OnPlayerStartBleedout.append( callback )
+	if ( file.Callbacks_OnPlayerStartBleedout.contains( callbackFunc ) )
+		return
+	file.Callbacks_OnPlayerStartBleedout.append( callbackFunc )
 }
 
-void function Bleedout_AddCallback_OnPlayerGiveFirstAid( void functionref(entity, entity) callback )
+void function Bleedout_AddCallback_OnPlayerAttemptRevive( void functionref(entity, entity) callback )
 {
-	file.Callbacks_OnPlayerGiveFirstAid.append( callback )
+	if ( file.Callbacks_OnPlayerAttempRescue.contains( callbackFunc ) )
+		return
+	file.Callbacks_OnPlayerAttempRescue( callbackFunc )
+}
+
+void function Bleedout_AddCallback_OnPlayerBeenRevived( void functionref(entity, entity) callback )
+{
+	if ( file.Callbacks_OnPlayerBeenRevived.contains( callbackFunc ) )
+		return
+	file.Callbacks_OnPlayerBeenRevived.append( callbackFunc )
 }
 
 bool function Bleedout_StartPlayerBleedout( entity player, entity attacker, var damageInfo ) // victim, attacker, damageInfo
@@ -128,7 +143,8 @@ bool function Bleedout_StartPlayerBleedout( entity player, entity attacker, var 
 	player.Anim_Stop() // interupt current executions etc.
 	player.Anim_StopGesture( 0 ) // stop current melee animations etc.
 
-	foreach( void functionref( entity, entity, var ) callbackFunc in file.Callbacks_OnPlayerStartBleedout )
+	// Added via Bleedout_AddCallback_OnPlayerStartBleedout()
+	foreach( callbackFunc in file.Callbacks_OnPlayerStartBleedout )
 	{
 		//if ( IsValid( callbackFunc ) && !file.isBleeding[ player ] )
 			//callbackFunc( player )
@@ -354,6 +370,10 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 
 	bool isSelfRes = playerHealer == playerToRes // different check, but works better
 
+	// Added via Bleedout_AddCallback_OnPlayerAttemptRevive
+	foreach ( callbackFunc in file.Callbacks_OnPlayerAttempRescue )
+		callbackFunc( playerHealer, playerToRes )
+
 	// good to notify players by this
 	if( !isSelfRes )
 	{
@@ -465,7 +485,8 @@ void function PlayerAttemptRes( entity playerHealer, entity playerToRes )
 	if ( IsPilotEliminationBased() )
 		ClearPlayerEliminated( playerToRes )
 
-	foreach( void functionref( entity, entity ) callbackFunc in file.Callbacks_OnPlayerGiveFirstAid )
+	// Added via Bleedout_AddCallback_OnPlayerBeenRevived()
+	foreach( callbackFunc in file.Callbacks_OnPlayerBeenRevived )
 	{
 		//if ( IsValid( callbackFunc ) )
 		//{
