@@ -130,6 +130,7 @@ struct
 	// in-file variables
 	// damage protection
 	table<entity, float> playerBleedoutStartTime
+	table<entity, bool> playerBleedoutDownedDamagePassed
 
 	// apex loadout
 	table< string, bool > useFakeApexLoadout // player's uid so they can retain loadout after re-join
@@ -258,6 +259,7 @@ void function OnClientConnected( entity player )
 
 	// damage protection
 	file.playerBleedoutStartTime[ player ] <- -1
+	file.playerBleedoutDownedDamagePassed[ player ] <- false
 
 	// apex loadout
     file.useFakeApexLoadout[ player.GetUID() ] <- false
@@ -506,12 +508,13 @@ void function OnPlayerFinalDamaged( entity victim, var damageInfo )
 	{
 		// damage protection
 		// don't block bleedout downed shot( we need to leave knockbacks for player )
-		if ( file.playerBleedoutStartTime[ victim ] != Time() )
+		if ( !file.playerBleedoutDownedDamagePassed[ victim ] )
 		{
 			float protectionEndTime = file.playerBleedoutStartTime[ victim ] + file.protectionDuration
 			if ( Time() < protectionEndTime )
 				DamageInfo_SetDamage( damageInfo, 0 )
 		}
+		file.playerBleedoutDownedDamagePassed[ victim ] = true // mark as we've passed downed damage, following damages should be handled
 	}
 }
 
@@ -601,13 +604,14 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
 	}
 
 	file.playerBleedoutStartTime[ player ] = Time()
+	file.playerBleedoutDownedDamagePassed[ player ] = false // mark as we haven't passing downed damage yet
     thread UpdateBleedoutPlayerHealth( player )
 
     Bleedout_PlayerDownedSound( player, attacker )
 	Bleedout_PlayerDownedEffect( player, damageInfo )
 	Bleedout_PlayerDownedObit( player, attacker, damageInfo ) // now only shows to attacker!
 
-    EmitSoundOnEntityToTeam( player, "UI_Spawn_FriendlyPilot", player.GetTeam() )
+    EmitSoundOnEntityToTeamExceptPlayer( player, "UI_Spawn_FriendlyPilot", player.GetTeam(), player )
 
     //thread Bleedout_DeathProtection( player )
 	thread Bleedout_PlayerMovementLimiter( player ) // using this now, also prevents player from slide hopping
@@ -1477,9 +1481,12 @@ void function Bleedout_IncapShieldThink( entity player )
 	float lastDryFireTime = 0
 	bool vortexShown = true // default is shown
 	bool hasStatusEffect = true
+	bool firstLoop = false
 	while( true )
 	{
-		WaitFrame()
+		if ( !firstLoop ) // first loop should never wait, so player can hide their incap shield immediately
+			WaitFrame()
+		firstLoop = true
 
 		// not holding attack or be in special state
 		if( IsInValidIncapShieldState( player ) && player.IsInputCommandHeld( IN_ATTACK ) ) 
