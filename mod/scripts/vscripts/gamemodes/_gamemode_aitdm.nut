@@ -520,15 +520,21 @@ void function SquadHandler( array<entity> guys )
 
 		// Get point and send our whole squad to it
 		points = []
-		if ( hasHeavyArmorWeapon )
-			points.extend( GetNPCArrayOfEnemies( team ) )
-		else
+		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
 		{
-			foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
-			{
-				if ( npc.GetArmorType() != ARMOR_TYPE_HEAVY ) // only search for npcs with light armor
-					points.append( npc )
-			}
+			// cannot be targeted?
+			if ( npc.GetNoTarget() ) 
+				continue
+
+			// only search for npcs with light armor if we don't have proper weapon
+			if ( !hasHeavyArmorWeapon && npc.GetArmorType() == ARMOR_TYPE_HEAVY )
+				continue
+			
+			// is player owned?
+			if ( npc.GetBossPlayer() )
+				continue
+
+			points.append( npc )
 		}
 		ArrayRemoveDead( points ) // remove dead targets
 		if ( points.len() == 0 ) // can't find any points here
@@ -588,8 +594,23 @@ void function ReaperHandler( entity reaper )
 			return
 
 		points = [] // clean up last point
-		points.extend( GetNPCArrayOfEnemies( team ) )
-		points.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		// try to find from npc targets
+		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+		{
+			// cannot be targeted?
+			if ( npc.GetNoTarget() )
+				continue
+			points.append( npc )
+		}
+		// try to find from alive player targets
+		foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
+		{
+			// cannot be targeted?
+			if ( player.GetNoTarget() )
+				continue
+			points.append( player )
+		}
+
 		ArrayRemoveDead( points ) // remove dead targets
 		if ( points.len() == 0 )
 			continue
