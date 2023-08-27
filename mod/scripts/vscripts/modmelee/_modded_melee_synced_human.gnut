@@ -1,0 +1,89 @@
+untyped
+global function Modded_Melee_Synced_Human_Init
+
+// nessie modded function, not finished yet
+global function ModdedSyncedMelee_EnableNessieExecutions
+
+struct
+{
+	bool nessieExecutions = false
+} file
+
+void function Modded_Melee_Synced_Human_Init()
+{
+	if ( IsLobby() ) // lobby won't load anything
+		return
+
+    AddCallback_EntitiesDidLoad( InitModdedHumanSyncedMelee ) // wait for syncedmelee chooser to be created
+}
+
+void function InitModdedHumanSyncedMelee()
+{
+	SyncedMeleeChooser meleeChooser = GetSyncedMeleeChooser( "human", "human" )
+
+	{
+		// Face Stab, but uses combat knife
+		AnimEventData giveKnifeEvent
+		giveKnifeEvent.eventName = "attach_knife"
+		giveKnifeEvent.callback = AnimEvent_attach_combat_knife // same as AnimEvent_attach_knife, but the model uses combat knife
+
+		AnimEventData takeKnifeEvent
+		takeKnifeEvent.eventName = "detach_knife"
+		takeKnifeEvent.callback = AnimEvent_detach_knife
+
+		AnimEventData headstabEvent
+		headstabEvent.eventName = "headstab_death"
+		headstabEvent.callback = AnimEvent_headshot_death // Use head shot instead of headstab for this execution
+
+		SyncedMelee syncedMelee
+		syncedMelee.ref = "execution_face_stab_combat"
+		syncedMelee.direction = < -1, 0, 0 >
+		syncedMelee.distance = HUMAN_EXECUTION_RANGE
+		syncedMelee.attackerAnimation3p = "pt_mp_execution_attacker_stab"
+		syncedMelee.attacker3pAnimEvents = [giveKnifeEvent, takeKnifeEvent]
+		syncedMelee.target3pAnimEvents = [headstabEvent]
+		syncedMelee.targetAnimation3p = "pt_mp_execution_victim_stab"
+		syncedMelee.thirdPersonCameraAttachment = "VDU"
+		syncedMelee.minDot = 0.2
+		// modified element in struct SyncedMelee
+		// make them ignore IsItemLocked() checks, since they're not a registered item
+		syncedMelee.ignoreUnlockProgressChecks = true
+		// we don't want it to be picked by default random executions( can still be picked by executionRef overrides )
+		syncedMelee.canBePickedByRandomExecution = false
+
+		AddSyncedMelee( meleeChooser, syncedMelee )
+		AddSyncedMeleeServerThink( meleeChooser, MeleeThread_PilotVsEnemy )
+	}
+}
+
+// same as AnimEvent_attach_knife, but the model uses combat knife
+void function AnimEvent_attach_combat_knife( entity ent )
+{
+	// modified utility in sh_melee_synced_human.gnut
+	AnimEvent_attach_knife_common( ent, KNIFE_MODEL )
+}
+
+// nessie executions, not finished yet
+#if SERVER
+void function ModdedSyncedMelee_EnableNessieExecutions( bool enable )
+{
+	file.nessieExecutions = enable
+}
+
+entity function CreateNessyDollToCoverEntity( entity ent, string attachment )
+{
+	entity nessie = CreatePropDynamic( $"models/domestic/nessy_doll.mdl" )
+	//ent.Hide() // hide previous entity
+	nessie.SetParent( ent, attachment )
+	SetForceDrawWhileParented( nessie, true ) // show nessie
+	thread TrackNessieParentedEntLifeTime( ent, nessie )
+	return nessie
+}
+
+void function TrackNessieParentedEntLifeTime( entity ent, entity nessie )
+{
+	nessie.EndSignal( "OnDestroy" )
+	ent.WaitSignal( "OnDestroy" )
+	nessie.Destroy()
+}
+#endif
