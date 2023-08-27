@@ -34,6 +34,9 @@ global function AddCallback_IsValidMeleeExecutionTarget
 global function Melee_SetSyncedMeleeNoLimit
 global function Melee_IsSyncedMeleeNoLimit
 global function Melee_AlwaysDoRandomSyncedMelee
+// settings override
+global function Melee_SetExecutionRefsOverride
+global function Melee_GetExecutionRefsOverride
 
 #if SERVER
 	global function Melee_Enable
@@ -102,8 +105,10 @@ struct
 	array<bool functionref( entity attacker, entity target )> isValidMeleeExecutionTargetCallBacks
 
 	// no synced limit think
-	// modified for primary_melee_gnut
+	// modified for melee_synced_nolimit
 	bool noSyncedMeleeLimit = false
+	// executionref override
+    table< entity, array<string> > entExecutionRefsOverride
 	// modified for bleedout
 	bool alwaysRandomSyncedMelee = false
 } file
@@ -675,7 +680,7 @@ bool function PlayerTriesSyncedMelee( entity player, entity target )
 		AddCinematicFlag( target, CE_FLAG_TITAN_3P_CAM )
 		// respawn are you serious? you're always adding flag to attacker, not victim
 		// adding back flag breaks vanilla behavior, whatever
-		AddCinematicFlag( player, CE_FLAG_EXECUTION )
+		//AddCinematicFlag( player, CE_FLAG_EXECUTION )
 		AddCinematicFlag( target, CE_FLAG_EXECUTION )
 	}
 #endif
@@ -930,8 +935,31 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 
 	SyncedMelee ornull returnVal = null
 
+	// modified: adding executionref override
+	#if SERVER
+		bool hasExecutionRefOverride = false
+		array<string> overrideRefs = Melee_GetExecutionRefsOverride( attacker )
+		if ( overrideRefs.len() > 0 )
+		{
+			hasExecutionRefOverride = true
+			
+			// debug
+			foreach ( ref in overrideRefs )
+			{
+				print( "valid override Ref: " + ref )
+			}
+		}
+	#endif
+
 #if MP
+	// modified: adding executionref override
+	// we only use loadout execution checks if we don't have a override one
+	//if ( IsPilot( attacker ) )
+#if SERVER
+	if ( IsPilot( attacker ) && !hasExecutionRefOverride )
+#else // vanilla behavior
 	if ( IsPilot( attacker ) )
+#endif
 	{
 		PilotLoadoutDef loadout = GetActivePilotLoadout( attacker )
 
@@ -984,13 +1012,16 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 			bool randomExecution = file.alwaysRandomSyncedMelee
 			if ( string( attacker.GetPersistentVar( "activePilotLoadout.execution" ) ) == "execution_random" )
 				randomExecution = true
+
+			// modified: adding executionref override
 			if ( randomExecution )
 			{
-				returnVal = PickRandomExecution(actions, attacker)
+				returnVal = PickRandomExecution( actions, attacker )
 				break
 			}
 #endif
 			returnVal = action
+
 			break
 		}
 	}
@@ -999,6 +1030,13 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 #endif
 		foreach ( action in actions.syncedMelees )
 		{
+			// modified: adding executionref override
+			#if SERVER
+				if ( hasExecutionRefOverride && !overrideRefs.contains( action.ref ) )
+					continue
+			#endif
+			//
+
 			if ( !action.enabled )
 				continue
 
@@ -1024,8 +1062,17 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 
 			//printt( "Dot: " + dot )
 
-			if ( dot < action.minDot )
-				continue
+			// airborne execution case
+			if( file.noSyncedMeleeLimit )
+			{
+				if ( dot < 0 )
+					continue
+			}
+			else
+			{
+				if ( dot < action.minDot )
+					continue
+			}
 
 			if ( dot == bestDot )
 			{
@@ -1043,29 +1090,15 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 		}
 
 		if ( bestActions.len() )
-		{
-			// default
 			returnVal = bestActions.getrandom()
-
-			// modified: adding npc executionref override
-			#if SERVER
-				string overrideRef = MeleeSyncedNPC_GetNPCExecutionRefOverride( attacker )
-				if ( overrideRef != "" )
-				{
-					foreach ( SyncedMelee action in bestActions )
-					{
-						if ( action.ref == overrideRef )
-						{
-							returnVal = action
-							break
-						}
-					}
-				}
-			#endif
-		}
 #if MP
 	}
 #endif
+
+	// debug
+	#if SERVER
+		//print( "returnVal's action ref: " + expect SyncedMelee( returnVal ).ref )
+	#endif
 
 	return returnVal
 }
@@ -1429,4 +1462,19 @@ bool function Melee_IsSyncedMeleeNoLimit()
 void function Melee_AlwaysDoRandomSyncedMelee( bool always )
 {
 	file.alwaysRandomSyncedMelee = always
+}
+
+// settings override
+void function Melee_SetExecutionRefsOverride( entity ent, array<string> executionrefs )
+{
+    if ( !( ent in file.entExecutionRefsOverride ) )
+        file.entExecutionRefsOverride[ ent ] <- []
+    file.entExecutionRefsOverride[ ent ] = executionrefs
+}
+
+array<string> function Melee_GetExecutionRefsOverride( entity ent )
+{
+    if ( !( ent in file.entExecutionRefsOverride ) )
+        return []
+    return file.entExecutionRefsOverride[ ent ]
 }
