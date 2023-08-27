@@ -64,10 +64,10 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 	// could get some tf1 execution by using it
 	bool useClassicExecution = false
 
-	// modified in _melee_synced_nolimit.gnut
+	// player necksnapping
 	if ( file.playerDoClassicExecutions && attacker.IsPlayer() )
 		useClassicExecution = true
-	// modified in _melee_synced_npc.gnut
+	// npc necksnapping
 	if ( file.npcDoClassicExecutions && attacker.IsNPC() )
 		useClassicExecution = true
 	
@@ -143,9 +143,8 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 		if ( target.IsPlayer() )
 			thread ForceRemoveCinematic( target ) // remove DOF for classic execution
 	}
-	else 
+	else
 #endif
-
 	isAttackerRef = IsAttackerRef( action, target )
 
 	vector attackerOrigin = attacker.GetOrigin()
@@ -246,6 +245,10 @@ struct PilotVsEnemyStruct
 	bool clearInvulnerable = false
 	bool wasCloaked = false
 	float cloakEndTime = 0.0
+
+	// for targets. they should be ignored while being executed
+	// breaks vanilla behavior but whatever
+	bool clearNoTarget = false
 }
 
 ///// modified functions!!!! /////
@@ -310,7 +313,7 @@ void function RestoreCloakAfterMelee( entity player, PilotVsEnemyStruct dataStru
 }
 
 ///// modified function!!!! /////
-float function HACK_GetHumanSyncedMeleeSequenceDuration( entity ent, string animationName )
+float function GetHumanSyncedMeleeSequenceDurationWithErrorHandle( entity ent, string animationName )
 {
 	float duration
 	try
@@ -339,7 +342,7 @@ void function HandleCloakExecutionWithCloakedAttacker( entity player, PilotVsEne
 
 	// modified for unsupported models!
 	//float attackerSequenceEndTime = Time() + player.GetSequenceDuration( action.attackerAnimation3p )
-	float attackerSequenceEndTime = Time() + HACK_GetHumanSyncedMeleeSequenceDuration( player, action.attackerAnimation3p )
+	float attackerSequenceEndTime = Time() + GetHumanSyncedMeleeSequenceDurationWithErrorHandle( player, action.attackerAnimation3p )
 	float scheduledCloakEndTime = player.GetCloakEndTime()
 
 	//printt( "attackerSequenceEndTime: " + attackerSequenceEndTime + ", scheduledCloakEndTime: " + scheduledCloakEndTime )
@@ -447,7 +450,7 @@ void function MeleeThread_PilotVsEnemy_Attacker( SyncedMelee action, entity atta
 
 	// modified for unsupported models!!!
 	//float duration = attacker.GetSequenceDuration( attackerSequence.thirdPersonAnim )
-	float duration = HACK_GetHumanSyncedMeleeSequenceDuration( attacker, attackerSequence.thirdPersonAnim  )
+	float duration = GetHumanSyncedMeleeSequenceDurationWithErrorHandle( attacker, attackerSequence.thirdPersonAnim  )
 
 	if ( attacker.IsPlayer() )
 	{
@@ -545,6 +548,16 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 				if ( HasAnimEvent( target, "synced_melee_enable_planting" ) )
 					DeleteAnimEvent( target, "synced_melee_enable_planting" )
 
+				// I wondering one thing: should target been set to invulnerable in vanilla?
+				if ( dataStruct.clearInvulnerable )
+				{
+					target.ClearInvulnerable()
+				}
+				// targets should be ignored while being executed
+				// breaks vanilla behavior but whatever
+				if ( dataStruct.clearNoTarget )
+					target.SetNoTarget( false )
+
 				bool isAlive = IsAlive( target )
 
 				if ( target.IsPlayer() )
@@ -561,7 +574,9 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 
 				if ( isAlive )
 				{
-					if ( target.e.markedForExecutionDeath ) //Kill off target if he already reached blackout part of melee
+					// modified: adding force killing target settings
+					//if ( target.e.markedForExecutionDeath ) //Kill off target if he already reached blackout part of melee
+					if ( target.e.markedForExecutionDeath || file.alwaysKillTarget )
 					{
 						entity killCreditAttacker = null //If the attacker disconnected, we don't have a player to give credit to, that's fine. Script will not error
 						if ( IsValid( target.e.syncedMeleeAttacker ) )
@@ -591,13 +606,6 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 								AddPlayerScore( attacker, "Execution" )
 						}
 					}
-				}
-
-				// force killing target
-				if ( file.alwaysKillTarget && IsAlive( target ) )
-				{
-					if( IsValid( attacker ) )
-						target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.human_execution } )
 				}
 
 				if ( IsValid( target.e.syncedMeleeAttacker ) )
@@ -666,6 +674,20 @@ void function MeleeThread_PilotVsEnemy_Target( SyncedMelee action, entity attack
 		{
 			thread AttachPlayerModelForDuration( attacker, action.attachModel1p, action.attachTag1p, 2.2 )
 		}
+	}
+
+	// I wondering one thing: should target been set to invulnerable in vanilla?
+	if ( !target.IsInvulnerable() )
+	{
+		dataStruct.clearInvulnerable = true
+		target.SetInvulnerable()
+	}
+	// targets should be ignored while being executed
+	// breaks vanilla behavior but whatever
+	if ( !target.GetNoTarget() )
+	{
+		dataStruct.clearNoTarget = true
+		target.SetNoTarget( true )
 	}
 
 	if ( isAttackerRef )
