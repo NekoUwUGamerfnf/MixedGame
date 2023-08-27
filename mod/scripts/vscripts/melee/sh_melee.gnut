@@ -83,6 +83,8 @@ global struct SyncedMelee
 	bool onlyIfLethal // only if the strike would be lethal
 	bool isAttackerRef = true
 
+	// modified: for modified synced melee, decide whether they can be picked by "execution_random"
+	bool canBePickedByRandomExecution = true
 }
 
 global struct SyncedMeleeChooser
@@ -109,6 +111,8 @@ struct
 	bool noSyncedMeleeLimit = false
 	// executionref override
     table< entity, array<string> > entExecutionRefsOverride
+	// modified for npc execution case
+	table<entity, string> npcLastExecutionUsed
 	// modified for bleedout
 	bool alwaysRandomSyncedMelee = false
 } file
@@ -747,6 +751,8 @@ bool function DoSyncedMelee( entity player, entity target )
 	// save for npc executions
 	if ( player.IsPlayer() )
 		player.p.lastExecutionUsed = action.ref
+	else if ( player.IsNPC )
+		SetNPCLastUsedExecution( player, action.ref )
 
 	if ( actions in file.syncedMeleeServerCallbacks )
 		thread SyncedMeleeServerCallbacks( actions, action, player, target )
@@ -1016,7 +1022,10 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 			// modified: adding executionref override
 			if ( randomExecution )
 			{
-				returnVal = PickRandomExecution( actions, attacker )
+				// PickRandomExecution has been reworked
+				// pass an array<SyncedMelee> is enough
+				//returnVal = PickRandomExecution( actions, attacker )
+				returnVal = PickRandomExecution( actions.syncedMelees, attacker )
 				break
 			}
 #endif
@@ -1099,8 +1108,12 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 			#endif
 		}
 
-		if ( bestActions.len() )
-			returnVal = bestActions.getrandom()
+		// vanilla behavior
+		//if ( bestActions.len() )
+		//	returnVal = bestActions.getrandom()
+
+		// "PickRandomExecution()" has been reworked, it can handle npc usage now
+		returnVal = PickRandomExecution( bestActions, attacker )
 #if MP
 	}
 #endif
@@ -1432,31 +1445,66 @@ bool function IsAttackerRef( SyncedMelee ornull action, entity target )
 
 #if MP
 #if SERVER
-SyncedMelee ornull function PickRandomExecution( SyncedMeleeChooser actions, entity attacker )
+// rework here, we pass an array<SyncedMelee> is enough
+//SyncedMelee ornull function PickRandomExecution( SyncedMeleeChooser actions, entity attacker )
+SyncedMelee ornull function PickRandomExecution( array<SyncedMelee> syncedMelees, entity attacker )
 {
 	array<SyncedMelee> possibleExecutions = []
 
 	SyncedMelee neckSnap
-
-	foreach ( action in actions.syncedMelees )
+	string lastExecution = attacker.IsPlayer() ? attacker.p.lastExecutionUsed : GetNPCLastUsedExecution( attacker )
+	
+	// rework here, we pass an array<SyncedMelee> is enough
+	//foreach ( action in actions.syncedMelees )
+	foreach ( action in syncedMelees )
 	{
-		if (action.ref == "execution_neck_snap")
+		if ( action.ref == "execution_neck_snap" )
 			neckSnap = action
 
-		if(!IsItemLocked( attacker, action.ref ) && action.ref != "execution_random" && action.ref != attacker.p.lastExecutionUsed)
+		// execution_random is a place holder
+		if ( action.ref == "execution_random"  )
+			continue
 
-			possibleExecutions.append(action)
+		// player may have some executions locked
+		if ( attacker.IsPlayer() && !IsItemLocked( attacker, action.ref )  )
+			continue
+
+		// don't repeatly using a same execution
+		if ( action.ref == lastExecution )
+			continue
+
+		// modified element in struct SyncedMelee. we can decide whether to pick this execution
+		if ( !action.canBePickedByRandomExecution )
+			continue
+		
+		// all checks passed
+		possibleExecutions.append( action )
 	}
 
-	if (possibleExecutions.len() == 0)
+	if ( possibleExecutions.len() == 0 )
 		return neckSnap
 
 	possibleExecutions.randomize()
 
 	return possibleExecutions[0]
 }
-#endif
-#endif
+
+// modified for npc execution case
+void function SetNPCLastUsedExecution( entity npc, string execution )
+{
+	if ( !( npc in file.npcLastExecutionUsed ) )
+		file.npcLastExecutionUsed[ npc ] <- ""
+	file.npcLastExecutionUsed[ npc ] = execution
+}
+
+string function GetNPCLastUsedExecution( entity npc )
+{
+	if ( !( npc in file.npcLastExecutionUsed ) )
+		return ""
+	return file.npcLastExecutionUsed[ npc ]
+}
+#endif // SERVER
+#endif // MP
 
 // modified checks goes here!
 void function Melee_SetSyncedMeleeNoLimit( bool limit )
