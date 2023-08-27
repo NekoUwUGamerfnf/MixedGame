@@ -3,8 +3,17 @@ untyped
 global function MeleeSyncedHumanShared_Init
 
 #if SERVER
-global function AnimEvent_attach_knife
+// knife attach has been reworked with AnimEvent_attach_knife_common
+//global function AnimEvent_attach_knife
+global function AnimEvent_attach_knife_common
 global function AnimEvent_detach_knife
+
+// modified: globalize utilized anim events, so other files can use them
+global function AnimEvent_attach_pistol_common
+global function AnimEvent_detach_pistol
+
+global function AnimEvent_headshot_death
+global function AnimEvent_headstab_death
 #endif
 
 const SWORD_MODEL = $"models/weapons/bolo_sword/v_bolo_sword.mdl"
@@ -17,16 +26,6 @@ const HUMAN_BLOOD_FX = $"impact_flesh"
 const MECHANICAL_BLOOD_FX = $"P_impact_metal_spectre"
 const HUMAN_STAB_FX = $"P_stab_impact_flesh"
 const MECHANICAL_STAB_FX = $"P_stab_impact_robot"
-
-#if SERVER
-// nessie modded function
-global function MeleeSyncedHuman_EnableNessieExecutions
-
-struct
-{
-	bool nessieExecutions = false
-} file
-#endif
 
 function MeleeSyncedHumanShared_Init()
 {
@@ -142,44 +141,6 @@ function MeleeSyncedHumanShared_Init()
 			AddSyncedMeleeServerThink( meleeChooser, MeleeThread_PilotVsEnemy )
 		#endif
 	}
-
-	//////////////
-	// MODIFIED //
-	//////////////
-	{
-		// Face Stab, but uses combat knife
-		#if SERVER
-			AnimEventData giveKnifeEvent
-			giveKnifeEvent.eventName = "attach_knife"
-			giveKnifeEvent.callback = AnimEvent_attach_combat_knife
-
-			AnimEventData takeKnifeEvent
-			takeKnifeEvent.eventName = "detach_knife"
-			takeKnifeEvent.callback = AnimEvent_detach_knife
-
-			AnimEventData headstabEvent
-			headstabEvent.eventName = "headstab_death"
-			headstabEvent.callback = AnimEvent_headstab_death
-		#endif
-
-		SyncedMelee syncedMelee
-		syncedMelee.ref = "execution_face_stab_combat"
-		syncedMelee.direction = < -1, 0, 0 >
-		syncedMelee.distance = HUMAN_EXECUTION_RANGE
-		syncedMelee.attackerAnimation3p = "pt_mp_execution_attacker_stab"
-		#if SERVER
-			syncedMelee.attacker3pAnimEvents = [giveKnifeEvent, takeKnifeEvent]
-			syncedMelee.target3pAnimEvents = [headstabEvent]
-		#endif
-		syncedMelee.targetAnimation3p = "pt_mp_execution_victim_stab"
-		syncedMelee.thirdPersonCameraAttachment = "VDU"
-		syncedMelee.minDot = 0.2
-		AddSyncedMelee( meleeChooser, syncedMelee )
-		#if SERVER
-			AddSyncedMeleeServerThink( meleeChooser, MeleeThread_PilotVsEnemy )
-		#endif
-	}
-	//
 
 	{
 		// Grand theft semi-auto
@@ -369,7 +330,9 @@ function MeleeSyncedHumanShared_Init()
 
 	    		AnimEventData takePulseBladeEvent
 	    		takePulseBladeEvent.eventName = "detach_pulseBlade"
-	    		takePulseBladeEvent.callback = AnimEvent_detach_pulseBlade
+				// knife executions has been reworked, use AnimEvent_detach_knife() can handle all of the situations
+	    		//takePulseBladeEvent.callback = AnimEvent_detach_pulseBlade
+				takePulseBladeEvent.callback = AnimEvent_detach_knife
 
 	    		AnimEventData playSonarExecutionSounds
 	    		playSonarExecutionSounds.eventName = "play_sonar_execution_sounds"
@@ -612,6 +575,12 @@ const string KNIFE_TARGETNAME = "AnimEvent_attach_knife"
 
 void function AnimEvent_attach_knife( entity ent )
 {
+	AnimEvent_attach_knife_common( ent, DATA_KNIFE_MODEL )
+}
+
+/* // reworked around with AnimEvent_attach_knife_common()
+void function AnimEvent_attach_knife( entity ent )
+{
 	entity knife = CreatePropDynamic( DATA_KNIFE_MODEL )
 	knife.kv.targetname = KNIFE_TARGETNAME
 	knife.SetParent( ent, "KNIFE", false, 0.0 )
@@ -629,14 +598,11 @@ void function AnimEvent_attach_knife( entity ent )
 
 	WaittillAnimDone( ent )
 }
+*/
 
-//////////////
-// MODIFIED //
-//////////////
-// attach a combat knife
-void function AnimEvent_attach_combat_knife( entity ent )
+void function AnimEvent_attach_knife_common( entity ent, asset knifeModel )
 {
-	entity knife = CreatePropDynamic( KNIFE_MODEL )
+	entity knife = CreatePropDynamic( knifeModel )
 	knife.kv.targetname = KNIFE_TARGETNAME
 	knife.SetParent( ent, "KNIFE", false, 0.0 )
 
@@ -669,7 +635,6 @@ void function AnimEvent_detach_knife( entity ent )
 		childEnt = expect entity ( childEnt.NextMovePeer() )
 	}
 }
-
 
 
 const string PISTOL_TARGETNAME = "AnimEvent_attach_pistol"
@@ -852,6 +817,12 @@ void function GrappleBodyfallSound( entity ent )
 	PlaySoundsForBodyType( ent, "Pilot_Mvmt_Execution_Grapple_Robot_Pt3_Throwdown", "Pilot_Mvmt_Execution_Grapple_Pt3_Throwdown" )
 }
 
+void function AnimEvent_attach_pulseBlade( entity ent )
+{
+	AnimEvent_attach_knife_common( ent, PULSE_BLADE_MODEL )
+}
+
+/* // reworked around with AnimEvent_attach_knife_common()
 void function AnimEvent_attach_pulseBlade( entity ent ) //Copy of the function that attaches the data knife. Easier to do this than to pass in a model to load instead because of the animeevent limitation
 {
 	entity knife = CreatePropDynamic( PULSE_BLADE_MODEL )
@@ -887,6 +858,7 @@ void function AnimEvent_detach_pulseBlade( entity ent ) //Literally a copy of th
 		childEnt = expect entity ( childEnt.NextMovePeer() )
 	}
 }
+*/
 
 void function AnimEvent_play_sonar_execution_sounds( entity ent )
 {
@@ -1291,29 +1263,3 @@ void function AnimEvent_attach_wingman_awall_execution( entity ent )
 
 
 #endif //if server. These are all anim event functions that should be run on the server anyway, no reason for them to be defined on the client.
-
-
-// modded functions
-#if SERVER
-void function MeleeSyncedHuman_EnableNessieExecutions( bool enable )
-{
-	file.nessieExecutions = enable
-}
-
-entity function CreateNessyDollToCoverEntity( entity ent, string attachment )
-{
-	entity nessie = CreatePropDynamic( $"models/domestic/nessy_doll.mdl" )
-	//ent.Hide() // hide previous entity
-	nessie.SetParent( ent, attachment )
-	SetForceDrawWhileParented( nessie, true ) // show nessie
-	thread TrackNessieParentedEntLifeTime( ent, nessie )
-	return nessie
-}
-
-void function TrackNessieParentedEntLifeTime( entity ent, entity nessie )
-{
-	nessie.EndSignal( "OnDestroy" )
-	ent.WaitSignal( "OnDestroy" )
-	nessie.Destroy()
-}
-#endif
