@@ -36,6 +36,7 @@ global function Melee_IsSyncedMeleeNoLimit
 global function Melee_AlwaysDoRandomSyncedMelee
 // settings override
 global function Melee_SetExecutionRefsOverride
+global function Melee_ClearExecutionRefsOverride
 global function Melee_GetExecutionRefsOverride
 
 #if SERVER
@@ -83,7 +84,11 @@ global struct SyncedMelee
 	bool onlyIfLethal // only if the strike would be lethal
 	bool isAttackerRef = true
 
-	// modified: for modified synced melee, decide whether they can be picked by "execution_random"
+	// modified elements
+	// for modified synced melee, make them ignore IsItemLocked() checks, since they're not a registered item
+	bool ignoreUnlockProgressChecks = false
+	// for modified synced melee, decide whether they can be picked by "execution_random"
+	// ( they can still be picked by executionRef overrides even when this variable is set to false )
 	bool canBePickedByRandomExecution = true
 }
 
@@ -950,10 +955,10 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 			hasExecutionRefOverride = true
 			
 			// debug
-			foreach ( ref in overrideRefs )
-			{
-				print( "valid override Ref: " + ref )
-			}
+			//foreach ( ref in overrideRefs )
+			//{
+			//	print( "valid override Ref: " + ref )
+			//}
 		}
 	#endif
 
@@ -1113,8 +1118,11 @@ SyncedMelee ornull function FindBestSyncedMelee( entity attacker, entity target,
 		//	returnVal = bestActions.getrandom()
 
 		#if SERVER
+			// debug
+			print( "bestActions.len(): " + string( bestActions.len() ) )
 			// "PickRandomExecution()" has been reworked, it can handle npc usage now
-			returnVal = PickRandomExecution( bestActions, attacker )
+			// we can still pick actions that been set as "canBePickedByRandomExecution" if we have ref override
+			returnVal = PickRandomExecution( bestActions, attacker, hasExecutionRefOverride )
 		#endif
 #if MP
 	}
@@ -1449,11 +1457,12 @@ bool function IsAttackerRef( SyncedMelee ornull action, entity target )
 #if SERVER
 // rework here, we pass an array<SyncedMelee> is enough
 //SyncedMelee ornull function PickRandomExecution( SyncedMeleeChooser actions, entity attacker )
-SyncedMelee ornull function PickRandomExecution( array<SyncedMelee> syncedMelees, entity attacker )
+SyncedMelee ornull function PickRandomExecution( array<SyncedMelee> syncedMelees, entity attacker, bool ignorePickDisabling = false )
 {
 	array<SyncedMelee> possibleExecutions = []
 
-	SyncedMelee neckSnap
+	//SyncedMelee neckSnap
+	SyncedMelee ornull neckSnap // neckSnap can be null!!!
 	string lastExecution = attacker.IsPlayer() ? attacker.p.lastExecutionUsed : GetNPCLastUsedExecution( attacker )
 	
 	// rework here, we pass an array<SyncedMelee> is enough
@@ -1468,15 +1477,16 @@ SyncedMelee ornull function PickRandomExecution( array<SyncedMelee> syncedMelees
 			continue
 
 		// player may have some executions locked
-		if ( attacker.IsPlayer() && !IsItemLocked( attacker, action.ref )  )
+		// modified: we can make a setting for modified executions, make them able to ignore unlocking progress
+		if ( attacker.IsPlayer() && !action.ignoreUnlockProgressChecks && IsItemLocked( attacker, action.ref ) )
 			continue
 
-		// don't repeatly using a same execution
-		if ( action.ref == lastExecution )
+		// if we have more than 1 execution to choose, don't repeatly using a same execution
+		if ( syncedMelees.len() > 1 && action.ref == lastExecution )
 			continue
 
 		// modified element in struct SyncedMelee. we can decide whether to pick this execution
-		if ( !action.canBePickedByRandomExecution )
+		if ( !ignorePickDisabling && !action.canBePickedByRandomExecution )
 			continue
 		
 		// all checks passed
@@ -1488,6 +1498,8 @@ SyncedMelee ornull function PickRandomExecution( array<SyncedMelee> syncedMelees
 
 	possibleExecutions.randomize()
 
+	// debug
+	print( "chosen random execution: " + possibleExecutions[0].ref )
 	return possibleExecutions[0]
 }
 
@@ -1530,6 +1542,13 @@ void function Melee_SetExecutionRefsOverride( entity ent, array<string> executio
     if ( !( ent in file.entExecutionRefsOverride ) )
         file.entExecutionRefsOverride[ ent ] <- []
     file.entExecutionRefsOverride[ ent ] = executionrefs
+}
+
+void function Melee_ClearExecutionRefsOverride( entity ent )
+{
+	if ( !( ent in file.entExecutionRefsOverride ) )
+        return
+    file.entExecutionRefsOverride[ ent ].clear()
 }
 
 array<string> function Melee_GetExecutionRefsOverride( entity ent )
