@@ -15,13 +15,19 @@ global function CodeCallback_ForceScriptError
 
 global function AddCallback_PlayerClassChanged
 
+// modified callbacks
+global function AddCallback_CanUseZipline
+
 #if CLIENT
 global function CodeCallback_OnTurretCancelPressed
 #endif
 
 #if SERVER
 global function CodeCallback_OnWeaponReload
-global function SetCallback_OnPlayerReload
+// reworked to addcallback & removecallback
+//global function SetCallback_OnPlayerReload
+global function AddCallback_OnPlayerReload
+global function RemoveCallback_OnPlayerReload
 #endif
 
 #if SP
@@ -46,7 +52,12 @@ global function CodeCallback_ClaimClientSidePickup_MatchCandy
 #if SERVER
 struct
 {
-	void functionref( entity ) Callback_OnPlayerReload
+	// reworked to addcallback & removecallback
+	//void functionref( entity ) Callback_OnPlayerReload
+	array<void functionref( entity )> Callbacks_OnPlayerReload
+
+	// modified callbacks
+	array< bool functionref( entity player, entity zipline, vector ziplineClosestPoint ) > canUseZiplineCallbacks
 } file
 #endif
 
@@ -54,6 +65,9 @@ struct
 struct
 {
 	var disembarkRUI
+
+	// modified callbacks
+	array< bool functionref( entity player, entity zipline, vector ziplineClosestPoint ) > canUseZiplineCallbacks
 } file
 #endif
 
@@ -76,7 +90,9 @@ function CodeCallbacksShared_Init()
 
 	#if SERVER
 	AddClientCommandCallback( "DisembarkTitan", ClientCommand_DisembarkTitan )
-	SetCallback_OnPlayerReload( PlayerReloadGamemodeLogic_Default )
+	// reworked to addcallback & removecallback
+	// no need to set a dummy callback
+	//SetCallback_OnPlayerReload( PlayerReloadGamemodeLogic_Default )
 	#endif
 }
 
@@ -163,7 +179,23 @@ bool function CodeCallback_CanUseZipline( entity player, entity zipline, vector 
 	if ( !player.IsHuman() )
 		return false
 
+	// run callbacks
+	foreach ( callbackFunc in file.canUseZiplineCallbacks )
+	{
+		if ( !callbackFunc( player, zipline, ziplineClosestPoint ) )
+			return false
+	}
+
 	return true
+}
+
+// modified callbacks
+void function AddCallback_CanUseZipline( bool functionref( entity, entity, vector ) callbackFunc )
+{
+	if ( file.canUseZiplineCallbacks.contains( callbackFunc ) )
+		return
+	
+	file.canUseZiplineCallbacks.append( callbackFunc )
 }
 
 void function AddCallback_PlayerClassChanged( void functionref( entity ) callbackFunc )
@@ -242,28 +274,29 @@ void function CodeCallback_PlayerClassChanged( entity player )
 void function CodeCallback_OnWeaponReload( entity weapon )
 {
 	entity weaponOwner = weapon.GetWeaponOwner()
-	if ( !IsAlive( weaponOwner ) )
-		return
+	// rework into if cases so callbacks will always get called
+	if ( IsAlive( weaponOwner ) && weaponOwner.IsPlayer() )
+	{
+		if ( IsPilot( weaponOwner )  )
+		{
+			#if GRUNTCHATTER_ENABLED
+				if ( NPC_GruntChatterSPEnabled( weaponOwner ) )
+					GruntChatter_TryPlayerPilotReloading( weaponOwner )
+			#endif
 
-	if ( !weaponOwner.IsPlayer() )
-		return
+			#if BATTLECHATTER_ENABLED
+				PlayBattleChatterLine( weaponOwner, "bc_pReload" )
+			#endif
+		}
+	}
 
-	if ( !IsPilot( weaponOwner )  )
-		return
-
-	//This calls a function that can be set per gamemode. Runs an empty function by default.
-	file.Callback_OnPlayerReload( weaponOwner )
-
-	#if GRUNTCHATTER_ENABLED
-	if ( NPC_GruntChatterSPEnabled( weaponOwner ) )
-		GruntChatter_TryPlayerPilotReloading( weaponOwner )
-	#endif
-
-	#if BATTLECHATTER_ENABLED
-		PlayBattleChatterLine( weaponOwner, "bc_pReload" )
-	#endif
+	// reworked to addcallback & removecallback
+	foreach ( callbackFunc in file.Callbacks_OnPlayerReload )
+		callbackFunc( weapon )
 }
 
+// reworked to addcallback & removecallback
+/*
 void function SetCallback_OnPlayerReload( void functionref( entity ) rules )
 {
 	file.Callback_OnPlayerReload = rules
@@ -272,6 +305,19 @@ void function SetCallback_OnPlayerReload( void functionref( entity ) rules )
 void function PlayerReloadGamemodeLogic_Default ( entity player )
 {
 
+}
+*/
+
+void function AddCallback_OnPlayerReload( void functionref( entity ) callbackFunc )
+{
+	if ( file.Callbacks_OnPlayerReload.contains( callbackFunc ) )
+		return
+	file.Callbacks_OnPlayerReload.append( callbackFunc )
+}
+
+void function RemoveCallback_OnPlayerReload( void functionref( entity ) callbackFunc )
+{
+	file.Callbacks_OnPlayerReload.fastremovebyvalue( callbackFunc )
 }
 #endif
 
