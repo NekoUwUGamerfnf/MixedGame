@@ -16,8 +16,9 @@ const string ANSI_COLOR_YELLOW = "\x1b[38;5;11m"
 const array<string> CONNECTING_NOTIFICATIONS = 
 [
     ANSI_COLOR_YELLOW + "流血倒地PVP" + ANSI_COLOR_END,
-	ANSI_COLOR_BLUE + "玩家拥有125生命和100护盾。装备依照高TTK进行平衡，反泰坦武器增加了反铁驭能力" + ANSI_COLOR_END,
-	ANSI_COLOR_BLUE + "血量归零后不会立即死亡而是会倒地等待救助。期间按住开火使用击倒护盾，在倒地玩家的背后按下E键进行处决" + ANSI_COLOR_END,
+	ANSI_COLOR_BLUE + "玩家拥有125生命和100护盾" + ANSI_COLOR_END,
+	ANSI_COLOR_BLUE + "装备依照高TTK进行平衡，反泰坦武器增加了反铁驭能力。辅助瞄准禁用" + ANSI_COLOR_END,
+	ANSI_COLOR_ORANGE + "血量归零后不会立即死亡而是会倒地等待救助。期间按住开火使用击倒护盾，在倒地玩家的背后按下E键进行处决" + ANSI_COLOR_END,
     ANSI_COLOR_ORANGE + "击杀敌人或助攻以获取护盾电池，可回满护盾。处决击杀和救助队友也可恢复最大80护盾" + ANSI_COLOR_END,
 
     ANSI_COLOR_RED + "请尊重其他玩家，勿卖弱、嘲讽等" + ANSI_COLOR_END,
@@ -181,7 +182,7 @@ void function Modded_Gamemode_Bleedout_Init()
     //SetShouldAlsoFuckOffPOV( false ) // for something
     SetShouldFUCKOFFCLOAK( true ) // fuck them
 	
-    SetPlayerDeathsHidden( true ) // no sounds for deaths, and won't count deaths by default
+    //SetPlayerDeathsHidden( true ) // no sounds for deaths, and won't count deaths by default
     SetWeaponDropsEnabled( false ) // bleedout uses USE so much, don't let players drop weapons
 	// modified function in _score.nut, override "KillPilot" with "EliminatePilot"
 	ScoreEvent_SetScoreEventNameOverride( "KillPilot", "EliminatePilot" )
@@ -286,6 +287,21 @@ void function OnClientConnected( entity player )
 
 	// score event
 	file.playerBeingKnockDownBy[ player ] <- []
+
+	// disable aimassist life long
+	thread DisablePlayerBeingAimAssisted( player )
+}
+
+void function DisablePlayerBeingAimAssisted( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		if ( IsAlive( player ) )
+			player.SetAimAssistAllowed( false )
+		WaitFrame()
+	}
 }
 
 void function OnClientDisconnected( entity player )
@@ -501,6 +517,18 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 		PlayerEarnMeter_AddEarnedAndOwned( victim, BLEEDOUT_MODE_DEATH_EARNED_VALUE, BLEEDOUT_MODE_DEATH_OWNED_VALUE )
 	}
 	file.playerBeingKnockDownBy[ victim ].clear() // clear knocked down saver
+
+	// we never count player's deaths
+	thread DelayedReducePlayerDeathCount( victim )
+	
+}
+
+void function DelayedReducePlayerDeathCount( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	WaitEndFrame()
+	if ( victim.GetPlayerGameStat( PGS_DEATHS ) > 0 )
+		victim.AddToPlayerGameStat( PGS_DEATHS, -1 )
 }
 
 void function OnPlayerFinalDamaged( entity victim, var damageInfo )
