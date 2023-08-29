@@ -283,7 +283,7 @@ bool function OnWeaponVortexHitBullet_titanweapon_shock_shield( entity weapon, e
 		VortexDrainedByImpact( weapon, attackerWeapon, null, null )
 		if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
 			return true
-		// generic shield ping FX, modified to globalize this function
+		// generic shield ping FX, modified to globalize this function in _vortex.nut
         Vortex_SpawnShieldPingFX( weapon, impactData )
 
 		return true
@@ -327,7 +327,7 @@ bool function OnWeaponVortexHitProjectile_titanweapon_shock_shield( entity weapo
 		VortexDrainedByImpact( weapon, projectile, projectile, null )
 		if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
 			return true
-		// generic shield ping FX, modified to globalize this function
+		// generic shield ping FX, modified to globalize this function in _vortex.nut
         Vortex_SpawnShieldPingFX( weapon, impactData )
 
 		return true
