@@ -42,8 +42,8 @@ var function OnWeaponPrimaryAttack_titanweapon_dumbfire_rockets( entity weapon, 
 	if ( !shouldPredict )
 		return weapon.GetAmmoPerShot()
 	#endif
+	
 	entity owner = weapon.GetWeaponOwner()
-	owner.Signal( "KillBruteShield" )
 	vector attackDir
 	bool isTwinShot = weapon.HasMod( "fd_twin_cluster" ) //&& RandomIntRange( 1, 100 ) <= 25
 	if ( isTwinShot )
