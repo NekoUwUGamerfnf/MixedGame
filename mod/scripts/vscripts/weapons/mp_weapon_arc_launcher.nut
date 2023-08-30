@@ -14,7 +14,7 @@ global function OnWeaponNpcPrimaryAttack_weapon_arc_launcher
 #endif
 
 // anti-pilot arclauncher
-const int ARC_LAUNCHER_ZAP_DAMAGE_PILOT_AMPED = 20
+const int ARC_LAUNCHER_ZAP_DAMAGE_PILOT_AMPED = 16 // doubled from BALL_LIGHTNING_DAMAGE_TO_PILOTS
 
 var function OnWeaponPrimaryAttack_weapon_arc_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
