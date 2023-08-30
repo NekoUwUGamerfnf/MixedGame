@@ -19,7 +19,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_thermite_grenade( entity weapon
 	if ( weapon.HasMod( "flamewall_grenade" ) )
 		return OnWeaponTossReleaseAnimEvent_weapon_flamewall_grenade( weapon, attackParams )
 
-	entity grenade = Grenade_OnWeaponToss_ReturnEntity( weapon, attackParams, 1.0 )
+	entity grenade = Grenade_OnWeaponToss_ReturnEntity( weapon, attackParams )
 	if( !IsValid( grenade ) )
 		return
 	if( weapon.HasMod( "meteor_grenade" ) )

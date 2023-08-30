@@ -81,7 +81,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_frag_drone( entity weapon, Weap
 	if( weapon.HasMod( "emp_drone" ) )
 		return OnAbilityStart_EMPDrone( weapon, attackParams )
 
-	entity grenade = Grenade_OnWeaponToss_ReturnEntity( weapon, attackParams, 1.0 )
+	entity grenade = Grenade_OnWeaponToss_ReturnEntity( weapon, attackParams )
 	if( grenade )
 	{
 		if( weapon.HasMod( "sp_tick_model" ) )

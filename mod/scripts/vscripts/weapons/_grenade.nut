@@ -215,11 +215,6 @@ int function Grenade_OnWeaponToss_( entity weapon, WeaponPrimaryAttackParams att
 	entity weaponOwner = weapon.GetWeaponOwner()
 	weaponOwner.Signal( "ThrowGrenade" )
 
-	// base grenade modifiers
-	if( weapon.HasMod( "nessie_grenade" ) )
-		grenade.SetModel( $"models/domestic/nessy_doll.mdl" )
-	//
-
 	PlayerUsedOffhand( weaponOwner, weapon ) // intentionally here and in Hack_DropGrenadeOnDeath - accurate for when cooldown actually begins
 
 #if SERVER
@@ -686,7 +681,7 @@ string function GetGrenadeProjectileSound( weapon )
 
 // modified functions
 // return entity vairant: keep same as Grenade_OnWeaponToss_() does
-entity function Grenade_OnWeaponToss_ReturnEntity( entity weapon, WeaponPrimaryAttackParams attackParams, float directionScale )
+entity function Grenade_OnWeaponToss_ReturnEntity( entity weapon, WeaponPrimaryAttackParams attackParams, float directionScale = 1.0 )
 {
 	weapon.EmitWeaponSound_1p3p( GetGrenadeThrowSound_1p( weapon ), GetGrenadeThrowSound_3p( weapon ) )
 	bool projectilePredicted = PROJECTILE_PREDICTED
