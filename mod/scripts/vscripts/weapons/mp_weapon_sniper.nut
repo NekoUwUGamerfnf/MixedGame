@@ -196,7 +196,7 @@ array<entity> function FindSmartSniperProjectile( entity weapon )
 		if ( projectile.GetOwner() == owner && projectile.GetProjectileCreationTime() == Time() )
 		{
 			// debug
-			print( "player owned kraber projectile: " + string( projectile ) )
+			//print( "player owned kraber projectile: " + string( projectile ) )
 
 			ownedProjectiles.append( projectile )
 		}
