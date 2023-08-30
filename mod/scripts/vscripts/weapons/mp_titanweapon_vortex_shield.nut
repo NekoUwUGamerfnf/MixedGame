@@ -271,10 +271,12 @@ bool function OnWeaponVortexHitBullet_titanweapon_vortex_shield( entity weapon, 
 		// fix ttf2 vanilla behavior: burn mod vortex shield
 		// never try to catch a burn mod vortex's refiring bullets if we're using burn mod vortex shield
 		// otherwise it may cause infinite refire and crash the server
-		if ( weapon.HasMod( "burn_mod_titan_vortex_shield" ) 
-			 && attackerWeapon.HasMod( "burn_mod_titan_vortex_shield" )
-			 && impactData.refireBehavior != VORTEX_REFIRE_ABSORB )
+		if ( weapon.HasMod( "burn_mod_titan_vortex_shield" ) && attackerWeapon.HasMod( "burn_mod_titan_vortex_shield" ) )
 		{
+			// build impact data
+			local impactData = Vortex_CreateImpactEventData( weapon, attacker, origin, damageSourceID, attackerWeaponName, "hitscan" )
+			// do vortex drain
+			VortexDrainedByImpact( weapon, attackerWeapon, null, null )
 			// generic shield ping FX, modified to globalize this function in _vortex.nut
 			Vortex_SpawnShieldPingFX( weapon, impactData )
 			return true
