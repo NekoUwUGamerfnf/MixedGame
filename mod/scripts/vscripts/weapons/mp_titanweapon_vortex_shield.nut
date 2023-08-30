@@ -191,6 +191,7 @@ function AmpedVortexRefireThink( entity weapon )
 
 		if ( IsValid( weaponOwner )	)
 		{
+			// unpredicted refire...? how's client first person look like
 			ShotgunBlast( weapon, weaponOwner.EyePosition(), weaponOwner.GetPlayerOrNPCViewVector(), expect int( weapon.s.ampedBulletCount ), damageTypes.shotgun | DF_VORTEX_REFIRE )
 			weapon.s.ampedBulletCount = 0
 		}

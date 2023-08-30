@@ -110,9 +110,9 @@ global function Vortex_GetImpactDataOverrideFromWeaponOrProjectile
 const float VORTEX_DRAIN_ON_PROJECTILE_HIT_ALWAYS = 0.045 // use this amount of drain if the projectile has no "vortex_drain"
 // projectile shotgun being refired will deal it's original damage
 // mostly the damage is pretty low so we scale down cost
-const float VORTEX_DRAIN_PROJECTILE_SHOTGUN_FRAC = 0.35
+const float VORTEX_DRAIN_PROJECTILE_SHOTGUN_FRAC = 0.3
 
-const float VORTEX_DRAIN_ON_BULLET_HIT_ALWAYS = 0.033 // use this amount of drain if the weapon has no "vortex_drain"
+const float VORTEX_DRAIN_ON_BULLET_HIT_ALWAYS = 0.03 // use this amount of drain if the weapon has no "vortex_drain"
 // bullet shotgun being refired by vortex shield can still deal full damage
 // no need to check for it
 
@@ -876,9 +876,14 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 	else
 		vortexSphere.AddProjectileToSphere();
 
+	// nessie note: I don't think this works best for shotgun bullets...
+	// legion's power shot won't be handled, looks pretty silly
+	// though it breaks vanilla behavior, I'd like to remove it
+	/*
 	local maxShotgunPelletsToIgnore = VORTEX_BULLET_ABSORB_COUNT_MAX * ( 1 - VORTEX_SHOTGUN_DAMAGE_RATIO )
 	if ( IsPilotShotgunWeapon( weaponName ) && ( vortexWeapon.s.shotgunPelletsToIgnore + 1 ) <  maxShotgunPelletsToIgnore )
 		vortexWeapon.s.shotgunPelletsToIgnore += ( 1 - VORTEX_SHOTGUN_DAMAGE_RATIO )
+	*/
 
 	if ( reflect )
 	{
@@ -1452,9 +1457,15 @@ int function VortexPrimaryAttack( entity vortexWeapon, WeaponPrimaryAttackParams
 int function Vortex_FireBackBullets( entity vortexWeapon, WeaponPrimaryAttackParams attackParams )
 {
 	int bulletCount = GetBulletsAbsorbedCount( vortexWeapon )
+
+	// nessie note: I don't think this works best for shotgun bullets...
+	// legion's power shot won't be handled, looks pretty silly
+	// though it breaks vanilla behavior, I'd like to remove it
 	//Defensive Check - Couldn't repro error.
+	/*
 	if ( "shotgunPelletsToIgnore" in vortexWeapon.s )
 		bulletCount = int( ceil( bulletCount - vortexWeapon.s.shotgunPelletsToIgnore ) )
+	*/
 
 	if ( bulletCount )
 	{
@@ -1466,7 +1477,7 @@ int function Vortex_FireBackBullets( entity vortexWeapon, WeaponPrimaryAttackPar
 		float radius = LOUD_WEAPON_AI_SOUND_RADIUS_MP;
 		vortexWeapon.EmitWeaponNpcSound( radius, 0.2 )
 		int damageType = damageTypes.shotgun | DF_VORTEX_REFIRE
-		if ( bulletCount == 1 )
+		if ( bulletCount == 1 ) // wait respawn you serious? 1 bullet can be refired to any distance?
 			vortexWeapon.FireWeaponBullet( attackParams.pos, attackParams.dir, bulletCount, damageType )
 		else
 			ShotgunBlast( vortexWeapon, attackParams.pos, attackParams.dir, bulletCount, damageType )
@@ -2383,12 +2394,10 @@ int function VortexReflectAttack( entity vortexWeapon, attackParams, vector refl
 
 	// PREDICTED REFIRES
 	// bullet impact events don't individually fire back per event because we aggregate and then shotgun blast them
+	// nessie note: the signal is for triggering AmpedVortexRefireThink() in mp_titanweapon_vortex_shield.nut
+	// but with modified script FPS, the reflecting maybe still fast enough to fire back per event( catching shotgunblast will still work )
 
 	//Remove the below script after FireWeaponBulletBroadcast
-	// nessie note: TryVortexAbsorb() is server-side only
-	// needs to use AmpedVortexRefireThink() in mp_titanpon_vortex_shield.nut
-	// to make client able predict bullet refiring
-
 	//local bulletsFired = Vortex_FireBackBullets( vortexWeapon, attackParams )
 	//totalfired += bulletsFired
 	int bulletCount = GetBulletsAbsorbedCount( vortexWeapon )
