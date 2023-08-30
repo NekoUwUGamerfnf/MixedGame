@@ -8,6 +8,8 @@ void function MpWeaponFragGrenade_Init()
 {
     Grenade_AddChargeDisabledMod( "frag_no_charge" )
     Grenade_AddDropOnCancelDisabledMod( "frag_no_charge" )
+    
+    Grenade_AddDropOnCancelDisabledMod( "nessie_grenade" )
 }
 
 var function OnWeaponTossReleaseAnimEvent_weapon_frag_grenade( entity weapon, WeaponPrimaryAttackParams attackParams )
