@@ -106,6 +106,16 @@ global function Vortex_GetImpactDataOverride_WeaponMod
 global function Vortex_WeaponOrProjectileHasImpactDataOverride
 global function Vortex_GetImpactDataOverrideFromWeaponOrProjectile
 
+// vortex nerf: drain on impact no matter what it catches
+const float VORTEX_DRAIN_ON_PROJECTILE_HIT_ALWAYS = 0.045 // use this amount of drain if the projectile has no "vortex_drain"
+// projectile shotgun being refired will deal it's original damage
+// mostly the damage is pretty low so we scale down cost
+const float VORTEX_DRAIN_PROJECTILE_SHOTGUN_FRAC = 0.25
+
+const float VORTEX_DRAIN_ON_BULLET_HIT_ALWAYS = 0.033 // use this amount of drain if the weapon has no "vortex_drain"
+// bullet shotgun being refired by vortex shield can still deal full damage
+// no need to check for it
+
 // respawn messy functions rework
 #if SERVER
 global function Vortex_CalculateBulletHitDamage
@@ -868,7 +878,7 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 
 	local maxShotgunPelletsToIgnore = VORTEX_BULLET_ABSORB_COUNT_MAX * ( 1 - VORTEX_SHOTGUN_DAMAGE_RATIO )
 	if ( IsPilotShotgunWeapon( weaponName ) && ( vortexWeapon.s.shotgunPelletsToIgnore + 1 ) <  maxShotgunPelletsToIgnore )
-			vortexWeapon.s.shotgunPelletsToIgnore += ( 1 - VORTEX_SHOTGUN_DAMAGE_RATIO )
+		vortexWeapon.s.shotgunPelletsToIgnore += ( 1 - VORTEX_SHOTGUN_DAMAGE_RATIO )
 
 	if ( reflect )
 	{
@@ -903,16 +913,37 @@ function VortexDrainedByImpact( entity vortexWeapon, entity weapon, entity proje
 	if ( projectile )
 	{
 		amount = projectile.GetProjectileWeaponSettingFloat( eWeaponVar.vortex_drain )
-		// vortex nerf
+		// vortex nerf: drain on impact no matter what it catches
 		if( vortexWeapon.HasMod( "impact_drain_vortex" ) )
-			amount = amount > 0.045 ? amount : 0.045
+		{
+			if ( amount == 0 ) // only do default drain if we have no drain from projectile
+			{
+				// debug
+				//print( "Attacker weapon has no vortex_drain, using default value" )
+				
+				amount = VORTEX_DRAIN_ON_PROJECTILE_HIT_ALWAYS
+				// projectile shotgun check
+				#if SERVER
+					if ( IsProjectileShotgunPellets( projectile ) )
+						amount *= VORTEX_DRAIN_PROJECTILE_SHOTGUN_FRAC
+				#endif // SERVE
+			}
+		}
 	}
 	else
 	{
 		amount = weapon.GetWeaponSettingFloat( eWeaponVar.vortex_drain )
-		// vortex nerf
+		// vortex nerf: drain on impact no matter what it catches
 		if( vortexWeapon.HasMod( "impact_drain_vortex" ) )
-			amount = amount > 0.033 ? amount : 0.033
+		{
+			if ( amount == 0 ) // only do default drain if we have no drain from weapon
+			{
+				// debug
+				//print( "Attacker weapon has no vortex_drain, using default value" )
+
+				amount = VORTEX_DRAIN_ON_BULLET_HIT_ALWAYS
+			}
+		}
 	}
 
 	if ( amount <= 0.0 )
@@ -931,6 +962,34 @@ function VortexDrainedByImpact( entity vortexWeapon, entity weapon, entity proje
 	}
 }
 
+// modified
+#if SERVER
+// projectile shotgun check
+bool function IsProjectileShotgunPellets( entity projectile )
+{
+	entity owner = projectile.GetOwner()
+	if ( !IsValid( owner ) ) // projectile don't have a valid owner?
+		return false
+
+	// if there're any other projectile with the same owner created at the same time
+	// we consider them as a shotgun blast projectile
+	float creationTime = projectile.GetProjectileCreationTime()
+	foreach ( entity otherProj in GetProjectileArray() )
+	{
+		if ( otherProj == projectile )
+			continue
+		if ( projectile.GetOwner() == owner && projectile.GetProjectileCreationTime() == creationTime )
+		{
+			// debug
+			//print( "This is a projectile shotgun pellet!" )
+
+			return true
+		}
+	}
+
+	return false
+}
+#endif // SERVER
 
 function VortexSlowOwnerFromAttacker( entity player, entity attacker, vector velocity, float multiplier )
 {
@@ -2321,6 +2380,10 @@ int function VortexReflectAttack( entity vortexWeapon, attackParams, vector refl
 	// bullet impact events don't individually fire back per event because we aggregate and then shotgun blast them
 
 	//Remove the below script after FireWeaponBulletBroadcast
+	// nessie note: TryVortexAbsorb() is server-side only
+	// needs to use AmpedVortexRefireThink() in mp_titanpon_vortex_shield.nut
+	// to make client able predict bullet refiring
+
 	//local bulletsFired = Vortex_FireBackBullets( vortexWeapon, attackParams )
 	//totalfired += bulletsFired
 	int bulletCount = GetBulletsAbsorbedCount( vortexWeapon )
