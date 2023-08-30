@@ -125,6 +125,21 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 			int fired = SmartAmmo_FireWeapon( weapon, attackParams, damageFlags, explosionFlags )
 			if( !fired )
 				return 0
+
+			// smart sniper projectile update
+			// get rid of sh_smart_ammo.gnut hardcode, newest version not gonna transfer to client
+			#if SERVER
+				foreach ( entity projectile in FindSmartSniperProjectile( weapon ) )
+				{
+					projectile.kv.lifetime = 100 // smart sniper lasts longer
+					if ( weapon.HasMod( "homing_nessie" ) ) // homing nessie modifier
+					{
+						projectile.kv.lifetime = 9999
+						projectile.SetModel( $"models/domestic/nessy_doll.mdl" )
+					}
+				}
+			#endif
+			//
 		}
 		else // vanilla behavior
 		{
@@ -138,7 +153,7 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 					bolt.SetModel( $"models/domestic/nessy_doll.mdl" )
 				if( weapon.HasMod( "nessie_balance" ) )
 				{
-					bolt.kv.gravity = 0.0
+					bolt.kv.gravity = 0.0 // default gravity
 				}
 				else if( weapon.HasMod( "floating_bolt_sniper" ) )
 				{
@@ -156,8 +171,7 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 					bolt.kv.gravity = expect float( weapon.GetWeaponInfoFileKeyField( "bolt_gravity_amount" ) )
 					
 #if CLIENT
-				if( !weapon.HasMod( "homing_nessie" ) && !weapon.HasMod( "nessie_sniper" ) )
-					StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"Rocket_Smoke_SMR_Glow" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+				StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"Rocket_Smoke_SMR_Glow" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 #endif // #if CLIENT
 			}
 		}
@@ -165,6 +179,32 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 
 	return 1
 }
+
+// modified function
+// if there's a projectile created at the same time the weapon firing
+// we consider the projectile as current firing one
+#if SERVER
+array<entity> function FindSmartSniperProjectile( entity weapon )
+{
+	entity owner = weapon.GetWeaponOwner()
+	if ( !IsValid( owner ) )
+		return []
+
+	array<entity> ownedProjectiles
+	foreach ( entity projectile in GetProjectileArray() )
+	{
+		if ( projectile.GetOwner() == owner && projectile.GetProjectileCreationTime() == Time() )
+		{
+			// debug
+			print( "player owned kraber projectile: " + string( projectile ) )
+
+			ownedProjectiles.append( projectile )
+		}
+	}
+
+	return ownedProjectiles
+}
+#endif
 
 void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
