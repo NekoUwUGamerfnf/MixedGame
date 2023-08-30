@@ -877,8 +877,8 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 		vortexSphere.AddProjectileToSphere();
 
 	// nessie note: I don't think this works best for shotgun bullets...
-	// legion's power shot won't be handled, looks pretty silly
-	// though it breaks vanilla behavior, I'd like to remove it
+	// legion's power shot won't be handled, amped vortex refire also ignore this
+	// looks pretty silly. though it breaks vanilla behavior, I'd like to remove it
 	/*
 	local maxShotgunPelletsToIgnore = VORTEX_BULLET_ABSORB_COUNT_MAX * ( 1 - VORTEX_SHOTGUN_DAMAGE_RATIO )
 	if ( IsPilotShotgunWeapon( weaponName ) && ( vortexWeapon.s.shotgunPelletsToIgnore + 1 ) <  maxShotgunPelletsToIgnore )
@@ -1459,8 +1459,8 @@ int function Vortex_FireBackBullets( entity vortexWeapon, WeaponPrimaryAttackPar
 	int bulletCount = GetBulletsAbsorbedCount( vortexWeapon )
 
 	// nessie note: I don't think this works best for shotgun bullets...
-	// legion's power shot won't be handled, looks pretty silly
-	// though it breaks vanilla behavior, I'd like to remove it
+	// legion's power shot won't be handled, amped vortex refire also ignore this
+	// looks pretty silly. though it breaks vanilla behavior, I'd like to remove it
 	//Defensive Check - Couldn't repro error.
 	/*
 	if ( "shotgunPelletsToIgnore" in vortexWeapon.s )
