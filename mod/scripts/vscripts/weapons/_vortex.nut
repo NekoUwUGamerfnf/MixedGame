@@ -110,7 +110,7 @@ global function Vortex_GetImpactDataOverrideFromWeaponOrProjectile
 const float VORTEX_DRAIN_ON_PROJECTILE_HIT_ALWAYS = 0.045 // use this amount of drain if the projectile has no "vortex_drain"
 // projectile shotgun being refired will deal it's original damage
 // mostly the damage is pretty low so we scale down cost
-const float VORTEX_DRAIN_PROJECTILE_SHOTGUN_FRAC = 0.25
+const float VORTEX_DRAIN_PROJECTILE_SHOTGUN_FRAC = 0.35
 
 const float VORTEX_DRAIN_ON_BULLET_HIT_ALWAYS = 0.033 // use this amount of drain if the weapon has no "vortex_drain"
 // bullet shotgun being refired by vortex shield can still deal full damage
@@ -970,6 +970,8 @@ bool function IsProjectileShotgunPellets( entity projectile )
 	entity owner = projectile.GetOwner()
 	if ( !IsValid( owner ) ) // projectile don't have a valid owner?
 		return false
+	if ( projectile.GetClassName() != "crossbow_bolt" ) // not a bolt projectile?
+		return false
 
 	// if there're any other projectile with the same owner created at the same time
 	// we consider them as a shotgun blast projectile
@@ -978,6 +980,9 @@ bool function IsProjectileShotgunPellets( entity projectile )
 	{
 		if ( otherProj == projectile )
 			continue
+		if ( otherProj.GetClassName() != "crossbow_bolt" )
+			continue
+		
 		if ( projectile.GetOwner() == owner && projectile.GetProjectileCreationTime() == creationTime )
 		{
 			// debug
