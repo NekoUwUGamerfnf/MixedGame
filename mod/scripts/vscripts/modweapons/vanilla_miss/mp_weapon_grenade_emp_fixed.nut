@@ -43,7 +43,7 @@ void function OnDamagedTarget_GrenadeEMP( entity ent, var damageInfo )
 
 	if ( mods.contains( "bleedout_balance" ) )
 	{
-		Elecriticy_DamagedPlayerOrNPC( ent, damageInfo, FX_EMP_BODY_HUMAN, FX_EMP_BODY_TITAN, EMP_SEVERITY_SLOWTURN, EMP_SEVERITY_SLOWMOVE )
+		Electricity_DamagedPlayerOrNPC( ent, damageInfo, FX_EMP_BODY_HUMAN, FX_EMP_BODY_TITAN, EMP_SEVERITY_SLOWTURN, EMP_SEVERITY_SLOWMOVE )
 		return
 	}
 
