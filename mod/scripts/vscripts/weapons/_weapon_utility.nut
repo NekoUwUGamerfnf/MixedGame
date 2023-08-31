@@ -1158,7 +1158,7 @@ function Player_DetonateSatchels( entity player )
 			// nerfed satchel!
 			if( mods.contains( "satchel_long_delay" ) )
 			{
-				thread PROTO_ExplodeAfterDelay( satchel, ( index + 1 ) * 0.5 )
+				thread PROTO_ExplodeAfterDelay( satchel, ( index + 1 ) * 0.4 )
 				continue
 			}
 			
