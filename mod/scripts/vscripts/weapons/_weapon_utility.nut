@@ -226,7 +226,7 @@ function WeaponUtility_Init()
 		AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_flak_rifle, PROTO_Flak_Rifle_DamagedPlayerOrNPC )
 		// handled by mp_titanweapon_stun_laser.nut: StunLaser_DamagedTarget()
 		//AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_stun_laser, VanguardEnergySiphon_DamagedPlayerOrNPC )
-		// handled by mp_weapon_impulse_grenade.gnut
+		// handled by mp_weapon_grenade_emp_fixed.nut
 		//AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_grenade_emp, EMP_DamagedPlayerOrNPC )
 		AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_proximity_mine, EMP_DamagedPlayerOrNPC )
 		AddDamageCallbackSourceID( eDamageSourceId[ CHARGE_TOOL ], EMP_DamagedPlayerOrNPC )
