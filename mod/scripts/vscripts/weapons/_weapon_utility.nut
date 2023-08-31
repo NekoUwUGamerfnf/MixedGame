@@ -93,8 +93,9 @@ global function DevPrintAllStatusEffectsOnEnt
 	global function RemoveThreatScopeColorStatusEffect
 
 	// modified to globlize these
-	global function Electricity_DamagedPlayerOrNPC
+	global function Electricity_DamagedPlayerOrNPC // this function has been renamed. respawn used a wrong name for it( Elecricity_DamagedPlayerOrNPC )
 	
+	// below for modified weapons setup their unique OnDamage effects
 	global function PROTO_Flak_Rifle_DamagedPlayerOrNPC
 	global function TripleThreatGrenade_DamagedPlayerOrNPC
 	global function VanguardEnergySiphon_DamagedPlayerOrNPC
@@ -3105,7 +3106,10 @@ void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInf
 	Electricity_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE )
 }
 
-void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset humanFx, asset titanFx, float slowTurn, float slowMove )
+// this function has been renamed. respawn used a wrong name for it( Elecricity_DamagedPlayerOrNPC )
+// parameter has been modified: adding modifiable duration and strength
+//void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset humanFx, asset titanFx, float slowTurn, float slowMove )
+void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset humanFx, asset titanFx, float slowTurn, float slowMove, float minDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, float maxDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX, float maxFadeoutDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE, float minEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN, float maxEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX )
 {
 	if ( !IsValid( ent ) )
 		return
@@ -3183,13 +3187,15 @@ void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset 
 		Assert( !(inflictor instanceof CEnvExplosion) )
 		if ( IsValid( inflictor ) )
 		{
-			float duration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX
+			float duration = maxDuration
 			if ( inflictor instanceof CBaseGrenade )
 			{
 				local entCenter = ent.GetWorldSpaceCenter()
 				local dist = Distance( DamageInfo_GetDamagePosition( damageInfo ), entCenter )
 				local damageRadius = inflictor.GetDamageRadius()
-				duration = GraphCapped( dist, damageRadius * 0.5, damageRadius, EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX )
+				// modified: adding duration parameter
+				//duration = GraphCapped( dist, damageRadius * 0.5, damageRadius, EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX )
+				duration = GraphCapped( dist, damageRadius * 0.5, damageRadius, minDuration, maxDuration )
 			}
 			thread EMP_FX( effect, ent, tag, duration )
 		}
@@ -3208,20 +3214,30 @@ void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset 
 
 	if ( ent.IsPlayer() )
 	{
-		thread EMPGrenade_EffectsPlayer( ent, damageInfo )
+		// modified: adding duration and strength parameter
+		//thread EMPGrenade_EffectsPlayer( ent, damageInfo )
+		thread EMPGrenade_EffectsPlayer( ent, damageInfo, minDuration, maxDuration, maxFadeoutDuration, minEffectStrength, maxEffectStrength )
 	}
 	else if ( ent.IsTitan() )
 	{
 		EMPGrenade_AffectsShield( ent, damageInfo )
 		#if MP
-		GiveEMPStunStatusEffects( ent, 2.5, 1.0, slowTurn, slowMove )
+		// nessie note: why is "2.5", "1.0" hardcoded here???
+		// it's not even using existing const???
+		//GiveEMPStunStatusEffects( ent, 2.5, 1.0, slowTurn, slowMove )
+		GiveEMPStunStatusEffects( ent, maxDuration, maxFadeoutDuration, slowTurn, slowMove ) // always add max debuff duration for npcs
 		#endif
-		thread EMPGrenade_AffectsAccuracy( ent )
+		// modified: adding duration parameter
+		//thread EMPGrenade_AffectsAccuracy( ent )
+		thread EMPGrenade_AffectsAccuracy( ent, maxDuration ) // always add max debuff duration for npcs
 	}
 	else if ( ent.IsMechanical() )
 	{
 		#if MP
-		GiveEMPStunStatusEffects( ent, 2.5, 1.0, slowTurn, slowMove )
+		// nessie note: why is "2.5", "1.0" hardcoded here???
+		// it's not even using existing const???
+		//GiveEMPStunStatusEffects( ent, 2.5, 1.0, slowTurn, slowMove )
+		GiveEMPStunStatusEffects( ent, maxDuration, maxFadeoutDuration, slowTurn, slowMove ) // always add max debuff duration for npcs
 		DamageInfo_ScaleDamage( damageInfo, 2.05 )
 		#endif
 	}
@@ -3490,6 +3506,9 @@ function EMPGrenade_AffectsShield( entity titan, damageInfo )
 	}
 }
 
+// parameter has been modified: adding modifiable duration
+// also adding fix for taking multiple effect and retain accuracy
+/*
 function EMPGrenade_AffectsAccuracy( npcTitan )
 {
 	npcTitan.EndSignal( "OnDestroy" )
@@ -3498,9 +3517,29 @@ function EMPGrenade_AffectsAccuracy( npcTitan )
 	wait EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX
 	npcTitan.kv.AccuracyMultiplier = 1.0
 }
+*/
+void function EMPGrenade_AffectsAccuracy( entity npcTitan, float duration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX )
+{
+	npcTitan.EndSignal( "OnDestroy" )
 
+	if ( !( "titanAccuracyDown" in npcTitan.s ) )
+		npcTitan.s.titanAccuracyDown <- null
 
-function EMPGrenade_EffectsPlayer( entity player, damageInfo )
+	if ( npcTitan.s.titanAccuracyDown ) // npc already taken accuracy penalty
+		return
+
+	npcTitan.s.titanAccuracyDown = true // mark as we're taking accuracy penalty
+	float starterAccuracy = float( npcTitan.kv.AccuracyMultiplier ) // save current accuracy for later we clean up
+	npcTitan.kv.AccuracyMultiplier = 0.5
+
+	wait duration
+	npcTitan.kv.AccuracyMultiplier = starterAccuracy // restore accuracy
+	npcTitan.s.titanAccuracyDown = false
+}
+
+// parameter has been modified: adding modifiable duration and strength
+//function EMPGrenade_EffectsPlayer( entity player, damageInfo )
+void function EMPGrenade_EffectsPlayer( entity player, var damageInfo, float minDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, float maxDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX, float maxFadeoutDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE, float minEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN, float maxEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX )
 {
 	player.Signal( "OnEMPPilotHit" )
 	player.EndSignal( "OnEMPPilotHit" )
@@ -3514,9 +3553,14 @@ function EMPGrenade_EffectsPlayer( entity player, damageInfo )
 	if ( inflictor instanceof CBaseGrenade )
 		damageRadius = inflictor.GetDamageRadius()
 	float frac = GraphCapped( dist, damageRadius * 0.5, damageRadius, 1.0, 0.0 )
-	local strength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN + ( ( EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX - EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN ) * frac )
-	float fadeoutDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE * frac
-	float duration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN + ( ( EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX - EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN ) * frac ) - fadeoutDuration
+	// modified: adding strength parameter
+	//local strength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN + ( ( EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX - EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN ) * frac )
+	local strength = minEffectStrength + ( ( maxEffectStrength - minEffectStrength ) * frac )
+	// modified: adding duration parameter
+	//float fadeoutDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE * frac
+	//float duration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN + ( ( EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX - EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN ) * frac ) - fadeoutDuration
+	float fadeoutDuration = maxFadeoutDuration * frac
+	float duration = minDuration + ( ( maxDuration - minDuration ) * frac ) - fadeoutDuration
 	local origin = inflictor.GetOrigin()
 
 	int dmgSource = DamageInfo_GetDamageSourceIdentifier( damageInfo )
