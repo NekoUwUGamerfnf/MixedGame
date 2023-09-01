@@ -14,6 +14,7 @@ global function ExtraSpawner_SpawnProwlerSquadDropPod
 global function ExtraSpawner_SpawnTitan
 global function ExtraSpawner_SpawnTitanBT
 global function ExtraSpawner_SpawnBossTitan
+global function ExtraSpawner_NPCTitanDrops
 // unused spawn
 global function ExtraSpawner_SpawnGunShip
 // modded titan func
@@ -65,6 +66,9 @@ global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
 
 // these are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
+
+// modifiablt consts
+const float TITANFALL_WARNING_DURATION = 5.0
 
 // debug
 //global function PrintPrimaryAttackSignal
@@ -1103,6 +1107,37 @@ void function ExtraSpawner_SetNPCHandlerFunc( string npcClass, void functionref(
 	file.npcHandlerFuncs[ npcClass ] = handler
 }
 
+// utility for handling assault target
+bool function IsValidNPCAssaultTarget( entity ent )
+{
+	// got killed but still valid?
+	if ( !IsAlive( ent ) )
+		return false
+
+	// cannot be targeted?
+	if ( ent.GetNoTarget() ) 
+		return false
+
+	// is invulnerable?
+	if ( ent.IsInvulnerable() )
+		return false
+	
+	// npc
+	if ( ent.IsNPC() )
+	{
+		// titan
+		if ( ent.IsTitan() )
+		{
+			// is hot dropping?
+			if ( ent.e.isHotDropping )
+				return false
+		}
+	}
+
+	// all checks passed
+	return true
+}
+
 // can't stop squad handler
 void function ExtraSpawner_StopDefaultHandler( entity npc )
 {
@@ -1658,6 +1693,19 @@ void function AddMinimapForNPC( entity guy )
 	}
 }
 
+void function RemoveMinimapForNPC( entity guy )
+{
+	if ( !IsAlive( guy ) )
+		return
+	
+	// map
+	guy.Minimap_Hide( TEAM_IMC, null )
+	guy.Minimap_Hide( TEAM_MILITIA, null )
+	foreach ( entity player in GetPlayerArray() )
+		guy.Minimap_Hide( 0, player )
+	guy.Minimap_SetHeightTracking( false )
+}
+
 // so you can set up a titan without have to make a npc pilot embarking it
 // can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
 void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int team, int pilotHealth = 250, bool pilotInvulnerable = false, asset pilotModel = $"", string pilotTitle = "鐵馭" )
@@ -1938,32 +1986,25 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 		}
 
 		// Get point and send our whole squad to it
-		points = []
-		// try to find from alive player targets
-		foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) ) // also find titan players if they have heavy armor weapon
-		{
-			// cannot be targeted?
-			if ( player.GetNoTarget() )
-				continue
-
-			// target is heavyarmor but we don't have anti-titan weapon?
-			if ( !hasHeavyArmorWeapon && player.IsTitan() )
-				continue
-
-			points.append( player )
-		}
+		points = [] // clean up last pointS
+		array<entity> pointsToSearch = []
 		// try to find from npc targets
-		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
+		// try to find from alive player targets
+		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		// start searching
+		foreach ( entity ent in pointsToSearch )
 		{
-			// cannot be targeted?
-			if ( npc.GetNoTarget() )
-				continue
-			
-			// target is heavyarmor but we don't have anti-titan weapon?
-			if ( !hasHeavyArmorWeapon && npc.GetArmorType() == ARMOR_TYPE_HEAVY )
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
 				continue
 
-			points.append( npc )
+			// infantry specific
+			// only search for targets with light armor if we don't have proper weapon
+			if ( !hasHeavyArmorWeapon && ent.GetArmorType() == ARMOR_TYPE_HEAVY )
+				continue
+
+			points.append( ent )
 		}
 
 		ArrayRemoveDead( points ) // remove dead targets
@@ -1987,7 +2028,8 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 			}
 		}
 
-		wait RandomFloatRange(5.0,15.0)
+		// remove random wait to make them more aggresive?
+		//wait RandomFloatRange(5.0,15.0)
 	}
 }
 
@@ -2032,9 +2074,9 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 	
 	// friendly warning
 	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
-	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
+	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + TITANFALL_WARNING_DURATION )
 	// enemy warning
-	thread HotDrop_Spawnpoint( pos, team, 5.0, false, damagedef_titan_fall )
+	thread HotDrop_Spawnpoint( pos, team, TITANFALL_WARNING_DURATION, false, damagedef_titan_fall )
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiSet )
@@ -2059,7 +2101,7 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 	if ( loadoutFunction != null ) // modded titan!!
 		loadoutFunction( titan )
 
-	thread NPCTitanHotdrops( titan, standUp )
+	thread ExtraSpawner_NPCTitanDrops( titan, standUp )
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
@@ -2112,6 +2154,12 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	loadoutFunction		= currentTitan.loadoutFunction
 	skinIndex 			= currentTitan.skinIndex
 	decalIndex 			= currentTitan.decalIndex
+
+	// friendly warning
+	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
+	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + TITANFALL_WARNING_DURATION )
+	// enemy warning
+	thread HotDrop_Spawnpoint( pos, team, TITANFALL_WARNING_DURATION, false, damagedef_titan_fall )
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiSet )
@@ -2174,7 +2222,7 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 
 	// titan spawn with intro don't have to hotdrop
 	if ( titanType != TITAN_MERC )
-		thread NPCTitanHotdrops( titan, true )
+		thread ExtraSpawner_NPCTitanDrops( titan )
 
 	// we'll do intro, show again after DispatchSpawn(). ShowName() is handled in intro
 	if ( titanType == TITAN_MERC )
@@ -2187,6 +2235,106 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	return titan
 }
 
+void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
+{
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	TitanLoadoutDef loadout = titan.ai.titanSpawnLoadout
+	const string regularTitanfallAnim = "at_hotdrop_drop_2knee_turbo"
+
+	string animation = regularTitanfallAnim
+	int team = titan.GetTeam()
+	vector origin = titan.GetOrigin()
+	vector angles = titan.GetAngles()
+
+	// warpfall
+	// copied from _replacement_titans.gnut
+	bool hasWarpfall = loadout.passive3 == "pas_warpfall"
+	if ( hasWarpfall || Flag( "LevelHasRoof" ) )
+	{
+		animation = "at_hotdrop_drop_2knee_turbo_upgraded"
+
+		// we don't want to show the titan nor destroying it... so we try to hide it
+		if ( !titan.IsFrozen() )
+			titan.Freeze()
+		titan.NotSolid()
+		titan.Hide()
+		HideName( titan )
+		RemoveMinimapForNPC( titan )
+		// move it to the sky so player won't notice it's here
+		titan.SetOrigin( origin + < 0, 0, 10000 > )
+
+		// dont let AI titan get enemies while dropping. Don't do trigger checks
+		// cleanup handled by NPCTitanHotdrops()
+		titan.SetEfficientMode( true )
+		titan.SetTouchTriggers( false )
+		titan.SetNoTarget( true )
+		titan.SetAimAssistAllowed( false )
+
+		string settings = loadout.setFile
+		asset model = GetPlayerSettingsAssetForClassName( settings, "bodymodel" )
+		Attachment warpAttach = GetAttachmentAtTimeFromModel( model, animation, "offset", origin, angles, 0 )
+
+		float impactTime = GetHotDropImpactTime( titan, animation )
+
+		float diff = 0.0
+
+		if ( !hasWarpfall ) // this means the level requested the warpfall
+		{
+			float regularImpactTime = GetHotDropImpactTime( titan, regularTitanfallAnim ) - (WARPFALL_SOUND_DELAY + WARPFALL_FX_DELAY)
+			diff = ( regularImpactTime - impactTime )
+			impactTime = regularImpactTime
+		}
+
+		EmitSoundAtPosition( team, origin, "Titan_3P_Warpfall_CallIn" )
+
+		wait diff
+		wait WARPFALL_SOUND_DELAY
+
+		PlayFX( TURBO_WARP_FX, warpAttach.position + Vector(0,0,-104), warpAttach.angle )
+		EmitSoundAtPosition( team, origin, "Titan_3P_Warpfall_Start" )
+
+		wait WARPFALL_FX_DELAY
+
+		// restore visibility
+		if ( titan.IsFrozen() )
+			titan.Unfreeze()
+		titan.Solid()
+		titan.Show()
+		ShowName( titan )
+		AddMinimapForNPC( titan )
+		// move it back to ground
+		titan.SetOrigin( origin )
+
+		thread PlayFXOnEntity( TURBO_WARP_COMPANY, titan, "offset" )
+	}
+
+	waitthread NPCTitanHotdrops( titan, standUp, animation )
+	print( "NPCTitanHotdrops finished!" )
+
+	// vanilla missing behavior: we shouldn't target npc titan in a bubble shield
+	thread MonitorNPCTitanTargetingInBubbleShield( titan )
+}
+
+void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
+{
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	entity soul = titan.GetTitanSoul()
+	if( !IsValid( soul ) )
+		return
+	entity bubbleShield = soul.soul.bubbleShield
+	if ( !IsValid( bubbleShield ) )
+		return
+
+	titan.SetNoTarget( true )
+	print( "Awaiting titan bubble run out!" )
+	WaitSignal( bubbleShield, "OnDestroy" )
+	titan.SetNoTarget( false )
+	print( "Titan bubble has been destroyed!" )
+}
+
 entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void functionref( entity titan ) titanHandler = null )
 {
 	foreach ( entity player in GetPlayerArray() )
@@ -2196,8 +2344,6 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	string squadName = MakeSquadName( team, UniqueString( "ZiplineTable" ) )
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, "npc_titan_buddy")
-	SetSpawnOption_Titanfall( titan )
-	SetSpawnOption_Warpfall( titan )
 	//SetSpawnOption_NPCTitan( titan, TITAN_HENCH ) // mp don't need boss titan setting
     titan.ai.titanSpawnLoadout.setFile = "titan_buddy"
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
@@ -2212,6 +2358,8 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
 	//titan.SetSkin(1) // sarah skin
 	SetSquad( titan, squadName )
+
+	thread ExtraSpawner_NPCTitanDrops( titan )
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
@@ -3184,24 +3332,23 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 			return
 		
 		// Get point and send guy to it
-		points = [] // clean up last points
+		points = [] // clean up last point
+		array<entity> pointsToSearch = []
 		// try to find from npc targets
-		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
-		{
-			// cannot be targeted?
-			if ( npc.GetNoTarget() )
-				continue
-			points.append( npc )
-		}
+		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
 		// try to find from alive player targets
-		foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
+		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		// start searching
+		foreach ( entity ent in pointsToSearch )
 		{
-			// cannot be targeted?
-			if ( player.GetNoTarget() )
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
 				continue
-			points.append( player )
+
+			points.append( ent )
 		}
-		
+
+		ArrayRemoveDead( points ) // remove dead entities
 		if ( points.len() == 0 )
 			continue
 
@@ -3214,7 +3361,8 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 		expect vector( clampedPos )
 		pilot.AssaultPoint( clampedPos )
 
-		wait RandomFloatRange( 5.0, 15.0 ) // random wait
+		// remove random wait to make them more aggresive?
+		//wait RandomFloatRange( 5.0, 15.0 )
 	}
 }
 
@@ -3242,51 +3390,42 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		
 		// Get point and send guy to it
 		points = [] // clean up last points
+		array<entity> pointsToSearch = []
+		// try to find from npc targets
+		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
+		// try to find from alive player targets
+		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
 		// we mostly search for heavy armor targets
 		bool foundHeavyArmorTarget = false
-		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+		// start searching
+		foreach ( entity ent in pointsToSearch )
 		{
-			// cannot be targeted?
-			if ( npc.GetNoTarget() )
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
 				continue
 
-			if ( npc.GetArmorType() == ARMOR_TYPE_HEAVY )
+			if ( ent.GetArmorType() == ARMOR_TYPE_HEAVY )
 			{
-				points.append( npc )
+				points.append( ent )
 				foundHeavyArmorTarget = true
 			}
 		}
-		foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
-		{
-			// cannot be targeted?
-			if ( player.GetNoTarget() )
-				continue
 
-			if ( player.IsTitan() )
-			{
-				points.append( player )
-				foundHeavyArmorTarget = true
-			}
-		}
-		if ( !foundHeavyArmorTarget ) // can't find any heavyarmor target!
+		// can't find any heavyarmor target!
+		if ( !foundHeavyArmorTarget )
 		{
 			// use all targets instead
-			foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+			foreach ( entity ent in pointsToSearch )
 			{
-				// cannot be targeted?
-				if ( npc.GetNoTarget() )
+				// general check
+				if ( !IsValidNPCAssaultTarget( ent ) )
 					continue
-				points.append( npc )
-			}
-			foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
-			{
-				// cannot be targeted?
-				if ( player.GetNoTarget() )
-					continue
-				points.append( player )
+
+				points.append( ent )
 			}
 		}
 
+		ArrayRemoveDead( points ) // remove dead entities
 		if ( points.len() == 0 ) // no points valid!
 			continue
 
@@ -3299,7 +3438,8 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		expect vector( clampedPos )
 		titan.AssaultPoint( clampedPos )
 
-		wait RandomFloatRange( 10.0, 20.0 ) // random wait
+		// remove random wait to make them more aggresive?
+		//wait RandomFloatRange( 10.0, 20.0 )
 	}
 }
 
@@ -3624,22 +3764,20 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		if ( !IsAlive( reaper ) )
 			return
 
-		points = [] // clean up last point
+		points = [] // clean up last points
+		array<entity> pointsToSearch = []
 		// try to find from npc targets
-		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
-		{
-			// cannot be targeted?
-			if ( npc.GetNoTarget() )
-				continue
-			points.append( npc )
-		}
+		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
 		// try to find from alive player targets
-		foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
+		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		// start searching
+		foreach ( entity ent in pointsToSearch )
 		{
-			// cannot be targeted?
-			if ( player.GetNoTarget() )
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
 				continue
-			points.append( player )
+
+			points.append( ent )
 		}
 
 		ArrayRemoveDead( points ) // remove dead targets
@@ -3655,6 +3793,7 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		expect vector( clampedPos )
 		reaper.AssaultPoint( clampedPos )
 
-		wait RandomFloatRange( 10.0, 20.0 )
+		// remove random wait to make them more aggresive?
+		//wait RandomFloatRange( 10.0, 20.0 )
 	}
 }

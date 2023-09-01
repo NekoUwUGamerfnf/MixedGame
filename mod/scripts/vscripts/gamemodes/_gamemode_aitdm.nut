@@ -464,6 +464,41 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 	return RandomInt( points.len() )
 }
 
+// utility for handling assault target
+bool function IsValidNPCAssaultTarget( entity ent )
+{
+	// got killed but still valid?
+	if ( !IsAlive( ent ) )
+		return false
+
+	// cannot be targeted?
+	if ( ent.GetNoTarget() ) 
+		return false
+
+	// is invulnerable?
+	if ( ent.IsInvulnerable() )
+		return false
+	
+	// npc
+	if ( ent.IsNPC() )
+	{
+		// titan
+		if ( ent.IsTitan() )
+		{
+			// is hot dropping?
+			if ( ent.e.isHotDropping )
+				return false
+
+			// is player owned?
+			if ( ent.GetBossPlayer() )
+				return false
+		}
+	}
+
+	// all checks passed
+	return true
+}
+
 // tells infantry where to go
 // In vanilla there seem to be preset paths ai follow to get to the other teams vone and capture it
 // AI can also flee deeper into their zone suggesting someone spent way too much time on this
@@ -520,22 +555,24 @@ void function SquadHandler( array<entity> guys )
 
 		// Get point and send our whole squad to it
 		points = []
-		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
+		array<entity> pointsToSearch = []
+		// try to find from npc targets
+		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
+		// start searching
+		foreach ( entity ent in pointsToSearch )
 		{
-			// cannot be targeted?
-			if ( npc.GetNoTarget() ) 
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
 				continue
 
-			// only search for npcs with light armor if we don't have proper weapon
-			if ( !hasHeavyArmorWeapon && npc.GetArmorType() == ARMOR_TYPE_HEAVY )
-				continue
-			
-			// is player owned?
-			if ( npc.GetBossPlayer() )
+			// infantry specific
+			// only search for targets with light armor if we don't have proper weapon
+			if ( !hasHeavyArmorWeapon && ent.GetArmorType() == ARMOR_TYPE_HEAVY )
 				continue
 
-			points.append( npc )
+			points.append( ent )
 		}
+
 		ArrayRemoveDead( points ) // remove dead targets
 		if ( points.len() == 0 ) // can't find any points here
 			continue
@@ -557,7 +594,7 @@ void function SquadHandler( array<entity> guys )
 			}
 		}
 
-		wait RandomFloatRange(5.0,15.0)
+		//wait RandomFloatRange(5.0,15.0) // remove random wait to make them more aggresive?
 	}
 }
 
@@ -593,22 +630,20 @@ void function ReaperHandler( entity reaper )
 		if ( !IsAlive( reaper ) )
 			return
 
-		points = [] // clean up last point
+		points = [] // clean up last points
+		array<entity> pointsToSearch = []
 		// try to find from npc targets
-		foreach ( entity npc in GetNPCArrayOfEnemies( team ) )
-		{
-			// cannot be targeted?
-			if ( npc.GetNoTarget() )
-				continue
-			points.append( npc )
-		}
+		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
 		// try to find from alive player targets
-		foreach ( entity player in GetPlayerArrayOfEnemies_Alive( team ) )
+		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+		// start searching
+		foreach ( entity ent in pointsToSearch )
 		{
-			// cannot be targeted?
-			if ( player.GetNoTarget() )
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
 				continue
-			points.append( player )
+
+			points.append( ent )
 		}
 
 		ArrayRemoveDead( points ) // remove dead targets
@@ -624,7 +659,7 @@ void function ReaperHandler( entity reaper )
 		expect vector( clampedPos )
 		reaper.AssaultPoint( clampedPos )
 
-		wait RandomFloatRange( 10.0, 20.0 )
+		//wait RandomFloatRange( 10.0, 20.0 ) // remove random wait to make them more aggresive?
 	}
 	// thread AITdm_CleanupBoredNPCThread( reaper )
 }

@@ -110,7 +110,6 @@ void function AiGameModes_SpawnReaper( vector pos, vector rot, int team, string 
 	SetDefaultMPEnemyHighlight( reaper )
 	Highlight_SetEnemyHighlight( reaper, "enemy_titan" )
 
-	SetSpawnOption_Titanfall( reaper )
 	SetSpawnOption_Warpfall( reaper )
 	
 	if ( aiSettings != "" )
@@ -174,20 +173,42 @@ void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, boo
 }
 
 // including aisettings stuff specifically for at bounty titans
+const float TITAN_WARPFALL_DELAY = 3.7 // titan takes ~1.2s to warpfall
 const float TITANFALL_WARNING_DURATION = 5.0
 void function AiGameModes_SpawnTitan( vector pos, vector rot, int team, string setFile, string aiSettings = "", void functionref( entity titan ) titanHandler = null )
 {
-	entity titan = CreateNPCTitan( setFile, TEAM_BOTH, pos, rot )
-	SetSpawnOption_Titanfall( titan )
-	SetSpawnOption_Warpfall( titan )
-
-	// modified: do a hotdrop spawnpoint warning
 	thread HotDrop_Spawnpoint( pos, team, TITANFALL_WARNING_DURATION, false, damagedef_titan_fall )
+
+	// warpfall variant
+	// taken from _replacement_titans.gnut
+	if ( Flag( "LevelHasRoof" ) )
+	{
+		wait TITAN_WARPFALL_DELAY - WARPFALL_FX_DELAY
+
+		asset model = GetPlayerSettingsAssetForClassName( setFile, "bodymodel" )
+		Attachment warpAttach = GetAttachmentAtTimeFromModel( model, "at_hotdrop_drop_2knee_turbo_upgraded", "offset", pos, rot, 0 )
+		PlayFX( TURBO_WARP_FX, warpAttach.position + Vector(0,0,-104), warpAttach.angle )
+		EmitSoundAtPosition( team, pos, "Titan_3P_Warpfall_Start" )
+
+		wait WARPFALL_FX_DELAY
+	}
+
+	entity titan = CreateNPCTitan( setFile, team, pos, rot )
+	// normal titanfall
+	if ( !Flag( "LevelHasRoof" ) )
+		SetSpawnOption_Titanfall( titan )
 	
 	if ( aiSettings != "" )
 		SetSpawnOption_AISettings( titan, aiSettings )
 	
 	DispatchSpawn( titan )
+
+	// warpfall variant
+	if ( Flag( "LevelHasRoof" ) )
+	{
+		thread PlayFXOnEntity( TURBO_WARP_COMPANY, titan, "offset" )
+		thread NPCTitanHotdrops( titan, true, "at_hotdrop_drop_2knee_turbo_upgraded" )
+	}
 	
 	if ( titanHandler != null )
 		thread titanHandler( titan )
