@@ -22,7 +22,7 @@ const float EXPLOSION_DELAY = 0.1
 const float FX_END_CAP_TIME = 1.5
 
 // Bleedout balance
-const float PULL_DELAY_BLEEDOUT = 0.75 // was 0.8 or 0.75
+const float PULL_DELAY_BLEEDOUT = 0.7 // was 0.8 or 0.75
 
 struct
 {
