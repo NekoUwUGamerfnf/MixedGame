@@ -13,10 +13,6 @@ entity function CreateEditorProp(asset a, vector pos, vector ang, bool mantle = 
 
 void function CodeCallback_MapInit()
 {
-	// northstar missing: mark this map as "HasRoof"
-	// so replacement titans will try to warpfall
-	FlagSet( "LevelHasRoof" )
-	
 	SetupLiveFireMaps()
 
 	// worker drone model
