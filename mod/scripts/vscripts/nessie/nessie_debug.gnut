@@ -91,6 +91,8 @@ void function NessieDebug_Init()
 
 	//AddClientCommandCallback( "fp_animation", CC_DoFirstPersonSequence )
 
+	AddClientCommandCallback( "personal_titan_shield", CC_SpawnPersonalTitanShield )
+
 	#if !DEBUG_ONLY_COMMANDS
 		// new test things
 		// these has been turn to unused
@@ -558,37 +560,6 @@ bool function CC_SpawnDroneWorker( entity player, array<string> args )
 	return true
 }
 
-bool function CC_DoFirstPersonSequence( entity player, array<string> args )
-{
-	entity fpProxy = player.GetPredictedFirstPersonProxy()
-	if ( args.len() == 0 )
-	{
-		if ( fpProxy.Anim_IsActive() )
-			fpProxy.Anim_Stop()
-		return true
-	}
-
-	thread WeaponHolsteringSequenceThink( player, args[0] )
-
-	return true
-}
-
-void function WeaponHolsteringSequenceThink( entity player, string fpAnim )
-{
-	player.EndSignal( "OnDestroy" )
-
-	entity fpProxy = player.GetPredictedFirstPersonProxy()
-	FirstPersonSequenceStruct sequence
-	sequence.firstPersonAnim = fpAnim
-	if ( fpProxy.Anim_HasSequence( sequence.firstPersonAnim ) )
-	{
-		HolsterAndDisableWeapons( player )
-		thread FirstPersonSequence( sequence, player )
-		WaitSignal( player, "OnAnimationInterrupted", "OnAnimationDone", "OnDeath" )
-		DeployAndEnableWeapons( player )
-	}
-}
-
 bool function DissolveCoreEffectOnPlayer( entity player, array<string> args )
 {
 	player.DissolveNonLethal( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 500 ), 500 )
@@ -721,6 +692,279 @@ function OnUseWeaponProp( weaponProp, player )
 {
 	expect entity( player )
 	player.Die( player, player, { damageSourceId = damagedef_suicide } )
+}
+
+bool function CC_DoFirstPersonSequence( entity player, array<string> args )
+{
+	entity fpProxy = player.GetPredictedFirstPersonProxy()
+	if ( args.len() == 0 )
+	{
+		if ( fpProxy.Anim_IsActive() )
+			fpProxy.Anim_Stop()
+		return true
+	}
+
+	thread WeaponHolsteringSequenceThink( player, args[0] )
+
+	return true
+}
+
+void function WeaponHolsteringSequenceThink( entity player, string fpAnim )
+{
+	player.EndSignal( "OnDestroy" )
+
+	entity fpProxy = player.GetPredictedFirstPersonProxy()
+	FirstPersonSequenceStruct sequence
+	sequence.firstPersonAnim = fpAnim
+	if ( fpProxy.Anim_HasSequence( sequence.firstPersonAnim ) )
+	{
+		HolsterAndDisableWeapons( player )
+		thread FirstPersonSequence( sequence, player )
+		WaitSignal( player, "OnAnimationInterrupted", "OnAnimationDone", "OnDeath" )
+		DeployAndEnableWeapons( player )
+	}
+}
+
+bool function CC_SpawnPersonalTitanShield( entity player, array<string> args )
+{
+	TitanPersonalShield( player )
+	//TitanPersonalShield( player, 1500, 15, 0.1 )
+	//thread ActivatePersonalShield_Recreate( player, 15 )
+	return true
+}
+
+/*
+entity function TitanPersonalShield( entity owner, int vortexHealth = 1500, float duration = -1 )
+{
+	//------------------------------
+	// Shield vars
+	//------------------------------
+	vector origin = owner.GetOrigin()
+	vector angles = owner.GetAngles() + Vector( 0, 0, 180 )
+
+	float shieldWallRadius = SHIELD_WALL_RADIUS // 90
+	asset shieldFx = SHIELD_WALL_FX
+	float wallFOV = SHIELD_WALL_FOV
+	float shieldWallHeight = SHIELD_WALL_RADIUS * 2
+
+	//------------------------------
+	// Vortex to block the actual bullets
+	//------------------------------
+	entity vortexSphere = CreateEntity( "vortex_sphere" )
+
+	vortexSphere.kv.spawnflags = SF_ABSORB_BULLETS | SF_BLOCK_OWNER_WEAPON | SF_BLOCK_NPC_WEAPON_LOF | SF_ABSORB_CYLINDER
+	vortexSphere.kv.enabled = 0
+	vortexSphere.kv.radius = shieldWallRadius
+	vortexSphere.kv.height = shieldWallHeight
+	vortexSphere.kv.bullet_fov = wallFOV
+	vortexSphere.kv.physics_pull_strength = 25
+	vortexSphere.kv.physics_side_dampening = 6
+	vortexSphere.kv.physics_fov = 360
+	vortexSphere.kv.physics_max_mass = 2
+	vortexSphere.kv.physics_max_size = 6
+
+	vortexSphere.SetAngles( angles ) // viewvec?
+	vortexSphere.SetOrigin( origin + Vector( 0, 0, shieldWallRadius - 64 ) )
+
+	vortexSphere.SetMaxHealth( vortexHealth )
+	vortexSphere.SetHealth( vortexHealth )
+	SetTeam( vortexSphere, owner.GetTeam() )
+
+	DispatchSpawn( vortexSphere )
+	if ( duration > 0 )
+		thread ShieldDestroyAfterTime( vortexSphere, owner, duration )
+
+	EntFireByHandle( vortexSphere, "Enable", "", 0, null, null )
+
+	vortexSphere.SetTakeDamageType( DAMAGE_YES )
+	vortexSphere.ClearInvulnerable() // make particle wall invulnerable to weapon damage. It will still drain over time
+
+	//------------------------------------------
+	// Shield wall fx for visuals/health drain
+	//------------------------------------------
+	entity cpoint = CreateEntity( "info_placement_helper" )
+	SetTargetName( cpoint, UniqueString( "shield_wall_controlpoint" ) )
+	DispatchSpawn( cpoint )
+
+	entity mover = CreateScriptMover()
+	mover.SetOrigin( owner.GetOrigin() )
+	vector moverAngles = owner.GetPlayerOrNPCViewVector()
+	moverAngles = VectorToAngles( moverAngles )
+	mover.SetAngles( AnglesCompose( moverAngles, <0,0,180> ) )
+
+	int fxid = GetParticleSystemIndex( shieldFx )
+	entity shieldWallFX = StartParticleEffectOnEntity_ReturnEntity( mover, fxid, FX_PATTACH_ABSORIGIN_FOLLOW, 0 )
+	shieldWallFX.DisableHibernation()
+	EffectSetControlPointEntity( shieldWallFX, 0, mover )
+
+	//thread DrawArrowOnTag( mover )
+	vortexSphere.e.shieldWallFX = shieldWallFX
+	vector color = GetShieldTriLerpColor( 0.0 )
+
+	// update fx origin
+	shieldWallFX.SetOrigin( Vector( 0, 0, -shieldWallHeight ) )
+
+	cpoint.SetOrigin( color )
+	EffectSetControlPointEntity( shieldWallFX, 1, cpoint )
+	SetVortexSphereShieldWallCPoint( vortexSphere, cpoint )
+
+	//-----------------------
+	// Attach shield to owner
+	//------------------------
+	vortexSphere.SetParent( mover )
+
+	vortexSphere.EndSignal( "OnDestroy" )
+	Assert( IsAlive( owner ) )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "ArcStunned" )
+	mover.EndSignal( "OnDestroy" )
+	#if MP
+	shieldWallFX.EndSignal( "OnDestroy" )
+	#endif
+
+	OnThreadEnd(
+	function() : ( owner, mover, vortexSphere )
+		{
+			if ( IsValid( owner ) )
+			{
+				owner.kv.defenseActive = false
+			}
+
+			StopShieldWallFX( vortexSphere )
+
+			if ( IsValid( vortexSphere ) )
+				vortexSphere.Destroy()
+
+			if ( IsValid( mover ) )
+			{
+				//PlayFX( SHIELD_BREAK_FX, mover.GetOrigin(), mover.GetAngles() )
+				mover.Destroy()
+			}
+		}
+	)
+
+	owner.kv.defenseActive = true
+
+	for ( ;; )
+	{
+		Assert( IsAlive( owner ) )
+		UpdateShieldPosition( mover, owner )
+
+		#if MP
+		if ( IsCloaked( owner ) )
+			EntFireByHandle( shieldWallFX, "Stop", "", 0, null, null )
+		else
+			EntFireByHandle( shieldWallFX, "Start", "", 0, null, null )
+		#endif
+	}
+}
+*/
+
+void function TitanPersonalShield( entity owner, int vortexHealth = 1500, float duration = 15, float shieldMoveSpeedScale = 1.0 )
+{
+	thread TitanPersonalShield_Threaded( owner, vortexHealth, duration, shieldMoveSpeedScale )
+}
+
+void function TitanPersonalShield_Threaded( entity owner, int vortexHealth, float duration, float shieldMoveSpeedScale )
+{
+	if ( duration <= 0 )
+		return
+	//------------------------------
+	// Shield vars
+	//------------------------------
+	vector origin = owner.GetOrigin()
+	vector angles = VectorToAngles( owner.GetPlayerOrNPCViewVector() )
+	angles.x = 0
+	angles.z = 0
+
+	float shieldWallRadius = SHIELD_WALL_RADIUS // 90
+	asset shieldFx = SHIELD_WALL_FX
+	float wallFOV = SHIELD_WALL_FOV
+	float shieldWallHeight = SHIELD_WALL_RADIUS * 2
+
+	//------------------------------
+	// Vortex to block the actual bullets
+	//------------------------------
+	entity vortexSphere = CreateShieldWithSettings( origin + < 0, 0, -64 >, angles, SHIELD_WALL_RADIUS, SHIELD_WALL_RADIUS * 2, SHIELD_WALL_FOV, duration, vortexHealth, SHIELD_WALL_FX )
+	thread DrainHealthOverTime( vortexSphere, vortexSphere.e.shieldWallFX, duration )
+
+	//vortexSphere.SetAngles( angles ) // viewvec?
+	//vortexSphere.SetOrigin( origin + Vector( 0, 0, shieldWallRadius - 64 ) )
+
+	// update fx origin
+	//vortexSphere.e.shieldWallFX.SetOrigin( Vector( 0, 0, shieldWallHeight ) )
+
+	//-----------------------
+	// Attach shield to owner
+	//------------------------
+	entity mover = CreateScriptMover()
+	mover.SetOrigin( origin )
+	mover.SetAngles( angles )
+	
+	vortexSphere.SetParent( mover )
+
+	vortexSphere.EndSignal( "OnDestroy" )
+	Assert( IsAlive( owner ) )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "ArcStunned" )
+	mover.EndSignal( "OnDestroy" )
+	#if MP
+	vortexSphere.e.shieldWallFX.EndSignal( "OnDestroy" )
+	#endif
+
+	OnThreadEnd(
+	function() : ( owner, mover, vortexSphere )
+		{
+			if ( IsValid( owner ) )
+			{
+				owner.kv.defenseActive = false
+			}
+
+			StopShieldWallFX( vortexSphere )
+
+			if ( IsValid( vortexSphere ) )
+				vortexSphere.Destroy()
+
+			if ( IsValid( mover ) )
+			{
+				//PlayFX( SHIELD_BREAK_FX, mover.GetOrigin(), mover.GetAngles() )
+				mover.Destroy()
+			}
+		}
+	)
+
+	owner.kv.defenseActive = true
+
+	for ( ;; )
+	{
+		Assert( IsAlive( owner ) )
+		UpdateShieldPosition( mover, owner, shieldMoveSpeedScale )
+
+		#if MP
+		if ( IsCloaked( owner ) )
+			EntFireByHandle( vortexSphere.e.shieldWallFX, "Stop", "", 0, null, null )
+		else
+			EntFireByHandle( vortexSphere.e.shieldWallFX, "Start", "", 0, null, null )
+		#endif
+	}
+}
+
+void function ShieldDestroyAfterTime( entity vortexSphere, entity owner, float delay )
+{
+	wait delay
+	if( !IsValid(owner) )
+		return
+	if( !IsValid(vortexSphere) )
+		return
+	vortexSphere.SetHealth( 0 )
+}
+
+void function UpdateShieldPosition( entity mover, entity owner, float shieldMoveSpeedScale = 1.0 )
+{
+	float moveTime = 0.1 / shieldMoveSpeedScale
+	mover.NonPhysicsMoveTo( owner.GetOrigin(), moveTime, 0.0, 0.0 )
+
+	WaitFrame()
 }
 
 ///////////////////////////////
