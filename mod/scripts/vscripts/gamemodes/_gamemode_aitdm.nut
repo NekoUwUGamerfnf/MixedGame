@@ -594,7 +594,7 @@ void function SquadHandler( array<entity> guys )
 			}
 		}
 
-		//wait RandomFloatRange(5.0,15.0) // remove random wait to make them more aggresive?
+		wait RandomFloatRange(5.0,15.0)
 	}
 }
 
