@@ -134,17 +134,19 @@ void function AITdm_SetLevelReapers( int level )
 // Starts skyshow, this also requiers AINs but doesn't crash if they're missing
 void function OnPrematchStart()
 {
-	thread StratonHornetDogfightsIntense()
-}
-
-void function OnPlaying()
-{	
 	// don't run spawning code if ains and nms aren't up to date
 	if ( GetAINScriptVersion() == AIN_REV && GetNodeCount() != 0 )
 	{
 		thread SpawnIntroBatch_Threaded( TEAM_MILITIA )
 		thread SpawnIntroBatch_Threaded( TEAM_IMC )
 	}
+
+	thread StratonHornetDogfightsIntense()
+}
+
+void function OnPlaying()
+{
+
 }
 
 // Sets up mode specific hud on client
@@ -293,6 +295,13 @@ void function SpawnIntroBatch_Threaded( int team )
 
 	shipNodes = GetValidIntroDropShipSpawn( podNodes )
 
+	// calculate intro spawn delay
+	float introLength = ClassicMP_GetIntroLength()
+	float introSpawnRequiredTime = expect float( GetDropPodAnimDuration() )
+
+	float introSpawnWait = introLength - introSpawnRequiredTime
+	if ( introSpawnWait > 0 )
+		wait introSpawnWait
 
 	// Spawn logic
 	int startIndex = 0
