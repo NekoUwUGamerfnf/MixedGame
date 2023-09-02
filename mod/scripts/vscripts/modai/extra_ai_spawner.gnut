@@ -67,9 +67,6 @@ global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
 // these are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
-// modifiablt consts
-const float TITANFALL_WARNING_DURATION = 5.0
-
 // debug
 //global function PrintPrimaryAttackSignal
 
@@ -576,6 +573,9 @@ void function NPCBruteLoadout( entity titan )
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 		MeleeSyncedTitan_SetSoulShouldReplaceLoadoutOnExecution( soul, true ) // required for executions behave nicely
+
+	// may needs to update spawn loadout
+	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
 }
 
 void function NPCBisonLoadout( entity titan )
@@ -610,6 +610,9 @@ void function NPCBisonLoadout( entity titan )
 		titan.SetCamo( 19 ) // shadow
 	if ( team == TEAM_MILITIA )
 		titan.SetCamo( 1 ) // forest
+
+	// may needs to update spawn loadout
+	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
 }
 
 void function NPCBrute4Loadout( entity titan )
@@ -645,6 +648,9 @@ void function NPCBrute4Loadout( entity titan )
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
 		titan.SetCamo( 1 ) // forest
 	}
+
+	// may needs to update spawn loadout
+	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
 }
 
 void function NPCArchonLoadout( entity titan )
@@ -686,6 +692,9 @@ void function NPCArchonLoadout( entity titan )
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
 		titan.SetCamo( 1 ) // forest
 	}
+
+	// may needs to update spawn loadout
+	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
 }
 
 // npc pilot score event, better be added by gamemodes
@@ -902,6 +911,9 @@ void function BossLoadout_Jack( entity titan )
 		MeleeSyncedTitan_SetSoulCanBeExecuted( soul, false ) // cannot execute BT, they don't have enough animations
 		Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // bt don't have battery on hatch, don't allow removing
 	}
+
+	// may needs to update spawn loadout
+	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
 }
 
 void function BossLoadout_Sarah( entity titan )
@@ -928,6 +940,9 @@ void function BossLoadout_Sarah( entity titan )
 		MeleeSyncedTitan_SetSoulCanBeExecuted( soul, false ) // cannot execute BT, they don't have enough animations
 		Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // bt don't have battery on hatch, don't allow removing
 	}
+
+	// may needs to update spawn loadout
+	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
 }
 
 void function BossLoadout_SarahMonarch( entity titan )
@@ -949,6 +964,9 @@ void function BossLoadout_SarahMonarch( entity titan )
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 		PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( soul, false )	// disable earnmeter smoke availability, they already have electric smoke
+
+	// may needs to update spawn loadout
+	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
 }
 
 void function InitDefaultNPCHandlerFunctions()
@@ -2029,7 +2047,8 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 		}
 
 		// remove random wait to make them more aggresive?
-		//wait RandomFloatRange(5.0,15.0)
+		// never do it. too many assault point can make them move really silly
+		wait RandomFloatRange(5.0,15.0)
 	}
 }
 
@@ -2071,12 +2090,6 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 	loadoutFunction		= currentTitan.loadoutFunction
 	imcSkinIndex 		= currentTitan.imcSkinIndex
 	mltSkinIndex 		= currentTitan.mltSkinIndex
-	
-	// friendly warning
-	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
-	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + TITANFALL_WARNING_DURATION )
-	// enemy warning
-	thread HotDrop_Spawnpoint( pos, team, TITANFALL_WARNING_DURATION, false, damagedef_titan_fall )
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiSet )
@@ -2155,12 +2168,6 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	skinIndex 			= currentTitan.skinIndex
 	decalIndex 			= currentTitan.decalIndex
 
-	// friendly warning
-	foreach ( entity player in GetPlayerArrayOfTeam( team ) )
-	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + TITANFALL_WARNING_DURATION )
-	// enemy warning
-	thread HotDrop_Spawnpoint( pos, team, TITANFALL_WARNING_DURATION, false, damagedef_titan_fall )
-
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiSet )
 
@@ -2235,6 +2242,7 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	return titan
 }
 
+const float TITANFALL_WARNING_DURATION = 5.0
 void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 {
 	titan.EndSignal( "OnDeath" )
@@ -2249,13 +2257,15 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 	vector angles = titan.GetAngles()
 
 	// warpfall
-	// copied from _replacement_titans.gnut
+	// methods taken from _replacement_titans.gnut
 	bool hasWarpfall = loadout.passive3 == "pas_warpfall"
 	if ( hasWarpfall || Flag( "LevelHasRoof" ) )
 	{
 		animation = "at_hotdrop_drop_2knee_turbo_upgraded"
 
+		// we're trying to warpfall an existing titan
 		// we don't want to show the titan nor destroying it... so we try to hide it
+		titan.SetInvulnerable()
 		if ( !titan.IsFrozen() )
 			titan.Freeze()
 		titan.NotSolid()
@@ -2272,20 +2282,28 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 		titan.SetNoTarget( true )
 		titan.SetAimAssistAllowed( false )
 
-		string settings = loadout.setFile
-		asset model = GetPlayerSettingsAssetForClassName( settings, "bodymodel" )
+		asset model = titan.GetModelName()
 		Attachment warpAttach = GetAttachmentAtTimeFromModel( model, animation, "offset", origin, angles, 0 )
 
 		float impactTime = GetHotDropImpactTime( titan, animation )
 
 		float diff = 0.0
 
+		float warningDuration = impactTime
 		if ( !hasWarpfall ) // this means the level requested the warpfall
 		{
 			float regularImpactTime = GetHotDropImpactTime( titan, regularTitanfallAnim ) - (WARPFALL_SOUND_DELAY + WARPFALL_FX_DELAY)
 			diff = ( regularImpactTime - impactTime )
 			impactTime = regularImpactTime
+
+			warningDuration = GetHotDropImpactTime( titan, regularTitanfallAnim )
 		}
+
+		// friendly warning
+		foreach ( entity player in GetPlayerArrayOfTeam( team ) )
+			Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", origin.x, origin.y, origin.z, Time() + warningDuration )
+		// enemy warning
+		thread HotDrop_Spawnpoint( origin, team, warningDuration, false, damagedef_titan_fall )
 
 		EmitSoundAtPosition( team, origin, "Titan_3P_Warpfall_CallIn" )
 
@@ -2298,6 +2316,7 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 		wait WARPFALL_FX_DELAY
 
 		// restore visibility
+		titan.ClearInvulnerable()
 		if ( titan.IsFrozen() )
 			titan.Unfreeze()
 		titan.Solid()
@@ -2309,14 +2328,25 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 
 		thread PlayFXOnEntity( TURBO_WARP_COMPANY, titan, "offset" )
 	}
+	else // titanfall
+	{
+		float impactTime = GetHotDropImpactTime( titan, animation )
+		// friendly warning
+		foreach ( entity player in GetPlayerArrayOfTeam( team ) )
+			Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", origin.x, origin.y, origin.z, Time() + impactTime )
+		// enemy warning
+		thread HotDrop_Spawnpoint( origin, team, impactTime, false, damagedef_titan_fall )
+	}
 
-	waitthread NPCTitanHotdrops( titan, standUp, animation )
-	print( "NPCTitanHotdrops finished!" )
+	thread NPCTitanHotdrops( titan, standUp, animation )
+	titan.WaitSignal( "TitanHotDropComplete" )
+	//print( "NPCTitanHotdrops finished!" )
 
 	// vanilla missing behavior: we shouldn't target npc titan in a bubble shield
 	thread MonitorNPCTitanTargetingInBubbleShield( titan )
 }
 
+const float NPC_BUBBLE_FALLSAFE_DELAY = 3.0
 void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
 {
 	titan.EndSignal( "OnDeath" )
@@ -2324,15 +2354,27 @@ void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
 	entity soul = titan.GetTitanSoul()
 	if( !IsValid( soul ) )
 		return
-	entity bubbleShield = soul.soul.bubbleShield
+	
+	// find bubble shield
+	WaitEndFrame() // wait for next frame so we won't be cleared notarget by NPCTitanHotdrops()
+	float maxWait = Time() + NPC_BUBBLE_FALLSAFE_DELAY
+	entity bubbleShield
+	while ( Time() < maxWait )
+	{
+		bubbleShield = soul.soul.bubbleShield
+		if ( IsValid( bubbleShield ) )
+			break
+
+		WaitFrame()
+	}
 	if ( !IsValid( bubbleShield ) )
 		return
 
 	titan.SetNoTarget( true )
-	print( "Awaiting titan bubble run out!" )
+	//print( "Awaiting titan bubble run out!" )
 	WaitSignal( bubbleShield, "OnDestroy" )
 	titan.SetNoTarget( false )
-	print( "Titan bubble has been destroyed!" )
+	//print( "Titan bubble has been destroyed!" )
 }
 
 entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void functionref( entity titan ) titanHandler = null )
@@ -3362,7 +3404,8 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 		pilot.AssaultPoint( clampedPos )
 
 		// remove random wait to make them more aggresive?
-		//wait RandomFloatRange( 5.0, 15.0 )
+		// never do it. too many assault point can make them move really silly
+		wait RandomFloatRange( 5.0, 15.0 )
 	}
 }
 
@@ -3439,7 +3482,8 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		titan.AssaultPoint( clampedPos )
 
 		// remove random wait to make them more aggresive?
-		//wait RandomFloatRange( 10.0, 20.0 )
+		// never do it. too many assault point can make them move really silly
+		wait RandomFloatRange( 10.0, 20.0 )
 	}
 }
 
@@ -3794,6 +3838,7 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		reaper.AssaultPoint( clampedPos )
 
 		// remove random wait to make them more aggresive?
-		//wait RandomFloatRange( 10.0, 20.0 )
+		// never do it. too many assault point can make them move really silly
+		wait RandomFloatRange( 10.0, 20.0 )
 	}
 }
