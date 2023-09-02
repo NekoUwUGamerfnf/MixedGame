@@ -131,7 +131,6 @@ void function AITdm_SetLevelReapers( int level )
 	file.levelReapers = level
 }
 
-// Starts skyshow, this also requiers AINs but doesn't crash if they're missing
 void function OnPrematchStart()
 {
 	// don't run spawning code if ains and nms aren't up to date
@@ -141,7 +140,9 @@ void function OnPrematchStart()
 		thread SpawnIntroBatch_Threaded( TEAM_IMC )
 	}
 
-	thread StratonHornetDogfightsIntense()
+	// Starts skyshow, this also requiers AINs but doesn't crash if they're missing
+	if ( !Flag( "LevelHasRoof" ) )
+		thread StratonHornetDogfightsIntense()
 }
 
 void function OnPlaying()
