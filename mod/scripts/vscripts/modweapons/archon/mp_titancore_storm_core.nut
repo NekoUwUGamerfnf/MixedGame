@@ -201,6 +201,10 @@ void function StopOffhandAnimationAfterDelay( entity titan, float delay )
 	if ( titan.IsPlayer() )
 		titan.Anim_StopGesture( 0 )
 	else
-		titan.Anim_Stop()
+	{
+		// never end animation if we're in a context action!
+		if ( !titan.ContextAction_IsActive() && !titan.ContextAction_IsBusy() )
+			titan.Anim_Stop()
+	}
 }
 #endif
