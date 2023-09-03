@@ -14,13 +14,21 @@ global function FW_IsPlayerInFriendlyTerritory
 global function FW_IsPlayerInEnemyTerritory
 
 // callbacks for mods to reduce harvester damage of modded weapons
-global function FW_Harvester_AddDamagedCallback
-global function FW_Harvester_RemoveDamagedCallback
-global function FW_Harvester_AddPostDamagedCallback
-global function FW_Harvester_RemovePostDamagedCallback
+global function FW_Harvester_AddFinalDamageCallback
+global function FW_Harvester_RemoveFinalDamageCallback
+global function FW_Harvester_AddPostDamageCallback
+global function FW_Harvester_RemovePostDamageCallback
 
-global function FW_Turret_AddDamagedCallback
-global function FW_Turret_RemoveDamagedCallback
+// separented callback from northstar PR #579
+global function FW_AddHarvesterDamageSourceModifier
+global function FW_RemoveHarvesterDamageSourceModifier
+
+// callbacks for mods to reduce harvester damage of modded weapons
+global function FW_Turret_AddFinalDamageCallback
+global function FW_Turret_RemoveFinalDamageCallback
+
+global function FW_AddTurretDamageSourceModifier
+global function FW_RemoveTurretDamageSourceModifier
 
 // you need to deal this much damage to trigger "FortWarTowerDamage" score event
 const int FW_HARVESTER_DAMAGE_SEGMENT = 5250
@@ -111,9 +119,13 @@ struct
 	table< int, float > teamTerrLastConnectTime // team, time
 
 	// damage callbacks
-	array<void functionref( entity, var )> harvesterDamagedCallbacks
-	array<void functionref( entity, var )> harvesterPostDamagedCallbacks
-	array<void functionref( entity, var )> turretDamagedCallbacks	
+	array<void functionref( entity, var )> harvesterFinalDamageCallbacks
+	array<void functionref( entity, var )> harvesterPostDamageCallbacks
+	array<void functionref( entity, var )> turretFinalDamageCallbacks
+
+	// Stores damage source IDs and the modifier applied to them when they damage a harvester
+	table< int, float > harvesterDamageSourceMods
+	table< int, float > turretDamageSourceMods
 
 	// unused
 	array<entity> etitaninmlt
@@ -1411,7 +1423,7 @@ void function OnFWTurretSpawned( entity turret )
 {
 	turret.EnableTurret() // always enabled
 	SetDefaultMPEnemyHighlight( turret ) // for sonar highlights to work
-	AddEntityCallback_OnDamaged( turret, OnMegaTurretDamaged )
+	AddEntityCallback_OnFinalDamaged( turret, OnMegaTurretFinalDamaged )
 	thread FWTurretHighlightThink( turret )
 }
 
@@ -1465,27 +1477,46 @@ entity function FW_ReplaceMegaTurret( entity perviousTurret )
 }
 
 // damage callbacks
-void function FW_Turret_AddDamagedCallback( void functionref( entity turret, var damageInfo ) callbackFunc )
+void function FW_Turret_AddFinalDamageCallback( void functionref( entity turret, var damageInfo ) callbackFunc )
 {
-	if ( !( file.turretDamagedCallbacks.contains( callbackFunc ) ) )
-		file.turretDamagedCallbacks.append( callbackFunc )
+	if ( !( file.turretFinalDamageCallbacks.contains( callbackFunc ) ) )
+		file.turretFinalDamageCallbacks.append( callbackFunc )
 }
 
-void function FW_Turret_RemoveDamagedCallback( void functionref( entity turret, var damageInfo ) callbackFunc )
+void function FW_Turret_RemoveFinalDamageCallback( void functionref( entity turret, var damageInfo ) callbackFunc )
 {
-	if ( file.turretDamagedCallbacks.contains( callbackFunc ) )
-		file.turretDamagedCallbacks.fastremovebyvalue( callbackFunc )
+	if ( file.turretFinalDamageCallbacks.contains( callbackFunc ) )
+		file.turretFinalDamageCallbacks.fastremovebyvalue( callbackFunc )
+}
+
+void function FW_AddTurretDamageSourceModifier( int id, float mod )
+{
+	if ( !( id in file.turretDamageSourceMods ) )
+		file.turretDamageSourceMods[id] <- 1.0
+
+	file.turretDamageSourceMods[id] *= mod
+}
+
+void function FW_RemoveTurretDamageSourceModifier( int id, float mod )
+{
+	if ( !( id in file.turretDamageSourceMods ) )
+		return
+
+	file.turretDamageSourceMods[id] /= mod
+
+	if ( file.turretDamageSourceMods[id] == 1.0 )
+		delete file.turretDamageSourceMods[id]
 }
 
 // avoid notifications overrides itself
 const float TURRET_NOTIFICATION_DEBOUNCE = 10.0
 
-void function OnMegaTurretDamaged( entity turret, var damageInfo )
+void function OnMegaTurretFinalDamaged( entity turret, var damageInfo )
 {
 	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	// run callbacks
-	foreach ( void functionref( entity, var ) callbackFunc in file.turretDamagedCallbacks )
+	foreach ( void functionref( entity, var ) callbackFunc in file.turretFinalDamageCallbacks )
 		callbackFunc( turret, damageInfo )
 	// get modified damage
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
@@ -1494,14 +1525,6 @@ void function OnMegaTurretDamaged( entity turret, var damageInfo )
 
 	if ( !damageSourceID && !damageAmount && !attacker )
 		return
-
-	if ( damageSourceID == eDamageSourceId.mp_titanweapon_heat_shield ||
-	damageSourceID == eDamageSourceId.mp_titanweapon_meteor_thermite ||
-	damageSourceID == eDamageSourceId.mp_titanweapon_flame_wall ||
-	damageSourceID == eDamageSourceId.mp_titanability_slow_trap ||
-	damageSourceID == eDamageSourceId.mp_titancore_flame_wave_secondary
-	) // scorch's thermite damages
-		DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo )/2 ) // nerf scorch
 
 	if( turret.GetShieldHealth() - damageAmount <= 0 && scriptType != damageTypes.rodeoBatteryRemoval ) // this shot breaks shield
 	{
@@ -1536,7 +1559,7 @@ void function OnMegaTurretDamaged( entity turret, var damageInfo )
 
 void function InitDefaultTurretDamageCallbacks()
 {
-	FW_Turret_AddDamagedCallback( TurretDamageModifier )
+	FW_Turret_AddFinalDamageCallback( TurretDamageModifier )
 }
 
 const float TURRET_NUKE_DAMAGE_FRAC = 0.0 // for nuke titans. normally player titan nuke won't do any damage because the nuke damage attacker is player, but player is no longer a titan. just for handling sometimes player nuke then disconnect
@@ -1568,6 +1591,10 @@ void function TurretDamageModifier( entity turret, var damageInfo )
 			DamageInfo_ScaleDamage( damageInfo, TURRET_LOCKON_DAMAGE_FRAC )
 			break
 	}
+
+	// run modded weapon damage modifiers
+	if ( damageSourceID in file.turretDamageSourceMods )
+		DamageInfo_ScaleDamage( damageInfo, file.turretDamageSourceMods[ damageSourceID ] )
 }
 
 void function InitTurretSettings()
@@ -1811,85 +1838,91 @@ void function FW_createHarvester()
 {
 	// imc havester spawn
 	fw_harvesterImc = SpawnHarvester( file.harvesterImc_info.GetOrigin(), file.harvesterImc_info.GetAngles(), GetCurrentPlaylistVarInt( "fw_harvester_health", FW_DEFAULT_HARVESTER_HEALTH ), GetCurrentPlaylistVarInt( "fw_harvester_shield", FW_DEFAULT_HARVESTER_SHIELD ), TEAM_IMC )
-	// map settings
-	fw_harvesterImc.harvester.Minimap_SetAlignUpright( true )
-	fw_harvesterImc.harvester.Minimap_AlwaysShow( TEAM_IMC, null )
-	fw_harvesterImc.harvester.Minimap_AlwaysShow( TEAM_MILITIA, null )
-	fw_harvesterImc.harvester.Minimap_SetHeightTracking( true )
-	fw_harvesterImc.harvester.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
-	fw_harvesterImc.harvester.Minimap_SetCustomState( eMinimapObject_prop_script.FD_HARVESTER )
-	// damage settings
-	fw_harvesterImc.harvester.SetArmorType( ARMOR_TYPE_HEAVY ) // it will take heavy armor damages
-	AddEntityCallback_OnDamaged( fw_harvesterImc.harvester, OnHarvesterDamaged )
-	AddEntityCallback_OnPostDamaged( fw_harvesterImc.harvester, OnHarvesterPostDamaged )
-	
-	// imc havester settings
-	//fw_harvesterMlt.harvester.SetScriptName("fw_team_tower") // don't set this, or sonar pulse will try to find it and failed to set highlight
+	FW_SetupHarvesterForTeam( fw_harvesterImc.harvester, TEAM_IMC )
 	file.harvesters.append(fw_harvesterImc)
-	entity trackerImc = GetAvailableBaseLocationTracker()
-	trackerImc.SetOwner( fw_harvesterImc.harvester )
-	DispatchSpawn( trackerImc )
-	SetLocationTrackerRadius( trackerImc, 1 ) // whole map
-
+	
 	// scores starts from 100, TeamScore means harvester health; TeamScore2 means shield bar
-	GameRules_SetTeamScore( TEAM_MILITIA , 100 )
-	GameRules_SetTeamScore2( TEAM_MILITIA , 100 )
+	GameRules_SetTeamScore( TEAM_IMC, 100 )
+	GameRules_SetTeamScore2( TEAM_IMC, 100 )
 
 
 	// mlt havester spawn
 	fw_harvesterMlt = SpawnHarvester( file.harvesterMlt_info.GetOrigin(), file.harvesterMlt_info.GetAngles(), GetCurrentPlaylistVarInt( "fw_harvester_health", FW_DEFAULT_HARVESTER_HEALTH ), GetCurrentPlaylistVarInt( "fw_harvester_shield", FW_DEFAULT_HARVESTER_SHIELD ), TEAM_MILITIA )
-	// map settings
-	fw_harvesterMlt.harvester.Minimap_SetAlignUpright( true )
-	fw_harvesterMlt.harvester.Minimap_AlwaysShow( TEAM_IMC, null )
-	fw_harvesterMlt.harvester.Minimap_AlwaysShow( TEAM_MILITIA, null )
-	fw_harvesterMlt.harvester.Minimap_SetHeightTracking( true )
-	fw_harvesterMlt.harvester.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
-	fw_harvesterMlt.harvester.Minimap_SetCustomState( eMinimapObject_prop_script.FD_HARVESTER )
-	// damage settings
-	fw_harvesterMlt.harvester.SetArmorType( ARMOR_TYPE_HEAVY ) // it will take heavy armor damages
-	AddEntityCallback_OnDamaged( fw_harvesterMlt.harvester, OnHarvesterDamaged )
-	AddEntityCallback_OnPostDamaged( fw_harvesterMlt.harvester, OnHarvesterPostDamaged )
-
-	// mlt havester settings
-	//fw_harvesterImc.harvester.SetScriptName("fw_team_tower") // don't set this, or sonar pulse will try to find it and failed to set highlight
+	FW_SetupHarvesterForTeam( fw_harvesterMlt.harvester, TEAM_MILITIA )
 	file.harvesters.append(fw_harvesterMlt)
-	entity trackerMlt = GetAvailableBaseLocationTracker()
-	trackerMlt.SetOwner( fw_harvesterMlt.harvester )
-	DispatchSpawn( trackerMlt )
-	SetLocationTrackerRadius( trackerMlt, 1 ) // whole map
 
 	// scores starts from 100, TeamScore means harvester health; TeamScore2 means shield bar
-	GameRules_SetTeamScore( TEAM_IMC , 100 )
-	GameRules_SetTeamScore2( TEAM_IMC , 100 )
+	GameRules_SetTeamScore( TEAM_MILITIA, 100 )
+	GameRules_SetTeamScore2( TEAM_MILITIA, 100 )
+}
+
+void function FW_SetupHarvesterForTeam( entity harvester, int team )
+{
+	// map settings
+	harvester.Minimap_SetAlignUpright( true )
+	harvester.Minimap_AlwaysShow( TEAM_IMC, null )
+	harvester.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	harvester.Minimap_SetHeightTracking( true )
+	harvester.Minimap_SetZOrder( MINIMAP_Z_OBJECT )
+	harvester.Minimap_SetCustomState( eMinimapObject_prop_script.FD_HARVESTER )
+	// damage settings
+	harvester.SetArmorType( ARMOR_TYPE_HEAVY ) // it will take heavy armor damages
+	AddEntityCallback_OnFinalDamaged( harvester, OnHarvesterFinalDamaged )
+	AddEntityCallback_OnPostDamaged( harvester, OnHarvesterPostDamaged )
+
+	// havester settings
+	//harvester.SetScriptName("fw_team_tower") // don't set this, or sonar pulse will try to find it and failed to set highlight
+	entity tracker = GetAvailableBaseLocationTracker()
+	tracker.SetOwner( harvester )
+	DispatchSpawn( tracker )
+	SetLocationTrackerRadius( tracker, 1 ) // whole map
 }
 
 // damage callbacks
-void function FW_Harvester_AddDamagedCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
+void function FW_Harvester_AddFinalDamageCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
 {
-	if ( !( file.harvesterDamagedCallbacks.contains( callbackFunc ) ) )
-		file.harvesterDamagedCallbacks.append( callbackFunc )
+	if ( !( file.harvesterFinalDamageCallbacks.contains( callbackFunc ) ) )
+		file.harvesterFinalDamageCallbacks.append( callbackFunc )
 }
 
-void function FW_Harvester_RemoveDamagedCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
+void function FW_Harvester_RemoveFinalDamageCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
 {
-	if ( file.harvesterDamagedCallbacks.contains( callbackFunc ) )
-		file.harvesterDamagedCallbacks.fastremovebyvalue( callbackFunc )
+	if ( file.harvesterFinalDamageCallbacks.contains( callbackFunc ) )
+		file.harvesterFinalDamageCallbacks.fastremovebyvalue( callbackFunc )
 }
 
-void function FW_Harvester_AddPostDamagedCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
+void function FW_Harvester_AddPostDamageCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
 {
-	if ( !( file.harvesterPostDamagedCallbacks.contains( callbackFunc ) ) )
-		file.harvesterPostDamagedCallbacks.append( callbackFunc )
+	if ( !( file.harvesterPostDamageCallbacks.contains( callbackFunc ) ) )
+		file.harvesterPostDamageCallbacks.append( callbackFunc )
 }
 
-void function FW_Harvester_RemovePostDamagedCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
+void function FW_Harvester_RemovePostDamageCallback( void functionref( entity harvester, var damageInfo ) callbackFunc )
 {
-	if ( file.harvesterPostDamagedCallbacks.contains( callbackFunc ) )
-		file.harvesterPostDamagedCallbacks.fastremovebyvalue( callbackFunc )
+	if ( file.harvesterPostDamageCallbacks.contains( callbackFunc ) )
+		file.harvesterPostDamageCallbacks.fastremovebyvalue( callbackFunc )
 }
 
-// this function can't handle specific damageSourceID, such as plasma railgun, but is the best to scale both shield and health damage
-void function OnHarvesterDamaged( entity harvester, var damageInfo )
+void function FW_AddHarvesterDamageSourceModifier( int id, float mod )
+{
+	if ( !( id in file.harvesterDamageSourceMods ) )
+		file.harvesterDamageSourceMods[id] <- 1.0
+
+	file.harvesterDamageSourceMods[id] *= mod
+}
+
+void function FW_RemoveHarvesterDamageSourceModifier( int id, float mod )
+{
+	if ( !( id in file.harvesterDamageSourceMods ) )
+		return
+
+	file.harvesterDamageSourceMods[id] /= mod
+
+	if ( file.harvesterDamageSourceMods[id] == 1.0 )
+		delete file.harvesterDamageSourceMods[id]
+}
+
+void function OnHarvesterFinalDamaged( entity harvester, var damageInfo )
 {
 	if ( !IsValid( harvester ) )
 		return
@@ -1918,7 +1951,7 @@ void function OnHarvesterDamaged( entity harvester, var damageInfo )
 		harvesterstruct = fw_harvesterImc
 
 	// run damage callbacks
-	foreach ( void functionref( entity, var ) callbackFunc in file.harvesterDamagedCallbacks )
+	foreach ( void functionref( entity, var ) callbackFunc in file.harvesterFinalDamageCallbacks )
 		callbackFunc( harvester, damageInfo )
 	// get modified damage
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
@@ -1950,7 +1983,7 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	int scriptType = DamageInfo_GetCustomDamageType( damageInfo )
 	// run damage callbacks
-	foreach ( void functionref( entity, var ) callbackFunc in file.harvesterPostDamagedCallbacks )
+	foreach ( void functionref( entity, var ) callbackFunc in file.harvesterPostDamageCallbacks )
 		callbackFunc( harvester, damageInfo )
 	// get modified damage
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
@@ -2065,8 +2098,8 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 
 void function InitDefaultHarvesterDamageCallbacks() // default damage modifier for harvester
 {
-	FW_Harvester_AddDamagedCallback( HarvesterDamageModifier )
-	FW_Harvester_AddPostDamagedCallback( HarvesterPostDamageModifier )
+	FW_Harvester_AddFinalDamageCallback( HarvesterDamageModifier )
+	FW_Harvester_AddPostDamageCallback( HarvesterPostDamageModifier )
 }
 
 // damage balancing
@@ -2108,6 +2141,10 @@ void function HarvesterDamageModifier( entity harvester, var damageInfo )
 			DamageInfo_ScaleDamage( damageInfo, HARVESTER_LOCKON_DAMAGE_FRAC )
 			break
 	}
+
+	// run modded weapon damage modifiers
+	if ( damageSourceID in file.harvesterDamageSourceMods )
+		DamageInfo_ScaleDamage( damageInfo, file.harvesterDamageSourceMods[ damageSourceID ] )
 }
 
 void function HarvesterPostDamageModifier( entity harvester, var damageInfo )
