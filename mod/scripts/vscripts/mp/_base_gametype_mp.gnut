@@ -642,23 +642,25 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		// new intermission cam system
 		if( ShouldForceRespawnPlayer_FromDamageTable( player, damageTable ) )
 		{
+			float forceRespawnDelay = GetCurrentPlaylistVarFloat( "player_force_respawn", 3 )
 			float waitBeforeRespawn = 0.0
-			//if( !shouldDoReplay || respawnDelay >= 3.0 ) // doing this so player can respawn as titan in some modes, but vanilla don't features this lol
+			//if( !shouldDoReplay || respawnDelay >= forceRespawnDelay ) // doing this so player can choose to respawn as titan, but vanilla don't feature this lol
 			if( !shouldDoReplay )
 			{
-				waitBeforeRespawn = 3.0 - respawnDelay
-				if( waitBeforeRespawn <= 0 )
+				waitBeforeRespawn = forceRespawnDelay - respawnDelay
+				if( waitBeforeRespawn < 0 )
 					waitBeforeRespawn = 0
 				// modified over here, add support for modified death cam length
 				float interMissionCamDelay = waitBeforeRespawn + 0.1
 				if ( deathCamModified )
 					interMissionCamDelay += replayStartDelay
+				// if player not respawned after certain delay, we should set them back to intermission cam
 				thread SetPlayerCameraToIntermissionCam( player, interMissionCamDelay )
 			}
 			thread ForcedRespawnThink( player, waitBeforeRespawn, deathCamModified, replayStartDelay )// if not doing replay, set player's camera to intermissionCam
 		}
 
-		player.WaitSignal( "RespawnMe" ) // set in base_gametype: ClientCommand_RespawnPlayer
+		player.WaitSignal( "RespawnMe" ) // signaled in in base_gametype: ClientCommand_RespawnPlayer
 
 		ClearRespawnAvailable( player ) // need so the respawn icon doesn't show for like a frame on next death
 
@@ -742,7 +744,9 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, bool r
 		}
 	)
 	
-	WaitFrame() // wait a frame for player.WaitSignal( "RespawnMe" ) to set up, or maybe put the waitsignal inside this function? rename it to PlayerWaitForRespawn()
+	// wait for next frame for player.WaitSignal( "RespawnMe" ) to set up
+	// or maybe put the waitsignal inside this function? then rename it to PlayerWaitForRespawn()
+	WaitEndFrame()
 	// modified over here, add support for modified death cam length
 	if ( replayHasDelayed )
 	{
@@ -1051,7 +1055,8 @@ void function ForcedRespawn_SetDisabledForPlayer( entity player, bool disable )
 bool function ShouldForceRespawnPlayer()
 {
 	// playlistvar overrides script!
-	if ( GetCurrentPlaylistVarInt( "ns_forced_respawn", 1 ) == 0 )
+	// lower than 0 means disabled, anything over is the time we wait in seconds
+	if ( GetCurrentPlaylistVarFloat( "player_force_respawn", 3 ) < 0 )
 		return false
 
 	return file.forcedRespawn
