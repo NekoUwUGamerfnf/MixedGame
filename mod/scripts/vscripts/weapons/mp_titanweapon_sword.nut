@@ -42,16 +42,16 @@ void function OnWeaponActivate_titanweapon_sword( entity weapon )
 	// modified!!
 	#if SERVER
         float attackAnimTime = weapon.GetWeaponSettingFloat( eWeaponVar.melee_attack_animtime )
-        if ( attackAnimTime <= 0 ) // defensive fix!!!
-            return
-
-        float minAnimTime = TITAN_SWORD_ATTACK_ANIMTIME
-        if ( IsSingleplayer() )
-            minAnimTime = TITAN_SWORD_ATTACK_ANIMTIME_SP
-        
-        if ( attackAnimTime < minAnimTime )
-            ModifiedMelee_ReDeployAfterTime( weapon ) // forced melee attack animtime
-    #endif
+        if ( attackAnimTime > 0 ) // defensive fix!!!
+		{
+			float minAnimTime = TITAN_SWORD_ATTACK_ANIMTIME
+			if ( IsSingleplayer() )
+				minAnimTime = TITAN_SWORD_ATTACK_ANIMTIME_SP
+			
+			if ( attackAnimTime < minAnimTime )
+				ModifiedMelee_ReDeployAfterTime( weapon ) // forced melee attack animtime
+		}
+	#endif
 	//
 }
 

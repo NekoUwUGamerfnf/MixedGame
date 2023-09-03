@@ -16,23 +16,23 @@ void function OnWeaponActivate_titanweapon_punch( entity weapon )
 {
     #if SERVER
         float attackAnimTime = weapon.GetWeaponSettingFloat( eWeaponVar.melee_attack_animtime )
-        if ( attackAnimTime <= 0 ) // defensive fix!!!
-            return
-
-        float minAnimTime = TITAN_EMPTYHAND_ATTACK_ANIMTIME
-        switch ( weapon.GetWeaponSettingInt( eWeaponVar.melee_anim_1p_number ) )
+        if ( attackAnimTime > 0 ) // defensive fix!!!
         {
-            case 1: // normal punch
-                minAnimTime = TITAN_EMPTYHAND_ATTACK_ANIMTIME
-                break
-            case 2:
-                minAnimTime = TITAN_DASH_PUNCH_ATTACK_ANIMTIME
-                break
-            case 3:
-                minAnimTime = TITAN_ELECTRIC_FIST_ATTACK_ANIMTIME
-                break
+            float minAnimTime = TITAN_EMPTYHAND_ATTACK_ANIMTIME
+            switch ( weapon.GetWeaponSettingInt( eWeaponVar.melee_anim_1p_number ) )
+            {
+                case 1: // normal punch
+                    minAnimTime = TITAN_EMPTYHAND_ATTACK_ANIMTIME
+                    break
+                case 2:
+                    minAnimTime = TITAN_DASH_PUNCH_ATTACK_ANIMTIME
+                    break
+                case 3:
+                    minAnimTime = TITAN_ELECTRIC_FIST_ATTACK_ANIMTIME
+                    break
+            }
+            if ( attackAnimTime < minAnimTime )
+                ModifiedMelee_ReDeployAfterTime( weapon ) // forced melee attack animtime
         }
-        if ( attackAnimTime < minAnimTime )
-            ModifiedMelee_ReDeployAfterTime( weapon ) // forced melee attack animtime
     #endif
 }
