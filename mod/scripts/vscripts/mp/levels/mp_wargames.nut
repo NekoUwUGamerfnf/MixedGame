@@ -370,7 +370,7 @@ void function PlayerWatchesWargamesIntro( entity player )
 	
 	// we need to wait a frame if we killed ourselves to spawn into this, so just easier to do it all the time to remove any weirdness
 	// also helps other on-spawn functions to set up( specially for client script inits )
-	WaitEndFrame()
+	WaitFrame()
 	
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
@@ -630,7 +630,7 @@ void function SpawnPlayerOnGround( entity player )
 	if ( IsAlive( player ) )
 		player.Die()
 
-	WaitEndFrame() // wait for next frame so player can be killed properly and other on-spawn functions can set up( specially for client script inits )
+	WaitFrame() // wait for next frame so player can be killed properly and other on-spawn functions can set up( specially for client script inits )
 
 	RespawnAsPilot( player )
 	player.FreezeControlsOnServer()
