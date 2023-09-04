@@ -345,7 +345,7 @@ void function SpawnIntroBatch_Threaded( int team )
 		first = false
 	}
 	
-	wait 15
+	wait 15.0
 	
 	thread Spawner_Threaded( team )
 }
@@ -372,44 +372,56 @@ void function Spawner_Threaded( int team )
 		// REAPERS
 		if ( file.reapers[ index ] )
 		{
-			array< entity > points = SpawnPoints_GetTitan()
-			if ( reaperCount < file.reapersPerTeam )
+			int reapersToSpawn = file.reapersPerTeam - reaperCount
+			if ( reapersToSpawn > 0 )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				waitthread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
+				for ( int i = 0; i < reapersToSpawn; i++ )
+				{
+					if ( i > 0 )
+						wait 2.0 // delay before next spawn
+
+					array< entity > points = SpawnPoints_GetTitan()
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					thread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
+				}
+
+				wait 8.0 // wait after each spawn wave
 			}
 		}
 		
 		// NORMAL SPAWNS
-		if ( count < file.squadsPerTeam * 4 - 2 )
+		int squadsToSpawn = ( file.squadsPerTeam * SQUAD_SIZE - 2 - count ) / SQUAD_SIZE
+		if ( squadsToSpawn > 0 )
 		{
-			string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
-			
-			array< entity > points = GetZiplineDropshipSpawns()
-			// Prefer dropship when spawning grunts
-			if ( ent == "npc_soldier" && points.len() != 0 )
+			for ( int i = 0; i < squadsToSpawn; i++ )
 			{
-				if ( RandomInt( points.len() ) )
+				if ( i > 0 )
+					wait 2.0 // delay before next spawn
+
+				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
+				
+				array< entity > points = GetZiplineDropshipSpawns()
+				// Prefer dropship when spawning grunts
+				if ( ent == "npc_soldier" && points.len() != 0 )
 				{
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					waitthread Aitdm_SpawnDropShip( node, team )
-					continue
+					if ( RandomInt( points.len() ) )
+					{
+						entity node = points[ GetSpawnPointIndex( points, team ) ]
+						thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
+						continue
+					}
 				}
+				
+				points = SpawnPoints_GetDropPod()
+				entity node = points[ GetSpawnPointIndex( points, team ) ]
+				thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent, SquadHandler )
 			}
-			
-			points = SpawnPoints_GetDropPod()
-			entity node = points[ GetSpawnPointIndex( points, team ) ]
-			waitthread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent, SquadHandler )
+
+			wait 15.0 // wait after each spawn wave
 		}
 		
 		WaitFrame()
 	}
-}
-
-void function Aitdm_SpawnDropShip( entity node, int team )
-{
-	thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
-	wait 20
 }
 
 // Based on points tries to balance match

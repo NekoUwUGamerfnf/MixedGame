@@ -596,7 +596,7 @@ void function SpawnIntroBatch( int team )
 		first = false
 	}
 
-	wait 6
+	wait 8.0
 	// intro spawn finished
 	thread Spawner( team )
 	thread SpawnerExtend( team )
@@ -623,18 +623,27 @@ void function Spawner( int team )
 		// REAPERS
 		if ( file.reapers[ index ] )
 		{
-			array< entity > points = SpawnPoints_GetTitan()
-			if ( reaperCount < REAPERS_PER_TEAM )
+			int reapersToSpawn = REAPERS_PER_TEAM - reaperCount
+			if ( reapersToSpawn > 0 )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				//thread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
-				// crazy reaper
-				string reaperSettings = "npc_super_spectre_aitdm"
-				string tickSettings = "npc_frag_drone"
-				if ( CoinFlip() ) // 50% change of spawning sp ticks, 50% chance spawning mp ticks
-					tickSettings = "npc_frag_drone_throwable"
-				thread ExtraSpawner_SpawnReaperCanLaunchTicks( node.GetOrigin(), node.GetAngles(), team, reaperSettings, tickSettings )
-				wait 8 // wait 8 for each reaper spawn. should always keep highter than REAPER_WARPFALL_DELAY (current is 4.7)
+				for ( int i = 0; i < reapersToSpawn; i++ )
+				{
+					if ( i > 0 )
+						wait 2.0 // delay before next spawn
+
+					array<entity> points = SpawnPoints_GetTitan()
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					//thread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
+					// crazy reaper
+					string reaperSettings = "npc_super_spectre_aitdm"
+					string tickSettings = "npc_frag_drone"
+					if ( CoinFlip() ) // 50% change of spawning sp ticks, 50% chance spawning mp ticks
+						tickSettings = "npc_frag_drone_throwable"
+					
+					thread ExtraSpawner_SpawnReaperCanLaunchTicks( node.GetOrigin(), node.GetAngles(), team, reaperSettings, tickSettings )
+				}
+
+				wait 8.0 // wait after each spawn wave
 			}
 		}
 
@@ -644,50 +653,51 @@ void function Spawner( int team )
 		//	maxSquads = SQUADS_PER_TEAM_MORE_PLAYERS // do reduced minions count
 		if ( file.reapers[ index ] )
 			maxSquads = SQUADS_PER_TEAM_HIGH_LEVEL
-		if ( count < maxSquads * 4 - 2 )
+		
+		int squadsToSpawn = ( maxSquads * SQUAD_SIZE - 2 - count ) / SQUAD_SIZE
+		if ( squadsToSpawn > 0 )
 		{
-			if ( ShouldSpawnSpecialistSquad() )
+			for ( int i = 0; i < squadsToSpawn; i++ )
 			{
-				array< entity > points = GetZiplineDropshipSpawns()
+				if ( i > 0 )
+					wait 2.0 // delay before next spawn
 				
-				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
-				string leaderSet = GetGruntModeSpecialistGruntLeader()
-				// add health depending on what npc it spawning with
-				int leaderHealth = GetSpecialistLeaderHealth( team, ent )
-				//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
-				//print( "leaderHealth is: " + string( leaderHealth ) )
-				if ( ShouldSpawnDropship() )
-				{
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", 4, leaderSet, leaderHealth )
-					wait 6 // dropship may take some time to really spawn a squad
-					continue
-				}
-				
-				points = SpawnPoints_GetDropPod()
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, ent, leaderSet, leaderHealth )
-				wait 5 // they'll spawn upon droppod touch ground, wait 5s
-			}
-			else
-			{
+				array<entity> dropshipPoints = GetZiplineDropshipSpawns()
+				array<entity> droppodPoints = SpawnPoints_GetDropPod()
 				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
 
-				array< entity > points = GetZiplineDropshipSpawns()
-
-				if ( ShouldSpawnDropship() )
+				if ( ShouldSpawnSpecialistSquad() )
 				{
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
-					thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, 4 )
-					wait 6 // dropship may take some time to really spawn a squad
-					continue
+					string leaderSet = GetGruntModeSpecialistGruntLeader()
+					// add health depending on what npc it spawning with
+					int leaderHealth = GetSpecialistLeaderHealth( team, ent )
+					//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
+					//print( "leaderHealth is: " + string( leaderHealth ) )
+					if ( ShouldSpawnDropship() )
+					{
+						entity node = dropshipPoints[ GetSpawnPointIndex( dropshipPoints, team ) ]
+						thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", 4, leaderSet, leaderHealth )
+						continue
+					}
+					
+					entity node = droppodPoints[ GetSpawnPointIndex( droppodPoints, team ) ]
+					thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, ent, leaderSet, leaderHealth )
 				}
+				else
+				{
+					if ( ShouldSpawnDropship() )
+					{
+						entity node = dropshipPoints[ GetSpawnPointIndex( dropshipPoints, team ) ]
+						thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, 4 )
+						continue
+					}
 
-				points = SpawnPoints_GetDropPod()
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent )
-				wait 5 // they'll spawn upon droppod touch ground, wait 5s
+					entity node = droppodPoints[ GetSpawnPointIndex( droppodPoints, team ) ]
+					thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent )
+				}
 			}
+
+			wait 8.0 // wait after each spawn wave
 		}
 	}
 }
@@ -705,82 +715,125 @@ void function SpawnerExtend( int team )
 		int marvinCount = GetNPCArrayEx( "npc_marvin", team, -1, <0,0,0>, -1 ).len()
 		int prowlerCount = GetNPCArrayEx( "npc_prowler", team, -1, <0,0,0>, -1 ).len()
 		int gunshipCount = GetNPCArrayEx( "npc_gunship", team, -1, <0,0,0>, -1 ).len()
-		int titanCount = GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
-		int pilotCount = GetNPCArrayEx( "npc_pilot_elite", team, -1, <0,0,0>, -1 ).len() + GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ).len()
+		int titanCount = 0
+		foreach ( entity npc in GetNPCArrayEx( "npc_titan", team, -1, <0,0,0>, -1 ) )
+		{
+			if ( !IsValid( npc.GetBossPlayer() ) )
+				titanCount += 1
+		}
 
 		// GUNSHIPS
 		if ( file.gunships[ index ] )
 		{
-			array< entity > points = SpawnPoints_GetDropPod()
-			if ( gunshipCount < GUNSHIPS_PER_TEAM )
+			int gunshipsToSpawn = GUNSHIPS_PER_TEAM - gunshipCount
+			if ( gunshipsToSpawn > 0 )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnGunShip( node.GetOrigin(), node.GetAngles(), team )
-				wait 5 // on succesful spawn
+				for ( int i = 0; i < gunshipsToSpawn; i++ )
+				{
+					if ( i > 0 )
+						wait 2.0 // delay before next spawn
+					
+					array< entity > points = SpawnPoints_GetDropPod()
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					thread ExtraSpawner_SpawnGunShip( node.GetOrigin(), node.GetAngles(), team )
+				}
+
+				wait 8.0 // wait after each spawn wave
 			}
 		}
 
 		// TITANS
 		if ( file.titans[ index ] )
 		{
-			array< entity > points = SpawnPoints_GetDropPod()
-			if ( titanCount < TITANS_PER_TEAM )
+			int titansToSpawn = TITANS_PER_TEAM - titanCount
+			if ( titansToSpawn > 0 )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				thread ExtraSpawner_SpawnTitan( node.GetOrigin(), node.GetAngles(), team, true )
-				wait 8 // wait 8s on succesful titan spawn
+				for ( int i = 0; i < titansToSpawn; i++ )
+				{
+					if ( i > 0 )
+						wait 2.0 // delay before next spawn
+					
+					array< entity > points = SpawnPoints_GetDropPod()
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					thread ExtraSpawner_SpawnTitan( node.GetOrigin(), node.GetAngles(), team, true )
+				}
+
+				wait 8.0 // wait after each spawn wave
 			}
 		}
 
 		// PILOTS
 		if ( file.pilots[ index ] )
 		{
-			array< entity > points
-			points.extend( SpawnPoints_GetTitanStart( TEAM_IMC ) )
-			points.extend( SpawnPoints_GetTitanStart( TEAM_MILITIA ) )
-			if ( pilotCount < PILOTS_PER_TEAM )
+			int pilotsToSpawn = PILOTS_PER_TEAM - titanCount // count titans
+			if ( pilotsToSpawn > 0 )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				//entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team )
-				if ( ShouldSpawnBossTitan() ) 
+				for ( int i = 0; i < pilotsToSpawn; i++ )
 				{
-					string spawnName = GetBossTitanSpawnName( -1 ) // get bosstitan spawn name without team check
-					thread ExtraSpawner_SpawnBossTitan( node.GetOrigin(), node.GetAngles(), team, spawnName )
+					if ( i > 0 )
+						wait 2.0 // delay before next spawn
+					
+					array< entity > points
+					points.extend( SpawnPoints_GetTitanStart( TEAM_IMC ) )
+					points.extend( SpawnPoints_GetTitanStart( TEAM_MILITIA ) )
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					//entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team )
+					if ( ShouldSpawnBossTitan() ) 
+					{
+						string spawnName = GetBossTitanSpawnName( -1 ) // get bosstitan spawn name without team check
+						thread ExtraSpawner_SpawnBossTitan( node.GetOrigin(), node.GetAngles(), team, spawnName )
+					}
+					else
+						thread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
 				}
-				else
-					thread ExtraSpawner_SpawnPilotCanEmbark( node.GetOrigin(), node.GetAngles(), team )
 
-				wait 8 // wait 8 for each titan spawn. should always keep highter than SpawnPilotCanEmbark()'s titan spawn delay(current is 3)
+				wait 8.0 // wait after each spawn wave
 			}
 		}
 
 		// MARVINS
 		if ( file.marvins[ index ] )
 		{
-			string ent = "npc_marvin"
-			array< entity > points = SpawnPoints_GetDropPod()
-			if ( marvinCount < MARVINS_PER_TEAM )
+			const int spawnAmount = 2 // spawn 2 marvins per droppod
+			const string spawnEnt = "npc_marvin"
+			int marvinsToSpawn = ( MARVINS_PER_TEAM * spawnAmount - 1 - marvinCount ) / spawnAmount
+			if ( marvinsToSpawn > 0 )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				//thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent )
-				// spawn 2 marvins per droppod
-				thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, ent, 2 )
-				wait 5 // they'll spawn upon droppod touch ground, wait 5s
+				for ( int i = 0; i < marvinsToSpawn; i++ )
+				{
+					if ( i > 0 )
+						wait 2.0 // delay before next spawn
+					
+					array< entity > points = SpawnPoints_GetDropPod()
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					//thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, spawnEnt )
+					thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, spawnEnt, spawnAmount )
+				}
+
+				wait 8.0 // wait after each spawn wave
 			}
 		}
 
 		// PROWLERS
 		if ( file.prowlers[ index ] )
 		{
-			string ent = "npc_prowler"
-			array< entity > points = SpawnPoints_GetDropPod()
-			if ( prowlerCount < PROWLERS_PER_TEAM )
+			const int spawnAmount = 1 // spawn 1 prowler per droppod
+			const string spawnEnt = "npc_prowler"
+			int prowlersToSpawn = ( PROWLERS_PER_TEAM * spawnAmount - 1 - prowlerCount ) / spawnAmount
+			if ( prowlersToSpawn > 0 )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				//thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent )
-				// spawn 1 prowler per droppod
-				thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, ent, 1 )
-				wait 5 // they'll spawn upon droppod touch ground, wait 5s
+				for ( int i = 0; i < prowlersToSpawn; i++ )
+				{
+					if ( i > 0 )
+						wait 2.0 // delay before next spawn
+
+					array< entity > points = SpawnPoints_GetDropPod()
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					//thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, spawnEnt )
+					thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, spawnEnt, spawnAmount )
+				}
+
+				wait 8.0 // wait after each spawn wave
 			}
 		}
 
@@ -788,13 +841,21 @@ void function SpawnerExtend( int team )
 		if ( file.prowlers[ index ] )
 		{
 			//print( "prowlerCount: " + string( prowlerCount ) )
-			array< entity > points = SpawnPoints_GetDropPod()
-			if ( prowlerCount < PROWLER_SQUADS_PER_TEAM * 4 - 2 )
+			int squadsToSpawn = ( PROWLER_SQUADS_PER_TEAM * 4 - 2 - prowlerCount ) / 4
+			if ( squadsToSpawn > 0 )
 			{
-				entity node = points[ GetSpawnPointIndex( points, team ) ]
-				//print( "RUNNING ExtraSpawner_SpawnProwlerSquadDropPod()" )
-				thread ExtraSpawner_SpawnProwlerSquadDropPod( node.GetOrigin(), node.GetAngles(), team )
-				wait 5 // they'll spawn upon droppod touch ground, wait 5s
+				for ( int i = 0; i < squadsToSpawn; i++ )
+				{
+					if ( i > 0 )
+						wait 2.0 // delay before next spawn
+					
+					array< entity > points = SpawnPoints_GetDropPod()
+					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					//print( "RUNNING ExtraSpawner_SpawnProwlerSquadDropPod()" )
+					thread ExtraSpawner_SpawnProwlerSquadDropPod( node.GetOrigin(), node.GetAngles(), team )
+				}
+
+				wait 8.0 // wait after each spawn wave
 			}
 		}
 	}
