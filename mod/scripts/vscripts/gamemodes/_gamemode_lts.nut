@@ -10,6 +10,9 @@ struct {
 	bool shouldDoHighlights
 } file
 
+// vanilla behavior: add 6s sonar for all players, not resetting their highlight life-long
+const float LTS_THIRTY_SECONDS_SONAR_DURATION = 6.0
+
 void function GamemodeLts_Init()
 {
 	// gamemode settings
@@ -26,10 +29,9 @@ void function GamemodeLts_Init()
 	SetLoadoutGracePeriodEnabled( false )
 	FlagSet( "ForceStartSpawn" )
 
-	AddCallback_OnPilotBecomesTitan( RefreshThirtySecondWallhackHighlight )
-	AddCallback_OnTitanBecomesPilot( RefreshThirtySecondWallhackHighlight )
-	AddCallback_OnPlayerKilled( OnPlayerKilled )
-	
+	AddCallback_OnPlayerKilled( LTS_OnPlayerOrNPCKilled )
+	AddCallback_OnNPCKilled( LTS_OnPlayerOrNPCKilled )
+
 	SetTimeoutWinnerDecisionFunc( CheckTitanHealthForDraw )
 	SetTimeoutWinnerDecisionReason( "#GAMEMODE_TITAN_DAMAGE_ADVANTAGE", "#GAMEMODE_TITAN_DAMAGE_DISADVANTAGE" )
 	TrackTitanDamageInPlayerGameStat( PGS_ASSAULT_SCORE )
@@ -49,9 +51,9 @@ void function WaitForThirtySecondsLeftThreaded()
 	svGlobal.levelEnt.EndSignal( "RoundEnd" ) // end this on round end
 	
 	float endTime = expect float ( GetServerVar( "roundEndTime" ) )
-	
 	// wait until 30sec left 
 	wait ( endTime - 30 ) - Time()
+
 	//PlayMusicToAll( eMusicPieceID.LEVEL_LAST_MINUTE )
 	//try using this?
 	CreateTeamMusicEvent( TEAM_IMC, eMusicPieceID.LEVEL_LAST_MINUTE, Time() )
@@ -63,60 +65,102 @@ void function WaitForThirtySecondsLeftThreaded()
 	{	
 		// warn there's 30 seconds left
 		Remote_CallFunction_NonReplay( player, "ServerCallback_LTSThirtySecondWarning" )
-
-		// do initial highlight
-		//RefreshThirtySecondWallhackHighlight( player, null )
 	}
-	thread ThirtySecondWallhackHighlightThink()
+
+	// vanilla behavior: add 6s sonar for all players, not resetting their highlight life-long
+	ThirtySecondWallhackHighlight()
 }
 
-void function ThirtySecondWallhackHighlightThink()
+// vanilla behavior: add 6s sonar for all players, not resetting their highlight life-long
+void function ThirtySecondWallhackHighlight()
 {
-	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
-
-	while( true )
+	foreach ( entity player in GetPlayerArray() )
 	{
-		foreach( entity player in GetPlayerArray() )
-		{
-			if( !IsAlive( player ) )
-				continue
-			if( player.IsTitan() )
-				Highlight_SetEnemyHighlight( player, "enemy_sonar" )
-			else if( IsValid( player.GetPetTitan() ) )
-				Highlight_SetEnemyHighlight( player.GetPetTitan(), "enemy_sonar" )
-		}
-		WaitFrame()
+		thread TitanSonarThink( player )
 	}
 }
 
-void function RefreshThirtySecondWallhackHighlight( entity player, entity titan )
+void function TitanSonarThink( entity player )
 {
-	if ( TimeSpentInCurrentState() < expect float ( GetServerVar( "roundEndTime" ) ) - 30.0 )
+	player.EndSignal( "OnDestroy" )
+
+	entity titan = GetTitanFromPlayer( player )
+	if ( !IsValid( titan ) )
 		return
-		
-	Highlight_SetEnemyHighlight( player, "enemy_sonar" ) // i think this needs a different effect, this works for now tho
-		
-	if ( player.GetPetTitan() != null )
-		Highlight_SetEnemyHighlight( player.GetPetTitan(), "enemy_sonar" )
+
+	int sonarTeam = GetOtherTeam( player.GetTeam() )
+	// start sonar
+	SonarStart( titan, titan.GetOrigin(), sonarTeam, titan )
+	IncrementSonarPerTeam( sonarTeam )
+
+	OnThreadEnd
+	(
+		function() : ( player, sonarTeam ) // we can't pass the titan here, it will remain initial value 
+		{
+			DecrementSonarPerTeam( sonarTeam )
+			if ( IsValid( player ) )
+			{
+				entity titan = GetTitanFromPlayer( player )
+				if ( IsValid( titan ) )
+				{
+					//print( "Disabling sonar on titan: " + string( titan ) )
+					SonarEnd( titan, sonarTeam )
+				}
+			}
+		}
+	)
+
+	float endTime = Time() + LTS_THIRTY_SECONDS_SONAR_DURATION
+	// keep updating titan sonar on transfering
+	entity titanLastTick = GetTitanFromPlayer( player )
+	while ( Time() < endTime )
+	{
+		WaitFrame()
+
+		titan = GetTitanFromPlayer( player )
+		if ( !IsValid( titan ) )
+		{
+			//print( "Player titan invalid!" )
+			return
+		}
+
+		if ( titan != titanLastTick ) // this must means player has transfered
+		{
+			//print( "Player titan transferred!" )
+			//if ( "inSonarTriggerCount" in titan.s )
+			//	print( string( titan ) + " 's sonar trigger count is: " + string( titan.s.inSonarTriggerCount ) )
+			
+			if ( IsValid( titanLastTick ) && titanLastTick.IsPlayer() )
+				SonarEnd( titanLastTick, sonarTeam )
+			
+			// start sonar on new titan
+			SonarStart( titan, titan.GetOrigin(), sonarTeam, titan )
+		}
+
+		titanLastTick = titan
+	}
 }
 
-void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+void function LTS_OnPlayerOrNPCKilled( entity victim, entity attacker, var damageInfo )
 {
-	array<entity> allies = GetPlayerArrayOfTeam_Alive( victim.GetTeam() )
-	int teamTitanCount
-	entity latestCheckedPlayer
-	foreach( entity player in allies )
+	if ( victim.IsTitan() )
 	{
-		if( PlayerHasTitan( player ) )
+		array<entity> allies = GetPlayerArrayOfTeam_Alive( victim.GetTeam() )
+		int teamTitanCount
+		entity latestCheckedPlayer
+		foreach( entity player in allies )
 		{
-			teamTitanCount += 1
-			latestCheckedPlayer = player
+			if( PlayerHasTitan( player ) )
+			{
+				teamTitanCount += 1
+				latestCheckedPlayer = player
+			}
 		}
-	}
-	if( teamTitanCount == 1 )
-	{
-		if( IsValid( latestCheckedPlayer ) )
-			PlayFactionDialogueToPlayer( "lts_playerLastTitanOnTeam", latestCheckedPlayer )
+		if( teamTitanCount == 1 )
+		{
+			if( IsValid( latestCheckedPlayer ) )
+				PlayFactionDialogueToPlayer( "lts_playerLastTitanOnTeam", latestCheckedPlayer )
+		}
 	}
 }
 
