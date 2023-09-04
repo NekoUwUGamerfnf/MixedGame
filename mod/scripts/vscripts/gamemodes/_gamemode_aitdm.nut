@@ -681,7 +681,7 @@ void function ReaperHandler( entity reaper )
 		expect vector( clampedPos )
 		reaper.AssaultPoint( clampedPos )
 
-		//wait RandomFloatRange( 10.0, 20.0 ) // remove random wait to make them more aggresive?
+		wait RandomFloatRange( 10.0, 20.0 )
 	}
 	// thread AITdm_CleanupBoredNPCThread( reaper )
 }
