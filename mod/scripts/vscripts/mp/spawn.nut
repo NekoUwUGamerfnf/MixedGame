@@ -26,7 +26,8 @@ global function DecideSpawnZone_CTF
 // modified: make a new function so ai gamemodes don't have to re-decide for each spawn
 global function GetCurrentSpawnZoneForTeam
 
-const float PROJECTILE_NOSPAWN_RADIUS = 600
+const float PLAYER_NOSPAWN_RADIUS = 1000
+const float PROJECTILE_NOSPAWN_RADIUS = 1000
 const float NPC_NOSPAWN_RADIUS = 800
 
 // modified: prevent spawning in friendly's deadly area
@@ -494,20 +495,14 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 			return false
 	}
 
-	// projectile think
-	//array<entity> projectiles = GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, spawnpoint.GetOrigin(), 600 )
-	array<entity> projectiles = GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, spawnpoint.GetOrigin(), PROJECTILE_NOSPAWN_RADIUS )
-	foreach ( entity projectile in projectiles )
+	// in rsquirrel extend returns null unlike in vanilla squirrel
+	// check no spawn areas
+    array< entity > spawnBlockers = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, spawnpoint.GetOrigin(), PLAYER_NOSPAWN_RADIUS )
+    spawnBlockers.extend( GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, spawnpoint.GetOrigin(), PROJECTILE_NOSPAWN_RADIUS ) )
+	spawnBlockers.extend( GetNPCArrayEx( "any", TEAM_ANY, TEAM_ANY, spawnpoint.GetOrigin(), NPC_NOSPAWN_RADIUS ) )
+	foreach ( entity blocker in spawnBlockers )
 	{
-		if ( projectile.GetTeam() != team )
-			return false
-	}
-
-	// npc think
-	array<entity> npcs = GetNPCArrayOfEnemies( team )
-	foreach ( entity npc in npcs )
-	{
-		if ( Distance( npc.GetOrigin(), spawnpoint.GetOrigin() ) <= NPC_NOSPAWN_RADIUS )
+		if ( blocker.GetTeam() != team )
 			return false
 	}
 	
