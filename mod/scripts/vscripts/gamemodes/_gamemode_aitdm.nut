@@ -402,7 +402,7 @@ void function Spawner_Threaded( int team )
 				
 				array< entity > points = GetZiplineDropshipSpawns()
 				// Prefer dropship when spawning grunts
-				if ( ent == "npc_soldier" && points.len() != 0 )
+				if ( CoinFlip() && ent == "npc_soldier" && points.len() != 0 )
 				{
 					if ( RandomInt( points.len() ) )
 					{
