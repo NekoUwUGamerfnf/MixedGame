@@ -524,13 +524,16 @@ void function ScoreEvent_MatchComplete( int winningTeam, bool isMatchEnd = true 
 		winningScoreEvent = "RoundVictory"
 	}
 
-	const float scoreAddDelay = 2.0 // vanilla do have a delay for match ending score
+	float scoreAddDelay = 2.0 // vanilla do have a delay for match ending score
+	if ( !isMatchEnd ) // round based scoring!
+		scoreAddDelay = 0.0 // no delay
 	thread DelayedAddMatchCompleteScore( winningScoreEvent, matchScoreEvent, winningTeam, scoreAddDelay )
 }
 
 void function DelayedAddMatchCompleteScore( string winningScoreEvent, string matchScoreEvent, int winningTeam, float delay )
 {
-	wait delay
+	if ( delay > 0 )
+		wait delay
 	foreach( entity player in GetPlayerArray() )
 		AddPlayerScore( player, matchScoreEvent )
 	foreach( entity winningPlayer in GetPlayerArrayOfTeam( winningTeam ) )
