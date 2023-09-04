@@ -376,11 +376,9 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 			Remote_CallFunction_NonReplay( player, "ServerCallback_AnnounceWinner", winningTeam, announcementSubstr, ROUND_WINNING_KILL_REPLAY_SCREEN_FADE_TIME )
 	}
 	
-	if ( isMatchEnd )
-		AddScoreForMatchWinning( "MatchVictory", "MatchComplete", winningTeam ) // use this winningTeam to get current winner!
-	else
-		AddScoreForMatchWinning( "RoundVictory", "RoundComplete", winningTeam )
-	
+	// add score for match end
+	// shared from _score.nut
+	ScoreEvent_MatchComplete( winningTeam, isMatchEnd )
 	
 	WaitFrame() // wait a frame so other scripts can setup killreplay stuff
 
@@ -533,18 +531,6 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		else
 			SetGameState( eGameState.Postmatch )
 	}
-}
-
-void function AddScoreForMatchWinning( string winScoreEvent, string loseScoreEvent, int winningTeam )
-{
-	array<entity> otherPlayers = GetPlayerArray()
-	foreach( entity winningPlayer in GetPlayerArrayOfTeam( winningTeam ) )
-	{
-		AddPlayerScore( winningPlayer, winScoreEvent )
-		otherPlayers.removebyvalue( winningPlayer )
-	}
-	foreach( entity otherPlayer in otherPlayers )
-		AddPlayerScore( otherPlayer, loseScoreEvent )
 }
 
 void function PlayerWatchesRoundWinningKillReplay( entity player, int inflictorEHandle, entity replayAttacker, entity replayVictim, float replayLength )

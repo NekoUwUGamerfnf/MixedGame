@@ -7,6 +7,7 @@ global function ScoreEvent_PlayerKilled
 global function ScoreEvent_TitanDoomed
 global function ScoreEvent_TitanKilled
 global function ScoreEvent_NPCKilled
+global function ScoreEvent_MatchComplete
 
 global function ScoreEvent_SetEarnMeterValues
 global function ScoreEvent_SetupEarnMeterValuesForMixedModes
@@ -507,6 +508,32 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 		if ( attacker.s.currentOnslaughtNPCKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
 			AddPlayerScore( attacker, "Onslaught" )
 	}
+}
+
+void function ScoreEvent_MatchComplete( int winningTeam, bool isMatchEnd = true )
+{
+	string matchScoreEvent = "MatchComplete"
+	string winningScoreEvent = "MatchVictory"
+	if ( !isMatchEnd ) // round based scoring!
+	{
+		matchScoreEvent = "RoundComplete"
+		winningScoreEvent = "RoundVictory"
+	}
+
+	float scoreAddDelay = 2.0 // vanilla do have a delay for match ending score
+	if ( !isMatchEnd ) // round based scoring!
+		scoreAddDelay = 0.0 // no delay
+	thread DelayedAddMatchCompleteScore( winningScoreEvent, matchScoreEvent, winningTeam, scoreAddDelay )
+}
+
+void function DelayedAddMatchCompleteScore( string winningScoreEvent, string matchScoreEvent, int winningTeam, float delay )
+{
+	if ( delay > 0 )
+		wait delay
+	foreach( entity player in GetPlayerArray() )
+		AddPlayerScore( player, matchScoreEvent )
+	foreach( entity winningPlayer in GetPlayerArrayOfTeam( winningTeam ) )
+		AddPlayerScore( winningPlayer, winningScoreEvent )
 }
 
 void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, float owned, float coreScale = 1.0 )
