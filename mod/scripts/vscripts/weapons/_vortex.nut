@@ -124,24 +124,43 @@ global function Vortex_CalculateProjectileHitDamage
 
 // modified callbacks
 /* // wip
-global function AddCallback_OnVortexHitProjectile_DamageSourceID
-global function AddCallback_OnVortexHitProjectile_WeaponName
-global function AddCallback_OnVortexHitProjectile_WeaponMod
-
 global function AddCallback_OnVortexHitBullet
-global function AddDamageCallbackSourceID_VortexDrainHealth
-global function AddEntityCallback_OnVortexHitBullet // entity callback
+global function AddCallback_OnVortexHitProjectile
+
+// callbacks per vortexSphere entity
+global function AddEntityCallback_OnVortexHitBullet
+global function AddEntityCallback_OnVortexHitProjectile
+
+// this will run all callbacks from vortexHitBulletCallbacks, and entityVortexHitBulletCallbacks specified for current entity
+global function RunEntityCallbacks_OnVortexHitBullet
+// this will run all callbacks from vortexHitProjectileCallbacks, and entityVortexHitProjectileCallbacks specified for current entity
+global function RunEntityCallbacks_OnVortexHitProjectile
+
+global function AddCallback_VortexDrainedByImpact
+
+// modified function callbacks
+global function AddCallback_CalculateBulletHitDamage
+global function AddCallback_CalculateProjectileHitDamage
 */
 
-struct ImpactDataOverride
+
+// WIP: basic behavior override
+struct VortexBehaviorOverride
 {
-	asset absorb_effect
-	asset absorb_effect_third_person
-	string refire_behavior
+	string impact_sound_1p				// leave empty "" to use weapon's default value
+	string impact_sound_3p				// leave empty "" to use weapon's default value
+	// "vortex_impact_effect" is a weapon settings that can be modified by mods, why not.
+	string projectile_ignores_vortex	// projectile only. leave empty "" to use weapon's default value
 }
 
-// wip
-//typedef ProjectileCollisionCallbackFunc = void functionref( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+// absorb impactdata override
+struct ImpactDataOverride
+{
+	asset absorb_effect					// leave empty $"" to use weapon's default value
+	asset absorb_effect_third_person	// leave empty $"" to use weapon's default value
+	string refire_behavior				// leave empty "" to use weapon's default value
+}
+
 struct
 {
 	// utility
@@ -152,11 +171,11 @@ struct
 	// respawn messy functions rework
 	table< entity, bool functionref( entity, entity, entity, bool ) > vortexCustomProjectileHitRules // don't want to change entityStruct, use fileStruct instead
 
-	/* // wip
-	table< int, ProjectileCollisionCallbackFunc > vortexHitProjectileCallbacks_DamageSourceID
-	table< string, ProjectileCollisionCallbackFunc > vortexHitProjectileCallbacks_WeaponName
-	table< string, table< string, ProjectileCollisionCallbackFunc > > vortexHitProjectileCallbacks_WeaponMod
-	*/
+	// wip
+	array< bool functionref( entity weapon, entity vortexSphere, var damageInfo ) > vortexHitBulletCallbacks
+	array< bool functionref( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos ) > vortexHitProjectileCallbacks
+	table< entity, array< bool functionref( entity weapon, entity vortexSphere, var damageInfo ) > > entityVortexHitBulletCallbacks
+	table< entity, array< bool functionref( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos ) > > entityVortexHitProjectileCallbacks
 } file
 //
 
@@ -1150,9 +1169,12 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 			table overrideImpactData = Vortex_GetImpactDataOverrideFromWeaponOrProjectile( weaponOrProjectile )
 			if ( overrideImpactData != {} )
 			{
-				impactData.absorbFX = overrideImpactData.absorbFX
-				impactData.absorbFX_3p = overrideImpactData.absorbFX_3p
-				impactData.refireBehavior = overrideImpactData.refireBehavior
+				if ( overrideImpactData.absorbFX != $"" )
+					impactData.absorbFX = overrideImpactData.absorbFX
+				if ( overrideImpactData.absorbFX_3p != $"" )
+					impactData.absorbFX_3p = overrideImpactData.absorbFX_3p
+				if ( overrideImpactData.refireBehavior!= "" )
+					impactData.refireBehavior = overrideImpactData.refireBehavior
 			}
 		}
 
