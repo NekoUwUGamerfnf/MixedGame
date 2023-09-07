@@ -73,6 +73,9 @@ const bool EXTRA_SPAWNER_DEBUG = false
 global function PrintPrimaryAttackSignal
 #endif // EXTRA_SPAWNER_DEBUG
 
+// modifiable consts
+const float CARE_PACKAGE_MESSAGE_INTERVAL = 3.0 // prevent care package spamming message
+
 // basically medium animation pilots!
 const array<asset> NPC_PILOT_ALLOWED_MODELS = 
 [ 
@@ -168,6 +171,7 @@ struct
 	// care package, for limiting player care package usages
 	array<entity> carePackageUsedPlayers = []
 	table< entity, array<void functionref( entity ent, entity package )> > entityCarePackageUsedCallbacks
+	table< entity, float > playerLastCarePackageNotifiedTime // prevent care package spamming message
 	// for marking the npc as spawning from this file
 	table<entity, bool> npcSpawnFromExtraSpawner
 	// for marking the npc as one of prowler squad
@@ -238,6 +242,8 @@ void function OnClientConnected( entity player )
 {
 	// scripted npc dialogue
 	file.npcDialogueNextAllowedTimeOnPlayer[ player ] <- 0.0
+	// care package
+	file.playerLastCarePackageNotifiedTime[ player ] <- 0.0
 }
 
 void function OnStalkerSpawned( entity stalker )
@@ -3592,6 +3598,20 @@ void function CarePackage_SpawnPoint( vector origin, float impactTime )
 		EffectStop( targetEffect )
 }
 
+bool function TryCarePackageMessageToPlayer( entity player, string message, bool ignoreTimeLimit = false )
+{
+	if ( !ignoreTimeLimit )
+	{
+		float nextMessageAllowedTime = file.playerLastCarePackageNotifiedTime[ player ] + CARE_PACKAGE_MESSAGE_INTERVAL
+		if ( nextMessageAllowedTime > Time() )
+			return false
+	}
+
+	SendHudMessage( player, message, -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+	file.playerLastCarePackageNotifiedTime[ player ] = Time()
+	return true
+}
+
 function CarePackage_GiveWeapon( pod , player )
 {
 	expect entity( pod )
@@ -3600,8 +3620,8 @@ function CarePackage_GiveWeapon( pod , player )
 
 	if( file.carePackageUsedPlayers.contains( player ) )
 	{
-		//SendHudMessage(player, "Once Robbed Weapon from Care Package\nPlease Wait for Next Delivery",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-		SendHudMessage( player, "已獲取本次補給艙\n請等待下一輪",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+		//TryCarePackageMessageToPlayer( player, "Once Robbed Weapon from Care Package\nPlease Wait for Next Delivery" )
+		TryCarePackageMessageToPlayer( player, "已獲取本次補給艙\n請等待下一輪" )
 		return
 	}
 
@@ -3612,8 +3632,8 @@ function CarePackage_GiveWeapon( pod , player )
 	GiveModdedWeapons( player, file.carePackageWeapons )
 	RestorePlayerAmmo( player )
 
-    //SendHudMessage(player, "Got Weapon from Care Package",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-    SendHudMessage( player, "已從補給艙補充彈藥",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+    //TryCarePackageMessageToPlayer( player, "Got Weapon from Care Package", true )
+    TryCarePackageMessageToPlayer( player, "已從補給艙獲取武器", true ) // ignore message timer
 
 	file.carePackageUsedPlayers.append( player )
 	player.Signal( "PlayerUsedCarePackage" )
@@ -3640,14 +3660,14 @@ function CarePackage_RefillAmmo( pod , player )
 
 	if( file.carePackageUsedPlayers.contains( player ) )
 	{
-		//SendHudMessage(player, "Once Robbed Weapon from Care Package\nPlease Wait for Next Delivery",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-		SendHudMessage( player, "已獲取本次補給艙\n請等待下一輪",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+		//TryCarePackageMessageToPlayer( player, "Once Refilled Ammo from Care Package\nPlease Wait for Next Delivery" )
+		TryCarePackageMessageToPlayer( player, "已獲取本次補給艙\n請等待下一輪" )
 		return
 	}
 
 	RestorePlayerAmmo( player )
-    //SendHudMessage(player, "Got Weapon from Care Package",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
-    SendHudMessage( player, "已從補給艙補充彈藥",  -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1 )
+    //TryCarePackageMessageToPlayer( player, "Got Weapon Ammo from Care Package", true )
+    TryCarePackageMessageToPlayer( player, "已從補給艙補充彈藥", true ) // ignore message timer
 
 	file.carePackageUsedPlayers.append( player )
 	player.Signal( "PlayerUsedCarePackage" )
