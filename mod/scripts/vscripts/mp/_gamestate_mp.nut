@@ -674,6 +674,8 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		SetGameState ( eGameState.Prematch )
 }
 
+// why do we ever need to split this function from roundwinning kill replay?
+// need to rework on it
 void function PlayerWatchesSwitchingSidesKillReplay( entity player, int inflictorEHandle, entity replayAttacker, entity replayVictim, bool doReplay, float replayLength ) // ( entity player, float replayLength )
 {
 	player.EndSignal( "OnDestroy" )
