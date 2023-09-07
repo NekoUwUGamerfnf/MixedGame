@@ -467,7 +467,16 @@ void function NotifyClientsOfTitanDeath( entity victim, entity attacker, var dam
 			attacker = GetEntByIndex( 0 ) // worldspawn
 	}
 
-	int attackerEHandle = attacker ? attacker.GetEncodedEHandle() : -1
+	int attackerEHandle = -1
+	// ServerCallback_OnTitanKilled() is not using "GetHeavyWeightEntityFromEncodedEHandle()"
+	// which means we can't pass a non-heavy weighted entity into it
+	// non-heavy weighted entity including projectile stuffs
+	// all movers, props, npcs and players are heavy weighted
+
+	// crash happens after I made ball lightning use projectile as the inflictor of it's zap damage( in vanilla they uses movers )
+	// after owner being destroyed, the projectile will be passed as attacker!
+	if ( IsValid( attacker ) && !attacker.IsProjectile() )
+		attackerEHandle = attacker.GetEncodedEHandle()
 
 	int victimEHandle = victim.GetEncodedEHandle()
 	int scriptDamageType = DamageInfo_GetCustomDamageType( damageInfo )
