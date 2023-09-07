@@ -20,6 +20,13 @@ global function TemporarilyNonSolidPlayer
 	// modified!!
 	global function TitanEject_SetSoulUseNPCPilotAsNukeAttacker
 	global function TitanEject_SetSoulNukeExplosionDamageOverride
+
+	// modified titan staggering utility
+	// allow modified damageSource to trigger stagger
+	global function TItan_AddStaggerTriggeringDamageSourceID
+
+	global function Titan_SetStaggerRequiredDamageAmount
+	global function Titan_EnableStaggerOnRepeatDamage
 #endif
 
 global const TITAN_EJECT_SCREECH	= "titan_eject_screech"
@@ -53,6 +60,10 @@ struct TitanNukeDamage
 	int damageFlags
 }
 
+// modified titan staggering utility
+global const int TITAN_STAGGER_REQUIRED_DAMAGE = 1000 // vanilla default value
+global const int TITAN_STAGGER_REQUIRED_REPEAT_DAMAGE = 1500
+
 struct
 {
 	float titanVOEjectNotifyDist = 2000 * 2000
@@ -60,6 +71,12 @@ struct
 	// modified settings override!!!!
 	table<entity, bool> soulUseNPCPilotAsNukeAttacker
 	table<entity, TitanNukeDamage> soulNukeDamageOverrides
+
+	// modified titan staggering utility
+	array<int> customStaggerDamageSource
+	int titanStaggerRequiredDamage = TITAN_STAGGER_REQUIRED_DAMAGE
+	bool repeatDamageTriggerTitanStagger = false
+	int titanStaggerRequiredRepeatDamage = TITAN_STAGGER_REQUIRED_REPEAT_DAMAGE
 } file
 
 function TitanShared_Init()
@@ -1286,10 +1303,15 @@ bool function TitanStagger( entity titan, damageInfo )
 	if ( titan.GetTitanSoul().GetShieldHealth() )
 		return false
 
-	if ( DamageInfo_GetDamage( damageInfo ) < 1000 )
-		return false
+	// remove respawn code
+	//if ( DamageInfo_GetDamage( damageInfo ) < 1000 )
+	//	return false
 
-	switch ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+	// modified to add custom stagger damages
+	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	bool damageCanStaggerTitan = false
+	//switch ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
+	switch ( damageSourceId )
 	{
 		// R1
 		// case eDamageSourceId.mp_titanweapon_arc_cannon:
@@ -1332,15 +1354,45 @@ bool function TitanStagger( entity titan, damageInfo )
 		case eDamageSourceId.mp_titancore_shift_core:
 		case eDamageSourceId.mp_titancore_siege_mode:
 
+			// respawn really love switch and unreachable case
+			/*
 			titan.SetStaggering()
 			titan.s.lastStaggerTime = Time()
 			return true
+			*/
+			// modified to add custom stagger damages
+			damageCanStaggerTitan = true
 
-		default:
-			return false
+		// remove respawn code
+		//default:
+		//	return false
 	}
 
-	unreachable
+	// respawn really love switch and unreachable case
+	// they really love them
+	//unreachable
+	// modified to add custom stagger damages
+	if ( file.customStaggerDamageSource.contains( damageSourceId ) )
+		damageCanStaggerTitan = true
+
+	bool shouldApplyStaggerToTitan = false
+	// damage checks
+	int currentDamage = DamageInfo_GetDamage( damageInfo )
+	int recentDamage = int( GetTotalDamageTakenInTime( titan, 1 ) )
+	// vanilla-like stagger event: requires specified damageSourceId and enough damage
+	if ( damageCanStaggerTitan && currentDamage > file.titanStaggerRequiredDamage )
+		shouldApplyStaggerToTitan = true
+	// modified stagger variant: triggering stagger on repeat damage
+	if ( file.repeatDamageTriggerTitanStagger && recentDamage > file.titanStaggerRequiredRepeatDamage )
+		shouldApplyStaggerToTitan = true
+
+	if ( shouldApplyStaggerToTitan )
+	{
+		titan.SetStaggering()
+		titan.s.lastStaggerTime = Time()
+	}
+
+	return shouldApplyStaggerToTitan
 }
 #endif // SERVER
 
@@ -1454,5 +1506,23 @@ TitanNukeDamage function GetSoulNukeDamageOverride( entity soul )
 	if ( !( soul in file.soulNukeDamageOverrides ) )
 		return defaultStruct
 	return file.soulNukeDamageOverrides[ soul ]
+}
+
+// modified titan stagger utility
+void function TItan_AddStaggerTriggeringDamageSourceID( int damageSourceId )
+{
+	if ( !file.customStaggerDamageSource.contains( damageSourceId ) )
+		file.customStaggerDamageSource.append( damageSourceId )
+}
+
+void function Titan_SetStaggerRequiredDamageAmount( int damageAmount = TITAN_STAGGER_REQUIRED_DAMAGE, int repeatDamageAmount = TITAN_STAGGER_REQUIRED_REPEAT_DAMAGE )
+{
+	file.titanStaggerRequiredDamage = damageAmount
+	file.titanStaggerRequiredRepeatDamage = repeatDamageAmount
+}
+
+void function Titan_EnableStaggerOnRepeatDamage( bool enable )
+{
+	file.repeatDamageTriggerTitanStagger = enable
 }
 #endif
