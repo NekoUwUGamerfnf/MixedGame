@@ -9,7 +9,7 @@ const float BISON_DASH_RECHARGE_RATE_SCALE_TURBO = 1.75 // bison with pas_mobili
 const float BISON_DASH_RECHARGE_DELAY_SCALE = 0.0 // bison won't have any delay recharging another dash 
 
 // bison titan
-const float BISON_GRAPPLE_DURATION = 0.8
+const float BISON_GRAPPLE_TITAN_ATTACHED_DURATION = 0.6 // grapple duration when attached a titan
 const float BISON_GRAPPLE_COST_GRAPPLING_TITAN = 0.45
 const float BISON_GRAPPLE_COST_GRAPPLING_PILOT = 0.25
 
@@ -30,6 +30,7 @@ void function BisonUtil_Init()
     // bison grapple settings
 	RegisterSignal( "BisonGrappled" )
     RegisterSignal( "BisonGrappleCancelled" )
+    RegisterSignal( "BisonGrappleAttachedTitan" )
     AddCallback_MpAbilityGrapplePrimaryAttack( BisonOnUseGrapple )
     AddCallback_OnGrapple( OnBisonGrappleAttached )
 
@@ -120,6 +121,10 @@ void function HandlePlayerBisonAbility( entity player )
     if( !meleeWeapon.HasMod( "bison_punch" ) )
         return
 
+    // can't handle offhand cancel
+    // best method is through removing weapon's pullout time in settings file
+    //thread BisonForcedOffhandCancelThink( player )
+
     soul.EndSignal( "OnDestroy" )
     player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
@@ -171,6 +176,35 @@ void function HandlePlayerBisonAbility( entity player )
     WaitForever()
 }
 
+// can't handle offhand cancel
+// best method is through removing weapon's pullout time in settings file
+/*
+void function BisonForcedOffhandCancelThink( entity player )
+{
+    player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "DisembarkingTitan" )
+	player.EndSignal( "TitanEjectionStarted" )
+
+    while ( true )
+    {
+        WaitFrame()
+        entity activeWeapon = player.GetActiveWeapon()
+        entity meleeWeapon = player.GetMeleeWeapon()
+        if ( !IsValid( activeWeapon ) || !IsValid( meleeWeapon ) )
+            continue
+        if ( activeWeapon == meleeWeapon )
+            continue
+
+        if ( activeWeapon.IsWeaponOffhand() && activeWeapon.IsChargeWeapon() && player.IsInputCommandHeld( IN_MELEE ) )
+        {
+            player.ClearOffhand()
+            //player.SetActiveWeaponByName( meleeWeapon.GetWeaponClassName() )
+        }
+    }
+}
+*/
+
 void function BisonOnUseGrapple( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
     // for bison: not allowed to control players or npcs forever by grapple
@@ -204,7 +238,8 @@ void function BisonDelayedAutoDetach( entity player )
         }
     )
 
-	wait BISON_GRAPPLE_DURATION // limited grapple duration
+	player.WaitSignal( "BisonGrappleAttachedTitan" )
+    wait BISON_GRAPPLE_TITAN_ATTACHED_DURATION // limited grapple duration
 	if( IsAlive( player ) )
 		player.Grapple( < 0,0,0 > ) // grapple again while another one is active will cancel it
 }
@@ -251,6 +286,7 @@ void function OnBisonGrappleAttached( entity player, entity hitEnt, vector hitpo
         {
             float powerReduction = min ( grapplePowerCostMax, BISON_GRAPPLE_COST_GRAPPLING_TITAN )
             player.SetSuitGrapplePower( max ( 0, ownerGrapplePower - powerReduction ) )
+            player.Signal( "BisonGrappleAttachedTitan" ) // tell BisonDelayedAutoDetach() we've attached a titan
         }
     }
     // player grapple costs
@@ -260,6 +296,7 @@ void function OnBisonGrappleAttached( entity player, entity hitEnt, vector hitpo
         {
             float powerReduction = min ( grapplePowerCostMax, BISON_GRAPPLE_COST_GRAPPLING_TITAN )
             player.SetSuitGrapplePower( max ( 0, ownerGrapplePower - powerReduction ) )
+            player.Signal( "BisonGrappleAttachedTitan" ) // tell BisonDelayedAutoDetach() we've attached a titan
         }
         else
         {
