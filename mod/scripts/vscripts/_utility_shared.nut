@@ -1674,6 +1674,9 @@ bool function IsPetTitan( titan )
 {
 	Assert( titan.IsTitan() )
 
+	if ( !titan.GetTitanSoul() )
+		return false
+
 	return titan.GetTitanSoul().GetBossPlayer()	!= null
 }
 
