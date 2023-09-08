@@ -18,6 +18,7 @@ void function GamemodePs_Init()
 
 	AddCallback_OnPlayerKilled( GiveScoreForPlayerKill )
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
+	AddCallback_GameStateEnter( eGameState.Prematch, SetUpPilotSkirmishScoreEvent ) // northstar missing
 	SetTimeoutWinnerDecisionFunc( CheckScoreForDraw )
 
 	// spawnzone stuff
@@ -31,6 +32,15 @@ void function GamemodePs_Init()
 
 	// nscn specifics
 	SetShouldPlayDefaultMusic( true )
+}
+
+// northstar missing
+void function SetUpPilotSkirmishScoreEvent()
+{
+	// pilot kill
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.1, 0.1, 0.5 )
+	// special method of killing
+	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
 }
 
 void function GiveScoreForPlayerKill( entity victim, entity attacker, var damageInfo )

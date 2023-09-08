@@ -43,8 +43,7 @@ void function GamemodeSpeedball_Init()
 
 		AddSpawnCallbackEditorClass( "script_ref", "info_speedball_flag", CreateFlag )
 
-		// northstar missing
-		AddCallback_GameStateEnter( eGameState.Prematch, SetUpSpeedBallScoreEvent ) // livefire do have stronger score events
+		AddCallback_GameStateEnter( eGameState.Prematch, SetUpSpeedBallScoreEvent ) // northstar missing
 		AddCallback_OnClientConnected( OnClientConnected )
 
 		AddCallback_GameStateEnter( eGameState.Prematch, CreateFlagIfNoFlagSpawnpoint )
@@ -63,9 +62,10 @@ void function GamemodeSpeedball_Init()
 }
 
 // northstar missing
+// livefire do have stronger score events
 void function SetUpSpeedBallScoreEvent()
 {
-	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.15, 0.3 )
+	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.15, 0.20 )
 }
 
 void function OnClientConnected( entity player )
