@@ -52,22 +52,27 @@ void function CaptureTheFlag_Init()
 	// setup stuff for the functions in sh_gamemode_ctf
 	// don't really like using level for stuff but just how it be
 	level.teamFlags <- {}
-	
+
 	// setup score event earnmeter values
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.05, 0.20 )
-	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02 )
-	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05 )
-	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.25 )
-	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35 )
-	
-	ScoreEvent_SetEarnMeterValues( "FlagCarrierKill", 0.0, 0.20 )
-	ScoreEvent_SetEarnMeterValues( "FlagTaken", 0.0, 0.10 )
-	ScoreEvent_SetEarnMeterValues( "FlagCapture", 0.0, 0.30 )
-	ScoreEvent_SetEarnMeterValues( "FlagCaptureAssist", 0.0, 0.20 )
-	ScoreEvent_SetEarnMeterValues( "FlagReturn", 0.0, 0.20 )
+	CTFScoreEventSetUp()
 
 	// nscn specifics
 	SetShouldPlayDefaultMusic( true )
+}
+
+void function CTFScoreEventSetUp()
+{
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.125, 0.125, 0.8 )
+	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.1, 0.2 )
+	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35 )
+	
+	ScoreEvent_SetEarnMeterValues( "FlagCarrierKill", 0.1, 0.1, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "FlagTaken", 0.1, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "FlagCapture", 0.15, 0.15 )
+	ScoreEvent_SetEarnMeterValues( "FlagCaptureAssist", 0.1, 0.1, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "FlagReturn", 0.1, 0.1 )
 }
 
 void function RateSpawnpoints_CTF( int checkClass, array<entity> spawnpoints, int team, entity player ) 

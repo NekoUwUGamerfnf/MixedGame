@@ -37,6 +37,7 @@ void function GamemodeCP_Init()
 
 	RegisterSignal( "HardpointCaptureStart" )
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
+	CapturePointScoreEventSetUp()
 
 	AddCallback_OnPlayerKilled(GamemodeCP_OnPlayerKilled)
 	AddCallback_EntitiesDidLoad( SpawnHardpoints )
@@ -44,26 +45,27 @@ void function GamemodeCP_Init()
 	AddCallback_OnClientConnected(GamemodeCP_InitPlayer)
 	AddCallback_OnClientDisconnected(GamemodeCP_RemovePlayer)
 
-	ScoreEvent_SetEarnMeterValues("KillPilot",0.1,0.12)
-	ScoreEvent_SetEarnMeterValues("KillTitan",0,0)
-	ScoreEvent_SetEarnMeterValues("TitanKillTitan",0,0)
-	ScoreEvent_SetEarnMeterValues("PilotBatteryStolen",0,0.35)
-	ScoreEvent_SetEarnMeterValues("Headshot",0,0.02)
-	ScoreEvent_SetEarnMeterValues("FirstStrike",0,0.05)
-
-	ScoreEvent_SetEarnMeterValues("ControlPointCapture",0.1,0.1)
-	ScoreEvent_SetEarnMeterValues("ControlPointHold",0.02,0.02)
-	ScoreEvent_SetEarnMeterValues("ControlPointAmped",0.2,0.15)
-	ScoreEvent_SetEarnMeterValues("ControlPointAmpedHold",0.05,0.05)
-
-	ScoreEvent_SetEarnMeterValues("HardpointAssault",0.10,0.15)
-	ScoreEvent_SetEarnMeterValues("HardpointDefense",0.05,0.10)
-	ScoreEvent_SetEarnMeterValues("HardpointPerimeterDefense",0.1,0.12)
-	ScoreEvent_SetEarnMeterValues("HardpointSiege",0.1,0.15)
-	ScoreEvent_SetEarnMeterValues("HardpointSnipe",0.1,0.15)
-
 	// nscn specifics
 	SetShouldPlayDefaultMusic( true )
+}
+
+void function CapturePointScoreEventSetUp()
+{
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.11, 0.11, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillTitan", 0, 0 )
+	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0, 0 )
+	ScoreEvent_SetEarnMeterValues( "Headshot",0, 0.02, 0.0 )
+
+	ScoreEvent_SetEarnMeterValues( "ControlPointCapture", 0.1, 0.1 )
+	ScoreEvent_SetEarnMeterValues( "ControlPointHold", 0.02 ,0.02 )
+	ScoreEvent_SetEarnMeterValues( "ControlPointAmped",0.1,0.1 )
+	ScoreEvent_SetEarnMeterValues( "ControlPointAmpedHold", 0.02,0.02 )
+
+	ScoreEvent_SetEarnMeterValues( "HardpointAssault", 0.05, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "HardpointDefense",0.05,0.05 )
+	ScoreEvent_SetEarnMeterValues( "HardpointPerimeterDefense",0.05, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "HardpointSiege", 0.05, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "HardpointSnipe", 0.05, 0.05 )
 }
 
 void function GamemodeCP_OnPlayerKilled(entity victim, entity attacker, var damageInfo)

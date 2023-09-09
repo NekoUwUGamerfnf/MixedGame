@@ -40,10 +40,9 @@ void function GamemodeSpeedball_Init()
 		Riff_ForceTitanAvailability( eTitanAvailability.Never )
 		Riff_ForceSetEliminationMode( eEliminationMode.Pilots )
 		ScoreEvent_SetupEarnMeterValuesForMixedModes()
+		SetUpSpeedBallScoreEvent() // northstar missing
 
 		AddSpawnCallbackEditorClass( "script_ref", "info_speedball_flag", CreateFlag )
-
-		AddCallback_GameStateEnter( eGameState.Prematch, SetUpSpeedBallScoreEvent ) // northstar missing
 		AddCallback_OnClientConnected( OnClientConnected )
 
 		AddCallback_GameStateEnter( eGameState.Prematch, CreateFlagIfNoFlagSpawnpoint )

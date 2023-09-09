@@ -18,7 +18,7 @@ void function GamemodePs_Init()
 
 	AddCallback_OnPlayerKilled( GiveScoreForPlayerKill )
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
-	AddCallback_GameStateEnter( eGameState.Prematch, SetUpPilotSkirmishScoreEvent ) // northstar missing
+	SetUpPilotSkirmishScoreEvent() // northstar missing
 	SetTimeoutWinnerDecisionFunc( CheckScoreForDraw )
 
 	// spawnzone stuff

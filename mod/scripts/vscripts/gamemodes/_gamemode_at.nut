@@ -113,6 +113,7 @@ void function GamemodeAt_Init()
 
 	// Set-up score callbacks
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
+	AT_ScoreEventsValueSetUp()
 	AddCallback_OnPlayerKilled( AT_PlayerOrNPCKilledScoreEvent )
 	AddCallback_OnNPCKilled( AT_PlayerOrNPCKilledScoreEvent )
 
@@ -145,7 +146,6 @@ void function RateSpawnpoints_AT( int checkclass, array<entity> spawnpoints, int
 
 void function OnATGamePrematch()
 {
-	AT_ScoreEventsValueSetUp()
 }
 
 void function OnATGamePlaying()
