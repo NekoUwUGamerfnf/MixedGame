@@ -31,7 +31,7 @@ global function GiveTitanToPlayer
 global function GetTimeLimit_ForGameMode
 
 // i want my game to have these!
-global function IsSwitchSidesBased_NorthStar // HACK!
+global function IsSwitchSidesBased_NorthStar // this returns northstar's setting of switchSides, should DEPRECATE
 global function SetWaitingForPlayersMaxDuration // so you don't have to wait so freaking long
 
 global function SetPickLoadoutEnabled
@@ -112,9 +112,6 @@ void function PIN_GameStart()
 	AddDeathCallback( "npc_titan", OnTitanKilled )
 
 	RegisterSignal( "CleanUpEntitiesForRoundEnd" )
-
-	// sudden death may need this
-	AddCallback_OnClientDisconnected( OnClientDisconnected )
 	// new adding
 	RegisterSignal( "CleanUpEntitiesForMatchEnd" )
 }
@@ -488,7 +485,6 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	else if( !ClassicMP_ShouldRunEpilogue() )
 	{
 		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
-		CleanUpEntitiesForMatchEnd()
 	}
 	
 	if ( IsRoundBased() )
@@ -743,67 +739,67 @@ void function GameStateEnter_SuddenDeath()
 	// disable respawns, suddendeath calling is done on a kill callback
 	SetRespawnsEnabled( false )
 	file.enteredSuddenDeath = true
-
-	bool mltElimited = false
-	bool imcElimited = false
-
-	if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() < 1 )
-		mltElimited = true
-	if( GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() < 1 )
-		imcElimited = true
-
-	if( mltElimited && imcElimited )
-	{
-		SetWinner( TEAM_UNASSIGNED )
-		return
-	}
-	else if( mltElimited )
-	{
-		SetWinner( TEAM_IMC, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-		return
-	}
-	else if( imcElimited )
-	{
-		SetWinner( TEAM_MILITIA, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-		return
-	}
 	
 	// sudden-death really begins
 	foreach( entity player in GetPlayerArray() )
 		PlaySuddenDeathDialogueBasedOnFaction( player )
 
-	//thread SuddenDeathCheckAnyPlayerAlive()
+	// defensive fixes, so game won't stuck in SuddenDeath forever
+	thread SuddenDeathCheckAnyPlayerAlive()
 }
 
 void function SuddenDeathCheckAnyPlayerAlive()
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
-	// defensive fixes, so game won't stuck in SuddenDeath forever
-	bool mltElimited = false
-	bool imcElimited = false
 
 	while( true )
 	{
-		if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() < 1 )
-			mltElimited = true
-		if( GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() < 1 )
-			imcElimited = true
+		if ( IsFFAGame() ) // ffa variant
+		{
+			array<int> teamsWithLivingPlayers
+			foreach ( entity player in GetPlayerArray_Alive() )
+			{
+				if ( !teamsWithLivingPlayers.contains( player.GetTeam() ) )
+					teamsWithLivingPlayers.append( player.GetTeam() )
+			}
+			
+			if ( teamsWithLivingPlayers.len() == 1 )
+			{
+				SetWinner( teamsWithLivingPlayers[ 0 ], "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+				return
+			}
+			else if ( teamsWithLivingPlayers.len() == 0 ) // failsafe: only team was the dead one
+			{
+				SetWinner( TEAM_UNASSIGNED ) // this is fine in ffa
+				return
+			}
+		}
+		else
+		{
+			bool mltElimited = false
+			bool imcElimited = false
+			if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() < 1 )
+				mltElimited = true
+			if( GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() < 1 )
+				imcElimited = true
 
-		if( mltElimited && imcElimited )
-		{
-			SetWinner( TEAM_UNASSIGNED )
-			return
+			if( mltElimited && imcElimited )
+			{
+				SetWinner( TEAM_UNASSIGNED )
+				return
+			}
+			else if( mltElimited )
+			{
+				SetWinner( TEAM_IMC, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+				return
+			}
+			else if( imcElimited )
+			{
+				SetWinner( TEAM_MILITIA, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+				return
+			}
 		}
-		else if( mltElimited )
-		{
-			SetWinner( TEAM_IMC, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			return
-		}
-		else if( imcElimited )
-		{
-			SetWinner( TEAM_MILITIA, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			return
-		}
+		
 		WaitFrame()
 	}
 }
@@ -847,6 +843,7 @@ void function GameStateEnter_Postmatch()
 	}
 		
 	thread GameStateEnter_Postmatch_Threaded()
+	CleanUpEntitiesForMatchEnd() // match really ends, clean up stuffs
 }
 
 void function GameStateEnter_Postmatch_Threaded()
@@ -903,15 +900,11 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 	if ( ( Riff_EliminationMode() == eEliminationMode.Titans || Riff_EliminationMode() == eEliminationMode.PilotsTitans ) && victim.IsTitan() ) // need an extra check for this
 		OnTitanKilled( victim, damageInfo )	
 
-	if ( !GamePlayingOrSuddenDeath() )
-		return
-
-	CheckSuddenDeathPlayers( victim )
-}
-
-void function OnClientDisconnected( entity player )
-{
-	CheckSuddenDeathPlayers( player )
+	// checks below should only in playing or sudden death state
+	if ( GamePlayingOrSuddenDeath() )
+	{
+		CheckSuddenDeathPlayers( victim )
+	}
 }
 
 void function CheckSuddenDeathPlayers( entity victim )
@@ -935,7 +928,7 @@ void function CheckSuddenDeathPlayers( entity victim )
 				if ( teamsWithLivingPlayers.len() == 1 )
 					SetWinner( teamsWithLivingPlayers[ 0 ], "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
 				else if ( teamsWithLivingPlayers.len() == 0 ) // failsafe: only team was the dead one
-					SetWinner( TEAM_UNASSIGNED, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" ) // this is fine in ffa
+					SetWinner( TEAM_UNASSIGNED ) // this is fine in ffa
 			}
 			else
 				SetWinner( GetOtherTeam( victim.GetTeam() ), "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
@@ -971,35 +964,36 @@ void function OnTitanKilled( entity victim, var damageInfo )
 		file.roundWinningKillReplayHealthFrac = GetHealthFrac( attacker )
 	}
 	
-	if ( !GamePlayingOrSuddenDeath() )
-		return
-
-	// note: pilotstitans is just win if enemy team runs out of either pilots or titans
-	if ( IsTitanEliminationBased() )
+	// checks below should only in playing or sudden death state
+	if ( GamePlayingOrSuddenDeath() )
 	{
-		int livingTitans
-		foreach ( entity titan in GetTitanArrayOfTeam( victim.GetTeam() ) )
-			livingTitans++
-	
-		if ( livingTitans == 0 )
+		// note: pilotstitans is just win if enemy team runs out of either pilots or titans
+		if ( IsTitanEliminationBased() )
 		{
-			// for ffa we need to manually get the last team alive 
-			if ( IsFFAGame() )
+			int livingTitans
+			foreach ( entity titan in GetTitanArrayOfTeam( victim.GetTeam() ) )
+				livingTitans++
+		
+			if ( livingTitans == 0 )
 			{
-				array<int> teamsWithLivingTitans
-				foreach ( entity titan in GetTitanArray() )
+				// for ffa we need to manually get the last team alive 
+				if ( IsFFAGame() )
 				{
-					if ( !teamsWithLivingTitans.contains( titan.GetTeam() ) )
-						teamsWithLivingTitans.append( titan.GetTeam() )
+					array<int> teamsWithLivingTitans
+					foreach ( entity titan in GetTitanArray() )
+					{
+						if ( !teamsWithLivingTitans.contains( titan.GetTeam() ) )
+							teamsWithLivingTitans.append( titan.GetTeam() )
+					}
+					
+					if ( teamsWithLivingTitans.len() == 1 )
+						SetWinner( teamsWithLivingTitans[ 0 ], "#GAMEMODE_ENEMY_TITANS_DESTROYED", "#GAMEMODE_FRIENDLY_TITANS_DESTROYED" )
+					else if ( teamsWithLivingTitans.len() == 0 ) // failsafe: only team was the dead one
+						SetWinner( TEAM_UNASSIGNED, "#GAMEMODE_ENEMY_TITANS_DESTROYED", "#GAMEMODE_FRIENDLY_TITANS_DESTROYED" ) // this is fine in ffa
 				}
-				
-				if ( teamsWithLivingTitans.len() == 1 )
-					SetWinner( teamsWithLivingTitans[ 0 ], "#GAMEMODE_ENEMY_TITANS_DESTROYED", "#GAMEMODE_FRIENDLY_TITANS_DESTROYED" )
-				else if ( teamsWithLivingTitans.len() == 0 ) // failsafe: only team was the dead one
-					SetWinner( TEAM_UNASSIGNED, "#GAMEMODE_ENEMY_TITANS_DESTROYED", "#GAMEMODE_FRIENDLY_TITANS_DESTROYED" ) // this is fine in ffa
+				else
+					SetWinner( GetOtherTeam( victim.GetTeam() ), "#GAMEMODE_ENEMY_TITANS_DESTROYED", "#GAMEMODE_FRIENDLY_TITANS_DESTROYED" )
 			}
-			else
-				SetWinner( GetOtherTeam( victim.GetTeam() ), "#GAMEMODE_ENEMY_TITANS_DESTROYED", "#GAMEMODE_FRIENDLY_TITANS_DESTROYED" )
 		}
 	}
 }
@@ -1067,17 +1061,12 @@ void function CleanUpEntitiesForMatchEnd()
 	{
 		ClearTitanAvailable( player )
 		PROTO_CleanupTrackedProjectiles( player )
+		player.SetInvulnerable() // player no longer dies from here( unless they fall off cliff )
 	}
 
-	foreach ( entity npc in GetNPCArray() )
-	{
-		if ( !IsValid( npc ) || !IsAlive( npc ) )
-			continue
-		// kill rather than destroy, as destroying will cause issues with children which is an issue especially for dropships and titans
-		// this also happens when npc.BecomeRagdoll() as ragdoll a npc meaning destroy them on server
-		npc.e.forceRagdollDeath = true // proper way to make a npc become ragdoll on death, handled by HandleDeathPackage()
-		npc.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } )
-	}
+	// freeze all npcs instead of killing them
+	// match already end and there's no need we clean them up
+	thread FreezeAllNPCsForMatchEnd()
 	
 	// destroy weapons
 	ClearDroppedWeapons()
@@ -1091,6 +1080,22 @@ void function CleanUpEntitiesForMatchEnd()
 	// Added via AddCallback_OnMatchEndCleanup()
 	foreach ( void functionref() callback in file.matchEndCleanupCallbacks )
 		callback()
+}
+
+void function FreezeAllNPCsForMatchEnd()
+{
+	while ( true )
+	{
+		foreach ( entity npc in GetNPCArray() )
+		{
+			if ( !IsValid( npc ) || !IsAlive( npc ) )
+				continue
+			if ( !npc.IsFrozen() )
+				npc.Freeze()
+		}
+
+		WaitFrame()
+	}
 }
 
 // stuff for gamemodes to call
