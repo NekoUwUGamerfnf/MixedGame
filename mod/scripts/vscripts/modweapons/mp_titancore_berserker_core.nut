@@ -151,18 +151,22 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 		// core melee, only "melee_titan_punch_fighter" has deployed animations
 		titan.TakeOffhandWeapon( OFFHAND_MELEE )
 		titan.GiveOffhandWeapon( "melee_titan_punch_fighter", OFFHAND_MELEE, ["allow_as_primary", "dash_punch", "berserker", "berserker_core_punch"] )
-		
+		entity meleeWeapon = titan.GetOffhandWeapon( OFFHAND_MELEE )
+
 		// pullout animation, respawn messed this up, but makes core has less startup
 		// removed doAnimationFix check, since we gave player a new meleeWeapon
 		// if player is sprinting while activating the core, they will have to wait the weapon pull out before first attack
 		if ( owner.IsPlayer() )
 			owner.HolsterWeapon() // to have deploy animation
+		// HACK fix: looping to limit player's weapon
+		thread BerserkerCoreLimitedWeapon( owner )
 
 		titan.SetActiveWeaponByName( "melee_titan_punch_fighter" )
 		
 		// pullout animation
 		if ( owner.IsPlayer() )
 			owner.DeployWeapon() // to have deploy animation
+		meleeWeapon.AddMod( "berserker_instant_deploy" ) // add instant deploy for we switch back to fist when player try to switch weapon
 		
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( false )
@@ -294,6 +298,43 @@ void function RestorePlayerWeapons( entity player )
 			titan.DisableNPCMoveFlag( NPCMF_PREFER_SPRINT )
 			titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, true )
 		}
+	}
+}
+
+// HACK fix: looping to limit player's weapon
+void function BerserkerCoreLimitedWeapon( entity owner, string limitedWeapon = "melee_titan_punch_fighter" )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+
+	bool activeWeaponLostLastTick
+	while ( TitanCoreInUse( owner ) )
+	{
+		WaitFrame()
+		
+		array<entity> mainWeapons = owner.GetMainWeapons()
+		entity activeWeapon = owner.GetActiveWeapon()
+
+		// player may have weapon lost forever if they used the bug...
+		// if this happend more than 1tick, switch back to fist
+		// the 1 tick grace period is used for offhand switch!
+		if ( !IsValid( activeWeapon ) )
+		{
+			if ( activeWeaponLostLastTick )
+			{
+				owner.SetActiveWeaponByName( limitedWeapon )
+				activeWeaponLostLastTick = false
+			}
+			else
+				activeWeaponLostLastTick = true
+			
+			continue
+		}
+		// also never allow switching to main weapon
+		if ( mainWeapons.contains( activeWeapon ) )
+			owner.SetActiveWeaponByName( limitedWeapon )
+
+		activeWeaponLostLastTick = false
 	}
 }
 #endif
