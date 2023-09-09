@@ -248,11 +248,9 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		if ( meleeSaved ) 
 		{
 			// triggering melee replacement
-			array<string> mods = []
+			array<string> mods = ["super_charged"]
 			if ( IsSingleplayer() )
-				mods.append( "super_charged_SP" )
-			else
-				mods.append( "super_charged" )
+				mods.append( "super_charged_SP" ) // sp have a buffed sword
 			// prime sword check
 			TitanLoadoutDef loadout = soul.soul.titanLoadout
 			if ( loadout.isPrime == "titan_is_prime" )
@@ -269,26 +267,46 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 			}
 		}
 		
+		entity meleeWeapon = titan.GetOffhandWeapon( OFFHAND_MELEE )
+		bool doCoreFix = bool( GetCurrentPlaylistVarInt( "sword_core_fix", 0 ) ) || weapon.HasMod( "sword_core_fix" )
 		// pullout animation, respawn messed this up, but makes sword core has less startup
-		bool doAnimationFix = weapon.HasMod( "deploy_animation_fix" ) || bool( GetCurrentPlaylistVarInt( "melee_core_anim_fix", 0 ) )
+		bool performPulloutAnimation = doCoreFix
 		if ( meleeSaved ) // always fix animation if we have melee replaced, otherwise player will have weird behavior if they start swordcore from sprinting
-			doAnimationFix = true
-		if ( doAnimationFix )
+			performPulloutAnimation = true
+		if ( performPulloutAnimation )
 		{
 			if ( owner.IsPlayer() )
 				owner.HolsterWeapon() // to have deploy animation
 		}
+		else if ( doCoreFix )
+		{
+			// if we're doing pullout animation, delay instant_switch's adding
+			// debug
+			//print( "we're not performing pullout anim" )
+			meleeWeapon.AddMod( "sword_instant_switch" )
+		}
+		// HACK fix: looping to limit player's weapon with sword
+		if ( doCoreFix )
+			thread ShiftCoreLimitedWeapon( owner )
 
 		titan.SetActiveWeaponByName( "melee_titan_sword" )
 		
 		// pullout animation
-		if ( doAnimationFix )
+		if ( performPulloutAnimation )
 		{
 			if ( owner.IsPlayer() )
 				owner.DeployWeapon() // to have deploy animation
+			// if we were doing to do pullout animation, add instant_switch here
+			if ( doCoreFix )
+			{
+				// debug
+				//print( "we're performing pullout anim" )
+				meleeWeapon.AddMod( "sword_instant_switch" )
+			}
 		}
 		
 		// reworked here: supporting multiple main weapon titans
+		// note: this only works for npcs, player can 
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( false )
 		//entity mainWeapon = titan.GetMainWeapons()[0]
@@ -395,6 +413,9 @@ void function RestorePlayerWeapons( entity player )
 			{
 				meleeWeapon.RemoveMod( "super_charged_SP" )
 			}
+
+			// safe to remove animation fix
+			meleeWeapon.RemoveMod( "sword_instant_switch" )
 		}
 
 		// modified: weapon store system, so we can use sword core with no melee_titan_sword
@@ -462,5 +483,44 @@ void function Shift_Core_UseMeter( entity player )
 void function Shift_Core_UseMeter_NPC( entity npc )
 {
 	Shift_Core_UseMeter( npc )
+}
+
+
+// modified functions goes here
+// HACK fix: looping to limit player's weapon with sword
+void function ShiftCoreLimitedWeapon( entity owner, string limitedWeapon = "melee_titan_sword" )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+
+	bool activeWeaponLostLastTick
+	while ( TitanCoreInUse( owner ) )
+	{
+		WaitFrame()
+		
+		array<entity> mainWeapons = owner.GetMainWeapons()
+		entity activeWeapon = owner.GetActiveWeapon()
+
+		// player may have weapon lost forever if they used the bug...
+		// if this happend more than 1tick, switch back to sword
+		// the 1 tick grace period is used for offhand switch!
+		if ( !IsValid( activeWeapon ) )
+		{
+			if ( activeWeaponLostLastTick )
+			{
+				owner.SetActiveWeaponByName( limitedWeapon )
+				activeWeaponLostLastTick = false
+			}
+			else
+				activeWeaponLostLastTick = true
+			
+			continue
+		}
+		// also never allow switching to main weapon
+		if ( mainWeapons.contains( activeWeapon ) )
+			owner.SetActiveWeaponByName( limitedWeapon )
+
+		activeWeaponLostLastTick = false
+	}
 }
 #endif
