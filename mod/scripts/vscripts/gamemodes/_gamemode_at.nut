@@ -131,6 +131,9 @@ void function GamemodeAt_Init()
 
 	// Initilaze gamemode entities
 	AddCallback_EntitiesDidLoad( OnEntitiesDidLoad )
+
+	// tempfix specific
+	EarnMeterMP_SetPassiveGainProgessEnable( true ) // enable earnmeter gain progressing like vanilla
 }
 
 void function RateSpawnpoints_AT( int checkclass, array<entity> spawnpoints, int team, entity player )

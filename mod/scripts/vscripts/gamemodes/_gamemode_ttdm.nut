@@ -18,8 +18,8 @@ void function GamemodeTTDM_Init()
 
 	// probably needs scoreevent earnmeter values
 
-	// nscn specifics
-	SetShouldPlayDefaultMusic( true )
+	// tempfix specifics
+	SetShouldPlayDefaultMusic( true ) // play music when score or time reaches some point
 }
 
 void function TTDMIntroSetup()

@@ -56,8 +56,9 @@ void function CaptureTheFlag_Init()
 	// setup score event earnmeter values
 	CTFScoreEventSetUp()
 
-	// nscn specifics
-	SetShouldPlayDefaultMusic( true )
+	// tempfix specifics
+	SetShouldPlayDefaultMusic( true ) // play music when score or time reaches some point
+	EarnMeterMP_SetPassiveGainProgessEnable( true ) // enable earnmeter gain progressing like vanilla
 }
 
 void function CTFScoreEventSetUp()

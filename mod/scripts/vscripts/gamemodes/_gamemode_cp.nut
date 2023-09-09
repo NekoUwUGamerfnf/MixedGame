@@ -45,8 +45,9 @@ void function GamemodeCP_Init()
 	AddCallback_OnClientConnected(GamemodeCP_InitPlayer)
 	AddCallback_OnClientDisconnected(GamemodeCP_RemovePlayer)
 
-	// nscn specifics
-	SetShouldPlayDefaultMusic( true )
+	// tempfix specifics
+	SetShouldPlayDefaultMusic( true ) // play music when score or time reaches some point
+	EarnMeterMP_SetPassiveGainProgessEnable( true ) // enable earnmeter gain progressing like vanilla
 }
 
 void function CapturePointScoreEventSetUp()

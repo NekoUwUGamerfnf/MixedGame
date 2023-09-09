@@ -15,6 +15,9 @@ void function FFA_Init()
 
 	// modified for northstar
 	AddCallback_OnClientConnected( OnClientConnected )
+
+	// tempfix specifics
+	EarnMeterMP_SetPassiveGainProgessEnable( true ) // enable earnmeter gain progressing like vanilla
 }
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )

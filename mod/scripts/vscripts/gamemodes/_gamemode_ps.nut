@@ -30,8 +30,8 @@ void function GamemodePs_Init()
 	file.militiaPreviousSpawnZones = [ null, null, null ]
 	file.imcPreviousSpawnZones = [ null, null, null ]
 
-	// nscn specifics
-	SetShouldPlayDefaultMusic( true )
+	// tempfix specifics
+	SetShouldPlayDefaultMusic( true ) // play music when score or time reaches some point
 }
 
 // northstar missing
