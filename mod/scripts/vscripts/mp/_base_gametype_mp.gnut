@@ -491,6 +491,13 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	if ( player.IsTitan() )
 		SoulDies( player.GetTitanSoul(), damageInfo ) // cleanup some titan stuff, no idea where else to put this
 	
+	// fix: get respawn avaibility before death cam delay
+	bool respawnsEnableBeforeDeathCam = RespawnsEnabled()
+
+	if ( !respawnsEnableBeforeDeathCam )
+		SetPlayerEliminated( player ) // Change "Respawn" prompt to "Skip Replay"
+	
+	// re-exam for last death: hide respawn prompt during death cam
 	ClearRespawnAvailable( player )
 
 	OnThreadEnd( function() : ( player )
@@ -627,7 +634,9 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	if ( !deathCamModified )
 		PlayerClassChangeToSpectator( player )
 
-	if ( RespawnsEnabled() )
+	// fix: get respawn avaibility before death cam delay
+	//if ( RespawnsEnabled() )
+	if ( respawnsEnableBeforeDeathCam )
 	{
 		// is it a good idea to do respawn code in postdeaththread? fuck if i know lol
 		// add modified respawn delay think
@@ -673,12 +682,13 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	}
 	else if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue ) // respawn not valid, handling all situations
 	{
-		SetPlayerEliminated( player ) // allows player to skip replay
+		SetRespawnAvailable( player ) // needs to set respawn available to show "Skip Replay" button
 		if ( shouldDoReplay )
 			WaitSignal( player, "KillCamOver", "RespawnMe" )
 		else // no replay enabled, we wait an extra replayStartDelay for handling modified deathcam
 			wait replayStartDelay
 
+		ClearRespawnAvailable( player )
 		thread PlayerBecomesSpectator( player )
 	}
 }
@@ -851,10 +861,11 @@ void function RespawnAsTitan( entity player, bool manualPosition = false )
 		
 	entity titan = CreateAutoTitanForPlayer_FromTitanLoadout( player, titanLoadout, spawnpoint.GetOrigin(), spawnpoint.GetAngles() )
 	DispatchSpawn( titan )
-	// question: how could embark prompt show up when player is dead?
+	// removed. prompt won't show when player is dead
 	//player.SetPetTitan( null ) // prevent embark prompt from showing up
 	player.SetPetTitan( titan ) // required for marking this player having a pet titan
 
+	ClearPlayerEliminated( player ) // mark as player not eliminated
 	ClearRespawnAvailable( player ) // need so the respawn icon doesn't show
 	
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // hide hud
