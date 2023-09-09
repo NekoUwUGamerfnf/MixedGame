@@ -118,9 +118,9 @@ void function GamemodeAt_Init()
 	AddCallback_OnNPCKilled( AT_PlayerOrNPCKilledScoreEvent )
 
 	// Set npc weapons
-	AiGameModes_SetNPCWeapons( "npc_soldier", [ "mp_weapon_rspn101", "mp_weapon_dmr", "mp_weapon_r97", "mp_weapon_lmg" ] )
+	AiGameModes_SetNPCWeapons( "npc_soldier", [ "mp_weapon_hemlok_smg", "mp_weapon_rspn101", "mp_weapon_lmg" ] )
 	AiGameModes_SetNPCWeapons( "npc_spectre", [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
-	AiGameModes_SetNPCWeapons( "npc_stalker", [ "mp_weapon_hemlok_smg", "mp_weapon_lstar", "mp_weapon_mastiff" ] )
+	AiGameModes_SetNPCWeapons( "npc_stalker", [ "mp_weapon_hemlok_smg", "mp_weapon_doubletake", "mp_weapon_mastiff" ] )
 
 	// Gamestate callbacks
 	AddCallback_GameStateEnter( eGameState.Prematch, OnATGamePrematch )
@@ -408,16 +408,16 @@ void function OnEntitiesDidLoad()
 
 void function AT_ScoreEventsValueSetUp()
 {
-	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.10, 0.25 )
-	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.10, 0.25 )
-	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.10, 0.25 )
+	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.15, 0.20 )
+	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.15, 0.20 )
+	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.15, 0.20 )
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.10, 0.25 )
 	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.03, 0.04, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.05, 0.05, 0.4 )
 	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.05, 0.05, 0.4 )
-	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.10, 0.20, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.15, 0.15, 0.67 )
 
 	// HACK
 	foreach ( string eventName in AT_ENABLE_SCOREEVENTS )
