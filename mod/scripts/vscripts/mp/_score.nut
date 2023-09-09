@@ -85,7 +85,7 @@ void function InitPlayerForScoreEvents( entity player )
 
 // idk why forth arg is a string, maybe it should be a var type?
 //void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string noideawhatthisis = "", int pointValueOverride = -1 )
-void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1 )
+void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1, float earnMeterPercentage = -1 )
 {
 	// modified: adding score event override
 	if ( scoreEventName in file.scoreEventNameOverride )
@@ -103,15 +103,22 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	var associatedHandle = 0
 	if ( associatedEnt != null )
 		associatedHandle = associatedEnt.GetEncodedEHandle()
-		
+	
 	if ( pointValueOverride != -1 )
-		event.pointValue = pointValueOverride 
+		event.pointValue = pointValueOverride
 	
 	float earnScale = targetPlayer.IsTitan() ? 0.0 : 1.0 // titan shouldn't get any earn value
 	float ownScale = targetPlayer.IsTitan() ? event.coreMeterScalar : 1.0
 	
 	float earnValue = event.earnMeterEarnValue * earnScale
 	float ownValue = event.earnMeterOwnValue * ownScale
+
+	// fix score event value override
+	if ( earnMeterPercentage != -1 )
+	{
+		earnValue *= earnMeterPercentage
+		ownValue *= earnMeterPercentage
+	}
 	
 	PlayerEarnMeter_AddEarnedAndOwned( targetPlayer, earnValue, ownValue ) //( targetPlayer, earnValue * scale, ownValue * scale ) // seriously? this causes a value*scale^2
 	
@@ -502,7 +509,7 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
-		AddPlayerScore( attacker, "Headshot", victim )
+		AddPlayerScore( attacker, "Headshot", victim, null, -1, 0.0 ) // no value earn from npc headshots
 
 	// mayhem and onslaught, doesn't add any score but vanilla has this event
 	// mayhem killstreak broke
@@ -584,7 +591,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
 	// special method of killing
-	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.025, 0.025, 0.0 )
 	
 	// ai
