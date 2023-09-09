@@ -907,7 +907,7 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 	}
 }
 
-bool function CheckSuddenDeathPlayers( entity victim )
+void function CheckSuddenDeathPlayers( entity victim )
 {
 	// note: pilotstitans is just win if enemy team runs out of either pilots or titans
 	if ( IsPilotEliminationBased() || GetGameState() == eGameState.SuddenDeath )
