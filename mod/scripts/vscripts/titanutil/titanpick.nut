@@ -585,8 +585,9 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
 
     // reset behaviors
     player.SetTitanDisembarkEnabled( true ) // do need to set up this since some weapon or titancore will disable it
-    player.ClearMeleeDisabled() // recover this for some titan core and ability(like power shot) will disable them
+    player.ClearMeleeDisabled() // recover this for some titan core and ability(like power shot and flame core) will disable them
     player.Anim_StopGesture( 0 ) // stop any gesture animations maybe meleeing
+    player.Server_TurnDodgeDisabledOff() // re-enable dodge disable caused by ability(like hover)
 
     // monarch hack: after being pick up, cannot upgrade anymore
     bool passUpgrades = ShouldTitanPassUpgradesForPickUp( player, weaponProp )
