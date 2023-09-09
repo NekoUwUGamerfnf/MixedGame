@@ -276,7 +276,7 @@ void function UpdateMarksForKill( entity victim, entity attacker, var damageInfo
 			attackerEHandle = attacker.GetEncodedEHandle()
 			// sometimes worldSpawn killing a mark will crash all clients, wolrdSpawn entity don't have a .GetPlayerName() function
 			// re-assign attacker using victim
-			if ( !attacker.IsPlayer() )
+			if ( !attacker.IsNPC() && !attacker.IsPlayer() )
 				attackerEHandle = victim.GetEncodedEHandle()
 		}
 		if( attackerEHandle != -1 )
