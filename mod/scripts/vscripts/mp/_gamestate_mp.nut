@@ -838,6 +838,7 @@ void function GameStateEnter_Postmatch()
 {
 	foreach ( entity player in GetPlayerArray() )
 	{
+		player.FreezeControlsOnServer()
 		// shared from _base_gametype_mp.gnut, stop any kill replay playing
 		StopKillReplayForPlayer( player )
 	}
