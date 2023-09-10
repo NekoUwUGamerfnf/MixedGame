@@ -859,9 +859,6 @@ void function GameStateEnter_Postmatch_Threaded()
 
 void function PostMatchForceFadeToBlack()
 {
-	// todo: check if this is still necessary
-	player.EndSignal( "OnDestroy" )
-
 	// hack until i figure out what deathcam stuff is causing fadetoblacks to be cleared
 	while ( true )
 	{
