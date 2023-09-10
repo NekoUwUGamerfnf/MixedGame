@@ -842,7 +842,7 @@ void function GameStateEnter_Postmatch()
 		StopKillReplayForPlayer( player )
 	}
 
-	thread PostMatchForceFadeToBlack( player )
+	thread PostMatchForceFadeToBlack()
 		
 	thread GameStateEnter_Postmatch_Threaded()
 }
