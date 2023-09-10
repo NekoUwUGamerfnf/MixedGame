@@ -313,25 +313,26 @@ void function SpawnIntroBatch_Threaded( int team )
 	int pods = RandomInt( podNodes.len() + 1 )
 	
 	int ships = shipNodes.len()
+	bool spawnSucceeded = false
 	
 	for ( int i = 0; i < file.squadsPerTeam; i++ )
 	{
-		if ( pods != 0 || ships == 0 )
+		if ( ( pods != 0 || ships == 0 ) && podNodes.len() > 0 ) // defensive fix for podNodes can sometimes be 0
 		{
 			int index = i
 			
 			if ( index > podNodes.len() - 1 )
-			index = RandomInt( podNodes.len() )
+				index = RandomInt( podNodes.len() )
 			
 			node = podNodes[ index ]
 			thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", SquadHandler )
 			
 			pods--
 		}
-		else
+		else if ( shipNodes.len() > 0 ) // defensive fix for shipNodes can sometimes be 0
 		{
 			if ( startIndex == 0 ) 
-			startIndex = i // save where we started
+				startIndex = i // save where we started
 			
 			node = shipNodes[ i - startIndex ]
 			thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
@@ -346,7 +347,9 @@ void function SpawnIntroBatch_Threaded( int team )
 		first = false
 	}
 	
-	wait 15.0
+	// do wait before looping spawn starts if we did intro spawn
+	if ( spawnSucceeded )
+		wait 15.0
 	
 	thread Spawner_Threaded( team )
 }
