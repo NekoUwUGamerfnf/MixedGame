@@ -232,13 +232,6 @@ void function InitSpawnpoint( entity spawnpoint )
 void function SetRespawnsEnabled( bool enabled )
 {
 	file.respawnsEnabled = enabled
-	
-	if ( !enabled )
-	{
-		// clear any respawn availablity, or players are able to save respawn for whenever they want
-		foreach( entity player in GetPlayerArray() )
-			ClearRespawnAvailable( player )
-	}
 }
 
 bool function RespawnsEnabled()
