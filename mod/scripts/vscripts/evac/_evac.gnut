@@ -201,13 +201,19 @@ bool function EvacEpilogueShouldLeaveEarly( entity dropship )
 
 void function EvacEpilogueCompleted( entity dropship )
 {
-	GenericEpilogueCompleted() // stop existing evac think
 	wait 5.0
 	
+	thread EvacEpilogueCompleted_Threaded()
 	// there ain't so many waits in vanilla
 	// screen fade and cleanup handled in postmatch
 	if( GetGameState() != eGameState.Postmatch )
 		SetGameState( eGameState.Postmatch )
+}
+
+void function EvacEpilogueCompleted_Threaded()
+{
+	wait 1.0 // wait for player screen fade
+	GenericEpilogueCompleted() // stop existing evac think
 }
 
 void function GenericEpilogueCompleted()
@@ -224,6 +230,10 @@ void function Evac( int evacTeam, float initialWait, float arrivalTime, float wa
 {
 	// end evac thread if there triggered
 	svGlobal.levelEnt.EndSignal( "EpilogueCompleted" )
+	// need a results table
+	table evacResults = {
+		evacThinkRunToEnd = false
+	}
 
 	// get evac ship sound and model for specific team
 	EvacShipSetting evacShip = GetEvacShipSettingByTeam( evacTeam )
@@ -304,7 +314,7 @@ void function Evac( int evacTeam, float initialWait, float arrivalTime, float wa
 	dropship.EndSignal( "OnDestroy" )
 	dropship.EndSignal( "OnDeath" )
 
-	OnThreadEnd( function() : ( evacTeam, completionCallback, dropship ) 
+	OnThreadEnd( function() : ( evacTeam, completionCallback, dropship, evacResults ) 
 	{
 		if ( "evacTrigger" in dropship.s )
 			dropship.s.evacTrigger.Destroy()
@@ -325,7 +335,9 @@ void function Evac( int evacTeam, float initialWait, float arrivalTime, float wa
 		}
 		
 		// this is called whether dropship is destroyed or evac finishes, callback can handle this itself
-		thread completionCallback( dropship )
+		// only gets called if evac think successfully run to end or evac ship killed
+		if ( !IsAlive( dropship ) || evacResults.evacThinkRunToEnd )
+			thread completionCallback( dropship )
 	})
 	
 	// flyin
@@ -499,6 +511,9 @@ void function Evac( int evacTeam, float initialWait, float arrivalTime, float wa
 		// we can assume there is one player in the array because otherwise evacCount wouldn't be 1
 		AddPlayerScore( evacingPlayers[0], "SoleSurvivor" )
 	}
+
+	// mark as we've run evac think to completion
+	evacResults.evacThinkRunToEnd = true
 }
 
 void function AddPlayerToEvacDropship( entity dropship, entity player ) 
