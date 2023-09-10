@@ -838,6 +838,9 @@ void function GameStateEnter_Postmatch()
 {
 	foreach ( entity player in GetPlayerArray() )
 	{
+		// shared from _base_gametype_mp.gnut, stop any kill replay playing
+		StopKillReplayForPlayer( player )
+
 		player.FreezeControlsOnServer()
 		thread ForceFadeToBlack( player )
 	}
@@ -1061,7 +1064,8 @@ void function CleanUpEntitiesForMatchEnd()
 	{
 		ClearTitanAvailable( player )
 		PROTO_CleanupTrackedProjectiles( player )
-		player.SetInvulnerable() // player no longer dies from here( unless they fall off cliff )
+		if ( IsAlive( player ) )
+			player.SetInvulnerable() // player no longer dies from here( unless they fall off cliff )
 	}
 
 	// freeze all npcs instead of killing them
@@ -1092,6 +1096,8 @@ void function FreezeAllNPCsForMatchEnd()
 				continue
 			if ( !npc.IsFrozen() )
 				npc.Freeze()
+			if ( !npc.IsInvulnerable() )
+				npc.SetInvulnerable() // npc no longer dies from here
 		}
 
 		WaitFrame()

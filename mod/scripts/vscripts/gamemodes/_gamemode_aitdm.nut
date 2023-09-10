@@ -282,25 +282,26 @@ void function SpawnIntroBatch_Threaded( int team )
 	int pods = RandomInt( podNodes.len() + 1 )
 	
 	int ships = shipNodes.len()
+	bool spawnSucceeded = false
 	
 	for ( int i = 0; i < file.squadsPerTeam; i++ )
 	{
-		if ( pods != 0 || ships == 0 )
+		if ( ( pods != 0 || ships == 0 ) && podNodes.len() > 0 ) // defensive fix for podNodes can sometimes be 0
 		{
 			int index = i
 			
 			if ( index > podNodes.len() - 1 )
-			index = RandomInt( podNodes.len() )
+				index = RandomInt( podNodes.len() )
 			
 			node = podNodes[ index ]
 			thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", SquadHandler )
 			
 			pods--
 		}
-		else
+		else if ( shipNodes.len() > 0 ) // defensive fix for shipNodes can sometimes be 0
 		{
 			if ( startIndex == 0 ) 
-			startIndex = i // save where we started
+				startIndex = i // save where we started
 			
 			node = shipNodes[ i - startIndex ]
 			thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
@@ -315,7 +316,9 @@ void function SpawnIntroBatch_Threaded( int team )
 		first = false
 	}
 	
-	wait 15.0
+	// do wait before looping spawn starts if we did intro spawn
+	if ( spawnSucceeded )
+		wait 15.0
 	
 	thread Spawner_Threaded( team )
 }
@@ -335,8 +338,12 @@ void function Spawner_Threaded( int team )
 		Escalate( team )
 		
 		// TODO: this should possibly not count scripted npc spawns, probably only the ones spawned by this script
-		array<entity> npcs = GetNPCArrayOfTeam( team )
-		int count = npcs.len()
+		int infantryCount = 0
+		foreach ( entity npc in GetNPCArrayOfTeam( team ) )
+		{
+			if ( IsHumanSized( npc ) && !IsValid( npc.GetBossPlayer() ) )
+				infantryCount += 1
+		}
 		int reaperCount = GetNPCArrayEx( "npc_super_spectre", team, -1, <0,0,0>, -1 ).len()
 		
 		// REAPERS
@@ -360,7 +367,7 @@ void function Spawner_Threaded( int team )
 		}
 		
 		// NORMAL SPAWNS
-		int squadsToSpawn = ( file.squadsPerTeam * SQUAD_SIZE - 2 - count ) / SQUAD_SIZE
+		int squadsToSpawn = ( file.squadsPerTeam * SQUAD_SIZE - 2 - infantryCount ) / SQUAD_SIZE
 		if ( squadsToSpawn > 0 )
 		{
 			for ( int i = 0; i < squadsToSpawn; i++ )
@@ -529,19 +536,24 @@ void function SquadHandler( array<entity> guys )
 		//thread AITdm_CleanupBoredNPCThread( guy )
 	}
 	
+	wait 3 // initial wait before guys disembark from droppod
+	
 	// Every 5 - 15 secs get a closest target and go to them. search for only light armor
 	while ( true )
 	{
 		WaitFrame() // wait a frame each loop
 
+		// remove dead guys
+		ArrayRemoveDead( guys )
 		foreach ( guy in guys )
 		{
-			// remove dead guys
-			ArrayRemoveDead( guys )
-			// Stop func if our squad has been killed off
-			if ( guys.len() == 0 )
-				return
+			// check leechable guys
+			if ( guy.GetTeam() != team )
+				guys.removebyvalue( guy )
 		}
+		// Stop func if our squad has been killed off
+		if ( guys.len() == 0 )
+			return
 
 		// Get point and send our whole squad to it
 		points = []
@@ -602,14 +614,16 @@ void function OnSpectreLeeched( entity spectre, entity player )
 // Same as SquadHandler, just for reapers
 void function ReaperHandler( entity reaper )
 {
-	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+	int team = reaper.GetTeam()
+	array<entity> players = GetPlayerArrayOfEnemies( team )
 	foreach ( player in players )
 		reaper.Minimap_AlwaysShow( 0, player )
 	
-	int team = reaper.GetTeam()
 	array<entity> points
 	
 	reaper.AssaultSetGoalRadius( 500 ) // goal radius
+
+	wait 3 // initial wait before reapers do startup animation
 	
 	// Every 10 - 20 secs get a closest target and go to them. search for both players and npcs
 	while( true )
@@ -618,6 +632,10 @@ void function ReaperHandler( entity reaper )
 
 		// Check if alive
 		if ( !IsAlive( reaper ) )
+			return
+
+		// check leechable
+		if ( reaper.GetTeam() != team )
 			return
 
 		points = [] // clean up last points
