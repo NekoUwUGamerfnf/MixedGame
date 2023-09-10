@@ -569,19 +569,24 @@ void function SquadHandler( array<entity> guys )
 		//thread AITdm_CleanupBoredNPCThread( guy )
 	}
 	
+	wait 3 // initial wait before guys disembark from droppod
+	
 	// Every 5 - 15 secs get a closest target and go to them. search for only light armor
 	while ( true )
 	{
 		WaitFrame() // wait a frame each loop
 
+		// remove dead guys
+		ArrayRemoveDead( guys )
 		foreach ( guy in guys )
 		{
-			// remove dead guys
-			ArrayRemoveDead( guys )
-			// Stop func if our squad has been killed off
-			if ( guys.len() == 0 )
-				return
+			// check leechable guys
+			if ( guy.GetTeam() != team )
+				guys.removebyvalue( guy )
 		}
+		// Stop func if our squad has been killed off
+		if ( guys.len() == 0 )
+			return
 
 		// Get point and send our whole squad to it
 		points = []
@@ -642,14 +647,16 @@ void function OnSpectreLeeched( entity spectre, entity player )
 // Same as SquadHandler, just for reapers
 void function ReaperHandler( entity reaper )
 {
-	array<entity> players = GetPlayerArrayOfEnemies( reaper.GetTeam() )
+	int team = reaper.GetTeam()
+	array<entity> players = GetPlayerArrayOfEnemies( team )
 	foreach ( player in players )
 		reaper.Minimap_AlwaysShow( 0, player )
 	
-	int team = reaper.GetTeam()
 	array<entity> points
 	
 	reaper.AssaultSetGoalRadius( 500 ) // goal radius
+
+	wait 3 // initial wait before reapers do startup animation
 	
 	// Every 10 - 20 secs get a closest target and go to them. search for both players and npcs
 	while( true )
@@ -658,6 +665,10 @@ void function ReaperHandler( entity reaper )
 
 		// Check if alive
 		if ( !IsAlive( reaper ) )
+			return
+
+		// check leechable
+		if ( reaper.GetTeam() != team )
 			return
 
 		points = [] // clean up last points
