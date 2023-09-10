@@ -484,7 +484,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	}
 	else if( !ClassicMP_ShouldRunEpilogue() )
 	{
-		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
+		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY // TEMP
 	}
 	
 	if ( IsRoundBased() )
