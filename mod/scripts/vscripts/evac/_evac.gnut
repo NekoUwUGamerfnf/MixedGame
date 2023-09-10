@@ -6,6 +6,7 @@ global function IsEvacDropship
 
 global function EvacEpilogueSetup
 global function Evac
+global function GenericEpilogueCompleted // to stop exsiting evac think
 
 const float EVAC_INITIAL_WAIT = 5.0
 const float EVAC_ARRIVAL_TIME = 40.0
@@ -82,6 +83,8 @@ void function Evac_Init()
 	EvacShared_Init()
 	RegisterSignal( "EvacShipLeaves" )
 	RegisterSignal( "EvacOver" )
+	// for ending the evac think
+	RegisterSignal( "EpilogueCompleted" )
 
 	PrecacheParticleSystem( FX_EVAC_MARKER )
 }
@@ -198,17 +201,30 @@ bool function EvacEpilogueShouldLeaveEarly( entity dropship )
 
 void function EvacEpilogueCompleted( entity dropship )
 {
+	GenericEpilogueCompleted() // stop existing evac think
 	wait 5.0
 	
 	// there ain't so many waits in vanilla
-	// screen fade and cleanup handle in postmatch
+	// screen fade and cleanup handled in postmatch
 	if( GetGameState() != eGameState.Postmatch )
 		SetGameState( eGameState.Postmatch )
+}
+
+void function GenericEpilogueCompleted()
+{
+	// stop existing evac think
+	svGlobal.levelEnt.Signal( "EpilogueCompleted" )
+	// clean up stuffs
+	if ( IsValid( file.evacIcon ) )
+		EffectStop( file.evacIcon )
 }
 
 // global evac func, anything can call this, it's not necessarily an epilogue thing
 void function Evac( int evacTeam, float initialWait, float arrivalTime, float waitTime, bool functionref( entity, entity ) canBoardCallback, bool functionref( entity ) shouldLeaveEarlyCallback, void functionref( entity ) completionCallback, entity customEvacNode = null )
 {
+	// end evac thread if there triggered
+	svGlobal.levelEnt.EndSignal( "EpilogueCompleted" )
+
 	// get evac ship sound and model for specific team
 	EvacShipSetting evacShip = GetEvacShipSettingByTeam( evacTeam )
 
@@ -284,14 +300,17 @@ void function Evac( int evacTeam, float initialWait, float arrivalTime, float wa
 	dropship.s.evacSlots <- [ null, null, null, null, null, null, null, null ]
 	file.evacDropship = dropship
 	
+	// signals setup
 	dropship.EndSignal( "OnDestroy" )
+	dropship.EndSignal( "OnDeath" )
+
 	OnThreadEnd( function() : ( evacTeam, completionCallback, dropship ) 
 	{
 		if ( "evacTrigger" in dropship.s )
 			dropship.s.evacTrigger.Destroy()
 		
 		// this should be for both teams
-		if( !IsValid( dropship ) )
+		if( !IsAlive( dropship ) )
 		{
 			SetTeamActiveObjective( evacTeam, "EG_DropshipExtractDropshipDestroyed" )
 			SetTeamActiveObjective( GetOtherTeam( evacTeam ), "EG_DropshipExtractDropshipDestroyed" )
