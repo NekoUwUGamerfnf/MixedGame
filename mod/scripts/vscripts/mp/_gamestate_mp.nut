@@ -484,7 +484,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	}
 	else if( !ClassicMP_ShouldRunEpilogue() )
 	{
-		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
+		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY // TEMP
 	}
 	
 	if ( IsRoundBased() )
@@ -838,34 +838,35 @@ void function GameStateEnter_Postmatch()
 {
 	foreach ( entity player in GetPlayerArray() )
 	{
+		player.FreezeControlsOnServer()
 		// shared from _base_gametype_mp.gnut, stop any kill replay playing
 		StopKillReplayForPlayer( player )
-
-		player.FreezeControlsOnServer()
-		thread ForceFadeToBlack( player )
 	}
+
+	thread PostMatchForceFadeToBlack()
 		
 	thread GameStateEnter_Postmatch_Threaded()
-	CleanUpEntitiesForMatchEnd() // match really ends, clean up stuffs
 }
 
 void function GameStateEnter_Postmatch_Threaded()
 {
-	wait GAME_POSTMATCH_LENGTH
+	wait 1.0 // wait for fade
+	CleanUpEntitiesForMatchEnd() // match really ends, clean up stuffs
+
+	wait GAME_POSTMATCH_LENGTH - 1.0
 
 	GameRules_EndMatch()
 }
 
-void function ForceFadeToBlack( entity player )
+void function PostMatchForceFadeToBlack()
 {
-	// todo: check if this is still necessary
-	player.EndSignal( "OnDestroy" )
-
 	// hack until i figure out what deathcam stuff is causing fadetoblacks to be cleared
 	while ( true )
 	{
+		foreach ( entity player in GetPlayerArray() )
+			ScreenFadeToBlackForever( player, 1.0 )
+
 		WaitFrame()
-		ScreenFadeToBlackForever( player, 1.0 )
 	}
 }
 

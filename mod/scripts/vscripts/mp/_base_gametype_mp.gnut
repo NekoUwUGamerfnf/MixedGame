@@ -492,11 +492,12 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	if ( player.IsTitan() )
 		SoulDies( player.GetTitanSoul(), damageInfo ) // cleanup some titan stuff, no idea where else to put this
 	
-	// fix: get respawn avaibility before death cam delay
-	bool respawnsEnableBeforeDeathCam = RespawnsEnabled()
-
-	if ( !respawnsEnableBeforeDeathCam )
-		SetPlayerEliminated( player ) // Change "Respawn" prompt to "Skip Replay"
+	// this is not accurate, as we'll get respawn availability after death cam delay
+	// doesn't seem featured in vanilla, but the death sound is surly better than normal one
+	// do it in OnPlayerKilled callbacks if needed
+	// now moved to below "ServerCallback_YouDied"
+	//if ( !RespawnsEnabled() )
+	//	SetPlayerEliminated( player ) // do a different death sound
 	
 	// re-exam for last death: hide respawn prompt during death cam
 	ClearRespawnAvailable( player )
@@ -598,6 +599,11 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", diedRemoteCallEHandle, attackerHealthFrac, methodOfDeath )
 	}
 
+	// fix: get respawn avaibility before death cam delay
+	bool respawnsEnableBeforeDeathCam = RespawnsEnabled()
+	if ( !respawnsEnableBeforeDeathCam )
+		SetPlayerEliminated( player ) // Change "Respawn" prompt to "Skip Replay"
+
 	// modified function
 	float deathcamLength = GetDeathCamLength( player )
 	wait deathcamLength
@@ -681,6 +687,13 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 
 		player.WaitSignal( "RespawnMe" ) // signaled in in base_gametype: ClientCommand_RespawnPlayer
 
+		// defensive fix: in order we cleared certain player's respawn availability mid-way
+		if ( !IsRespawnAvailable( player ) )
+		{
+			thread PlayerBecomesSpectator( player )
+			return
+		}
+		
 		ClearRespawnAvailable( player ) // need so the respawn icon doesn't show for like a frame on next death
 
 		if ( ( expect bool( player.GetPersistentVar( "spawnAsTitan" ) ) && IsTitanAvailable( player ) ) || ( Riff_SpawnAsTitan() > 0 && Riff_ShouldSpawnAsTitan( player ) ) )	// spawn as titan
@@ -753,8 +766,6 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, bool r
 	OnThreadEnd(
 		function(): ( player, result )
 		{
-			if( GetGameState() != eGameState.Playing ) // no forced respawn
-				return 
 			if( IsValid( player ) )
 			{
 				if( expect bool( result.repsawnIsForced ) ) // reset player's persistent var if respawn is forced
