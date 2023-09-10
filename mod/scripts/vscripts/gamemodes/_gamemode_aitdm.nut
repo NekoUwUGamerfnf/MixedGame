@@ -369,8 +369,12 @@ void function Spawner_Threaded( int team )
 		Escalate( team )
 		
 		// TODO: this should possibly not count scripted npc spawns, probably only the ones spawned by this script
-		array<entity> npcs = GetNPCArrayOfTeam( team )
-		int count = npcs.len()
+		int infantryCount = 0
+		foreach ( entity npc in GetNPCArrayOfTeam( team ) )
+		{
+			if ( IsHumanSized( npc ) && !IsValid( npc.GetBossPlayer() ) )
+				infantryCount += 1
+		}
 		int reaperCount = GetNPCArrayEx( "npc_super_spectre", team, -1, <0,0,0>, -1 ).len()
 		
 		// REAPERS
@@ -394,7 +398,7 @@ void function Spawner_Threaded( int team )
 		}
 		
 		// NORMAL SPAWNS
-		int squadsToSpawn = ( file.squadsPerTeam * SQUAD_SIZE - 2 - count ) / SQUAD_SIZE
+		int squadsToSpawn = ( file.squadsPerTeam * SQUAD_SIZE - 2 - infantryCount ) / SQUAD_SIZE
 		if ( squadsToSpawn > 0 )
 		{
 			for ( int i = 0; i < squadsToSpawn; i++ )
