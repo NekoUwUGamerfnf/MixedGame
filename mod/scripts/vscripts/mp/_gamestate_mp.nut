@@ -840,23 +840,24 @@ void function GameStateEnter_Postmatch()
 	{
 		// shared from _base_gametype_mp.gnut, stop any kill replay playing
 		StopKillReplayForPlayer( player )
-
-		player.FreezeControlsOnServer()
-		thread ForceFadeToBlack( player )
 	}
+
+	thread PostMatchForceFadeToBlack( player )
 		
 	thread GameStateEnter_Postmatch_Threaded()
-	CleanUpEntitiesForMatchEnd() // match really ends, clean up stuffs
 }
 
 void function GameStateEnter_Postmatch_Threaded()
 {
-	wait GAME_POSTMATCH_LENGTH
+	wait 1.0 // wait for fade
+	CleanUpEntitiesForMatchEnd() // match really ends, clean up stuffs
+
+	wait GAME_POSTMATCH_LENGTH - 1.0
 
 	GameRules_EndMatch()
 }
 
-void function ForceFadeToBlack( entity player )
+void function PostMatchForceFadeToBlack()
 {
 	// todo: check if this is still necessary
 	player.EndSignal( "OnDestroy" )
@@ -865,7 +866,9 @@ void function ForceFadeToBlack( entity player )
 	while ( true )
 	{
 		WaitFrame()
-		ScreenFadeToBlackForever( player, 1.0 )
+
+		foreach ( entity player in GetPlayerArray() )
+			ScreenFadeToBlackForever( player, 1.0 )
 	}
 }
 
