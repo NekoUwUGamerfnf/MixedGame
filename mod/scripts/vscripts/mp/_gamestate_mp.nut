@@ -862,10 +862,10 @@ void function PostMatchForceFadeToBlack()
 	// hack until i figure out what deathcam stuff is causing fadetoblacks to be cleared
 	while ( true )
 	{
-		WaitFrame()
-
 		foreach ( entity player in GetPlayerArray() )
 			ScreenFadeToBlackForever( player, 1.0 )
+
+		WaitFrame()
 	}
 }
 
