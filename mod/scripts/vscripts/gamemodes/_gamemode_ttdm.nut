@@ -17,9 +17,23 @@ void function GamemodeTTDM_Init()
 	AddCallback_OnPlayerKilled( AddTeamScoreForPlayerKilled ) // dont have to track autotitan kills since you cant leave your titan in this mode
 
 	// probably needs scoreevent earnmeter values
+	SetUpTTDMScoreEvents() // northstar missing
 
 	// tempfix specifics
 	SetShouldPlayDefaultMusic( true ) // play music when score or time reaches some point
+}
+
+// northstar missing
+void function SetUpTTDMScoreEvents()
+{
+	// pilot kill: 15%
+	// titan kill: 0%
+	// titan assist: 0%
+	// execution: 0%
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.0, 0.15, 1.0 )
+	ScoreEvent_SetEarnMeterValues( "TitanAssist", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "Execution", 0.0, 0.0 )
 }
 
 void function TTDMIntroSetup()
