@@ -476,7 +476,7 @@ void function NotifyClientsOfTitanDeath( entity victim, entity attacker, var dam
 			attacker = GetEntByIndex( 0 ) // worldspawn
 	}
 
-	int attackerEHandle = -1
+	int attackerEHandle = victim.GetEncodedEHandle() // by default we just use victim's EHandle
 	// ServerCallback_OnTitanKilled() is not using "GetHeavyWeightEntityFromEncodedEHandle()"
 	// which means we can't pass a non-heavy weighted entity into it
 	// non-heavy weighted entity including projectile stuffs

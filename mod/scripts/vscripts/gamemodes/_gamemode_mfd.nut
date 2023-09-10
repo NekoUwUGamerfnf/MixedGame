@@ -270,16 +270,14 @@ void function UpdateMarksForKill( entity victim, entity attacker, var damageInfo
 {
 	if ( victim == GetMarked( victim.GetTeam() ) )
 	{
-		int attackerEHandle = -1
+		int attackerEHandle = victim.GetEncodedEHandle() // by default we just use victim's EHandle
 		if ( IsValid( attacker ) )
 		{
-			attackerEHandle = attacker.GetEncodedEHandle()
 			// sometimes worldSpawn killing a mark will crash all clients, wolrdSpawn entity don't have a .GetPlayerName() function
-			// re-assign attacker using victim
-			if ( !attacker.IsNPC() && !attacker.IsPlayer() )
-				attackerEHandle = victim.GetEncodedEHandle()
+			if ( attacker.IsNPC() || attacker.IsPlayer() )
+				attackerEHandle = attacker.GetEncodedEHandle()
 		}
-		if( attackerEHandle != -1 )
+		if ( attackerEHandle != -1 )
 		{
 			// when victim having a parent
 			// client code sometimes get their's parent's .GetPlayerName()

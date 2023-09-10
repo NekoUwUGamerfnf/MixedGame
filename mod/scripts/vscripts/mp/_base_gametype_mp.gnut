@@ -535,11 +535,12 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	}
 
 	// northstar messed up. fix for replay attacker index
-	int attackerEhandle = -1
+	// get replay required stuffs before we do death cam wait
+	int attackerEHandle = player.GetEncodedEHandle() // by default we just use victim's EHandle
 	int attackerIndex = -1
-	if ( IsValid( attacker ) ) 
+	if ( IsValid( attacker ) )
 	{
-		attackerEhandle = attacker.GetEncodedEHandle()
+		attackerEHandle = attacker.GetEncodedEHandle()
 		attackerIndex = attacker.GetIndexForEntity()
 
 		if( attacker.IsPlayer() )	
@@ -547,7 +548,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 
 		// fix for replay
 		if ( inflictorEHandle == -1 ) // invalid projectile ehandle!
-			inflictorEHandle = attackerEhandle // just assign attacker as inflictor!
+			inflictorEHandle = attackerEHandle // just assign attacker as inflictor!
 	}
 
 	player.p.rematchOrigin = player.p.deathOrigin
@@ -587,10 +588,12 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	}
 	
 	player.StartObserverMode( OBS_MODE_DEATHCAM )
-	if ( ShouldSetObserverTarget( attacker ) )
+	// modified here: only observers player or npc. projectile and mover stuffs can be attacker but we should never spec them
+	//if ( ShouldSetObserverTarget( attacker ) )
+	if ( ShouldSetObserverTarget( attacker ) && ( attacker.IsPlayer() || attacker.IsNPC() ) )
 		player.SetObserverTarget( attacker )
 	else
-		player.SetObserverTarget( null )
+		player.SetObserverTarget( player ) // if we can't find any valid observer target we use player themselves
 	
 	if ( ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue ) && !file.playerDeathsHidden )
 		player.AddToPlayerGameStat( PGS_DEATHS, 1 )
@@ -598,10 +601,14 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	// fuck respawn why leaving a annoying death sound
 	if ( !file.playerDeathsHidden )
 	{
-		int diedRemoteCallEhandle = attackerEhandle
+		int diedRemoteCallEHandle = attackerEHandle
+		float attackerHealthFrac = GetHealthFrac( attacker )
 		if ( IsValid( attacker ) && !attacker.IsPlayer() ) // don't want to mess up a npc's highlight context. they won't be reset on player respawn
-			diedRemoteCallEhandle = -1
-		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", diedRemoteCallEhandle, GetHealthFrac( attacker ), methodOfDeath )
+		{
+			diedRemoteCallEHandle = player.GetEncodedEHandle() // use victim EHandle!
+			attackerHealthFrac = 1.0 // reset health frac!
+		}
+		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", diedRemoteCallEHandle, attackerHealthFrac, methodOfDeath )
 	}
 
 	// modified function
