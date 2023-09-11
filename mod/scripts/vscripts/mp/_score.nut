@@ -576,31 +576,35 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 		return
 
 	// pilot kill
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.075, 0.075, 0.67 )
-	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.075, 0.075, 0.67 )
-	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.035, 0.035, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.10, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.04, 0.01, 0.0 )
 	// titan kill
 	ScoreEvent_SetEarnMeterValues( "DoomTitan", 0.0, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.10, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.10, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.10, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.10, 0.15 )
-	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.15 )
+	// don't know why titan kills appear to be no value in vanilla
+	// was set to 0.10, 0.15
+	// in vanilla all values seems to be pilot kill only
+	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.0 )
+	// but titan assist do have earn values...
 	ScoreEvent_SetEarnMeterValues( "TitanAssist", 0.10, 0.10 )
 	// rodeo
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
 	// special method of killing
 	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.025, 0.025, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.04, 0.01, 0.0 )
 	
 	// ai
-	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.02, 0.02 )
-	ScoreEvent_SetEarnMeterValues( "KillHackedSpectre", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.02, 0.02, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.10, 0.10, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.03, 0.01 )
+	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.03, 0.01 )
+	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.03, 0.01 )
+	ScoreEvent_SetEarnMeterValues( "KillHackedSpectre", 0.03, 0.01 )
+	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.03, 0.01 )
+	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.15, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.05 )
 }
 

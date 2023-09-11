@@ -52,18 +52,17 @@ void function GamemodeCP_Init()
 
 void function CapturePointScoreEventSetUp()
 {
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.11, 0.11, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillTitan", 0, 0 )
-	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0, 0 )
-	ScoreEvent_SetEarnMeterValues( "Headshot",0, 0.02, 0.0 )
+	// override settings
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.12, 0.10 )
 
+	// ampHP specific
 	ScoreEvent_SetEarnMeterValues( "ControlPointCapture", 0.1, 0.1 )
-	ScoreEvent_SetEarnMeterValues( "ControlPointHold", 0.02 ,0.02 )
-	ScoreEvent_SetEarnMeterValues( "ControlPointAmped",0.1,0.1 )
-	ScoreEvent_SetEarnMeterValues( "ControlPointAmpedHold", 0.02,0.02 )
+	ScoreEvent_SetEarnMeterValues( "ControlPointHold", 0.02, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "ControlPointAmped",0.1, 0.1 )
+	ScoreEvent_SetEarnMeterValues( "ControlPointAmpedHold", 0.02, 0.02 )
 
 	ScoreEvent_SetEarnMeterValues( "HardpointAssault", 0.05, 0.05 )
-	ScoreEvent_SetEarnMeterValues( "HardpointDefense",0.05,0.05 )
+	ScoreEvent_SetEarnMeterValues( "HardpointDefense",0.05, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "HardpointPerimeterDefense",0.05, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "HardpointSiege", 0.05, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "HardpointSnipe", 0.05, 0.05 )

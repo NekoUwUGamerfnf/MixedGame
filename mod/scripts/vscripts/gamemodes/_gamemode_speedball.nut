@@ -64,7 +64,8 @@ void function GamemodeSpeedball_Init()
 // livefire do have stronger score events
 void function SetUpSpeedBallScoreEvent()
 {
-	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.15, 0.20 )
+	// override settings
+	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.20, 0.15 )
 }
 
 void function OnClientConnected( entity player )
