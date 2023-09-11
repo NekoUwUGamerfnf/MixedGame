@@ -63,12 +63,11 @@ void function CaptureTheFlag_Init()
 
 void function CTFScoreEventSetUp()
 {
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.125, 0.125, 0.8 )
-	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02 )
-	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.0, 0.05 )
-	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.1, 0.2 )
-	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35 )
+	// override settings
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.12, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.12, 0.10 )
 	
+	// ctf specific
 	ScoreEvent_SetEarnMeterValues( "FlagCarrierKill", 0.1, 0.1, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "FlagTaken", 0.1, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "FlagCapture", 0.15, 0.15 )

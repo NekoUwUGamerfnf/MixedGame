@@ -408,10 +408,11 @@ void function OnEntitiesDidLoad()
 
 void function AT_ScoreEventsValueSetUp()
 {
-	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.15, 0.20 )
-	ScoreEvent_SetEarnMeterValues( "KillAutoTitan", 0.15, 0.20 )
+	// override settings
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.12, 0.10, 0.5 )
+
+	// BH specific
 	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.15, 0.20 )
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.15, 0.34 )
 	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.10, 0.25 )
 	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.03, 0.04, 0.5 )

@@ -37,10 +37,8 @@ void function GamemodePs_Init()
 // northstar missing
 void function SetUpPilotSkirmishScoreEvent()
 {
-	// pilot kill
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.1, 0.1, 0.5 )
-	// special method of killing
-	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
+	// override settings
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.12, 0.10 )
 }
 
 void function GiveScoreForPlayerKill( entity victim, entity attacker, var damageInfo )
