@@ -578,7 +578,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	// pilot kill
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.10, 0.05 )
-	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.025, 0.025, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.04, 0.01, 0.0 )
 	// titan kill
 	ScoreEvent_SetEarnMeterValues( "DoomTitan", 0.0, 0.0 )
 	// don't know why titan kills appear to be no value in vanilla
