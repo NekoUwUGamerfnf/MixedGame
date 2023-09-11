@@ -300,10 +300,13 @@ void function HeatShield_DamagedEntity( entity victim, var damageInfo )
 	if ( IsValid( attacker ) && attacker.IsTitan() )
 	{
 		entity attackerSoul = attacker.GetTitanSoul()
-		if ( IsValid( attackerSoul ) && attackerSoul == victim.GetTitanSoulBeingRodeoed() )
+		if ( IsValid( attackerSoul ) && victim.IsPlayer() && !victim.IsTitan() )
 		{
-			DamageInfo_SetDamage( damageInfo, 0 )
-			return
+			if ( attackerSoul == victim.GetTitanSoulBeingRodeoed() )
+			{
+				DamageInfo_SetDamage( damageInfo, 0 )
+				return
+			}
 		}
 	}
 
