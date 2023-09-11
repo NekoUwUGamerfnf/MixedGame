@@ -23,6 +23,8 @@ struct
 	array<string> catchedUpUIDs // for northstar specific
 	// in vanilla, only passive gain triggers EarnMeter_DecayHold()
 	table<entity, float> playerLastPassiveGainTime
+	// should store player's earnMeter value on titan transfer
+	table< entity, table<string, float> > playerSavedPilotEarnMeterValues
 	//
 
 	float playingStartTime
@@ -82,6 +84,12 @@ void function OnClientConnected( entity player )
 
 	// vanilla behavior recover
 	file.playerLastPassiveGainTime[ player ] <- 0.0
+	table<string, float> earnMeterValues = 
+	{
+		[ EARNMETER_OWNEDFRAC ] = 0.0,
+		[ EARNMETER_EARNEDFRAC ] = 0.0,
+	}
+	file.playerSavedPilotEarnMeterValues[ player ] <- earnMeterValues
 }
 
 void function SetupPlayerEarnMeter( entity player )
@@ -126,25 +134,36 @@ void function OnPlayerRespawned( entity player )
 {
 	thread EarnMeterMP_PlayerLifeThink( player )
 
-	// what is this call?
-	//if ( PlayerEarnMeter_IsRewardAvailable( player ) )
-	//	EarnMeterMP_BoostEarned( player )
+	if ( PlayerEarnMeter_IsRewardAvailable( player ) )
+		EarnMeterMP_BoostEarned( player )
 }
 
 void function EarnMeterMP_ReplaceReward( entity player, EarnObject reward, float rewardFrac )
 {
+	// saved current earnmeter value if titan transfer
+	// so we can show reward discount animatioin on reset
+	if ( player.IsTitan() )
+	{
+		file.playerSavedPilotEarnMeterValues[ player ][ EARNMETER_OWNEDFRAC ] = PlayerEarnMeter_GetOwnedFrac( player )
+		file.playerSavedPilotEarnMeterValues[ player ][ EARNMETER_EARNEDFRAC ] = PlayerEarnMeter_GetEarnedFrac( player )
+	}
+	else
+	{
+		PlayerEarnMeter_SetOwnedFrac( player, file.playerSavedPilotEarnMeterValues[ player ][ EARNMETER_OWNEDFRAC ] )
+		PlayerEarnMeter_SetEarnedFrac( player, file.playerSavedPilotEarnMeterValues[ player ][ EARNMETER_EARNEDFRAC ] )
+	}
+
 	PlayerEarnMeter_Reset( player )
+	//PlayerEarnMeter_Empty( player )
 	if ( reward.id < 0 )
 		return
 	
 	// fix reward icon
-	if ( player.IsTitan() || Riff_BoostAvailability() != eBoostAvailability.Disabled )
+	if ( Riff_BoostAvailability() != eBoostAvailability.Disabled )
 	{
 		PlayerEarnMeter_SetReward( player, reward )
 		PlayerEarnMeter_SetRewardFrac( player, rewardFrac )
-		// only enable reward if our last reward is valid
-		if( ( PlayerEarnMeter_GetMode( player ) == eEarnMeterMode.DEFAULT || PlayerEarnMeter_GetMode( player ) == eEarnMeterMode.CORE )
-			&& PlayerEarnMeter_GetRewardFrac( player ) != 0 )
+		if( PlayerEarnMeter_GetRewardFrac( player ) != 0 )
 			PlayerEarnMeter_EnableReward( player )
 	}
 }
@@ -220,8 +239,11 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 
 			if ( desiredEarnMeterMode == eEarnMeterMode.DEFAULT ) // Only occurs when auto titan dies. Resets reward progress and reverts it back to boost.
 			{
+				print( "updating reward and goal" )
+				// update earnmeter
 				EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
-				PlayerEarnMeter_EnableGoal( player ) // re-enable goal
+				// goal is always enabled so the game can refresh it
+				PlayerEarnMeter_EnableGoal( player )
 			}
 			else if ( desiredEarnMeterMode == eEarnMeterMode.CORE ) // Replace the pilot's earn meter reward with smoke when they enter their titan.
 			{
@@ -248,8 +270,6 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 		// below is default earnmeter looping case
 		if ( lastEarnMeterMode == eEarnMeterMode.DEFAULT )
 		{
-			//print( "Reward enabled: " + string( PlayerEarnMeter_IsRewardEnabled( player ) ) )
-
 			// Removed... client doesn't seem to show "titan ready" in goal ready case
 			// the alerts only shown when SetTitanAvailable() is used
 			// looping to refresh goal seems bad
@@ -306,9 +326,6 @@ bool function ShouldDoTitanSoonAnnouncement( entity player )
 
 void function EarnMeterMP_BoostEarned( entity player )
 {
-	// debug
-	//print ( "RUNNING EarnMeterMP_BoostEarned()" )
-
 	// Can't have smoke earned via meter. Otherwise, Auto Titan could hit reward frac and get nothing
 	if( player.IsTitan() )
 		return
@@ -340,19 +357,28 @@ void function EarnMeterMP_TitanEarned( entity player )
 	}
 	else
 	{
-		float oldRewardFrac = PlayerEarnMeter_GetRewardFrac( player ) // get reward frac before it gets reset
-		PlayerEarnMeter_Reset( player )
-		// don't enable reward if we've disabled it, otherwise the icon will be shown incorrectly
-		if ( Riff_BoostAvailability() != eBoostAvailability.Disabled )
-		{
-			if ( oldRewardFrac > 0 )
-			{
-				PlayerEarnMeter_SetRewardFrac( player, oldRewardFrac )
-				PlayerEarnMeter_EnableReward( player )
-			}
-		}
-		PlayerEarnMeter_EnableGoal( player ) // re-enable goal
+		EarnMeterMP_ResetPilotRewardState( player )
 	}
+}
+
+void function EarnMeterMP_ResetPilotRewardState( entity player )
+{
+	float oldRewardFrac = PlayerEarnMeter_GetRewardFrac( player ) // get reward frac before it gets reset
+	// shouldn't use reset as it breaks reward and goal state
+	//PlayerEarnMeter_Reset( player )
+	PlayerEarnMeter_Empty( player )
+
+	// don't enable reward if we've disabled it, otherwise the icon will be shown incorrectly
+	if ( Riff_BoostAvailability() != eBoostAvailability.Disabled )
+	{
+		if ( oldRewardFrac > 0 )
+		{
+			PlayerEarnMeter_SetRewardFrac( player, oldRewardFrac )
+			PlayerEarnMeter_EnableReward( player )
+		}
+	}
+	// goal is always enabled so the game can refresh it
+	PlayerEarnMeter_EnableGoal( player )
 }
 
 void function EarnMeterMP_SetBoostByRef( entity player, string boostRef ) 
@@ -367,8 +393,9 @@ void function EarnMeterMP_SetBoostByRef( entity player, string boostRef )
 		PlayerEarnMeter_EnableReward( player )
 	}
 
-	// goal should always been enabled
+	// goal is always enabled so the game can refresh it
 	PlayerEarnMeter_EnableGoal( player )
+
 	if ( EarnMeterMP_IsTitanEarnGametype() )
 	{
 		PlayerEarnMeter_SetGoal( player, EarnObject_GetByRef( GetTitanLoadoutForPlayer( player ).titanClass ) )
@@ -390,6 +417,8 @@ void function EarnMeterDecayThink( entity player )
 
 	thread OverDriveClearOnDeath( player )
 
+	// 10% over 20 seconds
+	float decayRate = ( 1.0 / 135.0 ) * 0.1 // 0.1 is for 1tick
 	//float startTime = Time()
 	while ( true )
 	{
@@ -409,14 +438,9 @@ void function EarnMeterDecayThink( entity player )
 
 		float earnedValue = PlayerEarnMeter_GetEarnedFrac( player )
 		float ownedValue = PlayerEarnMeter_GetOwnedFrac( player )
+
 		if ( earnedValue > ownedValue )
-		{
-			// 10% over 20 seconds
-			float decayRate = ( 1.0 / 135.0 ) * 0.1 // 0.1 is for 1tick
-			float diff = earnedValue - ownedValue
-			decayRate = min( decayRate, diff )
 			PlayerEarnMeter_AddEarnedFrac( player, -decayRate )
-		}
 	}
 }
 
@@ -430,10 +454,7 @@ void function OverDriveClearOnDeath( entity player )
 	float earnedValue = PlayerEarnMeter_GetEarnedFrac( player )
 	float ownedValue = PlayerEarnMeter_GetOwnedFrac( player )
 	if ( earnedValue > ownedValue )
-	{
-		float diff = earnedValue - ownedValue
-		PlayerEarnMeter_AddEarnedFrac( player, -diff )
-	}
+		PlayerEarnMeter_SetEarnedFrac( player, PlayerEarnMeter_GetOwnedFrac( player ) )
 }
 
 // progressFrac calculate

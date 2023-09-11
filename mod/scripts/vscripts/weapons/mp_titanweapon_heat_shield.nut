@@ -295,6 +295,21 @@ void function HeatShield_DamagedEntity( entity victim, var damageInfo )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
+	// This is a defensive fix that don't exists in vanilla
+	// avoid heat shield able to damage rodeo player
+	if ( IsValid( attacker ) && attacker.IsTitan() )
+	{
+		entity attackerSoul = attacker.GetTitanSoul()
+		if ( IsValid( attackerSoul ) && victim.IsPlayer() && !victim.IsTitan() )
+		{
+			if ( attackerSoul == victim.GetTitanSoulBeingRodeoed() )
+			{
+				DamageInfo_SetDamage( damageInfo, 0 )
+				return
+			}
+		}
+	}
+
 	if ( !ShouldHeatShieldDamage( attacker, victim, 70 ) )
 		DamageInfo_SetDamage( damageInfo, 0 )
 
