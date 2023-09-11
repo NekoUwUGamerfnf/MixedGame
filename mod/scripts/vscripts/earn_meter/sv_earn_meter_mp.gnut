@@ -10,16 +10,20 @@ global function EarnMeterMP_SetPassiveGainProgessEnable
 const float EARNMETER_GAIN_FRAC				= 0.01
 const float EARNMETER_GAIN_INTERVAL			= 5.0
 const float EARNMETER_GAIN_INTERVAL_MIN		= 1.0
-const float EARNMETER_GAIN_MAX_LEVEL		= 0.9 // if score or time reaches this percentage, we will use EARNMETER_GAIN_INTERVAL_MIN
+const float EARNMETER_GAIN_MAX_LEVEL		= 1.0 // if score or time reaches this percentage, we will use EARNMETER_GAIN_INTERVAL_MIN
 
 struct 
 {
-	array<string> catchedUpUIDs
+	// these are purely in-file and no need to change
+	array<string> catchedUpUIDs // for northstar specific
+	// in vanilla, only passive gain triggers EarnMeter_DecayHold()
+	table<entity, float> playerLastPassiveGainTime
+	//
 
 	float playingStartTime
 	bool passiveMeterGainEnabled = true
 
-	// modified settings...
+	// vanilla behavior settings...
 	float passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
 	bool passiveGainProgressEnabled = false // vanilla seems only enable this in few gamemodes( mostly titan allowed modes )
 } file
@@ -32,6 +36,10 @@ void function Sv_EarnMeterMP_Init()
 	AddCallback_OnClientConnected( SetupPlayerEarnMeter )
 	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying ) // can't change boost after prematch
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	// move here from sv_earn_meter.gnut
+	RegisterSignal( "EarnMeterDecayThink" )
+	// progressing earnmeter frac
+	EarnMeterMP_ProgessFracCalculate()
 }
 
 void function EarnMeterMP_SetTitanLoadout( entity player )
@@ -62,14 +70,19 @@ void function SetupPlayerEarnMeter( entity player )
 	EarnMeterMP_SetBoostByRef( player, burncardRef )
 
 	// catchup bonus for late joiners
+	thread DelayedCatchUpEarnMeter( player )
+	// note: needs to delay otherwise it won't work
 	// todo: maths on this is fine but for some reason it won't set correctly, could be getting reset somewhere?
-	thread DelayedCatchUpEarnMeter( player ) // trying to do this
 	// PlayerEarnMeter_AddOwnedFrac( player, ( ( Time() - file.playingStartTime ) / 4.0 ) * 0.01 )
+
+	// vanilla behavior
+	file.playerLastPassiveGainTime[ player ] <- 0.0
 }
 
 void function DelayedCatchUpEarnMeter( entity player )
 {
 	WaitFrame()
+	// for northstar, since players can re-connect very easily, we use catchedUpUIDs for storing
 	if( IsValid( player ) && !file.catchedUpUIDs.contains( player.GetUID() ) )
 	{
 		PlayerEarnMeter_AddOwnedFrac( player, ( ( Time() - file.playingStartTime ) / EARNMETER_GAIN_INTERVAL ) * EARNMETER_GAIN_FRAC )
@@ -94,9 +107,6 @@ void function OnPlaying()
 	}
 
 	SetCallback_EarnMeterGoalEarned( EarnMeterMP_TitanEarned )
-
-	// progress earnmeter frac
-	thread EarnMeterMP_ProgessFracCalculate()
 }
 
 void function OnPlayerRespawned( entity player )
@@ -127,10 +137,13 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 	EarnObject pilotReward = PlayerEarnMeter_GetReward( player ) 
 	float pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
 	int lastEarnMeterMode = PlayerEarnMeter_GetMode( player )
-	float lastPassiveGainTime = Time()
 
 	// on respawn: If titan avaliable and we're nearly reach it, do a dialogue
 	TryTitanSoonAnnouncement( player )
+	// move here from sv_earn_meter.gnut
+	// in vanilla, only passive gain triggers EarnMeter_DecayHold()
+	// which means you'll drop less overdrive when the match is near end
+	thread EarnMeterDecayThink( player )
 
 	OnThreadEnd(
 		function() : ( player, pilotReward, pilotRewardFrac )
@@ -148,14 +161,14 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 	while ( true )
 	{
 		if( GetGameState() < eGameState.Playing ) // Prematch
-			lastPassiveGainTime = Time()
+			file.playerLastPassiveGainTime[ player ] = Time() // reset gain timer
 		
 		int desiredEarnMeterMode
 		entity soul = player.GetTitanSoul() // move out of if-else cases
 
 		if ( player.IsTitan() )
 		{
-			lastPassiveGainTime = Time() // staying in titan should reset earnmeter gain timer
+			file.playerLastPassiveGainTime[ player ] = Time() // staying in titan should reset earnmeter gain timer
 			
 			if ( IsValid( soul ) ) // stupid anti-crash, possibly no need
 			{
@@ -217,10 +230,10 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 				PlayerEarnMeter_RefreshGoal( player )
 			}
 
-			if ( Time() - lastPassiveGainTime >= file.passiveMeterGainInterval && file.passiveMeterGainEnabled ) // this might be 5.0
+			if ( Time() - file.playerLastPassiveGainTime[ player ] >= file.passiveMeterGainInterval && file.passiveMeterGainEnabled ) // this might be 5.0
 			{
-				lastPassiveGainTime = Time()
 				PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_GAIN_FRAC )
+				file.playerLastPassiveGainTime[ player ] = Time() // update last passive gain time
 			}
 		}
 
@@ -319,58 +332,142 @@ void function EarnMeterMP_SetBoostByRef( entity player, string boostRef )
 		PlayerEarnMeter_SetGoal( player, earnobject )
 }
 
+// move here from sv_earn_meter.gnut
+// in vanilla, only passive gain triggers EarnMeter_DecayHold()
+// which means you'll drop less overdrive when the match is near end
+void function EarnMeterDecayThink( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.Signal( "EarnMeterDecayThink" )
+	player.EndSignal( "EarnMeterDecayThink" )
+
+	thread OverDriveClearOnDeath( player )
+
+	// 10% over 20 seconds
+	float decayRate = 1.0 / 135.0
+	//float startTime = Time()
+	while ( true )
+	{
+		WaitFrame() // wait before each loop
+		//float frameTime = Time() - startTime
+		//startTime = Time()
+
+		// decay hold think
+		float decayHoldEndTime = file.playerLastPassiveGainTime[ player ] + EarnMeter_DecayHold()
+		// if player in decay hold, we never reduce their earnmeter frac
+		if ( Time() < decayHoldEndTime )
+			continue
+
+		float earnedValue = PlayerEarnMeter_GetEarnedFrac( player )
+		float ownedValue = PlayerEarnMeter_GetOwnedFrac( player )
+
+		if ( earnedValue > ownedValue )
+			PlayerEarnMeter_AddEarnedFrac( player, -(decayRate * 0.1) )
+	}
+}
+
+void function OverDriveClearOnDeath( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.WaitSignal( "OnDeath" )
+
+	float earnedValue = PlayerEarnMeter_GetEarnedFrac( player )
+	float ownedValue = PlayerEarnMeter_GetOwnedFrac( player )
+	if ( earnedValue > ownedValue )
+	{
+		float decayValue = -( earnedValue - ownedValue )
+		PlayerEarnMeter_AddEarnedFrac( player, decayValue )
+	}
+}
+
 // progressFrac calculate
 // vanilla seems only enable this in few gamemodes( mostly titan allowed modes such as aitdm and tdm )
 void function EarnMeterMP_ProgessFracCalculate()
 {
-	// no support for roundbased mode
-	if ( IsRoundBased() )
-		return
+	thread EarnMeterMP_ProgessFracCalculate_Threaded()
+}
 
+void function EarnMeterMP_ProgessFracCalculate_Threaded()
+{
 	// progressFrac calculate
-	while ( GetGameState() == eGameState.Playing )
+	while ( true )
 	{
-		float startTime = file.playingStartTime
-		// could cache these, but what if we update it midgame?
-		float endTime = expect float( GetServerVar( "gameEndTime" ) )
-		//if( IsSwitchSidesBased() ) // this has already being calculated in gamestate_mp, don't do it again
-		//	endTime /= 2
-			
-		float totalTime = endTime - startTime
-		float maxLevelTime = totalTime * EARNMETER_GAIN_MAX_LEVEL
-		
-		int totalScore = GameMode_GetScoreLimit( GAMETYPE )
-		if( IsRoundBased() )
-			totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
-		int maxLevelScore = int( totalScore * EARNMETER_GAIN_MAX_LEVEL )
+		WaitFrame() // always wait before each loop
 
-		// base frac based on gameTime
-		float timeElapsed = Time() - startTime
-		float timeLevel = timeElapsed / maxLevelTime
-		
-		// calculate again based on team scores
-		float scoreLevel = 0.0
-		if ( !IsSwitchSidesBased() ) // we don't do scoreLevel in switchSideBased modes
+		// no support for roundbased mode
+		if ( IsRoundBased() )
 		{
-			int winningTeam = GetWinningTeamWithFFASupport() // GetWinningTeam() won't be set up if match hasn't end yet
-			if ( winningTeam < TEAM_UNASSIGNED ) // no valid winner
-				winningTeam = TEAM_UNASSIGNED
-			int highestScore = GameRules_GetTeamScore( winningTeam )
-
-			scoreLevel = float( highestScore ) / float( maxLevelScore )
+			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
+			continue
 		}
 
-		// get max level
-		float gainLevel = max( timeLevel, scoreLevel )
-		if ( gainLevel >= 1.0 )
-			gainLevel = 1.0
-		//print( "gainLevel: " + string( gainLevel ) )
-		// get max time reduction
-		float maxIntervalReduction = EARNMETER_GAIN_INTERVAL - EARNMETER_GAIN_INTERVAL_MIN
+		// not enabled settings
+		if ( !file.passiveGainProgressEnabled )
+		{
+			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
+			continue
+		}
 
-		if( file.passiveGainProgressEnabled )
+		// in prematch or something
+		if ( GetGameState() < eGameState.Playing )
+		{
+			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
+			continue
+		}
+
+		// sudden death or epilogue: always maxnium earnmeter gain
+		if ( GetGameState() == eGameState.Epilogue || GetGameState() == eGameState.SuddenDeath )
+		{
+			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL_MIN
+			continue
+		}
+
+		// generic calculation while game playing
+		if ( GetGameState() == eGameState.Playing )
+		{
+			float startTime = file.playingStartTime
+			// could cache these, but what if we update it midgame?
+			float endTime = expect float( GetServerVar( "gameEndTime" ) )
+			//if( IsSwitchSidesBased() ) // this has already being calculated in gamestate_mp, don't do it again
+			//	endTime /= 2
+				
+			float totalTime = endTime - startTime
+			float maxLevelTime = totalTime * EARNMETER_GAIN_MAX_LEVEL
+			
+			int totalScore = GameMode_GetScoreLimit( GAMETYPE )
+			if( IsRoundBased() )
+				totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
+			int maxLevelScore = int( totalScore * EARNMETER_GAIN_MAX_LEVEL )
+
+			// base frac based on gameTime
+			float timeElapsed = Time() - startTime
+			float timeLevel = timeElapsed / maxLevelTime
+			
+			// calculate again based on team scores
+			float scoreLevel = 0.0
+			if ( !IsSwitchSidesBased() ) // we don't do scoreLevel in switchSideBased modes
+			{
+				int winningTeam = GetWinningTeamWithFFASupport() // GetWinningTeam() won't be set up if match hasn't end yet
+				if ( winningTeam < TEAM_UNASSIGNED ) // no valid winner
+					winningTeam = TEAM_UNASSIGNED
+				int highestScore = GameRules_GetTeamScore( winningTeam )
+
+				scoreLevel = float( highestScore ) / float( maxLevelScore )
+			}
+
+			// get max level
+			float gainLevel = max( timeLevel, scoreLevel )
+			if ( gainLevel >= 1.0 )
+				gainLevel = 1.0
+			//print( "gainLevel: " + string( gainLevel ) )
+			// get max time reduction
+			float maxIntervalReduction = EARNMETER_GAIN_INTERVAL - EARNMETER_GAIN_INTERVAL_MIN
+
 			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL - ( maxIntervalReduction * gainLevel )
-		//print( "passiveMeterGainInterval: " + string( file.passiveMeterGainInterval ) )
-		WaitFrame()
+			//print( "passiveMeterGainInterval: " + string( file.passiveMeterGainInterval ) )
+
+			continue
+		}
 	}
 }
