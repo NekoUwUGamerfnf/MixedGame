@@ -596,7 +596,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
 	// special method of killing
 	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.025, 0.025, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.04, 0.01, 0.0 )
 	
 	// ai
 	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.03, 0.01 )
