@@ -15,7 +15,7 @@ const float EARNMETER_FRAC_FIX				= 0.0001
 const float EARNMETER_GAIN_FRAC				= 0.01 + EARNMETER_FRAC_FIX
 const float EARNMETER_GAIN_INTERVAL			= 5.0
 const float EARNMETER_GAIN_INTERVAL_MIN		= 1.0
-const float EARNMETER_GAIN_MAX_LEVEL		= 0.8 // if time reaches this percentage, we will use EARNMETER_GAIN_INTERVAL_MIN
+const float EARNMETER_GAIN_MAX_LEVEL		= 0.9 // if time reaches this percentage, we will use EARNMETER_GAIN_INTERVAL_MIN
 
 struct
 {
@@ -90,7 +90,7 @@ void function OnClientConnected( entity player )
 	// todo: maths on this is fine but for some reason it won't set correctly, could be getting reset somewhere?
 	// PlayerEarnMeter_AddOwnedFrac( player, ( ( Time() - file.playingStartTime ) / 4.0 ) * 0.01 )
 
-	// vanilla behavior
+	// vanilla behavior recover
 	file.playerLastPassiveGainTime[ player ] <- 0.0
 }
 
@@ -136,8 +136,9 @@ void function OnPlayerRespawned( entity player )
 {
 	thread EarnMeterMP_PlayerLifeThink( player )
 
-	if ( PlayerEarnMeter_IsRewardAvailable( player ) )
-		EarnMeterMP_BoostEarned( player )
+	// what is this call?
+	//if ( PlayerEarnMeter_IsRewardAvailable( player ) )
+	//	EarnMeterMP_BoostEarned( player )
 }
 
 void function EarnMeterMP_ReplaceReward( entity player, EarnObject reward, float rewardFrac )
@@ -145,11 +146,17 @@ void function EarnMeterMP_ReplaceReward( entity player, EarnObject reward, float
 	PlayerEarnMeter_Reset( player )
 	if ( reward.id < 0 )
 		return
-	PlayerEarnMeter_SetReward( player, reward )
-	PlayerEarnMeter_SetRewardFrac( player, rewardFrac )
-
-	if( PlayerEarnMeter_GetRewardFrac( player ) != 0 )
-		PlayerEarnMeter_EnableReward( player )
+	
+	// fix reward icon
+	if ( player.IsTitan() || Riff_BoostAvailability() != eBoostAvailability.Disabled )
+	{
+		PlayerEarnMeter_SetReward( player, reward )
+		PlayerEarnMeter_SetRewardFrac( player, rewardFrac )
+		// only enable reward if our last reward is valid
+		if( ( PlayerEarnMeter_GetMode( player ) == eEarnMeterMode.DEFAULT || PlayerEarnMeter_GetMode( player ) == eEarnMeterMode.CORE )
+			&& PlayerEarnMeter_GetRewardFrac( player ) != 0 )
+			PlayerEarnMeter_EnableReward( player )
+	}
 }
 
 void function EarnMeterMP_PlayerLifeThink( entity player )
@@ -187,6 +194,7 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 			file.playerLastPassiveGainTime[ player ] = Time() // reset gain timer
 		
 		int desiredEarnMeterMode
+		entity petTitan = player.GetPetTitan()
 		entity soul = player.GetTitanSoul() // move out of if-else cases
 
 		if ( player.IsTitan() )
@@ -202,8 +210,12 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 					desiredEarnMeterMode = eEarnMeterMode.CORE
 			}
 		}
-		else if ( IsValid( player.GetPetTitan() ) )
+		//else if ( IsValid( player.GetPetTitan() ) )
+		else if ( IsValid( petTitan ) )
+		{
+			file.playerLastPassiveGainTime[ player ] = Time() // having a pet titan should reset earnmeter gain timer
 			desiredEarnMeterMode = eEarnMeterMode.PET
+		}
 		else
 			desiredEarnMeterMode = eEarnMeterMode.DEFAULT
 
@@ -217,7 +229,10 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 			}
 
 			if ( desiredEarnMeterMode == eEarnMeterMode.DEFAULT ) // Only occurs when auto titan dies. Resets reward progress and reverts it back to boost.
+			{
 				EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
+				PlayerEarnMeter_EnableGoal( player ) // re-enable goal
+			}
 			else if ( desiredEarnMeterMode == eEarnMeterMode.CORE ) // Replace the pilot's earn meter reward with smoke when they enter their titan.
 			{
 				EarnMeterMP_ReplaceReward( player, EarnObject_GetByRef( "core_electric_smoke" ), CORE_SMOKE_FRAC )
@@ -243,9 +258,7 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 		// below is default earnmeter looping case
 		if ( lastEarnMeterMode == eEarnMeterMode.DEFAULT )
 		{
-			// fix reward icon
-			if ( Riff_BoostAvailability() == eBoostAvailability.Disabled )
-				PlayerEarnMeter_DisableReward( player ) // this disables reward icon
+			//print( "Reward enabled: " + string( PlayerEarnMeter_IsRewardEnabled( player ) ) )
 
 			// Removed... client doesn't seem to show "titan ready" in goal ready case
 			// the alerts only shown when SetTitanAvailable() is used
@@ -262,30 +275,6 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 				PlayerEarnMeter_RefreshGoal( player )
 			}
 			*/
-
-			// refresh goal state
-			// when client display a 99% frac, server actually has "0.989999"
-			// keep the same value as sv_earn_meter.gnut does!!!
-			float goalFrac = 0.998
-			if ( PlayerEarnMeter_GetOwnedFrac( player ) < goalFrac ) // goal hasn't been earned yet
-			{
-				// prevents goalstate from being set incorrectly
-				if ( EarnMeterMP_IsTitanEarnGametype() )
-				{
-					// for titan earn type, goal should be refreshed on availability state change
-					if ( !PlayerEarnMeter_IsGoalAvailable( player ) )
-					{
-						// debug
-						//print( "player has used goal reward, re-enabling goal state!" )
-						PlayerEarnMeter_EnableGoal( player )
-					}
-				}
-				else
-				{
-					// for no-titan gamemode, goal is always enabled so the game can refresh it
-					PlayerEarnMeter_EnableGoal( player )
-				}
-			}
 
 			if ( Time() - file.playerLastPassiveGainTime[ player ] >= file.passiveMeterGainInterval && file.passiveMeterGainEnabled ) // this might be 5.0
 			{
@@ -327,6 +316,9 @@ bool function ShouldDoTitanSoonAnnouncement( entity player )
 
 void function EarnMeterMP_BoostEarned( entity player )
 {
+	// debug
+	//print ( "RUNNING EarnMeterMP_BoostEarned()" )
+
 	// Can't have smoke earned via meter. Otherwise, Auto Titan could hit reward frac and get nothing
 	if( player.IsTitan() )
 		return
@@ -369,6 +361,7 @@ void function EarnMeterMP_TitanEarned( entity player )
 				PlayerEarnMeter_EnableReward( player )
 			}
 		}
+		PlayerEarnMeter_EnableGoal( player ) // re-enable goal
 	}
 }
 
@@ -384,6 +377,8 @@ void function EarnMeterMP_SetBoostByRef( entity player, string boostRef )
 		PlayerEarnMeter_EnableReward( player )
 	}
 
+	// goal should always been enabled
+	PlayerEarnMeter_EnableGoal( player )
 	if ( EarnMeterMP_IsTitanEarnGametype() )
 	{
 		string titanClass = GetTitanLoadoutForPlayer( player ).titanClass
@@ -395,8 +390,6 @@ void function EarnMeterMP_SetBoostByRef( entity player, string boostRef )
 		#endif
 		//PlayerEarnMeter_SetGoal( player, EarnObject_GetByRef( GetTitanLoadoutForPlayer( player ).titanClass ) )
 		PlayerEarnMeter_SetGoal( player, EarnObject_GetByRef( titanClass ) )
-		// should be handled by EarnMeterMP_PlayerLifeThink()
-		//PlayerEarnMeter_EnableGoal( player ) // prevents goalstate from being set incorrectly
 	}
 	else
 		PlayerEarnMeter_SetGoal( player, earnobject )
@@ -414,8 +407,6 @@ void function EarnMeterDecayThink( entity player )
 
 	thread OverDriveClearOnDeath( player )
 
-	// 10% over 20 seconds
-	float decayRate = 1.0 / 135.0
 	//float startTime = Time()
 	while ( true )
 	{
@@ -423,17 +414,26 @@ void function EarnMeterDecayThink( entity player )
 		//float frameTime = Time() - startTime
 		//startTime = Time()
 
+		entity titan = GetTitanFromPlayer( player )
+		if ( IsValid( titan ) ) // wait for titan being destroyed
+			continue
+
 		// decay hold think
-		float decayHoldEndTime = file.playerLastPassiveGainTime[ player ] + EarnMeter_DecayHold()
+		float decayHoldEndTime = file.playerLastPassiveGainTime[ player ] + EarnMeter_DecayHold() + 0.1 // add 0.1s more for better handle min interval
 		// if player in decay hold, we never reduce their earnmeter frac
 		if ( Time() < decayHoldEndTime )
 			continue
 
 		float earnedValue = PlayerEarnMeter_GetEarnedFrac( player )
 		float ownedValue = PlayerEarnMeter_GetOwnedFrac( player )
-
 		if ( earnedValue > ownedValue )
-			PlayerEarnMeter_AddEarnedFrac( player, -(decayRate * 0.1) )
+		{
+			// 10% over 20 seconds
+			float decayRate = ( 1.0 / 135.0 ) * 0.1 // 0.1 is for 1tick
+			float diff = earnedValue - ownedValue
+			decayRate = min( decayRate, diff )
+			PlayerEarnMeter_AddEarnedFrac( player, -decayRate )
+		}
 	}
 }
 
@@ -448,8 +448,8 @@ void function OverDriveClearOnDeath( entity player )
 	float ownedValue = PlayerEarnMeter_GetOwnedFrac( player )
 	if ( earnedValue > ownedValue )
 	{
-		float decayValue = -( earnedValue - ownedValue )
-		PlayerEarnMeter_AddEarnedFrac( player, decayValue )
+		float diff = earnedValue - ownedValue
+		PlayerEarnMeter_AddEarnedFrac( player, -diff )
 	}
 }
 
