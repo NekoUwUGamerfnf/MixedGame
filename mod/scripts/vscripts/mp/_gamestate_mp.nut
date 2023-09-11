@@ -836,6 +836,8 @@ void function PlaySuddenDeathDialogueBasedOnFaction( entity player )
 // eGameState.Postmatch
 void function GameStateEnter_Postmatch()
 {
+	// disable any pending kill replay
+	SetKillcamsEnabled( false )
 	foreach ( entity player in GetPlayerArray() )
 	{
 		player.FreezeControlsOnServer()
