@@ -1351,6 +1351,10 @@ void function SetRoundWinningKillReplayInflictor( entity inflictor )
 // generic setup if we have damageInfo
 void function SetUpRoundWinningKillReplayFromDamageInfo( entity victim, var damageInfo )
 {
+	// most important check
+	if ( !victim.IsPlayer() )
+		return
+	
 	// don't setup multiple times
 	if ( file.roundWinningKillReplayHasSetUp )
 		return
