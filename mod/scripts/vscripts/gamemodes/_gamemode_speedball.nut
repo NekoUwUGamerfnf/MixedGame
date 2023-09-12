@@ -146,9 +146,16 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 		DropFlag()
 		
 	if ( victim.IsPlayer() && GetGameState() == eGameState.Playing )
+	{
 		if ( GetPlayerArrayOfTeam_Alive( victim.GetTeam() ).len() == 1 )
+		{
 			foreach ( entity player in GetPlayerArray() )
-				Remote_CallFunction_NonReplay( player, "ServerCallback_SPEEDBALL_LastPlayer", player.GetTeam() != victim.GetTeam() )
+			{
+				if ( player.GetTeam() != victim.GetTeam() || player == GetPlayerArrayOfTeam_Alive( victim.GetTeam() )[0] )
+					Remote_CallFunction_NonReplay( player, "ServerCallback_SPEEDBALL_LastPlayer", player.GetTeam() != victim.GetTeam() )
+			}
+		}
+	}
 }
 
 void function GiveFlag( entity player )

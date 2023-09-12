@@ -63,7 +63,8 @@ void function ChamberOnPlayerKilled( entity victim, entity attacker, var damageI
 					weapon.SetWeaponPrimaryClipCount(weapon.GetWeaponPrimaryClipCount() + 1)
 			}
 		}
-		SetRoundWinningKillReplayAttacker(attacker)
+		// already handled by _gamestate_mp.nut
+		//SetRoundWinningKillReplayAttacker(attacker)
 	}
 }
 

@@ -426,7 +426,9 @@ void function CaptureFlag( entity player, entity flag )
 	AddTeamScore( team, 1 )
 	AddPlayerScore( player, "FlagCapture", player )
 	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 ) // add 1 to captures on scoreboard
-	SetRoundWinningKillReplayAttacker( player ) // set attacker for last cap replay
+	// better function by modified _gamestate_mp.nut
+	//SetRoundWinningKillReplayAttacker( player ) // set attacker for last cap replay
+	SetRoundWinningHighlightReplayPlayer( player ) // better method!!!
 	
 	array<entity> assistList
 	if ( player.GetTeam() == TEAM_IMC )
