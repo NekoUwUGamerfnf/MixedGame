@@ -617,16 +617,17 @@ void function SquadHandler( array<entity> guys )
 		if ( !IsAlive( enemy ) )
 			continue
 		point = enemy.GetOrigin()
+		
+		// get clamped pos for first guy of guys
+		vector ornull clampedPos = NavMesh_ClampPointForAI( point, guys[0] )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+
 		foreach ( guy in guys )
 		{
 			if ( IsAlive( guy ) )
-			{
-				vector ornull clampedPos = NavMesh_ClampPointForAI( point, guy )
-				if ( clampedPos == null )
-					continue
-				expect vector( clampedPos )
 				guy.AssaultPoint( clampedPos )
-			}
 		}
 
 		wait RandomFloatRange(5.0,15.0)
