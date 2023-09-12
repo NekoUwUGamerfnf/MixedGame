@@ -17,8 +17,16 @@ global function HACKCleanupStaticObserverStuff
 
 global typedef SpectatorFunc void functionref( entity player )
 
+// modified functions
+global function Spectator_AddSpecTargetValidationRule // for evac?
+global function Spectator_RemoveSpecTargetValidationRule
+global function Spectator_IsSpecTargetValid
+
 // modified! for we tracking spectating players
 global function Spectator_IsPlayerSpectating
+// spectator needs to be stopped before respawn and on game cleanup
+// otherwise player will have weird camera forever
+global function Spectator_StopPlayerSpectating
 
 struct {
 	array<entity> staticSpecCams 
@@ -27,13 +35,16 @@ struct {
 	
 	int newestFuncIndex = 0 // used to track which players have finished the most recent spectator func
 
-	// modified! for we tracking spectating players
+	// modified!
+	array<bool functionref( entity spectator, entity specTarget )> specTargetValidationRules
 	table<entity, bool> playerIsSpectating
 } file
 
 void function Spectator_Init()
 {
 	Spectator_SetDefaultSpectatorFunc( SpectatorFunc_Default )
+	// only for debug
+	//Spectator_AddSpecTargetValidationRule( DEBUG_SpectatorValidationRule )
 
 	AddCallback_EntitiesDidLoad( SetStaticSpecCams )
 
@@ -43,7 +54,9 @@ void function Spectator_Init()
 	AddClientCommandCallback( "spec_prev", ClientCommandCallback_spec_prev )
 	AddClientCommandCallback( "spec_mode", ClientCommandCallback_spec_mode )
 
-	// modified! for we tracking spectating players
+	// modified!
+	RegisterSignal( "StopSpectatorMode" )
+	RegisterSignal( "SpectatorCheckTargetValidation" )
 	AddCallback_OnClientConnected( InitPlayerSpectators )
 }
 
@@ -111,6 +124,9 @@ void function PlayerBecomesSpectator( entity player )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "PlayerRespawnStarted" )
 
+	// modified!! for we can stop spectator mode manually
+	player.EndSignal( "StopSpectatorMode" )
+
 	player.SetPredictionEnabled( true ) // make sure player have prediction enabled when spectating
 	
 	OnThreadEnd( function() : ( player ) 
@@ -167,6 +183,13 @@ void function SpectatorFunc_Default( entity player )
 		
 		if ( targets.len() > 0 )
 		{
+			// modified target validation rules
+			foreach ( entity target in targets )
+			{
+				if ( !Spectator_IsSpecTargetValid( player, target ) )
+					targets.removebyvalue( target )
+			}
+
 			if ( result.next )
 				targetIndex = ( targetIndex + 1 ) % targets.len()
 			else
@@ -187,7 +210,7 @@ void function SpectatorFunc_Default( entity player )
 				player.SetSpecReplayDelay( 0.0 ) // clear spectator replay
 			
 			if ( target.IsPlayer() )
-			{		
+			{
 				try
 				{
 					player.SetObserverTarget( target )
@@ -202,12 +225,68 @@ void function SpectatorFunc_Default( entity player )
 				player.SetObserverModeStaticAngles( target.GetAngles() )
 				player.StartObserverMode( OBS_MODE_STATIC )
 			}
+
+			// signals "ObserverTargetChanged" if target no longer valid
+			if ( IsValid( target ) )
+				thread SpectatorCheckTargetValidation( player, target )
 		}
-		
+
 		player.StopPhysics()
 		result = player.WaitSignal( "ObserverTargetChanged" )
 	}
 }
+
+// signals "ObserverTargetChanged" if target no longer valid
+void function SpectatorCheckTargetValidation( entity player, entity target )
+{
+	// take same EndSignals as PlayerBecomesSpectator() and SpectatorFunc_Default()
+	player.EndSignal( "OnRespawned" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "PlayerRespawnStarted" )
+
+	// modified!! for we can stop spectator mode manually
+	player.EndSignal( "StopSpectatorMode" )
+
+	svGlobal.levelEnt.EndSignal( "SpectatorFuncChanged" )
+
+	player.Signal( "SpectatorCheckTargetValidation" ) // only one instance can be run on a player
+	player.EndSignal( "SpectatorCheckTargetValidation" )
+
+	while ( true )
+	{
+		if ( !Spectator_IsSpecTargetValid( player, target ) )
+		{
+			// debug
+			//print( "Spectator target not valid on: " )
+			//print( "spectator player: " + string( player ) )
+			//print( "spectator target: " + string( target ) )
+			if ( player.GetObserverMode() == OBS_MODE_CHASE || player.GetObserverMode() == OBS_MODE_STATIC || player.GetObserverMode() == OBS_MODE_IN_EYE )
+				player.Signal( "ObserverTargetChanged", { next = true } )
+			return
+		}
+
+		WaitFrame()
+	}
+}
+
+// only for debug
+/*
+bool function DEBUG_SpectatorValidationRule( entity spectator, entity specTarget )
+{
+	if ( IsValid( specTarget ) )
+	{
+		if ( specTarget.IsPlayer() && !IsAlive( specTarget ) )
+		{
+			float targetDeadTime = Time() - specTarget.p.postDeathThreadStartTime
+			float maxSpecTime = GetDeathCamLength( specTarget ) - 0.5
+			if ( targetDeadTime > maxSpecTime )
+				return false
+		}
+	}
+
+	return true
+}
+*/
 
 bool function ClientCommandCallback_spec_next( entity player, array<string> args )
 {
@@ -246,12 +325,49 @@ bool function ClientCommandCallback_spec_mode( entity player, array<string> args
 }
 
 
-// modified! for we tracking spectating players
+// modified functions
 void function InitPlayerSpectators( entity player )
 {
 	file.playerIsSpectating[ player ] <- false
 }
 
+void function Spectator_AddSpecTargetValidationRule( bool functionref( entity spectator, entity specTarget ) rule )
+{
+	if ( !file.specTargetValidationRules.contains( rule ) )
+		file.specTargetValidationRules.append( rule )
+}
+
+void function Spectator_RemoveSpecTargetValidationRule( bool functionref( entity spectator, entity specTarget ) rule )
+{
+	if ( file.specTargetValidationRules.contains( rule ) )
+		file.specTargetValidationRules.fastremovebyvalue( rule )
+}
+
+bool function Spectator_IsSpecTargetValid( entity spectator, entity specTarget )
+{
+	if ( !IsValid( specTarget ) )
+		return false
+	
+	foreach ( rule in file.specTargetValidationRules )
+	{
+		bool targetValid = rule( spectator, specTarget )
+		if ( !targetValid )
+			return false
+	}
+
+	// all validation rules passed!
+	return true
+}
+
+void function Spectator_StopPlayerSpectating( entity player )
+{
+	if ( !Spectator_IsPlayerSpectating( player ) )
+		return
+
+	player.Signal( "StopSpectatorMode" )
+}
+
+// for we tracking spectating players
 bool function Spectator_IsPlayerSpectating( entity player )
 {
 	if ( !( player in file.playerIsSpectating ) )
