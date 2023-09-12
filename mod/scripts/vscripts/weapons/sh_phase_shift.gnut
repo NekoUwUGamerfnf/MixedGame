@@ -52,6 +52,9 @@ const int TELEFRAG_DAMAGE = 5000;
 
 struct
 {
+	// modified to fix phase shift
+	table<entity, bool> entPhaseShiftNoTargetLocked
+	table<entity, bool> entPhaseShiftNoTargetState
 } file;
 
 void function CodeCallback_EnterPhaseShift( entity ent )
@@ -104,7 +107,8 @@ void function MpAbilityShifter_Init()
 	RegisterSignal( "ForceStopPhaseShift" )
 }
 
-int function PhaseShift( entity ent, float warmupTime, float duration, bool noClientWarmUp = false /* modified var */ )
+// int function PhaseShift( entity ent, float warmupTime, float duration )
+int function PhaseShift( entity ent, float warmupTime, float duration, bool noClientWarmUp = false /* modified parameter */ )
 {
 	if ( !IsAlive( ent ) )
 		return 0
@@ -130,6 +134,7 @@ int function PhaseShift( entity ent, float warmupTime, float duration, bool noCl
 		#if SERVER
 			thread ServerPhaseShiftPlayerThread( ent, warmupTime, duration )
 		#else
+			// modified parameter
 			if( !noClientWarmUp )
 				thread ClientPhaseShiftWarmupThread( ent, warmupTime )
 		#endif // #if SERVER
@@ -200,16 +205,43 @@ void function ServerPhaseShiftPlayerThread( entity ent, float warmupTime, float 
 		EmitSoundOnEntity( ent, SHIFTER_PRE_SOUND_3P )
 	}
 
-	bool oldNoTarget = ent.GetNoTarget()
+	// BUG here: non-table or entity free var can't be passed properly into OnThreadEnd()
+	// also, if player activating phase shift again when last phase not ending yet( eg. FD ronin phase dash )
+	// the player will become NoTarget forever
+	//bool oldNoTarget = ent.GetNoTarget()
+	// reworked here to fix bug: using a table
+	if ( !( ent in file.entPhaseShiftNoTargetLocked ) )
+		file.entPhaseShiftNoTargetLocked[ ent ] <- false
+	if ( !( ent in file.entPhaseShiftNoTargetState ) )
+		file.entPhaseShiftNoTargetState[ ent ] <- false
+
+	if ( !file.entPhaseShiftNoTargetLocked[ ent ] )	
+	{
+		file.entPhaseShiftNoTargetLocked[ ent ] = true // we lock phase shift state, so that last state gets cleaned up properly
+		file.entPhaseShiftNoTargetState[ ent ] = ent.GetNoTarget()
+	}
 
 	OnThreadEnd(
-		function() : ( ent, oldNoTarget )
+		// BUG here: non-table or entity free var can't be passed properly into OnThreadEnd()
+		//function() : ( ent, oldNoTarget )
+		function() : ( ent )
 		{
 			if ( IsValid( ent ) )
 			{
 				ent.Signal( "StopPhaseShift" )
 				ent.Solid()
-				ent.SetNoTarget( oldNoTarget )
+				// BUG here: if player activating phase shift again when last phase not ending yet, the player will become NoTarget forever
+				//ent.SetNoTarget( oldNoTarget )
+				// reworked here to fix bug: using a table
+				// debug
+				//print( "file.entPhaseShiftNoTargetState[ ent ]: " + string( file.entPhaseShiftNoTargetState[ ent ] ) )
+				if ( ent in file.entPhaseShiftNoTargetState )
+					ent.SetNoTarget( file.entPhaseShiftNoTargetState[ ent ] )
+				else // if entity not being inited noTargetState for some reason, always reset to false
+					ent.SetNoTarget( false )
+				// phase succeeded, clean up state lock
+				if ( ent in file.entPhaseShiftNoTargetLocked )
+					file.entPhaseShiftNoTargetLocked[ ent ] = false
 
 				StopSoundOnEntity( ent, SHIFTER_PRE_SOUND_3P )
 				StopSoundOnEntity( ent, SHIFTER_LOOP_SOUND_3P )
