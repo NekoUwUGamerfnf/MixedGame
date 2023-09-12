@@ -297,6 +297,8 @@ void function HandleRespawningLateJoiners( entity player )
 	}
 	else if ( GetGameState() == eGameState.Epilogue || GetGameState() == eGameState.SuddenDeath )// don't know why northstar not handling these
 		thread PlayerBecomesSpectator( player )
+	else if ( GetGameState() == eGameState.Postmatch ) // post match
+		SetPlayerCameraToIntermissionCam( player ) // just make players go to intermission cam
 }
 
 void function DelayedGamemodeAnnouncement( entity player )
@@ -644,9 +646,10 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 						  && ShouldDoReplay( player, attacker, replayLength, methodOfDeath )
 						  && inflictorEHandle != -1 // a proper inflictor is always needed. by default they'll be attacker themselves
 						  && attackerIndex != -1
-	table replayTracker = { validTime = null }
+	
 	if ( shouldDoReplay )
 	{
+		table replayTracker = { validTime = null } // required to track replay victim destroy time
 		thread TrackDestroyTimeForReplay( attacker, replayTracker )
 		// try to do delayed replay
 		player.watchingKillreplayEndTime = Time() + replayStartDelay + replayLength		
@@ -666,7 +669,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		player.watchingKillreplayEndTime = Time() + replayLength		
 		float beforeTime = GetKillReplayBeforeTime( player, methodOfDeath )
 		
-		replayTracker.validTime <- null // don't overwrite replayTracker's valid time from TrackDestroyTimeForReplay()
+		replayTracker.validTime <- null // here goes wrong. shouldn't overwrite replayTracker's valid time from TrackDestroyTimeForReplay()
 		
 		float respawnTime = Time() - 2 // seems to get the killreplay to end around the actual kill
 		if ( "respawnTime" in attacker.s )
@@ -739,10 +742,15 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		}
 		//
 
-		// defensive fix: in order we cleared certain player's respawn availability mid-way
+		// defensive fix: in case we cleared certain player's respawn availability mid-way
+		// but "RespawnMe" is sent at some place
 		if ( !IsRespawnAvailable( player ) )
 		{
-			thread PlayerBecomesSpectator( player )
+			// change to spectator if player in valid gamestate
+			if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
+				thread PlayerBecomesSpectator( player )
+			else if ( shouldDoReplay ) // if we did replay, should change player to intermission cam
+				SetPlayerCameraToIntermissionCam( player )
 			return
 		}
 
@@ -823,6 +831,9 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, bool r
 	OnThreadEnd(
 		function(): ( player, result )
 		{
+			// no forced respawn allowed during postmatch
+			if ( GetGameState() == eGameState.Postmatch )
+				return
 			if( IsValid( player ) )
 			{
 				if( expect bool( result.repsawnIsForced ) ) // reset player's persistent var if respawn is forced
@@ -834,7 +845,8 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, bool r
 	
 	// wait for next frame for player.WaitSignal( "RespawnMe" ) to set up
 	// or maybe put the waitsignal inside this function? then rename it to PlayerWaitForRespawn()
-	WaitFrame()
+	//WaitFrame()
+	WaitEndFrame() // more accurate, but may seem weird if server modified script_server_fps
 	// modified over here, add support for modified death cam length
 	if ( replayHasDelayed && !HackedDeath_IsEnabled() ) // hacked death ignores this
 	{
@@ -860,6 +872,7 @@ void function DelayedPlayerWatchesKillReplayWrapper( entity player, int inflicto
 	// same end signals as PlayerWatchesKillReplayWrapper()
 	player.EndSignal( "RespawnMe" )
 	player.EndSignal( "OnRespawned" )
+	player.EndSignal( "PlayerRespawnStarted" ) // needs to handle delayed respawn!!
 	
 	player.EndSignal( "KillCamOver" ) // so other scripts can disable replay in progress
 	player.EndSignal( "OnDestroy" )
@@ -877,6 +890,7 @@ void function PlayerWatchesKillReplayWrapper( entity player, int inflictorEHandl
 {
 	player.EndSignal( "RespawnMe" )
 	player.EndSignal( "OnRespawned" )
+	player.EndSignal( "PlayerRespawnStarted" ) // needs to handle delayed respawn!!
 	
 	player.EndSignal( "KillCamOver" ) // so other scripts can disable replay in progress
 	player.EndSignal( "OnDestroy" )

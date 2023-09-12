@@ -396,6 +396,14 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 					&& Time() - file.roundWinningKillReplayTime <= ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY 
 					&& winningTeam != TEAM_UNASSIGNED
 
+	// whether or not we do round winning killreplay
+	// if match not ending we need to stop current replay playing on a player
+	if ( !isMatchEnd )
+	{
+		// pre setup for round end cleaning
+		RoundCleanUpPreSetUp()
+	}
+
 	//print( "doReplay: " + string( doReplay ) )
 	float replayLength = 2.0 // extra delay if no replay
 	if ( doReplay )
@@ -463,11 +471,10 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	}
 	else if ( IsRoundBased() && !isMatchEnd ) // no replay roundBased, match not ending yet
 	{
-		// these numbers are temp and should really be based on consts of some kind
 		foreach( entity player in GetPlayerArray() )
 		{
 			player.FreezeControlsOnServer()
-			ScreenFadeToBlackForever( player, 4.0 )
+			ScreenFadeToBlackForever( player, GAME_POSTROUND_CLEANUP_WAIT - 1.0 )
 		}
 		
 		wait GAME_POSTROUND_CLEANUP_WAIT // to have better visual
@@ -838,12 +845,10 @@ void function GameStateEnter_Postmatch()
 {
 	// disable any pending kill replay
 	SetKillcamsEnabled( false )
-	foreach ( entity player in GetPlayerArray() )
-	{
-		player.FreezeControlsOnServer()
-		// shared from _base_gametype_mp.gnut, stop any kill replay playing
-		StopKillReplayForPlayer( player )
-	}
+	// disable respawn
+	SetRespawnsEnabled( false )
+	// setup stuffs before clean up starts
+	MatchCleanUpPreSetUp()
 
 	thread PostMatchForceFadeToBlack()
 		
@@ -1015,6 +1020,39 @@ void function AddCallback_OnMatchEndCleanup( void functionref() callback )
 	file.matchEndCleanupCallbacks.append( callback )
 }
 
+// before cleanup, we should setup some stuff
+// for round end
+void function RoundCleanUpPreSetUp()
+{
+	foreach ( entity player in GetPlayerArray() )
+	{
+		// disable player's movements
+		player.FreezeControlsOnServer()
+		if ( IsAlive( player ) )
+			player.SetInvulnerable() // player no longer dies from here( unless they fall off cliff )
+		// shared from _base_gametype_mp.gnut, stop any kill replay playing
+		StopKillReplayForPlayer( player )
+		// respawn disallowed
+		ClearRespawnAvailable( player )
+	}
+}
+
+// for match end
+void function MatchCleanUpPreSetUp()
+{
+	foreach ( entity player in GetPlayerArray() )
+	{
+		// disable player's movements
+		player.FreezeControlsOnServer()
+		if ( IsAlive( player ) )
+			player.SetInvulnerable() // player no longer dies from here( unless they fall off cliff )
+		// shared from _base_gametype_mp.gnut, stop any kill replay playing
+		StopKillReplayForPlayer( player )
+		// respawn disallowed
+		ClearRespawnAvailable( player )
+	}
+}
+
 void function CleanUpEntitiesForRoundEnd()
 {
 	// this function should clean up any and all entities that need to be removed between rounds, ideally at a point where it isn't noticable to players
@@ -1162,7 +1200,7 @@ void function SetRoundWinningKillReplayAttacker( entity attacker )
 // fix for projectile kill replay
 void function SetRoundWinningKillReplayInflictor( entity inflictor )
 {
-	if ( !IsValid( inflictor ) ) // have to IsValid() check for inflictors
+	if ( !IsValid( inflictor ) ) // have to do IsValid() check for inflictors
 		return
 
 	if ( inflictor.IsProjectile() && inflictor.GetProjectileWeaponSettingBool( eWeaponVar.projectile_killreplay_enabled ) )
