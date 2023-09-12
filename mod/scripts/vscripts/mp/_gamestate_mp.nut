@@ -603,6 +603,11 @@ void function PlayerWatchesRoundWinningKillReplay( entity player )
 		function(): ( player )
 		{
 			file.numPlayersFinishedWatchingReplay += 1
+			if ( IsValid( player ) )
+			{
+				// clean up
+				player.SetIsReplayRoundWinning( false )
+			}
 		}
 	)
 
@@ -627,6 +632,7 @@ void function PlayerWatchesRoundWinningKillReplay( entity player )
 	
 	// shared from _base_gametype_mp.gnut
 	SetServerVar( "roundWinningKillReplayEntHealthFrac", file.roundWinningKillReplayHealthFrac )
+	player.SetIsReplayRoundWinning( true ) // change the text to "Winning Kill"
 	PlayerWatchesKillReplayWrapper( player, inflictorEHandle, attackerIndex, replayLength, timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker, 0.0, false )
 	ScreenFadeToBlackForever( player, 0.0 )
 }
