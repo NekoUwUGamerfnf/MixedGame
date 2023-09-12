@@ -323,7 +323,8 @@ void function GameStateEnter_Playing_Threaded()
 
 	thread DialoguePlayNormal() // runs dialogue play function
 
-	float noPlayerAliveStartTime = -1
+	// remove noPlayersAlive checks
+	//float noPlayerAliveStartTime = -1
 	while ( GetGameState() == eGameState.Playing )
 	{
 		// could cache these, but what if we update it midgame?
@@ -354,6 +355,8 @@ void function GameStateEnter_Playing_Threaded()
 			else
 				SetWinner( winningTeam, file.timeoutWinningReason, file.timeoutLosingReason )
 		}
+		// remove noPlayersAlive checks
+		/*
 		else
 		{
 			if ( GetPlayerArray_Alive().len() == 0 ) // player life think
@@ -369,6 +372,7 @@ void function GameStateEnter_Playing_Threaded()
 			else
 				noPlayerAliveStartTime = -1
 		}
+		*/
 
 		WaitFrame()
 	}
@@ -1412,7 +1416,7 @@ void function RoundWinningKillReplayCleanUp()
 	file.roundWinningKillReplayBeforeTime = 0.0
 	file.roundWinningKillReplayTracker = {}
 
-	file.numPlayersFinishedWatchingReplay = -1
+	file.numPlayersFinishedWatchingReplay = 0
 
 
 	file.roundWinningKillReplayHasSetUp = false
