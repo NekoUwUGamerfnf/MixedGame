@@ -1170,6 +1170,13 @@ void function CleanUpEntitiesForRoundEnd()
 			player.BecomeRagdoll( < 0,0,0 >, false ) // drop weapons immediately			
 			player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } )
 		}
+		// spectator player: needs to stop their spec mode on clean up
+		// otherwise when they respawn, they get weird camera forever
+		if ( Spectator_IsPlayerSpectating( player ) )
+		{
+			Spectator_StopPlayerSpectating( player )
+			SetPlayerCameraToIntermissionCam( player ) // set back to intermission cam
+		}
 	}
 	
 	foreach ( entity npc in GetNPCArray() )
