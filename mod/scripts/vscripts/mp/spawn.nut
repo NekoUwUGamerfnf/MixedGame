@@ -474,18 +474,22 @@ bool function IsSpawnpointValid( entity spawnpoint, int team )
 		return false
 
 	// noSpawnArea think
-	foreach ( k, NoSpawnArea noSpawnArea in file.noSpawnAreas )
+	// only do it when RespawnsEnabled
+	if ( RespawnsEnabled() )
 	{
-		if ( Distance( noSpawnArea.position, spawnpoint.GetOrigin() ) > noSpawnArea.radius )
-			continue
-			
-		if ( noSpawnArea.blockedTeam != TEAM_INVALID && noSpawnArea.blockedTeam == team )
-			return false
+		foreach ( k, NoSpawnArea noSpawnArea in file.noSpawnAreas )
+		{
+			if ( Distance( noSpawnArea.position, spawnpoint.GetOrigin() ) > noSpawnArea.radius )
+				continue
+				
+			if ( noSpawnArea.blockedTeam != TEAM_INVALID && noSpawnArea.blockedTeam == team )
+				return false
 
-		// blockOtherTeams == TEAM_INVALID may means "blocking all teams"?
-		//if ( noSpawnArea.blockOtherTeams != TEAM_INVALID && noSpawnArea.blockOtherTeams != team )
-		if ( noSpawnArea.blockOtherTeams == TEAM_INVALID || noSpawnArea.blockOtherTeams != team )
-			return false
+			// blockOtherTeams == TEAM_INVALID may means "blocking all teams"?
+			//if ( noSpawnArea.blockOtherTeams != TEAM_INVALID && noSpawnArea.blockOtherTeams != team )
+			if ( noSpawnArea.blockOtherTeams == TEAM_INVALID || noSpawnArea.blockOtherTeams != team )
+				return false
+		}
 	}
 
 	// in rsquirrel extend returns null unlike in vanilla squirrel
