@@ -22,10 +22,8 @@ global function TitanPlayerHotDropsIntoLevel
 global function SetRecalculateRespawnAsTitanStartPointCallback
 
 // I want my game to have this
-global function PlayerWatchesKillReplayWrapper // this function should share with _gamestate_mp.nut
 global function SetPlayerCameraToIntermissionCam // shared
-global function GetReplayTimeSinceAttackerSpawned // shared with _gamestate_mp.nut
-global function StopKillReplayForPlayer // shared with _gamestate_mp.nut
+global function StopKillReplayForPlayer
 
 global function IsPlayerDeathsHidden // new added
 
@@ -299,8 +297,6 @@ void function HandleRespawningLateJoiners( entity player )
 	}
 	else if ( GetGameState() == eGameState.Epilogue || GetGameState() == eGameState.SuddenDeath )// don't know why northstar not handling these
 		thread PlayerBecomesSpectator( player )
-	else if ( GetGameState() == eGameState.WinnerDetermined || GetGameState() == eGameState.Postmatch ) // match end state
-		SetPlayerCameraToIntermissionCam( player ) // just make players go to intermission cam
 }
 
 void function DelayedGamemodeAnnouncement( entity player )
@@ -348,6 +344,9 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.s.respawnTime = Time()
 	ClearRecentDamageHistory( player )
 
+	// HACKED DEATH, before loadout grace period set up
+	if( HackedDeath_IsEnabled() )
+		HackedDeath_PlayerRecoverFrom( player )
 	//player.ClearReplayDelay() // these has been done in CPlayer::RespawnPlayer()
 	//player.ClearViewEntity()
 	
@@ -475,15 +474,26 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 
 	player.s.inPostDeath = true
 
-	player.s.inGracePeriod = true // make sure player always in GracePeriod after respawn
+	if( HackedDeath_IsEnabled() ) // prevent players reset their class after hacked death
+		player.s.inGracePeriod = false
+	else
+		player.s.inGracePeriod = true // make sure player always in GracePeriod after respawn
 	player.s.respawnSelectionDone = false
 
 	player.cloakedForever = false
 	player.stimmedForever = false
 
-	player.SetNoTarget( false )
-	player.SetNoTargetSmartAmmo( false )
-
+	if( HackedDeath_IsEnabled() )
+	{
+		player.SetNoTarget( true )
+		player.SetNoTargetSmartAmmo( true )
+		player.s.hackedDeath = true
+	}
+	else
+	{
+		player.SetNoTarget( false )
+		player.SetNoTargetSmartAmmo( false )
+	}
 	player.ClearExtraWeaponMods()
 
 	// we're not delayed yet, get damage table from damageInfo, so we can use it in ShouldForceRespawnPlayer_FromDamageTable()
@@ -551,9 +561,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	}
 
 	// add deathHint on respawn
-	bool showDeathHints = !IsRoundBased()
-						  && file.deathHintsEnabled 
-						  && ( Time() > file.playerDeathHintAllowedTime[ player ] )
+	bool showDeathHints = file.deathHintsEnabled && ( Time() > file.playerDeathHintAllowedTime[ player ] )
 	if ( showDeathHints )
 	{
 		ShowDeathHint( player, damageInfo )
@@ -564,17 +572,22 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	player.Signal( "RodeoOver" )
 	player.ClearParent()
 	
-	/* // removed. replay can be handled properly by modified PlayerWatchesKillReplayWrapper()
 	// do some pre-replay stuff if we're gonna do a replay
 	float replayLength = CalculateLengthOfKillReplay( player, methodOfDeath )
 	bool shouldDoReplay = Replay_IsEnabled() && KillcamsEnabled() && IsValid( attacker ) && ShouldDoReplay( player, attacker, replayLength, methodOfDeath )
 	table replayTracker = { validTime = null }
 	if ( shouldDoReplay )
 		thread TrackDestroyTimeForReplay( attacker, replayTracker )
-	*/
 
 	// fix for replay duration
-	float timeSinceAttackerSpawned = GetReplayTimeSinceAttackerSpawned( attacker )
+	float timeSinceAttackerSpawned = Time() - 2 // seems to get the killreplay to end around the actual kill
+	if ( IsValid( attacker ) )
+	{
+		if ( attacker.IsPlayer() && "respawnTime" in attacker.s ) // player
+			timeSinceAttackerSpawned = Time() - expect float ( attacker.s.respawnTime )
+		else if ( attacker.IsNPC() ) // npc
+			timeSinceAttackerSpawned = Time() - attacker.ai.spawnTime
+	}
 	
 	player.StartObserverMode( OBS_MODE_DEATHCAM )
 	// modified here: only observers player or npc. projectile and mover stuffs can be attacker but we should never spec them
@@ -600,8 +613,14 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		Remote_CallFunction_NonReplay( player, "ServerCallback_YouDied", diedRemoteCallEHandle, attackerHealthFrac, methodOfDeath )
 	}
 
-	// function GetDeathCamLength() has been modified to add forced deathcam length settings
+	// fix: get respawn avaibility before death cam delay
+	bool respawnsEnableBeforeDeathCam = RespawnsEnabled()
+	if ( !respawnsEnableBeforeDeathCam )
+		SetPlayerEliminated( player ) // Change "Respawn" prompt to "Skip Replay"
+
+	// modified function
 	float deathcamLength = GetDeathCamLength( player )
+	wait deathcamLength
 
 	// modified over here, add support for modified death cam length
 	float actualDeathCamLength = GetDeathCamLength( player, true ) // this gets the death cam length that ignores custom settings
@@ -611,56 +630,34 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		replayStartDelay = file.replayStartDelayOverride
 	if ( replayStartDelay < 0 ) // defensive fix
 		replayStartDelay = 0
+	// HACKED DEATH: never delay replay
+	if( HackedDeath_IsEnabled() )
+		replayStartDelay = 0
+	//
 
-	// try to start replay
-	float replayLength = CalculateLengthOfKillReplay( player, methodOfDeath )
-
-	bool shouldDoReplay = Replay_IsEnabled() 
-						  && KillcamsEnabled() 
-						  && ShouldDoReplay( player, attacker, replayLength, methodOfDeath )
-						  && inflictorEHandle != -1 // a proper inflictor is always needed. by default they'll be attacker themselves
-						  && attackerIndex != -1
-
-	// fix: get respawn avaibility before death cam delay
-	bool respawnsEnableBeforeDeathCam = RespawnsEnabled()
-	if ( !respawnsEnableBeforeDeathCam )
-		SetPlayerEliminated( player ) // Change "Respawn" prompt to "Skip Replay", also changes death sound
-	
-	if ( shouldDoReplay )
-	{
-		table replayTracker = { validTime = null } // required to track replay victim destroy time
-		thread TrackDestroyTimeForReplay( attacker, replayTracker )
-		// try to do delayed replay	
-		float actualReplayStartDelay = replayStartDelay + deathcamLength // always wait for death cam to end before we do any replay
-		// debug
-		//print( "replayStartDelay: " + string( replayStartDelay ) )
-		//print( "actualReplayStartDelay: " + string( actualReplayStartDelay ) )
-		float beforeTime = GetKillReplayBeforeTime( player, methodOfDeath )
-		thread PlayerWatchesKillReplayWrapper( player, inflictorEHandle, attackerIndex, replayLength, timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker, actualReplayStartDelay )
-	}
-
-	//float deathcamLength = GetDeathCamLength( player )
-	// all pre-setups done, wait for death cam to end
-	wait deathcamLength
-
-	/* // removed. replay can be handled properly by modified PlayerWatchesKillReplayWrapper()
 	// hack: double check if killcams are enabled and valid here in case gamestate has changed this
-	shouldDoReplay = shouldDoReplay && Replay_IsEnabled() && KillcamsEnabled() && IsValid( attacker )
+	//shouldDoReplay = shouldDoReplay && Replay_IsEnabled() && KillcamsEnabled() && IsValid( attacker )
+	// fix for replay
+	shouldDoReplay = shouldDoReplay && Replay_IsEnabled() && KillcamsEnabled() && inflictorEHandle != -1 && attackerIndex != -1
 	// quick note: in cases where player.Die() is called: e.g. for round ends, player == attacker
 	if ( shouldDoReplay )
 	{
 		player.watchingKillreplayEndTime = Time() + replayLength		
 		float beforeTime = GetKillReplayBeforeTime( player, methodOfDeath )
 		
-		replayTracker.validTime <- null // here goes wrong. shouldn't overwrite replayTracker's valid time from TrackDestroyTimeForReplay()
+		//replayTracker.validTime <- null // don't overwrite replayTracker's valid time from TrackDestroyTimeForReplay()
 		
+		/* // move up before "wait deathcamLength" to fix for npc killreplay duration
 		float respawnTime = Time() - 2 // seems to get the killreplay to end around the actual kill
 		if ( "respawnTime" in attacker.s )
 			respawnTime = Time() - expect float ( attacker.s.respawnTime )
+		*/
 
-		thread PlayerWatchesKillReplayWrapper( player, attacker, respawnTime, timeOfDeath, beforeTime, replayTracker )
+		// modified over here, add support for modified death cam length
+		//thread PlayerWatchesKillReplayWrapper( player, attacker, respawnTime, timeOfDeath, beforeTime, replayTracker )		
+		// try to do delayed replay
+		thread DelayedPlayerWatchesKillReplayWrapper( player, inflictorEHandle, attackerIndex, timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker, replayStartDelay )
 	}
-	*/
 
 	// BecomeRagdoll() seems weird with short deathCam
 	// now setting these in DoRespawnPlayer() to prevent crash
@@ -703,24 +700,41 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 				// if player not respawned after certain delay, we should set them back to intermission cam
 				thread SetPlayerCameraToIntermissionCam( player, interMissionCamDelay )
 			}
-			thread ForcedRespawnThink( player, waitBeforeRespawn, replayStartDelay )// if not doing replay, set player's camera to intermissionCam
+			thread ForcedRespawnThink( player, waitBeforeRespawn, deathCamModified, replayStartDelay )// if not doing replay, set player's camera to intermissionCam
 		}
+
+		// HACKED DEATH
+		if( HackedDeath_IsEnabled() )
+		{
+			if( !ShouldForceRespawnPlayer_FromDamageTable( player, damageTable ) ) // really kill player to enable respawn button
+				HackedDeath_KillPlayer( player )
+			player.UnfreezeControlsOnServer() // unfreeze controls here, make players able to press respawn
+		}
+		//
 
 		player.WaitSignal( "RespawnMe" ) // signaled in in base_gametype: ClientCommand_RespawnPlayer
 
-		// defensive fix: in case we cleared certain player's respawn availability mid-way
-		// but "RespawnMe" is sent at some place
+		// HACKED DEATH: defensive fix for hacked death, kill player if they're not actual dead, so they can respawn
+		if( respawnDelay > 0 && HackedDeath_IsEnabled() && ShouldForceRespawnPlayer_FromDamageTable( player, damageTable ) )
+		{
+			HackedDeath_KillPlayer( player )
+			player.Signal( "RespawnMe" )
+		}
+		//
+
+		// defensive fix: in order we cleared certain player's respawn availability mid-way
 		if ( !IsRespawnAvailable( player ) )
 		{
-			// change to spectator if player in valid gamestate
-			if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
-				thread PlayerBecomesSpectator( player )
-			else if ( shouldDoReplay ) // if we did replay, should change player to intermission cam
-				SetPlayerCameraToIntermissionCam( player )
+			thread PlayerBecomesSpectator( player )
 			return
 		}
-		
+
 		ClearRespawnAvailable( player ) // need so the respawn icon doesn't show for like a frame on next death
+
+		// HACKED DEATH
+		if ( HackedDeath_IsEnabled() && !shouldDoReplay ) // wait an extra frame if the player not entered replay, otherwise they'll lose their ability icons
+			WaitFrame()
+		//
 
 		if ( ( expect bool( player.GetPersistentVar( "spawnAsTitan" ) ) && IsTitanAvailable( player ) ) || ( Riff_SpawnAsTitan() > 0 && Riff_ShouldSpawnAsTitan( player ) ) )	// spawn as titan
 			thread RespawnAsTitan( player )
@@ -768,7 +782,7 @@ void function SetPlayerCameraToIntermissionCam( entity player, float delay = 0 )
 		player.SetObserverModeStaticPosition( file.intermissionCamera.GetOrigin() )
 		player.SetObserverModeStaticAngles( file.intermissionCamera.GetAngles() )
 		player.ClearParent() // sometimes they're still parented, do a defensive fix
-		if( !IsValid( player.GetParent() ) ) // setting to OBS_MODE_STATIC_LOCKED while parented will crash
+		if( !IsValid( player.GetParent() ) )
 			player.StartObserverMode( OBS_MODE_STATIC_LOCKED )
 		player.SetObserverTarget( null )
 	}
@@ -781,7 +795,7 @@ void function PlayerClassChangeToSpectator( entity player )
 	player.StopPhysics()
 }
 
-void function ForcedRespawnThink( entity player, float waitBeforeRespawn, float replayStartDelay = 0.0 )
+void function ForcedRespawnThink( entity player, float waitBeforeRespawn, bool replayHasDelayed = false, float replayStartDelay = 0.0 )
 {
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "RespawnMe" )
@@ -792,9 +806,6 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, float 
 	OnThreadEnd(
 		function(): ( player, result )
 		{
-			// no forced respawn allowed during postmatch
-			if ( GetGameState() == eGameState.Postmatch )
-				return
 			if( IsValid( player ) )
 			{
 				if( expect bool( result.repsawnIsForced ) ) // reset player's persistent var if respawn is forced
@@ -806,81 +817,76 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, float 
 	
 	// wait for next frame for player.WaitSignal( "RespawnMe" ) to set up
 	// or maybe put the waitsignal inside this function? then rename it to PlayerWaitForRespawn()
-	//WaitFrame()
-	WaitEndFrame() // more accurate, but may seem weird if server modified script_server_fps
+	WaitFrame()
 	// modified over here, add support for modified death cam length
-	if ( replayStartDelay > 0 )
-		wait replayStartDelay // this is actually replayStartDelay
+	if ( replayHasDelayed && !HackedDeath_IsEnabled() ) // hacked death ignores this
+	{
+		if ( replayStartDelay > 0 )
+			wait replayStartDelay // this is actually replayStartDelay
+	}
 	if( player.IsWatchingKillReplay() )
 		player.WaitSignal( "KillCamOver" )
 
 	if( waitBeforeRespawn > 0 )
-		wait waitBeforeRespawn
-
+	{
+		// HACKED DEATH
+		if( HackedDeath_IsEnabled() )
+			HackedDeath_KillPlayer( player )
+		else
+			wait waitBeforeRespawn
+	}
 	result.repsawnIsForced = true
 }
-//
 
-float function GetReplayTimeSinceAttackerSpawned( entity attacker )
+void function DelayedPlayerWatchesKillReplayWrapper( entity player, int inflictorEHandle, int attackerIndex, float timeSinceAttackerSpawned, float timeOfDeath, float beforeTime, table replayTracker, float delay = 0.0 )
 {
-	float timeSinceAttackerSpawned = Time() - 2 // seems to get the killreplay to end around the actual kill
-	if ( IsValid( attacker ) )
-	{
-		if ( attacker.IsPlayer() ) // player
-			timeSinceAttackerSpawned = Time() - GetPlayerLastRespawnTime( attacker )
-		else if ( attacker.IsNPC() ) // npc
-			timeSinceAttackerSpawned = Time() - attacker.ai.spawnTime
-	}
-
-	return timeSinceAttackerSpawned
-}
-
-//void function PlayerWatchesKillReplayWrapper( entity player, entity attacker, float timeSinceAttackerSpawned, float timeOfDeath, float beforeTime, table replayTracker )
-void function PlayerWatchesKillReplayWrapper( entity player, int inflictorEHandle, int attackerIndex, float replayLength, float timeSinceAttackerSpawned, float timeOfDeath, float beforeTime, table replayTracker, float replayStartDelay = 0.0, bool clearViewOnReplayEnd = true )
-{
+	// same end signals as PlayerWatchesKillReplayWrapper()
 	player.EndSignal( "RespawnMe" )
 	player.EndSignal( "OnRespawned" )
-	player.EndSignal( "PlayerRespawnStarted" ) // needs to handle delayed respawn!!
 	
 	player.EndSignal( "KillCamOver" ) // so other scripts can disable replay in progress
 	player.EndSignal( "OnDestroy" )
 
-	if ( replayStartDelay > 0 )
-		wait replayStartDelay
+	//print( "replay start delay is: " + string( delay ) )
+	if ( delay > 0 )
+		wait delay
+
+	thread PlayerWatchesKillReplayWrapper( player, inflictorEHandle, attackerIndex, timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker )
+}
+//
+
+//void function PlayerWatchesKillReplayWrapper( entity player, entity attacker, float timeSinceAttackerSpawned, float timeOfDeath, float beforeTime, table replayTracker )
+void function PlayerWatchesKillReplayWrapper( entity player, int inflictorEHandle, int attackerIndex, float timeSinceAttackerSpawned, float timeOfDeath, float beforeTime, table replayTracker )
+{
+	player.EndSignal( "RespawnMe" )
+	player.EndSignal( "OnRespawned" )
 	
-	// wait is done, setup OnThreadEnd() cleanup stuffs
+	player.EndSignal( "KillCamOver" ) // so other scripts can disable replay in progress
+	player.EndSignal( "OnDestroy" )
+	
 	OnThreadEnd
 	( 
-		function() : ( player, clearViewOnReplayEnd ) 
+		function() : ( player ) 
 		{	
 			// don't clear if we're in a roundwinningkillreplay, or winner determined kill
-			//if ( IsValid( player ) && !( ( GetGameState() == eGameState.SwitchingSides || GetGameState() == eGameState.WinnerDetermined ) && IsRoundWinningKillReplayEnabled() ) )
-			if ( IsValid( player ) )
+			if ( IsValid( player ) && !( ( GetGameState() == eGameState.SwitchingSides || GetGameState() == eGameState.WinnerDetermined ) && IsRoundWinningKillReplayEnabled() ) )
 			{
-				if ( clearViewOnReplayEnd )
-				{
-					player.watchingKillreplayEndTime = Time()
-					//player.Signal( "KillCamOver" ) // wrapped into a named function
-					StopKillReplayForPlayer( player )
-					player.ClearReplayDelay()
-					player.ClearViewEntity()
-					SetPlayerCameraToIntermissionCam( player )
-					//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
-				}
+				//player.Signal( "KillCamOver" ) // wrapped into a named function
+				StopKillReplayForPlayer( player )
+				player.ClearReplayDelay()
+				player.ClearViewEntity()
+				SetPlayerCameraToIntermissionCam( player )
+				//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this on respawn
 			}
 		}
 	)
-
-	// setup replay max duration
-	// actually affects nothing, but keep it?
-	player.watchingKillreplayEndTime = Time() + replayLength
 
 	// have to be spectator before watching kill replay
 	if ( player.GetPlayerSettings() != "spectator" )
 		PlayerClassChangeToSpectator( player )
 
 	//player.SetPredictionEnabled( false )
-	player.SetPredictionEnabled( true ) // should we enable prediction during killreplay? I think it might make replay smoother
+	player.SetPredictionEnabled( true ) // should we enable prediction on killreplay?
 	//PlayerWatchesKillReplay( player, attacker.GetEncodedEHandle(), attacker.GetIndexForEntity(), timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker )
 	PlayerWatchesKillReplay( player, inflictorEHandle, attackerIndex, timeSinceAttackerSpawned, timeOfDeath, beforeTime, replayTracker )
 }
