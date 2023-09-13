@@ -65,7 +65,7 @@ const float ROUND_TRANSITION_DELAY = 2.0 // delay before starting next round aft
 // switchside based
 const float SWITCH_SIDE_CLEANUP_WAIT = 2.0
 const float SWITCH_SIDE_EXTRA_WAIT_NO_REPLAY = 1.0
-const float SWITCH_SIDE_INTERMISSION_CAM_DELAY = 1.0 // set player back to intermission cam after this delay if we did replay
+const float SWITCH_SIDE_INTERMISSION_CAM_DELAY = 1.0 // set player back to intermission cam after this delay if we did replay. needs to be longer than 1s to hide player's death screen effect
 const float SWITCH_SIDE_TRANSITION_DELAY = 1.5
 const float SWITCH_SIDE_TRANSITION_DELAY_NO_REPLAY = 2.5
 
@@ -666,6 +666,10 @@ void function GameStateEnter_SwitchingSides()
 
 void function GameStateEnter_SwitchingSides_Threaded()
 {
+	// update server state
+	file.hasSwitchedSides = true
+	SetServerVar( "switchedSides", 1 )
+	
 	bool killcamsWereEnabled = KillcamsEnabled()
 	if ( killcamsWereEnabled ) // dont want killcams to interrupt stuff
 		SetKillcamsEnabled( false )
