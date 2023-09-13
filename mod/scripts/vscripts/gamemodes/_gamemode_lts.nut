@@ -10,6 +10,9 @@ struct {
 	bool shouldDoHighlights
 } file
 
+// titan selection shouldn't last 30s
+const float LTS_TITAN_SELECTION_DURATION = 15.0
+
 // vanilla behavior: add 6s sonar for all players, not resetting their highlight life-long
 const float LTS_THIRTY_SECONDS_SONAR_DURATION = 6.0
 
@@ -17,6 +20,7 @@ void function GamemodeLts_Init()
 {
 	// gamemode settings
 	SetShouldUsePickLoadoutScreen( true )
+	SetTitanSelectionMenuDuration( LTS_TITAN_SELECTION_DURATION )
 	SetSwitchSidesBased( true )
 	SetRoundBased( true )
 	SetRespawnsEnabled( false )
