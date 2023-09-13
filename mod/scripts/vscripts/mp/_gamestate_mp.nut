@@ -48,7 +48,8 @@ global function GameState_SetScoreEventDialogueEnabled // game progress dialogue
 
 // modifiable consts, I don't know which respawn const to use, just use mine
 // playing
-const float NO_PLAYER_ALIVE_SET_WINNER_DELAY = 15.0 // if no player alive for these seconds, we just decide winner
+// noPlayerAlive checks currently removed
+//const float NO_PLAYER_ALIVE_SET_WINNER_DELAY = 15.0 // if no player alive for these seconds, we just decide winner
 
 // replay
 const float ROUND_WINNING_KILL_REPLAY_FADE_ON_START = 2.0 // delay before roundwinning killreplay starts after round end
@@ -56,6 +57,7 @@ const float ROUND_WINNING_KILL_REPLAY_EXTRA_BEFORE_TIME = 1.0 // extra before ti
 const float ROUND_WINNING_HIGHLIGHT_REPLAY_DURATION = ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
 const float ROUND_WINNING_KILL_REPLAY_MAX_DELAY = 8.0 // we never do replay if our replay has been delayed for this long
 const float ROUND_WINNING_KILL_REPLAY_EXTRA_DELAY_SWITCHING_SIDES = 1.5 // switchsides replay should wait this more time
+const float ROUND_WINNING_KILL_REPLAY_EXTRA_DELAY_MATCH_END = 1.5 // match end kill replay should wait this more time
 
 // round based
 const float ROUND_CLEANUP_WAIT = 2.0 // delay before round cleanup starts after roundwinnning killreplay ends
@@ -522,11 +524,16 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		// pre setup for round end cleaning
 		RoundCleanUpPreSetUp()
 		
+		// calculate replay start delay
+		float killReplayStartDelay = 0.0
+		if ( isMatchEnd ) // match end replay! we want the "VICTORY" notification to last longer
+			killReplayStartDelay = ROUND_WINNING_KILL_REPLAY_EXTRA_DELAY_MATCH_END
+
 		file.numPlayersFinishedWatchingReplay = 0
 		int waitForNumPlayersFinishReplay = 0
 		foreach ( entity player in GetPlayerArray() )
 		{
-			thread PlayerWatchesRoundWinningKillReplay( player )
+			thread PlayerWatchesRoundWinningKillReplay( player, killReplayStartDelay )
 			waitForNumPlayersFinishReplay++
 		}
 
@@ -607,7 +614,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	}
 }
 
-void function PlayerWatchesRoundWinningKillReplay( entity player )
+void function PlayerWatchesRoundWinningKillReplay( entity player, float extraDelay = 0.0 )
 {
 	// end if player dcs 
 	player.EndSignal( "OnDestroy" )
@@ -645,9 +652,9 @@ void function PlayerWatchesRoundWinningKillReplay( entity player )
 	player.FreezeControlsOnServer()
 	ScreenFadeToBlackForever( player, ROUND_WINNING_KILL_REPLAY_FADE_ON_START ) // no need to use const fade time, make it faster
 	wait ROUND_WINNING_KILL_REPLAY_FADE_ON_START
-	// switching sides replay should have an extra delay for "HALFTIME" notification to display!
-	if ( GetGameState() == eGameState.SwitchingSides )
-		wait ROUND_WINNING_KILL_REPLAY_EXTRA_DELAY_SWITCHING_SIDES
+	
+	if ( extraDelay > 0 )
+		wait extraDelay
 	
 	// shared from _base_gametype_mp.gnut
 	SetServerVar( "roundWinningKillReplayEntHealthFrac", file.roundWinningKillReplayHealthFrac )
@@ -669,13 +676,17 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	// update server state
 	file.hasSwitchedSides = true
 	SetServerVar( "switchedSides", 1 )
-	
+
 	bool killcamsWereEnabled = KillcamsEnabled()
 	if ( killcamsWereEnabled ) // dont want killcams to interrupt stuff
 		SetKillcamsEnabled( false )
 	bool respawnsWereEnabled = RespawnsEnabled()
 	if ( respawnsWereEnabled ) // don't want respawning to intterupt stuff
 		SetRespawnsEnabled( false )
+
+	// dialogue doesn't seem to exist in vanilla, just for fun
+	PlayFactionDialogueToTeam( "mp_halftime", TEAM_IMC )
+	PlayFactionDialogueToTeam( "mp_halftime", TEAM_MILITIA )
 		
 	WaitFrame() // wait a frame so callbacks can set killreplay info
 
@@ -777,7 +788,8 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		int waitForNumPlayersFinishReplay = 0
 		foreach ( entity player in GetPlayerArray() )
 		{
-			thread PlayerWatchesRoundWinningKillReplay( player )
+			// switching sides replay should have an extra delay for "HALFTIME" notification to display!
+			thread PlayerWatchesRoundWinningKillReplay( player, ROUND_WINNING_KILL_REPLAY_EXTRA_DELAY_SWITCHING_SIDES )
 			waitForNumPlayersFinishReplay++
 		}
 
