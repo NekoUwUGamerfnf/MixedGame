@@ -55,6 +55,7 @@ const float ROUND_WINNING_KILL_REPLAY_FADE_ON_START = 2.0 // delay before roundw
 const float ROUND_WINNING_KILL_REPLAY_EXTRA_BEFORE_TIME = 1.0 // extra before time added to replay
 const float ROUND_WINNING_HIGHLIGHT_REPLAY_DURATION = ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY
 const float ROUND_WINNING_KILL_REPLAY_MAX_DELAY = 8.0 // we never do replay if our replay has been delayed for this long
+const float ROUND_WINNING_KILL_REPLAY_EXTRA_DELAY_SWITCHING_SIDES = 1.5 // switchsides replay should wait this more time
 
 // round based
 const float ROUND_CLEANUP_WAIT = 2.0 // delay before round cleanup starts after roundwinnning killreplay ends
@@ -64,7 +65,9 @@ const float ROUND_TRANSITION_DELAY = 2.0 // delay before starting next round aft
 // switchside based
 const float SWITCH_SIDE_CLEANUP_WAIT = 2.0
 const float SWITCH_SIDE_EXTRA_WAIT_NO_REPLAY = 1.0
-const float SWITCH_SIDE_TRANSITION_DELAY = 3.0
+const float SWITCH_SIDE_INTERMISSION_CAM_DELAY = 1.0 // set player back to intermission cam after this delay if we did replay
+const float SWITCH_SIDE_TRANSITION_DELAY = 1.5
+const float SWITCH_SIDE_TRANSITION_DELAY_NO_REPLAY = 2.5
 
 // match cleanup
 const float MATCH_CLEANUP_WAIT = 1.0 // delay before we do match cleanup
@@ -355,10 +358,7 @@ void function GameStateEnter_Playing_Threaded()
 				winningTeam = TEAM_UNASSIGNED
 
 			if ( file.switchSidesBased && !file.hasSwitchedSides && !IsRoundBased() ) // in roundbased modes, we handle this in setwinner
-			{
-				//SetGameState( eGameState.SwitchingSides )
-				StartSwitchingSidesForTimeOut()
-			}
+				SetGameState( eGameState.SwitchingSides )
 			else if ( file.suddenDeathBased && winningTeam == TEAM_UNASSIGNED ) // suddendeath if we draw and suddendeath is enabled and haven't switched sides
 				SetGameState( eGameState.SuddenDeath )
 			else
@@ -590,7 +590,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		}
 		else if ( file.switchSidesBased && !file.hasSwitchedSides && highestScore >= ( roundScoreLimit.tofloat() / 2.0 ) ) // round up
 			SetGameState( eGameState.SwitchingSides ) // note: switchingsides will handle setting to pickloadout and prematch by itself
-		else if ( file.pickLoadoutEnable || file.usePickLoadoutScreen )
+		else if ( file.usePickLoadoutScreen ) // here we just doing round transition, no need to enable pickloadout for intro stuffs, only for titan menu
 			SetGameState( eGameState.PickLoadout )
 		else
 			SetGameState ( eGameState.Prematch )
@@ -645,6 +645,9 @@ void function PlayerWatchesRoundWinningKillReplay( entity player )
 	player.FreezeControlsOnServer()
 	ScreenFadeToBlackForever( player, ROUND_WINNING_KILL_REPLAY_FADE_ON_START ) // no need to use const fade time, make it faster
 	wait ROUND_WINNING_KILL_REPLAY_FADE_ON_START
+	// switching sides replay should have an extra delay for "HALFTIME" notification to display!
+	if ( GetGameState() == eGameState.SwitchingSides )
+		wait ROUND_WINNING_KILL_REPLAY_EXTRA_DELAY_SWITCHING_SIDES
 	
 	// shared from _base_gametype_mp.gnut
 	SetServerVar( "roundWinningKillReplayEntHealthFrac", file.roundWinningKillReplayHealthFrac )
@@ -656,20 +659,12 @@ void function PlayerWatchesRoundWinningKillReplay( entity player )
 	ScreenFadeToBlackForever( player, 0.0 ) // this is technically not necessary, as replay will follow the screen fade from attacker
 }
 
-
-// switching sides is a bit special...
-// they shouldn't been setup immediately
-// instead, they're set up after player finish watching replay and stuff
-
-//void function GameStateEnter_SwitchingSides()
-void function StartSwitchingSides()
+void function GameStateEnter_SwitchingSides()
 {
-	//thread GameStateEnter_SwitchingSides_Threaded()
-	thread StartSwitchingSides_Threaded()
+	thread GameStateEnter_SwitchingSides_Threaded()
 }
 
-//void function GameStateEnter_SwitchingSides_Threaded()
-void function StartSwitchingSides_Threaded()
+void function GameStateEnter_SwitchingSides_Threaded()
 {
 	bool killcamsWereEnabled = KillcamsEnabled()
 	if ( killcamsWereEnabled ) // dont want killcams to interrupt stuff
@@ -806,82 +801,30 @@ void function StartSwitchingSides_Threaded()
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
 	}
 
+	// wait for transition
+	if ( doReplay )
+	{
+		// switching sides specific: set player back to intermission cam if we did replay
+		wait SWITCH_SIDE_INTERMISSION_CAM_DELAY
+		foreach ( entity player in GetPlayerArray() )
+		{
+			player.ClearReplayDelay()
+			player.ClearViewEntity()
+			SetPlayerCameraToIntermissionCam( player ) // set back to intermission cam
+		}
+
+		wait SWITCH_SIDE_TRANSITION_DELAY
+	}
+	else
+		wait SWITCH_SIDE_TRANSITION_DELAY_NO_REPLAY
+
 	// reset stuffs here
 	if ( killcamsWereEnabled )
 		SetKillcamsEnabled( true )
 	if ( respawnsWereEnabled )
 		SetRespawnsEnabled( true )
 
-	// shows notifications on clients
-	// gamestate transition also handled inside
-	SetGameState( eGameState.SwitchingSides )
-}
-
-void function StartSwitchingSidesForTimeOut()
-{
-	thread StartSwitchingSidesForTimeOut_Threaded()
-}
-
-void function StartSwitchingSidesForTimeOut_Threaded()
-{
-	// mark as we're doing timeout switching sides
-	file.isTimeOutSwitchingSides = true
-
-	// shows notifications on clients
-	// gamestate transition also handled inside
-	SetGameState( eGameState.SwitchingSides )
-}
-
-
-// eGameState.SwitchingSides
-void function GameStateEnter_SwitchingSides()
-{
-	thread GameStateEnter_SwitchingSides_Threaded()
-}
-
-void function GameStateEnter_SwitchingSides_Threaded()
-{
-	// update server state
-	file.hasSwitchedSides = true
-	SetServerVar( "switchedSides", 1 )
-
-	// timeout transition
-	if ( file.isTimeOutSwitchingSides )
-	{
-		bool killcamsWereEnabled = KillcamsEnabled()
-		if ( killcamsWereEnabled ) // dont want killcams to interrupt stuff
-			SetKillcamsEnabled( false )
-		bool respawnsWereEnabled = RespawnsEnabled()
-		if ( respawnsWereEnabled ) // don't want respawning to intterupt stuff
-			SetRespawnsEnabled( false )
-
-		WaitFrame() // wait a frame so callbacks can set killreplay info
-
-		svGlobal.levelEnt.Signal( "RoundEnd" ) // might be good to get a new signal for this? not 100% necessary tho i think
-
-		// time out shouldn't do replay, just do normal transition
-		// pre setup for round end cleaning
-		RoundCleanUpPreSetUp()
-
-		foreach( entity player in GetPlayerArray() )
-			ScreenFadeToBlackForever( player, SWITCH_SIDE_CLEANUP_WAIT )
-		
-		wait SWITCH_SIDE_EXTRA_WAIT_NO_REPLAY // if no replay playing, we wait a bit more
-
-		wait SWITCH_SIDE_CLEANUP_WAIT
-		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
-
-		// reset stuffs here
-		if ( killcamsWereEnabled )
-			SetKillcamsEnabled( true )
-		if ( respawnsWereEnabled )
-			SetRespawnsEnabled( true )
-	}
-
-	// wait for transition
-	wait SWITCH_SIDE_TRANSITION_DELAY
-
-	if ( file.usePickLoadoutScreen )
+	if ( file.usePickLoadoutScreen ) // here we just doing round transition, no need to enable pickloadout for intro stuffs, only for titan menu
 		SetGameState( eGameState.PickLoadout )
 	else
 		SetGameState ( eGameState.Prematch )
@@ -1628,10 +1571,7 @@ void function AddTeamScore( int team, int amount )
 	if ( score >= scoreLimit ) // score limit reached!
 	{
 		if ( file.switchSidesBased && !file.hasSwitchedSides && ( maxScoreLimit != scoreLimit ) )
-		{
-			//SetGameState( eGameState.SwitchingSides )
-			StartSwitchingSides()
-		}
+			SetGameState( eGameState.SwitchingSides )
 		else // default
 			SetWinner( team, "#GAMEMODE_SCORE_LIMIT_REACHED", "#GAMEMODE_SCORE_LIMIT_REACHED" )
 
