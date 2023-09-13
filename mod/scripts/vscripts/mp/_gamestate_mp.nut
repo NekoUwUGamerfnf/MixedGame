@@ -83,6 +83,7 @@ struct {
 	int numPlayersFullyConnected
 	
 	bool hasSwitchedSides
+	bool isTimeOutSwitchingSides // modified
 	
 	int announceRoundWinnerWinningSubstr
 	int announceRoundWinnerLosingSubstr
@@ -356,7 +357,7 @@ void function GameStateEnter_Playing_Threaded()
 			if ( file.switchSidesBased && !file.hasSwitchedSides && !IsRoundBased() ) // in roundbased modes, we handle this in setwinner
 			{
 				//SetGameState( eGameState.SwitchingSides )
-				StartSwitchingSides()
+				StartSwitchingSidesForTimeOut()
 			}
 			else if ( file.suddenDeathBased && winningTeam == TEAM_UNASSIGNED ) // suddendeath if we draw and suddendeath is enabled and haven't switched sides
 				SetGameState( eGameState.SuddenDeath )
@@ -656,7 +657,6 @@ void function PlayerWatchesRoundWinningKillReplay( entity player )
 }
 
 
-// eGameState.SwitchingSides
 // switching sides is a bit special...
 // they shouldn't been setup immediately
 // instead, they're set up after player finish watching replay and stuff
@@ -817,6 +817,23 @@ void function StartSwitchingSides_Threaded()
 	SetGameState( eGameState.SwitchingSides )
 }
 
+void function StartSwitchingSidesForTimeOut()
+{
+	thread StartSwitchingSidesForTimeOut_Threaded()
+}
+
+void function StartSwitchingSidesForTimeOut_Threaded()
+{
+	// mark as we're doing timeout switching sides
+	file.isTimeOutSwitchingSides = true
+
+	// shows notifications on clients
+	// gamestate transition also handled inside
+	SetGameState( eGameState.SwitchingSides )
+}
+
+
+// eGameState.SwitchingSides
 void function GameStateEnter_SwitchingSides()
 {
 	thread GameStateEnter_SwitchingSides_Threaded()
@@ -828,10 +845,43 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	file.hasSwitchedSides = true
 	SetServerVar( "switchedSides", 1 )
 
+	// timeout transition
+	if ( file.isTimeOutSwitchingSides )
+	{
+		bool killcamsWereEnabled = KillcamsEnabled()
+		if ( killcamsWereEnabled ) // dont want killcams to interrupt stuff
+			SetKillcamsEnabled( false )
+		bool respawnsWereEnabled = RespawnsEnabled()
+		if ( respawnsWereEnabled ) // don't want respawning to intterupt stuff
+			SetRespawnsEnabled( false )
+
+		WaitFrame() // wait a frame so callbacks can set killreplay info
+
+		svGlobal.levelEnt.Signal( "RoundEnd" ) // might be good to get a new signal for this? not 100% necessary tho i think
+
+		// time out shouldn't do replay, just do normal transition
+		// pre setup for round end cleaning
+		RoundCleanUpPreSetUp()
+
+		foreach( entity player in GetPlayerArray() )
+			ScreenFadeToBlackForever( player, SWITCH_SIDE_CLEANUP_WAIT )
+		
+		wait SWITCH_SIDE_EXTRA_WAIT_NO_REPLAY // if no replay playing, we wait a bit more
+
+		wait SWITCH_SIDE_CLEANUP_WAIT
+		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
+
+		// reset stuffs here
+		if ( killcamsWereEnabled )
+			SetKillcamsEnabled( true )
+		if ( respawnsWereEnabled )
+			SetRespawnsEnabled( true )
+	}
+
 	// wait for transition
 	wait SWITCH_SIDE_TRANSITION_DELAY
 
-	if ( file.pickLoadoutEnable || file.usePickLoadoutScreen )
+	if ( file.usePickLoadoutScreen )
 		SetGameState( eGameState.PickLoadout )
 	else
 		SetGameState ( eGameState.Prematch )
@@ -915,15 +965,30 @@ void function GameStateEnter_SuddenDeath()
 		PlaySuddenDeathDialogueBasedOnFaction( player )
 
 	// defensive fixes, so game won't stuck in SuddenDeath forever
-	thread SuddenDeathCheckAnyPlayerAlive()
+	// actually this can cause sudden death to stuck... don't know how to work around server Vars
+	//thread SuddenDeathCheckAnyPlayerAlive()
 }
 
 void function SuddenDeathCheckAnyPlayerAlive()
 {
+	// debug
+	print( "RUNNING SuddenDeathCheckAnyPlayerAlive()" )
+
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
+	OnThreadEnd
+	(
+		function(): ()
+		{
+			print( "SuddenDeathCheckAnyPlayerAlive() Ends!" )
+		}
+	)
+
+	wait 10 // initial wait before deciding winner
 	while( true )
 	{
+		WaitFrame()
+
 		if ( IsFFAGame() ) // ffa variant
 		{
 			array<int> teamsWithLivingPlayers
@@ -936,12 +1001,10 @@ void function SuddenDeathCheckAnyPlayerAlive()
 			if ( teamsWithLivingPlayers.len() == 1 )
 			{
 				SetWinner( teamsWithLivingPlayers[ 0 ], "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-				return
 			}
 			else if ( teamsWithLivingPlayers.len() == 0 ) // failsafe: only team was the dead one
 			{
 				SetWinner( TEAM_UNASSIGNED ) // this is fine in ffa
-				return
 			}
 		}
 		else
@@ -956,21 +1019,17 @@ void function SuddenDeathCheckAnyPlayerAlive()
 			if( mltElimited && imcElimited )
 			{
 				SetWinner( TEAM_UNASSIGNED )
-				return
 			}
 			else if( mltElimited )
 			{
 				SetWinner( TEAM_IMC, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-				return
 			}
 			else if( imcElimited )
 			{
 				SetWinner( TEAM_MILITIA, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-				return
 			}
 		}
 		
-		WaitFrame()
 	}
 }
 
