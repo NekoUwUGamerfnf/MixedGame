@@ -74,6 +74,21 @@ global function PrintPrimaryAttackSignal
 #endif // EXTRA_SPAWNER_DEBUG
 
 // modifiable consts
+// npc damage
+const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.0 // damage dealt by pilot multiplyer
+const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.6 // damage dealt by prowler multiplyer. their damage is too high for MP
+// pilot specific damage adjustments
+// hardcode version
+/*
+const int PLAYER_TITAN_MELEE_DAMAGE_NPC_PILOT = 100
+const int NPC_TITAN_MELEE_DAMAGE_NPC_PILOT = 300
+const int TITAN_SOWRD_DAMAGE_NPC_PILOT = 250
+const int TITAN_STEPPING_ON_DAMAGE_NPC_PILOT = 250
+*/
+// graph capped version
+
+
+// care package
 const float CARE_PACKAGE_MESSAGE_INTERVAL = 3.0 // prevent care package spamming message
 
 // basically medium animation pilots!
@@ -216,6 +231,10 @@ void function ExtraAISpawner_Init()
 	AddDamageCallbackSourceID( eDamageSourceId.auto_titan_melee, ApplyNormalMeleeIdToNPCTitan )
 	// npc pilot score event, better be added by gamemodes
 	//AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
+
+	// npc damages
+	AddDamageCallback( "npc_pilot_elite", NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
+	AddDamageByCallback( "npc_pilot_elite", NPCPilotDamageModifier )
 	// npc prowler: scale damage depend on model scale
 	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, ProwlerMeleeDamageModifier )
 
@@ -3003,7 +3022,6 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot )
 	// disabled SelectSchedule_SwitchWeapon in their behavior, since pilot model not included "pete_agent.mdl", no animations for switching to pistols
 	pilot.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon ) 
 
-	AddEntityCallback_OnDamaged( pilot, NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
 	pilot.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( pilot )
 }
@@ -3295,47 +3313,6 @@ void function NPCPilotEjectingAnimation( entity pilot )
 
 // modified things
 //////////////////////////////////////////////////////////
-// re-adjust damages for npc pilots!
-const int PLAYER_TITAN_MELEE_DAMAGE_NPC_PILOT = 100
-const int NPC_TITAN_MELEE_DAMAGE_NPC_PILOT = 300
-const int TITAN_SOWRD_DAMAGE_NPC_PILOT = 250
-const int TITAN_STEPPING_ON_DAMAGE_NPC_PILOT = 250
-
-void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
-{
-	if ( !( pilot in file.npcSpawnFromExtraSpawner ) ) // pilot spawning from other files!
-		return
-
-	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
-	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) )
-		return
-	if ( !attacker.IsTitan() )
-		return
-
-	// titan step
-	if( damageSourceID == damagedef_titan_step ) 
-		DamageInfo_SetDamage( damageInfo, TITAN_STEPPING_ON_DAMAGE_NPC_PILOT )
-
-	// titan melee
-	if( damageType & DF_MELEE || damageSourceID == eDamageSourceId.auto_titan_melee )
-	{
-		// player's titan melee
-		if ( attacker.IsPlayer() )
-		{
-			// ronin sword
-			if( damageSourceID == eDamageSourceId.melee_titan_sword ) 
-				DamageInfo_SetDamage( damageInfo, TITAN_SOWRD_DAMAGE_NPC_PILOT )
-			else
-				DamageInfo_SetDamage( damageInfo, PLAYER_TITAN_MELEE_DAMAGE_NPC_PILOT )
-		}
-
-		// npc's titan melee
-		if( attacker.IsNPC() ) 
-			DamageInfo_SetDamage( damageInfo, NPC_TITAN_MELEE_DAMAGE_NPC_PILOT )
-	}
-}
 
 void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
 {
@@ -3361,21 +3338,99 @@ void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
 	DamageInfo_SetDamageSourceIdentifier( damageInfo, damageSource )
 }
 
-void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
+// adjust damages for npc pilots!
+void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 {
-	if ( !( victim in file.isProwlerSquadmate ) ) // npc is not a prowler squad member!
+	if ( !( pilot in file.npcSpawnFromExtraSpawner ) ) // pilot spawning from other files!
 		return
 
+	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+	if ( !attacker.IsTitan() )
+		return
+
+	// hardcode version
+	/*
+	// titan step
+	if( damageSourceID == damagedef_titan_step ) 
+		DamageInfo_SetDamage( damageInfo, TITAN_STEPPING_ON_DAMAGE_NPC_PILOT )
+
+	// titan melee
+	if( damageType & DF_MELEE || damageSourceID == eDamageSourceId.auto_titan_melee )
+	{
+		// player's titan melee
+		if ( attacker.IsPlayer() )
+		{
+			// ronin sword
+			if( damageSourceID == eDamageSourceId.melee_titan_sword ) 
+				DamageInfo_SetDamage( damageInfo, TITAN_SOWRD_DAMAGE_NPC_PILOT )
+			else
+				DamageInfo_SetDamage( damageInfo, PLAYER_TITAN_MELEE_DAMAGE_NPC_PILOT )
+		}
+
+		// npc's titan melee
+		if( attacker.IsNPC() ) 
+			DamageInfo_SetDamage( damageInfo, NPC_TITAN_MELEE_DAMAGE_NPC_PILOT )
+	}
+	*/
+}
+
+void function NPCPilotDamageModifier( entity victim, var damageInfo )
+{
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
     if( !IsValid( attacker ) )
         return
 	if( !attacker.IsNPC() )
 		return
+	if ( !( attacker in file.npcSpawnFromExtraSpawner ) ) // pilot spawning from other files!
+		return
+	
+	// not a heavy armor target, hit by bullet
+	// make npc pilots powerful?
+	if ( victim.GetArmorType() != ARMOR_TYPE_HEAVY && DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET )
+	{
+		DamageInfo_ScaleDamage( damageInfo, NPC_PILOT_DAMAGE_MULTIPLIER )
+	}
+}
 
-	float modelScale = float( attacker.kv.modelscale )
+void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if( !IsValid( attacker ) )
+        return
+	if( !attacker.IsNPC() )
+		return
+	if ( !( attacker in file.npcSpawnFromExtraSpawner ) ) // prowler spawning from other files!
+		return
+	
 	float damageScale = 1.0
-	if ( modelScale < 1 )
-		damageScale = modelScale * 0.75 // take less damage from smaller prowlers
+
+	bool nerfDamage = false
+	// prowler's craw damage is 80, pounce damage is 100
+	if ( victim.IsPlayer() ) // nerf it's damage agains players
+		nerfDamage = true
+	if ( victim.IsNPC() )
+	{
+		// a npc owned by player, do reduce damage
+		if ( IsValid( victim.GetBossPlayer() ) )
+			nerfDamage = true
+		if ( IsValid( victim.GetOwner() ) )
+			nerfDamage = true
+	}
+
+	if ( nerfDamage )
+		damageScale *= NPC_PROWLER_DAMAGE_MULTIPLIER
+	
+	if ( victim in file.isProwlerSquadmate ) // prowler squad specific
+	{
+		float modelScale = float( attacker.kv.modelscale )
+		if ( modelScale < 1 )
+			damageScale *= modelScale * 0.75 // take less damage from smaller prowlers
+	}
+
 	DamageInfo_ScaleDamage( damageInfo, damageScale )
 }
 
