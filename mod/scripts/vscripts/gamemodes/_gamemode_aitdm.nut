@@ -3,7 +3,7 @@ global function GamemodeAITdm_Init
 
 
 // these are now default settings
-const int SQUADS_PER_TEAM = 4 // was 3, really should be 4 in vanilla!!!
+const int SQUADS_PER_TEAM = 4 // was 3, vanilla seems to have 4 squads
 
 const int REAPERS_PER_TEAM = 2
 
@@ -288,6 +288,7 @@ void function SpawnIntroBatch_Threaded( int team )
 	{
 		if ( ( pods != 0 || ships == 0 ) && podNodes.len() > 0 ) // defensive fix for podNodes can sometimes be 0
 		{
+			spawnSucceeded = true // mark as we've done intro spawn, we'll wait before game-loop-spawn
 			int index = i
 			
 			if ( index > podNodes.len() - 1 )
@@ -300,6 +301,7 @@ void function SpawnIntroBatch_Threaded( int team )
 		}
 		else if ( shipNodes.len() > 0 ) // defensive fix for shipNodes can sometimes be 0
 		{
+			spawnSucceeded = true // mark as we've done intro spawn, we'll wait before game-loop-spawn
 			if ( startIndex == 0 ) 
 				startIndex = i // save where we started
 			
@@ -368,6 +370,7 @@ void function Spawner_Threaded( int team )
 		
 		// NORMAL SPAWNS
 		int squadsToSpawn = ( file.squadsPerTeam * SQUAD_SIZE - 2 - infantryCount ) / SQUAD_SIZE
+		//print( "squadsToSpawn:" + string( squadsToSpawn ) )
 		if ( squadsToSpawn > 0 )
 		{
 			for ( int i = 0; i < squadsToSpawn; i++ )
@@ -394,6 +397,7 @@ void function Spawner_Threaded( int team )
 				thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent, SquadHandler )
 			}
 
+			//print( "awaiting spawn wave to end..." )
 			wait 15.0 // wait after each spawn wave
 		}
 		
@@ -496,6 +500,34 @@ bool function IsValidNPCAssaultTarget( entity ent )
 	return true
 }
 
+// npc minimap and spawn checks
+void function AddMinimapForNPC( entity guy )
+{
+	if ( !IsAlive( guy ) )
+		return
+	
+	// map
+	guy.Minimap_AlwaysShow( TEAM_IMC, null )
+	guy.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	foreach ( entity player in GetPlayerArray() )
+		guy.Minimap_AlwaysShow( 0, player )
+	guy.Minimap_SetHeightTracking( true )
+
+	if ( GAMETYPE == AI_TDM ) // eMinimapObject_npc.AI_TDM_AI only works for attrition!
+	{
+		// can be found in cl_gamemode_aitdm.nut
+		const array<string> AITDM_VALID_MINIMAP_NPCS =
+		[
+			"npc_soldier",
+			"npc_spectre",
+			"npc_stalker",
+			"npc_super_spectre"
+		]
+		if ( AITDM_VALID_MINIMAP_NPCS.contains( guy.GetClassName() ) )
+			guy.Minimap_SetCustomState( eMinimapObject_npc.AI_TDM_AI )
+	}
+}
+
 // tells infantry where to go
 // In vanilla there seem to be preset paths ai follow to get to the other teams vone and capture it
 // AI can also flee deeper into their zone suggesting someone spent way too much time on this
@@ -522,23 +554,24 @@ void function SquadHandler( array<entity> guys )
 	array<entity> points
 	vector point
 	
-	// Setup AI, first assault point
+	// Setup AI
 	foreach ( guy in guys )
 	{
-		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
-		guy.AssaultPoint( point )
-		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
-
 		// show the squad enemy radar
-		array<entity> players = GetPlayerArrayOfEnemies( team )
-		foreach ( player in players )
-			guy.Minimap_AlwaysShow( 0, player )
+		AddMinimapForNPC( guy )
+
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+		if ( hasHeavyArmorWeapon ) // squads won't flee if they got heavy armor weapon
+			guy.DisableNPCFlag( NPC_ALLOW_FLEE )
+
+		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+	
 		//thread AITdm_CleanupBoredNPCThread( guy )
 	}
 	
 	wait 3 // initial wait before guys disembark from droppod
 	
-	// Every 5 - 15 secs get a closest target and go to them. search for only light armor
+	// Every 5 - 15 secs get a closest target and go to them
 	while ( true )
 	{
 		WaitFrame() // wait a frame each loop
@@ -616,9 +649,8 @@ void function OnSpectreLeeched( entity spectre, entity player )
 void function ReaperHandler( entity reaper )
 {
 	int team = reaper.GetTeam()
-	array<entity> players = GetPlayerArrayOfEnemies( team )
-	foreach ( player in players )
-		reaper.Minimap_AlwaysShow( 0, player )
+	// show on enemy radar
+	AddMinimapForNPC( reaper ) 
 	
 	array<entity> points
 	
