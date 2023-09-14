@@ -93,7 +93,7 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 
 		// shared from special_3p_attack_anim_fix.gnut
 		// fix atlas chassis animation
-		HandleSpecial3pAttackAnim( owner, weapon, 0.5, OnWeaponPrimaryAttack_titancore_flame_wave )
+		HandleSpecial3pAttackAnim( owner, weapon, 0.8, OnWeaponPrimaryAttack_titancore_flame_wave, true )
 
 		OnAbilityChargeEnd_TitanCore( weapon )
 	#endif // #if SERVER

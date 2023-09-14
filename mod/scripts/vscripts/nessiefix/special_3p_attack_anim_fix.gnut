@@ -16,7 +16,7 @@ struct
 	table<entity, SpecialAnimFixSavedOffhand> npcSpecialAnimFixSavedOffhand
 } file
 
-void function HandleSpecial3pAttackAnim( entity titan, entity weapon, float animAllowedDuration, var functionref( entity weapon, WeaponPrimaryAttackParams attackParams ) primaryAttackCallback = null )
+void function HandleSpecial3pAttackAnim( entity titan, entity weapon, float animAllowedDuration, var functionref( entity weapon, WeaponPrimaryAttackParams attackParams ) primaryAttackCallback = null, bool isCoreWeapon = false )
 {
 	// for titan pick: atlas titans don't have proper anim event for "special_3p_attack_anim" weapon usage
 	if ( !ShouldFixSpecial3pAttackAnimForTitan( titan, weapon ) )
@@ -34,6 +34,11 @@ void function HandleSpecial3pAttackAnim( entity titan, entity weapon, float anim
     {
         // build fake attack params
         vector attackPos = titan.EyePosition()
+		// guess viewVector is enough...
+		vector attackDir = titan.GetPlayerOrNPCViewVector()
+
+		// find from attachment version
+		/*
         int attachId = -1
         if ( titan.LookupAttachment( "CHESTFOCUS" ) > 0 )
             attachId = titan.LookupAttachment( "CHESTFOCUS" )
@@ -55,17 +60,32 @@ void function HandleSpecial3pAttackAnim( entity titan, entity weapon, float anim
             attackDir.z = 0
             attackDir = AnglesToForward( attackDir )
         }
+		*/
 
         WeaponPrimaryAttackParams npcAttackParams
         npcAttackParams.pos = attackPos
         npcAttackParams.dir = attackDir
 
+		// due npc titans can't fire properly, they'll still have core fully charged after firing
+		// remove core frac if we're using core weapon
+		if ( isCoreWeapon )
+		{
+			entity soul = titan.GetTitanSoul()
+			if ( IsValid( soul ) )
+			{
+				SoulTitanCore_SetExpireTime( soul, Time() + animAllowedDuration )
+				SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
+			}
+		}
+
         // run primaryattack function
         if ( primaryAttackCallback != null )
             primaryAttackCallback( weapon, npcAttackParams )
+		
         // stop animation after delay
         thread StopOffhandAnimationAfterDelay( titan, animAllowedDuration ) // give anim a little time( 0.3s )
-        // due titan can't fire properly, they'll still have weapon ready. do a hack to handle their weapon cooldown
+        // due npc titans can't fire properly, they'll still have weapon ready after use
+		// do a forced think to handle their weapon cooldown
         thread RestoreNPCOffhandAfterCooldown( titan, weapon, animAllowedDuration )
     }
 }
@@ -98,13 +118,21 @@ void function StopOffhandAnimationAfterDelay( entity titan, float delay )
     	titan.EndSignal( "DisembarkingTitan" )
 
 	wait delay
+
+	// player case
 	if ( titan.IsPlayer() )
-		titan.Anim_StopGesture( 0 )
-	else
 	{
-		// never end animation if we're in a context action!
+		titan.Anim_StopGesture( 0 )
+	}
+
+	// npc case
+	if ( titan.IsNPC() )
+	{
+		// never end animation if we're in a context action such as execution!
 		if ( !titan.ContextAction_IsActive() && !titan.ContextAction_IsBusy() )
+		{
 			titan.Anim_Stop()
+		}
 	}
 }
 

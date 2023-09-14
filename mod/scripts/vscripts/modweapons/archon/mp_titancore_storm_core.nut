@@ -79,7 +79,7 @@ void function OnAbilityChargeEnd_StormWave( entity weapon )
 
 		// shared from special_3p_attack_anim_fix.gnut
 		// fix atlas chassis animation
-		HandleSpecial3pAttackAnim( owner, weapon, 0.5, OnWeaponPrimaryAttack_titancore_storm_wave )
+		HandleSpecial3pAttackAnim( owner, weapon, 0.8, OnWeaponPrimaryAttack_titancore_storm_wave, true )
 
 	#endif // #if SERVER
 }

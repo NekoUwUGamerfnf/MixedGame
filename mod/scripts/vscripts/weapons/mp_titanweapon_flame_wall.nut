@@ -55,7 +55,7 @@ void function OnWeaponActivate_titancore_flame_wall( entity weapon )
 		{
 			// shared from special_3p_attack_anim_fix.gnut
 			// fix atlas chassis animation
-			HandleSpecial3pAttackAnim( owner, weapon, 0.3, OnWeaponPrimaryAttack_FlameWall )
+			HandleSpecial3pAttackAnim( owner, weapon, 0.5, OnWeaponPrimaryAttack_FlameWall )
 		}
 	#endif
 }
@@ -122,7 +122,7 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 			// shared from special_3p_attack_anim_fix.gnut
 			// fix atlas chassis animation
 			// flamewall's npc fix already handled in OnWeaponActivate_titancore_flame_wall()
-			HandleSpecial3pAttackAnim( weaponOwner, weapon, 0.3 )
+			HandleSpecial3pAttackAnim( weaponOwner, weapon, 0.5 )
 		}
 	#endif
 
