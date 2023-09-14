@@ -359,14 +359,13 @@ void function SpawnIntroBatch_Threaded( int team )
 // Populates the match
 void function Spawner_Threaded( int team )
 {
-	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
-
 	// used to index into escalation arrays
 	int index = team == TEAM_MILITIA ? 0 : 1
 	
 	file.levels = [ file.levelSpectres, file.levelSpectres ] // due we added settings, should init levels here!
-	
-	while( true )
+
+	// handle prematch spawns
+	while( GetGameState() == eGameState.Prematch || GetGameState() == eGameState.Playing )
 	{
 		Escalate( team )
 		
