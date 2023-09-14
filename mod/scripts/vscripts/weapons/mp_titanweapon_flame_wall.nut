@@ -41,18 +41,23 @@ void function MpTitanweaponFlameWall_Init()
 
 void function OnWeaponActivate_titancore_flame_wall( entity weapon )
 {
+	// modded weapon
+	if ( weapon.HasMod( "stryder_fire_wave" ) )
+		return OnWeaponActivate_titanweapon_fire_wave( weapon )
+	
+	// vanilla behavior
 	weapon.EmitWeaponSound_1p3p( "flamewall_start_1p", "flamewall_start_3p" )
 
 	// fix for atlas npc titan usage
-#if SERVER
-	entity owner = weapon.GetWeaponOwner()
-	if ( owner.IsNPC() )
-	{
-		// shared from special_3p_attack_anim_fix.gnut
-		// fix atlas chassis animation
-		HandleSpecial3pAttackAnim( owner, weapon, 0.3, OnWeaponPrimaryAttack_FlameWall )
-	}
-#endif
+	#if SERVER
+		entity owner = weapon.GetWeaponOwner()
+		if ( owner.IsNPC() )
+		{
+			// shared from special_3p_attack_anim_fix.gnut
+			// fix atlas chassis animation
+			HandleSpecial3pAttackAnim( owner, weapon, 0.3, OnWeaponPrimaryAttack_FlameWall )
+		}
+	#endif
 }
 
 var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttackParams attackParams )
@@ -60,6 +65,8 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 	// modded weapon
 	if( weapon.HasMod( "wrecking_ball" ) )
 		return OnWeaponPrimaryAttack_weapon_wrecking_ball( weapon, attackParams )
+	if ( weapon.HasMod( "stryder_fire_wave" ) )
+		return OnWeaponPrimaryAttack_titanweapon_fire_wave( weapon, attackParams )
 
 	// vanilla behavior
 	entity weaponOwner = weapon.GetOwner()
@@ -125,6 +132,10 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if ( weapon.HasMod( "stryder_fire_wave" ) )
+		return OnWeaponNpcPrimaryAttack_titanweapon_fire_wave( weapon, attackParams )
+
 	return OnWeaponPrimaryAttack_FlameWall( weapon, attackParams )
 }
 #endif
