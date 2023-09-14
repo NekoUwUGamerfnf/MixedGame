@@ -89,13 +89,11 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 		if ( owner.IsPlayer() )
 		{
 			owner.SetTitanDisembarkEnabled( true )
-			// anim fix for titanpick
-			HandlePlayerFlameCoreAnim( owner )
 		}
 
-		// atlas npc titans can't use flame core properly, adding fix
-		if ( owner.IsNPC() && IsAlive( owner ) )
-			HandleNPCTitanFlameCoreUsage( owner, weapon )
+		// shared from special_3p_attack_anim_fix.gnut
+		// fix atlas chassis animation
+		HandleSpecial3pAttackAnim( owner, weapon, 0.5, OnWeaponPrimaryAttack_titancore_flame_wave )
 
 		OnAbilityChargeEnd_TitanCore( weapon )
 	#endif // #if SERVER
@@ -315,94 +313,5 @@ void function ZeroDamageAndClearInflictorArray( entity ent, var damageInfo )
 		entity inflictor = DamageInfo_GetInflictor( damageInfo )
 		if ( inflictor.e.damagedEntities.contains( ent ) )
 			inflictor.e.damagedEntities.fastremovebyvalue( ent )
-}
-#endif
-
-// modified functions
-#if SERVER
-void function HandleNPCTitanFlameCoreUsage( entity npc, entity weapon )
-{
-	// for titan pick: atlas titans don't have proper anim event for core usage
-	if ( !ShouldFixAnimForTitan( npc ) )
-		return
-
-	// build fake attack params
-	vector attackPos = npc.EyePosition()
-	int attachId = -1
-	if ( npc.LookupAttachment( "CHESTFOCUS" ) > 0 )
-		attachId = npc.LookupAttachment( "CHESTFOCUS" )
-	else if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
-		attachId = npc.LookupAttachment( "PROPGUN" )
-
-	if ( attachId > 0 )
-		attackPos = npc.GetAttachmentOrigin( attachId )
-
-	vector attackDir = npc.GetForwardVector()
-	attachId = -1
-	if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
-		attachId = npc.LookupAttachment( "PROPGUN" )
-
-	if ( attachId > 0 )
-	{
-		attackDir = npc.GetAttachmentAngles( attachId )
-		attackDir.x = 0
-		attackDir.z = 0
-		attackDir = AnglesToForward( attackDir )
-	}
-
-	WeaponPrimaryAttackParams npcAttackParams
-	npcAttackParams.pos = attackPos
-	npcAttackParams.dir = attackDir
-
-	// remove core frac
-	entity soul = npc.GetTitanSoul()
-	SoulTitanCore_SetExpireTime( soul, Time() )
-	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
-	// run primaryattack function
-	OnWeaponPrimaryAttack_titancore_flame_wave( weapon, npcAttackParams )
-	// stop animation after delay
-	thread StopOffhandAnimationAfterDelay( npc, 0.8 ) // give anim a little time( 0.8s )
-}
-
-void function HandlePlayerFlameCoreAnim( entity player )
-{
-	// for titan pick: atlas titans don't have proper anim event for core usage
-	if ( !ShouldFixAnimForTitan( player ) )
-		return
-
-	thread StopOffhandAnimationAfterDelay( player, 0.5 ) // give anim a little time( 0.5s )
-}
-
-bool function ShouldFixAnimForTitan( entity titan )
-{
-	if ( !titan.IsTitan() )
-		return false
-	entity soul = titan.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return false
-	string titanType = GetSoulTitanSubClass( soul )
-	if ( titanType != "atlas" ) // only atlas titans can't recover from animation
-		return false
-
-	// all checks passes
-	return true
-}
-
-void function StopOffhandAnimationAfterDelay( entity titan, float delay )
-{
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" )
-	if ( titan.IsPlayer() ) // player specific: no need to fix anim if they disembark
-    	titan.EndSignal( "DisembarkingTitan" )
-
-	wait delay
-	if ( titan.IsPlayer() )
-		titan.Anim_StopGesture( 0 )
-	else
-	{
-		// never end animation if we're in a context action!
-		if ( !titan.ContextAction_IsActive() && !titan.ContextAction_IsBusy() )
-			titan.Anim_Stop()
-	}
 }
 #endif

@@ -77,15 +77,9 @@ void function OnAbilityChargeEnd_StormWave( entity weapon )
 			owner.SetTitanDisembarkEnabled( true )
 		OnAbilityChargeEnd_TitanCore( weapon )
 
-		if ( owner.IsPlayer() )
-		{
-			owner.Server_TurnOffhandWeaponsDisabledOff() // may need a little fix for animation
-			HandlePlayerStormCoreAnim( owner )
-		}
-
-		// atlas npc titans can't use storm core properly, adding fix
-		if ( owner.IsNPC() && IsAlive( owner ) )
-			HandleNPCTitanStormCoreUsage( owner, weapon )
+		// shared from special_3p_attack_anim_fix.gnut
+		// fix atlas chassis animation
+		HandleSpecial3pAttackAnim( owner, weapon, 0.5, OnWeaponPrimaryAttack_titancore_storm_wave )
 
 	#endif // #if SERVER
 }
@@ -102,7 +96,7 @@ var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPr
   	#endif
 
 	#if SERVER
-	OnAbilityEnd_TitanCore( weapon )
+		OnAbilityEnd_TitanCore( weapon )
 	#endif
 	bool shouldPredict = weapon.ShouldPredictProjectiles()
 	#if CLIENT
@@ -113,6 +107,16 @@ var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPr
 
 	#if SERVER
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
+
+		entity owner = weapon.GetWeaponOwner()
+		if ( owner.IsNPC() )
+		{
+			vector attackAngles = VectorToAngles( attackParams.dir )
+			attackAngles.x = -20 // move up attack angle a little bit for npcs
+			attackAngles.z = 0
+			attackParams.dir = AnglesToForward( attackAngles )
+		}
+
       	FireStormBall( weapon, attackParams.pos, attackParams.dir, shouldPredict)
 	#elseif CLIENT
 		ClientScreenShake( 8.0, 10.0, 1.0, Vector( 0.0, 0.0, 0.0 ) )
@@ -120,91 +124,3 @@ var function OnWeaponPrimaryAttack_titancore_storm_wave( entity weapon, WeaponPr
 
 	return 1
 }
-
-#if SERVER
-void function HandleNPCTitanStormCoreUsage( entity npc, entity weapon )
-{
-	// for titan pick: atlas titans don't have proper anim event for core usage
-	if ( !ShouldFixAnimForTitan( npc ) )
-		return
-
-	// build fake attack params
-	vector attackPos = npc.EyePosition()
-	int attachId = -1
-	if ( npc.LookupAttachment( "CHESTFOCUS" ) > 0 )
-		attachId = npc.LookupAttachment( "CHESTFOCUS" )
-	else if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
-		attachId = npc.LookupAttachment( "PROPGUN" )
-
-	if ( attachId > 0 )
-		attackPos = npc.GetAttachmentOrigin( attachId )
-
-	vector attackDir = npc.GetForwardVector()
-	attachId = -1
-	if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
-		attachId = npc.LookupAttachment( "PROPGUN" )
-
-	if ( attachId > 0 )
-	{
-		attackDir = npc.GetAttachmentAngles( attachId )
-		attackDir.x = -20 // move up attack angle a little bit
-		attackDir.z = 0
-		attackDir = AnglesToForward( attackDir )
-	}
-
-	WeaponPrimaryAttackParams npcAttackParams
-	npcAttackParams.pos = attackPos
-	npcAttackParams.dir = attackDir
-
-	// remove core frac
-	entity soul = npc.GetTitanSoul()
-	SoulTitanCore_SetExpireTime( soul, Time() )
-	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
-	// run primaryattack function
-	OnWeaponPrimaryAttack_titancore_storm_wave( weapon, npcAttackParams )
-	// stop animation after delay
-	thread StopOffhandAnimationAfterDelay( npc, 0.8 ) // give anim a little time( 0.8s )
-}
-
-void function HandlePlayerStormCoreAnim( entity player )
-{
-	// for titan pick: atlas titans don't have proper anim event for core usage
-	if ( !ShouldFixAnimForTitan( player ) )
-		return
-
-	thread StopOffhandAnimationAfterDelay( player, 0.5 ) // give anim a little time( 0.5s )
-}
-
-bool function ShouldFixAnimForTitan( entity titan )
-{
-	if ( !titan.IsTitan() )
-		return false
-	entity soul = titan.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return false
-	string titanType = GetSoulTitanSubClass( soul )
-	if ( titanType != "atlas" ) // only atlas titans can't recover from animation
-		return false
-
-	// all checks passes
-	return true
-}
-
-void function StopOffhandAnimationAfterDelay( entity titan, float delay )
-{
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" )
-	if ( titan.IsPlayer() ) // player specific: no need to fix anim if they disembark
-    	titan.EndSignal( "DisembarkingTitan" )
-
-	wait delay
-	if ( titan.IsPlayer() )
-		titan.Anim_StopGesture( 0 )
-	else
-	{
-		// never end animation if we're in a context action!
-		if ( !titan.ContextAction_IsActive() && !titan.ContextAction_IsBusy() )
-			titan.Anim_Stop()
-	}
-}
-#endif

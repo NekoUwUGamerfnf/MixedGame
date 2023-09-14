@@ -24,22 +24,6 @@ global const float FLAME_WALL_THERMITE_DURATION = 5.2
 global const float PAS_SCORCH_FIREWALL_DURATION = 5.2
 global const float SP_FLAME_WALL_DURATION_SCALE = 1.75
 
-// for titan pick: atlas titans don't have proper anim event for flamewave usage
-// using a fake cooldown system for them
-struct FlameWallSavedOffhand
-{
-	string weaponName
-	array<string> weaponMods
-	int offhandSlot
-}
-
-#if SERVER
-struct
-{
-	table<entity, FlameWallSavedOffhand> npcFlameWallSavedOffhand
-} file
-#endif
-
 void function MpTitanweaponFlameWall_Init()
 {
 	PrecacheParticleSystem( FLAME_WALL_FX )
@@ -63,7 +47,11 @@ void function OnWeaponActivate_titancore_flame_wall( entity weapon )
 #if SERVER
 	entity owner = weapon.GetWeaponOwner()
 	if ( owner.IsNPC() )
-		HandleNPCTitanFlameWallUsage( owner, weapon )
+	{
+		// shared from special_3p_attack_anim_fix.gnut
+		// fix atlas chassis animation
+		HandleSpecial3pAttackAnim( owner, weapon, 0.3, OnWeaponPrimaryAttack_FlameWall )
+	}
 #endif
 }
 
@@ -123,7 +111,12 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 	#if SERVER
 		// anim fix for titanpick
 		if ( weaponOwner.IsPlayer() )
-			HandlePlayerFlameWallAnim( weaponOwner )
+		{
+			// shared from special_3p_attack_anim_fix.gnut
+			// fix atlas chassis animation
+			// flamewall's npc fix already handled in OnWeaponActivate_titancore_flame_wall()
+			HandleSpecial3pAttackAnim( weaponOwner, weapon, 0.3 )
+		}
 	#endif
 
 	return weapon.GetWeaponInfoFileKeyField( "ammo_min_to_fire" )
@@ -280,157 +273,6 @@ void function FlameWall_DamagedTarget( entity ent, var damageInfo )
 			DamageInfo_ScaleDamage( damageInfo, FD_FIRE_DAMAGE_SCALE )
 		if ( weapons[0].HasMod( "fd_hot_streak" ) )
 			UpdateScorchHotStreakCoreMeter( attacker, DamageInfo_GetDamage( damageInfo ) )
-	}
-}
-#endif
-
-
-// modified functions
-#if SERVER
-void function HandleNPCTitanFlameWallUsage( entity npc, entity weapon )
-{
-	// for titan pick: atlas titans don't have proper anim event for flamewave usage
-	if ( !ShouldFixAnimForTitan( npc ) )
-		return
-
-	// build fake attack params
-	vector attackPos = npc.EyePosition()
-	int attachId = -1
-	if ( npc.LookupAttachment( "CHESTFOCUS" ) > 0 )
-		attachId = npc.LookupAttachment( "CHESTFOCUS" )
-	else if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
-		attachId = npc.LookupAttachment( "PROPGUN" )
-
-	if ( attachId > 0 )
-		attackPos = npc.GetAttachmentOrigin( attachId )
-
-	vector attackDir = npc.GetForwardVector()
-	attachId = -1
-	if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
-		attachId = npc.LookupAttachment( "PROPGUN" )
-
-	if ( attachId > 0 )
-	{
-		attackDir = npc.GetAttachmentAngles( attachId )
-		attackDir.x = 0
-		attackDir.z = 0
-		attackDir = AnglesToForward( attackDir )
-	}
-
-	WeaponPrimaryAttackParams npcAttackParams
-	npcAttackParams.pos = attackPos
-	npcAttackParams.dir = attackDir
-
-	// run primaryattack function
-	OnWeaponPrimaryAttack_FlameWall( weapon, npcAttackParams )
-	// stop animation after delay
-	thread StopOffhandAnimationAfterDelay( npc, 0.3 ) // give anim a little time( 0.3s )
-	// due npc can't fire properly, they'll still have weapon ready. do a hack to handle their weapon cooldown
-	thread RestoreNPCOffhandAfterCooldown( npc, weapon, 0.3 )
-}
-
-void function HandlePlayerFlameWallAnim( entity player )
-{
-	// for titan pick: atlas titans don't have proper anim event for flamewall usage
-	if ( !ShouldFixAnimForTitan( player ) )
-		return
-
-	thread StopOffhandAnimationAfterDelay( player, 0.5 ) // give anim a little time( 0.5s )
-}
-
-bool function ShouldFixAnimForTitan( entity titan )
-{
-	if ( !titan.IsTitan() )
-		return false
-	entity soul = titan.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return false
-	string titanType = GetSoulTitanSubClass( soul )
-	if ( titanType != "atlas" ) // only atlas titans can't recover from animation
-		return false
-
-	// all checks passes
-	return true
-}
-
-void function StopOffhandAnimationAfterDelay( entity titan, float delay )
-{
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" )
-	if ( titan.IsPlayer() ) // player specific: no need to fix anim if they disembark
-    	titan.EndSignal( "DisembarkingTitan" )
-
-	wait delay
-	if ( titan.IsPlayer() )
-		titan.Anim_StopGesture( 0 )
-	else
-	{
-		// never end animation if we're in a context action!
-		if ( !titan.ContextAction_IsActive() && !titan.ContextAction_IsBusy() )
-			titan.Anim_Stop()
-	}
-}
-
-void function RestoreNPCOffhandAfterCooldown( entity owner, entity weapon, float startDelay )
-{
-	owner.EndSignal( "OnDeath" )
-	owner.EndSignal( "OnDestroy" )
-	owner.EndSignal( "player_embarks_titan" ) // embarking a titan restore the weapon immediately
-
-	wait startDelay
-
-	if ( !IsValid( weapon ) )
-		return
-
-	float minCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
-	float maxCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
-
-	// store weapon data
-	FlameWallSavedOffhand offhandSaver
-	offhandSaver.weaponName = weapon.GetWeaponClassName()
-	offhandSaver.weaponMods = weapon.GetMods()
-	file.npcFlameWallSavedOffhand[ owner ] <- offhandSaver
-
-	// get offhand slot
-	int weaponSlot = -1
-	for ( int i = 0; i < OFFHAND_COUNT; i++ )
-	{
-		entity otherWeapon = owner.GetOffhandWeapon( i )
-		if ( otherWeapon == weapon )
-		{
-			weaponSlot = i
-			break
-		}
-	}
-	offhandSaver.offhandSlot = weaponSlot
-
-	OnThreadEnd
-	(
-		function(): ( owner )
-		{
-			//print( "weapon: " + string( weapon ) )
-			if ( IsValid( owner ) )
-			{
-				FlameWallSavedOffhand offhandSaver = file.npcFlameWallSavedOffhand[ owner ]
-				if ( !IsValid( owner.GetOffhandWeapon( offhandSaver.offhandSlot ) ) )
-					owner.GiveOffhandWeapon( offhandSaver.weaponName, offhandSaver.offhandSlot, offhandSaver.weaponMods )
-
-				delete file.npcFlameWallSavedOffhand[ owner ]
-			}
-		}
-	)
-
-	// take off weapon
-	owner.TakeOffhandWeapon( weaponSlot )
-	// add fake cooldown
-	float cooldownTime = RandomFloatRange( minCooldown, maxCooldown )
-	float maxWaitTime = Time() + cooldownTime
-	// we end thread if player being given another offhand in the same slot
-	while ( Time() < maxWaitTime )
-	{
-		if ( IsValid( owner.GetOffhandWeapon( weaponSlot ) ) )
-			break
-		WaitFrame()
 	}
 }
 #endif
