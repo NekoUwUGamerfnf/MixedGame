@@ -148,7 +148,6 @@ void function PIN_GameStart()
 	AddCallback_GameStateEnter( eGameState.WaitingForCustomStart, GameStateEnter_WaitingForCustomStart )
 	AddCallback_GameStateEnter( eGameState.WaitingForPlayers, GameStateEnter_WaitingForPlayers )
 	AddCallback_OnClientConnected( WaitingForPlayers_ClientConnected )
-	AddCallback_OnClientConnected( GamePlaying_OnClientConnected )
 	
 	AddCallback_GameStateEnter( eGameState.PickLoadout, GameStateEnter_PickLoadout )
 	AddCallback_GameStateEnter( eGameState.Prematch, GameStateEnter_Prematch )
@@ -362,7 +361,10 @@ void function GameStateEnter_Playing_Threaded()
 			if ( file.switchSidesBased && !file.hasSwitchedSides && !IsRoundBased() ) // in roundbased modes, we handle this in setwinner
 				SetGameState( eGameState.SwitchingSides )
 			else if ( file.suddenDeathBased && winningTeam == TEAM_UNASSIGNED ) // suddendeath if we draw and suddendeath is enabled and haven't switched sides
-				SetGameState( eGameState.SuddenDeath )
+			{
+				if ( CanGameProcessToSuddenDeath() ) // we never start sudden death if we can end game properly
+					SetGameState( eGameState.SuddenDeath )
+			}
 			else
 				SetWinner( winningTeam, file.timeoutWinningReason, file.timeoutLosingReason )
 		}
@@ -387,14 +389,6 @@ void function GameStateEnter_Playing_Threaded()
 
 		WaitFrame()
 	}
-}
-
-void function GamePlaying_OnClientConnected( entity player )
-{
-	if( GetGameState() != eGameState.Playing )
-		return
-
-	
 }
 
 // eGameState.WinnerDetermined
@@ -939,8 +933,8 @@ void function GameStateEnter_SuddenDeath()
 	//thread SuddenDeathCheckAnyPlayerAlive()
 }
 
-// returns true if game can end without entering sudden death
-bool function CheckSuddenDeathTeamPlayerCount()
+// returns false if sudden death no longer a valid gamestate
+bool function SuddenDeathCheckTeamPlayers()
 {
 	if ( IsFFAGame() ) // ffa variant
 	{
@@ -954,12 +948,12 @@ bool function CheckSuddenDeathTeamPlayerCount()
 		if ( teamsWithLivingPlayers.len() == 1 )
 		{
 			SetWinner( teamsWithLivingPlayers[ 0 ], "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			return true
+			return false
 		}
 		else if ( teamsWithLivingPlayers.len() == 0 ) // failsafe: only team was the dead one
 		{
 			SetWinner( TEAM_UNASSIGNED ) // this is fine in ffa
-			return true
+			return false
 		}
 	}
 	else
@@ -974,21 +968,21 @@ bool function CheckSuddenDeathTeamPlayerCount()
 		if( mltElimited && imcElimited )
 		{
 			SetWinner( TEAM_UNASSIGNED )
-			return true
+			return false
 		}
 		else if( mltElimited )
 		{
 			SetWinner( TEAM_IMC, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			return true
+			return false
 		}
 		else if( imcElimited )
 		{
 			SetWinner( TEAM_MILITIA, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			return true
+			return false
 		}
 	}
 
-	return false
+	return true
 }
 
 void function SuddenDeathCheckAnyPlayerAlive()
@@ -996,7 +990,7 @@ void function SuddenDeathCheckAnyPlayerAlive()
 	// debug
 	print( "RUNNING SuddenDeathCheckAnyPlayerAlive()" )
 
-	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
+	//svGlobal.levelEnt.EndSignal( "GameStateChanged" )
 
 	OnThreadEnd
 	(
@@ -1011,8 +1005,61 @@ void function SuddenDeathCheckAnyPlayerAlive()
 	{
 		WaitFrame()
 
-		CheckSuddenDeathTeamPlayerCount()
+		if ( !SuddenDeathCheckTeamPlayers() )
+			return
 	}
+}
+
+// returns false if game can end without entering sudden death
+bool function CanGameProcessToSuddenDeath()
+{
+	if ( IsFFAGame() ) // ffa variant
+	{
+		array<int> teamsNotEmpty
+		foreach ( entity player in GetPlayerArray() )
+		{
+			if ( !teamsNotEmpty.contains( player.GetTeam() ) )
+				teamsNotEmpty.append( player.GetTeam() )
+		}
+		
+		if ( teamsNotEmpty.len() == 1 )
+		{
+			SetWinner( teamsNotEmpty[ 0 ], "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+			return false
+		}
+		else if ( teamsNotEmpty.len() == 0 ) // failsafe: no teams alive for ffa sudden death
+		{
+			SetWinner( TEAM_UNASSIGNED ) // this is fine in ffa
+			return false
+		}
+	}
+	else
+	{
+		bool mltTeamEmpty = false
+		bool imcTeamEmpty = false
+		if( GetPlayerArrayOfTeam( TEAM_MILITIA ).len() < 1 )
+			mltTeamEmpty = true
+		if( GetPlayerArrayOfTeam( TEAM_IMC ).len() < 1 )
+			imcTeamEmpty = true
+
+		if( mltTeamEmpty && imcTeamEmpty )
+		{
+			SetWinner( TEAM_UNASSIGNED )
+			return false
+		}
+		else if( mltTeamEmpty )
+		{
+			SetWinner( TEAM_IMC, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+			return false
+		}
+		else if( imcTeamEmpty )
+		{
+			SetWinner( TEAM_MILITIA, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+			return false
+		}
+	}
+
+	return true
 }
 
 // respawn didn't register this, doing it myself
@@ -1136,33 +1183,11 @@ void function CheckSuddenDeathPlayers( entity victim )
 		//if ( GetPlayerArrayOfTeam_Alive( victim.GetTeam() ).len() == 0 )
 		if ( GetPlayerArrayOfTeam_Alive( victim.GetTeam() ).len() == 0 )
 		{
-			// for ffa we need to manually get the last team alive 
-			if ( IsFFAGame() )
+			if ( !SuddenDeathCheckTeamPlayers()	)
 			{
-				array<int> teamsWithLivingPlayers
-				foreach ( entity player in GetPlayerArray_Alive() )
-				{
-					if ( !teamsWithLivingPlayers.contains( player.GetTeam() ) )
-						teamsWithLivingPlayers.append( player.GetTeam() )
-				}
-				
-				if ( teamsWithLivingPlayers.len() == 1 )
-				{
-					SetWinner( teamsWithLivingPlayers[ 0 ], "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-				
-					// we only do replay if game wins by player earning score
-					MarkAsGameWinsByEarnScore()
-				}
-				else if ( teamsWithLivingPlayers.len() == 0 ) // failsafe: only team was the dead one
-					SetWinner( TEAM_UNASSIGNED ) // this is fine in ffa
-			}
-			else
-			{
-				SetWinner( GetOtherTeam( victim.GetTeam() ), "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			
 				// we only do replay if game wins by player earning score
 				MarkAsGameWinsByEarnScore()
-			}		
+			}
 		}
 	}
 }
