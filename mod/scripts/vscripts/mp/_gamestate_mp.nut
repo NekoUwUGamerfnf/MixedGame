@@ -809,7 +809,11 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		RoundCleanUpPreSetUp()
 
 		foreach( entity player in GetPlayerArray() )
+		{
+			// no replay specific: fade out sound for player
+			EmitSoundOnEntityOnlyToPlayer( player, player, "HalfTime_fadeout" )
 			ScreenFadeToBlackForever( player, SWITCH_SIDE_CLEANUP_WAIT )
+		}
 		
 		wait SWITCH_SIDE_EXTRA_WAIT_NO_REPLAY // if no replay playing, we wait a bit more
 
@@ -832,7 +836,15 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		wait SWITCH_SIDE_TRANSITION_DELAY
 	}
 	else
+	{
 		wait SWITCH_SIDE_TRANSITION_DELAY_NO_REPLAY
+
+		foreach ( entity player in GetPlayerArray() )
+		{
+			// clear sound fade on player
+			StopSoundOnEntity( player, "HalfTime_fadeout" )
+		}
+	}
 
 	// reset stuffs here
 	if ( killcamsWereEnabled )
@@ -1048,11 +1060,14 @@ void function GameStateEnter_Postmatch_Threaded()
 
 void function PostMatchForceFadeToBlack()
 {
-	// hack until i figure out what deathcam stuff is causing fadetoblacks to be cleared
+	// keep make player blacking out to darkness, and fadeout any sound
 	while ( true )
 	{
 		foreach ( entity player in GetPlayerArray() )
+		{
 			ScreenFadeToBlackForever( player, MATCH_CLEANUP_WAIT )
+			EmitSoundOnEntityOnlyToPlayer( player, player, "FrontierDefense_MatchEndFadeout" )
+		}
 
 		WaitFrame()
 	}
