@@ -1051,7 +1051,9 @@ void function GameStateEnter_Postmatch()
 void function GameStateEnter_Postmatch_Threaded()
 {
 	wait MATCH_CLEANUP_WAIT // wait for fade
+
 	CleanUpEntitiesForMatchEnd() // match really ends, clean up stuffs
+	thread PostMatchFadeoutSound() // keep fade out sound on any player
 
 	wait GAME_POSTMATCH_LENGTH - MATCH_CLEANUP_WAIT
 
@@ -1060,17 +1062,36 @@ void function GameStateEnter_Postmatch_Threaded()
 
 void function PostMatchForceFadeToBlack()
 {
-	// keep make player blacking out to darkness, and fadeout any sound
+	// keep make player blacking out to darkness
 	while ( true )
 	{
 		foreach ( entity player in GetPlayerArray() )
 		{
 			ScreenFadeToBlackForever( player, MATCH_CLEANUP_WAIT )
-			EmitSoundOnEntityOnlyToPlayer( player, player, "FrontierDefense_MatchEndFadeout" )
 		}
 
 		WaitFrame()
 	}
+}
+
+void function PostMatchFadeoutSound()
+{
+	// fadeout any sound playing on a player
+	while ( true )
+	{
+		foreach ( entity player in GetPlayerArray() )
+		{
+			if ( !( "didSoundFadeout" in player.s ) )
+				player.s.didSoundFadeout <- false
+			if ( !player.s.didSoundFadeout )
+			{
+				EmitSoundOnEntityOnlyToPlayer( player, player, "FrontierDefense_MatchEndFadeout" )
+				player.s.didSoundFadeout = true
+			}
+		}
+
+		WaitFrame()
+	}		
 }
 
 // shared across multiple gamestates
