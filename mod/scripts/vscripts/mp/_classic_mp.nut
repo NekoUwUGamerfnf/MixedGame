@@ -138,6 +138,12 @@ bool function GetClassicMPMode()
 
 bool function ClassicMP_ShouldRunEpilogue()
 {
+	// if we're in a FFA game or one team has no player, never run epilogue
+	if ( IsFFAGame() )
+		return false
+	if ( GetPlayerArrayOfTeam( TEAM_IMC ).len() == 0 || GetPlayerArrayOfTeam( TEAM_MILITIA ).len() == 0 )
+		return false
+
 	// note: there is a run_evac playlist var, but it's unused, and default 0, so use a new one
 	return !file.epilogueForceDisabled && GetClassicMPMode() && GetCurrentPlaylistVarInt( "run_epilogue", 1 ) == 1
 }
