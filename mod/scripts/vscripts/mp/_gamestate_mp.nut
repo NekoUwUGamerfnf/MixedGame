@@ -935,9 +935,60 @@ void function GameStateEnter_SuddenDeath()
 	foreach( entity player in GetPlayerArray() )
 		PlaySuddenDeathDialogueBasedOnFaction( player )
 
-	// defensive fixes, so game won't stuck in SuddenDeath forever
 	// actually this can cause sudden death to stuck... don't know how to work around server Vars
 	//thread SuddenDeathCheckAnyPlayerAlive()
+}
+
+// returns true if game can end without entering sudden death
+bool function CheckSuddenDeathTeamPlayerCount()
+{
+	if ( IsFFAGame() ) // ffa variant
+	{
+		array<int> teamsWithLivingPlayers
+		foreach ( entity player in GetPlayerArray_Alive() )
+		{
+			if ( !teamsWithLivingPlayers.contains( player.GetTeam() ) )
+				teamsWithLivingPlayers.append( player.GetTeam() )
+		}
+		
+		if ( teamsWithLivingPlayers.len() == 1 )
+		{
+			SetWinner( teamsWithLivingPlayers[ 0 ], "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+			return true
+		}
+		else if ( teamsWithLivingPlayers.len() == 0 ) // failsafe: only team was the dead one
+		{
+			SetWinner( TEAM_UNASSIGNED ) // this is fine in ffa
+			return true
+		}
+	}
+	else
+	{
+		bool mltElimited = false
+		bool imcElimited = false
+		if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() < 1 )
+			mltElimited = true
+		if( GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() < 1 )
+			imcElimited = true
+
+		if( mltElimited && imcElimited )
+		{
+			SetWinner( TEAM_UNASSIGNED )
+			return true
+		}
+		else if( mltElimited )
+		{
+			SetWinner( TEAM_IMC, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+			return true
+		}
+		else if( imcElimited )
+		{
+			SetWinner( TEAM_MILITIA, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
+			return true
+		}
+	}
+
+	return false
 }
 
 void function SuddenDeathCheckAnyPlayerAlive()
@@ -960,47 +1011,7 @@ void function SuddenDeathCheckAnyPlayerAlive()
 	{
 		WaitFrame()
 
-		if ( IsFFAGame() ) // ffa variant
-		{
-			array<int> teamsWithLivingPlayers
-			foreach ( entity player in GetPlayerArray_Alive() )
-			{
-				if ( !teamsWithLivingPlayers.contains( player.GetTeam() ) )
-					teamsWithLivingPlayers.append( player.GetTeam() )
-			}
-			
-			if ( teamsWithLivingPlayers.len() == 1 )
-			{
-				SetWinner( teamsWithLivingPlayers[ 0 ], "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			}
-			else if ( teamsWithLivingPlayers.len() == 0 ) // failsafe: only team was the dead one
-			{
-				SetWinner( TEAM_UNASSIGNED ) // this is fine in ffa
-			}
-		}
-		else
-		{
-			bool mltElimited = false
-			bool imcElimited = false
-			if( GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ).len() < 1 )
-				mltElimited = true
-			if( GetPlayerArrayOfTeam_Alive( TEAM_IMC ).len() < 1 )
-				imcElimited = true
-
-			if( mltElimited && imcElimited )
-			{
-				SetWinner( TEAM_UNASSIGNED )
-			}
-			else if( mltElimited )
-			{
-				SetWinner( TEAM_IMC, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			}
-			else if( imcElimited )
-			{
-				SetWinner( TEAM_MILITIA, "#GAMEMODE_ENEMY_PILOTS_ELIMINATED", "#GAMEMODE_FRIENDLY_PILOTS_ELIMINATED" )
-			}
-		}
-		
+		CheckSuddenDeathTeamPlayerCount()
 	}
 }
 
@@ -1053,7 +1064,6 @@ void function GameStateEnter_Postmatch_Threaded()
 	wait MATCH_CLEANUP_WAIT // wait for fade
 
 	CleanUpEntitiesForMatchEnd() // match really ends, clean up stuffs
-	thread PostMatchFadeoutSound() // keep fade out sound on any player
 
 	wait GAME_POSTMATCH_LENGTH - MATCH_CLEANUP_WAIT
 
@@ -1063,35 +1073,25 @@ void function GameStateEnter_Postmatch_Threaded()
 void function PostMatchForceFadeToBlack()
 {
 	// keep make player blacking out to darkness
-	while ( true )
-	{
-		foreach ( entity player in GetPlayerArray() )
-		{
-			ScreenFadeToBlackForever( player, MATCH_CLEANUP_WAIT )
-		}
-
-		WaitFrame()
-	}
-}
-
-void function PostMatchFadeoutSound()
-{
 	// fadeout any sound playing on a player
 	while ( true )
 	{
 		foreach ( entity player in GetPlayerArray() )
 		{
+			ScreenFadeToBlackForever( player, MATCH_CLEANUP_WAIT )
+
 			if ( !( "didSoundFadeout" in player.s ) )
 				player.s.didSoundFadeout <- false
 			if ( !player.s.didSoundFadeout )
 			{
-				EmitSoundOnEntityOnlyToPlayer( player, player, "FrontierDefense_MatchEndFadeout" )
+				// vanilla behavior. take 4s to fadeout all sounds
+				EmitSoundOnEntityOnlyToPlayer( player, player, "4_second_fadeout" )
 				player.s.didSoundFadeout = true
 			}
 		}
 
 		WaitFrame()
-	}		
+	}
 }
 
 // shared across multiple gamestates
@@ -1805,7 +1805,7 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 
 	int winningTeamScore = GameRules_GetTeamScore( winningTeam )
 	int losingTeamScore = GameRules_GetTeamScore( losingTeam )
-	if( scoreTied )
+	if( scoreTied && GetServerVar( "winningTeam" ) <= TEAM_UNASSIGNED )
 	{
 		if( tied != "" )
 		{
