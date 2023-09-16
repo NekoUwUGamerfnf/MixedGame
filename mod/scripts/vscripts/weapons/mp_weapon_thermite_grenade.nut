@@ -98,6 +98,8 @@ void function OnProjectileIgnite_weapon_thermite_grenade( entity projectile )
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if ( mods.contains( "flamewall_grenade" ) )
 		return OnProjectileIgnite_weapon_flamewall_grenade( projectile )
+	if( mods.contains( "ninja_projectile" ) )
+		return // ninja projectile shouldn't have any ignition effect
 
 	projectile.SetDoesExplode( false )
 
