@@ -1,0 +1,75 @@
+global function FakeWorldModelForWeapon_Init
+
+global function FakeWorldModel_CreateForWeapon
+global function FakeWorldModel_DestroyForWeapon
+
+void function FakeWorldModelForWeapon_Init()
+{
+    // adding fake model for fake weapons
+	RegisterSignal( "DestroyFakeModel" )
+}
+
+entity function FakeWorldModel_CreateForWeapon( entity weapon, asset model )
+{
+    //print( "RUNNING FakeWorldModel_CreateForWeapon()" )
+	entity owner = weapon.GetWeaponOwner()
+	//print( "weapon owner: " + string( owner ) )
+	if ( !IsValid( owner ) )
+		return
+	if ( owner.LookupAttachment( "PROPGUN" ) == -1 )
+		return
+    
+	entity prop = CreatePropDynamic( model, owner.GetOrigin(), owner.GetAngles() )
+	prop.SetParent( owner, "PROPGUN" )
+	prop.Highlight_SetInheritHighlight( true ) // setup highlight
+	//print( "Creating fake model!" )
+
+	thread TrackFakeModelLifeTime( weapon, owner, prop )
+
+    return prop
+}
+
+void function TrackFakeModelLifeTime( entity weapon, entity owner, entity prop )
+{
+	prop.EndSignal( "OnDestroy" )
+
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	weapon.Signal( "DestroyFakeModel" )
+	weapon.EndSignal( "OnDestroy" )
+	weapon.EndSignal( "DestroyFakeModel" )
+
+	OnThreadEnd
+	(
+		function(): ( prop )
+		{
+			if ( IsValid( prop ) )
+			{
+				//print( "Destroying fake model!" )
+				prop.Destroy()
+			}
+		}
+	)
+
+	while ( true )
+	{
+		entity activeWeapon = owner.GetActiveWeapon()
+		if ( !IsValid( activeWeapon ) )
+			return
+		if ( activeWeapon.IsWeaponOffhand() ) // offhand weapon case
+		{
+			var keepMainWeaponModel = activeWeapon.GetWeaponInfoFileKeyField( "offhand_keep_primary_in_hand" )
+			if ( keepMainWeaponModel == null || !keepMainWeaponModel )
+				return
+		}
+		else if ( activeWeapon != weapon ) // main weapon case
+			return
+
+		WaitFrame()
+	}
+}
+
+void function FakeWorldModel_DestroyForWeapon( entity weapon )
+{
+    weapon.Signal( "DestroyFakeModel" ) // stop TrackFakeModelLifeTime() thread
+}
