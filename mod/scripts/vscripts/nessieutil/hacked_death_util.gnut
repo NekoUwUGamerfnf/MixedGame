@@ -76,30 +76,34 @@ bool function HackedDeath_ShouldHandleDamage( entity ent, var damageInfo )
 }
 
 // NEW callback
-bool function HackedDeath_ShouldRunEntityKilledCallback( entity victim, var damageInfo, bool shouldRunCallback )
+bool function HackedDeath_ShouldRunEntityKilledCallback( entity victim, var damageInfo )
 {
+	if ( !HackedDeath_IsEnabled() )
+		return true
 	if ( !victim.IsPlayer() )
-		return shouldRunCallback // default value, inherit last callback
+		return true
 
 	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
-	if ( HackedDeath_IsEnabled() && damageSourceId == damagedef_despawn )
-		return false // if hacked death enabled and we're killing the player through damagedef_despawn, we don't do entity killed callbacks and events!
-	return shouldRunCallback
+	// if hacked death enabled and we're killing the player through damagedef_despawn, we don't do entity killed callbacks and events!
+	return damageSourceId != damagedef_despawn
 }
 
-bool function HackedDeath_ShouldPlayerForcedRespawn( entity victim, table damageTable, bool shouldForceRespawn )
+bool function HackedDeath_ShouldPlayerForcedRespawn( entity victim, table damageTable )
 {
+	if ( !HackedDeath_IsEnabled() )
+		return true
 	if ( !victim.IsPlayer() )
-		return shouldForceRespawn // default value, inherit last callback
+		return true
 
 	int damageSourceId = expect int( damageTable.damageSourceId )
-	if ( HackedDeath_IsEnabled() && damageSourceId == damagedef_despawn )
-		return false // if hacked death enabled and we're killing the player through damagedef_despawn, we don't do forced respawn!
-	return shouldForceRespawn
+	// if hacked death enabled and we're killing the player through damagedef_despawn, we don't do forced respawn!
+	return damageSourceId != damagedef_despawn
 }
 
 void function HackedDeathPlayerDamage( entity victim, var damageInfo, PlayerDamageFeedbackStruct feedbackStruct )
 {
+	// maybe no need to do like this? as in postDamage the damage value has already displayed to player
+	/*
 	if ( HackedDeath_IsEnabled() )
 	{
 		if ( file.hackedDeathKillshot ) // for pilot entering hackedDeath, notify their actual taken damage
@@ -109,13 +113,15 @@ void function HackedDeathPlayerDamage( entity victim, var damageInfo, PlayerDama
 			//file.hackedDeathKillshot = false // this var should be reset after try to play the chatter in _codecallbacks.gnut!
 		}
 	}
+	*/
 }
 
-bool function HackedDeathDamageChatter( entity victim, entity attacker, var damageInfo, DamageChatterStruct chatterResult, bool shouldPlayChatter )
+bool function HackedDeathDamageChatter( entity victim, entity attacker, var damageInfo, DamageChatterStruct chatterResult )
 {
-	if ( HackedDeath_IsEnabled() )
-		shouldPlayChatter = !file.hackedDeathKillshot && chatterResult.inChatterRange
+	if ( !HackedDeath_IsEnabled() )
+		return true
 
+	bool shouldPlayChatter = !file.hackedDeathKillshot && chatterResult.inChatterRange
 	// always try to cleanup hackedDeath killshot variable
 	file.hackedDeathKillshot = false
 
@@ -247,6 +253,11 @@ void function HackedDeath_OnPlayerPostDamage( entity player, var damageInfo )
 		if( IsPlayerDeathsHidden() ) // add a extra death sound here
 			EmitSoundOnEntityOnlyToPlayer( player, player, "flesh_bulletimpact_killshot_1p_vs_3p" )
 		HackedDeath_PlayerStart( player, damageInfo )
+
+		// fix dialogue
+		entity attacker = DamageInfo_GetAttacker( damageInfo )
+		if ( IsAlive( attacker ) && attacker.IsPlayer() && !attacker.IsTitan() )
+			TryPilotKillChatter( attacker )
 	}
 }
 
