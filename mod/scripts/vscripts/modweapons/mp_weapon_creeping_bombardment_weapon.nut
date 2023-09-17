@@ -64,6 +64,9 @@ void function CreepingBombardmentWeapon_Detonation( vector origin, vector angles
 {
 	owner.EndSignal( "OnDestroy" )
 
+	// do impact effect( cause projectile has been hide effect )
+	PlayImpactFXTable( origin, null, "droppod_impact", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+
 	entity bombModel = CreatePropDynamic( CREEPING_BOMBARDMENT_WEAPON_BOMB_MODEL, origin, angles, 0, 4096 )
 	entity smokeFX = StartParticleEffectOnEntityWithPos_ReturnEntity( bombModel, GetParticleSystemIndex( CREEPING_BOMBARDMENT_SMOKE_FX ), FX_PATTACH_POINT_FOLLOW_NOROTATE, bombModel.LookupAttachment( "exhaust" ), <0,0,0>, <0,0,0> )
 	smokeFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY
