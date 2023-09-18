@@ -285,7 +285,7 @@ function ProxMine_ShowOnMinimapTimed( ent, teamToDisplayEntTo, duration )
 array<entity> function AntiTitanMine_NPCSearch( entity proximityMine, int teamNum, float triggerRadius )
 {
 	// friendly fire condition
-	if ( FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	if ( FriendlyFire_ShouldMineWeaponSearchForFriendly() )
 	{
 		entity owner = proximityMine.GetOwner()
 		array<entity> validTargets = GetNPCArrayEx( "npc_titan", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
@@ -314,7 +314,7 @@ array<entity> function AntiTitanMine_PlayerSearch( entity proximityMine, int tea
 	
 	// friendly fire condition
 	entity owner = proximityMine.GetOwner()
-	if ( FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	if ( FriendlyFire_ShouldMineWeaponSearchForFriendly() )
 		nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
 	
 	array<entity> tempTitanArray

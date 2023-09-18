@@ -630,7 +630,7 @@ bool function ShouldSetOffProximityMine( entity proximityMine, entity ent )
 array<entity> function ProximityMine_NPCSearch_Default( entity proximityMine, int teamNum, float triggerRadius )
 {
 	// friendly fire condition
-	if ( FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	if ( FriendlyFire_ShouldMineWeaponSearchForFriendly() )
 	{
 		entity owner = proximityMine.GetOwner()
 		array<entity> validTargets = GetNPCArrayEx( "any", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
@@ -656,7 +656,7 @@ array<entity> function ProximityMine_NPCSearch_Default( entity proximityMine, in
 array<entity> function ProximityMine_PlayerSearch_Default( entity proximityMine, int teamNum, float triggerRadius )
 {
 	// friendly fire condition
-	if ( FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	if ( FriendlyFire_ShouldMineWeaponSearchForFriendly() )
 	{
 		entity owner = proximityMine.GetOwner()
 		array<entity> validTargets = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
@@ -669,7 +669,7 @@ array<entity> function ProximityMine_PlayerSearch_Default( entity proximityMine,
 
 		return validTargets
 	}
-	
+
 	// default case
 	return GetPlayerArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
 }

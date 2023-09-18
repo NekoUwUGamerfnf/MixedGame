@@ -283,7 +283,7 @@ void function ProximityTetherThink( entity projectile, entity owner, bool isExpl
 		enemyTitans.extend( GetNPCArrayEx( "npc_super_spectre", TEAM_ANY, team, projectile.GetOrigin(), 450 ) )
 		array<entity> enemyPlayers = GetPlayerArrayOfEnemies_Alive( team )
 		// friendlyFire condition
-		bool searchForFriendly = FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly()
+		bool searchForFriendly = FriendlyFire_ShouldMineWeaponSearchForFriendly()
 		if ( searchForFriendly )
 			enemyPlayers.extend( GetPlayerArrayOfTeam_Alive( team ) )
 
