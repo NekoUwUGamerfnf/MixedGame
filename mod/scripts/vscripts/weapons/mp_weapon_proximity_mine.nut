@@ -82,6 +82,8 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 		//thread ProximityMineThink( proximityMine, player )
 
 		// modded weapon
+		int damageSourceIdOverride = eDamageSourceId.mp_weapon_proximity_mine // triggers EMP_DamagedPlayerOrNPC() in _weapon_utility.nut
+
 		bool overrideEnemySearchFunc = false
 		float armingDelay = PROXIMITY_MINE_ARMING_DELAY_BALANCED
 		float explosionDelay = PROXIMITY_MINE_EXPLOSION_DELAY_BALANCED
@@ -91,6 +93,8 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 		array<string> mods = Vortex_GetRefiredProjectileMods( proximityMine )
 		if( mods.contains( "anti_titan_mine" ) )
 		{
+			damageSourceIdOverride = eDamageSourceId.mp_weapon_satchel
+
 			overrideEnemySearchFunc = true
 			explosionDelay = ANTI_TITAN_MINE_EXPLOSION_DELAY
 			npcSearchFunc = AntiTitanMine_NPCSearch
@@ -108,7 +112,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 		PROTO_PlayTrapLightEffect( proximityMine, "BLINKER", player.GetTeam() )
 
 		// modified
-		proximityMine.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_proximity_mine ) // triggers EMP_DamagedPlayerOrNPC() in _weapon_utility.nut
+		proximityMine.ProjectileSetDamageSourceID( damageSourceIdOverride ) 
 	#endif
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
