@@ -629,11 +629,48 @@ bool function ShouldSetOffProximityMine( entity proximityMine, entity ent )
 // modified default settings for proximity mine
 array<entity> function ProximityMine_NPCSearch_Default( entity proximityMine, int teamNum, float triggerRadius )
 {
+	// friendly fire condition
+	if ( FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	{
+		entity owner = proximityMine.GetOwner()
+		array<entity> validTargets = GetNPCArrayEx( "any", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
+		foreach ( entity target in validTargets )
+		{
+			// don't damage player owned npcs, otherwise we damage all npcs including friendly ones
+			if ( IsValid( owner ) )
+			{
+				if ( owner.GetTeam() != target.GetTeam() )
+					continue
+				if ( target.GetBossPlayer() == owner || target.GetOwner() == owner )
+					validTargets.removebyvalue( target )
+			}
+		}
+
+		return validTargets
+	}
+
+	// default case
 	return GetNPCArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
 }
 
 array<entity> function ProximityMine_PlayerSearch_Default( entity proximityMine, int teamNum, float triggerRadius )
 {
+	// friendly fire condition
+	if ( FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	{
+		entity owner = proximityMine.GetOwner()
+		array<entity> validTargets = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
+		foreach ( entity target in validTargets )
+		{
+			// don't damage player themselves, otherwise we damage all players including friendly ones
+			if ( IsValid( owner ) && target == owner )
+				validTargets.removebyvalue( target )
+		}
+
+		return validTargets
+	}
+	
+	// default case
 	return GetPlayerArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
 }
 #endif // SERVER

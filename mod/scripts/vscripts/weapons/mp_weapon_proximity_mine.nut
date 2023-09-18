@@ -284,15 +284,46 @@ function ProxMine_ShowOnMinimapTimed( ent, teamToDisplayEntTo, duration )
 // proximity mine modifiers
 array<entity> function AntiTitanMine_NPCSearch( entity proximityMine, int teamNum, float triggerRadius )
 {
+	// friendly fire condition
+	if ( FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	{
+		entity owner = proximityMine.GetOwner()
+		array<entity> validTargets = GetNPCArrayEx( "npc_titan", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
+		foreach ( entity target in validTargets )
+		{
+			// don't damage player owned titan, otherwise we damage all titans including friendly ones
+			if ( IsValid( owner ) )
+			{
+				if ( owner.GetTeam() != target.GetTeam() )
+					continue
+				if ( owner.GetPetTitan() == target )
+					validTargets.removebyvalue( target )
+			}
+		}
+
+		return validTargets
+	}
+
+	// default case
 	return GetNPCArrayEx( "npc_titan", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
 }
 
 array<entity> function AntiTitanMine_PlayerSearch( entity proximityMine, int teamNum, float triggerRadius )
 {
 	array<entity> nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+	
+	// friendly fire condition
+	entity owner = proximityMine.GetOwner()
+	if ( FriendlyFire_IsEnabled() && FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+		nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
+	
 	array<entity> tempTitanArray
 	foreach( entity player in nearbyPlayers )
 	{
+		// don't damage player themselves, otherwise we damage all titans including friendly ones
+		if ( IsValid( owner ) && player == owner )
+			continue
+		
 		if( player.IsTitan() )
 			tempTitanArray.append( player )
 	}
