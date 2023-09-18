@@ -6,7 +6,14 @@ global function OnProjectileCollision_SpiralMissile
 void function OnProjectileCollision_SpiralMissile( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	#if SERVER
-		array<string> mods = projectile.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+		//array<string> mods = projectile.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
+		// have to convert it to untyped array
+		// why respawn never work around these?
+		array untypedMods
+		foreach ( mod in mods )
+			untypedMods.append( mod )
+		
 		if ( mods.contains( "rocketeer_ammo_swap" ) || mods.contains( "mini_clusters" ) )
 		{
 			entity owner = projectile.GetOwner()
@@ -23,7 +30,8 @@ void function OnProjectileCollision_SpiralMissile( entity projectile, vector pos
 				// Total: 12 subexplosions
 				// ""Base delay"": 0.8s, avg delay between (each group): 0.5s, total duration: 2.0s
 				popcornInfo.weaponName = "mp_titanweapon_rocketeer_rocketstream"
-				popcornInfo.weaponMods = projectile.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+				//popcornInfo.weaponMods = projectile.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+				popcornInfo.weaponMods = untypedMods
 				popcornInfo.damageSourceId = eDamageSourceId.mp_titanweapon_rocketeer_rocketstream
 				popcornInfo.count = 9
 				popcornInfo.delay = mods.contains( "rapid_detonator" ) ? 0.45 : 0.3 // Avg delay and duration -30%

@@ -2310,7 +2310,8 @@ bool function CodeCallback_OnVortexHitProjectile( entity weapon, entity vortexSp
 				{
 					int team = attacker.GetTeam()
 					PulseLocation( attacker, team, contactPos, false, false )
-					array<string> mods = projectile.ProjectileGetMods()
+					//array<string> mods = projectile.ProjectileGetMods() // vanilla behavior, no need to use Vortex_GetRefiredProjectileMods()
+					array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
 					if ( mods.contains( "pas_tone_sonar" ) )
 						thread DelayedPulseLocation( attacker, team, contactPos, false, false )
 				}

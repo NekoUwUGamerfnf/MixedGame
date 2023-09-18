@@ -88,7 +88,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 		array<entity> functionref( entity proximityMine, int teamNum, float triggerRadius ) npcSearchFunc
 		array<entity> functionref( entity proximityMine, int teamNum, float triggerRadius ) playerSearchFunc
 		// proximity mine modifiers
-		array<string> mods = proximityMine.ProjectileGetMods()
+		array<string> mods = Vortex_GetRefiredProjectileMods( proximityMine )
 		if( mods.contains( "anti_titan_mine" ) )
 		{
 			overrideEnemySearchFunc = true

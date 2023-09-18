@@ -143,7 +143,7 @@ var function OnWeaponNpcPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAtt
 void function OnProjectileCollision_FlameWall( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	// vanilla has no specific behavior, this is modded only
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
 	if( mods.contains( "wrecking_ball" ) )
 		return OnProjectileCollision_weapon_wrecking_ball( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }
@@ -171,7 +171,8 @@ bool function CreateThermiteWallSegment( entity projectile, int projectileCount,
 
 	if ( projectile.proj.savedOrigin != < -999999.0, -999999.0, -999999.0 > )
 	{
-		array<string> mods = projectile.ProjectileGetMods() // behavior is "absorb", no need to change to Vortex_GetRefiredProjectileMods()
+		//array<string> mods = projectile.ProjectileGetMods() // behavior is "absorb", no need to change to Vortex_GetRefiredProjectileMods()
+		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // all good, refired mods not that bad to use
 		float duration
 		int damageSource
 		if ( mods.contains( "pas_scorch_flamecore" ) )

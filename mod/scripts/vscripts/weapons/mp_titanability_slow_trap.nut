@@ -138,7 +138,8 @@ function DeploySlowTrap( entity projectile )
 	if ( !IsValid( owner ) )
 		return
 
-	array<string> projectileMods = projectile.ProjectileGetMods() // behavior is "absorb", no need to change to Vortex_GetRefiredProjectileMods()
+	//array<string> projectileMods = projectile.ProjectileGetMods() // behavior is "absorb", no need to change to Vortex_GetRefiredProjectileMods()
+	array<string> projectileMods = Vortex_GetRefiredProjectileMods( projectile ) // all good, refired mods not that bad to use
 	bool isExplosiveBarrel = projectileMods.contains( "fd_explosive_barrel" )
 	bool isMolotov = projectileMods.contains( "molotov" )
 	bool isGasTrap = projectileMods.contains( "gas_trap" )
@@ -588,7 +589,8 @@ void function CreateToxicFumesInWindFX( vector origin, entity tower )
 bool function CreateSlowTrapSegment( entity projectile, int projectileCount, entity inflictor, entity movingGeo, vector pos, vector angles, int waveCount )
 {
 	projectile.SetOrigin( pos )
-	array<string> mods = projectile.ProjectileGetMods() // behavior is "absorb", no need to change to Vortex_GetRefiredProjectileMods()
+	//array<string> mods = projectile.ProjectileGetMods() // behavior is "absorb", no need to change to Vortex_GetRefiredProjectileMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // all good, refired mods not that bad to use
 	bool isMolotov = mods.contains( "molotov" )
 	entity owner = projectile.GetOwner()
 

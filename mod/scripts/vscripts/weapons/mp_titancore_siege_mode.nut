@@ -310,7 +310,7 @@ void function SmartCore_DamageSourceIdModifier( entity target, var damageInfo )
 	{
 		if ( inflictor.IsProjectile() )
 		{
-			if ( inflictor.ProjectileGetMods().contains( "LongRangePowerShot" ) ) // don't want to change damageSourceId for vortex refire! no need to change to Vortex_GetRefiredProjectileMods()
+			if ( Vortex_GetRefiredProjectileMods( inflictor ).contains( "LongRangePowerShot" ) ) // don't want to change damageSourceId for vortex refire! no need to change to Vortex_GetRefiredProjectileMods()
 				return // don't try to apply
 		}
 	}

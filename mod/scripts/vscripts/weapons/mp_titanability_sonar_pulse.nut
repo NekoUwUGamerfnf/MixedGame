@@ -74,9 +74,9 @@ int function FireSonarPulse( entity weapon, WeaponPrimaryAttackParams attackPara
 void function OnProjectileCollision_titanability_sonar_pulse( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	// modded weapon
-	array<string> mods = projectile.ProjectileGetMods() // vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
-	array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
-	if ( refiredMods.contains( "archon_stun_impact" ) )
+	//array<string> mods = projectile.ProjectileGetMods() // vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
+	if ( mods.contains( "archon_stun_impact" ) )
 		return OnProjectileCollision_titanweapon_stun_impact( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
 	// the behavior has been modded, should change it someday

@@ -180,7 +180,7 @@ void function DeployArcTrap( entity projectile )
 	entity mover = CreateScriptMover( projectile.GetOrigin() )
 
 	// modified traps
-	array<string> projectileMods = projectile.ProjectileGetMods()
+	array<string> projectileMods = Vortex_GetRefiredProjectileMods( projectile )
 	// limited arc trap
 	if ( projectileMods.contains( "limited_arc_trap" ) )
 	{
@@ -435,7 +435,7 @@ void function ActivateArcTrap( entity owner, entity mover, entity projectile, en
 	//wait ARC_TRAP_DROP_DURATION*0.5
 
 	// modified arc trap mods
-	array<string> mods = projectile.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
 	// limited arc trap
 	if ( mods.contains( "limited_arc_trap" ) )
 	{
