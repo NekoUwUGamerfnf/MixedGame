@@ -5,7 +5,7 @@ global function GamemodeAITdm_Init
 // these are now default settings
 const int SQUADS_PER_TEAM = 4 // was 3, vanilla seems to have 4 squads
 
-const int REAPERS_PER_TEAM = 2
+const int REAPERS_PER_TEAM = 3 // was 2, vanilla seems to have 3 reapers
 
 const int LEVEL_SPECTRES = 125
 const int LEVEL_STALKERS = 380
