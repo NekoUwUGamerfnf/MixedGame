@@ -415,9 +415,9 @@ void function AT_ScoreEventsValueSetUp()
 	// in vanilla all titan kills seems to be 0 value
 	// was set to 0.15, 0.20
 	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.0, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.12, 0.10, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.10, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.10, 0.25 )
-	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.05, 0.02 )
+	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.04, 0.03, 0.67 )
 	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.06, 0.04, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.06, 0.04, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.20, 0.10 )

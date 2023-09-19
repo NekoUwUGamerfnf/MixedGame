@@ -38,7 +38,7 @@ void function GamemodePs_Init()
 void function SetUpPilotSkirmishScoreEvent()
 {
 	// override settings
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.12, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.10 )
 }
 
 void function GiveScoreForPlayerKill( entity victim, entity attacker, var damageInfo )
