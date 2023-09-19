@@ -2,9 +2,22 @@ global function FAKE_Magnetic_ammo_Init
 
 global function GiveProjectileFakeMagnetic
 
+// default value
 const float FAKE_MAGNETIC_RANGE_RADIUS = 50
+
+// modifiable consts
 const float FAKE_MAGNETIC_FORCE = 500
 const float FAKE_MAGNETIC_FORCE_NPC = 1000
+const float FAKE_MAGNETIC_MIN_INNER_RADIUS = 10
+const array<string> FAKE_MAGNETIC_ALLOWED_PROJECTILE_CLASSES =
+[
+    "rpg_missile",
+    "grenade",
+    // don't know what to do with bolts
+]
+
+// debug
+const bool FAKE_MAGNETIC_DEBUG_PRINTS = false
 
 void function FAKE_Magnetic_ammo_Init()
 {
@@ -20,14 +33,23 @@ void function GiveProjectileFakeMagnetic( entity projectile, float magneticRadiu
 
 void function FakeMagneticThink( entity projectile, float magneticRadius, bool heavyArmorOnly, string magneticSound )
 {
+    if ( !FAKE_MAGNETIC_ALLOWED_PROJECTILE_CLASSES.contains( projectile.GetClassName() ) )
+        return
+    
+    // a projectile without owner can't be used
+    entity owner = projectile.GetOwner()
+    if ( !IsValid( owner ) )
+        return
+    
     projectile.Signal( "StartFakeMagnetic" )
     projectile.EndSignal( "OnDestroy" )
     projectile.EndSignal( "StartFakeMagnetic" )
     projectile.EndSignal( "EndFakeMagnetic" )
 
-    // don't change these
+    // save basic values
     float baseGravity = float( projectile.kv.gravity )
-    entity owner = projectile.GetOwner() // may need IsValid() check for each call
+
+    // radius damage data for passing through multiple functions
     RadiusDamageData radiusDamageData = GetRadiusDamageDataFromProjectile( projectile, owner )
     float explosionInnerRadius = radiusDamageData.explosionInnerRadius
 
@@ -47,12 +69,15 @@ void function FakeMagneticThink( entity projectile, float magneticRadius, bool h
                 foundTarget = false
                 continue
             }
+
             if( !CheckMagneticTarget( target, projectile ) )
             {
                 foundTarget = false
                 continue
             }
+
             projectile.kv.gravity = 0.0001
+
             vector desiredVelocity = CalculateTargetVector( target, projectile )
             projectile.SetVelocity( desiredVelocity )
 
@@ -60,7 +85,7 @@ void function FakeMagneticThink( entity projectile, float magneticRadius, bool h
             // this will make projectiles only deal explosion damage, which mostly much lower than normal damages
             if( FriendlyFire_IsEnabled() && target.GetTeam() == projectile.GetTeam() )
             {
-                if( MagneticProjectileTryExplode( projectile, target, explosionInnerRadius ) )
+                if( MagneticProjectileTryExplode( projectile, target, radiusDamageData ) )
                     return // successfully exploded
             }
         }
@@ -76,31 +101,26 @@ void function FakeMagneticThink( entity projectile, float magneticRadius, bool h
             }
             else
                 enemyPlayers = GetPlayerArrayOfEnemies_Alive( projectile.GetTeam() )
-            if( enemyPlayers.len() > 0 )
-            {
-                foreach( entity player in enemyPlayers )
-                    entArray.append( player )
-            }
+            entArray.extend( enemyPlayers )
+
             array<entity> enemyNPCs
             if( FriendlyFire_IsEnabled() ) // now support friendlyFire
                 enemyNPCs = GetNPCArray()
             else
                 enemyNPCs = GetNPCArrayOfEnemies( projectile.GetTeam() )
-            if( enemyNPCs.len() > 0 )
-            {
-                foreach( entity npc in enemyNPCs )
-                    entArray.append( npc )
-            }
+            entArray.extend( enemyNPCs )
+
+            ArrayRemoveDead( entArray ) // remove dead entities
             if( entArray.len() == 0 )
                 continue
-            entity closestEnt = GetClosest( entArray, projectile.GetOrigin(), magneticRadius )
+            
+            entity closestEnt = GetClosestFakeMagneticTarget( entArray, projectile, magneticRadius )
             if( !IsValid( closestEnt ) )
                 continue
+            
             if( heavyArmorOnly && closestEnt.GetArmorType() != ARMOR_TYPE_HEAVY )
                 continue
-            bool canSetTarget = CheckMagneticTarget( closestEnt, projectile )
-            if( !canSetTarget )
-                continue
+            
             foundTarget = true
             target = closestEnt
             // magnetic attract sound
@@ -110,26 +130,91 @@ void function FakeMagneticThink( entity projectile, float magneticRadius, bool h
     }
 }
 
+entity function GetClosestFakeMagneticTarget( array<entity> entsToCheck, entity projectile, float magneticRadius )
+{
+    entity closestTarget
+    float bestTargetDist = -1
+    foreach ( entity ent in entsToCheck )
+    {
+        if ( !CheckMagneticTarget( ent, projectile ) )
+            continue
+
+        float distance = GetFakeMagneticProjectileToTargetDistance( projectile, ent )
+        if ( distance > magneticRadius )
+            continue
+
+        // update best target distance
+        if ( bestTargetDist == -1 || distance < bestTargetDist )
+        {
+            closestTarget = ent
+            bestTargetDist = distance
+        }
+    }
+
+    // debug
+    #if FAKE_MAGNETIC_DEBUG_PRINTS
+        printt( "GetClosestFakeMagneticTarget() found target: " + string( closestTarget ) )
+    #endif
+
+    return closestTarget
+}
+
 bool function CheckMagneticTarget( entity target, entity projectile )
 {
     if( !IsValid( target ) || !IsValid( projectile ) )
         return false
     if( target.IsPhaseShifted() )
         return false
-    
-    vector targetPos = GetTargetPos( target )
-    vector projPos = projectile.GetOrigin()
 
-    TraceResults traceResult = TraceLine( targetPos, projPos, [target, projectile], (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
-    if( traceResult.hitEnt == null )
+    TraceResults traceToTarget = GetFakeMagneticTargetTrace( target, projectile )
+    if ( traceToTarget.hitEnt == target )
         return true
 
+    // debug
+    #if FAKE_MAGNETIC_DEBUG_PRINTS
+        printt( "CheckMagneticTarget() has something blocking target!" )
+    #endif
+    
+    // not trace onto target! has someting blocking...
     return false
+}
+
+TraceResults function GetFakeMagneticTargetTrace( entity target, entity projectile )
+{
+    return TraceLine( projectile.GetOrigin(), GetFakeMagneticTargetPos( target ), [projectile], (TRACE_MASK_SHOT | CONTENTS_BLOCKLOS), TRACE_COLLISION_GROUP_NONE )
+}
+
+float function GetFakeMagneticProjectileToTargetDistance( entity projectile, entity target )
+{
+    TraceResults traceToTarget = GetFakeMagneticTargetTrace( target, projectile )
+
+    //printt( "traceToTarget.hitEnt: " + string( traceToTarget.hitEnt ) )
+
+    vector targetPos = GetFakeMagneticTargetPos( target )
+    vector projPos = projectile.GetOrigin()
+
+    float distance = Distance( projPos, traceToTarget.endPos )
+    if ( traceToTarget.hitEnt != target ) // has something blocking...
+    {
+        // debug
+        #if FAKE_MAGNETIC_DEBUG_PRINTS
+            printt( "GetFakeMagneticProjectileToTargetDistance() has something blocking target!" )
+        #endif
+
+        distance = Distance( targetPos, projPos )
+    }
+
+    // debug
+    #if FAKE_MAGNETIC_DEBUG_PRINTS
+        printt( "GetFakeMagneticProjectileToTargetDistance(): " + string( distance ) )
+    #endif
+
+    return distance
 }
 
 vector function CalculateTargetVector( entity target, entity projectile )
 {
-    vector targetPos = GetTargetPos( target )
+    vector targetPos = GetFakeMagneticTargetPos( target )
     vector projPos = projectile.GetOrigin()
     vector posDiffer = targetPos - projPos
     vector moveAng = VectorToAngles( posDiffer )
@@ -137,7 +222,7 @@ vector function CalculateTargetVector( entity target, entity projectile )
     return moveVec
 }
 
-vector function GetTargetPos( entity target )
+vector function GetFakeMagneticTargetPos( entity target )
 {
     vector targetPos = target.GetOrigin() // if no attachments valid, return base value
 
@@ -157,15 +242,26 @@ vector function GetTargetPos( entity target )
 
 // this will make projectiles only deal explosion damage, which mostly much lower than normal damages
 // maybe we better calculate direct damage and apply to target?( reduce the explosion damage and dealing no knockbacks )
-bool function MagneticProjectileTryExplode( entity projectile, entity target, float innerRadius )
+bool function MagneticProjectileTryExplode( entity projectile, entity target, RadiusDamageData radiusDamageData )
 {
+    // debug
+    #if FAKE_MAGNETIC_DEBUG_PRINTS
+        //printt( "RUNNING MagneticProjectileTryExplode()" )
+    #endif
+
     if( !CheckMagneticTarget( projectile, target ) ) // has something blocking
         return false
 
-    float explosionDist = innerRadius > 5 ? innerRadius - 5 : innerRadius
-    if( Distance( projectile.GetOrigin(), GetTargetPos( target ) ) > explosionDist ) // not close enough
+    // get damage stuffs
+    float explosionInnerRadius = radiusDamageData.explosionInnerRadius
+    // make sure we deal max damage when magnetic exploding
+    float explosionDist = explosionInnerRadius > FAKE_MAGNETIC_MIN_INNER_RADIUS ? explosionInnerRadius - FAKE_MAGNETIC_MIN_INNER_RADIUS : explosionInnerRadius
+    if( GetFakeMagneticProjectileToTargetDistance( projectile, target ) > explosionDist ) // not close enough
         return false
     
+    // calculate direct hit damage and apply to target
+    FakeMagneticProjectileDamageTarget( projectile, target, radiusDamageData )
+
     // do explosions to avoid making projectiles rolling around target
     switch( projectile.GetClassName() )
     {
@@ -174,9 +270,68 @@ bool function MagneticProjectileTryExplode( entity projectile, entity target, fl
             return true
         case "rpg_missile":
             projectile.MissileExplode()
-            projectile.Destroy()
             return true
     }
-    // don't know what to do with bolts
     return false
+}
+
+void function FakeMagneticProjectileDamageTarget( entity projectile, entity target, RadiusDamageData radiusDamageData )
+{
+    // get explosion damage
+    int explosionDamage = radiusDamageData.explosionDamage
+    int explosionDamageHeavyArmor = radiusDamageData.explosionDamageHeavyArmor
+
+    bool ownerIsNPC = false
+    entity owner = projectile.GetOwner()
+    // one way to find out damage value if owner became invalid: compare damage
+    if ( !IsValid( owner ) )
+        ownerIsNPC = ( explosionDamage == projectile.GetProjectileWeaponSettingInt( eWeaponVar.npc_explosion_damage ) ) && ( explosionDamageHeavyArmor == projectile.GetProjectileWeaponSettingInt( eWeaponVar.npc_explosion_damage_heavy_armor ) )
+    else // owner valid case
+        ownerIsNPC = owner.IsNPC()
+
+    // get direct hit damage
+    int directDamage = projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value )
+    int directDamageHeavyArmor = projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
+    // npc
+    if ( ownerIsNPC )
+    {
+        directDamage = projectile.GetProjectileWeaponSettingInt( eWeaponVar.npc_damage_near_value )
+        directDamageHeavyArmor = projectile.GetProjectileWeaponSettingInt( eWeaponVar.npc_damage_near_value_titanarmor )
+    }
+
+    // calculate direct damage deal to target
+    directDamage -= explosionDamage
+    directDamageHeavyArmor -= explosionDamageHeavyArmor
+
+    int damageToTarget = -1
+    if ( target.GetArmorType() == ARMOR_TYPE_HEAVY && directDamageHeavyArmor > 0 )
+    {
+        damageToTarget = directDamageHeavyArmor
+    }
+    else if ( directDamage > 0 )
+    {
+        damageToTarget = directDamage
+    }
+
+    // debug
+    #if FAKE_MAGNETIC_DEBUG_PRINTS
+        //printt( "FakeMagneticProjectileDamageTarget() extra damage dealt to target:" + string( damageToTarget ) )
+    #endif
+
+    if ( damageToTarget < 0 )
+        return
+
+    // do extra damage
+    // no damage force
+    target.TakeDamage(
+        damageToTarget,
+        owner,
+        projectile,
+        {
+            // damage table
+            origin = projectile.GetOrigin(), 
+            scriptType = TEMP_GetDamageFlagsFromProjectile( projectile ), // this is temp
+            damageSourceId = projectile.ProjectileGetDamageSourceID()
+        }
+    )
 }
