@@ -194,6 +194,14 @@ void function OnProjectileCollision_weapon_tether( entity projectile, vector pos
 		else
 		{
 			thread ProximityTetherThink( projectile, owner, isExplosiveTether )
+		
+			// vanilla missing, added by Moblin.Archon
+			// we want arc cannon able to search for tethers, also make shotgun blast able to damage them
+			// but to keep vanilla behavior, make eva-8 unable to damage tether
+			// ( my opinion is to just fix this thing, so I removed eva-8 exception )
+			SetVisibleEntitiesInConeQueriableEnabled( projectile, true )//WHERE IS IT?!
+			//AddEntityCallback_OnDamaged( projectile, ConeDamageTethersException )
+			SetObjectCanBeMeleed( projectile, false ) // do we need this? I think it's better to make tethers able to be removed by bison melee
 		}
 	#endif
 }
@@ -397,3 +405,20 @@ float function GetTetherRopeLength( vector a, vector b )
 }
 
 #endif
+
+
+// vanilla missing, added by Moblin.Archon
+// we want arc cannon able to search for tethers
+// but to keep vanilla behavior, make eva-8 unable to damage tether
+// ( my opinion is to just fix this thing, so I removed eva-8 exception )
+/*
+#if SERVER
+void function ConeDamageTethersException( entity ent, var damageInfo )
+{
+	int attackerDamageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+
+	if ( attackerDamageSourceID == eDamageSourceId.mp_weapon_shotgun )
+		DamageInfo_SetDamage( damageInfo, 0 )
+}
+#endif
+*/
