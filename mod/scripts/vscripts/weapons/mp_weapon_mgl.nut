@@ -119,7 +119,9 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 
 	if ( IsMagneticTarget( hitEnt ) )
 	{
-		if ( hitEnt.GetTeam() != projectile.GetTeam() )
+		// adding friendlyfire support
+		//if ( hitEnt.GetTeam() != projectile.GetTeam() )
+		if ( FriendlyFire_IsEnabled() || hitEnt.GetTeam() != projectile.GetTeam() )
 		{
 			projectile.ExplodeForCollisionCallback( normal )
 		}

@@ -835,7 +835,9 @@ bool function PlantStickyEntity( entity ent, table collisionParams, vector angle
 
 bool function PlantStickyGrenade( entity ent, vector pos, vector normal, entity hitEnt, int hitbox, float depth = 0.0, bool allowBounce = true, bool allowEntityStick = true )
 {
-	if ( ent.GetTeam() == hitEnt.GetTeam() )
+	// adding friendlyfire support
+	//if ( ent.GetTeam() == hitEnt.GetTeam() )
+	if ( !FriendlyFire_IsEnabled() && ent.GetTeam() == hitEnt.GetTeam() )
 		return false
 
 	if ( ent.IsMarkedForDeletion() || hitEnt.IsMarkedForDeletion() )
@@ -912,7 +914,9 @@ bool function PlantStickyGrenade( entity ent, vector pos, vector normal, entity 
 
 bool function PlantSuperStickyGrenade( entity ent, vector pos, vector normal, entity hitEnt, int hitbox )
 {
-	if ( ent.GetTeam() == hitEnt.GetTeam() )
+	// adding friendlyfire support
+	//if ( ent.GetTeam() == hitEnt.GetTeam() )
+	if ( !FriendlyFire_IsEnabled() && ent.GetTeam() == hitEnt.GetTeam() )
 		return false
 
 	vector plantAngles = VectorToAngles( normal )

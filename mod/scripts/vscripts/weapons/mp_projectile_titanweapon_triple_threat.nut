@@ -19,7 +19,9 @@ void function OnProjectileCollision_titanweapon_triple_threat( entity projectile
 
 	if( IsMagneticTarget( hitEnt ) )
 	{
-		if( hitEnt.GetTeam() != projectile.GetTeam() )
+		// adding friendlyfire support
+		//if ( hitEnt.GetTeam() != projectile.GetTeam() )
+		if ( FriendlyFire_IsEnabled() || hitEnt.GetTeam() != projectile.GetTeam() )
 		{
 			local normal = Vector( 0, 0, 1 )
 			if( "collisionNormal" in projectile.s )
