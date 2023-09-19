@@ -7,6 +7,8 @@ global function OnProjectileCollision_titanweapon_barrage_core_launcher
 
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_titanweapon_barrage_core_launcher
+
+global function Brute4_StartClusterExplosions
 #endif // #if SERVER
 
 const FUSE_TIME = 0.25 //Applies once the grenade has stuck to a surface.
