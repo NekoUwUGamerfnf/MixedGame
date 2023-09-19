@@ -14,7 +14,10 @@ void function OnProjectileCollision_SpiralMissile( entity projectile, vector pos
 		foreach ( mod in mods )
 			untypedMods.append( mod )
 		
-		if ( mods.contains( "rocketeer_ammo_swap" ) || mods.contains( "mini_clusters" ) )
+		// adding brute4 cases
+		// "mini_clusters" is not implemented in vanilla, guess it's used for rocketeer_ammo_swap
+		//if ( mods.contains( "burn_mod_titan_rocket_launcher" ) || mods.contains( "mini_clusters" ) )
+		if ( mods.contains( "brute4_cluster_payload_ammo" ) )
 		{
 			entity owner = projectile.GetOwner()
 			if ( IsValid( owner ) )
@@ -31,15 +34,38 @@ void function OnProjectileCollision_SpiralMissile( entity projectile, vector pos
 				// ""Base delay"": 0.8s, avg delay between (each group): 0.5s, total duration: 2.0s
 				popcornInfo.weaponName = "mp_titanweapon_rocketeer_rocketstream"
 				//popcornInfo.weaponMods = projectile.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
-				popcornInfo.weaponMods = untypedMods
+				popcornInfo.weaponMods = untypedMods // I don't care, let's break vanilla behavior
 				popcornInfo.damageSourceId = eDamageSourceId.mp_titanweapon_rocketeer_rocketstream
 				popcornInfo.count = 9
-				popcornInfo.delay = mods.contains( "rapid_detonator" ) ? 0.45 : 0.3 // Avg delay and duration -30%
+				popcornInfo.delay = mods.contains( "rapid_detonator" ) ? 0.4 : 0.3 // Avg delay and duration -20%
 				popcornInfo.offset = 0.15
 				popcornInfo.range = 200
 				popcornInfo.normal = normal
 				popcornInfo.duration = 2.4
 				popcornInfo.groupSize = 3
+				popcornInfo.hasBase = false
+
+				thread Brute4_StartClusterExplosions( projectile, owner, popcornInfo, CLUSTER_ROCKET_FX_TABLE )
+			}
+		}
+		else if ( mods.contains( "burn_mod_titan_rocket_launcher" ) || mods.contains( "mini_clusters" ) )
+		{
+			entity owner = projectile.GetOwner()
+			if ( IsValid( owner ) )
+			{
+				PopcornInfo popcornInfo
+
+				popcornInfo.weaponName = "mp_titanweapon_rocketeer_rocketstream"
+				//popcornInfo.weaponMods = projectile.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+				popcornInfo.weaponMods = untypedMods // I don't care, let's break vanilla behavior
+				popcornInfo.damageSourceId = eDamageSourceId.mp_titanweapon_rocketeer_rocketstream
+				popcornInfo.count = 2 //(groupSize is the minimum number of explosions )
+				popcornInfo.delay = 0.5
+				popcornInfo.offset = 0.3
+				popcornInfo.range = 250
+				popcornInfo.normal = normal
+				popcornInfo.duration = 1.0
+				popcornInfo.groupSize = 2 //Total explosions = groupSize * count
 				popcornInfo.hasBase = false
 
 				thread StartClusterExplosions( projectile, owner, popcornInfo, CLUSTER_ROCKET_FX_TABLE )

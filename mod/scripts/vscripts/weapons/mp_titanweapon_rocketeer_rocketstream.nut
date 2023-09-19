@@ -17,6 +17,7 @@ global function OnWeaponNpcPrimaryAttack_TitanWeapon_Rocketeer_RocketStream
 global function OnClientAnimEvent_TitanWeapon_Rocketeer_RocketStream
 #endif // #if CLIENT
 
+
 const DRAW_DEBUG = 0
 const DEBUG_FAIL = 0
 const MERGEDEBUG = 0
@@ -42,17 +43,21 @@ const BURN_CLUSTER_EXPLOSION_DAMAGE_HEAVY_ARMOR = 100
 const BURN_CLUSTER_NPC_EXPLOSION_DAMAGE = 66
 const BURN_CLUSTER_NPC_EXPLOSION_DAMAGE_HEAVY_ARMOR = 100
 
-const STRAIGHT_CONDENSE_DELAY = 0.3
-const STRAIGHT_CONDENSE_TIME = 1.0
-const STRAIGHT_EXPAND_DIST = 30.0
-const STRAIGHT_CONDENSE_DIST = 20.0
-
 const asset AMPED_SHOT_PROJECTILE = $"models/weapons/bullets/temp_triple_threat_projectile_large.mdl"
+
+// brute4 stuffs
+const float STRAIGHT_CONDENSE_DELAY = 0.0
+const float STRAIGHT_CONDENSE_TIME = 0.6
+const float STRAIGHT_EXPAND_DIST = 30.0
+const float STRAIGHT_CONDENSE_DIST = 25.0
+
+const float QUAD_ROCKET_SPEED = 3000.0
+const float STRAIGHT_ROCKET_SPEED = QUAD_ROCKET_SPEED * 1.25
+const float SINGLE_ROCKET_SPEED = 8000.0
 
 function MpTitanweaponRocketeetRocketStream_Init()
 {
 	RegisterSignal( "FiredWeapon" )
-	RegisterSignal( "KillBruteShield" )
 
 	PrecacheParticleSystem( $"wpn_muzzleflash_xo_rocket_FP" )
 	PrecacheParticleSystem( $"wpn_muzzleflash_xo_rocket" )
@@ -69,19 +74,34 @@ void function OnWeaponStartZoomIn_TitanWeapon_Rocketeer_RocketStream( entity wea
 #if SERVER
 	// cluster missiles and fast shots
 	if ( weapon.HasMod( "burn_mod_titan_rocket_launcher" ) || 
-		 weapon.HasMod( "rocketeer_ammo_swap" ) ||
-		 weapon.HasMod( "brute4_fast_shot" ) ||
 		 weapon.HasMod( "rocketstream_fast" ) )
 		return
 
-	if( weapon.HasMod( "brute4_rocket_launcher" ) ) // brute4
-		weapon.AddMod( "brute4_fast_shot" )
+	// vanilla rocketeer_ammo_swap fix
+	if ( weapon.HasMod( "mini_clusters" ) )
+		return
+
+	// brute4 case
+	if ( weapon.HasMod( "brute4_quad_rocket" ) )
+	{
+		if ( weapon.HasMod( "brute4_cluster_payload_ammo" ) ||
+			 weapon.HasMod( "brute4_single_shot" ) )
+			return
+	}
+
+	if( weapon.HasMod( "brute4_quad_rocket" ) ) // brute4
+		weapon.AddMod( "brute4_single_shot" )
 	else // vanilla
 		weapon.AddMod( "rocketstream_fast" )
 	
 	if ( weapon.HasMod( "brute_rocket" ) ) // brute additional mod
 		weapon.AddMod( "brute_rocket_fast_shot" )
-#endif
+#else // CLIENT
+	entity weaponOwner = weapon.GetWeaponOwner()
+	if ( weaponOwner == GetLocalViewPlayer() )
+		EmitSoundOnEntity( weaponOwner, "Weapon_Particle_Accelerator_WindUp_1P" )
+#endif // SERVER
+
 	//weapon.PlayWeaponEffectNoCull( $"wpn_arc_cannon_electricity_fp", $"wpn_arc_cannon_electricity", "muzzle_flash" )
 	//weapon.PlayWeaponEffectNoCull( $"wpn_arc_cannon_charge_fp", $"wpn_arc_cannon_charge", "muzzle_flash" )
 	//weapon.EmitWeaponSound( "arc_cannon_charged_loop" )
@@ -91,12 +111,22 @@ void function OnWeaponStartZoomOut_TitanWeapon_Rocketeer_RocketStream( entity we
 {
 #if SERVER
 	// cluster missiles
-	if ( weapon.HasMod( "burn_mod_titan_rocket_launcher" ) || 
-		 weapon.HasMod( "rocketeer_ammo_swap" ) )
+	if ( weapon.HasMod( "burn_mod_titan_rocket_launcher" ) )
 		return
 
-	if( weapon.HasMod( "brute4_rocket_launcher" ) ) // brute4
-		weapon.RemoveMod( "brute4_fast_shot" )
+	// vanilla rocketeer_ammo_swap fix
+	if ( weapon.HasMod( "mini_clusters" ) )
+		return
+
+	// brute4 case
+	if ( weapon.HasMod( "brute4_quad_rocket" ) )
+	{
+		if ( weapon.HasMod( "brute4_cluster_payload_ammo" ) )
+			return
+	}
+
+	if( weapon.HasMod( "brute4_quad_rocket" ) ) // brute4
+		weapon.RemoveMod( "brute4_single_shot" )
 	else // vanilla
 		weapon.RemoveMod( "rocketstream_fast" )
 
@@ -121,10 +151,14 @@ void function OnClientAnimEvent_TitanWeapon_Rocketeer_RocketStream( entity weapo
 
 var function OnWeaponPrimaryAttack_TitanWeapon_Rocketeer_RocketStream( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	entity player = weapon.GetWeaponOwner()
-	float zoomFrac = player.GetZoomFrac()
-	if ( zoomFrac < 1 && zoomFrac > 0)
-		return 0
+	// brute4 case
+	if ( weapon.HasMod( "brute4_quad_rocket" ) )
+	{
+		entity player = weapon.GetWeaponOwner()
+		float zoomFrac = player.GetZoomFrac()
+		if ( zoomFrac < 1 && zoomFrac > 0)
+			return 0
+	}
 
 	#if CLIENT
 		if ( !weapon.ShouldPredictProjectiles() )
@@ -146,71 +180,89 @@ int function FireMissileStream( entity weapon, WeaponPrimaryAttackParams attackP
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 	bool adsPressed = weapon.IsWeaponInAds()
 	bool hasBurnMod = weapon.HasMod( "burn_mod_titan_rocket_launcher" )
-	bool isBrute4 = weapon.HasMod( "brute4_rocket_launcher" )
-	bool hasAmmoSwap = weapon.HasMod( "rocketeer_ammo_swap" )
+	bool isBrute4 = weapon.HasMod( "brute4_quad_rocket" )
+	bool hasAmmoSwap = weapon.HasMod( "brute4_cluster_payload_ammo" ) || weapon.HasMod( "mini_clusters" )
 	bool has_s2s_npcMod = weapon.HasMod( "sp_s2s_settings_npc" )
 	bool has_mortar_mod = weapon.HasMod( "coop_mortar_titan" )
 
-	if ( adsPressed || hasBurnMod || hasAmmoSwap )
+	if ( adsPressed || hasBurnMod ) // modified
 		weapon.EmitWeaponSound_1p3p( "Weapon_Titan_Rocket_Launcher_Amped_Fire_1P", "Weapon_Titan_Rocket_Launcher_Amped_Fire_3P" )
 	else
 		weapon.EmitWeaponSound_1p3p( "Weapon_Titan_Rocket_Launcher.RapidFire_1P", "Weapon_Titan_Rocket_Launcher.RapidFire_3P" )
 
+	// modified
+	if ( hasAmmoSwap )
+	{
+		weapon.EmitWeaponSound_1p3p( "Weapon_Titan_Rocket_Launcher_Amped_Fire_1P", "Weapon_Titan_Rocket_Launcher_Amped_Fire_3P" )
+		weapon.EmitWeaponSound_1p3p( "Weapon_Archer_Fire_1P", "Weapon_Archer_Fire_3P" )
+	}
+
 	entity weaponOwner = weapon.GetWeaponOwner()
 	if ( !IsValid( weaponOwner ) )
 		return 0
-	weaponOwner.Signal( "KillBruteShield" )
 
-	if ( !adsPressed && !hasBurnMod && !hasAmmoSwap && !has_s2s_npcMod && !has_mortar_mod )
+	// remove hasBurnMod check to recover ttf1 burn mod behavior
+	// causes desync but whatever
+	// if ( !adsPressed && !hasBurnMod && !has_s2s_npcMod && !has_mortar_mod )
+	if ( !adsPressed && !hasAmmoSwap && !has_s2s_npcMod && !has_mortar_mod )
 	{
 		int shots = minint( weapon.GetProjectilesPerShot(), weapon.GetWeaponPrimaryClipCount() )
 		FireMissileStream_Spiral( weapon, attackParams, predicted, shots )
 		return shots
+	}
+	// brute4 case
+	else if( isBrute4 )
+	{
+		float missileSpeed = SINGLE_ROCKET_SPEED
+
+		int impactFlags = (DF_IMPACT | DF_GIB | DF_KNOCK_BACK)
+		// uses bolt instead of missile, so bolt_hitsize will work
+		entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, predicted, 0 )
+		if ( bolt != null )
+		{
+			//bolt.kv.gravity = -0.1
+			SetTeam( bolt, weaponOwner.GetTeam() )
+			#if SERVER
+				string whizBySound = "Weapon_Sidwinder_Projectile"
+				EmitSoundOnEntity( bolt, whizBySound )
+			#endif
+			bolt.kv.rendercolor = "0 0 0"
+			bolt.kv.renderamt = 0
+			bolt.kv.fadedist = 1
+			bolt.kv.gravity = 0.001
+		}
+
+		int cost = weapon.GetWeaponSettingInt(eWeaponVar.ammo_per_shot)
+
+		return cost
 	}
 	else
 	{
 		//attackParams.pos = attackParams.pos + Vector( 0, 0, -20 )
 		// float missileSpeed = 2800
 		float missileSpeed = 6000
-		if( isBrute4 )
-			missileSpeed = 8000
-		if ( has_s2s_npcMod || has_mortar_mod )
+		// adding hasBurnMod check
+		//if ( has_s2s_npcMod || has_mortar_mod )
+		if ( hasBurnMod || has_s2s_npcMod || has_mortar_mod )
 			missileSpeed = 2500
 
 		int impactFlags = (DF_IMPACT | DF_GIB | DF_KNOCK_BACK)
+		entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
 
-		entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, predicted, 0 )
-		if ( bolt != null )
+		if ( missile )
 		{
-			//bolt.kv.gravity = -0.1
-			SetTeam( bolt, weaponOwner.GetTeam() )
-		#if SERVER
+			SetTeam( missile, weaponOwner.GetTeam() )
+#if SERVER
 			string whizBySound = "Weapon_Sidwinder_Projectile"
-			EmitSoundOnEntity( bolt, whizBySound )
-		#endif
-			bolt.kv.rendercolor = "0 0 0"
-			bolt.kv.renderamt = 0
-			bolt.kv.fadedist = 1
-			bolt.kv.gravity = 0.001
+			EmitSoundOnEntity( missile, whizBySound )
+			if ( weapon.w.missileFiredCallback != null )
+			{
+				weapon.w.missileFiredCallback( missile, weaponOwner )
+			}
+#endif // #if SERVER
 		}
-		//entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
 
-// 		if ( missile )
-// 		{
-// 			SetTeam( missile, weaponOwner.GetTeam() )
-// #if SERVER
-// 			string whizBySound = "Weapon_Sidwinder_Projectile"
-// 			EmitSoundOnEntity( missile, whizBySound )
-// 			if ( weapon.w.missileFiredCallback != null )
-// 			{
-// 				weapon.w.missileFiredCallback( missile, weaponOwner )
-// 			}
-// #endif // #if SERVER
-// 		}
-
-		int cost = weapon.GetWeaponSettingInt(eWeaponVar.ammo_per_shot)
-
-		return cost
+		return 1
 	}
 
 	unreachable
@@ -236,73 +288,116 @@ int function FindIdealMissileConfiguration( int numMissiles, int i )
 	return idealMissile
 }
 
-vector function FindStraightMissileDir( vector dir, int i )
-{
-	vector angles = VectorToAngles( dir )
-	switch ( i )
-	{
-		case 0:
-			return AnglesToUp( angles )
-			break
-		case 1:
-			return -AnglesToRight( angles )
-			break
-		case 2:
-			return -AnglesToUp( angles )
-			break
-		case 3:
-			return AnglesToRight( angles )
-	}
-	return < 0,0,0 >
-}
-
 void function FireMissileStream_Spiral( entity weapon, WeaponPrimaryAttackParams attackParams, bool predicted, int numMissiles = 4 )
 {
 	//attackParams.pos = attackParams.pos + Vector( 0, 0, -20 )
 	array<entity> missiles
 	array<vector> straightDir
-	float missileSpeed = 3000
+	float missileSpeed = 1200
+
+	// brute4 case
+	bool isBrute4 = weapon.HasMod( "brute4_quad_rocket" )
 	bool straight = weapon.HasMod( "straight_shot" )
+	if ( isBrute4 )
+		missileSpeed = straight ? STRAIGHT_ROCKET_SPEED : QUAD_ROCKET_SPEED
 
 	entity weaponOwner = weapon.GetWeaponOwner()
 	if ( IsSingleplayer() && weaponOwner.IsPlayer() )
 		missileSpeed = 2000
 
+	// the high projectile speed is a bug I made before
+	// actually it don't desync very much, just keep it
+	// otherwise it will be to hard to land shots with this weapon
+	if ( weapon.HasMod( "brute_rocket" ) ) // brute specific
+		missileSpeed = 3000
+
 	for ( int i = 0; i < numMissiles; i++ )
 	{
-		int impactFlags = (DF_IMPACT | DF_GIB | DF_KNOCK_BACK)
-		vector pos = attackParams.pos
-		int missileNumber = FindIdealMissileConfiguration( numMissiles, i )
-		if ( straight )
+		// brute4 case
+		if ( isBrute4 )
 		{
-			straightDir.append( FindStraightMissileDir( attackParams.dir, missileNumber ) )
-			pos += straightDir[i] * STRAIGHT_EXPAND_DIST
-		}
+			int impactFlags = (DF_IMPACT | DF_GIB | DF_KNOCK_BACK)
+			
+			vector pos = attackParams.pos
+			int missileNumber = FindIdealMissileConfiguration( numMissiles, i )
+			if ( straight )
+			{
+				straightDir.append( FindStraightMissileDir( attackParams.dir, missileNumber ) )
+				pos += straightDir[i] * STRAIGHT_EXPAND_DIST
+			}
 
-		entity missile = weapon.FireWeaponMissile( pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
-		if ( missile )
+			entity missile = weapon.FireWeaponMissile( pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
+			if ( missile )
+			{
+				//Spreading out the missiles
+				if ( !straight )
+					missile.InitMissileSpiral( attackParams.pos, attackParams.dir, missileNumber, false, false )
+
+				missile.kv.lifetime = MISSILE_LIFETIME
+				missile.SetSpeed( missileSpeed );
+				SetTeam( missile, weapon.GetWeaponOwner().GetTeam() )
+
+				missiles.append( missile )
+
+				#if SERVER
+					EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )
+				#endif // #if SERVER
+			}
+		}
+		else // vanilla behavior
 		{
-			//Spreading out the missiles
-			if ( !straight )
+			int impactFlags = (DF_IMPACT | DF_GIB | DF_KNOCK_BACK)
+
+			entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
+			if ( missile )
+			{
+				//Spreading out the missiles
+				int missileNumber = FindIdealMissileConfiguration( numMissiles, i )
 				missile.InitMissileSpiral( attackParams.pos, attackParams.dir, missileNumber, false, false )
 
-			//missile.s.launchTime <- Time()
-			// each missile knows about the other missiles, so they can all blow up together
-			//missile.e.projectileGroup = missiles
-			missile.kv.lifetime = MISSILE_LIFETIME
-			missile.SetSpeed( missileSpeed );
-			SetTeam( missile, weapon.GetWeaponOwner().GetTeam() )
+				//missile.s.launchTime <- Time()
+				// each missile knows about the other missiles, so they can all blow up together
+				//missile.e.projectileGroup = missiles
+				missile.kv.lifetime = MISSILE_LIFETIME
+				missile.SetSpeed( missileSpeed );
+				SetTeam( missile, weapon.GetWeaponOwner().GetTeam() )
 
-			missiles.append( missile )
+				missiles.append( missile )
 
 #if SERVER
-			EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )
+				EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )
 #endif // #if SERVER
+			}
 		}
 	}
 
-	if ( straight && missiles.len() > 0 )
-		thread MissileStream_CondenseSpiral( missiles, straightDir, missileSpeed )
+	// brute4 case
+	if ( isBrute4 )
+	{
+		if ( straight && missiles.len() > 0 )
+			thread MissileStream_CondenseSpiral( missiles, straightDir, missileSpeed )
+	}
+}
+
+// brute4 case
+vector function FindStraightMissileDir( vector dir, int i )
+{
+	vector angles = VectorToAngles( dir )
+	switch ( i )
+	{
+		case 0: // Up
+			return AnglesToUp( angles )
+			break
+		case 1: // Right
+			return -AnglesToRight( angles )
+			break
+		case 2: // Down
+			return -AnglesToUp( angles )
+			break
+		case 3: // Left
+			return AnglesToRight( angles )
+	}
+	return < 0,0,0 >
 }
 
 void function MissileStream_CondenseSpiral( array<entity> missiles, array<vector> straightDir, float missileSpeed )
