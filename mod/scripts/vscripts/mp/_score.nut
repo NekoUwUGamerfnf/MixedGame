@@ -480,6 +480,7 @@ void function NotifyClientsOfTitanDeath( entity victim, entity attacker, var dam
 
 	// crash happens after I made ball lightning use projectile as the inflictor of it's zap damage( in vanilla they uses movers )
 	// after owner being destroyed, the projectile will be passed as attacker!
+	// could also happen when electric smoke grenade change to use projectile as inflictor
 	if ( IsValid( attacker ) && !attacker.IsProjectile() )
 		attackerEHandle = attacker.GetEncodedEHandle()
 

@@ -137,7 +137,9 @@ void function ElectricGrenadeSmokescreen( entity projectile, asset fx, float del
 	smokescreen.deploySound1p = "explo_electric_smoke_impact"
 	smokescreen.deploySound3p = "explo_electric_smoke_impact"
 	smokescreen.attacker = owner
-	smokescreen.inflictor = owner
+	// this is stupid. we do have a projectile to behave as inflictor, why use owner?
+	//smokescreen.inflictor = owner
+	smokescreen.inflictor = projectile
 	smokescreen.weaponOrProjectile = projectile
 	smokescreen.damageInnerRadius = radiusDamageData.explosionInnerRadius
 	smokescreen.damageOuterRadius = radiusDamageData.explosionRadius
@@ -150,6 +152,9 @@ void function ElectricGrenadeSmokescreen( entity projectile, asset fx, float del
 	smokescreen.angles = projectile.GetAngles()
 	smokescreen.fxUseWeaponOrProjectileAngles = true
 	smokescreen.fxOffsets = [ <0.0, 0.0, 2.0> ]
+
+	// modified to add: lifetime should match projectile's ignition time
+	smokescreen.lifetime = projectile.GetProjectileWeaponSettingFloat( eWeaponVar.grenade_ignition_time )
 
 	Smokescreen( smokescreen )
 }
