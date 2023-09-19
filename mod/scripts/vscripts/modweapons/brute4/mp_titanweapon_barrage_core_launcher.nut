@@ -46,6 +46,8 @@ var function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams,
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
 
+			// hide default trail, so clients without scripts installed won't show flight core rocket launcher's trails
+			nade.SetReducedEffects()
 			// fix for trail effect, so clients without scripts installed can see the trail
 			// start from server-side, so clients that already installed scripts won't see multiple trail effect stacking together
 			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"Rocket_Smoke_SMALL_Titan_mod" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
@@ -121,7 +123,13 @@ void function DetonateStickyAfterTime( entity projectile, float delay, vector no
 {
 	wait delay
 	if ( IsValid( projectile ) )
+	{
 		projectile.GrenadeExplode( normal )
+		// due we've hide projectile effect, do a impact effect manually
+		// this is actually better cause "exp_rocket_dumbfire" have bad airburst effect, but grenades exploding with offset sometimes triggering them
+		// PlayImpactFXTable() with SF_ENVEXPLOSION_INCLUDE_ENTITIES flag can prevent that from happening
+		PlayImpactFXTable( projectile.GetOrigin(), projectile, "exp_rocket_dumbfire", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+	}
 }
 #endif
 
