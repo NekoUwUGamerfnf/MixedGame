@@ -16,6 +16,10 @@ const FUSE_TIME_EXT = 1.5
 
 void function MpTitanWeaponBarrageCoreLauncher_Init()
 {
+	PrecacheParticleSystem( $"Rocket_Smoke_SMALL_Titan_mod" )
+	PrecacheParticleSystem( $"wpn_grenade_sonar_titan_AMP" )
+	PrecacheParticleSystem( $"wpn_grenade_frag_softball_burn" )
+
 #if SERVER
 	// adding a new damageSourceId. it's gonna transfer to client automatically
 	RegisterWeaponDamageSource( "mp_titanweapon_barrage_core_launcher", "Barrage Core" ) // "Barrage Core Cluster", limited to 1 space-bar usage...
@@ -71,15 +75,15 @@ var function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams,
 
 			// hide default trail, so clients without scripts installed won't show flight core rocket launcher's trails
 			nade.SetReducedEffects()
-			// fix for trail effect, so clients without scripts installed can see the trail
-			// start from server-side, so clients that already installed scripts won't see multiple trail effect stacking together
-			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"Rocket_Smoke_SMALL_Titan_mod" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_sonar_titan_AMP" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_frag_softball_elec_burn" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 		#else
 			entity weaponOwner = weapon.GetWeaponOwner()
 			SetTeam( nade, weaponOwner.GetTeam() )
 		#endif
+
+		// fix for trail effect, so clients without scripts installed can see the trail
+		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"Rocket_Smoke_SMALL_Titan_mod" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_sonar_titan_AMP" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_frag_softball_burn" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 	}
 	return 1
 }
