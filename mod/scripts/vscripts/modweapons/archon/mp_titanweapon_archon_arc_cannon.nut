@@ -92,7 +92,7 @@ void function MpTitanWeaponArchonArcCannon_Init()
 
 	#if SERVER
 		// adding a new damageSourceId. it's gonna transfer to client automatically
-	    RegisterWeaponDamageSource( "mp_titanweapon_archon_arc_cannon", "Archon Cannon" )
+	    RegisterWeaponDamageSource( "mp_titanweapon_archon_arc_cannon", "#WPN_TITAN_ARC_CANNON" )
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_archon_arc_cannon, ArchonCannonOnDamage )
 	#endif
 }
