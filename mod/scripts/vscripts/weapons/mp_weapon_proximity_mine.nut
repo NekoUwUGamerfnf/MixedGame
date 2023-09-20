@@ -79,7 +79,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 		EmitSoundOnEntityExceptToPlayer( player, player, "weapon_proximitymine_throw" )
 		ProximityCharge_PostFired_Init( proximityMine, player )
 		
-		SetVisibleEntitiesInConeQueriableEnabled( projectile, true ) // vanilla missing. all trap entities should have this, otherwise shotgun blast won't damage them
+		SetVisibleEntitiesInConeQueriableEnabled( proximityMine, true ) // vanilla missing. all trap entities should have this, otherwise shotgun blast won't damage them
 		// vanilla behavior
 		//thread ProximityMineThink( proximityMine, player )
 
