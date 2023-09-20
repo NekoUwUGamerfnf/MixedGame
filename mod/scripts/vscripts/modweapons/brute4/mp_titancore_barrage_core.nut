@@ -168,6 +168,14 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 		DisableWeapons( titan, weaponArray )
 		titan.GiveWeapon( "mp_titanweapon_flightcore_rockets", mods )
 		titan.SetActiveWeaponByName( "mp_titanweapon_flightcore_rockets" )
+
+		// here goes a hack: barrage core not making brute floating in air
+		// which means their third person animation never shows
+		// try to manually do Anim_PlayGesture()
+		/* // don't work at all
+		thread HACK_BarrageCorePlayerAnimation( titan )
+		*/
+
 		wait startupTime
 
 		e.shouldDeployWeapon = false
@@ -196,4 +204,24 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 			titan.SetActiveWeaponByName( weapons[0].GetWeaponClassName() )
 	}
 }
+
+// try to manually do Anim_PlayGesture()
+/* // don't work at all
+void function HACK_BarrageCorePlayerAnimation( entity titan )
+{
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "CoreEnd" ) // all other endsignals handled here
+
+	while ( true )
+	{
+		entity soul = titan.GetTitanSoul()
+		if ( !IsValid( soul ) )
+			return
+		if ( GetSoulTitanSubClass( soul ) == "stryder" )
+			titan.Anim_PlayGesture( "ACT_MP_JUMP_FLOAT", 0.2, 0.2, -1.0 )
+	
+		WaitFrame()
+	}
+}
+*/
 #endif
