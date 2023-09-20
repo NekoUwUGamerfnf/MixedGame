@@ -194,9 +194,11 @@ int function FireMissileStream( entity weapon, WeaponPrimaryAttackParams attackP
 	entity weaponOwner = weapon.GetWeaponOwner()
 	if ( !IsValid( weaponOwner ) )
 		return 0
-	weaponOwner.Signal( "KillBruteShield" )
 
-	if ( !adsPressed && !hasBurnMod && !hasAmmoSwap && !has_s2s_npcMod && !has_mortar_mod )
+	// remove hasBurnMod check to recover ttf1 burn mod behavior
+	// causes desync but whatever
+	// if ( !adsPressed && !hasBurnMod && !has_s2s_npcMod && !has_mortar_mod )
+	if ( !adsPressed && !hasAmmoSwap && !has_s2s_npcMod && !has_mortar_mod )
 	{
 		int shots = minint( weapon.GetProjectilesPerShot(), weapon.GetWeaponPrimaryClipCount() )
 		FireMissileStream_Spiral( weapon, attackParams, predicted, shots )
@@ -207,7 +209,9 @@ int function FireMissileStream( entity weapon, WeaponPrimaryAttackParams attackP
 		//attackParams.pos = attackParams.pos + Vector( 0, 0, -20 )
 		// float missileSpeed = 2800
 		float missileSpeed = 6000
-		if ( has_s2s_npcMod || has_mortar_mod )
+		// adding hasBurnMod check
+		//if ( has_s2s_npcMod || has_mortar_mod )
+		if ( hasBurnMod || has_s2s_npcMod || has_mortar_mod )
 			missileSpeed = 2500
 
 		int impactFlags = (DF_IMPACT | DF_GIB | DF_KNOCK_BACK)
@@ -227,9 +231,7 @@ int function FireMissileStream( entity weapon, WeaponPrimaryAttackParams attackP
 #endif // #if SERVER
 		}
 
-		int cost = weapon.GetWeaponSettingInt(eWeaponVar.ammo_per_shot)
-
-		return cost
+		return 1
 	}
 
 	unreachable

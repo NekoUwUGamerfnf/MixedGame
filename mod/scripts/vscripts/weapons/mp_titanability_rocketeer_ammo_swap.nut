@@ -1,3 +1,7 @@
+// Vanilla not implement this
+// requires client-side installation
+// most stuffs compied from brute4 mp_titanability_cluster_payload
+
 global function OnWeaponPrimaryAttack_rocketeer_ammo_swap
 global function MpTitanAbilityRocketeerAmmoSwap_Init
 
@@ -47,6 +51,10 @@ var function OnWeaponPrimaryAttack_rocketeer_ammo_swap( entity weapon, WeaponPri
 	// we will remove fast shot in SwapRocketAmmo()
 	//else if( primaryWeapon.IsWeaponInAds() )
 	//	return false
+
+	// brute4 defensive fix( hardcoded )
+	if ( primaryWeapon.HasMod( "brute4_quad_rocket" ) )
+		return false
 
 	#if SERVER
 		thread SwapRocketAmmo( weaponOwner, weapon, primaryWeapon )
