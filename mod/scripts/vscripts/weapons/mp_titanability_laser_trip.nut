@@ -84,8 +84,9 @@ void function OnWeaponOwnerChanged_titanweapon_laser_trip( entity weapon, Weapon
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_tesla_node" ) )
-		return OnWeaponOwnerChanged_titanweapon_Arc_pylon( weapon, changeParams )
-	
+		return OnWeaponOwnerChanged_titanweapon_tesla_node( weapon, changeParams )
+	//
+
 	// vanilla behavior
 	#if SERVER
 	entity owner = weapon.GetWeaponOwner()
@@ -101,6 +102,11 @@ void function OnWeaponOwnerChanged_titanweapon_laser_trip( entity weapon, Weapon
 #if SERVER
 var function OnWeaponNPCPrimaryAttack_titanweapon_laser_trip( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if( weapon.HasMod( "archon_tesla_node" ) )
+		return OnWeaponNPCPrimaryAttack_titanweapon_tesla_node( weapon, attackParams )
+	//
+
 	return OnWeaponPrimaryAttack_titanweapon_laser_trip( weapon, attackParams )
 }
 #endif
@@ -109,7 +115,7 @@ var function OnWeaponPrimaryAttack_titanweapon_laser_trip( entity weapon, Weapon
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_tesla_node" ) )
-		return OnWeaponPrimaryAttack_titanweapon_Arc_pylon( weapon, attackParams )
+		return OnWeaponPrimaryAttack_titanweapon_tesla_node( weapon, attackParams )
 	
 	// vanilla behavior
 	entity owner = weapon.GetWeaponOwner()
@@ -527,6 +533,12 @@ void function OnPylonBodyDamaged( entity pylonBody, var damageInfo )
 //Doesn't work, code request going in.
 bool function OnWeaponAttemptOffhandSwitch_titanweapon_laser_trip( entity weapon )
 {
+	// modded weapon
+	if ( weapon.HasMod( "archon_tesla_node" ) )
+		return true // archon don't have to check shared energy
+	//
+
+	// vanilla behavior
 	entity owner = weapon.GetWeaponOwner()
 	int curCost = weapon.GetWeaponCurrentEnergyCost()
 	return owner.CanUseSharedEnergy( curCost )

@@ -1,6 +1,6 @@
 untyped
 
-global function MpTitanweaponShockShield_Init
+global function MpTitanWeaponShockShield_Init
 
 global function OnWeaponActivate_titanweapon_shock_shield
 global function OnWeaponDeactivate_titanweapon_shock_shield
@@ -37,15 +37,31 @@ const VortexIgnoreClassnames = {
 }
 
 
-function MpTitanweaponShockShield_Init()
+// we're now setup stuffs in mod.json, return type should be void
+void function MpTitanWeaponShockShield_Init()
 {
 	PrecacheParticleSystem( SHOCK_HOLD_EFFECT )
 	PrecacheParticleSystem( SHOCK_HOLD_EFFECT_FP )
 	PrecacheParticleSystem( SHOCK_RELEASE_EFFECT )
 	PrecacheParticleSystem( SHOCK_RELEASE_EFFECT_FP )
-	ShockShieldPrecache()
-	RegisterSignal( "DisableAmpedVortex" )
-	RegisterSignal( "FireAmpedVortexBullet" )
+	
+	PrecacheParticleSystem( $"wpn_vortex_chargingCP_titan_FP" )
+	PrecacheParticleSystem( $"wpn_vortex_chargingCP_titan_FP_replay" )
+	PrecacheParticleSystem( $"wpn_vortex_chargingCP_titan" )
+	PrecacheParticleSystem( $"wpn_vortex_shield_impact_titan" )
+	PrecacheParticleSystem( $"wpn_muzzleflash_vortex_titan_CP_FP" )
+
+	PrecacheParticleSystem( $"wpn_vortex_chargingCP_mod_FP" )
+	PrecacheParticleSystem( $"wpn_vortex_chargingCP_mod_FP_replay" )
+	PrecacheParticleSystem( $"wpn_vortex_chargingCP_mod" )
+	PrecacheParticleSystem( $"wpn_vortex_shield_impact_mod" )
+	PrecacheParticleSystem( $"wpn_muzzleflash_vortex_mod_CP_FP" )
+
+	PrecacheParticleSystem( $"P_elec_arc_loop_LG_1" )
+	PrecacheParticleSystem( $"P_impact_exp_emp_med_air" )
+
+	// for fd shock shield arc field, not implemented yet
+	RegisterSignal( "OnShieldDestroy" )
 
 	#if SERVER
 		// adding a new damageSourceId. it's gonna transfer to client automatically
@@ -61,27 +77,6 @@ function MpTitanweaponShockShield_Init()
 
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_shock_shield, ShockShieldOnDamage )
 	#endif
-
-
-}
-
-function ShockShieldPrecache()
-{
-	PrecacheParticleSystem( $"wpn_vortex_chargingCP_titan_FP" )
-	PrecacheParticleSystem( $"wpn_vortex_chargingCP_titan_FP_replay" )
-	PrecacheParticleSystem( $"wpn_vortex_chargingCP_titan" )
-	PrecacheParticleSystem( $"wpn_vortex_shield_impact_titan" )
-	PrecacheParticleSystem( $"wpn_muzzleflash_vortex_titan_CP_FP" )
-
-	PrecacheParticleSystem( $"wpn_vortex_chargingCP_mod_FP" )
-	PrecacheParticleSystem( $"wpn_vortex_chargingCP_mod_FP_replay" )
-	PrecacheParticleSystem( $"wpn_vortex_chargingCP_mod" )
-	PrecacheParticleSystem( $"wpn_vortex_shield_impact_mod" )
-	PrecacheParticleSystem( $"wpn_muzzleflash_vortex_mod_CP_FP" )
-
-	PrecacheParticleSystem( $"P_impact_exp_emp_med_air" )
-
-
 }
 
 void function OnWeaponOwnerChanged_titanweapon_shock_shield( entity weapon, WeaponOwnerChangedParams changeParams )
@@ -93,12 +88,12 @@ void function OnWeaponOwnerChanged_titanweapon_shock_shield( entity weapon, Weap
 		weapon.s.fxChargingFPControlPoint <- $"wpn_vortex_chargingCP_titan_FP"
 		weapon.s.fxChargingFPControlPointReplay <- $"wpn_vortex_chargingCP_titan_FP_replay"
 		weapon.s.fxChargingControlPoint <- $"wpn_vortex_chargingCP_titan"
-		weapon.s.fxBulletHit <- $"wpn_vortex_shield_impact_titan"
+		weapon.s.fxBulletHit <- $"P_elec_arc_loop_LG_1" // $"wpn_vortex_shield_impact_titan"
 
 		weapon.s.fxChargingFPControlPointBurn <- $"wpn_vortex_chargingCP_mod_FP"
 		weapon.s.fxChargingFPControlPointReplayBurn <- $"wpn_vortex_chargingCP_mod_FP_replay"
 		weapon.s.fxChargingControlPointBurn <- $"wpn_vortex_chargingCP_mod"
-		weapon.s.fxBulletHitBurn <- $"wpn_vortex_shield_impact_mod"
+		weapon.s.fxBulletHitBurn <- $"P_elec_arc_loop_LG_1"
 
 		weapon.s.fxElectricalExplosion <- $"P_impact_exp_emp_med_air"
 
@@ -163,7 +158,7 @@ function StartVortex( entity weapon )
 
 	Vortex_SetBulletCollectionOffset( weapon, Vector( 110, -28, -22.0 ) )
 
-	int sphereRadius = 150
+	int sphereRadius = 120
 	int bulletFOV = 120
 
 	//ApplyActivationCost( weapon, ACTIVATION_COST_FRAC )
@@ -262,10 +257,6 @@ function EndVortex( entity weapon )
 
 bool function OnWeaponVortexHitBullet_titanweapon_shock_shield( entity weapon, entity vortexSphere, var damageInfo )
 {
-	// modified: always absorb bullets, never show them on viewmodel
-	//if ( weapon.HasMod( "shield_only" ) )
-	//	return true
-
 	#if CLIENT
 		return true
 	#else
@@ -284,35 +275,16 @@ bool function OnWeaponVortexHitBullet_titanweapon_shock_shield( entity weapon, e
 		if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
 			return true
 		// generic shield ping FX, modified to globalize this function in _vortex.nut
-        Vortex_SpawnShieldPingFX( weapon, impactData )
+        //Vortex_SpawnShieldPingFX( weapon, impactData )
+		// heat shield ping works too, it has a better SFX
+		Vortex_SpawnHeatShieldPingFX( weapon, impactData, true )
 
 		return true
-
-		/* // moblin script behavior
-		if ( !ValidateVortexImpact( vortexSphere ) )
-			return false
-
-		entity attacker				= DamageInfo_GetAttacker( damageInfo )
-		vector origin				= DamageInfo_GetDamagePosition( damageInfo )
-		int damageSourceID			= DamageInfo_GetDamageSourceIdentifier( damageInfo )
-		entity attackerWeapon		= DamageInfo_GetWeapon( damageInfo )
-		if ( PROTO_ATTurretsEnabled() && !IsValid( attackerWeapon ) )
-			return true
-		string attackerWeaponName	= attackerWeapon.GetWeaponClassName()
-		int damageType				= DamageInfo_GetCustomDamageType( damageInfo )
-
-		return TryVortexAbsorb( vortexSphere, attacker, origin, damageSourceID, attackerWeapon, attackerWeaponName, "hitscan", null, damageType, false )
-		*/
-
 	#endif
 }
 
 bool function OnWeaponVortexHitProjectile_titanweapon_shock_shield( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos )
 {
-	// modified: always absorb bullets, never show them on viewmodel
-	//if ( weapon.HasMod( "shield_only" ) )
-	//	return true
-
 	#if CLIENT
 		return true
 	#else
@@ -328,19 +300,11 @@ bool function OnWeaponVortexHitProjectile_titanweapon_shock_shield( entity weapo
 		if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
 			return true
 		// generic shield ping FX, modified to globalize this function in _vortex.nut
-        Vortex_SpawnShieldPingFX( weapon, impactData )
+        //Vortex_SpawnShieldPingFX( weapon, impactData )
+		// heat shield ping works too, it has a better SFX
+		Vortex_SpawnHeatShieldPingFX( weapon, impactData, false )
 
 		return true
-
-		/* // moblin script behavior
-		if ( !ValidateVortexImpact( vortexSphere, projectile ) )
-			return false
-
-		int damageSourceID = projectile.ProjectileGetDamageSourceID()
-		string weaponName = projectile.ProjectileGetWeaponClassName()
-
-		return TryVortexAbsorb( vortexSphere, attacker, contactPos, damageSourceID, projectile, weaponName, "projectile", projectile, null, weapon.HasMod( "burn_mod_titan_vortex_shield" ) )
-		*/
 	#endif
 }
 
@@ -350,7 +314,7 @@ var function OnWeaponPrimaryAttack_titanweapon_shock_shield( entity weapon, Weap
 	string attackSound3p = "Vortex_Shield_Deflect_Amped"
 	
 	weapon.EmitWeaponSound_1p3p( attackSound1p, attackSound3p )
-	thread OnShieldDestroyed(weapon, attackParams) // bug: npc can't fire arc
+	thread OnShieldDestroyed(weapon, attackParams) 
 
 	DestroyVortexSphereFromVortexWeapon( weapon )  // sphere ent holds networked ammo count, destroy it after predicted firing is done
 
@@ -364,11 +328,9 @@ var function OnWeaponPrimaryAttack_titanweapon_shock_shield( entity weapon, Weap
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_titanweapon_shock_shield( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	int bulletsFired = VortexPrimaryAttack( weapon, attackParams )
-
 	DestroyVortexSphereFromVortexWeapon( weapon )  // sphere ent holds networked ammo count, destroy it after predicted firing is done
 
-	return bulletsFired
+	return FireArchonCannon( weapon, attackParams ) // fix npc titan fire arc
 }
 #endif // #if SERVER
 
@@ -425,9 +387,12 @@ bool function OnWeaponChargeBegin_titanweapon_shock_shield( entity weapon )
 
 void function OnWeaponChargeEnd_titanweapon_shock_shield( entity weapon )
 {
+	entity owner = weapon.GetWeaponOwner()
+	owner.Signal( "OnShieldDestroy" )
+
 	float activationCost = ACTIVATION_COST_FRAC
 
-	if ( weapon.HasMod( "immobilizer_shield" ) )
+	if ( weapon.HasMod( "bolt_from_the_blue" ) )
 	{
 			activationCost = activationCost * 0.75
 	}
@@ -452,7 +417,7 @@ bool function OnWeaponAttemptOffhandSwitch_titanweapon_shock_shield( entity weap
 
 	float activationCost = ACTIVATION_COST_FRAC
 
-	if ( weapon.HasMod( "immobilizer_shield" ) )
+	if ( weapon.HasMod( "bolt_from_the_blue" ) )
 	{
 			activationCost = activationCost * 0.75
 	}
@@ -476,12 +441,6 @@ function OnShieldDestroyed(entity weapon, WeaponPrimaryAttackParams attackParams
 
 void function ShockShieldOnDamage( entity ent, var damageInfo )
 {
-	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	if ( !IsValid( inflictor ) )
-		return
-	if( inflictor.IsProjectile() )
-		return
-
 	vector pos = DamageInfo_GetDamagePosition( damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	vector origin = DamageInfo_GetDamagePosition( damageInfo )
@@ -493,6 +452,9 @@ void function ShockShieldOnDamage( entity ent, var damageInfo )
 
 		if ( soul != null )
 			entToSlow = soul
+
+		if ( DamageInfo_GetDamage( damageInfo ) <= 0 )
+			return
 
 		const ARC_TITAN_EMP_DURATION			= 0.35
 		const ARC_TITAN_EMP_FADEOUT_DURATION	= 0.35
@@ -524,8 +486,8 @@ void function ShockShieldOnDamage( entity ent, var damageInfo )
 		StatusEffect_AddTimed( entToSlow, eStatusEffect.emp, 0.25, ARC_TITAN_EMP_DURATION, ARC_TITAN_EMP_FADEOUT_DURATION )
 
 
-		print("ENEMY: " + ent)
-		print("USER: " + attacker)
+		//print("ENEMY: " + ent)
+		//print("USER: " + attacker)
 
 
 		

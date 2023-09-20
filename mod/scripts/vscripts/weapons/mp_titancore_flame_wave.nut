@@ -6,6 +6,10 @@ global function OnAbilityChargeEnd_FlameWave
 
 global function OnWeaponPrimaryAttack_titancore_flame_wave
 
+// modified callback
+global function OnProjectileCollision_FlameWave
+//
+
 const float PROJECTILE_SEPARATION = 128
 const float FLAME_WALL_MAX_HEIGHT = 110
 const asset FLAME_WAVE_IMPACT_TITAN = $"P_impact_exp_med_metal"
@@ -34,7 +38,7 @@ void function OnWeaponActivate_titancore_flame_wave( entity weapon )
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnWeaponActivate_titancore_storm_wave( weapon )
+		return OnWeaponActivate_StormCore( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnWeaponActivate_titancore_ground_slam( weapon )
 	//
@@ -49,7 +53,7 @@ bool function OnAbilityCharge_FlameWave( entity weapon )
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnAbilityCharge_StormWave( weapon )
+		return OnAbilityCharge_StormCore( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnAbilityCharge_GoundSlam( weapon )
 	//
@@ -78,7 +82,7 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnAbilityChargeEnd_StormWave( weapon )
+		return OnAbilityChargeEnd_StormCore( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnAbilityChargeEnd_GoundSlam( weapon )
 	//
@@ -106,7 +110,7 @@ var function OnWeaponPrimaryAttack_titancore_flame_wave( entity weapon, WeaponPr
 
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnWeaponPrimaryAttack_titancore_storm_wave( weapon, attackParams )
+		return OnWeaponPrimaryAttack_StormCore( weapon, attackParams )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnWeaponPrimaryAttack_titancore_ground_slam( weapon, attackParams )
 	//
@@ -315,3 +319,12 @@ void function ZeroDamageAndClearInflictorArray( entity ent, var damageInfo )
 			inflictor.e.damagedEntities.fastremovebyvalue( ent )
 }
 #endif
+
+// modified callback
+void function OnProjectileCollision_FlameWave( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
+	if ( mods.contains( "archon_storm_core" ) )
+		return OnProjectileCollision_StormCore( projectile, pos, normal, hitEnt, hitbox, isCritical )
+}
+//
