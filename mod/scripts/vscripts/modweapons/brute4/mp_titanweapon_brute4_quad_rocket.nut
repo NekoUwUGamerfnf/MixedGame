@@ -46,7 +46,6 @@ void function MpTitanWeaponBrute4QuadRocket_Init()
 
 void function OnWeaponStartZoomIn_TitanWeapon_Brute4_QuadRocket( entity weapon )
 {
-#if SERVER
 	// brute4 case
     // should have client-side sync
     if ( weapon.HasMod( "brute4_cluster_payload_ammo" )
