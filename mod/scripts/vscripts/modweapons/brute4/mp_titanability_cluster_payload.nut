@@ -1,26 +1,17 @@
-// Vanilla not implement this
-// requires client-side installation
-// most stuffs compied from brute4 mp_titanability_cluster_payload
+global function MpTitanAbilityClusterPayload_Init
 
-global function OnWeaponPrimaryAttack_rocketeer_ammo_swap
-global function MpTitanAbilityRocketeerAmmoSwap_Init
+global function OnWeaponPrimaryAttack_cluster_payload
 
 #if SERVER
-global function OnWeaponNpcPrimaryAttack_rocketeer_ammo_swap
+global function OnWeaponNpcPrimaryAttack_cluster_payload
 #endif
 
-void function MpTitanAbilityRocketeerAmmoSwap_Init()
+void function MpTitanAbilityClusterPayload_Init()
 {
 }
 
-var function OnWeaponPrimaryAttack_rocketeer_ammo_swap( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponPrimaryAttack_cluster_payload( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	// modded weapon
-	if ( weapon.HasMod( "brute4_cluster_payload" ) )
-		return OnWeaponPrimaryAttack_cluster_payload( weapon, attackParams )
-	//
-
-	// vanilla( actually modified ) behavior
 	entity weaponOwner = weapon.GetWeaponOwner()
 	array<entity> weapons = weaponOwner.GetMainWeapons()
 	if ( weapons.len() < 1 )
@@ -42,22 +33,15 @@ var function OnWeaponPrimaryAttack_rocketeer_ammo_swap( entity weapon, WeaponPri
 		return false
 	else if ( primaryWeapon.GetWeaponClassName() != "mp_titanweapon_rocketeer_rocketstream" )
 		return false
-	else if ( primaryWeapon.HasMod( "burn_mod_titan_rocket_launcher" ) )
-		return false
-	// re-implement vanilla mini_clusters
-	else if ( primaryWeapon.HasMod( "mini_clusters" ) )
-		return false
-	// remove ads check, it can make weapon handling feels bad
-	// we will remove fast shot in SwapRocketAmmo()
-	//else if( primaryWeapon.IsWeaponInAds() )
-	//	return false
-
-	// brute4 defensive fix( hardcoded )
-	if ( primaryWeapon.HasMod( "brute4_quad_rocket" ) )
+    else if ( !primaryWeapon.HasMod( "brute4_quad_rocket" ) )
+        return false
+	else if ( primaryWeapon.HasMod( "brute4_cluster_payload_ammo" ) )
 		return false
 
 	#if SERVER
 		thread SwapRocketAmmo( weaponOwner, weapon, primaryWeapon )
+	#else
+		//primaryWeapon.SetWeaponPrimaryClipCount( 0 ) // force client to start reload. unstable, fixed by re-deploy weapon
 	#endif
 
 	if ( weaponOwner.IsPlayer() )
@@ -67,15 +51,9 @@ var function OnWeaponPrimaryAttack_rocketeer_ammo_swap( entity weapon, WeaponPri
 }
 
 #if SERVER
-var function OnWeaponNpcPrimaryAttack_rocketeer_ammo_swap( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponNpcPrimaryAttack_cluster_payload( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	// modded weapon
-	if ( weapon.HasMod( "brute4_cluster_payload" ) )
-		return OnWeaponPrimaryAttack_cluster_payload( weapon, attackParams )
-	//
-
-	// vanilla( actually modified ) behavior
-	OnWeaponPrimaryAttack_rocketeer_ammo_swap( weapon, attackParams )
+	OnWeaponPrimaryAttack_cluster_payload( weapon, attackParams )
 }
 
 void function SwapRocketAmmo( entity weaponOwner, entity offhand, entity weapon )
@@ -86,6 +64,9 @@ void function SwapRocketAmmo( entity weaponOwner, entity offhand, entity weapon 
 	weaponOwner.EndSignal( "DisembarkingTitan" )
 
 	EmitSoundOnEntity( weaponOwner, "Coop_AmmoBox_AmmoRefill" )
+	#if SERVER
+		//SendHudMessage(weaponOwner, "将弹药切换为小型集束炸弹", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
+	#endif
 
 	if ( weaponOwner.IsNPC() && HasAnim( weaponOwner, "at_reload_quick" ) )
 	{
@@ -95,20 +76,24 @@ void function SwapRocketAmmo( entity weaponOwner, entity offhand, entity weapon 
 	array<string> mods = weapon.GetMods()
 	mods.append( "fast_reload" )
 
-	// re-implement vanilla mini_clusters
-	mods.append( "mini_clusters" )
-	mods.fastremovebyvalue( "rocketstream_fast" )
+	// brute4 cases
+    mods.append( "brute4_cluster_payload_ammo" )
+    if ( mods.contains( "rapid_detonator" ) )
+        mods.append( "rapid_detonator_active" )
+    mods.fastremovebyvalue( "brute4_single_shot" )
 
 	weapon.SetMods( mods )
 
 	offhand.AddMod( "no_regen" )
-
 	weapon.SetWeaponPrimaryClipCount( 0 )
 	// no matter weapon reloading or not, we always re-deploy current weapon to make player reload
-	weapon.AddMod( "fast_deploy" )
-	weaponOwner.HolsterWeapon()
-	weaponOwner.DeployWeapon()
-	weapon.RemoveMod( "fast_deploy" )
+	//if ( weapon.IsReloading() )
+	//{
+		weapon.AddMod( "fast_deploy" )
+		weaponOwner.HolsterWeapon()
+		weaponOwner.DeployWeapon()
+		weapon.RemoveMod( "fast_deploy" )
+	//}
 
 	OnThreadEnd(
 	function() : ( weaponOwner, weapon, offhand )
@@ -116,9 +101,10 @@ void function SwapRocketAmmo( entity weaponOwner, entity offhand, entity weapon 
 			if ( IsValid( weapon ) )
 			{
 				array<string> mods = weapon.GetMods()
-				// clean up
+				// brute4
+				mods.fastremovebyvalue( "brute4_cluster_payload_ammo" )
+				mods.fastremovebyvalue( "rapid_detonator_active" )
 				mods.fastremovebyvalue( "fast_reload" )
-				mods.fastremovebyvalue( "mini_clusters" )
 
 				weapon.SetMods( mods )
 			}

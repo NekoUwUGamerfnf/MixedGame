@@ -1,33 +1,33 @@
 untyped
-global function MpTitanweaponGrenadeLauncher_Init
-global function OnWeaponPrimaryAttack_titanweapon_grenade_launcher
-global function OnProjectileCollision_titanweapon_grenade_launcher
-global function OnWeaponAttemptOffhandSwitch_titanweapon_grenade_launcher
+global function MpTitanweaponGrenadeVolley_Init
+global function OnWeaponPrimaryAttack_titanweapon_grenade_volley
+global function OnProjectileCollision_titanweapon_grenade_volley
+global function OnWeaponAttemptOffhandSwitch_titanweapon_grenade_volley
 
 #if SERVER
-global function OnWeaponNpcPrimaryAttack_titanweapon_grenade_launcher
+global function OnWeaponNpcPrimaryAttack_titanweapon_grenade_volley
 #endif // #if SERVER
 
 const FUSE_TIME = 0.5
 
-void function MpTitanweaponGrenadeLauncher_Init()
+void function MpTitanweaponGrenadeVolley_Init()
 {
 #if SERVER
 	// adding a new damageSourceId. it's gonna transfer to client automatically
-	RegisterWeaponDamageSource( "mp_titanweapon_grenade_launcher", "Grenade Salvo" )
+	RegisterWeaponDamageSource( "mp_titanweapon_grenade_volley", "Grenade Volley" )
 
 	// vortex refire override
 	Vortex_AddImpactDataOverride_WeaponMod( 
 		"mp_titanweapon_salvo_rockets", // weapon name
-		"brute4_grenade_launcher", // mod name
-		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_softball", "vortex_absorb_effect" ), // absorb effect
-		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_softball", "vortex_absorb_effect_third_person" ), // absorb effect 3p
+		"brute4_grenade_volley", // mod name
+		$"wpn_vortex_projectile_frag_FP", // absorb effect
+		$"wpn_vortex_projectile_frag", // absorb effect 3p
 		"grenade" // refire behavior
 	)
 #endif
 }
 
-bool function OnWeaponAttemptOffhandSwitch_titanweapon_grenade_launcher( entity weapon )
+bool function OnWeaponAttemptOffhandSwitch_titanweapon_grenade_volley( entity weapon )
 {
 	int minAmmo = weapon.GetWeaponSettingInt( eWeaponVar.ammo_min_to_fire )
 	int currAmmo = weapon.GetWeaponPrimaryClipCount()
@@ -37,7 +37,7 @@ bool function OnWeaponAttemptOffhandSwitch_titanweapon_grenade_launcher( entity 
 	return true
 }
 
-var function OnWeaponPrimaryAttack_titanweapon_grenade_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponPrimaryAttack_titanweapon_grenade_volley( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	entity owner = weapon.GetWeaponOwner()
 	if ( owner.IsPlayer() )
@@ -50,7 +50,7 @@ var function OnWeaponPrimaryAttack_titanweapon_grenade_launcher( entity weapon, 
 }
 
 #if SERVER
-var function OnWeaponNpcPrimaryAttack_titanweapon_grenade_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponNpcPrimaryAttack_titanweapon_grenade_volley( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	FireGrenade( weapon, attackParams, true )
 }
@@ -67,9 +67,17 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	int damageType = DF_RAGDOLL | DF_EXPLOSION
 
 	entity weaponOwner = weapon.GetWeaponOwner()
-	weaponOwner.Signal( "KillBruteShield" )
 
-	vector bulletVec = ApplyVectorSpread( attackParams.dir, (weaponOwner.GetAttackSpreadAngle() - 1.0) * 2 )
+	vector bulletVec = attackParams.dir
+	// due we changed viewmodel to cluster missile launcher
+	// needs to adjust attack pos
+	// note: attackParams.dir is only for visual effect on client
+	// if we don't change attackParams.pos the projectile still never collide with wall even when weapon barrel being blocked
+	if ( weaponOwner.IsPlayer() )
+		bulletVec = GetVectorFromPositionToCrosshair( weaponOwner, attackParams.pos )
+	
+	// apply spread
+	bulletVec = ApplyVectorSpread( bulletVec, (weaponOwner.GetAttackSpreadAngle() - 1.0) * 2 )
 
 	entity nade = weapon.FireWeaponGrenade( attackParams.pos, bulletVec, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
 
@@ -77,20 +85,19 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	{
 		nade.SetModel( $"models/weapons/grenades/m20_f_grenade_projectile.mdl" )
 		#if SERVER
-			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_grenade_launcher ) // change damageSourceID
+			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_grenade_volley ) // change damageSourceID
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
-
-			// fix for trail effect, so clients without scripts installed can see the trail
-			// start from server-side, so clients that already installed scripts won't see multiple trail effect stacking together
-			StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"weapon_40mm_projectile" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 		#else
 			SetTeam( nade, weaponOwner.GetTeam() )
 		#endif
+
+		// fix for trail effect, so clients without scripts installed can see the trail
+		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"weapon_40mm_projectile" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 	}
 }
 
-void function OnProjectileCollision_titanweapon_grenade_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+void function OnProjectileCollision_titanweapon_grenade_volley( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	#if SERVER
 	if ( projectile.proj.projectileBounceCount > 0 )

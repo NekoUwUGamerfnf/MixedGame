@@ -5,19 +5,7 @@ global function OnAbilityEnd_BarrageCore
 
 void function BarrageCore_Init()
 {
-#if SERVER
-	// adding a new damageSourceId. it's gonna transfer to client automatically
-	RegisterWeaponDamageSource( "mp_titancore_barrage_core_launcher", "Barrage Core" ) // "Barrage Core Cluster", limited to 1 space-bar usage...
 
-	// vortex refire override
-	Vortex_AddImpactDataOverride_WeaponMod( 
-		"mp_titanweapon_flightcore_rockets", // weapon name
-		"brute4_barrage_core_launcher", // mod name
-		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_frag_grenade", "vortex_absorb_effect" ), // absorb effect
-		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_frag_grenade", "vortex_absorb_effect_third_person" ), // absorb effect 3p
-		"grenade" // refire behavior
-	)
-#endif
 }
 
 bool function OnAbilityStart_BarrageCore( entity weapon )
@@ -80,7 +68,7 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 	e.shouldDeployWeapon <- false
 
 	// modified
-	//entity weaponToRestore // can't use this, maybe takenWeapon will be soon destroyed
+	//entity weaponToRestore // can't handle properly
 	table storedWeapon = {}
 	storedWeapon.shouldRestore <- false
 	storedWeapon.weaponName <- ""
@@ -180,6 +168,14 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 		DisableWeapons( titan, weaponArray )
 		titan.GiveWeapon( "mp_titanweapon_flightcore_rockets", mods )
 		titan.SetActiveWeaponByName( "mp_titanweapon_flightcore_rockets" )
+
+		// here goes a hack: barrage core not making brute floating in air
+		// which means their third person animation never shows
+		// try to manually do Anim_PlayGesture()
+		/* // don't work at all
+		thread HACK_BarrageCorePlayerAnimation( titan )
+		*/
+
 		wait startupTime
 
 		e.shouldDeployWeapon = false
@@ -208,4 +204,24 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 			titan.SetActiveWeaponByName( weapons[0].GetWeaponClassName() )
 	}
 }
+
+// try to manually do Anim_PlayGesture()
+/* // don't work at all
+void function HACK_BarrageCorePlayerAnimation( entity titan )
+{
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "CoreEnd" ) // all other endsignals handled here
+
+	while ( true )
+	{
+		entity soul = titan.GetTitanSoul()
+		if ( !IsValid( soul ) )
+			return
+		if ( GetSoulTitanSubClass( soul ) == "stryder" )
+			titan.Anim_PlayGesture( "ACT_MP_JUMP_FLOAT", 0.2, 0.2, -1.0 )
+	
+		WaitFrame()
+	}
+}
+*/
 #endif

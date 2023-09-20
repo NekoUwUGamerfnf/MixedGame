@@ -24,8 +24,8 @@ function MpTitanabilityBubbleShield_Init()
 var function OnWeaponPrimaryAttack_particle_wall( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// modded weapons
-	if( weapon.HasMod( "brute4_bubble_shield" ) )
-		return OnWeaponPrimaryAttack_dome_shield( weapon, attackParams )
+	if( weapon.HasMod( "brute4_mobile_dome_shield" ) )
+		return OnWeaponPrimaryAttack_mobile_dome_shield( weapon, attackParams )
 	//
 
 	// vanilla behavior
@@ -49,8 +49,8 @@ var function OnWeaponPrimaryAttack_particle_wall( entity weapon, WeaponPrimaryAt
 var function OnWeaponNpcPrimaryAttack_particle_wall( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// modded weapons
-	if( weapon.HasMod( "brute4_bubble_shield" ) )
-		return OnWeaponNpcPrimaryAttack_dome_shield( weapon, attackParams )
+	if( weapon.HasMod( "brute4_mobile_dome_shield" ) )
+		return OnWeaponNpcPrimaryAttack_mobile_dome_shield( weapon, attackParams )
 	
 	// vanilla behavior
 	float duration
