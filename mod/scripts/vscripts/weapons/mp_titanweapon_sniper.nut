@@ -32,23 +32,11 @@ struct {
 
 void function OnWeaponActivate_titanweapon_sniper( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "archon_arc_cannon" ) )
-		return OnWeaponActivate_titanweapon_archon_cannon( weapon )
-	//
-	
-	// vanilla behavior
 	file.chargeDownSoundDuration = expect float( weapon.GetWeaponInfoFileKeyField( "charge_cooldown_time" ) )
 }
 
 var function OnWeaponPrimaryAttack_titanweapon_sniper( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	// modded weapon
-	if( weapon.HasMod( "archon_arc_cannon" ) )
-		return OnWeaponPrimaryAttack_titanweapon_archon_cannon( weapon, attackParams )
-	//
-
-	// vanilla behavior
 	return FireSniper( weapon, attackParams, true )
 }
 
@@ -79,7 +67,8 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 
 	bool isCritical = IsCriticalHit( DamageInfo_GetAttacker( damageInfo ), victim, DamageInfo_GetHitBox( damageInfo ), damage, DamageInfo_GetDamageType( damageInfo ) )
 
-	array<string> projectileMods = inflictor.ProjectileGetMods() // moving here! contains vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
+	//array<string> projectileMods = inflictor.ProjectileGetMods() // moving here! contains vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
+	array<string> projectileMods = Vortex_GetRefiredProjectileMods( inflictor ) // I don't care, let's break vanilla behavior
 	if ( isCritical )
 	{
 		//array<string> projectileMods = inflictor.ProjectileGetMods()
@@ -131,9 +120,6 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 
 var function OnWeaponNpcPrimaryAttack_titanweapon_sniper( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if( weapon.HasMod( "archon_arc_cannon" ) )
-		return OnWeaponNpcPrimaryAttack_titanweapon_archon_cannon( weapon, attackParams )
-	
 	return FireSniper( weapon, attackParams, false )
 }
 #endif // #if SERVER
@@ -141,10 +127,6 @@ var function OnWeaponNpcPrimaryAttack_titanweapon_sniper( entity weapon, WeaponP
 
 bool function OnWeaponChargeLevelIncreased_titanweapon_sniper( entity weapon )
 {
-	// no behavior
-	if( weapon.HasMod( "archon_arc_cannon" ) )
-		return false // no behavior
-
 	#if CLIENT
 		if ( InPrediction() && !IsFirstTimePredicted() )
 			return true
@@ -281,10 +263,6 @@ int function GetTitanSniperChargeLevel( entity weapon )
 
 void function OnWeaponStartZoomIn_titanweapon_sniper( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "archon_arc_cannon" ) )
-		return // no behavior
-		
 	#if SERVER
 	if ( weapon.HasMod( "pas_northstar_optics" ) )
 	{
@@ -298,10 +276,6 @@ void function OnWeaponStartZoomIn_titanweapon_sniper( entity weapon )
 
 void function OnWeaponStartZoomOut_titanweapon_sniper( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "archon_arc_cannon" ) )
-		return // no behavior
-
 	#if SERVER
 	if ( weapon.HasMod( "pas_northstar_optics" ) )
 	{
@@ -315,12 +289,6 @@ void function OnWeaponStartZoomOut_titanweapon_sniper( entity weapon )
 
 void function OnWeaponOwnerChanged_titanweapon_sniper( entity weapon, WeaponOwnerChangedParams changeParams )
 {
-	// modded weapon
-	if( weapon.HasMod( "archon_arc_cannon" ) )
-		return OnWeaponOwnerChanged_titanweapon_archon_cannon( weapon, changeParams )
-	//
-	
-	// vanilla behavior
 	#if SERVER
 	if ( IsValid( changeParams.oldOwner ) && changeParams.oldOwner.IsPlayer() )
 		RemoveThreatScopeColorStatusEffect( changeParams.oldOwner )
@@ -374,27 +342,21 @@ void function TitanSniperKnockBack( entity victim, var damageInfo, float dotBase
 // modified callbacks
 void function OnWeaponDeactivate_titanweapon_sniper( entity weapon )
 {
-	if ( weapon.HasMod( "archon_arc_cannon" ) )
-		return OnWeaponDeactivate_titanweapon_archon_cannon( weapon )
+
 }
 
 void function OnWeaponReload_titanweapon_sniper( entity weapon, int milestoneIndex )
 {
-	if ( weapon.HasMod( "archon_arc_cannon" ) )
-		return OnWeaponReload_titanweapon_archon_cannon( weapon, milestoneIndex )
+
 }
 
 bool function OnWeaponChargeBegin_titanweapon_sniper( entity weapon )
 {
-	if ( weapon.HasMod( "archon_arc_cannon" ) )
-		return OnWeaponChargeBegin_titanweapon_archon_cannon( weapon )
-
 	return true
 }
 
 void function OnWeaponChargeEnd_titanweapon_sniper( entity weapon )
 {
-	if ( weapon.HasMod( "archon_arc_cannon" ) )
-		return OnWeaponChargeEnd_titanweapon_archon_cannon( weapon )
+
 }
 //

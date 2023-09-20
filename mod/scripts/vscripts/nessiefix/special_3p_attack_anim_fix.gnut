@@ -1,0 +1,226 @@
+global function HandleSpecial3pAttackAnim
+global function ShouldFixSpecial3pAttackAnimForTitan
+
+// for titan pick: atlas titans don't have proper anim event for "special_3p_attack_anim" weapon usage
+// using a fake cooldown system for them
+struct SpecialAnimFixSavedOffhand
+{
+	string weaponName
+	array<string> weaponMods
+	int offhandSlot
+}
+
+struct
+{
+	// for atlas chassis usage
+	table<entity, SpecialAnimFixSavedOffhand> npcSpecialAnimFixSavedOffhand
+} file
+
+void function HandleSpecial3pAttackAnim( entity titan, entity weapon, float animAllowedDuration, var functionref( entity weapon, WeaponPrimaryAttackParams attackParams ) primaryAttackCallback = null, bool isCoreWeapon = false )
+{
+	// for titan pick: atlas titans don't have proper anim event for "special_3p_attack_anim" weapon usage
+	if ( !ShouldFixSpecial3pAttackAnimForTitan( titan, weapon ) )
+		return
+
+    // player case
+    if ( titan.IsPlayer() )
+    {
+        thread StopOffhandAnimationAfterDelay( titan, animAllowedDuration )
+    }
+
+    // npc case
+    // npc needs primary attack function
+    if ( titan.IsNPC() )
+    {
+        // build fake attack params
+        vector attackPos = titan.EyePosition()
+		// guess viewVector is enough...
+		vector attackDir = titan.GetPlayerOrNPCViewVector()
+
+		// find from attachment version
+		/*
+        int attachId = -1
+        if ( titan.LookupAttachment( "CHESTFOCUS" ) > 0 )
+            attachId = titan.LookupAttachment( "CHESTFOCUS" )
+        else if ( titan.LookupAttachment( "PROPGUN" ) > 0 )
+            attachId = titan.LookupAttachment( "PROPGUN" )
+
+        if ( attachId > 0 )
+            attackPos = titan.GetAttachmentOrigin( attachId )
+
+        vector attackDir = titan.GetForwardVector()
+        attachId = -1
+        if ( titan.LookupAttachment( "PROPGUN" ) > 0 )
+            attachId = titan.LookupAttachment( "PROPGUN" )
+
+        if ( attachId > 0 )
+        {
+            attackDir = titan.GetAttachmentAngles( attachId )
+            attackDir.x = 0
+            attackDir.z = 0
+            attackDir = AnglesToForward( attackDir )
+        }
+		*/
+
+        WeaponPrimaryAttackParams npcAttackParams
+        npcAttackParams.pos = attackPos
+        npcAttackParams.dir = attackDir
+
+		// due npc titans can't fire properly, they'll still have core fully charged after firing
+		// remove core frac if we're using core weapon
+		if ( isCoreWeapon )
+		{
+			entity soul = titan.GetTitanSoul()
+			if ( IsValid( soul ) )
+			{
+				SoulTitanCore_SetExpireTime( soul, Time() + animAllowedDuration )
+				SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
+			}
+		}
+
+        // run primaryattack function
+        if ( primaryAttackCallback != null )
+            primaryAttackCallback( weapon, npcAttackParams )
+		
+        // stop animation after delay
+        thread StopOffhandAnimationAfterDelay( titan, animAllowedDuration ) // give anim a little time( 0.3s )
+        // due npc titans can't fire properly, they'll still have weapon ready after use
+		// do a forced think to handle their weapon cooldown
+        thread RestoreNPCOffhandAfterCooldown( titan, weapon, animAllowedDuration )
+    }
+}
+
+bool function ShouldFixSpecial3pAttackAnimForTitan( entity titan, entity weapon )
+{
+	if ( !titan.IsTitan() )
+		return false
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	string titanType = GetSoulTitanSubClass( soul )
+	if ( titanType != "atlas" ) // only atlas titans can't recover from animation
+		return false
+
+    // this is the setting that makes atlas chassis have bad animation
+	var hasSpecialAnim = weapon.GetWeaponInfoFileKeyField( "special_3p_attack_anim" )
+	if ( hasSpecialAnim == null || !hasSpecialAnim )
+		return false
+
+	// all checks passes
+	return true
+}
+
+void function StopOffhandAnimationAfterDelay( entity titan, float delay )
+{
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	if ( titan.IsPlayer() ) // player specific: no need to fix anim if they disembark
+    	titan.EndSignal( "DisembarkingTitan" )
+
+	wait delay
+
+	// player case
+	if ( titan.IsPlayer() )
+	{
+		titan.Anim_StopGesture( 0 )
+	}
+
+	// npc case
+	if ( titan.IsNPC() )
+	{
+		// never end animation if we're in a context action such as execution!
+		if ( !titan.ContextAction_IsActive() && !titan.ContextAction_IsBusy() )
+		{
+			titan.Anim_Stop()
+		}
+	}
+}
+
+/* // take away weapon version
+void function RestoreNPCOffhandAfterCooldown( entity owner, entity weapon, float startDelay )
+{
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "player_embarks_titan" ) // embarking a titan restore the weapon immediately
+
+	wait startDelay
+
+	if ( !IsValid( weapon ) )
+		return
+
+	float minCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
+	float maxCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
+
+	// store weapon data
+	titanSpecialAnimFixSavedOffhand offhandSaver
+	offhandSaver.weaponName = weapon.GetWeaponClassName()
+	offhandSaver.weaponMods = weapon.GetMods()
+	file.npcSpecialAnimFixSavedOffhand[ owner ] <- offhandSaver
+
+	// get offhand slot
+	int weaponSlot = -1
+	for ( int i = 0; i < OFFHAND_COUNT; i++ )
+	{
+		entity otherWeapon = owner.GetOffhandWeapon( i )
+		if ( otherWeapon == weapon )
+		{
+			weaponSlot = i
+			break
+		}
+	}
+	offhandSaver.offhandSlot = weaponSlot
+
+	OnThreadEnd
+	(
+		function(): ( owner )
+		{
+			//print( "weapon: " + string( weapon ) )
+			if ( IsValid( owner ) )
+			{
+				titanSpecialAnimFixSavedOffhand offhandSaver = file.npcSpecialAnimFixSavedOffhand[ owner ]
+				if ( !IsValid( owner.GetOffhandWeapon( offhandSaver.offhandSlot ) ) )
+					owner.GiveOffhandWeapon( offhandSaver.weaponName, offhandSaver.offhandSlot, offhandSaver.weaponMods )
+
+				delete file.npcSpecialAnimFixSavedOffhand[ owner ]
+			}
+		}
+	)
+
+	// take off weapon
+	owner.TakeOffhandWeapon( weaponSlot )
+	// add fake cooldown
+	float cooldownTime = RandomFloatRange( minCooldown, maxCooldown )
+	float maxWaitTime = Time() + cooldownTime
+	// we end thread if player being given another offhand in the same slot
+	while ( Time() < maxWaitTime )
+	{
+		if ( IsValid( owner.GetOffhandWeapon( weaponSlot ) ) )
+			break
+		WaitFrame()
+	}
+}
+*/
+
+// set flamewall to AllowUse( false ) version
+void function RestoreNPCOffhandAfterCooldown( entity owner, entity weapon, float startDelay )
+{
+	weapon.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "player_embarks_titan" ) // embarking a titan restore the weapon immediately
+
+	wait startDelay
+
+	float minCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
+	float maxCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
+
+	// make npc unable to use weapon
+	weapon.AllowUse( false )
+
+	// add fake cooldown
+	float cooldownTime = RandomFloatRange( minCooldown, maxCooldown )
+	wait cooldownTime
+
+	// restore weapon usgae
+	weapon.AllowUse( true )
+}

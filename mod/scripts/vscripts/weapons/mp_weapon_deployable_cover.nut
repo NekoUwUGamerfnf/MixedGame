@@ -150,7 +150,8 @@ void function OnDeployableCoverPlanted( entity projectile )
 
 		projectile.SetAngles( surfaceAngles )
 		
-		array<string> projectileMods = projectile.ProjectileGetMods() // vanilla behavior, Vortex_GetRefiredProjectileMods()
+		//array<string> projectileMods = projectile.ProjectileGetMods() // vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
+		array<string> projectileMods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
 		bool isAmpedWall = !( projectileMods.contains( "burn_card_weapon_mod" ) || projectileMods.contains( "hard_cover_always" ) ) //Unusual, but deliberate: the boost version of the weapon does not have amped functionality
 		entity player = projectile.GetOwner()
 		
@@ -168,7 +169,9 @@ void function DeployCover( entity projectile, vector origin, vector angles, floa
 	Assert( IsValid( projectile ) )
 	if ( !IsValid( projectile ) )
 		return
-	array<string> mods = projectile.ProjectileGetMods()
+
+	// cover modifiers, hardcoded
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
 	if( mods.contains( "bleedout_balance" ) )
 		health = DEPLOYABLE_SHIELD_HEALTH_NERFED
 

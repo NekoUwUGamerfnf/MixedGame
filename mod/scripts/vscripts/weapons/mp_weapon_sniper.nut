@@ -209,7 +209,7 @@ array<entity> function FindSmartSniperProjectile( entity weapon )
 void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	// modified condition
-	array<string> mods = projectile.ProjectileGetMods() // this only contains explosion stuff, no need to use Vortex_GetRefiredProjectileMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) 
 	array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( refiredMods.contains( "tediore_effect" ) )
 		return OnProjectileCollision_Tediore( projectile, pos, normal, hitEnt, hitbox, isCritical )
@@ -321,7 +321,7 @@ void function EffectVictim( entity victim, var damageInfo )
 	if( !inflictor.IsProjectile() )
 		return
 
-	array<string> mods = inflictor.ProjectileGetMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) 
 	if( victim.GetTeam() == attacker.GetTeam() )
 	{
 		if( mods.contains( "heal_sniper" ) )

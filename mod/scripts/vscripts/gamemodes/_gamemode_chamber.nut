@@ -9,7 +9,8 @@ void function GamemodeChamber_Init()
 	SetWeaponDropsEnabled( false )
 	Riff_ForceTitanAvailability( eTitanAvailability.Never )
 	Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
-	ClassicMP_ForceDisableEpilogue( true )
+	// ffa mode already handled by ClassicMP_ShouldRunEpilogue(), no need to force disable everywhere
+	//ClassicMP_ForceDisableEpilogue( true )
 
 	AddCallback_OnPlayerKilled( ChamberOnPlayerKilled )
 	//AddCallback_OnPlayerRespawned( UpdateLoadout ) // should never set up loadout in respawn function

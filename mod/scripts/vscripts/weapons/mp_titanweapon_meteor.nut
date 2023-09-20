@@ -221,7 +221,11 @@ function Proto_MeteorCreatesThermite( entity projectile, entity hitEnt = null )
 	int fireCount
 	float fireSpeed
 
-	array<string> mods = projectile.ProjectileGetMods()
+	//array<string> mods = projectile.ProjectileGetMods() // vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
+	
+	// modified here, for fire star's meteor_grenade mod
+	//if ( mods.contains( "pas_scorch_weapon" ) )
 	if ( mods.contains( "pas_scorch_weapon" ) || mods.contains( "meteor_grenade" ) )
 	{
 		fireCount = 8

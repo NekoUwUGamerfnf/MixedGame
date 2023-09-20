@@ -241,7 +241,8 @@ void function OnHit_TitanWeaponParticleAccelerator( entity victim, var damageInf
 	if ( !IsValid( soul ) )
 		return
 
-	array<string> mods = inflictor.ProjectileGetMods() // vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
+	//array<string> mods = inflictor.ProjectileGetMods() // vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // I don't care, let's break vanilla behavior
 	if ( ( IsSingleplayer() || SoulHasPassive( soul, ePassives.PAS_ION_WEAPON ) || mods.contains( "pas_ion_weapon" ) ) && IsCriticalHit( attacker, victim, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageType( damageInfo ) ) )
 	{
 			//array<string> mods = inflictor.ProjectileGetMods() // moved up for better check

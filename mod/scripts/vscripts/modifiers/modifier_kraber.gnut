@@ -41,8 +41,9 @@ const bool GRAPPLE_PLAYER_ALLOWED = false       // whether allow player use grap
 const bool ENABLE_RESPAWN_SPEED = true          // if player respawn away from battle, they gain speed boost
 const bool ORDNANCE_BOOST = true                // allows player to use ordnance for boosting
 const bool PLAYLIST_FORCED = true               // force change map after game
-const bool NERFED_HEALTH_REGEN = true           // slow down health regen. stim no longer gets shorter health regen delay
+const bool NERFED_HEALTH_REGEN = false          // slow down health regen. stim no longer gets shorter health regen delay
 const bool QUICK_CHARGE_BALANCE = true          // make chargehack charge rifle get infinite clip
+const bool QUICK_CHARGE_ONLY = true             // only chargehack charge rifle for players, whatever...
 const bool KUNAI_MODE_TOGGLE = true             // requires command input. player can choose to use pulseblade-only loadout
 const bool PISTOL_MODE_TOGGLE = false           // requires command input. I love this guy
 const bool SOFTBALL_ENABLED = true              // player can choose to use softball-only loadout. this softball only deals damage when direct hit, otherwise it deals knockbacks
@@ -89,16 +90,17 @@ const array<string> CONNECTING_NOTIFICATIONS =
     //ANSI_COLOR_YELLOW + "克莱博混战服务器" + ANSI_COLOR_END,
     ANSI_COLOR_YELLOW + "不只是克莱博的混战服务器" + ANSI_COLOR_END,
     //ANSI_COLOR_BLUE + "武器可用：" + ANSI_COLOR_END + "克莱博、电能步枪",
-    ANSI_COLOR_BLUE + "武器可用：" + ANSI_COLOR_END + "克莱博、电能步枪、能源炮、垒球榴弹",
-    ANSI_COLOR_BLUE + "技能可用: " + ANSI_COLOR_END + "幻影铁驭、兴奋剂、钩爪(不会勾中玩家)、脉冲刀",
+    ANSI_COLOR_BLUE + "武器可用：" + ANSI_COLOR_END + "克莱博、电能步枪(充电入侵)、能源炮、垒球榴弹",
+    ANSI_COLOR_BLUE + "技能可用：" + ANSI_COLOR_END + "幻影铁驭、兴奋剂、钩爪(不会勾中玩家)、脉冲刀",
     ANSI_COLOR_BLUE + "重火力可用：" + ANSI_COLOR_END + "重力星(无引力)、炸药包、破片手雷",
     ANSI_COLOR_ORANGE + "克莱博和电能步枪弹匣无限" + ANSI_COLOR_END,
     ANSI_COLOR_ORANGE + "能源炮与垒球榴弹仅在直击时伤害敌对目标，可击退自身" + ANSI_COLOR_END,
     //ANSI_COLOR_ORANGE + "生命回复延迟加大，重生在无战斗区域会获得加速" + ANSI_COLOR_END,
     //ANSI_COLOR_ORANGE + "钩爪不会勾中玩家，重力星不会产生引力" + ANSI_COLOR_END,
+    ANSI_COLOR_ORANGE + "电能步枪自带充电入侵" + ANSI_COLOR_END,
     ANSI_COLOR_ORANGE + "重火力充能一次，仅对自身造成伤害用于加速，满血时不会致死" + ANSI_COLOR_END,
     ANSI_COLOR_YELLOW + "除默认允许的武器外，有以下装备可选(在聊天框输入，偏弱)：" + ANSI_COLOR_END,
-    ANSI_COLOR_YELLOW + "!kunaimode 或 !km          " + ANSI_COLOR_END + ANSI_COLOR_BLUE + " 战术技能替换为 苦无，主武器仅可用快充电能步枪" + ANSI_COLOR_END,
+    ANSI_COLOR_YELLOW + "!kunaimode 或 !km          " + ANSI_COLOR_END + ANSI_COLOR_BLUE + " 战术技能替换为 苦无。无主武器" + ANSI_COLOR_END,
     //ANSI_COLOR_YELLOW + "!pistolmode 或 !pm         " + ANSI_COLOR_END + ANSI_COLOR_BLUE + " 主武器替换为 极低伤害的消音RE-45，可以击退目标" + ANSI_COLOR_END,
     ANSI_COLOR_RED + "请尊重其他玩家，勿卖弱、嘲讽等" + ANSI_COLOR_END,
     //"可以在聊天框使用 " + ANSI_COLOR_YELLOW + "!private/!pc <玩家名关键字> <消息内容>" + ANSI_COLOR_END + " 指令与特定玩家进行私聊，私聊消息将显示为" + ANSI_COLOR_YELLOW + "[WHISPER]" + ANSI_COLOR_END,
@@ -126,6 +128,7 @@ void function GameModifier_Kraber_Init()
     ForcedPlaylist_Disabled( true ) // overrides base forced playlist
     SetWeaponDropsEnabled( false ) // don't let players pickup other kraber
     //SetBattleChatterEnableToAll( true ) // play chatter to their enemies
+    SetDeathHintsEnabled( false ) // we've got pretty less weapons( and modded weapons ), no need to do death hint
 
     // funny!!!
     //FriendlyFire_SetEnabled( true )
@@ -148,6 +151,9 @@ void function GameModifier_Kraber_Init()
     // gameplay settings
     if ( NERFED_HEALTH_REGEN )
         HealthRegen_SetCustomRegenDelay( 6.0, 5.0, 5.0 ) // also give quick_charge users better chance
+    else // default health regen, still bit nerfed for quick_charge to better work
+        HealthRegen_SetCustomRegenDelay( 5.0, 3.5, 3.5 )
+
     if ( KUNAI_MODE_TOGGLE )
     {
         foreach ( string command in KUNAI_MODE_COMMANDS )
@@ -274,8 +280,11 @@ void function GiveKraber( entity player )
     // special weapons
     if ( file.playerEnabledKunaiMode[ player ] ) // kunai mode
     {
+        // shuriken currently disabled
         ignoreTacticalFilter = true
+        //ignoreOrdnanceFilter = true
         allowTactical = false
+        //allowOrdnance = false
         usingModifiedLoadout = true
         if ( SPECIAL_MODE_PLAYER_TITLE )
             player.SetTitle( "#WPN_GRENADE_SONAR_SHORT" )
@@ -290,17 +299,29 @@ void function GiveKraber( entity player )
         //foreach ( entity weapon in player.GetOffhandWeapons() )
         //    player.TakeWeaponNow( weapon.GetWeaponClassName() )
 
-        entity primary = player.GiveWeapon( "mp_weapon_defender", ["quick_charge", "at_unlimited_ammo"] )
-        primary.SetSkin( primarySkin )
-        primary.SetCamo( primaryCamo )
+        // now we remove quick charge charge rifle for kunai mode players
+        //entity primary = player.GiveWeapon( "mp_weapon_defender", ["quick_charge", "at_unlimited_ammo"] )
+        //primary.SetSkin( primarySkin )
+        //primary.SetCamo( primaryCamo )
 
+        player.HolsterWeapon() // for weapon deployment animation
+        // give them a sword with no damage
+        //player.GiveOffhandWeapon( "melee_pilot_sword", OFFHAND_MELEE, ["allow_as_primary", "pilot_emptyhanded", "no_damage"] )
+        //player.SetActiveWeaponByName( "melee_pilot_sword" )
+        // give them a placeholder fake primary weapon
+        entity placeHolder = player.GiveWeapon( "mp_weapon_gunship_missile", ["pilot_emptyhanded", "pilot_sword_primary"] )
+        player.SetActiveWeaponByName( "mp_weapon_gunship_missile" )
+        player.DeployWeapon() // for weapon deployment animation
+
+        // shuriken currently disabled
         player.TakeOffhandWeapon( OFFHAND_SPECIAL )
         //player.TakeOffhandWeapon( OFFHAND_ORDNANCE )
         array<string> kunaiMods = ["ninja_projectile", "impact_bounce", "kunai_mode"]
+        //array<string> shurikenMods = ["ninja_projectile", "impact_bounce", "kunai_mode"]
         if ( INFINITE_CLIP ) // also give kunai double charge if kraber has infinite clip
             kunaiMods.extend( ["amped_tacticals", "kunai_mode_amped"] )
         player.GiveOffhandWeapon( "mp_weapon_grenade_sonar", OFFHAND_SPECIAL, kunaiMods )
-        //player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE, ["ninja_projectile", "impact_bounce", "kunai_mode"] )
+        //player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE, shurikenMods )
     }
     else if ( file.playerEnabledPistolMode[ player ] ) // pistol mode
     {
@@ -400,11 +421,13 @@ void function GiveKraber( entity player )
                         }
 
                         bool infiniteClip = INFINITE_CLIP
-                        if ( !infiniteClip && weapon.HasMod( "quick_charge" ) )
-                        {
-                            if ( QUICK_CHARGE_BALANCE ) // unlimited ammo for quick charge
-                                infiniteClip = true
-                        }
+                        bool quickChargeBalance = QUICK_CHARGE_BALANCE
+                        bool alwaysQuickCharge = QUICK_CHARGE_ONLY
+
+                        if ( alwaysQuickCharge && !weapon.HasMod( "quick_charge" ) ) // always quick charge
+                            weapon.AddMod( "quick_charge" )
+                        if ( quickChargeBalance && weapon.HasMod( "quick_charge" ) ) // unlimited ammo for quick charge
+                            infiniteClip = true
 
                         if ( infiniteClip )
                             weapon.AddMod( "at_unlimited_ammo" ) 
@@ -417,6 +440,10 @@ void function GiveKraber( entity player )
     // offhand management
 	foreach( entity weapon in player.GetOffhandWeapons() )
 	{
+        // no offhand filter for melee
+        if ( weapon == player.GetOffhandWeapon( OFFHAND_MELEE ) )
+            continue
+
         array<string> availableOffhands
         if ( allowTactical )
             availableOffhands.extend( TACTICALS_LIST )

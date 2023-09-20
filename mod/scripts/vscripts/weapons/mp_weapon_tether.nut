@@ -120,14 +120,14 @@ void function OnProjectileCollision_weapon_tether( entity projectile, vector pos
 	}
 
 	#if SERVER
-		array<string> projectileMods = projectile.ProjectileGetMods() // vanilla behavior, no need to use Vortex_GetRefiredProjectileMods()
-		array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
+		//array<string> projectileMods = projectile.ProjectileGetMods() // vanilla behavior, no need to use Vortex_GetRefiredProjectileMods()
+		array<string> projectileMods = Vortex_GetRefiredProjectileMods( projectile ) // i don't care, let's break vanilla behavior
 		bool isExplosiveTether = false
 		bool canTetherPilot = false
 		if ( projectileMods.contains( "fd_explosive_trap" ) )
 			isExplosiveTether = true
 		// modded weapon!!
-		if ( refiredMods.contains( "pilot_tether" ) )
+		if ( projectileMods.contains( "pilot_tether" ) )
 			canTetherPilot = true
 
 		if ( hitEnt.IsTitan() || canTetherPilot && IsAlive( hitEnt ) && !proxMineOnly )
@@ -194,6 +194,14 @@ void function OnProjectileCollision_weapon_tether( entity projectile, vector pos
 		else
 		{
 			thread ProximityTetherThink( projectile, owner, isExplosiveTether )
+		
+			// vanilla missing, added by Moblin.Archon
+			// we want arc cannon able to search for tethers, also make shotgun blast able to damage them
+			// but to keep vanilla behavior, make eva-8 unable to damage tether
+			// ( my opinion is to just fix this thing, so I removed eva-8 exception )
+			SetVisibleEntitiesInConeQueriableEnabled( projectile, true )//WHERE IS IT?!
+			//AddEntityCallback_OnDamaged( projectile, ConeDamageTethersException )
+			SetObjectCanBeMeleed( projectile, false ) // do we need this? I think it's better to make tethers able to be removed by bison melee
 		}
 	#endif
 }
@@ -283,7 +291,7 @@ void function ProximityTetherThink( entity projectile, entity owner, bool isExpl
 		enemyTitans.extend( GetNPCArrayEx( "npc_super_spectre", TEAM_ANY, team, projectile.GetOrigin(), 450 ) )
 		array<entity> enemyPlayers = GetPlayerArrayOfEnemies_Alive( team )
 		// friendlyFire condition
-		bool searchForFriendly = FriendlyFire_IsEnabled() && FriendlyFire_ShouldTripWireSearchForFriendly()
+		bool searchForFriendly = FriendlyFire_ShouldMineWeaponSearchForFriendly()
 		if ( searchForFriendly )
 			enemyPlayers.extend( GetPlayerArrayOfTeam_Alive( team ) )
 
@@ -397,3 +405,20 @@ float function GetTetherRopeLength( vector a, vector b )
 }
 
 #endif
+
+
+// vanilla missing, added by Moblin.Archon
+// we want arc cannon able to search for tethers
+// but to keep vanilla behavior, make eva-8 unable to damage tether
+// ( my opinion is to just fix this thing, so I removed eva-8 exception )
+/*
+#if SERVER
+void function ConeDamageTethersException( entity ent, var damageInfo )
+{
+	int attackerDamageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+
+	if ( attackerDamageSourceID == eDamageSourceId.mp_weapon_shotgun )
+		DamageInfo_SetDamage( damageInfo, 0 )
+}
+#endif
+*/

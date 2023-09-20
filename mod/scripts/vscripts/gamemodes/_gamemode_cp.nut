@@ -53,7 +53,7 @@ void function GamemodeCP_Init()
 void function CapturePointScoreEventSetUp()
 {
 	// override settings
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.12, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.10 )
 
 	// ampHP specific
 	ScoreEvent_SetEarnMeterValues( "ControlPointCapture", 0.1, 0.1 )

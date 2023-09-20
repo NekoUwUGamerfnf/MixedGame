@@ -370,6 +370,11 @@ var function OnWeaponPrimaryAttack_titanweapon_vortex_shield( entity weapon, Wea
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_titanweapon_vortex_shield( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
+	if( weapon.HasMod( "archon_shock_shield" ) )
+		return OnWeaponNpcPrimaryAttack_titanweapon_shock_shield( weapon, attackParams )
+	
+	// vanilla behavior
 	int bulletsFired = VortexPrimaryAttack( weapon, attackParams )
 
 	DestroyVortexSphereFromVortexWeapon( weapon )  // sphere ent holds networked ammo count, destroy it after predicted firing is done

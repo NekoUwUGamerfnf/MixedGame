@@ -2,16 +2,18 @@ global function GameModifier_Jumper_Init
 
 const int PLAYER_AIR_JUMP_MAX_COUNT = 10
 const int PLAYER_AIR_ACCELERATION = 1500
+
+const bool GROUND_JUMP_PAD_ENABLED = false
 const float JUMP_PAD_SPEED_BOOST_SEVERITY = 1.0
 const int JUMP_PAD_VERTICAL_SPEED = 650
 const bool JUMP_PAD_SPEED_LOCK = false
-
 const float JUMP_PAD_COOLDOWN = 0.3
 
 struct
 {
-    table< entity, int > playerAirJumpCountTable
-	table< entity, float > playerLastJumpPadUsedTime
+	table<entity, bool> playerChangingClassFromJumper
+    table<entity, int> playerAirJumpCountTable
+	table<entity, float> playerLastJumpPadUsedTime
 } file
 
 void function GameModifier_Jumper_Init()
@@ -23,13 +25,18 @@ void function GameModifier_Jumper_Init()
 
 void function OnClientConnected( entity player )
 {
+	file.playerChangingClassFromJumper[ player ] <- false
     file.playerAirJumpCountTable[ player ] <- 0
 	file.playerLastJumpPadUsedTime[ player ] <- 0.0
     AddPlayerMovementEventCallback( player, ePlayerMovementEvents.DOUBLE_JUMP, OnPlayerDoubleJump )
+	#if !GROUND_JUMP_PAD_ENABLED
+		AddPlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, OnPlayerTouchGround )
+	#endif
 }
 
 void function OnPlayerChangeClass( entity player )
 {
+	UpdatePlayerClassMods( player )
 	thread DelayedApplyAirAcceleration( player )
 }
 
@@ -40,9 +47,41 @@ void function DelayedApplyAirAcceleration( entity player )
 	player.kv.airAcceleration = PLAYER_AIR_ACCELERATION
 }
 
+void function UpdatePlayerClassMods( entity player )
+{
+	if ( file.playerChangingClassFromJumper[ player ] )
+		return
+
+	if ( player.IsTitan() || player.GetPlayerSettings() == "spectator" )
+		return
+	
+	array<string> classMods = player.GetPlayerSettingsMods()
+	// double jump doesn't seem can be modified...
+	//if ( classMods.contains( "less_powerful_doublejump" ) )
+	//	return
+	
+	asset model = player.GetModelName()
+	int bodyGroup = player.GetFullBodygroup()
+	int skin = player.GetSkin()
+	int camo = player.GetCamo()
+
+	// double jump doesn't seem can be modified...
+	//classMods.append( "less_powerful_doublejump" )
+	file.playerChangingClassFromJumper[ player ] = true
+	player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), classMods )
+	file.playerChangingClassFromJumper[ player ] = false
+
+	player.SetModel( model )
+	player.SetFullBodygroup( bodyGroup )
+	player.SetSkin( skin )
+	player.SetCamo( camo )
+}
+
 void function OnGamePrematch()
 {
-    thread GiveAllEntitiesJumpPadEffect()
+	#if GROUND_JUMP_PAD_ENABLED
+    	thread GiveAllEntitiesJumpPadEffect()
+	#endif // GROUND_JUMP_PAD_ENABLED
 }
 
 void function OnPlayerDoubleJump( entity player )
@@ -53,6 +92,14 @@ void function OnPlayerDoubleJump( entity player )
     player.TouchGround() // restore double jump
 }
 
+#if !GROUND_JUMP_PAD_ENABLED
+void function OnPlayerTouchGround( entity player )
+{
+	file.playerAirJumpCountTable[ player ] = 0
+}
+#endif // !GROUND_JUMP_PAD_ENABLED
+
+#if GROUND_JUMP_PAD_ENABLED
 void function GiveAllEntitiesJumpPadEffect()
 {
     while( true )
@@ -213,6 +260,8 @@ void function JumpPadTrailThink( entity player )
 	player.Signal( "JumpPadTrailStart" )
 	player.EndSignal( "JumpPadTrailStart" )
 
+	player.EndSignal( "StartPhaseShift" ) // phase shift should clean up trail effect
+
 	array<entity> jumpJetFX
 
 	OnThreadEnd(
@@ -270,3 +319,4 @@ entity function CreateJumpPadJetFxForPlayer( entity player, asset particle, stri
 
 	return fx
 }
+#endif // GROUND_JUMP_PAD_ENABLED

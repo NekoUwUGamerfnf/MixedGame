@@ -34,9 +34,8 @@ const EMP_MAGNETIC_FORCE	= 1600
 const MAG_FLIGHT_SFX_LOOP = "Explo_MGL_MagneticAttract"
 
 //Proximity Mine Settings
-global const PROXIMITY_MINE_EXPLOSION_DELAY = 0.8 //1.2
-const ANTI_TITAN_MINE_EXPLOSION_DELAY = 1.2
-global const PROXIMITY_MINE_ARMING_DELAY = 1.2 //1.0
+global const PROXIMITY_MINE_EXPLOSION_DELAY = 1.2
+global const PROXIMITY_MINE_ARMING_DELAY = 1.0
 const TRIGGERED_ALARM_SFX = "Weapon_ProximityMine_CloseWarning"
 global const THERMITE_GRENADE_FX = $"P_grenade_thermite"
 global const CLUSTER_BASE_FX = $"P_wpn_meteor_exp"
@@ -459,9 +458,11 @@ void function ProxMine_Triggered( entity ent, var damageInfo )
 	if ( attacker == ent )
 		return
 
+	// nessie note: should use PingMiniMap() in titanfall 2
 	if ( ent.IsPlayer() || ent.IsNPC() )
 		thread ShowProxMineTriggeredIcon( ent )
 
+	// nessie note: should use PingMiniMap() in titanfall 2
 	//If this feature is good, we should add this to NPCs as well. Currently script errors if applied to an NPC.
 	//if ( ent.IsPlayer() )
 	//	thread ProxMine_ShowOnMinimapTimed( ent, GetOtherTeam( ent.GetTeam() ), PROX_MINE_MARKER_TIME )
@@ -529,10 +530,11 @@ void function AddToProximityTargets( entity ent )
 	AddToScriptManagedEntArray( level._proximityTargetArrayID, ent );
 }
 
-function ProximityMineThink( entity proximityMine, entity owner, float explosionDelay = PROXIMITY_MINE_EXPLOSION_DELAY )
+// this function has been heavily modified
+//function ProximityMineThink( entity proximityMine, entity owner )
+void function ProximityMineThink( entity proximityMine, entity owner, float armingDelay = PROXIMITY_MINE_ARMING_DELAY, float explosionDelay = PROXIMITY_MINE_EXPLOSION_DELAY, array<entity> functionref( entity proximityMine, int teamNum, float triggerRadius ) npcSearchFunc = null, array<entity> functionref( entity proximityMine, int teamNum, float triggerRadius ) playerSearchFunc = null )
 {
 	proximityMine.EndSignal( "OnDestroy" )
-	array<string> mods = proximityMine.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
 
 	OnThreadEnd(
 		function() : ( proximityMine )
@@ -552,20 +554,20 @@ function ProximityMineThink( entity proximityMine, entity owner, float explosion
 	local NPCTickRate = 0.5
 	local PlayerTickRate = 0.2
 
-	// modified
-	bool isAntiTitanMine = mods.contains( "anti_titan_mine" )
+	// modified for configurable mine think
+	if ( npcSearchFunc == null )
+		npcSearchFunc = ProximityMine_NPCSearch_Default
+	if ( playerSearchFunc == null )
+		playerSearchFunc = ProximityMine_PlayerSearch_Default
 
 	// Wait for someone to enter proximity
 	while( IsValid( proximityMine ) && IsValid( owner ) )
 	{
 		if ( lastTimeNPCsChecked + NPCTickRate <= Time() )
 		{
-			array<entity> nearbyNPCs
-			// modified for anti_titan_mine
-			if( isAntiTitanMine )
-				nearbyNPCs = GetNPCArrayEx( "npc_titan", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
-			else
-				nearbyNPCs = GetNPCArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+			// modified for configurable mine think
+			//array<entity> nearbyNPCs = nearbyNPCs = GetNPCArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+			array<entity> nearbyNPCs = npcSearchFunc( proximityMine, teamNum, triggerRadius )
 			foreach( ent in nearbyNPCs )
 			{
 				if ( ShouldSetOffProximityMine( proximityMine, ent ) )
@@ -577,20 +579,9 @@ function ProximityMineThink( entity proximityMine, entity owner, float explosion
 			lastTimeNPCsChecked = Time()
 		}
 
-		array<entity> nearbyPlayers
-		if( isAntiTitanMine )
-		{
-			array<entity> tempTitanArray
-			foreach( entity player in nearbyPlayers )
-			{
-				if( player.IsTitan() )
-					tempTitanArray.append( player )
-			}
-			nearbyPlayers = tempTitanArray
-		}
-		else
-			nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
-		
+		// modified for configurable mine think
+		//array<entity> nearbyPlayers = GetPlayerArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+		array<entity> nearbyPlayers = playerSearchFunc( proximityMine, teamNum, triggerRadius )
 		foreach( ent in nearbyPlayers )
 		{
 			if ( ShouldSetOffProximityMine( proximityMine, ent ) )
@@ -604,12 +595,12 @@ function ProximityMineThink( entity proximityMine, entity owner, float explosion
 	}
 }
 
-function ProximityMine_Explode( proximityMine, float explosionDelay )
+// this function has been modified
+//function ProximityMine_Explode( proximityMine, float explosionDelay )
+void function ProximityMine_Explode( entity proximityMine, float explosionDelay )
 {
-	expect entity( proximityMine )
-	array<string> mods = proximityMine.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
-	if( mods.contains( "anti_titan_mine" ) )
-		explosionDelay = ANTI_TITAN_MINE_EXPLOSION_DELAY
+	// we've made it typed
+	//expect entity( proximityMine )
 	local explodeTime = Time() + explosionDelay
 
 	EmitSoundOnEntity( proximityMine, TRIGGERED_ALARM_SFX )
@@ -635,6 +626,53 @@ bool function ShouldSetOffProximityMine( entity proximityMine, entity ent )
 	return false
 }
 
+// modified default settings for proximity mine
+array<entity> function ProximityMine_NPCSearch_Default( entity proximityMine, int teamNum, float triggerRadius )
+{
+	// friendly fire condition
+	if ( FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	{
+		entity owner = proximityMine.GetOwner()
+		array<entity> validTargets = GetNPCArrayEx( "any", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
+		foreach ( entity target in validTargets )
+		{
+			// don't damage player owned npcs, otherwise we damage all npcs including friendly ones
+			if ( IsValid( owner ) )
+			{
+				if ( owner.GetTeam() != target.GetTeam() )
+					continue
+				if ( target.GetBossPlayer() == owner || target.GetOwner() == owner )
+					validTargets.removebyvalue( target )
+			}
+		}
+
+		return validTargets
+	}
+
+	// default case
+	return GetNPCArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+}
+
+array<entity> function ProximityMine_PlayerSearch_Default( entity proximityMine, int teamNum, float triggerRadius )
+{
+	// friendly fire condition
+	if ( FriendlyFire_ShouldMineWeaponSearchForFriendly() )
+	{
+		entity owner = proximityMine.GetOwner()
+		array<entity> validTargets = GetPlayerArrayEx( "any", TEAM_ANY, TEAM_ANY, proximityMine.GetOrigin(), triggerRadius )
+		foreach ( entity target in validTargets )
+		{
+			// don't damage player themselves, otherwise we damage all players including friendly ones
+			if ( IsValid( owner ) && target == owner )
+				validTargets.removebyvalue( target )
+		}
+
+		return validTargets
+	}
+
+	// default case
+	return GetPlayerArrayEx( "any", TEAM_ANY, teamNum, proximityMine.GetOrigin(), triggerRadius )
+}
 #endif // SERVER
 
 

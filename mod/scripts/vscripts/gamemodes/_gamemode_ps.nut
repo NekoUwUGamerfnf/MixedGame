@@ -38,13 +38,22 @@ void function GamemodePs_Init()
 void function SetUpPilotSkirmishScoreEvent()
 {
 	// override settings
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.12, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.10 )
 }
 
 void function GiveScoreForPlayerKill( entity victim, entity attacker, var damageInfo )
 {
-	if ( victim != attacker && victim.IsPlayer() && attacker.IsPlayer() || GetGameState() != eGameState.Playing )
+	if ( victim != attacker 
+		 && victim.IsPlayer() 
+		 && IsValid( attacker ) 
+		 && attacker.IsPlayer() 
+		 && GetGameState() == eGameState.Playing )
+	{
 		AddTeamScore( attacker.GetTeam(), 1 )
+		
+		if ( GetGameState() == eGameState.WinnerDetermined ) // win match with AddTeamScore()
+			ScoreEvent_VictoryKill( attacker )
+	}
 }
 
 int function CheckScoreForDraw()

@@ -8,7 +8,8 @@ struct
 
 void function FFA_Init()
 {
-	ClassicMP_ForceDisableEpilogue( true )
+	// ffa mode already handled by ClassicMP_ShouldRunEpilogue(), no need to force disable everywhere
+	//ClassicMP_ForceDisableEpilogue( true )
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 
 	AddCallback_OnPlayerKilled( OnPlayerKilled )

@@ -199,9 +199,9 @@ void function OnWeaponOwnerChanged_titanweapon_40mm( entity weapon, WeaponOwnerC
 void function OnProjectileCollision_titanweapon_sticky_40mm( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCrit )
 {
 	// modded weapon
-	array<string> mods = projectile.ProjectileGetMods() // vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
-	array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
-	if ( refiredMods.contains( "atlas_40mm" ) )
+	//array<string> mods = projectile.ProjectileGetMods() // vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
+	if ( mods.contains( "atlas_40mm" ) )
 		return OnProjectileCollision_titanweapon_atlas_40mm( projectile, pos, normal, hitEnt, hitbox, isCrit )
 
 	// vanilla behavior

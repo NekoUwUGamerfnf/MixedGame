@@ -1,18 +1,14 @@
 untyped
 
 
-global function MpTitanAbilityArcPylon_Init
+global function MpTitanWeaponTeslaNode_Init
 
-global function OnWeaponPrimaryAttack_titanweapon_Arc_pylon
+global function OnWeaponPrimaryAttack_titanweapon_tesla_node
 
-global function OnWeaponOwnerChanged_titanweapon_Arc_pylon
-
-global function OnWeaponAttemptOffhandSwitch_titanweapon_Arc_pylon
+global function OnWeaponOwnerChanged_titanweapon_tesla_node
 
 #if SERVER
-global function OnWeaponNPCPrimaryAttack_titanweapon_Arc_pylon
-
-global function DeployArcPylon // for laser trip to use
+global function OnWeaponNPCPrimaryAttack_titanweapon_tesla_node
 #endif
 
 const asset LASER_TRIP_AIRBURST_FX = $"P_impact_exp_arcball_default"
@@ -21,27 +17,25 @@ const string LASER_TRIP_AIRBURST_SOUND = "Explo_ProximityEMP_Impact_3P"
 const asset LASER_TRIP_BEAM_FX = $"P_wpn_lasertrip_beam"
 const asset LASER_TRIP_ZAP_FX = $"P_arc_pylon_zap"
 
-
 const FX_EMP_FIELD = $"P_xo_emp_field"
+const FX_NODE_RING = $"atLight_CH_AR_ring" // $"P_wpn_arcTrap_start"
 const asset LASER_TRIP_MODEL = $"models/weapons/titan_trip_wire/titan_trip_wire.mdl"
 const asset LASER_TRIP_FX_ALL = $"P_wpn_lasertrip_base"
 const asset LASER_TRIP_FX_FRIENDLY = $"wpn_grenade_frag_blue_icon"
 const asset LASER_TRIP_EXPLODE_FX = $"P_impact_exp_XLG_metal"
-const float LASER_TRIP_HEALTH = 300.0
-const float LASER_TRIP_INNER_RADIUS = 400.0
-const float LASER_TRIP_OUTER_RADIUS = 400.0
-const float LASER_TRIP_DAMAGE = 200.0
-const float LASER_TRIP_DAMAGE_HEAVY_ARMOR = 1500.0
-const float LASER_TRIP_MIN_ANGLE = 180.0
-const float LASER_TRIP_BIGZAP_RANGE = 1500.0
+const float ARC_PYLON_HEALTH = 300.0
+const float ARC_PYLON_INNER_RADIUS = 400.0
+const float ARC_PYLON_OUTER_RADIUS = 400.0
+const float ARC_PYLON_EXPLOSION_DAMAGE = 50.0
+const float ARC_PYLON_EXPLOSION_DAMAGE_HEAVY_ARMOR = 750.0
 
-const float LASER_TRIP_LIFETIME = 10.0
-const float LASER_TRIP_BUILD_TIME = 0.5
-const int LASER_TRIP_MAX = 2
+const float ARC_PYLON_LIFETIME = 10.0
+const float ARC_PYLON_BUILD_TIME = 0.5
 
 const float LASER_TRIP_DEPLOY_POWER = 1400.0
-const float LASER_TRIP_DEPLOY_SIDE_POWER = 1200.0
-const int SHARED_ENERGY_RESTORE_AMOUNT = 350
+
+const float DAMAGE_AGAINST_TITANS 			= 80.0   //150, my balanced version uses 40
+const float DAMAGE_AGAINST_PILOTS 			= 8.0    //40
 
 struct
 {
@@ -51,7 +45,7 @@ struct
 	table<entity, float> nextPylonZapSoundTime
 } file;
 
-void function MpTitanAbilityArcPylon_Init()
+void function MpTitanWeaponTeslaNode_Init()
 {
 	PrecacheModel( LASER_TRIP_MODEL )
 	PrecacheParticleSystem( LASER_TRIP_FX_ALL )
@@ -70,7 +64,7 @@ void function MpTitanAbilityArcPylon_Init()
 	#endif
 }
 
-void function OnWeaponOwnerChanged_titanweapon_Arc_pylon( entity weapon, WeaponOwnerChangedParams changeParams )
+void function OnWeaponOwnerChanged_titanweapon_tesla_node( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 	#if SERVER
 	entity owner = weapon.GetWeaponOwner()
@@ -81,24 +75,15 @@ void function OnWeaponOwnerChanged_titanweapon_Arc_pylon( entity weapon, WeaponO
 }
 
 #if SERVER
-var function OnWeaponNPCPrimaryAttack_titanweapon_Arc_pylon( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponNPCPrimaryAttack_titanweapon_tesla_node( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	return OnWeaponPrimaryAttack_titanweapon_Arc_pylon( weapon, attackParams )
+	return OnWeaponPrimaryAttack_titanweapon_tesla_node( weapon, attackParams )
 }
 #endif
 
-var function OnWeaponPrimaryAttack_titanweapon_Arc_pylon( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponPrimaryAttack_titanweapon_tesla_node( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	entity owner = weapon.GetWeaponOwner()
-	int curCost = weapon.GetWeaponCurrentEnergyCost()
-	if ( !owner.CanUseSharedEnergy( curCost ) )
-	{
-		#if CLIENT
-			FlashEnergyNeeded_Bar( curCost )
-		#endif
-		return 0
-	}
-
 
 #if CLIENT
 		vector origin = owner.OffsetPositionFromView( Vector(0, 0, 0), Vector(25, -25, 15) )
@@ -141,7 +126,6 @@ void function OnArcPylonPlanted( entity projectile )
 	#if SERVER
 		thread DeployArcPylon( projectile )
 	#endif
-
 }
 
 #if SERVER
@@ -190,21 +174,12 @@ function DeployArcPylon( entity projectile )
 
 	tower.Anim_Play( "trip_wire_closed_to_open" )
 	tower.Anim_DisableUpdatePosition()
-	
-	// deployment fx
-	entity fxModel = CreatePropDynamic( $"models/weapons/sentry_shield/sentry_shield_proj.mdl", origin, angles )
-	fxModel.Hide()
-	int startAttachID = fxModel.LookupAttachment( "fx_center" )
-	int startFxId = GetParticleSystemIndex( $"P_wpn_arcTrap_start" )
-	int ringFxId = GetParticleSystemIndex( $"P_arcTrap_light" )
-	StartParticleEffectOnEntity( fxModel, startFxId, FX_PATTACH_POINT_FOLLOW, startAttachID )
-	StartParticleEffectOnEntity( fxModel, ringFxId, FX_PATTACH_POINT_FOLLOW, startAttachID )
 
 	if ( attachparent != null )
 		tower.SetParent( attachparent )
-
+	
 	// hijacking this int so we don't create a new one
-	string noSpawnIdx = CreateNoSpawnArea( TEAM_INVALID, team, origin, LASER_TRIP_BUILD_TIME + LASER_TRIP_LIFETIME, LASER_TRIP_OUTER_RADIUS )
+	string noSpawnIdx = CreateNoSpawnArea( TEAM_INVALID, team, origin, ARC_PYLON_BUILD_TIME + ARC_PYLON_LIFETIME, ARC_PYLON_OUTER_RADIUS )
 
 	SetTeam( tower, team )
 	SetObjectCanBeMeleed( tower, false )
@@ -227,8 +202,8 @@ function DeployArcPylon( entity projectile )
 	pylon.SetAngles( angles )
 	pylon.SetOwner( owner.GetTitanSoul() )
 
-	pylon.SetMaxHealth( LASER_TRIP_HEALTH )
-	pylon.SetHealth( LASER_TRIP_HEALTH )
+	pylon.SetMaxHealth( ARC_PYLON_HEALTH )
+	pylon.SetHealth( ARC_PYLON_HEALTH )
 	pylon.SetTakeDamageType( DAMAGE_YES )
 	pylon.SetDamageNotifications( false )
 	pylon.SetDeathNotifications( true )
@@ -246,7 +221,7 @@ function DeployArcPylon( entity projectile )
 
 	pylon.SetParent( tower, "", true, 0 )
 	pylon.NonPhysicsSetMoveModeLocal( true )
-	pylon.NonPhysicsMoveTo( pylon.GetLocalOrigin() + <0,0,45>, LASER_TRIP_BUILD_TIME, 0, 0 )
+	pylon.NonPhysicsMoveTo( pylon.GetLocalOrigin() + <0,0,45>, ARC_PYLON_BUILD_TIME, 0, 0 )
 	pylon.e.spawnTime = Time()
 	pylon.e.projectileID = projectile.proj.projectileID
 
@@ -261,11 +236,33 @@ function DeployArcPylon( entity projectile )
 
 
 	OnThreadEnd(
-	function() : ( projectile, inflictor, tower, pylon, fxModel, noSpawnIdx, team, pylonOrigin )
+	function() : ( projectile, inflictor, tower, pylon, noSpawnIdx, team, pylonOrigin )
 		{
 			PlayFX( LASER_TRIP_EXPLODE_FX, pylonOrigin, < -90.0, 0.0, 0.0 > )
 			EmitSoundAtPosition( team, pylonOrigin, "Wpn_LaserTripMine_MineDestroyed" )
             DeleteNoSpawnArea( noSpawnIdx )
+
+			entity soul = pylon.GetOwner()
+			if ( IsValid( soul ) )
+			{
+				entity titan = soul.GetTitan()
+				if ( IsValid( titan ) )
+				{
+					RadiusDamage(
+						pylonOrigin,											// center
+						titan,											// attacker
+						inflictor,										// inflictor
+						ARC_PYLON_EXPLOSION_DAMAGE,								// damage
+						ARC_PYLON_EXPLOSION_DAMAGE_HEAVY_ARMOR,					// damageHeavyArmor
+						ARC_TITAN_EMP_FIELD_RADIUS/2,						// innerRadius
+						ARC_TITAN_EMP_FIELD_RADIUS/1.5,						// outerRadius
+						SF_ENVEXPLOSION_NO_DAMAGEOWNER,					// flags
+						0,												// distanceFromAttacker
+						0,												// explosionForce
+						DF_ELECTRICAL,									// scriptDamageFlags
+						eDamageSourceId.mp_titanweapon_tesla_node )	// scriptDamageSourceIdentifier
+				}
+			}
 
 			if ( IsValid( tower ) )
 			{
@@ -276,43 +273,27 @@ function DeployArcPylon( entity projectile )
 			{
 				pylon.Destroy()
 			}
-			
-			if( IsValid( fxModel ) )
-				fxModel.Destroy()
-
-			if ( IsValid( projectile ) )
-				projectile.Destroy()
 
 			if ( IsValid( inflictor ) )
 				inflictor.Kill_Deprecated_UseDestroyInstead( 1.0 )
 			}
     )
 
-	wait LASER_TRIP_BUILD_TIME
+	wait ARC_PYLON_BUILD_TIME
 
   if( !IsValid( pylon ) )
       return
 
-  AI_CreateDangerousArea_Static( pylon, projectile, ARC_PYLON_FIELD_RADIUS + 50, TEAM_INVALID, true, true, pylonOrigin )
-
-  string attachment = ""
+ 	string attachment = ""
 	int attachID = pylon.LookupAttachment( attachment )
-  thread CreateArcPylonField( pylon, projectile, pylonOrigin, attachment, attachID, FX_EMP_FIELD, $"", LASER_TRIP_LIFETIME )
+  	thread CreateArcPylonField( pylon, projectile, pylonOrigin, attachment, attachID, FX_EMP_FIELD, FX_NODE_RING, ARC_PYLON_LIFETIME )
 
 	PlayLoopFXOnEntity( LASER_TRIP_FX_ALL, pylon )
 
 	entity soul = owner.IsTitan() ? owner.GetTitanSoul() : owner.GetTitanSoul()
 
-	if ( IsValid( projectile ) )
-		projectile.Destroy()
-
 	if ( IsAlive(soul))
 		owner.EndSignal( "OnDeath" )
-
-
-
-
-
 
     WaitForever() //CreateArcPylonField kills the pylon
 }
@@ -326,11 +307,8 @@ void function StopArcSoundAtPosition( entity pylon, vector position )
 	StopSoundAtPosition( position, "Wpn_LaserTripMine_LaserLoop" )
 }
 #endif
-void function ArcPylonSetThink( entity pylon1, entity pylon2, int ownerTeam )
-{
 
-}
-
+/* // prop itself can already handle damage hitmarker
 void function OnArcPylonBodyDamaged( entity pylonBody, var damageInfo )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
@@ -344,16 +322,7 @@ void function OnArcPylonBodyDamaged( entity pylonBody, var damageInfo )
 		}
 	}
 }
-
-
-//Doesn't work, code request going in.
-bool function OnWeaponAttemptOffhandSwitch_titanweapon_Arc_pylon( entity weapon )
-{
-	entity owner = weapon.GetWeaponOwner()
-	int curCost = weapon.GetWeaponCurrentEnergyCost()
-	return owner.CanUseSharedEnergy( curCost )
-}
-
+*/
 
 #if SERVER
 void function ArcPylon_DamagedPlayerOrNPC( entity ent, var damageInfo )
@@ -376,9 +345,6 @@ void function ArcPylon_DamagedPlayerOrNPC( entity ent, var damageInfo )
 		}
 	}
 
-	// this will cause a projectile with no ball lightning dealing no damage!
-	//OnBallLightningDamage( ent, damageInfo )
-
 	if ( !IsAlive( ent ) )
 		return
 
@@ -387,13 +353,13 @@ void function ArcPylon_DamagedPlayerOrNPC( entity ent, var damageInfo )
 	if ( !IsValid( titan ) )
 		return
 
-	local className = ent.GetClassName()
+	/*local className = ent.GetClassName()
 	if ( ent.IsProjectile() || className == "npc_turret_sentry" )
 	{
 		DamageInfo_SetDamage( damageInfo, 0 ) // Won't damage things hurt by AoE damage like Satchels and Tethers
 		return
-	}
-
+	}*/
+	
 	if ( DamageInfo_GetDamage( damageInfo ) <= 0 )
 		return
 
@@ -415,5 +381,165 @@ void function ArcPylon_DamagedPlayerOrNPC( entity ent, var damageInfo )
 	float screenEffectAmplitude = GraphCapped( distSqr, ARC_TITAN_EMP_FIELD_INNER_RADIUS, ARC_TITAN_EMP_FIELD_RADIUS, empFxHigh, empFxLow )
 
 	StatusEffect_AddTimed( ent, eStatusEffect.emp, screenEffectAmplitude, ARC_TITAN_EMP_DURATION, ARC_TITAN_EMP_FADEOUT_DURATION )
+}
+#endif
+
+#if SERVER
+function CreateArcPylonField(entity pylon, entity weapon, vector origin, string attachment, attachID, asset effectNamePrimary, asset effectNameSecondary, float duration)
+{
+	if(IsValid(pylon))
+	{
+		if(IsValid(weapon))
+		{
+			entity weaponOwner = weapon.GetOwner()
+			EmitSoundOnEntity( pylon, "EMP_Titan_Electrical_Field" )
+
+			array<entity> particles = []
+
+			entity particleSystem = CreateEntity( "info_particle_system" )
+			particleSystem.kv.start_active = 1
+			if ( weaponOwner.IsPlayer() )
+				particleSystem.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY)	// everyone but owner
+			else
+				particleSystem.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+			particleSystem.SetValueForEffectNameKey( effectNamePrimary )
+			particleSystem.SetOwner( pylon )
+			particleSystem.SetOrigin( origin )
+			DispatchSpawn( particleSystem )
+			particleSystem.SetParent( pylon, attachment )
+			
+			entity particleSystem2 = CreateEntity( "info_particle_system" )
+			particleSystem2.kv.start_active = 1
+			if ( weaponOwner.IsPlayer() )
+				particleSystem2.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY)	// everyone but owner
+			else
+				particleSystem2.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+			particleSystem2.SetValueForEffectNameKey( effectNameSecondary )
+			particleSystem2.SetOwner( pylon )
+			particleSystem2.SetOrigin( origin )
+			DispatchSpawn( particleSystem2 )
+			particleSystem2.SetParent( pylon, attachment )
+
+			particles.append( particleSystem )
+			particles.append( particleSystem2 )
+
+			pylon.EndSignal( "OnDestroy" )
+
+			OnThreadEnd(
+				function () : ( pylon, particles )
+				{
+					if ( IsValid( pylon ) )
+					{
+						StopSoundOnEntity( pylon, "EMP_Titan_Electrical_Field" )
+					}
+
+					foreach ( particleSystem in particles )
+					{
+						if ( IsValid_ThisFrame( particleSystem ) )
+						{
+							particleSystem.ClearParent()
+							particleSystem.Fire( "StopPlayEndCap" )
+							particleSystem.Kill_Deprecated_UseDestroyInstead( 1.0 )
+						}
+					}
+				}
+			)
+
+			if(IsValid(particleSystem2))
+			{
+				particleSystem2.Kill_Deprecated_UseDestroyInstead(0.5)
+			}
+
+			waitthread UpdateArcPylonField(weaponOwner, pylon, weapon, origin, duration)
+
+			if ( IsValid( weapon ) )
+				weapon.Destroy()
+
+		    pylon.Destroy()
+		}
+		else
+		{
+			// to avoid we having a pylon staying forever
+			pylon.Destroy()
+		}
+	}
+}
+
+void function UpdateArcPylonField( entity owner, entity pylon, entity weapon, vector origin, float duration )
+{
+    pylon.EndSignal( "OnDestroy" )
+    float endTime = Time() + duration
+
+    while ( Time() < endTime )
+	{
+		WaitFrame()
+		origin = pylon.GetOrigin()
+		ArcPylonFieldDamage( owner, pylon, origin )
+	}
+}
+
+function ArcPylonFieldDamage( entity owner, entity pylon, vector origin )
+{
+    RadiusDamage(
+        origin,									// center
+        owner,									// attacker
+        pylon,									// inflictor
+        DAMAGE_AGAINST_PILOTS,					// damage
+        DAMAGE_AGAINST_TITANS,					// damageHeavyArmor
+        ARC_TITAN_EMP_FIELD_INNER_RADIUS,		// innerRadius
+        ARC_TITAN_EMP_FIELD_RADIUS,				// outerRadius
+        SF_ENVEXPLOSION_NO_DAMAGEOWNER,			// flags
+        0,										// distanceFromAttacker
+        0,					                    // explosionForce
+        DF_ELECTRICAL | DF_STOPS_TITAN_REGEN,	// scriptDamageFlags
+        eDamageSourceId.mp_titanweapon_tesla_node )			// scriptDamageSourceIdentifier
+}
+
+void function OnArcPylonField_DamagedEntity( entity target, var damageInfo )
+{
+
+	if ( !IsAlive( target ) )
+		return
+
+	entity titan = DamageInfo_GetAttacker( damageInfo )
+	float outputDamage = DamageInfo_GetDamage( damageInfo )
+
+	//print("TESLA DAMAGE: " + outputDamage)
+
+	if ( !IsValid( titan ) )
+		return
+
+	local className = target.GetClassName()
+	if ( target.IsProjectile() || className == "npc_turret_sentry" )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 ) // Won't damage things hurt by AoE damage like Satchels and Tethers
+		return
+	}
+
+	if ( DamageInfo_GetDamage( damageInfo ) <= 0 )
+		return
+
+	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_DOOMED_HEALTH_LOSS )
+		return
+
+	float slowMultiplier = GraphCapped( outputDamage, 0, DAMAGE_AGAINST_TITANS, DAMAGE_AGAINST_TITANS / 2, DAMAGE_AGAINST_TITANS )
+
+	StatusEffect_AddTimed( target, eStatusEffect.move_slow, 0.25, 0.01, 0.25 )
+
+	const ARC_TITAN_SCREEN_EFFECTS 			= 0.085
+	const ARC_TITAN_EMP_DURATION			= 0.35
+	const ARC_TITAN_EMP_FADEOUT_DURATION	= 0.35
+
+	local attachID 	= titan.LookupAttachment( "" )
+	local origin 	= titan.GetAttachmentOrigin( attachID )
+	local distSqr 	= Distance( origin, target.GetOrigin() )
+
+	local minDist 	= ARC_TITAN_EMP_FIELD_INNER_RADIUS_SQR
+	local maxDist 	= ARC_TITAN_EMP_FIELD_RADIUS_SQR
+	local empFxHigh = ARC_TITAN_SCREEN_EFFECTS
+	local empFxLow 	= ( ARC_TITAN_SCREEN_EFFECTS * 0.6 )
+	float screenEffectAmplitude = GraphCapped( distSqr, ARC_TITAN_EMP_FIELD_INNER_RADIUS, ARC_TITAN_EMP_FIELD_RADIUS, empFxHigh, empFxLow )
+
+	StatusEffect_AddTimed( target, eStatusEffect.emp, screenEffectAmplitude, ARC_TITAN_EMP_DURATION, ARC_TITAN_EMP_FADEOUT_DURATION )
 }
 #endif

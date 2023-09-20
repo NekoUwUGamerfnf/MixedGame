@@ -236,7 +236,7 @@ void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, v
 
 #if SERVER
 	// visual fix think
-	array<string> mods = projectile.ProjectileGetMods() // only contains explosion stuffs, no need to use Vortex_GetRefiredProjectileMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) 
 	bool shouldFixVisual = false
 	foreach ( string mod in NO_LOCK_REQUIRED_MODS )
 	{

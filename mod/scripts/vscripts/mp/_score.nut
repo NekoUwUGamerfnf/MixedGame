@@ -8,6 +8,8 @@ global function ScoreEvent_TitanDoomed
 global function ScoreEvent_TitanKilled
 global function ScoreEvent_NPCKilled
 global function ScoreEvent_MatchComplete
+// vanilla behavior
+global function ScoreEvent_VictoryKill
 
 global function ScoreEvent_SetEarnMeterValues
 global function ScoreEvent_SetupEarnMeterValuesForMixedModes
@@ -215,12 +217,6 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		return
 
 	// pilot kill
-	if( IsPilotEliminationBased() || IsTitanEliminationBased() )
-	{
-		if( GetPlayerArrayOfEnemies_Alive( attacker.GetTeam() ).len() == 0 ) // no enemy player left
-			AddPlayerScore( attacker, "VictoryKill", attacker ) // show a callsign event
-	}
-	
 	string pilotKillEvent = "KillPilot"
 	if( IsPilotEliminationBased() )
 		pilotKillEvent = "EliminatePilot" // elimination gamemodes have a special medal
@@ -484,6 +480,7 @@ void function NotifyClientsOfTitanDeath( entity victim, entity attacker, var dam
 
 	// crash happens after I made ball lightning use projectile as the inflictor of it's zap damage( in vanilla they uses movers )
 	// after owner being destroyed, the projectile will be passed as attacker!
+	// could also happen when electric smoke grenade change to use projectile as inflictor
 	if ( IsValid( attacker ) && !attacker.IsProjectile() )
 		attackerEHandle = attacker.GetEncodedEHandle()
 
@@ -562,6 +559,12 @@ void function DelayedAddMatchCompleteScore( string winningScoreEvent, string mat
 		AddPlayerScore( winningPlayer, winningScoreEvent )
 }
 
+// vanilla behavior, northstar missing
+void function ScoreEvent_VictoryKill( entity attacker )
+{
+	AddPlayerScore( attacker, "VictoryKill", attacker ) // show a callsign event
+}
+
 void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, float owned, float coreScale = 1.0 )
 {
 	ScoreEvent event = GetScoreEvent( eventName )
@@ -596,7 +599,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
 	// special method of killing
 	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.04, 0.01, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.04, 0.01, 0.0 ) // this displays as "4%" when earning with KillPilot, pretty weird
 	
 	// ai
 	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.03, 0.01 )

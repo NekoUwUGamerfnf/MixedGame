@@ -70,6 +70,7 @@ void function GameModifier_Fake_Titanfall1_Init()
     Titan_EnableStaggerOnRepeatDamage( true ) // modified in sh_titan.gnut, enable stagger on repeat damage
 
     // titan settings
+    AddSpawnCallback( "npc_titan", OnTitanSpawned )
     AddCallback_OnTitanGetsNewTitanLoadout( OnTitanGetsLoadout )
     AddCallback_OnTitanDoomed( OnTitanDoomed ) // doomed settings
 
@@ -129,13 +130,19 @@ void function SetUpFakeTTF1ScoreEvent()
     ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.0, 0.08 )
 	// ai(extended)
 	ScoreEvent_SetEarnMeterValues( "KillProwler", 0.0, 0.03, 0.34 )
-	ScoreEvent_SetEarnMeterValues( "KillDrone", 0.00, 0.02, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillDrone", 0.00, 0.01, 0.5 )
+}
+
+void function OnTitanSpawned( entity titan )
+{
+    // health
+    thread TitanHealthWatcher( titan ) // prevent changing health midway
 }
 
 void function OnTitanGetsLoadout( entity titan, TitanLoadoutDef titanLoadout )
 {
     //print( "Titan got loadout!" )
-    thread SetupTTF1StyleTitan( titan, titanLoadout )
+    SetupTTF1StyleTitan( titan, titanLoadout )
 }
 
 void function SetupTTF1StyleTitan( entity titan, TitanLoadoutDef titanLoadout )
@@ -143,9 +150,6 @@ void function SetupTTF1StyleTitan( entity titan, TitanLoadoutDef titanLoadout )
     entity soul = titan.GetTitanSoul()
     if ( !IsValid( soul ) )
         return
-
-    titan.EndSignal( "OnDestroy" )
-    soul.EndSignal( "OnDestroy" )
 
     // shield regen
     TitanHealth_SetSoulEnableShieldRegen( soul, true )
@@ -155,12 +159,6 @@ void function SetupTTF1StyleTitan( entity titan, TitanLoadoutDef titanLoadout )
     // doomed state
     TitanHealth_SetSoulInfiniteDoomedState( soul, false )
     TitanHealth_SetSoulDoomedHealthLossDamage( soul, 0.8 )
-
-    // wait for next frame before we apply and classmods
-    WaitEndFrame() 
-
-    // health
-    thread TitanHealthWatcher( titan ) // prevent changing health midway
 
     // class mods
     // add turbo titan, replace turbo engine with hyper core
@@ -185,6 +183,12 @@ void function TitanHealthWatcher( entity titan )
     if ( !IsValid( soul ) )
         return
     soul.EndSignal( "OnDestroy" )
+
+    // wait for next frame before we start checking health
+    WaitEndFrame()
+    titan = soul.GetTitan() // update titan after delay
+    if ( !IsAlive( titan ) )
+        return
 
     // initial setup
     int segments = titan.GetMaxHealth() / 2500 // hardcoded

@@ -835,7 +835,9 @@ bool function PlantStickyEntity( entity ent, table collisionParams, vector angle
 
 bool function PlantStickyGrenade( entity ent, vector pos, vector normal, entity hitEnt, int hitbox, float depth = 0.0, bool allowBounce = true, bool allowEntityStick = true )
 {
-	if ( ent.GetTeam() == hitEnt.GetTeam() )
+	// adding friendlyfire support
+	//if ( ent.GetTeam() == hitEnt.GetTeam() )
+	if ( !FriendlyFire_IsEnabled() && ent.GetTeam() == hitEnt.GetTeam() )
 		return false
 
 	if ( ent.IsMarkedForDeletion() || hitEnt.IsMarkedForDeletion() )
@@ -912,7 +914,9 @@ bool function PlantStickyGrenade( entity ent, vector pos, vector normal, entity 
 
 bool function PlantSuperStickyGrenade( entity ent, vector pos, vector normal, entity hitEnt, int hitbox )
 {
-	if ( ent.GetTeam() == hitEnt.GetTeam() )
+	// adding friendlyfire support
+	//if ( ent.GetTeam() == hitEnt.GetTeam() )
+	if ( !FriendlyFire_IsEnabled() && ent.GetTeam() == hitEnt.GetTeam() )
 		return false
 
 	vector plantAngles = VectorToAngles( normal )
@@ -1153,7 +1157,7 @@ function Player_DetonateSatchels( entity player )
 		if ( IsValidSatchel( satchel ) )
 		{
 			// satchel modifiers
-			array<string> mods = satchel.ProjectileGetMods()
+			array<string> mods = Vortex_GetRefiredProjectileMods( satchel )
 			//
 
 			// nerfed satchel!
@@ -1370,7 +1374,7 @@ function AddPlayerScoreForTrapDestruction( entity player, entity trapEnt )
 	
 	string trapClass = trapEnt.ProjectileGetWeaponClassName()
 	// nessie adding additional checks, hardcoded!!!
-	array<string> trapMods = trapEnt.ProjectileGetMods()
+	array<string> trapMods = Vortex_GetRefiredProjectileMods( trapEnt )
 
 	if ( trapClass == "" )
 		return
@@ -1378,6 +1382,7 @@ function AddPlayerScoreForTrapDestruction( entity player, entity trapEnt )
 	string scoreEvent
 	if ( trapClass == "mp_weapon_satchel" )
 		scoreEvent = "Destroyed_Satchel"
+	// hardcoded additional check for weapon mod version of proximity mine
 	else if ( trapClass == "mp_weapon_proximity_mine" || trapMods.contains( "proximity_mine" ) )
 		scoreEvent = "Destored_Proximity_Mine"
 
@@ -1631,7 +1636,14 @@ function ClusterRocket_Detonate( entity rocket, vector normal )
 	float duration
 	float range
 
-	array mods = rocket.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+	//array mods = rocket.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+	array<string> mods = Vortex_GetRefiredProjectileMods( rocket ) // I don't care, let's break vanilla behavior
+	// have to convert it to untyped array
+	// why respawn never work around these?
+	array untypedMods
+	foreach ( mod in mods )
+		untypedMods.append( mod )
+	
 	if ( mods.contains( "pas_northstar_cluster" ) )
 	{
 		count = CLUSTER_ROCKET_BURST_COUNT_BURN
@@ -1653,7 +1665,8 @@ function ClusterRocket_Detonate( entity rocket, vector normal )
 	PopcornInfo popcornInfo
 
 	popcornInfo.weaponName = "mp_titanweapon_dumbfire_rockets"
-	popcornInfo.weaponMods = mods
+	//popcornInfo.weaponMods = mods
+	popcornInfo.weaponMods = untypedMods
 	popcornInfo.damageSourceId = eDamageSourceId.mp_titanweapon_dumbfire_rockets
 	popcornInfo.count = count
 	popcornInfo.delay = CLUSTER_ROCKET_BURST_DELAY
@@ -3716,7 +3729,10 @@ array<string> function GetWeaponModsFromDamageInfo( var damageInfo )
 			return temp
 		}
 		else if( inflictor.IsProjectile() )
-			return inflictor.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+		{
+			//return inflictor.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
+			return Vortex_GetRefiredProjectileMods( inflictor ) // I don't care, let's break vanilla behavior
+		}
 		else if ( damageType & DF_EXPLOSION && inflictor.IsPlayer() && IsValid( inflictor.GetActiveWeapon() ) )
 			return inflictor.GetActiveWeapon().GetMods()
 		//Hack - Splash damage doesn't pass mod weapon through. This only works under the assumption that offhand weapons don't have mods.

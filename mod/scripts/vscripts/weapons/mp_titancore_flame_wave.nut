@@ -6,6 +6,10 @@ global function OnAbilityChargeEnd_FlameWave
 
 global function OnWeaponPrimaryAttack_titancore_flame_wave
 
+// modified callback
+global function OnProjectileCollision_FlameWave
+//
+
 const float PROJECTILE_SEPARATION = 128
 const float FLAME_WALL_MAX_HEIGHT = 110
 const asset FLAME_WAVE_IMPACT_TITAN = $"P_impact_exp_med_metal"
@@ -34,7 +38,7 @@ void function OnWeaponActivate_titancore_flame_wave( entity weapon )
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnWeaponActivate_titancore_storm_wave( weapon )
+		return OnWeaponActivate_StormCore( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnWeaponActivate_titancore_ground_slam( weapon )
 	//
@@ -49,7 +53,7 @@ bool function OnAbilityCharge_FlameWave( entity weapon )
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnAbilityCharge_StormWave( weapon )
+		return OnAbilityCharge_StormCore( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnAbilityCharge_GoundSlam( weapon )
 	//
@@ -78,7 +82,7 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 {
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnAbilityChargeEnd_StormWave( weapon )
+		return OnAbilityChargeEnd_StormCore( weapon )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnAbilityChargeEnd_GoundSlam( weapon )
 	//
@@ -89,13 +93,11 @@ void function OnAbilityChargeEnd_FlameWave( entity weapon )
 		if ( owner.IsPlayer() )
 		{
 			owner.SetTitanDisembarkEnabled( true )
-			// anim fix for titanpick
-			HandlePlayerFlameCoreAnim( owner )
 		}
 
-		// atlas npc titans can't use flame core properly, adding fix
-		if ( owner.IsNPC() && IsAlive( owner ) )
-			HandleNPCTitanFlameCoreUsage( owner, weapon )
+		// shared from special_3p_attack_anim_fix.gnut
+		// fix atlas chassis animation
+		HandleSpecial3pAttackAnim( owner, weapon, 0.8, OnWeaponPrimaryAttack_titancore_flame_wave, true )
 
 		OnAbilityChargeEnd_TitanCore( weapon )
 	#endif // #if SERVER
@@ -108,7 +110,7 @@ var function OnWeaponPrimaryAttack_titancore_flame_wave( entity weapon, WeaponPr
 
 	// modded weapon
 	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnWeaponPrimaryAttack_titancore_storm_wave( weapon, attackParams )
+		return OnWeaponPrimaryAttack_StormCore( weapon, attackParams )
 	if( weapon.HasMod( "ground_slam" ) )
 		return OnWeaponPrimaryAttack_titancore_ground_slam( weapon, attackParams )
 	//
@@ -318,91 +320,11 @@ void function ZeroDamageAndClearInflictorArray( entity ent, var damageInfo )
 }
 #endif
 
-// modified functions
-#if SERVER
-void function HandleNPCTitanFlameCoreUsage( entity npc, entity weapon )
+// modified callback
+void function OnProjectileCollision_FlameWave( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	// for titan pick: atlas titans don't have proper anim event for core usage
-	if ( !ShouldFixAnimForTitan( npc ) )
-		return
-
-	// build fake attack params
-	vector attackPos = npc.EyePosition()
-	int attachId = -1
-	if ( npc.LookupAttachment( "CHESTFOCUS" ) > 0 )
-		attachId = npc.LookupAttachment( "CHESTFOCUS" )
-	else if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
-		attachId = npc.LookupAttachment( "PROPGUN" )
-
-	if ( attachId > 0 )
-		attackPos = npc.GetAttachmentOrigin( attachId )
-
-	vector attackDir = npc.GetForwardVector()
-	attachId = -1
-	if ( npc.LookupAttachment( "PROPGUN" ) > 0 )
-		attachId = npc.LookupAttachment( "PROPGUN" )
-
-	if ( attachId > 0 )
-	{
-		attackDir = npc.GetAttachmentAngles( attachId )
-		attackDir.x = 0
-		attackDir.z = 0
-		attackDir = AnglesToForward( attackDir )
-	}
-
-	WeaponPrimaryAttackParams npcAttackParams
-	npcAttackParams.pos = attackPos
-	npcAttackParams.dir = attackDir
-
-	// remove core frac
-	entity soul = npc.GetTitanSoul()
-	SoulTitanCore_SetExpireTime( soul, Time() )
-	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
-	// run primaryattack function
-	OnWeaponPrimaryAttack_titancore_flame_wave( weapon, npcAttackParams )
-	// stop animation after delay
-	thread StopOffhandAnimationAfterDelay( npc, 0.8 ) // give anim a little time( 0.8s )
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
+	if ( mods.contains( "archon_storm_core" ) )
+		return OnProjectileCollision_StormCore( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }
-
-void function HandlePlayerFlameCoreAnim( entity player )
-{
-	// for titan pick: atlas titans don't have proper anim event for core usage
-	if ( !ShouldFixAnimForTitan( player ) )
-		return
-
-	thread StopOffhandAnimationAfterDelay( player, 0.5 ) // give anim a little time( 0.5s )
-}
-
-bool function ShouldFixAnimForTitan( entity titan )
-{
-	if ( !titan.IsTitan() )
-		return false
-	entity soul = titan.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return false
-	string titanType = GetSoulTitanSubClass( soul )
-	if ( titanType != "atlas" ) // only atlas titans can't recover from animation
-		return false
-
-	// all checks passes
-	return true
-}
-
-void function StopOffhandAnimationAfterDelay( entity titan, float delay )
-{
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" )
-	if ( titan.IsPlayer() ) // player specific: no need to fix anim if they disembark
-    	titan.EndSignal( "DisembarkingTitan" )
-
-	wait delay
-	if ( titan.IsPlayer() )
-		titan.Anim_StopGesture( 0 )
-	else
-	{
-		// never end animation if we're in a context action!
-		if ( !titan.ContextAction_IsActive() && !titan.ContextAction_IsBusy() )
-			titan.Anim_Stop()
-	}
-}
-#endif
+//

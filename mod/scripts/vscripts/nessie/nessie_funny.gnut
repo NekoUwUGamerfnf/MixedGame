@@ -31,6 +31,26 @@ global function CreateRainbowDomeShield
 // barrel spawn
 global function CreatePhysicsBarrel
 
+// player marvin
+global function PlayerBecomeMarvin
+
+enum eMarvinMovement
+{
+	IDLE,
+
+	// walking and spriting doesn't working fine
+	WALKING,
+	SPRINTING,
+	
+	IN_AIR,
+
+	WAVING,
+	WELDING,
+	WASHING_WINDOW,
+
+	_count_
+}
+
 struct
 {
 	bool clientCommandsEnabled
@@ -38,6 +58,9 @@ struct
 	table<entity, bool> playerHasRGBHighlight
 	table<entity, bool> playerHasRainbowSkin
 	table<entity, entity> playerFlipperMover
+	table<entity, entity> playerFakeMarvin
+
+	table<entity, int> fakeMarvinMovementState
 } file
 
 void function Nessie_Funny_Functions_Init()
@@ -82,10 +105,15 @@ void function Nessie_Funny_Functions_Init()
 	//AddClientCommandCallback( "rainbowdome", CC_SpawnRainbowDome )
 	AddClientCommandCallback( "nessyoutfit", CC_SpawnNessyOutfit )
 
+	// marvin
+	RegisterSignal( "MarvinMoveAnimThink" )
+	AddClientCommandCallback( "becomemarvin", CC_PlayerBecomeFakeMarvin )
+
 	// callbacks
 	AddCallback_OnClientConnected( OnClientConnected )
 	AddCallback_OnDecoyCreated( OnDecoyCreated )
 	AddCallback_OnModdedDecoyCreated( OnDecoyCreated )
+	AddCallback_IsValidMeleeExecutionTarget( IsValidMeleeExecutionTarget )
 }
 
 // callbacks
@@ -94,6 +122,7 @@ void function OnClientConnected( entity player )
 	file.playerHasRGBHighlight[ player ] <- false
 	file.playerHasRainbowSkin[ player ] <- false
 	file.playerFlipperMover[ player ] <- null
+	file.playerFakeMarvin[ player ] <- null
 }
 
 void function OnDecoyCreated( entity decoy )
@@ -108,6 +137,17 @@ void function OnDecoyCreated( entity decoy )
 		if ( file.playerHasRainbowSkin[ bossPlayer ] )
 			thread RainbowPlayerSkin( decoy )
 	}
+}
+
+bool function IsValidMeleeExecutionTarget( entity attacker, entity target )
+{
+	if ( attacker.IsPlayer() && IsValid( file.playerFakeMarvin[ attacker ] ) )
+		return false
+
+	if ( target.IsPlayer() && IsValid( file.playerFakeMarvin[ target ] ) )
+		return false
+	
+	return true
 }
 
 // client commands
@@ -177,6 +217,15 @@ bool function CC_ThrowABarrel( entity player, array<string> args )
 
 	entity barrel = CreatePhysicsBarrel( player.EyePosition(), < 0, player.EyeAngles().y, 0 > )
     barrel.SetVelocity( player.GetViewVector() * 1000 )
+	return true
+}
+
+bool function CC_PlayerBecomeFakeMarvin( entity player, array<string> args )
+{
+	if ( !GetConVarBool( "sv_cheats" ) && !file.clientCommandsEnabled )
+		return false
+
+	PlayerBecomeMarvin( player )
 	return true
 }
 //
@@ -503,7 +552,7 @@ void function TrackPlayerDeathForHeadProp( entity player, entity head )
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // restore player visibility!
 }
 
-void function BecomeApexLegend( entity player, string model = "ash" ) // ash, blisk, jack, sarah
+void function BecomeApexLegend( entity player, asset model ) // ash, blisk, jack, sarah
 {
 	TakeAllWeapons( player )
 
@@ -515,17 +564,7 @@ void function BecomeApexLegend( entity player, string model = "ash" ) // ash, bl
 	player.SetActiveWeaponByName( "mp_weapon_gunship_missile" )
 	player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), ["disable_doublejump","only_wallclimb", "pas_wallhang"] )
 
-	asset modelToUse
-	if ( model == "ash" )
-		modelToUse = $"models/Humans/heroes/imc_hero_ash.mdl"
-	else if ( model == "blisk" )
-		modelToUse = $"models/Humans/heroes/imc_hero_blisk.mdl"
-	else if ( model == "jack" )
-		modelToUse = $"models/humans/heroes/mlt_hero_jack.mdl"
-	else if ( model == "sarah" )
-		modelToUse = $"models/humans/heroes/mlt_hero_sarah.mdl"
-
-	player.SetModel( modelToUse )
+	player.SetModel( model )
 	GivePassive( player, ePassives.PAS_STEALTH_MOVEMENT ) // hide jetpack flame
 	Rodeo_SetStealthMovementDisabledForPlayer( player, true ) // disable stealth rodeo, so player will have jetpack modified only
 
@@ -757,4 +796,377 @@ entity function CreatePhysicsBarrel( vector origin, vector angles )
 	barrel.SetForceVisibleInPhaseShift( true )
 
 	return barrel
+}
+
+// player controlled marvin
+entity function PlayerBecomeMarvin( entity player )
+{
+	if ( IsValid( file.playerFakeMarvin[ player ] ) )
+		return
+
+	if ( !IsAlive( player ) )
+		return
+	
+	int team = player.GetTeam()
+	vector origin = player.GetOrigin()
+	vector angles = < 0, player.GetAngles().y, 0 >
+	entity marvin = CreateMarvin( team, origin, angles )
+	marvin.kv.spawnflags = 516
+	marvin.kv.contents = (int(marvin.kv.contents) | CONTENTS_NOGRAPPLE)
+	marvin.ai.killShotSound = false
+	DispatchSpawn( marvin )
+
+	// setup player
+	// we still allow player to change player settings from loadout selection... as a easter egg
+	// nope, never allow loadout change influence playerSetFile. now hanlded by PlayerMarvinThink()
+	//player.SetPlayerSettingsWithMods( "pilot_coliseum_female", ["disable_doublejump", "disable_wallrun"] )
+	player.SetNoTarget( true )
+	PainDeathSounds_SetDisabledForEntity( player, true ) // temp
+	DeathPackage_SetDisabledForEntity( player, true )
+	file.playerFakeMarvin[ player ] = marvin
+	// how do I hide highlight for this player?
+	SetUpFakeMarvinHighlight( player )
+
+	player.SetShieldHealthMax( 500 )
+	player.SetShieldHealth( 500 )
+	player.SetMaxHealth( 500 )
+	player.SetHealth( 500 )
+
+	// setup marvin
+	// dont let AI titan get enemies. Don't do trigger checks
+	marvin.SetEfficientMode( true )
+	marvin.SetTouchTriggers( false )
+	marvin.SetNoTarget( true )
+	marvin.SetAimAssistAllowed( false )
+
+	// temp health
+	// reworked here, we make player take damage instead of marvin re-direct damage
+	/*
+	marvin.SetShieldHealthMax( 300 )
+	marvin.SetShieldHealth( 300 )
+	marvin.SetMaxHealth( 400 )
+	marvin.SetHealth( 400 )
+	*/
+
+	marvin.SetBossPlayer( player )
+
+	marvin.Highlight_SetInheritHighlight( true )
+	// how do I hide highlight for their marvin?
+	SetUpFakeMarvinHighlight( marvin )
+
+	marvin.SetParent( player, "ORIGIN" )
+	SetForceDrawWhileParented( marvin, true )
+	//marvin.SetTitle( player.GetPlayerName() ) // boss player can show title for npcs
+	// reworked here, we make player take damage instead of marvin re-direct damage
+	//AddEntityCallback_OnDamaged( marvin, OnPlayerFakeMarvinDamaged )
+	if ( BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		HideName( marvin )
+	marvin.Signal( "StopDoingJobs" ) // stop automatic job think
+
+	thread PlayerMarvinThink( player, marvin )
+
+	return marvin
+}
+
+void function SetUpFakeMarvinHighlight( entity ent )
+{
+	ent.e.hasDefaultEnemyHighlight = false
+	Highlight_ClearEnemyHighlight( ent )
+	// friendly highlight
+	Highlight_SetFriendlyHighlight( ent, "sp_enemy_pilot" )
+	ent.Highlight_SetParam( 1, 0, < 1,1,1 > )
+	// enemy highlight
+	Highlight_SetEnemyHighlight( ent, "sp_enemy_pilot" )
+	ent.Highlight_SetParam( 2, 0, < 1,1,1 > )
+}
+
+// reworked here, we make player take damage instead of marvin re-direct damage
+/*
+void function OnPlayerFakeMarvinDamaged( entity marvin, var damageInfo )
+{
+	print( "fake marvin damaged!" )
+	entity owner = marvin.GetBossPlayer()
+	if ( IsValid( owner ) )
+	{
+		// this is only for damage indicator stuffs, player will sync health with marvin in PlayerMarvinThink()
+		owner.TakeDamage( 
+			DamageInfo_GetDamage( damageInfo ), 
+			DamageInfo_GetAttacker( damageInfo ), 
+			DamageInfo_GetAttacker( damageInfo ), 
+			{ // damage table
+				weapon = DamageInfo_GetWeapon( damageInfo ),
+				origin = DamageInfo_GetDamagePosition( damageInfo ), 
+				force = DamageInfo_GetDamageForce( damageInfo ), 
+				scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+				damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+			}
+		)
+	}
+}
+*/
+
+void function PlayerMarvinThink( entity player, entity marvin )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	marvin.EndSignal( "OnDeath" )
+
+	OnThreadEnd
+	(
+		function(): ( player, marvin )
+		{
+			if ( IsValid( marvin ) )
+			{
+				HideName( marvin )
+				if ( IsAlive( marvin ) )
+					marvin.Die()
+			}
+			if ( IsValid( player ) )
+			{
+				// clean up
+				player.SetNoTarget( false )
+				player.SetTrackEntity( null )
+				player.ClearTrackEntitySettings()
+
+				PainDeathSounds_SetDisabledForEntity( player, false )
+				DeathPackage_SetDisabledForEntity( player, false )
+
+				ShowName( player )
+				//player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // this gets cleared on player respawn, now we need to hide so their corpse won't show
+				// reworked here, we make player take damage instead of marvin re-direct damage
+				// no need to clean up
+				/*
+				player.ClearInvulnerable()
+				player.Solid()
+				player.kv.CollisionGroup = TRACE_COLLISION_GROUP_PLAYER
+				*/
+
+				player.UnforceStand()
+
+				player.SetShieldHealthMax( 0 )
+				player.SetShieldHealth( 0 )
+
+				if ( IsAlive( player ) )
+					player.Despawn() // no corpse
+				//else
+				//{
+				//	player.Gib( < 0, 0, 100000 > ) // no corpse
+					// modified function in sh_death_package.gnut
+				//	HumanSizedGibSound( player )
+				//}
+
+				file.playerFakeMarvin[ player ] = null
+			}
+		}
+	)
+
+	MarvinPlayerTrackView( player )
+	StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.35 )
+	StatusEffect_AddEndless( player, eStatusEffect.turn_slow, 0.2 )
+
+	// marvin movement anim init
+	marvin.Anim_ScriptedPlay( "mv_idle_unarmed" )
+	file.fakeMarvinMovementState[ marvin ] <- eMarvinMovement.IDLE
+
+	while ( true )
+	{
+		TakeAllWeapons( player )
+
+		// health
+		int playerMaxHealth = player.GetMaxHealth()
+		int playerMaxShield = player.GetShieldHealthMax()
+		int playerHealth = player.GetHealth()
+		int playerShield = player.GetShieldHealth()
+
+		// class mods
+		string setFile = player.GetPlayerSettings()
+		array<string> classMods = player.GetPlayerSettingsMods()
+		bool isColiseumFemale = setFile == "pilot_coliseum_female"
+		bool hasMovementLimiter = classMods.contains( "disable_doublejump" ) && classMods.contains( "disable_wallrun" )
+		if ( !isColiseumFemale || !hasMovementLimiter )
+		{
+			player.SetPlayerSettingsWithMods( "pilot_coliseum_female", ["disable_doublejump", "disable_wallrun"] )
+		
+			// update health
+			player.SetMaxHealth( playerMaxHealth )
+			player.SetHealth( playerHealth )
+		}
+
+		// visual effect
+		HideName( player )
+		player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
+		// reworked here, we make player take damage instead of marvin re-direct damage
+		/*
+		player.SetInvulnerable()
+		player.NotSolid()
+		player.kv.CollisionGroup = 0 // TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+		*/
+		// movement limiter
+		//player.ClearTraverse() // marvin don't have suitable anim for traverse. makes movement a little dizzy
+		player.ForceStand() // avoid camera glitch when using chasing cam
+		
+		// health
+		// reworked here, we make player take damage instead of marvin re-direct damage
+		/*
+		player.SetShieldHealthMax( marvin.GetShieldHealthMax() )
+		player.SetShieldHealth( marvin.GetShieldHealth() )
+		player.SetMaxHealth( marvin.GetMaxHealth() )
+		player.SetHealth( marvin.GetHealth() )
+		*/
+		marvin.SetInvulnerable()
+		marvin.kv.CollisionGroup = 0 // TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+		marvin.NotSolid()
+		marvin.SetShieldHealthMax( playerMaxShield )
+		marvin.SetShieldHealth( playerShield )
+		marvin.SetMaxHealth( playerMaxHealth )
+		marvin.SetHealth( playerHealth )
+
+		// marvin animations
+		if ( !player.IsOnGround() || player.IsWallRunning() || player.IsWallHanging() || player.IsTraversing() )
+		{
+			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.IN_AIR )
+			{
+				marvin.Anim_ScriptedPlay( "mv_skyfall" ) // "mv_skyfall_lean"
+				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.IN_AIR
+			}
+			//printt( "player marvin in air!" )
+		}
+		// walking and spriting doesn't working fine
+		// parented move anim seems weird...
+		/*
+		else if ( player.IsSprinting() )
+		{
+			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.SPRINTING )
+			{
+				marvin.Anim_ScriptedPlay( "sp_sprint_tmp" ) // "a_combat_sprint"
+				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.SPRINTING
+			}
+			//printt( "player marvin sprinting!" )
+		}
+		else if ( Length( player.GetVelocity() ) > 10 )
+		{
+			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WALKING )
+			{
+				thread MarvinMoveAnimThink( player, marvin, "Walk_All", eMarvinMovement.WALKING ) // Walk_all_v2
+				//file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WALKING // state setup handled in MarvinMoveAnimThink()
+			}
+			//printt( "player marvin walking!" )
+		}
+		*/
+		else if ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) )
+		{
+			if ( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) )
+			{
+				if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WELDING )
+				{
+					marvin.Anim_ScriptedPlay( "mv_idle_weld" )
+					file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WELDING
+				}
+			}
+			else
+			{
+				if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WASHING_WINDOW )
+				{
+					marvin.Anim_ScriptedPlay( "mv_idle_wash_window" )
+					file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WASHING_WINDOW
+				}
+			}
+		}
+		else if ( player.IsInputCommandHeld( IN_ATTACK ) )
+		{
+			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WAVING )
+			{
+				marvin.Anim_ScriptedPlay( "mv_wave_unarmed" )
+				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WAVING
+			}
+			//printt( "player marvin waving!" )
+		}
+		else
+		{
+			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.IDLE )
+			{
+				marvin.Anim_ScriptedPlay( "mv_idle_unarmed" )
+				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.IDLE
+			}
+			//printt( "player marvin idle!" )
+		}
+
+		// marvin face
+		if ( Time() - player.p.lastDamageTime < 3.0 )
+		{
+			if ( marvin.GetSkin() != 2 )
+				marvin.SetSkin( 2 ) // sad face
+		}
+		else
+		{
+			if ( marvin.GetSkin() != 1 )
+				marvin.SetSkin( 1 ) // happy face
+		}
+
+		WaitFrame()
+	}
+}
+
+// parented move anim seems weird...
+/*
+void function MarvinMoveAnimThink( entity player, entity marvin, string anim, int stateKeep )
+{
+	//marvin = CreatePropDynamic( $"models/robots/marvin/marvin.mdl", marvin.GetOrigin(), marvin.GetAngles(), 6 )
+	marvin.EndSignal( "OnDeath" )
+	marvin.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+
+	marvin.Signal( "MarvinMoveAnimThink" )
+	marvin.EndSignal( "MarvinMoveAnimThink" )
+
+	print( "marvin doing anim!" )
+
+	entity mover = CreateScriptMover()
+	mover.SetOrigin( player.GetOrigin() )
+	mover.SetAngles( < 0, player.GetAngles().y, 0 > )
+	marvin.ClearParent()
+	marvin.SetParent( mover )
+	marvin.Anim_ScriptedPlay( anim )
+
+	OnThreadEnd
+	(
+		function(): ( player, marvin, mover )
+		{
+			if ( IsValid( player ) && IsValid( marvin ) )
+			{
+				marvin.ClearParent()
+				marvin.SetParent( player, "ORIGIN" ) // set back
+			}
+			if ( IsValid( mover ) )
+				mover.Destroy()
+		}
+	)
+
+	file.fakeMarvinMovementState[ marvin ] = stateKeep
+	while ( file.fakeMarvinMovementState[ marvin ] == stateKeep )
+	{
+		mover.NonPhysicsMoveTo( player.GetOrigin(), 0.1, 0.0, 0.0 )
+		mover.NonPhysicsRotateTo( < 0, player.GetAngles().y, 0 >, 0.1, 0.0, 0.0 )
+		WaitFrame()
+	}
+
+	print( "state lost!" )
+}
+*/
+
+void function MarvinPlayerTrackView( entity player )
+{
+	player.SetTrackEntity( player ) // Sets an entity to be viewed by this player in third person
+	//player.SetTrackEntity( GetNPCArray()[0] )
+	player.SetTrackEntityPitchLookMode( "orbit" )
+	player.SetTrackEntityYawLookMode( "orbit" )
+	player.SetTrackEntityDistanceMode( "scriptOffset" )
+	player.SetTrackEntityMinYaw( -180 )
+	player.SetTrackEntityMaxYaw( 180 )
+	player.SetTrackEntityMinPitch( -89 )
+	player.SetTrackEntityMaxPitch( 89 )
+	player.SetTrackEntityOffset( < -150.0, 0, 30.0 > )
+	//player.SetTrackEntityOffsetDistance( -50.0 )
+	//player.SetTrackEntityOffsetHeight( 30.0 )
 }

@@ -30,8 +30,14 @@ global function GetDescStringForDamageFlags
 	global function PlayTitanDeathFxUp
 
 	// modified to globalize!
+	global function ShouldDoHumanSizedGibs
 	global function HumanSizedGibDeath
+	// modified function, respawn messed up flesh target gibbed sound
+	global function HumanSizedGibSound
 
+	// modified!!! death package settings
+	global function DeathPackage_SetDisabledForEntity
+	global function DeathPackage_IsDisabledForEntity
 	// modified!! headshotFX override
 	global function DeathPackage_SetEntityHeadshotFXOverride
 	global function DeathPackage_RemoveEntityHeadshotFXOverride
@@ -69,6 +75,7 @@ struct
 	table<string,bool> disallowDissolveList
 
 	// modified
+	table<entity, bool> entDisabledDeathPackage
 	table<entity, asset> headshotFXOverride
 
 	// modified setting
@@ -331,14 +338,13 @@ void function DestroyAfterTime( entity ent, float time )
 
 void function HandleDeathPackage( entity ent, var damageInfo )
 {
-	// HACKED DEATH: if this damage is handled by hackedDeath we don't do death packages
-	#if MP
-		if ( HackedDeath_ShouldHandleDamage( ent, damageInfo ) )
-			return
-	#endif
-
 	if ( ent.IsMarkedForDeletion() )
 		return
+
+	// modified settings override
+	if ( DeathPackage_IsDisabledForEntity( ent ) )
+		return
+	//
 
 	// Code will disallow ragdoll in some cases, such on a player that is inside a dying titan.
 	if ( !DamageInfo_IsRagdollAllowed( damageInfo ) )
@@ -506,11 +512,18 @@ void function HumanSizedGibDeath( entity ent, int dpFlags, var damageInfo )
 	vector forceVec = DamageInfo_GetDamageForce( damageInfo )
 	ent.Gib( forceVec )
 
+	// modified
+	// respawn messed up flesh target gibbed sound
+	HumanSizedGibSound( ent )
+}
+
+void function HumanSizedGibSound( entity ent )
+{
 	// respawn messed up flesh target gibbed sound. they put no sound for flesh pilot, and make grunts use pain_death_sound
 	bool isMechanical = ent.IsMechanical()
 	bool silentDeath = "silentDeath" in ent.s
-	bool pinkMistDeath = !isMechanical && bool( dpFlags & DF_DISSOLVE ) && bool( dpFlags & DF_GIB )
-	bool useGruntDeathSound = PainDeathSounds_GetBodyTypeOverride( ent ) == eBodyTypes.NPC_GRUNT
+	bool pinkMistDeath = !isMechanical && ent.IsDissolving() // DF_DISSOLVE + DF_GIB = ENTITY_DISSOLVE_PINKMIST, no need to fix sound here
+	bool useGruntDeathSound = PainDeathSounds_GetBodyTypeOverride( ent ) == eBodyTypes.NPC_GRUNT // modified in pain_death_sounds.gnut
 	bool doFleshGibSound = !isMechanical && !pinkMistDeath && ( silentDeath || !useGruntDeathSound )
 	//print( "isMechanical: " + string( isMechanical ) )
 	//print( "silentDeath: " + string( silentDeath ) )
@@ -814,6 +827,21 @@ string function GetDescStringForDamageFlags( int flags )
 
 // BELOW ARE MODIFIED FUNCTIONS
 #if SERVER
+// death package settings
+void function DeathPackage_SetDisabledForEntity( entity ent, bool disable )
+{
+	if ( !( ent in file.entDisabledDeathPackage ) )
+		file.entDisabledDeathPackage[ ent ] <- false // default value
+	file.entDisabledDeathPackage[ ent ] = disable
+}
+
+bool function DeathPackage_IsDisabledForEntity( entity ent )
+{
+	if ( !( ent in file.entDisabledDeathPackage ) )
+		return false // default value
+	return file.entDisabledDeathPackage[ ent ]
+}
+
 // headshotFX override
 void function DeathPackage_SetEntityHeadshotFXOverride( entity ent, asset headshotFX )
 {
