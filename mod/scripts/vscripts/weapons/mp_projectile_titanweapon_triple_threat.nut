@@ -26,6 +26,17 @@ void function OnProjectileCollision_titanweapon_triple_threat( entity projectile
 			local normal = Vector( 0, 0, 1 )
 			if( "collisionNormal" in projectile.s )
 				normal = projectile.s.collisionNormal
+
+			// adding visual fix: if client without mod installed hits a friendly target in close range
+			// they won't predict the impact effect
+			#if SERVER
+				if ( hitEnt.GetTeam() == projectile.GetTeam() )
+				{
+					vector explodePos = pos + expect vector( normal )
+					FixImpactEffectForProjectileAtPosition( projectile, explodePos ) // shared from _unpredicted_impact_fix.gnut
+				}
+			#endif
+			
 			projectile.GrenadeExplode( normal )
 		}
 	}

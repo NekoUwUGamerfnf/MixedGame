@@ -1196,9 +1196,7 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 			// this may require tons of resources to display?
 			impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
 			// convert asset to string
-			asset impactEffect = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.impact_effect_table )
-			string tempString = string( impactEffect )
-			string impactFXName = tempString.slice( 2, tempString.len() - 1 )
+			string impactFXName = GetImpactTableNameFromWeaponOrProjectile( weaponOrProjectile ) // shared from _unpredicted_impact_fix.gnut
 			impactData.impact_effect_table = impactFXName
 		}
 

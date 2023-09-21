@@ -62,13 +62,10 @@ void function OnProjectileExplode_weapon_flak_rifle( entity projectile )
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
 
 #if SERVER
-	// hardcoded fix...
 	if( mods.contains( "flak_cannon" ) )
 	{
-		float creationTime = projectile.GetProjectileCreationTime()
-		float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
-		if ( Time() < maxFixTime )
-			PlayImpactFXTable( projectile.GetOrigin(), projectile, "exp_softball_grenade", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+		// visual fix for client hitting near target
+		FixImpactEffectForProjectileAtPosition( projectile, projectile.GetOrigin() ) // shared from _unpredicted_impact_fix.gnut
 	}
 #endif
 }
