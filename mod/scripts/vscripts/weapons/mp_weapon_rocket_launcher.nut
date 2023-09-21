@@ -235,7 +235,7 @@ void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, v
         OnProjectileCollision_DirectHit( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
 #if SERVER
-	// visual fix checks, no need to handle refire cause refired projectile already unpredicted
+	// visual fix checks, no need to handle refiring cause refired projectile already unpredicted
 	array<string> mods = projectile.ProjectileGetMods()
 	bool shouldFixVisual = false
 	foreach ( string mod in NO_LOCK_REQUIRED_MODS )
