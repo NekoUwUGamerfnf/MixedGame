@@ -32,6 +32,7 @@ global function CreateRainbowDomeShield
 global function CreatePhysicsBarrel
 
 // player marvin
+global function NessyFunny_EnableMarvinScriptedAnim // this may cause sound loss so need a setting
 global function PlayerBecomeMarvin
 
 enum eMarvinMovement
@@ -48,12 +49,28 @@ enum eMarvinMovement
 	WELDING,
 	WASHING_WINDOW,
 
+	SCRIPTED_ANIMATION,
+
 	_count_
 }
+
+struct MarvinIntroAnim
+{
+	string animName
+	float initialTime = -1 // -1 means not modified
+	float actualLength = -1 // -1 means not modified
+	vector offset = < 0, 0, 0 >
+	table<string, float> introSounds // have to manually control intro sounds... otherwise all players on map can hear it
+	float introSoundRadius = 1500 // default value
+}
+
+// modifiable consts
+const float MARVIN_INTRO_ANIM_COOLDOWN = 15.0 // gets applied after animation end
 
 struct
 {
 	bool clientCommandsEnabled
+	bool fakeMarvinScriptedAnimEnabled = true // this may cause sound loss so need a setting
 
 	table<entity, bool> playerHasRGBHighlight
 	table<entity, bool> playerHasRainbowSkin
@@ -61,6 +78,8 @@ struct
 	table<entity, entity> playerFakeMarvin
 
 	table<entity, int> fakeMarvinMovementState
+	table<entity, float> playerNextFakeMarvinScriptedAnimAllowedTime
+	array<MarvinIntroAnim> marvinIntroAnims
 } file
 
 void function Nessie_Funny_Functions_Init()
@@ -106,6 +125,7 @@ void function Nessie_Funny_Functions_Init()
 	AddClientCommandCallback( "nessyoutfit", CC_SpawnNessyOutfit )
 
 	// marvin
+	InitMarvinIntroAnim()
 	RegisterSignal( "MarvinMoveAnimThink" )
 	AddClientCommandCallback( "becomemarvin", CC_PlayerBecomeFakeMarvin )
 
@@ -123,6 +143,7 @@ void function OnClientConnected( entity player )
 	file.playerHasRainbowSkin[ player ] <- false
 	file.playerFlipperMover[ player ] <- null
 	file.playerFakeMarvin[ player ] <- null
+	file.playerNextFakeMarvinScriptedAnimAllowedTime[ player ] <- 0.0
 }
 
 void function OnDecoyCreated( entity decoy )
@@ -240,7 +261,9 @@ void function RGB_Highlight( entity ent, bool showToAll = false, bool alwaysShow
 
 	// player specific
 	if ( ent.IsPlayer() )
+	{
 		file.playerHasRGBHighlight[ ent ] = true
+	}
 
 	OnThreadEnd(
 		function(): ( ent )
@@ -798,6 +821,57 @@ entity function CreatePhysicsBarrel( vector origin, vector angles )
 	return barrel
 }
 
+
+// init marvin scripted anim
+void function InitMarvinIntroAnim()
+{
+	// now we leave only freestyle, others needs testing
+	/*
+	MarvinIntroAnim greeter
+	greeter.animName = "commander_MP_flyin_marvin_greeter"
+	greeter.initialTime = -1 // needs testing
+	greeter.actualLength = -1
+	file.marvinIntroAnims.append( greeter )
+
+	MarvinIntroAnim highfive
+	highfive.animName = "commander_MP_flyin_marvin_highfive"
+	highfive.initialTime = -1 // needs testing
+	highfive.actualLength = -1
+	file.marvinIntroAnims.append( highfive )
+
+	MarvinIntroAnim salute
+	salute.animName = "commander_MP_flyin_marvin_salute"
+	salute.initialTime = -1 // needs testing
+	salute.actualLength = -1
+	file.marvinIntroAnims.append( salute )
+
+	MarvinIntroAnim glitch
+	glitch.animName = "commander_MP_flyin_marvin_glitch"
+	glitch.initialTime = -1 // needs testing
+	glitch.actualLength = -1
+	file.marvinIntroAnims.append( glitch )
+	*/
+
+	MarvinIntroAnim freestyle
+	freestyle.animName = "commander_MP_flyin_marvin_freestyle"
+	freestyle.initialTime = -1 // needs testing
+	freestyle.actualLength = 14
+	freestyle.offset = < 0, 0, 0 >
+	freestyle.introSounds = { 
+		["commander_marvin_freestyle_music"] = 0.0,
+		["commander_marvin_freestyle"] = 1.1,
+		["diag_mcor_marvin_dropship_cmdr_freestyle"] = 1.1,
+	}
+	freestyle.introSoundRadius = 800 // freestyle is loud, needs reduced sound radius
+	file.marvinIntroAnims.append( freestyle )
+}
+
+// this may cause sound loss so need a setting
+void function NessyFunny_EnableMarvinScriptedAnim( bool enable )
+{
+	file.fakeMarvinScriptedAnimEnabled = enable
+}
+
 // player controlled marvin
 entity function PlayerBecomeMarvin( entity player )
 {
@@ -805,6 +879,9 @@ entity function PlayerBecomeMarvin( entity player )
 		return
 
 	if ( !IsAlive( player ) )
+		return
+	
+	if ( player.IsTitan() || player.Anim_IsActive() || IsValid( player.GetParent() ) )
 		return
 	
 	int team = player.GetTeam()
@@ -825,7 +902,8 @@ entity function PlayerBecomeMarvin( entity player )
 	DeathPackage_SetDisabledForEntity( player, true )
 	file.playerFakeMarvin[ player ] = marvin
 	// how do I hide highlight for this player?
-	SetUpFakeMarvinHighlight( player )
+	// now doing loop in PlayerMarvinThink()
+	//SetUpFakeMarvinHighlight( player )
 
 	player.SetShieldHealthMax( 500 )
 	player.SetShieldHealth( 500 )
@@ -850,17 +928,17 @@ entity function PlayerBecomeMarvin( entity player )
 
 	marvin.SetBossPlayer( player )
 
-	marvin.Highlight_SetInheritHighlight( true )
 	// how do I hide highlight for their marvin?
-	SetUpFakeMarvinHighlight( marvin )
+	// now doing loop in PlayerMarvinThink()
+	//SetUpFakeMarvinHighlight( marvin )
+	marvin.Highlight_SetInheritHighlight( true )
 
 	marvin.SetParent( player, "ORIGIN" )
 	SetForceDrawWhileParented( marvin, true )
 	//marvin.SetTitle( player.GetPlayerName() ) // boss player can show title for npcs
-	// reworked here, we make player take damage instead of marvin re-direct damage
-	//AddEntityCallback_OnDamaged( marvin, OnPlayerFakeMarvinDamaged )
-	if ( BATTERY_SPAWNERS.contains( player.GetUID() ) )
-		HideName( marvin )
+	AddEntityCallback_OnDamaged( marvin, OnPlayerFakeMarvinDamaged )
+	//if ( BATTERY_SPAWNERS.contains( player.GetUID() ) )
+	//	HideName( marvin )
 	marvin.Signal( "StopDoingJobs" ) // stop automatic job think
 
 	thread PlayerMarvinThink( player, marvin )
@@ -870,30 +948,30 @@ entity function PlayerBecomeMarvin( entity player )
 
 void function SetUpFakeMarvinHighlight( entity ent )
 {
-	ent.e.hasDefaultEnemyHighlight = false
+	// now doing loop in PlayerMarvinThink(), no need to remove default enemy highlight
+	//ent.e.hasDefaultEnemyHighlight = false
 	Highlight_ClearEnemyHighlight( ent )
 	// friendly highlight
 	Highlight_SetFriendlyHighlight( ent, "sp_enemy_pilot" )
-	ent.Highlight_SetParam( 1, 0, < 1,1,1 > )
+	ent.Highlight_SetParam( 1, 0, HIGHLIGHT_COLOR_NEUTRAL )
 	// enemy highlight
 	Highlight_SetEnemyHighlight( ent, "sp_enemy_pilot" )
-	ent.Highlight_SetParam( 2, 0, < 1,1,1 > )
+	ent.Highlight_SetParam( 2, 0, HIGHLIGHT_COLOR_NEUTRAL )
 }
 
-// reworked here, we make player take damage instead of marvin re-direct damage
-/*
+// for better adjusting damage dealing to player
 void function OnPlayerFakeMarvinDamaged( entity marvin, var damageInfo )
 {
-	print( "fake marvin damaged!" )
+	//print( "fake marvin damaged!" )
 	entity owner = marvin.GetBossPlayer()
 	if ( IsValid( owner ) )
 	{
-		// this is only for damage indicator stuffs, player will sync health with marvin in PlayerMarvinThink()
 		owner.TakeDamage( 
 			DamageInfo_GetDamage( damageInfo ), 
 			DamageInfo_GetAttacker( damageInfo ), 
 			DamageInfo_GetAttacker( damageInfo ), 
 			{ // damage table
+				forceKill = DamageInfo_GetForceKill( damageInfo ),
 				weapon = DamageInfo_GetWeapon( damageInfo ),
 				origin = DamageInfo_GetDamagePosition( damageInfo ), 
 				force = DamageInfo_GetDamageForce( damageInfo ), 
@@ -903,12 +981,13 @@ void function OnPlayerFakeMarvinDamaged( entity marvin, var damageInfo )
 		)
 	}
 }
-*/
 
 void function PlayerMarvinThink( entity player, entity marvin )
 {
-	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "player_embarks_titan" ) // maybe no need to add this... embarking as marvin kills you!
+	marvin.EndSignal( "OnDestroy" )
 	marvin.EndSignal( "OnDeath" )
 
 	OnThreadEnd
@@ -917,6 +996,7 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		{
 			if ( IsValid( marvin ) )
 			{
+				marvin.Anim_Stop()
 				HideName( marvin )
 				if ( IsAlive( marvin ) )
 					marvin.Die()
@@ -924,6 +1004,7 @@ void function PlayerMarvinThink( entity player, entity marvin )
 			if ( IsValid( player ) )
 			{
 				// clean up
+				player.Anim_Stop()
 				player.SetNoTarget( false )
 				player.SetTrackEntity( null )
 				player.ClearTrackEntitySettings()
@@ -956,6 +1037,7 @@ void function PlayerMarvinThink( entity player, entity marvin )
 				//}
 
 				file.playerFakeMarvin[ player ] = null
+				file.playerNextFakeMarvinScriptedAnimAllowedTime[ player ] = 0.0
 			}
 		}
 	)
@@ -993,12 +1075,15 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		}
 
 		// visual effect
+		// looping to update highlight could be good
+		if ( !file.playerHasRGBHighlight[ player ] )
+			SetUpFakeMarvinHighlight( player )
 		HideName( player )
 		player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
 		// reworked here, we make player take damage instead of marvin re-direct damage
 		/*
 		player.SetInvulnerable()
-		player.NotSolid()
+		player.NotSolid() // non-solid makes player unable to take trigger_hurt damage
 		player.kv.CollisionGroup = 0 // TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 		*/
 		// movement limiter
@@ -1013,16 +1098,25 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		player.SetMaxHealth( marvin.GetMaxHealth() )
 		player.SetHealth( marvin.GetHealth() )
 		*/
-		marvin.SetInvulnerable()
+
+		// marvin effects
+		// looping to update highlight could be good
+		if ( !file.playerHasRGBHighlight[ player ] )
+			SetUpFakeMarvinHighlight( marvin )
+		//marvin.SetInvulnerable()
 		marvin.kv.CollisionGroup = 0 // TRACE_COLLISION_GROUP_BLOCK_WEAPONS
-		marvin.NotSolid()
+		//marvin.NotSolid() // non-solid entity won't show name, which is bad
 		marvin.SetShieldHealthMax( playerMaxShield )
 		marvin.SetShieldHealth( playerShield )
 		marvin.SetMaxHealth( playerMaxHealth )
 		marvin.SetHealth( playerHealth )
 
 		// marvin animations
-		if ( !player.IsOnGround() || player.IsWallRunning() || player.IsWallHanging() || player.IsTraversing() )
+		if ( !player.IsOnGround() 
+			 || player.IsWallRunning() 
+			 || player.IsWallHanging() 
+			 || player.IsTraversing() 
+			 )
 		{
 			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.IN_AIR )
 			{
@@ -1038,8 +1132,8 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		{
 			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.SPRINTING )
 			{
-				marvin.Anim_ScriptedPlay( "sp_sprint_tmp" ) // "a_combat_sprint"
 				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.SPRINTING
+				marvin.Anim_ScriptedPlay( "sp_sprint_tmp" ) // "a_combat_sprint"
 			}
 			//printt( "player marvin sprinting!" )
 		}
@@ -1047,28 +1141,47 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		{
 			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WALKING )
 			{
-				thread MarvinMoveAnimThink( player, marvin, "Walk_All", eMarvinMovement.WALKING ) // Walk_all_v2
 				//file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WALKING // state setup handled in MarvinMoveAnimThink()
+				thread MarvinMoveAnimThink( player, marvin, "Walk_All", eMarvinMovement.WALKING ) // Walk_all_v2
 			}
 			//printt( "player marvin walking!" )
 		}
 		*/
-		else if ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) )
+		// key combo: scripted animation
+		else if ( file.fakeMarvinScriptedAnimEnabled
+				  && file.playerNextFakeMarvinScriptedAnimAllowedTime[ player ] <= Time()
+				  && player.IsOnGround() 
+				  && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) )
+				  && ( player.IsInputCommandHeld( IN_ATTACK ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) 
+				  && player.IsInputCommandHeld( IN_MELEE ) 
+				  )
+		{
+			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.SCRIPTED_ANIMATION )
+			{
+				// stop looping and wait for animation end
+				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.SCRIPTED_ANIMATION
+				waitthread MarvinScriptedIntroAnim( player, marvin )
+				file.playerNextFakeMarvinScriptedAnimAllowedTime[ player ] = Time() + MARVIN_INTRO_ANIM_COOLDOWN // update cooldown
+			}
+		}
+		else if ( player.IsInputCommandHeld( IN_ZOOM ) 
+				  || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) 
+				  )
 		{
 			if ( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) )
 			{
 				if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WELDING )
 				{
-					marvin.Anim_ScriptedPlay( "mv_idle_weld" )
 					file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WELDING
+					marvin.Anim_ScriptedPlay( "mv_idle_weld" )
 				}
 			}
 			else
 			{
 				if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WASHING_WINDOW )
 				{
-					marvin.Anim_ScriptedPlay( "mv_idle_wash_window" )
 					file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WASHING_WINDOW
+					marvin.Anim_ScriptedPlay( "mv_idle_wash_window" )
 				}
 			}
 		}
@@ -1076,17 +1189,17 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		{
 			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WAVING )
 			{
-				marvin.Anim_ScriptedPlay( "mv_wave_unarmed" )
 				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WAVING
+				marvin.Anim_ScriptedPlay( "mv_wave_unarmed" )
 			}
 			//printt( "player marvin waving!" )
 		}
-		else
+		else // idle
 		{
 			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.IDLE )
 			{
-				marvin.Anim_ScriptedPlay( "mv_idle_unarmed" )
 				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.IDLE
+				marvin.Anim_ScriptedPlay( "mv_idle_unarmed" )
 			}
 			//printt( "player marvin idle!" )
 		}
@@ -1105,6 +1218,22 @@ void function PlayerMarvinThink( entity player, entity marvin )
 
 		WaitFrame()
 	}
+}
+
+void function MarvinPlayerTrackView( entity player )
+{
+	player.SetTrackEntity( player ) // Sets an entity to be viewed by this player in third person
+	//player.SetTrackEntity( GetNPCArray()[0] )
+	player.SetTrackEntityPitchLookMode( "orbit" )
+	player.SetTrackEntityYawLookMode( "orbit" )
+	player.SetTrackEntityDistanceMode( "scriptOffset" )
+	player.SetTrackEntityMinYaw( -180 )
+	player.SetTrackEntityMaxYaw( 180 )
+	player.SetTrackEntityMinPitch( -30 ) // was -89, which means max pitch view
+	player.SetTrackEntityMaxPitch( 44 ) // // was 89, which means max pitch view
+	player.SetTrackEntityOffset( < -150.0, 0, 30.0 > )
+	//player.SetTrackEntityOffsetDistance( -50.0 )
+	//player.SetTrackEntityOffsetHeight( 30.0 )
 }
 
 // parented move anim seems weird...
@@ -1155,18 +1284,136 @@ void function MarvinMoveAnimThink( entity player, entity marvin, string anim, in
 }
 */
 
-void function MarvinPlayerTrackView( entity player )
+// for playing dropship intro anims
+// might be kinda annoying...
+// bunch of stupid stuffs inside
+void function MarvinScriptedIntroAnim( entity player, entity marvin )
 {
-	player.SetTrackEntity( player ) // Sets an entity to be viewed by this player in third person
-	//player.SetTrackEntity( GetNPCArray()[0] )
-	player.SetTrackEntityPitchLookMode( "orbit" )
-	player.SetTrackEntityYawLookMode( "orbit" )
-	player.SetTrackEntityDistanceMode( "scriptOffset" )
-	player.SetTrackEntityMinYaw( -180 )
-	player.SetTrackEntityMaxYaw( 180 )
-	player.SetTrackEntityMinPitch( -89 )
-	player.SetTrackEntityMaxPitch( 89 )
-	player.SetTrackEntityOffset( < -150.0, 0, 30.0 > )
-	//player.SetTrackEntityOffsetDistance( -50.0 )
-	//player.SetTrackEntityOffsetHeight( 30.0 )
+	// EndSignals handled by PlayerMarvinThink()
+	player.FreezeControlsOnServer()
+
+	OnThreadEnd
+	(
+		function(): ( player, marvin )
+		{
+			if ( IsValid( player ) )
+			{
+				player.UnfreezeControlsOnServer()
+				player.ClearInvulnerable()
+				player.SetPhysics( MOVETYPE_WALK )
+			}
+			if ( IsValid( marvin ) )
+			{
+				marvin.Anim_Stop()
+				if ( IsAlive( player ) )
+				{
+					marvin.SetParent( player, "ORIGIN" )
+					marvin.SetOrigin( < 0, 0, 0 > )
+				}
+				marvin.ClearInvulnerable()
+			}
+		}
+	)
+
+	array<MarvinIntroAnim> validAnimations = clone file.marvinIntroAnims
+	MarvinIntroAnim randomAnim = validAnimations.getrandom()
+
+	// temp clear parent
+	marvin.ClearParent()
+	// since parent has been cleared, if player has RGB highlight we need to apply it for marvin
+	if ( file.playerHasRGBHighlight[ player ] )
+		thread RGB_Highlight( file.playerFakeMarvin[ player ], true )
+
+	// don't want marvin or player die here
+	marvin.SetInvulnerable()
+	player.SetInvulnerable()
+	// stop movements from here
+	player.SetVelocity( < 0, 0, 0 > )
+	marvin.SetVelocity( < 0, 0, 0 > )
+	player.SetPhysics( MOVETYPE_NOCLIP )
+	// needs to set offset for marvin
+	vector posWithOffset = player.GetOrigin() + randomAnim.offset
+	marvin.SetOrigin( posWithOffset )
+
+	marvin.Anim_ScriptedPlay( randomAnim.animName )
+	if ( randomAnim.initialTime > 0 )
+		marvin.Anim_SetInitialTime( randomAnim.initialTime )
+
+	// HACK and may cause sound loss on players
+	thread MarvinIntroSoundThink( marvin, randomAnim )
+
+	WaitEndFrame() // may works different with higher script_server_fps
+	// stop sound may loss if server or client unstable...
+	StopSoundOnEntity( marvin, "crow_mp_intro" )
+
+	if ( randomAnim.actualLength > 0 )
+		wait randomAnim.actualLength
+	else
+		wait marvin.GetSequenceDuration( randomAnim.animName )
+}
+
+void function MarvinIntroSoundThink( entity marvin, MarvinIntroAnim animStruct )
+{
+	marvin.EndSignal( "OnDestroy" )
+	marvin.EndSignal( "OnDeath" )
+
+	table<string, float> soundsTable = animStruct.introSounds
+	float soundRadius = animStruct.introSoundRadius
+
+	float startTime = Time()
+	if ( animStruct.initialTime > 0 )
+		startTime += animStruct.initialTime
+
+	array<string> soundsPlayed
+	while ( marvin.Anim_IsActive() )
+	{
+		foreach ( string soundName, float playDelay in soundsTable )
+		{
+			if ( soundsPlayed.contains( soundName ) )
+				continue
+			float soundPlayTime = startTime + playDelay
+			float soundMaxPlayTime = soundPlayTime + 0.2 // if we looped more than 0.2s before playing a sound, do nothing
+			if ( Time() >= soundPlayTime && Time() < soundMaxPlayTime )
+			{
+				PlayMarvinSoundToNearbyPlayers( marvin, soundName, soundRadius )
+				soundsPlayed.append( soundName )
+			}
+			else // if sound not played yet, try stop sound played by animation
+			{
+				// looping to stop sound may cause sound loss
+				// remove if it can be handled by PlayMarvinSoundToNearbyPlayers()
+				//StopSoundOnEntity( marvin, soundName )
+			}
+		}
+
+		WaitFrame()
+	}
+}
+
+void function PlayMarvinSoundToNearbyPlayers( entity marvin, string soundName, float radius )
+{
+	// try stop sound played by animation
+	// stop sound may loss if server or client unstable...
+	StopSoundOnEntity( marvin, soundName )
+	foreach ( entity player in GetAllPlayersInMarvinSoundRadius( marvin.GetOrigin(), radius ) )
+	{
+		EmitSoundOnEntityOnlyToPlayer( marvin, player, soundName )
+	}
+
+	// no need to track sound end, cause Anim_Stop() will clean them up on dead entities( pretty good )
+}
+
+array<entity> function GetAllPlayersInMarvinSoundRadius( vector pos, float radius )
+{
+	array<entity> targetPlayers
+	// only for living players, dead players can respawn and change position
+	foreach ( entity player in GetPlayerArray_Alive() )
+	{
+		if ( Distance( pos, player.GetOrigin() ) > radius )
+			continue
+
+		targetPlayers.append( player )
+	}
+
+	return targetPlayers
 }
