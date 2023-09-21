@@ -5,7 +5,7 @@ global function GamemodeAITdm_Init
 // these are now default settings
 const int SQUADS_PER_TEAM = 4 // was 3, vanilla seems to have 4 squads
 
-const int REAPERS_PER_TEAM = 2
+const int REAPERS_PER_TEAM = 3 // was 2, vanilla seems to have 3 reapers
 
 const int LEVEL_SPECTRES = 125
 const int LEVEL_STALKERS = 380
@@ -336,6 +336,8 @@ void function Spawner_Threaded( int team )
 	// handle prematch spawns
 	while( GetGameState() == eGameState.Prematch || GetGameState() == eGameState.Playing )
 	{
+		WaitFrame() // wait a frame each loop
+
 		Escalate( team )
 		
 		// TODO: this should possibly not count scripted npc spawns, probably only the ones spawned by this script
@@ -399,8 +401,6 @@ void function Spawner_Threaded( int team )
 			//print( "awaiting spawn wave to end..." )
 			wait 15.0 // wait after each spawn wave
 		}
-		
-		WaitFrame()
 	}
 }
 

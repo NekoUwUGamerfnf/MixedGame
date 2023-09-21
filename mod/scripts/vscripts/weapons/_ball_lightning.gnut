@@ -93,6 +93,12 @@ void function RegisterBallLightningDamage( int damageSourceId )
 
 void function OnBallLightningDamage( entity victim, var damageInfo )
 {
+	// vanilla crash fix: if attacker is not a player or projectile, we can't create 3D damage indicator on client
+	// needs to add DF_NO_INDICATOR to avoid crash
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) || !( attacker instanceof CBaseCombatCharacter ) )
+		DamageInfo_AddCustomDamageType( damageInfo, DF_NO_INDICATOR )
+
 	float damage = DamageInfo_GetDamage( damageInfo )
 
 	if ( damage <= 0 )
@@ -171,6 +177,11 @@ void function BallLightningThink( entity ballLightning, int damageSourceId )
 			if ( BALL_LIGHTNING_BURST_NUM > 1 )
 				wait BALL_LIGHTNING_BURST_PAUSE
 
+			// odd. why don't we update damageSourceId for projectiles?
+			entity parentEnt = ballLightning.GetParent()
+			if ( IsValid( parentEnt ) && parentEnt.IsProjectile() )
+				damageSourceId = parentEnt.ProjectileGetDamageSourceID()
+
 			vector origin = ballLightning.GetOrigin()
 			BallLightningZapTargets( ballLightning, origin, inflictorTeam, damageSourceId, ballLightning.e.ballLightningData, false )
 		}
@@ -180,19 +191,28 @@ void function BallLightningThink( entity ballLightning, int damageSourceId )
 
 void function BallLightningZapTargets( entity ballLightning, vector origin, int inflictorTeam, int damageSourceId, BallLightningData fxData, bool single )
 {
+	// note here: this is a pretty dangerous change, needs modified game logic files
+	// ServerCallback_OnTitanKilled() is not using "GetHeavyWeightEntityFromEncodedEHandle()"
+	// which means we can't pass a non-heavy weighted entity into it
+	// projectile stuffs are non-heavy weighted entity
+	// after owner being destroyed, the projectile will be passed as attacker and causes crash in ServerCallback_OnTitanKilled()
+	// in my modified game logic files this has been fixed
+	// vanilla has no npc uses arcball weapons
+	// and using ball lightning as inflictor actually prevents the crash from happening
+	// but if a script mover without owner damages player
+	// the player will fail to create 3D damage indicator and crashes their game
+	// this can be fixed by adding DF_NO_INDICATOR to damageflags
+	// in this file I guess adding it in OnBallLightningDamage could be good
+	entity inflictor = ballLightning
+	entity parentEnt = ballLightning.GetParent()
+	if ( IsValid( parentEnt ) && parentEnt.IsProjectile() )
+		inflictor = parentEnt
+
 	RadiusDamage(
 	    origin,							// origin
 	    ballLightning.GetOwner(),		// owner
 	    //ballLightning,
-		// note here: this is a pretty dangerous change, needs modified game logic files
-		// ServerCallback_OnTitanKilled() is not using "GetHeavyWeightEntityFromEncodedEHandle()"
-		// which means we can't pass a non-heavy weighted entity into it
-		// projectile stuffs are non-heavy weighted entity
-		// after owner being destroyed, the projectile will be passed as attacker and causes crash in ServerCallback_OnTitanKilled()
-		// in my modified game logic files this has been fixed
-		// vanilla has no npc uses arcball weapons
-		// and using ball lightning as inflictor actually prevents the crash from happening
-		ballLightning.GetParent(),		// inflictor. change to use projectile, not scriptMover
+		inflictor,						// inflictor. change to use projectile, not scriptMover
 	    fxData.damageToPilots,			// normal damage
 	    fxData.damage,					// heavy armor damage
 	    fxData.radius,					// inner radius
