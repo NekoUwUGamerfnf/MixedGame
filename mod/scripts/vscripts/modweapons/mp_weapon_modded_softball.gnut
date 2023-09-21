@@ -308,18 +308,17 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
 	entity owner = weapon.GetWeaponOwner()
 
-	asset fxAsset = weapon.GetWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
-	float explosionDelay = weapon.GetWeaponSettingFloat( eWeaponVar.grenade_fuse_time )
-	asset impactEffect = weapon.GetWeaponSettingAsset( eWeaponVar.impact_effect_table )
-    string tempString = string( impactEffect )
-    string impactFXName = tempString.slice( 2, tempString.len() - 1 )
-
 	if ( nade )
-		InitSoftballGrenade( nade, weapon, owner, fxAsset, explosionDelay, impactFXName )
+	{
+		InitSoftballGrenade( nade, weapon, owner )
+	}
 }
 
-void function InitSoftballGrenade( entity nade, entity weapon, entity owner, asset fxAsset, float explosionDelay, string impactFXName )
+void function InitSoftballGrenade( entity nade, entity weapon, entity owner )
 {
+	asset fxAsset = weapon.GetWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+	float explosionDelay = weapon.GetWeaponSettingFloat( eWeaponVar.grenade_fuse_time )
+
 	#if SERVER
 		Grenade_Init( nade, weapon )
 		thread DelayedStartParticleSystem( nade, fxAsset )
@@ -339,7 +338,7 @@ void function InitSoftballGrenade( entity nade, entity weapon, entity owner, ass
 	{
 		nade.SetModel( $"models/dev/empty_model.mdl" )
 		#if SERVER
-			AttachBallLightning( weapon, nade ) // this will make grenade a arcball
+			AttachBallLightning( weapon, nade ) // this will make grenade an arcball
 		#endif // SERVER
 	}
 	else if( weapon.HasMod( "smoke_softball" ) )
@@ -353,7 +352,7 @@ void function InitSoftballGrenade( entity nade, entity weapon, entity owner, ass
 	else if( weapon.HasMod( "grenade_launcher" ) )
 	{
 		#if SERVER
-			thread DetonateGrenadeAfterTime( nade, explosionDelay, impactFXName )
+			thread DetonateGrenadeAfterTime( nade, explosionDelay )
 		#endif
 	}
 	else if( weapon.HasMod( "stickybomb_launcher" ) )
@@ -529,20 +528,21 @@ void function DestroySoftballProjectile( entity projectile, float duration )
 		projectile.Destroy()
 }
 
-void function DetonateGrenadeAfterTime( entity projectile, float delay, string impactFXName )
+void function DetonateGrenadeAfterTime( entity projectile, float delay )
 {
 	projectile.EndSignal( "OnDestroy" )
 	projectile.EndSignal( "DetonateGrenade" )
 	// for better client visual
 	float startTime = Time()
 	OnThreadEnd(
-		function() : ( projectile, impactFXName, startTime )
+		function() : ( projectile, startTime )
 		{
 			if( IsValid( projectile ) )
 			{
+				vector explodePos = projectile.GetOrigin() + projectile.proj.savedOrigin
 				projectile.GrenadeExplode( projectile.proj.savedOrigin )
-				if( Time() - startTime <= 0.3 ) // not making it too loud, just server-forced prediction
-					PlayImpactFXTable( projectile.GetOrigin() + projectile.proj.savedOrigin, projectile, impactFXName, SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+				// visual fix for client hitting near target
+				FixImpactEffectForProjectileAtPosition( projectile, explodePos ) // shared from _unpredicted_impact_fix.gnut
 			}
 		}
 	)
@@ -663,27 +663,23 @@ void function OnWeaponReload_weapon_moded_softball( entity weapon, int milestone
 		return
 
 	#if SERVER
-		// softball only have one milestone, maybe impossible to fix with milestoneIndex
+		// softball only have one milestone, maybe impossible to fix multiple reload firing
+		// do a loop to check whether we've fired grenade in current reload segment?
 		//print( "current milestoneIndex is: " + string( milestoneIndex ) )
 		entity owner = weapon.GetWeaponOwner()
-		vector pos = owner.EyePosition()
-		vector dir = owner.GetViewVector()
-		vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
-		int damageType = weapon.GetWeaponDamageFlags()
+		if ( !IsValid( owner ) )
+			return
 
-		entity nade = weapon.FireWeaponGrenade( pos, dir, angularVelocity, 0.0, damageType, damageType, false, true, true )
+		int	attach_id = weapon.LookupAttachment( "muzzle_flash" )
+		if ( attach_id < 0 )
+			return
 
-		asset fxAsset = weapon.GetWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
-		float explosionDelay = weapon.GetWeaponSettingFloat( eWeaponVar.grenade_fuse_time )
-		asset impactEffect = weapon.GetWeaponSettingAsset( eWeaponVar.impact_effect_table )
-		string tempString = string( impactEffect )
-		string impactFXName = tempString.slice( 2, tempString.len() - 1 )
+		WeaponPrimaryAttackParams attackParams
+		attackParams.pos = weapon.GetAttachmentOrigin( attach_id )
+		attackParams.dir = GetVectorFromPositionToCrosshair( owner, attackParams.pos )
 
-		if ( nade )
-		{
-			EmitSoundOnEntityOnlyToPlayer( owner, owner, "Weapon_Softball_Fire_1P" )
-			EmitSoundOnEntity( owner, "Weapon_Softball_Fire_3P" )
-			InitSoftballGrenade( nade, weapon, owner, fxAsset, explosionDelay, impactFXName )
-		}
+		EmitSoundOnEntityOnlyToPlayer( owner, owner, "Weapon_Softball_Fire_1P" )
+		EmitSoundOnEntity( owner, "Weapon_Softball_Fire_3P" )
+		OnWeaponPrimaryAttack_weapon_modded_softball( weapon, attackParams )
 	#endif
 }
