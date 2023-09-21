@@ -270,7 +270,7 @@ void function FireMissileStream_Spiral( entity weapon, WeaponPrimaryAttackParams
 
 	// the high projectile speed is a bug I made before
 	// actually it don't desync very much, just keep it
-	// otherwise it will be to hard to land shots with this weapon
+	// otherwise it will be too difficult to land shots with this weapon
 	if ( weapon.HasMod( "brute_rocket" ) ) // brute specific
 		missileSpeed = 3000
 

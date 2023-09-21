@@ -46,6 +46,12 @@ void function OnProjectileCollision_SpiralMissile( entity projectile, vector pos
 				thread StartClusterExplosions( projectile, owner, popcornInfo, CLUSTER_ROCKET_FX_TABLE )
 			}
 		}
+
+		// brute rocket specific
+		// it has higher rocket speed, don't want to make landing shots too difficult
+		// but we need to fix visual for it can work best
+		if ( projectile.ProjectileGetMods().contains( "brute_rocket" ) ) // visual fix checks, no need to handle refiring cause refired projectile already unpredicted
+			FixImpactEffectForProjectileAtPosition( projectile, pos )
 	#endif
 
 	if ( "spiralMissiles" in projectile.s )

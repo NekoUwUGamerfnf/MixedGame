@@ -217,15 +217,8 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 #if SERVER
 	if( mods.contains( "explosive_sniper" ) )
 	{
-		// hardcoded fix...
-		float creationTime = projectile.GetProjectileCreationTime()
-		float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
-		if ( Time() < maxFixTime )
-		{
-			//PlayImpactFXTable( pos, projectile, "40mm_splasher_rounds", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
-			// splasher rounds can be too loud, change to use this
-			PlayImpactFXTable( pos, projectile, "exp_softball_grenade", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
-		}
+		// visual fix for client hitting near target
+		FixImpactEffectForProjectileAtPosition( projectile, pos ) // shared from _unpredicted_impact_fix.gnut
 		// do a fake explosion effect for better client visual, hardcoded!
 		// correct this: it's because we played a single FX, not a impact table // this won't work due "projectile_do_predict_impact_effects"
 		//PlayImpactFXTable( pos, hitEnt, "" )

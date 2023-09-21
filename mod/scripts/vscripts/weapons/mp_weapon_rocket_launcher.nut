@@ -235,8 +235,8 @@ void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, v
         OnProjectileCollision_DirectHit( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
 #if SERVER
-	// visual fix think
-	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) 
+	// visual fix checks, no need to handle refiring cause refired projectile already unpredicted
+	array<string> mods = projectile.ProjectileGetMods()
 	bool shouldFixVisual = false
 	foreach ( string mod in NO_LOCK_REQUIRED_MODS )
 	{
@@ -249,11 +249,8 @@ void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, v
 	//print( "shouldFixVisual: " + string( shouldFixVisual ) )
 	if ( shouldFixVisual )
 	{
-		// do a fake explosion effect for better client visual, hardcoded!
-		float creationTime = projectile.GetProjectileCreationTime()
-		float maxFixTime = creationTime + 0.3 // hope this will pretty much fix client visual
-		if ( Time() < maxFixTime )
-			PlayImpactFXTable( pos, projectile, "exp_rocket_archer", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+		// do a fake explosion effect for better client visual
+		FixImpactEffectForProjectileAtPosition( projectile, pos ) // shared from _unpredicted_impact_fix.gnut
 	}
 #endif
 }
@@ -557,7 +554,7 @@ void function RocketEffectFix( entity weapon )
 
 	if( IsAlive( owner ) && IsValid( weapon ) )
 	{
-		// play a sound
+		// play a sound, hardcoded
 		EmitSoundOnEntityOnlyToPlayer( weapon, owner, "Weapon_Archer_Fire_1P" )
 
 		entity viewModelEnt = owner.GetViewModelEntity()
@@ -579,7 +576,8 @@ void function RocketMuzzleThink( entity weapon, entity owner )
 		return
 
 	// firstperson fx, force play it on vm
-	entity fx = PlayFXOnEntity( $"P_wpn_muzzleflash_law_fp", viewModelEnt, "muzzle_flash" )
+	asset muzzleFX = weapon.GetWeaponSettingAsset( eWeaponVar.fx_muzzle_flash_view )
+	entity fx = PlayFXOnEntity( muzzleFX, viewModelEnt, "muzzle_flash" )
 	fx.SetStopType( "DestroyImmediately" ) // ensure this fx gets destroyed immediately
 	viewModelEnt.EndSignal( "OnDestroy" )
 	owner.EndSignal( "OnDestroy" )

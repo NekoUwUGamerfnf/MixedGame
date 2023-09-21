@@ -409,10 +409,11 @@ void function OnEntitiesDidLoad()
 void function AT_ScoreEventsValueSetUp()
 {
 	// override settings
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.12, 0.10, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.10, 0.5 )
 
 	// BH specific
-	// in vanilla all titan kills seems to be 0 value
+	// in vanilla, autotitan kills seems to be 0 value
+	// but AT didn't split kills to autotitan and player titan, guess I'll keep 0
 	// was set to 0.15, 0.20
 	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.0, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.10, 0.5 )
