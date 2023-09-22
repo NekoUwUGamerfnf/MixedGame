@@ -18,20 +18,26 @@ const FUSE_TIME = 0.5 //Applies once the grenade has stuck to a surface.
 // modified callbacks
 void function OnWeaponActivate_weapon_softball( entity weapon )
 {
+	// modded softball in mp_weapon_modded_softball.gnut
 	if ( ModdedSoftball_WeaponHasMod( weapon ) )
 		return OnWeaponActivate_weapon_modded_softball( weapon )
+
+	// vanilla has no behavior
 }
 
 void function OnWeaponOwnerChanged_weapon_softball( entity weapon, WeaponOwnerChangedParams changeParams )
 {
+	// modded softball in mp_weapon_modded_softball.gnut
 	if ( ModdedSoftball_WeaponHasMod( weapon ) )
 		return OnWeaponOwnerChanged_weapon_modded_softball( weapon, changeParams )
+
+	// vanilla has no behavior
 }
 //
 
 var function OnWeaponPrimaryAttack_weapon_softball( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	// modded weapon
+	// modded softball in mp_weapon_modded_softball.gnut
 	if ( ModdedSoftball_WeaponHasMod( weapon ) )
 		return OnWeaponPrimaryAttack_weapon_modded_softball( weapon, attackParams )
 	//
@@ -57,6 +63,8 @@ var function OnWeaponPrimaryAttack_weapon_softball( entity weapon, WeaponPrimary
 var function OnWeaponNpcPrimaryAttack_weapon_softball( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	// npc not influenced by modded softball
+
+	// vanilla behavior
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 	FireGrenade( weapon, attackParams, true )
 }
@@ -85,7 +93,7 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 void function OnProjectileCollision_weapon_softball( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
-	// modded softball weapon
+	// modded softball in mp_weapon_modded_softball.gnut
 	if ( ModdedSoftball_ProjectileHasMod( projectile ) )
 		return OnProjectileCollision_weapon_modded_softball( projectile, pos, normal, hitEnt, hitbox, isCritical )
 	//
@@ -127,7 +135,10 @@ void function DetonateStickyAfterTime( entity projectile, float delay, vector no
 // modified callbacks
 void function OnWeaponReload_weapon_softball( entity weapon, int milestoneIndex )
 {
+	// modded softball in mp_weapon_modded_softball.gnut
 	if ( ModdedSoftball_WeaponHasMod( weapon ) )
 		return OnWeaponReload_weapon_moded_softball( weapon, milestoneIndex )
+
+	// vanilla has no behavior
 }
 //
