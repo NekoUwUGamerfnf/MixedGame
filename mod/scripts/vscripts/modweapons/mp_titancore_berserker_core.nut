@@ -158,16 +158,19 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 		// if player is sprinting while activating the core, they will have to wait the weapon pull out before first attack
 		if ( owner.IsPlayer() )
 			owner.HolsterWeapon() // to have deploy animation
-		// HACK fix: looping to limit player's weapon
-		thread BerserkerCoreLimitedWeapon( owner )
 
 		titan.SetActiveWeaponByName( "melee_titan_punch_fighter" )
 		
 		// pullout animation
 		if ( owner.IsPlayer() )
 			owner.DeployWeapon() // to have deploy animation
-		meleeWeapon.AddMod( "berserker_instant_deploy" ) // add instant deploy for we switch back to fist when player try to switch weapon
-		
+		// removing animation makes titan blanking melee
+		//meleeWeapon.AddMod( "berserker_instant_deploy" ) // add instant deploy for we switch back to fist when player try to switch weapon
+		meleeWeapon.AddMod( "berserker_fast_deploy" ) // using this now
+
+		// HACK fix: looping to limit player's weapon
+		thread BerserkerCoreLimitedWeapon( owner )
+
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( false )
 		//entity mainWeapon = titan.GetMainWeapons()[0]
@@ -332,7 +335,11 @@ void function BerserkerCoreLimitedWeapon( entity owner, string limitedWeapon = "
 		}
 		// also never allow switching to main weapon
 		if ( mainWeapons.contains( activeWeapon ) )
+		{
+			owner.HolsterWeapon() // show deploy animation, avoid blanking melee
 			owner.SetActiveWeaponByName( limitedWeapon )
+			owner.DeployWeapon()
+		}
 
 		activeWeaponLostLastTick = false
 	}
