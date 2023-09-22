@@ -18,30 +18,17 @@ global function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher
 global function OnWeaponNpcPrimaryAttack_S2S_weapon_rocket_launcher
 #endif // #if SERVER
 
+
 //14 //RUMBLE_FLAT_BOTH
 const LOCKON_RUMBLE_INDEX 	= 1 //RUMBLE_PISTOL
 const LOCKON_RUMBLE_AMOUNT	= 45
 const S2S_MISSILE_SPEED = 2500
 const S2S_MISSILE_HOMING = 5000
 
-// modded rocket
-const array<string> NO_LOCK_REQUIRED_MODS = // we should fix visual for these mods
-[
-	"no_lock_required",
-	"guided_missile",
-]
-const float GUIDED_MISSILE_LIFETIME = 20 // guided missile lifetiime
-// visual fix
-struct
-{
-	table<entity, entity> rocketLaserTable // save existing laser effect
-} file
-
 function MpWeaponRocketLauncher_Init()
 {
 	RegisterSignal( "StopLockonRumble" )
 	RegisterSignal( "StopGuidedLaser" )
-	RegisterSignal( "ADSLaserStop" )
 }
 
 function MissileThink( weapon, missile )
@@ -75,6 +62,11 @@ function MissileThink( weapon, missile )
 
 void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 {
+	// modded archer in mp_weapon_modded_archer.gnut
+	if ( ModdedArcher_WeaponHasMod( weapon ) )
+		return OnWeaponActivate_weapon_modded_archer( weapon )
+
+	// vanilla behavior
 	if ( !( "initialized" in weapon.s ) )
 	{
 		weapon.s.missileThinkThread <- MissileThink
@@ -85,12 +77,7 @@ void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 
 	if ( !hasGuidedMissiles )
 	{
-		// modded weapon
-		if( weapon.HasMod("no_lock_required") )
-			SmartAmmo_SetAllowUnlockedFiring( weapon, true )
-		else // vanilla behavior
-			SmartAmmo_SetAllowUnlockedFiring( weapon, !IsMultiplayer() )
-			
+		SmartAmmo_SetAllowUnlockedFiring( weapon, !IsMultiplayer() )
 		if ( IsSingleplayer() )
 		{
 			SmartAmmo_SetMissileSpeed( weapon, 1750 )
@@ -141,24 +128,29 @@ void function OnWeaponActivate_weapon_rocket_launcher( entity weapon )
 
 void function OnWeaponDeactivate_weapon_rocket_launcher( entity weapon )
 {
+	// modded archer in mp_weapon_modded_archer.gnut
+	if ( ModdedArcher_WeaponHasMod( weapon ) )
+		return OnWeaponDeactivate_weapon_modded_archer( weapon )		
+
+	// vanilla behavior
 	if ( weapon.HasMod( "guided_missile" ) )
-	{
 		weapon.Signal( "StopGuidedLaser" )
-	}
 
 	// modified to add rocket lasers
 	entity weaponOwner = weapon.GetWeaponOwner()
 #if SERVER
 	if ( weaponOwner.IsNPC() )
 		weapon.StopWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim" )
-	
-	// defensive fix
-	ADSLaserEnd( weapon )
 #endif
 }
 
 var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded archer in mp_weapon_modded_archer.gnut
+	if ( ModdedArcher_WeaponHasMod( weapon ) )
+		return OnWeaponPrimaryAttack_weapon_modded_archer( weapon, attackParams )
+
+	// vanilla behavior
 	entity weaponOwner = weapon.GetWeaponOwner()
 
 	float zoomFrac = weaponOwner.GetZoomFrac()
@@ -180,12 +172,6 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 		if ( fired )
 		{
 			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
-
-			// no lock required version
-			#if SERVER
-				if ( weapon.HasMod( "no_lock_required" ) )
-					RocketEffectFix( weapon )
-			#endif
 		}
 
 		return fired
@@ -218,41 +204,8 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 			}
 
 			InitializeGuidedMissile( weaponOwner, missile )
-			// modified here
-			#if SERVER
-				RocketEffectFix( weapon ) // fix effect
-				thread GuidedMissileReloadThink( weapon, weaponOwner, missile ) // for better missile controling?
-			#endif
 		}
 	}
-}
-
-void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
-{
-	array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile )
-	// direct hit
-	if ( refiredMods.contains( "direct_hit" ) )
-        OnProjectileCollision_DirectHit( projectile, pos, normal, hitEnt, hitbox, isCritical )
-
-#if SERVER
-	// visual fix checks, no need to handle refiring cause refired projectile already unpredicted
-	array<string> mods = projectile.ProjectileGetMods()
-	bool shouldFixVisual = false
-	foreach ( string mod in NO_LOCK_REQUIRED_MODS )
-	{
-		if ( mods.contains( mod ) )
-		{
-			shouldFixVisual = true
-			break
-		}
-	}
-	//print( "shouldFixVisual: " + string( shouldFixVisual ) )
-	if ( shouldFixVisual )
-	{
-		// do a fake explosion effect for better client visual
-		FixImpactEffectForProjectileAtPosition( projectile, pos ) // shared from _unpredicted_impact_fix.gnut
-	}
-#endif
 }
 
 #if SERVER
@@ -273,6 +226,11 @@ var function OnWeaponNpcPrimaryAttack_S2S_weapon_rocket_launcher( entity weapon,
 
 var function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded archer in mp_weapon_modded_archer.gnut
+	if ( ModdedArcher_WeaponHasMod( weapon ) )
+		return OnWeaponNpcPrimaryAttack_weapon_modded_archer( weapon, attackParams )
+
+	// vanilla behavior
 	// NPC can shoot the weapon at non-players, but when shooting at players it must be a titan
 	// nessie: add back this if we need
 	if ( weapon.HasMod( "npc_disable_fire_at_pilot" ) ) // now specified for this mod
@@ -284,7 +242,7 @@ var function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher( entity weapon, Wea
 			if ( IsValid( enemy ) )
 			{
 				if ( enemy.IsPlayer() && !enemy.IsTitan() )
-					return 0
+					return
 			}
 		}
 	}
@@ -356,7 +314,7 @@ function InitializeGuidedMissile( entity weaponOwner, entity missile )
 		else
 			weaponOwner.s.missileInFlight <- true
 
-		missile.kv.lifetime = GUIDED_MISSILE_LIFETIME
+		missile.kv.lifetime = 10
 
 		#if SERVER
 			missile.SetOwner( weaponOwner )
@@ -388,6 +346,11 @@ function playerHasMissileInFlight( entity weaponOwner, entity missile )
 
 void function OnWeaponOwnerChanged_weapon_rocket_launcher( entity weapon, WeaponOwnerChangedParams changeParams )
 {
+	// modded archer in mp_weapon_modded_archer.gnut
+	if ( ModdedArcher_WeaponHasMod( weapon ) )
+		return OnWeaponOwnerChanged_weapon_modded_archer( weapon, changeParams )
+
+	// vanilla behavior
 	#if SERVER
 		weapon.w.missileFiredCallback = null
 	#endif
@@ -395,228 +358,29 @@ void function OnWeaponOwnerChanged_weapon_rocket_launcher( entity weapon, Weapon
 
 
 // modded callbacks
+void function OnProjectileCollision_weapon_rocket_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
+{
+	// modded archer in mp_weapon_modded_archer.gnut
+	if ( ModdedArcher_ProjectileHasMod( projectile ) )
+		return OnProjectileCollision_weapon_modded_archer( projectile, pos, normal, hitEnt, hitbox, isCritical )
+
+	// vanilla has no behavior
+}
+
 void function OnWeaponStartZoomIn_weapon_rocket_launcher( entity weapon )
 {
-	if( !weapon.HasMod( "guided_missile" ) )
-		return
-#if SERVER
-	ADSLaserStart( weapon )
-#endif
+	// modded archer in mp_weapon_modded_archer.gnut
+	if ( ModdedArcher_WeaponHasMod( weapon ) )
+		return OnWeaponStartZoomIn_weapon_modded_archer( weapon )
+
+	// vanilla has no behavior
 }
 
 void function OnWeaponStartZoomOut_weapon_rocket_launcher( entity weapon )
 {
-	if( !weapon.HasMod( "guided_missile" ) )
-		return
-	entity weaponOwner = weapon.GetWeaponOwner()
-#if SERVER
-	ADSLaserEnd( weapon )
-#endif
+	// modded archer in mp_weapon_modded_archer.gnut
+	if ( ModdedArcher_WeaponHasMod( weapon ) )
+		return OnWeaponStartZoomOut_weapon_modded_archer( weapon )
+
+	// vanilla has no behavior
 }
-
-// modded functions
-#if SERVER
-void function ADSLaserStart( entity weapon )
-{
-	thread ADSLaserStart_Threaded( weapon )
-}
-
-void function ADSLaserStart_Threaded( entity weapon )
-{
-	ADSLaserEnd( weapon ) // defensive fix: stop existing laser
-	
-	entity owner = weapon.GetWeaponOwner()
-	if ( !IsValid( owner ) )
-		return
-	if ( !owner.IsPlayer() )
-		return
-
-	WaitFrame()
-	if( !IsAlive( owner ) || !IsValid( weapon ) )
-		return
-	if( owner.GetActiveWeapon() != weapon )
-		return
-
-	entity viewModelEnt = owner.GetViewModelEntity()
-	if ( IsValid( viewModelEnt ) && EntHasModelSet( viewModelEnt ) )
-	{
-		if ( !( viewModelEnt in file.rocketLaserTable ) )
-			file.rocketLaserTable[ viewModelEnt ] <- null
-		if ( IsValid( file.rocketLaserTable[ viewModelEnt ] ) ) // already has a laser valid
-			return
-		// get attachment validation
-		int attachID = viewModelEnt.LookupAttachment( "flashlight" )
-		if ( attachID <= 0 )
-			return
-		// make non_predicted client have proper fx
-		entity fx = PlayLoopFXOnEntity( $"P_wpn_lasercannon_aim", viewModelEnt, "flashlight" )
-		fx.SetStopType( "DestroyImmediately" ) // ensure this fx gets destroyed immediately
-		file.rocketLaserTable[ viewModelEnt ] = fx
-	}
-	// thirdperson fx
-	weapon.PlayWeaponEffect( $"", $"P_wpn_lasercannon_aim", "flashlight" )
-}
-
-void function ADSLaserEnd( entity weapon )
-{
-	entity owner = weapon.GetWeaponOwner()
-	if ( !IsValid( owner ) )
-		return
-	if ( !owner.IsPlayer() )
-		return
-
-	entity viewModelEnt = owner.GetViewModelEntity()
-	if ( IsValid( viewModelEnt ) )
-	{
-		entity laserFX
-		if ( viewModelEnt in file.rocketLaserTable )
-			laserFX = file.rocketLaserTable[ viewModelEnt ]
-		if ( IsValid( laserFX ) )
-		{
-			EntFireByHandle( laserFX, "Stop", "", 0, null, null )
-			laserFX.Destroy()
-		}
-	}
-	// thirdperson fx
-	weapon.StopWeaponEffect( $"", $"P_wpn_lasercannon_aim" )
-}
-
-// modified function
-void function GuidedMissileReloadThink( entity weapon, entity weaponOwner, entity missile )
-{
-	if( !weaponOwner.IsPlayer() )
-		return
-	weapon.EndSignal( "OnDestroy" )
-	weaponOwner.EndSignal( "OnDeath" )
-	weaponOwner.EndSignal( "OnDestroy" )
-	missile.EndSignal( "OnDestroy" ) // wait for missile explode
-
-	table fireInterval = {}
-	fireInterval.timeLeft <- 0.0
-
-	OnThreadEnd
-	(
-		function():( weapon, weaponOwner, fireInterval )
-		{
-			//print( "guiding end!" )
-			if( IsValid( weapon ) )
-			{
-				thread DelayedEnableRocketAttack( weapon, expect float ( fireInterval.timeLeft ) )
-				//weapon.RemoveMod( "disable_reload" ) // client can't predict this
-			}
-		}
-	)
-	
-	// try to prevent SetNextAttackAllowedTime() during a firing interval( which will make it not work )
-	float minReloadDelay = 1 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
-	fireInterval.timeLeft = minReloadDelay
-	float minReloadTime = Time() + minReloadDelay
-	weapon.AddMod( "disable_reload" ) // client can't predict this and it's not necessary, just to prevent softlock
-	while( true )
-	{
-		if ( Time() >= minReloadTime ) // must in valid reload time to trigger manually reloading
-		{
-			fireInterval.timeLeft = 0.0
-			if( weaponOwner.IsInputCommandHeld( IN_RELOAD ) || weaponOwner.IsInputCommandHeld( IN_USE_AND_RELOAD ) )
-				break
-			if( weaponOwner.GetActiveWeapon() != weapon )
-				break
-			if( !weapon.IsWeaponAdsButtonPressed() )
-				break
-		}
-		else // still in interval
-			fireInterval.timeLeft = minReloadTime - Time()
-		WaitFrame()
-	}
-	//print( "guiding interrupted!" )
-}
-
-const float GUIDED_MISSILE_RELOAD_INTERVAL = 0.3
-void function DelayedEnableRocketAttack( entity weapon, float delay )
-{
-	weapon.EndSignal( "OnDestroy" )
-	wait delay + GUIDED_MISSILE_RELOAD_INTERVAL
-	// refresh next attack time, so the weapon will start reloading. add 0.3s more for defensive fix
-	weapon.SetNextAttackAllowedTime( Time() + GUIDED_MISSILE_RELOAD_INTERVAL )
-	//weapon.SetWeaponPrimaryClipCount( 0 )
-	// try to prevent SetNextAttackAllowedTime() while reloading, which will break ammo system
-	wait GUIDED_MISSILE_RELOAD_INTERVAL + 0.2
-	weapon.RemoveMod( "disable_reload" )
-}
-
-void function RocketEffectFix( entity weapon )
-{
-	entity owner = weapon.GetWeaponOwner()
-	if ( !IsValid( owner ) )
-		return
-	if ( !owner.IsPlayer() )
-		return
-
-	if( IsAlive( owner ) && IsValid( weapon ) )
-	{
-		// play a sound, hardcoded
-		EmitSoundOnEntityOnlyToPlayer( weapon, owner, "Weapon_Archer_Fire_1P" )
-
-		entity viewModelEnt = owner.GetViewModelEntity()
-		// firstperson fx, force play it on vm
-		if ( IsValid( viewModelEnt ) )
-			thread RocketMuzzleThink( weapon, owner )
-	}
-}
-
-const float MUZZLE_MAX_DURATION = 2.0 // assume this is the fx's duration
-void function RocketMuzzleThink( entity weapon, entity owner )
-{
-	entity viewModelEnt = owner.GetViewModelEntity()
-	if ( !IsValid( viewModelEnt ) || !EntHasModelSet( viewModelEnt ) )
-		return
-	// get attachment validation
-	int attachID = viewModelEnt.LookupAttachment( "muzzle_flash" )
-	if ( attachID <= 0 )
-		return
-
-	// firstperson fx, force play it on vm
-	asset muzzleFX = weapon.GetWeaponSettingAsset( eWeaponVar.fx_muzzle_flash_view )
-	entity fx = PlayFXOnEntity( muzzleFX, viewModelEnt, "muzzle_flash" )
-	fx.SetStopType( "DestroyImmediately" ) // ensure this fx gets destroyed immediately
-	viewModelEnt.EndSignal( "OnDestroy" )
-	owner.EndSignal( "OnDestroy" )
-	fx.EndSignal( "OnDestroy" )
-
-	OnThreadEnd
-	(
-		function(): ( fx )
-		{
-			if ( IsValid( fx ) )
-			{
-				//print( "try to stop muzzle fx" )
-				EffectStop( fx )
-			}
-			//else
-			//	print( "fx destroyed" )
-		}
-	)
-
-	float endTime = Time() + MUZZLE_MAX_DURATION
-	while ( Time() < endTime )
-	{
-		entity activeWeapon = owner.GetActiveWeapon()
-		if ( !IsValid( activeWeapon ) )
-			break
-		if ( activeWeapon != weapon ) // player switched weapon...
-		{
-			//print( "player switched weapon!" )
-			break // try to stop fx
-		}
-		WaitFrame()
-	}
-}
-
-void function DelayedRocketLaserStart( entity weapon, entity weaponOwner )
-{
-	if ( IsValid( weapon ) && IsValid( weaponOwner ) && weapon == weaponOwner.GetActiveWeapon() )
-	{
-		weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
-	}
-}
-#endif
