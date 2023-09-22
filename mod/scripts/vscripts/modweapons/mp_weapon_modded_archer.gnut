@@ -29,23 +29,37 @@ const array<string> MODDED_ARCHER_MODS = // we run this script if archer has the
 	"cruise_missile",
 ]
 
+// in this file all archers should have ability to direct fire
+/*
 const array<string> NO_LOCK_REQUIRED_MODS = // we should fix visual for these mods
 [
 	"no_lock_required",
 	"guided_missile",
 ]
+*/
 
+// modifiable consts
 const float GUIDED_MISSILE_LIFETIME = 20 // guided missile lifetiime
-// visual fix
+const float CRUISE_MISSILE_LIFETIME = 99999 // infinite lifetime cause I don't want make missile early detonate
+
 struct
 {
+	// visual fix
 	table<entity, entity> rocketLaserTable // save existing laser effect
+
+	table<entity, entity> playerActiveCruiseMissile
 } file
 
 void function MpWeaponModdedArcher_Init()
 {
 	RegisterSignal( "StopGuidedLaser" )
-	RegisterSignal( "ADSLaserStop" )
+
+	#if SERVER
+		RegisterSignal( "CalculateCruiseMissilePoint" )
+		RegisterSignal( "MissileImpact" )
+
+		AddCallback_OnClientConnected( OnClientConnected )
+	#endif
 }
 
 // mainly shared utility with mp_weapon_modded_archer.nut
@@ -72,6 +86,11 @@ bool function ModdedArcher_ProjectileHasMod( entity projectile )
 	return false
 }
 //
+
+void function OnClientConnected( entity player )
+{
+	file.playerActiveCruiseMissile[ player ] <- null
+}
 
 function MissileThink( weapon, missile )
 {
@@ -115,10 +134,11 @@ void function OnWeaponActivate_weapon_modded_archer( entity weapon )
 	if ( !hasGuidedMissiles )
 	{
 		// modded weapon
-		if( weapon.HasMod("no_lock_required") )
+		// in this file all archers should have ability to direct fire
+		//if( weapon.HasMod("no_lock_required") )
 			SmartAmmo_SetAllowUnlockedFiring( weapon, true )
-		else // vanilla behavior
-			SmartAmmo_SetAllowUnlockedFiring( weapon, false )
+		//else // vanilla behavior
+		//	SmartAmmo_SetAllowUnlockedFiring( weapon, false )
 		
 		SmartAmmo_SetMissileSpeed( weapon, 1200 )
 		SmartAmmo_SetMissileHomingSpeed( weapon, 125 )
@@ -140,6 +160,13 @@ void function OnWeaponActivate_weapon_modded_archer( entity weapon )
 			weaponOwner.s.guidedLaserPoint <- null
 		
 		thread CalculateGuidancePoint( weapon, weaponOwner )
+	}
+
+	if ( weapon.HasMod( "cruise_missile" ) )
+	{
+		#if SERVER
+			thread CalculateCruiseMissilePoint( weapon, weaponOwner )
+		#endif
 	}
 
 	// modified to add rocket lasers
@@ -183,24 +210,7 @@ var function OnWeaponPrimaryAttack_weapon_modded_archer( entity weapon, WeaponPr
 			attackParams.pos = attackParams.pos + up * 20
 	#endif
 
-	if ( !weapon.HasMod( "guided_missile" ) )
-	{
-		int fired = SmartAmmo_FireWeapon( weapon, attackParams, damageTypes.projectileImpact, damageTypes.explosive )
-
-		if ( fired )
-		{
-			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
-
-			// no lock required version
-			#if SERVER
-				if ( weapon.HasMod( "no_lock_required" ) )
-					RocketEffectFix( weapon )
-			#endif
-		}
-
-		return fired
-	}
-	else
+	if ( weapon.HasMod( "guided_missile" ) ) // guided missile variant
 	{
 		if( !weapon.IsWeaponAdsButtonPressed() )
 			return 0
@@ -235,6 +245,47 @@ var function OnWeaponPrimaryAttack_weapon_modded_archer( entity weapon, WeaponPr
 			#endif
 		}
 	}
+	else if ( weapon.HasMod( "cruise_missile" ) ) // COD-like cruise missile
+	{
+		//if ( IsValid( file.playerActiveCruiseMissile[ weaponOwner ] ) )
+		//	return 0
+
+		bool shouldPredict = weapon.ShouldPredictProjectiles()
+		#if CLIENT
+			if ( !shouldPredict )
+				return 1
+		#endif
+
+		float speed = 1500.0
+
+		entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, speed, damageTypes.projectileImpact | DF_IMPACT, damageTypes.explosive, false, shouldPredict )
+
+		if ( missile )
+		{
+			#if SERVER
+				RocketEffectFix( weapon ) // emit sound only
+				thread CruiseMissileThink( weapon, weaponOwner, missile )
+			#endif
+		}
+	}
+	else // basic firing
+	{
+		int fired = SmartAmmo_FireWeapon( weapon, attackParams, damageTypes.projectileImpact, damageTypes.explosive )
+
+		if ( fired )
+		{
+			weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
+
+			// no lock required version
+			#if SERVER
+				// in this file all archers should have ability to direct fire
+				//if ( weapon.HasMod( "no_lock_required" ) )
+					RocketEffectFix( weapon )
+			#endif
+		}
+
+		return fired
+	}
 }
 
 void function OnProjectileCollision_weapon_modded_archer( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
@@ -245,8 +296,13 @@ void function OnProjectileCollision_weapon_modded_archer( entity projectile, vec
         OnProjectileCollision_DirectHit( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
 #if SERVER
+	// needed for cruise missile to get signal before missile gets destroyed
+	projectile.Signal( "MissileImpact" )
+
 	// visual fix checks, no need to handle refiring cause refired projectile already unpredicted
 	array<string> mods = projectile.ProjectileGetMods()
+	// in this file all archers should have ability to direct fire
+	/*
 	bool shouldFixVisual = false
 	foreach ( string mod in NO_LOCK_REQUIRED_MODS )
 	{
@@ -257,6 +313,8 @@ void function OnProjectileCollision_weapon_modded_archer( entity projectile, vec
 		}
 	}
 	//print( "shouldFixVisual: " + string( shouldFixVisual ) )
+	*/
+	bool shouldFixVisual = true // always do fix!
 	if ( shouldFixVisual )
 	{
 		// do a fake explosion effect for better client visual
@@ -319,7 +377,8 @@ function CalculateGuidancePoint( entity weapon, entity weaponOwner )
 			if ( IsValid( info_target ) )
 			{
 				info_target.Kill_Deprecated_UseDestroyInstead()
-				delete weapon.s.guidedMissileTarget
+				if ( IsValid( weapon ) ) // defensive fix
+					delete weapon.s.guidedMissileTarget
 			}
 		}
 	)
@@ -539,7 +598,8 @@ void function DelayedEnableRocketAttack( entity weapon, float delay )
 	weapon.RemoveMod( "disable_reload" )
 }
 
-void function RocketEffectFix( entity weapon )
+// Rocket Visual Effects
+void function RocketEffectFix( entity weapon, bool doSoundOnly = false )
 {
 	entity owner = weapon.GetWeaponOwner()
 	if ( !IsValid( owner ) )
@@ -551,6 +611,10 @@ void function RocketEffectFix( entity weapon )
 	{
 		// play a sound, hardcoded
 		EmitSoundOnEntityOnlyToPlayer( weapon, owner, "Weapon_Archer_Fire_1P" )
+
+		// do sound only
+		if ( doSoundOnly )
+			return
 
 		entity viewModelEnt = owner.GetViewModelEntity()
 		// firstperson fx, force play it on vm
@@ -614,4 +678,169 @@ void function DelayedRocketLaserStart( entity weapon, entity weaponOwner )
 		weapon.PlayWeaponEffect( $"P_wpn_lasercannon_aim", $"P_wpn_lasercannon_aim", "flashlight" )
 	}
 }
+
+// COD-Like Cruise Missile
+void function CruiseMissileThink( entity weapon, entity weaponOwner, entity missile )
+{
+	weaponOwner.EndSignal( "OnDestroy" )
+	weaponOwner.EndSignal( "OnDeath" )
+
+	if( "guidedMissileTarget" in weapon.s && IsValid( weapon.s.guidedMissileTarget ) )
+	{
+		missile.SetMissileTarget( weapon.s.guidedMissileTarget, Vector( 0, 0, 0 ) )
+		missile.SetHomingSpeeds( 300, 0 )
+	}
+
+	missile.kv.lifetime = CRUISE_MISSILE_LIFETIME
+	file.playerActiveCruiseMissile[ weaponOwner ] = missile
+
+	// now try to use viewcontrol entity
+	//CruiseMissilePlayerTrackView( weaponOwner, missile )
+
+	HolsterAndDisableWeapons( weaponOwner )
+	//weapon.AddMod( "disable_reload" ) // we'll change player's view, desync won't influence too much
+	
+	// also not working well
+	entity camera = CreateEntity( "point_viewcontrol" )
+	/*
+	camera.SetParent( missile, "exhaust" )
+	camera.SetAngles( < 180, 0, -90 > )
+	//camera.SetOrigin( < -100, 0, 80 > )
+	camera.kv.spawnflags = 56
+	DispatchSpawn( camera )
+
+	weaponOwner.SetViewEntity( camera, true )
+	*/
+
+	//HACK: using turret
+	entity turret = CreateTurretEnt( missile.GetOrigin(), missile.GetAngles(), null, ROCKET_TURRET_MODEL, "PROTO_at_turret" )
+	turret.Hide()
+	//turret.NotSolid()
+	turret.SetInvulnerable()
+	turret.SetParent( missile, "exhaust" ) // if missile gets destroyed, 
+	turret.SetAngles( < 180, 0, -90 > )
+	turret.GiveWeapon( "mp_weapon_rocket_launcher" )
+	DisableWeapons( turret, [] )
+
+	turret.SetDriver( weaponOwner )
+
+	// needed to avoid missile gets destroyed and player stuck in turret forever
+	AddEntityDestroyedCallback( 
+		missile, 
+		function( missile ) : ( missile, turret )
+		{
+			if ( IsValid( turret ) )
+				turret.ClearParent() // clear turret so it won't get destroyed
+		}
+	)
+
+	AddEntityDestroyedCallback( 
+		turret, 
+		function( turret ) : ( turret, weaponOwner )
+		{
+			if ( IsValid( turret ) )
+				turret.ClearDriver() // clear driver before turret actually gets destroyed
+		}
+	)
+
+	OnThreadEnd
+	(
+		function(): ( weapon, weaponOwner, camera, turret )
+		{
+			if ( IsValid( weaponOwner ) )
+			{
+				// now try to use viewcontrol entity
+				//weaponOwner.SetTrackEntity( null )
+				//weaponOwner.ClearTrackEntitySettings()
+
+				//weaponOwner.ClearViewEntity()
+				DeployAndEnableWeapons( weaponOwner )
+				ScreenFade( weaponOwner, 0, 0, 0, 255, 2, 0.2, (FFADE_IN | FFADE_PURGE) )
+
+				EmitSoundOnEntityOnlyToPlayer( weaponOwner, weaponOwner, "explo_archer_impact_3p" )
+
+				file.playerActiveCruiseMissile[ weaponOwner ] = null
+
+				// if missile accidentally gets destroyed, this is required to make player out of movement lock
+				if ( !IsValid( turret ) )
+					weaponOwner.Die( weaponOwner, weaponOwner, { damageSourceId = damagedef_suicide } )
+			}
+
+			if ( IsValid( weapon ) )
+			{
+				//weapon.RemoveMod( "disable_reload" )
+			}
+
+			if ( IsValid( camera ) )
+				camera.Destroy()
+
+			if ( IsValid( turret ) )
+			{
+				turret.ClearDriver()
+				turret.Destroy()
+			}
+		}
+	)
+
+	// can't use "OnDestroy" cause if missile gets destroyed when turret attach on it
+	// the player will be stuck forever
+	//WaitSignal( missile, "OnDestroy" )
+	WaitSignal( missile, "MissileImpact" )
+}
+
+void function CalculateCruiseMissilePoint( entity weapon, entity weaponOwner )
+{
+	weaponOwner.EndSignal( "OnDestroy" )
+	weaponOwner.EndSignal( "OnDeath" )
+	weaponOwner.Signal( "CalculateCruiseMissilePoint" )
+	weaponOwner.EndSignal( "CalculateCruiseMissilePoint" )
+	weapon.EndSignal( "OnDestroy" )
+
+	entity info_target = CreateEntity( "info_target" )
+	info_target.SetOrigin( weapon.GetOrigin() )
+	info_target.SetInvulnerable()
+	DispatchSpawn( info_target )
+	weapon.s.guidedMissileTarget <- info_target
+
+	OnThreadEnd(
+		function() : ( weapon, info_target )
+		{
+			if ( IsValid( info_target ) )
+			{
+				info_target.Kill_Deprecated_UseDestroyInstead()
+				if ( IsValid( weapon ) )
+					delete weapon.s.guidedMissileTarget
+			}
+		}
+	)
+
+	while ( true )
+	{
+		if ( !IsValid_ThisFrame( weaponOwner ) || !IsValid_ThisFrame( weapon ) )
+			return
+
+		TraceResults result = GetViewTrace( weaponOwner )
+		info_target.SetOrigin( result.endPos )
+
+		WaitFrame()
+	}
+}
+
+/*
+void function CruiseMissilePlayerTrackView( entity player, entity missile )
+{
+	player.SetTrackEntity( missile ) // Sets an entity to be viewed by this player in third person
+	//player.SetTrackEntity( GetNPCArray()[0] )
+	player.SetTrackEntityPitchLookMode( "orbit" )
+	player.SetTrackEntityYawLookMode( "orbit" )
+	player.SetTrackEntityDistanceMode( "scriptOffset" )
+	player.SetTrackEntityMinYaw( -180 )
+	player.SetTrackEntityMaxYaw( 180 )
+	player.SetTrackEntityMinPitch( -89 ) // was -89, which means max pitch view
+	player.SetTrackEntityMaxPitch( 89 ) // // was 89, which means max pitch view
+	player.SetTrackEntityOffset( < -150.0, 0, 50.0 > )
+	//player.SetTrackEntityOffsetDistance( -50.0 )
+	//player.SetTrackEntityOffsetHeight( 30.0 )
+}
+*/
 #endif
