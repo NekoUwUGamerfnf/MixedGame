@@ -315,7 +315,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	if ( !victim.IsTitan() ) // titan assist handled by ScoreEvent_TitanKilled()
 	{
 		// wrap into this function
-		ScoreEvent_PlayerAssist( damageHistorySaver, "PilotAssist" )
+		ScoreEvent_PlayerAssist( victim, attacker, "PilotAssist" )
 	}
 }
 
@@ -404,7 +404,7 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	{
 		//print( "damageHistorySaver valid! " + string( damageHistorySaver ) )
 		// wrap into this function
-		ScoreEvent_PlayerAssist( damageHistorySaver, "TitanAssist" )
+		ScoreEvent_PlayerAssist( damageHistorySaver, attacker, "TitanAssist" )
 	}
 }
 
@@ -646,11 +646,13 @@ void function ScoreEvent_SetMVPCompareFunc( IntFromEntityCompare func )
 }
 
 // wrap assist checks into this function
-void function ScoreEvent_PlayerAssist( entity victim, string eventName )
+void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string eventName )
 {
 	table<int, bool> alreadyAssisted
 	foreach( DamageHistoryStruct attackerInfo in victim.e.recentDamageHistory )
 	{
+		// Give all assisted player an extra score event
+		// Not for attack themselves only
 		//print( "attackerInfo.attacker: " + string( attackerInfo.attacker ) )
 		if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == victim )
 			continue
