@@ -108,7 +108,9 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 		return
 	//
 
-	ScoreEvent event = GetScoreEvent( scoreEventName )
+	// never directly modify a struct...
+	//ScoreEvent event = GetScoreEvent( scoreEventName )
+	ScoreEvent event = clone GetScoreEvent( scoreEventName )
 	
 	if ( !event.enabled || !IsValid( targetPlayer ) || !targetPlayer.IsPlayer() )
 		return
