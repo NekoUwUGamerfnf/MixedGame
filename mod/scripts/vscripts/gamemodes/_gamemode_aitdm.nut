@@ -709,14 +709,34 @@ void function ReaperHandler( entity reaper )
 		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
 		// try to find from alive player targets
 		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
-		// start searching
+
+		// we mostly search for heavy armor targets
+		bool foundHeavyArmorTarget = false
+		// first searching: heavy armor target
 		foreach ( entity ent in pointsToSearch )
 		{
 			// general check
 			if ( !IsValidNPCAssaultTarget( ent ) )
 				continue
 
-			points.append( ent )
+			if ( ent.GetArmorType() == ARMOR_TYPE_HEAVY )
+			{
+				points.append( ent )
+				foundHeavyArmorTarget = true
+			}
+		}
+		// fallsafe: can't find any heavyarmor target!
+		if ( !foundHeavyArmorTarget )
+		{
+			// use all targets instead
+			foreach ( entity ent in pointsToSearch )
+			{
+				// general check
+				if ( !IsValidNPCAssaultTarget( ent ) )
+					continue
+
+				points.append( ent )
+			}
 		}
 
 		ArrayRemoveDead( points ) // remove dead targets
