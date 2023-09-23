@@ -311,7 +311,7 @@ void function BerserkerCoreLimitedWeapon( entity owner, string limitedWeapon = "
 	owner.EndSignal( "OnDestroy" )
 
 	bool activeWeaponLostLastTick
-	while ( TitanCoreInUse( owner ) )
+	while ( IsValid( owner.GetTitanSoul() ) && TitanCoreInUse( owner ) )
 	{
 		WaitFrame()
 		

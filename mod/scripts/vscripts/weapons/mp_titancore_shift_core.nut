@@ -500,7 +500,7 @@ void function ShiftCoreLimitedWeapon( entity owner, string limitedWeapon = "mele
 	owner.EndSignal( "OnDestroy" )
 
 	bool activeWeaponLostLastTick
-	while ( TitanCoreInUse( owner ) )
+	while ( IsValid( owner.GetTitanSoul() ) && TitanCoreInUse( owner ) )
 	{
 		WaitFrame()
 		
