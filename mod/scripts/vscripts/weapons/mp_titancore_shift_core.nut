@@ -514,7 +514,7 @@ void function ShiftCoreLimitedWeapon( entity owner, string limitedWeapon = "mele
 		{
 			if ( activeWeaponLostLastTick )
 			{
-				owner.SetActiveWeaponByName( limitedWeapon )
+				ReDeployWeapon( owner, limitedWeapon )
 				activeWeaponLostLastTick = false
 			}
 			else
@@ -525,16 +525,21 @@ void function ShiftCoreLimitedWeapon( entity owner, string limitedWeapon = "mele
 		// also never allow switching to main weapon
 		if ( mainWeapons.contains( activeWeapon ) )
 		{
-			if ( owner.IsPlayer() )
-				owner.HolsterWeapon() // show deploy animation, avoid blanking melee
-			
-			owner.SetActiveWeaponByName( limitedWeapon )
-			
-			if ( owner.IsPlayer() )
-				owner.DeployWeapon()
+			ReDeployWeapon( owner, limitedWeapon )
 		}
 
 		activeWeaponLostLastTick = false
 	}
+}
+
+void function ReDeployWeapon( entity owner, string weaponName )
+{
+	if ( owner.IsPlayer() )
+		owner.HolsterWeapon() // show deploy animation, avoid blanking melee
+	
+	owner.SetActiveWeaponByName( weaponName )
+	
+	if ( owner.IsPlayer() )
+		owner.DeployWeapon()
 }
 #endif
