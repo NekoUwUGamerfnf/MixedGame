@@ -525,9 +525,13 @@ void function ShiftCoreLimitedWeapon( entity owner, string limitedWeapon = "mele
 		// also never allow switching to main weapon
 		if ( mainWeapons.contains( activeWeapon ) )
 		{
-			owner.HolsterWeapon() // show deploy animation, avoid blanking melee
+			if ( owner.IsPlayer() )
+				owner.HolsterWeapon() // show deploy animation, avoid blanking melee
+			
 			owner.SetActiveWeaponByName( limitedWeapon )
-			owner.DeployWeapon()
+			
+			if ( owner.IsPlayer() )
+				owner.DeployWeapon()
 		}
 
 		activeWeaponLostLastTick = false
