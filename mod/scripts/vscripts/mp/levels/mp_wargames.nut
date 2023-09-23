@@ -227,15 +227,15 @@ void function OnPrematchStart()
 	
 	entity militiaOgreMarvin1 = CreateMarvin( TEAM_UNASSIGNED, < -2113, 2911, -1412 >, < 0, 20, 0 > )
 	DispatchSpawn( militiaOgreMarvin1 )
-	thread PlayAnim( militiaOgreMarvin1, "mv_idle_weld" )
+	thread PlayAnim( militiaOgreMarvin1, "mv_idle_weld" ) // we also have "mv_wargames_intro", but it's not for this one...
 
 	entity militiaOgreMarvin2 = CreateMarvin( TEAM_UNASSIGNED, < -2040, 2788, -1412 >, < 0, 140, 0 > )
 	DispatchSpawn( militiaOgreMarvin2 )
-	thread PlayAnim( militiaOgreMarvin2, "mv_idle_weld" )
+	thread PlayAnim( militiaOgreMarvin2, "mv_idle_weld" ) // we also have "mv_wargames_intro", but it's not for this one...
 	
 	entity militiaOgreMarvin3 = CreateMarvin( TEAM_UNASSIGNED, < -2116, 2868, -1458 >, < 0, 127, 0 > )
 	DispatchSpawn( militiaOgreMarvin3 )
-	thread PlayAnim( militiaOgreMarvin3, "mv_turret_repair_A_idle" )
+	thread PlayAnim( militiaOgreMarvin3, "mv_turret_repair_A_idle" ) // we also have "mv_wargames_intro", but it's not for this one...
 	
 	entity militiaIon = CreatePropDynamic( $"models/titans/medium/titan_medium_ajax.mdl", < -1809.98, 2790.39, -1409 >, < 0, 80, 0 > )
 	thread PlayAnim( militiaIon, "at_titan_activation_wargames_intro" )

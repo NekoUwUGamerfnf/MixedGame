@@ -23,6 +23,7 @@ global function ScoreEvent_SetScoreEventNameOverride
 // nessie fix
 global function ScoreEvent_GetPlayerMVP
 global function ScoreEvent_SetMVPCompareFunc
+global function ScoreEvent_PlayerAssist
 global function AddTitanKilledDialogueEvent
 
 // nessie modify
@@ -313,21 +314,8 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	// assist. was previously be in _base_gametype_mp.gnut, which is bad. vanilla won't add assist on npc killing a player
 	if ( !victim.IsTitan() ) // titan assist handled by ScoreEvent_TitanKilled()
 	{
-		table<int, bool> alreadyAssisted
-		foreach( DamageHistoryStruct attackerInfo in victim.e.recentDamageHistory )
-		{
-			if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == victim )
-				continue
-
-			bool exists = attackerInfo.attacker.GetEncodedEHandle() in alreadyAssisted ? true : false
-			if( attackerInfo.attacker != attacker && !exists )
-			{
-				alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
-				Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time ) 
-				AddPlayerScore( attackerInfo.attacker, "PilotAssist", victim )
-				attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
-			}
-		}
+		// wrap into this function
+		ScoreEvent_PlayerAssist( victim, attacker, "PilotAssist" )
 	}
 }
 
@@ -415,22 +403,8 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	if ( IsValid( damageHistorySaver ) )
 	{
 		//print( "damageHistorySaver valid! " + string( damageHistorySaver ) )
-		table<int, bool> alreadyAssisted
-		foreach( DamageHistoryStruct attackerInfo in damageHistorySaver.e.recentDamageHistory )
-		{
-			//print( "attackerInfo.attacker: " + string( attackerInfo.attacker ) )
-			if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == victim )
-				continue
-				
-			bool exists = attackerInfo.attacker.GetEncodedEHandle() in alreadyAssisted ? true : false
-			if( attackerInfo.attacker != attacker && !exists )
-			{
-				alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
-				Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time )
-				AddPlayerScore( attackerInfo.attacker, "TitanAssist", victim )
-				attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
-			}
-		}
+		// wrap into this function
+		ScoreEvent_PlayerAssist( damageHistorySaver, attacker, "TitanAssist" )
 	}
 }
 
@@ -665,6 +639,41 @@ entity function ScoreEvent_GetPlayerMVP( int team = 0 )
 void function ScoreEvent_SetMVPCompareFunc( IntFromEntityCompare func )
 {
 	file.mvpCompareFunc = func
+}
+
+// wrap assist checks into this function
+void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string eventName )
+{
+	table<int, bool> alreadyAssisted
+	foreach( DamageHistoryStruct attackerInfo in victim.e.recentDamageHistory )
+	{
+		// Give all assisted player an extra score event
+		// Not for attack themselves only
+
+		//print( "attackerInfo.attacker: " + string( attackerInfo.attacker ) )
+		if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == victim )
+			continue
+
+		// checks for player owned entities
+		if ( attacker == victim.GetOwner() || attacker == victim.GetBossPlayer() )
+			continue
+
+		// if we're getting damage history from soul, should ignore their titan's self damage and owner's damage
+		if ( IsSoul( victim ) )
+		{
+			if ( attacker == victim.GetTitan() || attacker == victim.GetBossPlayer() )
+				continue
+		}
+		
+		bool exists = attackerInfo.attacker.GetEncodedEHandle() in alreadyAssisted ? true : false
+		if( attackerInfo.attacker != attacker && !exists )
+		{
+			alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
+			Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time )
+			AddPlayerScore( attackerInfo.attacker, eventName, victim )
+			attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
+		}
+	}
 }
 
 void function AddTitanKilledDialogueEvent( string titanName, string dialogueName )
