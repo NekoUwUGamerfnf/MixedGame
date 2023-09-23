@@ -20,6 +20,8 @@ global function NpcTitanBecomesPilot
 global function TitanHasNpcPilot
 global function NpcPilotGetPetTitan
 global function NpcPilotSetPetTitan
+// vanilla missing
+global function TitanIsNpcPilotPetTitan
 #endif
 
 global function NpcSetNextTitanRespawnAvailable
@@ -74,7 +76,16 @@ function AiPilots_Init()
 	level.onNpcTitanBecomesPilotCallbacks	<- []
 
 	// modified
+	AddSpawnCallback( "npc_pilot_elite", OnNpcPilotSpawned )
 	RegisterSignal( "StopRunsToEmbark" )
+}
+
+// modified
+// we could have setup npc pilot here
+void function OnNpcPilotSpawned( entity pilot )
+{
+	pilot.s.petTitan <- null
+	pilot.s.nextTitanRespawnAvailable <- null
 }
 
 function ScriptCallback_OnNpcPilotBecomesTitan( pilot, titan )
@@ -155,8 +166,9 @@ function CaptainThink( entity npc )
 	Assert( !( "nextTitanRespawnAvailable" in npc.s ) )
 	Assert( !( "petTitan" in npc.s ) )
 
-	npc.s.petTitan <- null
-	npc.s.nextTitanRespawnAvailable <- null
+	// modified to setup in OnNpcPilotSpawned()
+	//npc.s.petTitan <- null
+	//npc.s.nextTitanRespawnAvailable <- null
 
 	//wait for in combat...
 	WaitForNpcInCombat( npc )
@@ -623,7 +635,8 @@ entity function NpcPilotDisembarksTitan( entity titan )
 	entity pilot = NpcTitanBecomesPilot( titan )
 	Assert( !pilot.IsTitan() )
 
-	NpcPilotSetPetTitan( pilot, titan )
+	// modified: has been setup in NpcTitanBecomesPilot()
+	//NpcPilotSetPetTitan( pilot, titan )
 
 	thread __NpcPilotDisembarksTitan( pilot, titan )
 
@@ -759,7 +772,9 @@ void function NpcPilotBecomesTitan( entity pilot, entity titan )
 	titan.SetTitle( titanSoul.soul.seatedNpcPilot.title )
 
 	// vanilla missing, adding this behavior for a fix
-	thread DelayedDestroyBubble( titan )
+	// bubble can be destroyed properly by SetStanceStand( titan.GetTitanSoul() ) in NpcPilotEmbarksTitan()
+	// no need to use this function
+	//thread DelayedDestroyBubble( titan )
 
 	if( !IsMultiplayer() ) // remove this behavior for mp
 		thread __TitanPilotRodeoCounter( titan )
@@ -770,6 +785,9 @@ void function NpcPilotBecomesTitan( entity pilot, entity titan )
 }
 
 // this is a fix
+// bubble can be destroyed properly by SetStanceStand( titan.GetTitanSoul() ) in NpcPilotEmbarksTitan()
+// no need to use this function
+/*
 void function DelayedDestroyBubble( entity titan )
 {
 	wait 0.3
@@ -780,9 +798,10 @@ void function DelayedDestroyBubble( entity titan )
 			return
 		entity bubbleShield = soul.soul.bubbleShield
 		if( IsValid( bubbleShield ) )
-			DestroyBubbleShield( bubbleShield )
+			CleanupTitanBubbleShieldVars( titan, soul, bubbleShield )
 	}
 }
+*/
 
 entity function NpcTitanBecomesPilot( entity titan )
 {
@@ -859,6 +878,9 @@ entity function NpcTitanBecomesPilot( entity titan )
 
 	ScriptCallback_OnNpcTitanBecomesPilot( pilot, titan )
 
+	// respawn missing: should always setup pet titan on titan transfer
+	NpcPilotSetPetTitan( pilot, titan )
+
 	return pilot
 }
 
@@ -897,6 +919,20 @@ void function NpcPilotSetPetTitan( entity pilot, entity titan )
 	pilot.s.petTitan = titan
 	pilot.Signal( "PetTitanUpdated" )
 }
+
+// modified function for getting titan's npc pilot owner
+bool function TitanIsNpcPilotPetTitan( entity titan )
+{
+	foreach ( entity pilot in GetNPCArrayByClass( "npc_pilot_elite" ) )
+	{
+		if ( "petTitan" in pilot.s && pilot.s.petTitan == titan )
+			return true
+	}
+
+	// can't find any
+	return false
+}
+
 #endif // NPC_TITAN_PILOT_PROTOTYPE
 
 function __TitanStanceThink( entity pilot, entity titan )

@@ -366,18 +366,42 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	if ( !attacker.IsPlayer() )
 		return
 
+	// modified for npc pilot embarked titan
+#if NPC_TITAN_PILOT_PROTOTYPE
+	entity owner = victim.GetOwner()
+	bool hasNPCPilot = ( IsAlive( owner ) && IsPilotElite( owner ) ) || TitanHasNpcPilot( victim )
+	bool isNPCPilotPet = TitanIsNpcPilotPetTitan( victim )
+#endif
+
 	string scoreEvent = "KillTitan"
 	if ( attacker.IsTitan() )
 		scoreEvent = "TitanKillTitan"
-	if( victim.IsNPC() )
+	else if( victim.IsNPC() ) // vanilla still use KillAutoTitan even if the titan is pet titan... pretty weird
+	{
 		scoreEvent = "KillAutoTitan"
+		// modified for npc pilot embarked titan
+#if NPC_TITAN_PILOT_PROTOTYPE
+		if ( hasNPCPilot )
+		{
+			scoreEvent = "KillTitan"
+			if ( attacker.IsTitan() )
+				scoreEvent = "TitanKillTitan"
+		}
+#endif
+	}
 
 	if( IsTitanEliminationBased() )
 	{
+		scoreEvent = "EliminateTitan"
 		if( victim.IsNPC() )
+		{
 			scoreEvent = "EliminateAutoTitan"
-		else
-			scoreEvent = "EliminateTitan"
+			// modified for npc pilot embarked titan
+#if NPC_TITAN_PILOT_PROTOTYPE
+			if ( hasNPCPilot )
+				scoreEvent = "EliminateTitan"
+#endif
+		}
 	}
 
 	bool isPlayerTitan = IsValid( victim.GetBossPlayer() ) || victim.IsPlayer()
@@ -388,11 +412,9 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 
 	bool playTitanKilledDiag = isPlayerTitan
 	// modified for npc pilot embarked titan
-	#if NPC_TITAN_PILOT_PROTOTYPE
-		entity owner = victim.GetOwner()
-		bool hasNPCPilot = ( IsAlive( owner ) && IsPilotElite( owner ) ) || TitanHasNpcPilot( victim )
-		playTitanKilledDiag = isPlayerTitan || hasNPCPilot
-	#endif
+#if NPC_TITAN_PILOT_PROTOTYPE
+	playTitanKilledDiag = isPlayerTitan || hasNPCPilot || isNPCPilotPet
+#endif
 
 	if ( playTitanKilledDiag )
 		KilledPlayerTitanDialogue( attacker, victim )
