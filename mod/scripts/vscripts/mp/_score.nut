@@ -704,6 +704,10 @@ void function ScoreEvent_SetMVPCompareFunc( IntFromEntityCompare func )
 // adding displayTypeOverride requested by issues/46
 void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string eventName, var displayTypeOverride = null )
 {
+	// add error handle
+	if ( !IsValid( victim ) || victim.IsMarkedForDeletion() )
+		return
+
 	table<int, bool> alreadyAssisted
 	foreach( DamageHistoryStruct attackerInfo in victim.e.recentDamageHistory )
 	{
