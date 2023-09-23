@@ -458,8 +458,6 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	{
 		// debug
 		//print( "damageHistorySaver valid! " + string( damageHistorySaver ) )
-		if ( victim.IsPlayer() )
-			ScoreEvent_PlayerAssist( damageHistorySaver, attacker, "PilotAssist" )
 		// wrap into this function
 		ScoreEvent_PlayerAssist( damageHistorySaver, attacker, "TitanAssist" )
 	}
@@ -703,7 +701,8 @@ void function ScoreEvent_SetMVPCompareFunc( IntFromEntityCompare func )
 }
 
 // wrap assist checks into this function
-void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string eventName )
+// adding displayTypeOverride requested by issues/46
+void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string eventName, var displayTypeOverride = null )
 {
 	table<int, bool> alreadyAssisted
 	foreach( DamageHistoryStruct attackerInfo in victim.e.recentDamageHistory )
@@ -739,7 +738,7 @@ void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string ev
 		{
 			alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
 			Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time )
-			AddPlayerScore( attackerInfo.attacker, eventName, victim )
+			AddPlayerScore( attackerInfo.attacker, eventName, victim, displayTypeOverride )
 			attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
 		}
 	}
