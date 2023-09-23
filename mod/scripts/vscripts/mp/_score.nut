@@ -402,6 +402,7 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	entity damageHistorySaver = killedByTermination ? victim : victim.GetTitanSoul()
 	if ( IsValid( damageHistorySaver ) )
 	{
+		// debug
 		//print( "damageHistorySaver valid! " + string( damageHistorySaver ) )
 		// wrap into this function
 		ScoreEvent_PlayerAssist( damageHistorySaver, attacker, "TitanAssist" )
@@ -654,19 +655,27 @@ void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string ev
 		// Give all assisted player an extra score event
 		// Not for attack themselves only
 
+		// debug
 		//print( "attackerInfo.attacker: " + string( attackerInfo.attacker ) )
-		if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() || attackerInfo.attacker == victim )
-			continue
 
-		// checks for player owned entities
-		if ( attacker == victim.GetOwner() || attacker == victim.GetBossPlayer() )
+		// generic check
+		if ( !IsValid( attackerInfo.attacker ) || !attackerInfo.attacker.IsPlayer() )
 			continue
-
+		// checks for self damage
+		if ( attackerInfo.attacker == victim )
+			return
+		// checks for player owned entities( such as titan, spectre or soul )
+		if ( attackerInfo.attacker == victim.GetOwner() || attackerInfo.attacker == victim.GetBossPlayer() )
+			continue
 		// if we're getting damage history from soul, should ignore their titan's self damage and owner's damage
 		if ( IsSoul( victim ) )
 		{
-			if ( attacker == victim.GetTitan() || attacker == victim.GetBossPlayer() )
+			if ( attackerInfo.attacker == victim.GetTitan() )
+			{
+				// debug
+				//print( "victim is soul but attacker is it's titan! skipping Assist score" )
 				continue
+			}
 		}
 		
 		bool exists = attackerInfo.attacker.GetEncodedEHandle() in alreadyAssisted ? true : false
