@@ -150,7 +150,11 @@ function DeploySlowTrap( entity projectile )
 
 	int team = owner.GetTeam()
 	entity tower = CreatePropScript( SLOW_TRAP_MODEL, origin, angles, SOLID_VPHYSICS )
-	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	// THIS IS BAD BEHAVIOR
+    // TRACE_COLLISION_GROUP_BLOCK_WEAPONS makes scorch thermite pass through entity
+	// Changed from vanilla as a fix, breaks behavior!
+	//tower.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS_AND_PHYSICS
 	//if( isGasTrap )
 	//	tower.kv.solid = 2
 	if( isGasTrap )

@@ -242,7 +242,11 @@ function DeployLaserPylon( entity projectile )
 	//
 
 	entity tower = CreatePropScript( LASER_TRIP_MODEL, origin, angles, SOLID_VPHYSICS )
-	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	// THIS IS BAD BEHAVIOR
+    // TRACE_COLLISION_GROUP_BLOCK_WEAPONS makes scorch thermite pass through entity
+	// Changed from vanilla as a fix, breaks behavior!
+	//tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS_AND_PHYSICS
 	tower.EnableAttackableByAI( 20, 0, AI_AP_FLAG_NONE )
 	SetTargetName( tower, "Laser Tripwire Base" )
 	// modified here to support damage changes
