@@ -68,7 +68,7 @@ global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
 // debug
-const bool EXTRA_SPAWNER_DEBUG = false
+const bool EXTRA_SPAWNER_DEBUG = true
 #if EXTRA_SPAWNER_DEBUG
 global function PrintPrimaryAttackSignal
 #endif // EXTRA_SPAWNER_DEBUG
@@ -261,6 +261,8 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
 		AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 		AddClientCommandCallback( "fakespectre", CC_SpawnFakeMLTSpectre )
+		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
+		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
 	#endif // EXTRA_SPAWNER_DEBUG
 }
 
@@ -1419,6 +1421,20 @@ bool function CC_SpawnFakeMLTSpectre( entity player, array<string> args )
 	return true
 }
 
+bool function CC_SpawnGruntDroppod( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+	
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+
+	thread ExtraSpawner_SpawnSpecialistGruntDropPod( pos, rot, GetPlayerAISpawnTeam( player, args ), "npc_soldier", "npc_soldier_sidearm" )
+
+	return true
+}
+
 void function PrintColdWarNPCPrimaryAttack( entity npc )
 {
 	npc.EndSignal( "OnDeath" )
@@ -1612,6 +1628,7 @@ void function ExtraSpawner_ApplyNPCExtraWeaponMods( entity npc )
 	}
 }
 
+// npcs will do this callback on player titan transfer
 void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 {
 	// every npc has this, but we'll save ones who have better proficiency
@@ -1637,18 +1654,27 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 	bool isHeavyArmorTarget = enemy.GetArmorType() == ARMOR_TYPE_HEAVY
 
 	string weaponToChange = ""
-	if ( isHeavyArmorTarget && !antiTitanActive )
+	if ( isHeavyArmorTarget )
 	{
+		// move antiTitanActive checks inside: we can ignore checks if antititan is already active
+		// but we shouldn't run "else if ( antiTitanActive )" case to make grunts switch off AT weapon
+		if ( antiTitanActive )
+		{
+			print( "AT weapon already active for: " + string( guy ) )
+			return
+		}
 		// first try to find an appropriate weapon
 		foreach ( entity weapon in weapons )
 		{
 			string className = weapon.GetWeaponClassName()
+			if ( acitveWeaponName == className ) // already holding this weapon
+				continue
 			bool isMainWeapon = weapon == weapons[0]
 			bool isAntiTitan = !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+			// debug
+			//print( string( weapon ) + " isAntiTitan: " + string( isAntiTitan ) )
 			if ( isAntiTitan && !isMainWeapon )
 			{
-				if ( acitveWeaponName == className ) // already holding this weapon
-					continue
 				weaponToChange = className
 				break
 			}
@@ -1659,12 +1685,14 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		foreach ( entity weapon in weapons )
 		{
 			string className = weapon.GetWeaponClassName()
+			if ( acitveWeaponName == className ) // already holding this weapon
+				continue
 			bool isMainWeapon = weapon == weapons[0]
 			bool isAntiTitan = !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+			// debug
+			//print( string( weapon ) + " isAntiTitan: " + string( isAntiTitan ) )
 			if ( isMainWeapon || !isAntiTitan )
 			{
-				if ( acitveWeaponName == className ) // already holding this weapon
-					continue
 				weaponToChange = className
 				break
 			}
@@ -1675,7 +1703,8 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		return
 
 	guy.SetActiveWeaponByName( weaponToChange )
-	//print( "weaponToChange: " + weaponToChange )
+	// debug
+	print( "weaponToChange: " + weaponToChange )
 
 	// grunt specific: do dialogue(vanilla missing this in grunt_chatter_mp.rpak)
 	if ( IsGrunt( guy ) && isHeavyArmorTarget )
