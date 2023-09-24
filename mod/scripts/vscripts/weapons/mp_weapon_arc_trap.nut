@@ -196,7 +196,10 @@ void function DeployArcTrap( entity projectile )
 				// try to dissolve latest trap
 				entity latestTrap = file.playerOwnedArcTraps[ owner ][0]
 				if ( IsValid( latestTrap ) )
-					latestTrap.Destroy() // just destroy it like any other deployables. dissolving will fallsafe sometimes, as they can still damage targets
+				{
+					//latestTrap.Destroy() // just destroy it like any other deployables. dissolving will failsafe sometimes, as they can still damage targets
+					latestTrap.GrenadeExplode( <0,0,1> ) // make them explode is better
+				}
 				file.playerOwnedArcTraps[ owner ].remove( 0 )
 			}
 		}
