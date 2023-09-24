@@ -1183,8 +1183,6 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 		{
 			impactData.projectileModel <- weaponOrProjectile.GetModelName()
 			// get default trail effect, compare to current trail: if modified, do a extra trail effect
-			// seems complex, some modded weapon have their trail effect in infoKeyField. removed for now
-			/*
 			asset defaultTrail = GetWeaponInfoFileKeyFieldAsset_Global( weaponName, "projectile_trail_effect_0" )
 			asset modTrail = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
 			if ( defaultTrail != modTrail )
@@ -1192,9 +1190,8 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 				//print( "refired projectile trail has been modified!" )
 				impactData.projectileTrail <- modTrail
 			}
-			*/
 			// this may require tons of resources to display?
-			impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+			//impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
 			// convert asset to string
 			string impactFXName = GetImpactTableNameFromWeaponOrProjectile( weaponOrProjectile ) // shared from _unpredicted_impact_fix.gnut
 			impactData.impact_effect_table = impactFXName
