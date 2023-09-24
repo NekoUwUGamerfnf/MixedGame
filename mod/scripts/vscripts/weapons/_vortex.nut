@@ -1185,8 +1185,12 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 			// get default trail effect, compare to current trail: if modified, do a extra trail effect
 			asset defaultTrail = GetWeaponInfoFileKeyFieldAsset_Global( weaponName, "projectile_trail_effect_0" )
 			asset modTrail = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+			// debug
+			//print( "defaultTrail: " + string( defaultTrail ) )
+			//print( "modTrail: " + string( modTrail ) )
 			if ( defaultTrail != modTrail )
 			{
+				// debug
 				//print( "refired projectile trail has been modified!" )
 				impactData.projectileTrail <- modTrail
 			}
@@ -1707,12 +1711,16 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData )
 	}
 }
 
-// delay one frame, so client can predict it
+// delay one frame, so client themselves can see it
 void function DelayedStartParticleEffectOnProjectile( entity projectile, asset trailEffect )
 {
 	WaitFrame()
 	if ( IsValid( projectile ) )
+	{
+		// debug
+		//print( "starting trail on refired projectile!" )
 		StartParticleEffectOnEntity( projectile, GetParticleSystemIndex( trailEffect ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	}
 }
 //
 
