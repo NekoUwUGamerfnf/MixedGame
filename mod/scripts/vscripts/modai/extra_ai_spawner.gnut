@@ -68,7 +68,7 @@ global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
 // debug
-const bool EXTRA_SPAWNER_DEBUG = true
+const bool EXTRA_SPAWNER_DEBUG = false
 #if EXTRA_SPAWNER_DEBUG
 global function PrintPrimaryAttackSignal
 #endif // EXTRA_SPAWNER_DEBUG
@@ -76,16 +76,11 @@ global function PrintPrimaryAttackSignal
 // modifiable consts
 // npc damage
 
+// npc pilot health
+const int NPC_PILOT_MAX_HEALTH = 750
+const int NPC_PILOT_MAX_HEALTH_BOSS = 1000
 // damage dealt by pilot multiplyer
 const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.0
-
-// damage dealt by prowler multiplyer
-// base damage for MP: claw: 80, pounce: 100
-const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.5
-// damage dealt by prowler to heavy armor units multiplyer
-// base damage for MP: claw: 60-80, pounce: 100
-const float NPC_PROWLER_DAMAGE_MULTIPLIER_HEAVYARMOR = 6.0
-
 // pilot specific damage adjustments
 // hardcode version
 /*
@@ -97,7 +92,14 @@ const int TITAN_STEPPING_ON_DAMAGE_NPC_PILOT = 250
 // graph capped version
 // WIP
 // DPS versions
-const int NPC_PILOT_MAX_DAMAGE_TAKE_PER_SECOND = 300 // pilots will only take 300 dmg per second
+const int NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND = 300 // pilots will only take 300 dmg per second
+
+// damage dealt by prowler multiplyer
+// base damage for MP: claw: 80, pounce: 100
+const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.5
+// damage dealt by prowler to heavy armor units multiplyer
+// base damage for MP: claw: 60-80, pounce: 100
+const float NPC_PROWLER_DAMAGE_MULTIPLIER_HEAVYARMOR = 6.0
 
 // care package
 const float CARE_PACKAGE_MESSAGE_INTERVAL = 3.0 // prevent care package spamming message
@@ -2322,7 +2324,7 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 
 	// pilot settings!
 	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, characterModel, pilotTitle )
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, NPC_PILOT_MAX_HEALTH_BOSS, false, characterModel, pilotTitle )
 
 	// merc boss titan behavior
 	if ( titanType == TITAN_MERC )
@@ -2544,7 +2546,7 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 
 	// titan won't have a soul until they DispatchSpawn()
 	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1000, false, $"", "鐵馭" )
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, NPC_PILOT_MAX_HEALTH, false, $"", "鐵馭" )
 	
 	titan.SetTitle( "#NPC_PILOT" )
 	// apply amped behaviors
@@ -3036,8 +3038,8 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	ExtraSpawner_SetUpNPCPilot( pilot )
 	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
 	pilot.SetModel( modelAsset )
-	pilot.SetMaxHealth( 1000 )
-	pilot.SetHealth( 1000 )
+	pilot.SetMaxHealth( NPC_PILOT_MAX_HEALTH )
+	pilot.SetHealth( NPC_PILOT_MAX_HEALTH )
 	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
 
 	ExtraSpawner_ApplyNPCWeapons( pilot )
@@ -3390,11 +3392,12 @@ void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsValid( attacker ) )
 		return
+	
+	// hardcode version
+	/*
 	if ( !attacker.IsTitan() )
 		return
 
-	// hardcode version
-	/*
 	// titan step
 	if( damageSourceID == damagedef_titan_step ) 
 		DamageInfo_SetDamage( damageInfo, TITAN_STEPPING_ON_DAMAGE_NPC_PILOT )
@@ -3419,7 +3422,18 @@ void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 	*/
 
 	// DPS version
+	int dpsTaken = int( GetTotalDamageTakenInTime( pilot, 1.0 ) )
+	if ( dpsTaken >= NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND )
+		DamageInfo_SetDamage( damageInfo, 0 )
+	else
+	{
+		int maxDamage = NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND - dpsTaken
+		int currentDamage = int( DamageInfo_GetDamage( damageInfo ) )
+		DamageInfo_SetDamage( damageInfo, min( currentDamage, maxDamage ) )
+	}
 
+	// debug
+	//print( "npc pilot modified damage: " + string( DamageInfo_GetDamage( damageInfo ) ) )
 }
 
 void function NPCPilotDamageModifier( entity victim, var damageInfo )
