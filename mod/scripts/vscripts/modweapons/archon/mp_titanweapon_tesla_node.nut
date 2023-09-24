@@ -161,15 +161,18 @@ function DeployArcPylon( entity projectile )
 	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 	//tower.EnableAttackableByAI( 20, 0, AI_AP_FLAG_NONE )
 	SetTargetName( tower, "Laser Tripwire Base" )
-	tower.SetMaxHealth( 500000 )
-	tower.SetHealth( 500000 )
+	//tower.SetMaxHealth( 500000 )
+	//tower.SetHealth( 500000 )
+	tower.SetInvulnerable() // nessie: I think SetInvulnerable is a better way to avoid it taking damage
 	tower.SetTakeDamageType( DAMAGE_NO )
-	tower.SetDamageNotifications( true )
-	tower.SetDeathNotifications( true )
-	tower.SetArmorType( ARMOR_TYPE_HEAVY )
+	// nessie modifying here, remove damage stuffs
+	//tower.SetDamageNotifications( true )
+	//tower.SetDeathNotifications( true )
+	//tower.SetArmorType( ARMOR_TYPE_HEAVY )
 	tower.SetTitle( "Laser Tripwire" )
 	tower.EndSignal( "OnDestroy" )
-	EmitSoundOnEntity( tower, "Wpn_ArcTrap_Land" ) //Wpn_LaserTripMine_Land
+	EmitSoundOnEntity( tower, "Wpn_LaserTripMine_Land" )
+	EmitSoundOnEntity( tower, "Wpn_ArcTrap_Land" ) // nessie new adding
 	tower.e.noOwnerFriendlyFire = true
 
 	tower.Anim_Play( "trip_wire_closed_to_open" )
@@ -183,7 +186,10 @@ function DeployArcPylon( entity projectile )
 
 	SetTeam( tower, team )
 	SetObjectCanBeMeleed( tower, false )
-	SetVisibleEntitiesInConeQueriableEnabled( tower, true )
+	// nessie modifying here
+	//SetVisibleEntitiesInConeQueriableEnabled( tower, true )
+	SetVisibleEntitiesInConeQueriableEnabled( tower, false )
+	// tesla node won't be destroyed by attacking
     //AddEntityCallback_OnDamaged( tower, OnArcPylonBodyDamaged )
 	SetCustomSmartAmmoTarget( tower, false )
 	thread TrapDestroyOnRoundEnd( owner, tower )
@@ -308,7 +314,7 @@ void function StopArcSoundAtPosition( entity pylon, vector position )
 }
 #endif
 
-/* // prop itself can already handle damage hitmarker
+/* // tesla node won't be destroyed by attacking
 void function OnArcPylonBodyDamaged( entity pylonBody, var damageInfo )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )

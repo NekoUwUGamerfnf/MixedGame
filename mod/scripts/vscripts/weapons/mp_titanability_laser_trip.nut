@@ -208,6 +208,13 @@ function DeployLaserPylon( entity projectile )
 		owner.EndSignal( "OnDestroy" )
 	}
 
+	// we get owner here...
+	// for modified pilot usage
+	entity pylonOwner = owner
+	// try to use titan as pylon's owner, which is vanilla behavior
+	if ( owner.IsTitan() && IsValid( owner.GetTitanSoul() ) )
+		pylonOwner = owner.GetTitanSoul()
+
 	int team = owner.GetTeam()
 	array<entity> pylons = GetScriptManagedEntArray( owner.e.laserPylonArrayIdx )
 	if ( pylons.len() >= LASER_TRIP_MAX )
@@ -216,23 +223,29 @@ function DeployLaserPylon( entity projectile )
 		pylons[0].Destroy()
 	}
 
+	// modified here to support damage changes
+	int health = int ( LASER_TRIP_HEALTH )
+	table damageTable = {
+		damage = LASER_TRIP_DAMAGE
+		heavyArmorDamage = LASER_TRIP_DAMAGE_HEAVY_ARMOR
+	}
+
 	// fakebt_balance, modified to change damage
+	// hardcoded!
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	bool isBTVersion = mods.contains( "fakebt_balance" )
-	int health = int ( LASER_TRIP_HEALTH )
-	table damageTable = {}
-	damageTable.heavyArmorDamage <- LASER_TRIP_DAMAGE_HEAVY_ARMOR
 	if ( isBTVersion )
 	{
 		health = LASER_TRIP_HEALTH_BT
 		damageTable.heavyArmorDamage = LASER_TRIP_DAMAGE_HEAVY_ARMOR_BT
 	}
+	//
 
 	entity tower = CreatePropScript( LASER_TRIP_MODEL, origin, angles, SOLID_VPHYSICS )
 	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 	tower.EnableAttackableByAI( 20, 0, AI_AP_FLAG_NONE )
 	SetTargetName( tower, "Laser Tripwire Base" )
-	// has been modified to support "fakebt_balance"
+	// modified here to support damage changes
 	//tower.SetMaxHealth( LASER_TRIP_HEALTH )
 	//tower.SetHealth( LASER_TRIP_HEALTH )
 	tower.SetMaxHealth( health )
@@ -259,6 +272,8 @@ function DeployLaserPylon( entity projectile )
 	SetTeam( tower, team )
 	SetObjectCanBeMeleed( tower, true )
 	SetVisibleEntitiesInConeQueriableEnabled( tower, true )
+	// for friendlyfire case, indentify owner
+	tower.SetOwner( pylonOwner ) // this can break pilot collision but whatever
 	AddEntityCallback_OnDamaged( tower, OnPylonBodyDamaged )
 	SetCustomSmartAmmoTarget( tower, false )
 	thread TrapDestroyOnRoundEnd( owner, tower )
@@ -275,7 +290,9 @@ function DeployLaserPylon( entity projectile )
 	SetTargetName( pylon, "Laser Tripwire" )
 	pylon.SetOrigin( origin )
 	pylon.SetAngles( angles )
-	pylon.SetOwner( owner.GetTitanSoul() )
+	// has been modified to add pilot usage
+	//pylon.SetOwner( owner.GetTitanSoul() )
+	pylon.SetOwner( pylonOwner )
 
 	pylon.SetMaxHealth( LASER_TRIP_HEALTH )
 	pylon.SetHealth( LASER_TRIP_HEALTH )
@@ -310,43 +327,39 @@ function DeployLaserPylon( entity projectile )
 
 	vector pylonOrigin = pylon.GetOrigin()
 	OnThreadEnd(
-	// modified to add pilot usage
+	// modified here to support damage changes
 	//function() : ( projectile, inflictor, tower, pylon, noSpawnIdx, team, pylonOrigin )
-	function() : ( projectile, inflictor, tower, pylon, noSpawnIdx, team, pylonOrigin, owner, damageTable )
+	function() : ( projectile, inflictor, tower, pylon, noSpawnIdx, team, pylonOrigin, damageTable )
 		{
 			PlayFX( LASER_TRIP_EXPLODE_FX, pylonOrigin, < -90.0, 0.0, 0.0 > )
 			EmitSoundAtPosition( team, pylonOrigin, "Wpn_LaserTripMine_MineDestroyed" )
 
-			entity soul = pylon.GetOwner()
 			// modified to add pilot usage
-			bool isPilot = false
+			//entity soul = pylon.GetOwner()
+			entity owner = pylon.GetOwner()
+			// modified to add pilot usage
+			//if ( IsValid( soul ) )
 			if ( IsValid( owner ) )
 			{
-				if ( owner.IsPlayer() && !owner.IsTitan() )
-					isPilot = true
-			}
-			//print( "isPilot: " + string( isPilot ) )
-			//if ( IsValid( soul ) )
-			if ( IsValid( soul ) || isPilot )
-			{
+				// modified to add pilot usage
 				//entity titan = soul.GetTitan()
-				entity attacker
-				if ( IsValid( soul ) )
-					attacker = soul.GetTitan()
-				else if ( isPilot )
-					attacker = owner
+				entity attacker = owner
+				// vanilla titan usage
+				if ( IsSoul( owner ) )
+					attacker = owner.GetTitan()
 				//if ( IsValid( titan ) )
 				if ( IsValid( attacker ) )
 				{
 					RadiusDamage(
 						pylonOrigin,									// center
-						// add pilot usage
+						// modified to add pilot usage
 						//titan,										// attacker
 						attacker,
 						inflictor,										// inflictor
-						LASER_TRIP_DAMAGE,								// damage
-						// has been modified to support "fakebt_balance"
+						// has been modified tO support damage changes
+						//LASER_TRIP_DAMAGE,								// damage
 						//LASER_TRIP_DAMAGE_HEAVY_ARMOR,				// damageHeavyArmor
+						damageTable.damage,
 						damageTable.heavyArmorDamage,
 						//
 						LASER_TRIP_INNER_RADIUS,						// innerRadius
@@ -517,9 +530,29 @@ void function LaserPylonSetThink( entity pylon1, entity pylon2, int ownerTeam )
 void function OnPylonBodyDamaged( entity pylonBody, var damageInfo )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	// defensive fix
+	if ( !( attacker instanceof CBaseCombatCharacter ) )
+		return
+
 	int attackerTeam = attacker.GetTeam()
 
-	if ( pylonBody.GetTeam() != attackerTeam )
+	// we still don't allow owner to damage pylon even when we enabled friendly fire
+	entity owner = pylonBody.GetOwner() // modified to assign an owner in DeployLaserPylon()
+	entity pylonAttaker = attacker
+	// for titans, we use soul as owner
+	if ( attacker.IsTitan() )
+		pylonAttaker = attacker.GetTitanSoul()
+	//print( "pylonAttaker: " + string( pylonAttaker ) )
+	if ( IsValid( pylonAttaker ) && pylonAttaker == owner )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 )
+		return
+	}
+	//
+
+	// adding friendlyfire support
+	//if ( pylonBody.GetTeam() != attackerTeam )
+	if ( FriendlyFire_IsEnabled() || pylonBody.GetTeam() != attackerTeam )
 	{
 		if ( attacker.IsPlayer() )
 		{

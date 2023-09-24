@@ -301,7 +301,6 @@ void function RGBHighlightThink( entity ent, bool showToAll = false, bool always
 	int index = 0
 	while( true )
 	{
-		WaitFrame()
 		index = index == colorArray.len() - 1 ? 0 : index + 1
 
 		// needs to update highlight for every loop... in case we can update it for later-joiners
@@ -317,6 +316,10 @@ void function RGBHighlightThink( entity ent, bool showToAll = false, bool always
 			ent.Highlight_SetParam( 2, 0, colorArray[index] ) // enemy
 			ent.Highlight_SetParam( 0, 0, colorArray[index] ) // neutral
 		}
+
+		// never wait before we actually update entity's highlight
+		// if we do, an entity spawn with no highlight will crash the server
+		WaitFrame()
 	}
 }
 
@@ -905,10 +908,11 @@ entity function PlayerBecomeMarvin( entity player )
 	// now doing loop in PlayerMarvinThink()
 	//SetUpFakeMarvinHighlight( player )
 
-	player.SetShieldHealthMax( 500 )
-	player.SetShieldHealth( 500 )
-	player.SetMaxHealth( 500 )
-	player.SetHealth( 500 )
+	// they can take doubled damage from passing-through and explosions, double the health
+	player.SetShieldHealthMax( 1000 )
+	player.SetShieldHealth( 1000 )
+	player.SetMaxHealth( 1000 )
+	player.SetHealth( 1000 )
 
 	// setup marvin
 	// dont let AI titan get enemies. Don't do trigger checks
@@ -936,9 +940,9 @@ entity function PlayerBecomeMarvin( entity player )
 	marvin.SetParent( player, "ORIGIN" )
 	SetForceDrawWhileParented( marvin, true )
 	//marvin.SetTitle( player.GetPlayerName() ) // boss player can show title for npcs
-	AddEntityCallback_OnDamaged( marvin, OnPlayerFakeMarvinDamaged )
-	//if ( BATTERY_SPAWNERS.contains( player.GetUID() ) )
-	//	HideName( marvin )
+	AddEntityCallback_OnFinalDamaged( marvin, OnFakeMarvinFinalDamaged )
+	if ( BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		HideName( marvin )
 	marvin.Signal( "StopDoingJobs" ) // stop automatic job think
 
 	thread PlayerMarvinThink( player, marvin )
@@ -957,10 +961,13 @@ void function SetUpFakeMarvinHighlight( entity ent )
 	// enemy highlight
 	Highlight_SetEnemyHighlight( ent, "sp_enemy_pilot" )
 	ent.Highlight_SetParam( 2, 0, HIGHLIGHT_COLOR_NEUTRAL )
+	// owned highlight
+	Highlight_SetOwnedHighlight( ent, "sp_enemy_pilot" )
+	ent.Highlight_SetParam( 3, 0, HIGHLIGHT_COLOR_NEUTRAL )
 }
 
 // for better adjusting damage dealing to player
-void function OnPlayerFakeMarvinDamaged( entity marvin, var damageInfo )
+void function OnFakeMarvinFinalDamaged( entity marvin, var damageInfo )
 {
 	//print( "fake marvin damaged!" )
 	entity owner = marvin.GetBossPlayer()
@@ -969,7 +976,7 @@ void function OnPlayerFakeMarvinDamaged( entity marvin, var damageInfo )
 		owner.TakeDamage( 
 			DamageInfo_GetDamage( damageInfo ), 
 			DamageInfo_GetAttacker( damageInfo ), 
-			DamageInfo_GetAttacker( damageInfo ), 
+			DamageInfo_GetInflictor( damageInfo ), 
 			{ // damage table
 				forceKill = DamageInfo_GetForceKill( damageInfo ),
 				weapon = DamageInfo_GetWeapon( damageInfo ),
@@ -980,6 +987,8 @@ void function OnPlayerFakeMarvinDamaged( entity marvin, var damageInfo )
 			}
 		)
 	}
+
+	DamageInfo_SetDamage( damageInfo, 0 ) // never damage marvin
 }
 
 void function PlayerMarvinThink( entity player, entity marvin )
@@ -998,8 +1007,9 @@ void function PlayerMarvinThink( entity player, entity marvin )
 			{
 				marvin.Anim_Stop()
 				HideName( marvin )
+				marvin.ClearParent()
 				if ( IsAlive( marvin ) )
-					marvin.Die()
+					marvin.Die( marvin, marvin, { damageSourceId = damagedef_suicide } )
 			}
 			if ( IsValid( player ) )
 			{
@@ -1019,16 +1029,19 @@ void function PlayerMarvinThink( entity player, entity marvin )
 				/*
 				player.ClearInvulnerable()
 				player.Solid()
-				player.kv.CollisionGroup = TRACE_COLLISION_GROUP_PLAYER
 				*/
-
+				//player.kv.modelscale = 1.0
+				player.kv.CollisionGroup = TRACE_COLLISION_GROUP_PLAYER
 				player.UnforceStand()
 
-				player.SetShieldHealthMax( 0 )
 				player.SetShieldHealth( 0 )
+				player.SetShieldHealthMax( 0 )
 
 				if ( IsAlive( player ) )
-					player.Despawn() // no corpse
+				{
+					//player.Despawn() // no corpse, but isn't force kill
+					player.Die( player, player, { damageSourceId = damagedef_suicide } )
+				}
 				//else
 				//{
 				//	player.Gib( < 0, 0, 100000 > ) // no corpse
@@ -1081,13 +1094,14 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		HideName( player )
 		player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
 		// reworked here, we make player take damage instead of marvin re-direct damage
-		/*
-		player.SetInvulnerable()
-		player.NotSolid() // non-solid makes player unable to take trigger_hurt damage
+		// welp, guess making both entities take damage could be better
+		//player.SetInvulnerable()
+		//player.NotSolid() // non-solid makes player unable to take trigger_hurt damage
+		// this is bad... will make attachments messed up
+		//player.kv.modelscale = 0.01 // instead, we make player almost unable to getting hit, they'll still caught in explosions though
 		player.kv.CollisionGroup = 0 // TRACE_COLLISION_GROUP_BLOCK_WEAPONS
-		*/
 		// movement limiter
-		//player.ClearTraverse() // marvin don't have suitable anim for traverse. makes movement a little dizzy
+		//player.ClearTraverse() // marvin don't have suitable anim for mantling, but we still allow player to traverse
 		player.ForceStand() // avoid camera glitch when using chasing cam
 		
 		// health
@@ -1108,8 +1122,13 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		//marvin.NotSolid() // non-solid entity won't show name, which is bad
 		marvin.SetShieldHealthMax( playerMaxShield )
 		marvin.SetShieldHealth( playerShield )
-		marvin.SetMaxHealth( playerMaxHealth )
-		marvin.SetHealth( playerHealth )
+		// keep marvin at extremely high health, don't want them to die from normal damages
+		//marvin.SetMaxHealth( playerMaxHealth )
+		//marvin.SetHealth( playerHealth )
+		// keep marvin at extremely high health, don't want them to die
+		// acutally damage can be handled by "OnFakeMarvinFinalDamaged" but whatever
+		marvin.SetMaxHealth( 99999 )
+		marvin.SetHealth( 99999 )
 
 		// marvin animations
 		if ( !player.IsOnGround() 
@@ -1127,28 +1146,24 @@ void function PlayerMarvinThink( entity player, entity marvin )
 		}
 		// walking and spriting doesn't working fine
 		// parented move anim seems weird...
+		// fixed by marvin.Anim_DisableUpdatePosition()
+		// sprinting still not look so good
+		// whatever, we've added moveslow for player so I think there's no need to add sprinting
 		/*
 		else if ( player.IsSprinting() )
 		{
 			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.SPRINTING )
 			{
 				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.SPRINTING
-				marvin.Anim_ScriptedPlay( "sp_sprint_tmp" ) // "a_combat_sprint"
+				marvin.Anim_ScriptedPlay( "sp_sprint_tmp" ) //
+				marvin.Anim_DisableUpdatePosition() // can this fix marvin change position through walking?
 			}
 			//printt( "player marvin sprinting!" )
-		}
-		else if ( Length( player.GetVelocity() ) > 10 )
-		{
-			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WALKING )
-			{
-				//file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WALKING // state setup handled in MarvinMoveAnimThink()
-				thread MarvinMoveAnimThink( player, marvin, "Walk_All", eMarvinMovement.WALKING ) // Walk_all_v2
-			}
-			//printt( "player marvin walking!" )
 		}
 		*/
 		// key combo: scripted animation
 		else if ( file.fakeMarvinScriptedAnimEnabled
+				  && !IsValid( player.GetParent() ) // can't use scripted anim while parented
 				  && file.playerNextFakeMarvinScriptedAnimAllowedTime[ player ] <= Time()
 				  && player.IsOnGround() 
 				  && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) )
@@ -1164,27 +1179,6 @@ void function PlayerMarvinThink( entity player, entity marvin )
 				file.playerNextFakeMarvinScriptedAnimAllowedTime[ player ] = Time() + MARVIN_INTRO_ANIM_COOLDOWN // update cooldown
 			}
 		}
-		else if ( player.IsInputCommandHeld( IN_ZOOM ) 
-				  || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) 
-				  )
-		{
-			if ( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) )
-			{
-				if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WELDING )
-				{
-					file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WELDING
-					marvin.Anim_ScriptedPlay( "mv_idle_weld" )
-				}
-			}
-			else
-			{
-				if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WASHING_WINDOW )
-				{
-					file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WASHING_WINDOW
-					marvin.Anim_ScriptedPlay( "mv_idle_wash_window" )
-				}
-			}
-		}
 		else if ( player.IsInputCommandHeld( IN_ATTACK ) )
 		{
 			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WAVING )
@@ -1193,6 +1187,42 @@ void function PlayerMarvinThink( entity player, entity marvin )
 				marvin.Anim_ScriptedPlay( "mv_wave_unarmed" )
 			}
 			//printt( "player marvin waving!" )
+		}
+		// walking has lower priority than waving
+		else if ( Length( player.GetVelocity() ) > 10 )
+		{
+			if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WALKING )
+			{
+				//file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WALKING // state setup handled in MarvinMoveAnimThink()
+				// parented move anim seems weird...
+				// fixed by marvin.Anim_DisableUpdatePosition()
+				//thread MarvinMoveAnimThink( player, marvin, "Walk_All", eMarvinMovement.WALKING ) // Walk_all_v2
+				file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WALKING
+				marvin.Anim_ScriptedPlay( "Walk_All" ) //
+				marvin.Anim_DisableUpdatePosition() // can this fix marvin change position through walking?
+			}
+			//printt( "player marvin walking!" )
+		}
+		else if ( player.IsInputCommandHeld( IN_ZOOM ) 
+				  || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) 
+				  )
+		{
+			if ( player.IsInputCommandHeld( IN_DUCK ) || player.IsInputCommandHeld( IN_DUCKTOGGLE ) )
+			{
+				if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WASHING_WINDOW )
+				{
+					file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WASHING_WINDOW
+					marvin.Anim_ScriptedPlay( "mv_idle_wash_window" )
+				}
+			}
+			else
+			{
+				if ( file.fakeMarvinMovementState[ marvin ] != eMarvinMovement.WELDING )
+				{
+					file.fakeMarvinMovementState[ marvin ] = eMarvinMovement.WELDING
+					marvin.Anim_ScriptedPlay( "mv_idle_weld" )
+				}
+			}
 		}
 		else // idle
 		{
@@ -1237,6 +1267,7 @@ void function MarvinPlayerTrackView( entity player )
 }
 
 // parented move anim seems weird...
+// fixed by marvin.Anim_DisableUpdatePosition()
 /*
 void function MarvinMoveAnimThink( entity player, entity marvin, string anim, int stateKeep )
 {
@@ -1289,6 +1320,9 @@ void function MarvinMoveAnimThink( entity player, entity marvin, string anim, in
 // bunch of stupid stuffs inside
 void function MarvinScriptedIntroAnim( entity player, entity marvin )
 {
+	if ( IsValid( player.GetParent() ) ) // can't use scripted anim while parented
+		return
+
 	// EndSignals handled by PlayerMarvinThink()
 	player.FreezeControlsOnServer()
 

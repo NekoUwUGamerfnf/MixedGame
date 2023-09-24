@@ -283,11 +283,10 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 			// if we're doing pullout animation, delay instant_switch's adding
 			// debug
 			//print( "we're not performing pullout anim" )
-			meleeWeapon.AddMod( "sword_instant_switch" )
+			// removing animation makes titan blanking melee
+			//meleeWeapon.AddMod( "sword_instant_deploy" )
+			meleeWeapon.AddMod( "sword_fast_deploy" ) // using this now
 		}
-		// HACK fix: looping to limit player's weapon with sword
-		if ( doCoreFix )
-			thread ShiftCoreLimitedWeapon( owner )
 
 		titan.SetActiveWeaponByName( "melee_titan_sword" )
 		
@@ -301,9 +300,15 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 			{
 				// debug
 				//print( "we're performing pullout anim" )
-				meleeWeapon.AddMod( "sword_instant_switch" )
+				// removing animation makes titan blanking melee
+				//meleeWeapon.AddMod( "sword_instant_deploy" )
+				meleeWeapon.AddMod( "sword_fast_deploy" ) // using this now
 			}
 		}
+
+		// HACK fix: looping to limit player's weapon with sword
+		if ( doCoreFix )
+			thread ShiftCoreLimitedWeapon( owner )
 		
 		// reworked here: supporting multiple main weapon titans
 		// note: this only works for npcs, player can 
@@ -415,7 +420,8 @@ void function RestorePlayerWeapons( entity player )
 			}
 
 			// safe to remove animation fix
-			meleeWeapon.RemoveMod( "sword_instant_switch" )
+			//meleeWeapon.RemoveMod( "sword_instant_deploy" )
+			meleeWeapon.RemoveMod( "sword_fast_deploy" )
 		}
 
 		// modified: weapon store system, so we can use sword core with no melee_titan_sword
@@ -494,7 +500,7 @@ void function ShiftCoreLimitedWeapon( entity owner, string limitedWeapon = "mele
 	owner.EndSignal( "OnDestroy" )
 
 	bool activeWeaponLostLastTick
-	while ( TitanCoreInUse( owner ) )
+	while ( IsValid( owner.GetTitanSoul() ) && TitanCoreInUse( owner ) )
 	{
 		WaitFrame()
 		
@@ -508,7 +514,7 @@ void function ShiftCoreLimitedWeapon( entity owner, string limitedWeapon = "mele
 		{
 			if ( activeWeaponLostLastTick )
 			{
-				owner.SetActiveWeaponByName( limitedWeapon )
+				ReDeployWeapon( owner, limitedWeapon )
 				activeWeaponLostLastTick = false
 			}
 			else
@@ -518,9 +524,22 @@ void function ShiftCoreLimitedWeapon( entity owner, string limitedWeapon = "mele
 		}
 		// also never allow switching to main weapon
 		if ( mainWeapons.contains( activeWeapon ) )
-			owner.SetActiveWeaponByName( limitedWeapon )
+		{
+			ReDeployWeapon( owner, limitedWeapon )
+		}
 
 		activeWeaponLostLastTick = false
 	}
+}
+
+void function ReDeployWeapon( entity owner, string weaponName )
+{
+	if ( owner.IsPlayer() )
+		owner.HolsterWeapon() // show deploy animation, avoid blanking melee
+	
+	owner.SetActiveWeaponByName( weaponName )
+	
+	if ( owner.IsPlayer() )
+		owner.DeployWeapon()
 }
 #endif

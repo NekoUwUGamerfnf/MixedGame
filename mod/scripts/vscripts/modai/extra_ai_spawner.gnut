@@ -1187,6 +1187,41 @@ bool function IsValidNPCAssaultTarget( entity ent )
 	return true
 }
 
+array<entity> function FindNPCAssaultHeavyArmorTargets_FallSafeToAllTargets( array<entity> targetsToSearch )
+{
+	array<entity> validTargets
+
+	bool foundHeavyArmorTarget = false
+	// first searching: heavy armor target
+	foreach ( entity ent in targetsToSearch )
+	{
+		// general check
+		if ( !IsValidNPCAssaultTarget( ent ) )
+			continue
+
+		if ( ent.GetArmorType() == ARMOR_TYPE_HEAVY )
+		{
+			validTargets.append( ent )
+			foundHeavyArmorTarget = true
+		}
+	}
+	// fallsafe: can't find any heavyarmor target!
+	if ( !foundHeavyArmorTarget )
+	{
+		// use all targets instead
+		foreach ( entity ent in targetsToSearch )
+		{
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
+				continue
+
+			validTargets.append( ent )
+		}
+	}
+
+	return validTargets
+}
+
 // can't stop squad handler
 void function ExtraSpawner_StopDefaultHandler( entity npc )
 {
@@ -1241,8 +1276,6 @@ bool function CC_SpawnAssassinPilot( entity player, array<string> args )
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 	entity pilot = CreateNPC( "npc_pilot_elite", GetPlayerAISpawnTeam( player, args ), pos, rot )
 	SetSpawnOption_AISettings( pilot, "npc_pilot_elite_assassin" )
-	pilot.s.petTitan <- null // initializing
-	pilot.s.nextTitanRespawnAvailable <- null
 
 	// many things below should have a reference in _ai_pilots.gnut, for npc pilots ejecting
 	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
@@ -2054,6 +2087,7 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
 		// try to find from alive player targets
 		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+
 		// start searching
 		foreach ( entity ent in pointsToSearch )
 		{
@@ -2887,7 +2921,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	// now using my own embarking function
 	local embarkSet = FindBestEmbarkForNpcAnim( pilot, titan ) // passing a same embark set
 	pilot.SetNPCMoveSpeedScale( 1.8 ) // want this pilot run to titan's start point faster
-	thread ExtraSpawner_NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet ) // passing a same embark set
+	thread NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet, false ) // passing the same embark set, don't waitthread
 	
 	thread ForceStartTitan( titan, pilot, 10 ) // to fit ownerLifeTimeCheck(), if pilot died instantly we stand the titan
 	titan.EndSignal( "OnDeath" )
@@ -2916,48 +2950,8 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	titan.SetTitle( pilot.GetTitle() + " 的自動泰坦" )
 	titan.WaitSignal( "TitanHotDropComplete" )
 	
-	// now using my own embarking function
-	waitthread ExtraSpawner_NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet ) // passing a same embark set
+	waitthread NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet, false ) // passing the same embark set, don't waitthread
 	thread NpcPilotEmbarksTitan( pilot, titan )
-}
-
-// taken from _ai_pilots, modified
-void function ExtraSpawner_NpcPilotRunsToEmbarkTitan( entity pilot, entity titan, embarkSet )
-{
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" )
-	pilot.EndSignal( "OnDeath" )
-	pilot.EndSignal( "OnDestroy" )
-	pilot.EndSignal( "StopRunsToEmbark" ) // for manually cancel embarks
-
-	pilot.SetNoTarget( true )
-	pilot.Anim_Stop()
-	// want they move faster to their titans
-	pilot.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE | NPCMF_FOLLOW_SAFE_PATHS )
-	pilot.EnableNPCMoveFlag( NPCMF_DISABLE_DANGEROUS_AREA_DISPLACEMENT | NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
-	pilot.DisableArrivalOnce( true )
-	bool canMoveAndShoot = pilot.GetCapabilityFlag( bits_CAP_MOVE_SHOOT )
-	pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
-
-	OnThreadEnd(
-		function () : ( pilot, canMoveAndShoot )
-		{
-			//print( "NpcPilotRunsToEmbarkTitan: OnThreadEnd()!" )
-			if ( !IsAlive( pilot ) )
-				return
-
-			pilot.SetNoTarget( false )
-			pilot.EnableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE | NPCMF_FOLLOW_SAFE_PATHS )
-			pilot.DisableNPCMoveFlag( NPCMF_DISABLE_DANGEROUS_AREA_DISPLACEMENT | NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
-			pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, canMoveAndShoot )
-		}
-	)
-
-	local titanSubClass = GetSoulTitanSubClass( titan.GetTitanSoul() )
-	string pilotAnim = GetAnimFromAlias( titanSubClass, embarkSet.animSet.thirdPersonKneelingAlias )
-
-	pilot.ClearAllEnemyMemory()
-	thread RunToAnimStartForced_Deprecated( pilot, pilotAnim, titan, "hijack", true, true )
 }
 
 void function StandUnboardedTitan( entity titan, bool doHandler = false )
@@ -2984,10 +2978,6 @@ void function StandUnboardedTitan( entity titan, bool doHandler = false )
 entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 {
 	entity pilot = CreateNPC( "npc_pilot_elite", team, pos, rot )//CreateNPC( "npc_soldier", team, pos, rot )
-	// initializing
-	pilot.s.petTitan <- null
-	pilot.s.nextTitanRespawnAvailable <- null
-
 	ExtraSpawner_ApplyNPCGrenadeWeapon( pilot ) // grenade have to be given before DispatchSpawn()
 
 	file.npcSpawnFromExtraSpawner[ pilot ] <- true
@@ -3007,12 +2997,6 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 
 void function ExtraSpawner_SetUpNPCPilot( entity pilot )
 {
-	// initializing
-	if ( !( "petTitan" in pilot.s ) )
-		pilot.s.petTitan <- null
-	if ( !( "nextTitanRespawnAvailable" in pilot.s ) )
-		pilot.s.nextTitanRespawnAvailable <- null
-
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE ) // hardcoded!
 	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
 	pilot.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot perfectly
@@ -3467,6 +3451,7 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
 		// try to find from alive player targets
 		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+
 		// start searching
 		foreach ( entity ent in pointsToSearch )
 		{
@@ -3531,35 +3516,10 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
 		// try to find from alive player targets
 		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+
 		// we mostly search for heavy armor targets
-		bool foundHeavyArmorTarget = false
-		// start searching
-		foreach ( entity ent in pointsToSearch )
-		{
-			// general check
-			if ( !IsValidNPCAssaultTarget( ent ) )
-				continue
-
-			if ( ent.GetArmorType() == ARMOR_TYPE_HEAVY )
-			{
-				points.append( ent )
-				foundHeavyArmorTarget = true
-			}
-		}
-
-		// can't find any heavyarmor target!
-		if ( !foundHeavyArmorTarget )
-		{
-			// use all targets instead
-			foreach ( entity ent in pointsToSearch )
-			{
-				// general check
-				if ( !IsValidNPCAssaultTarget( ent ) )
-					continue
-
-				points.append( ent )
-			}
-		}
+		// if there're no valid targets, we use all targets instead
+		points = FindNPCAssaultHeavyArmorTargets_FallSafeToAllTargets( pointsToSearch )
 
 		ArrayRemoveDead( points ) // remove dead entities
 		if ( points.len() == 0 ) // no points valid!
@@ -3927,15 +3887,10 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
 		// try to find from alive player targets
 		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
-		// start searching
-		foreach ( entity ent in pointsToSearch )
-		{
-			// general check
-			if ( !IsValidNPCAssaultTarget( ent ) )
-				continue
 
-			points.append( ent )
-		}
+		// we mostly search for heavy armor targets
+		// if there're no valid targets, we use all targets instead
+		points = FindNPCAssaultHeavyArmorTargets_FallSafeToAllTargets( pointsToSearch )
 
 		ArrayRemoveDead( points ) // remove dead targets
 		if ( points.len() == 0 )
