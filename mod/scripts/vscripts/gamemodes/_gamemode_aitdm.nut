@@ -750,7 +750,7 @@ void function ReaperHandler( entity reaper )
 				foundHeavyArmorTarget = true
 			}
 		}
-		// fallsafe: can't find any heavyarmor target!
+		// failsafe: can't find any heavyarmor target!
 		if ( !foundHeavyArmorTarget )
 		{
 			// use all targets instead
