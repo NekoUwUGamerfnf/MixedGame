@@ -210,6 +210,8 @@ void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
 bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var damageInfo )
 {
 	// Basic checks
+	if ( !IsValid( attacker ) )
+		return false
 	if ( victim == attacker || !( attacker.IsPlayer() || attacker.IsTitan() ) || GetGameState() != eGameState.Playing )
 		return false
 	
@@ -263,8 +265,6 @@ void function HandleTitanDoomedScore( entity victim, var damageInfo, bool firstD
 		return
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) )
-		return
 	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
 		return
 
