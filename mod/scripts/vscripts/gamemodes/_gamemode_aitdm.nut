@@ -160,11 +160,11 @@ void function OnPlayerConnected( entity player )
 // Used to handle both player and ai events
 void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
 {
-	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
-		return
-
 	// if victim is a non-titan npc that owned by players, don't add score
 	if ( !VictimIsValidForAITdmScore( victim ) )
+		return
+	
+	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
 		return
 
 	int playerScore
@@ -261,6 +261,10 @@ void function AddAITdmPlayerTeamScore( entity player, int score )
 // modified: for handling doomed health loss titans
 void function HandleTitanDoomedScore( entity victim, var damageInfo, bool firstDoom )
 {
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAITdmScore( victim ) )
+		return
+	
 	if ( !firstDoom ) // only add score on first doom
 		return
 
