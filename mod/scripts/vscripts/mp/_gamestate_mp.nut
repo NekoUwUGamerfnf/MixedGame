@@ -805,7 +805,7 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		foreach( entity player in GetPlayerArray() )
 		{
 			// no replay specific: fade out sound for player
-			EmitSoundOnEntityOnlyToPlayer( player, player, "HalfTime_fadeout" )
+			MuteHalfTime( player )
 			ScreenFadeToBlackForever( player, SWITCH_SIDE_CLEANUP_WAIT )
 		}
 		
@@ -836,7 +836,7 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		foreach ( entity player in GetPlayerArray() )
 		{
 			// clear sound fade on player
-			StopSoundOnEntity( player, "HalfTime_fadeout" )
+			UnMuteAll( player )
 		}
 	}
 
@@ -1132,7 +1132,7 @@ void function PostMatchForceFadeToBlack()
 			if ( !player.s.didSoundFadeout )
 			{
 				// vanilla behavior. take 4s to fadeout all sounds
-				EmitSoundOnEntityOnlyToPlayer( player, player, "4_second_fadeout" )
+				MuteAll( player, 4 )
 				player.s.didSoundFadeout = true
 			}
 		}
