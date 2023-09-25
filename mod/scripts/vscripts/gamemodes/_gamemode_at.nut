@@ -413,11 +413,11 @@ void function AT_ScoreEventsValueSetUp()
 
 	// BH specific
 	// in vanilla, autotitan kills seems to be 0 value
-	// but AT didn't split kills to autotitan and player titan, guess I'll keep 0
+	// but AT didn't split kills to autotitan and player titan, guess I'll keep 0.0 for both
 	// was set to 0.15, 0.20
 	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.0, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.10, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.10, 0.25 )
+	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.0, 0.0 ) // bounty boss is autotitan, add 0.0
 	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.04, 0.03, 0.67 )
 	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.06, 0.04, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.06, 0.04, 0.5 )
