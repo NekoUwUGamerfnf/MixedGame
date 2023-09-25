@@ -13,6 +13,7 @@ global function TitanPick_SoulSetEnableWeaponDrop
 global function TitanPick_SoulSetEnableWeaponPick
 
 global function TitanPick_SoulSetWeaponDropTitanCharacterName
+global function TitanPick_GetTitanWeaponDropCharacterName
 
 // registering new titan
 global function TitanPick_RegisterTitanWeaponDrop
@@ -593,13 +594,13 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
     bool passUpgrades = ShouldTitanPassUpgradesForPickUp( player, weaponProp )
 
     // save cooldown
-    table<int,float> cooldowns = GetWeaponCooldownsForTitanLoadoutSwitch( player )
+    table<int,float> cooldowns = TitanLoadoutSwitch_GetWeaponCooldowns( player )
     // apply offhands
     ApplySavedOffhandWeapons( player, file.droppedOffhandsTable[ weaponProp ], passUpgrades )
     // setup specific mechanics
     replacementWeapon.loadoutFunction( player, true, false )
     // apply cooldown
-    SetWeaponCooldownsForTitanLoadoutSwitch( player, cooldowns )
+    TitanLoadoutSwitch_SetWeaponCooldownsFromTable( player, cooldowns )
 
     // clean up
     delete file.droppedWeaponPropsTable[ weaponProp ]
@@ -909,4 +910,12 @@ void function TitanPick_SoulSetWeaponDropTitanCharacterName( entity titanSoul, s
     if ( !( titanSoul in file.soulWeaponDropCharcterName ) )
 		file.soulWeaponDropCharcterName[ titanSoul ] <- "" // default value
 	file.soulWeaponDropCharcterName[ titanSoul ] = charaName
+}
+
+string function TitanPick_GetTitanWeaponDropCharacterName( entity titan )
+{
+    entity titanSoul = titan.GetTitanSoul()
+    if ( !( titanSoul in file.soulWeaponDropCharcterName ) )
+		return GetTitanCharacterName( titan )
+	return file.soulWeaponDropCharcterName[ titanSoul ]
 }
