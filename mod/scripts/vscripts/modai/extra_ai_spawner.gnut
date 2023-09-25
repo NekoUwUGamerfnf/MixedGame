@@ -75,8 +75,12 @@ global function PrintPrimaryAttackSignal
 
 // modifiable consts
 // npc damage
-const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.0 // damage dealt by pilot multiplyer
-const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.6 // damage dealt by prowler multiplyer. their damage is too high for MP
+
+// npc pilot health
+const int NPC_PILOT_MAX_HEALTH = 750
+const int NPC_PILOT_MAX_HEALTH_BOSS = 1000
+// damage dealt by pilot multiplyer
+const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.0
 // pilot specific damage adjustments
 // hardcode version
 /*
@@ -86,7 +90,16 @@ const int TITAN_SOWRD_DAMAGE_NPC_PILOT = 250
 const int TITAN_STEPPING_ON_DAMAGE_NPC_PILOT = 250
 */
 // graph capped version
+// WIP
+// DPS versions
+const int NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND = 300 // pilots will only take 300 dmg per second
 
+// damage dealt by prowler multiplyer
+// base damage for MP: claw: 80, pounce: 100
+const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.5
+// damage dealt by prowler to heavy armor units multiplyer
+// base damage for MP: claw: 60-80, pounce: 100
+const float NPC_PROWLER_DAMAGE_MULTIPLIER_HEAVYARMOR = 6.0
 
 // care package
 const float CARE_PACKAGE_MESSAGE_INTERVAL = 3.0 // prevent care package spamming message
@@ -233,7 +246,7 @@ void function ExtraAISpawner_Init()
 	//AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
 
 	// npc damages
-	AddDamageCallback( "npc_pilot_elite", NPCPilotDamageAdjustments ) // don't let stepping on easily kill them
+	AddDamageFinalCallback( "npc_pilot_elite", NPCPilotDamageAdjustments ) // don't let stepping on or some titan weapon easily kill them
 	AddDamageByCallback( "npc_pilot_elite", NPCPilotDamageModifier )
 	// npc prowler: scale damage depend on model scale
 	AddDamageCallbackSourceID( eDamageSourceId.prowler_melee, ProwlerMeleeDamageModifier )
@@ -254,6 +267,8 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
 		AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 		AddClientCommandCallback( "fakespectre", CC_SpawnFakeMLTSpectre )
+		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
+		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
 	#endif // EXTRA_SPAWNER_DEBUG
 }
 
@@ -627,7 +642,9 @@ void function NPCBisonLoadout( entity titan )
 	//Titan Core
 	titan.GiveOffhandWeapon( "mp_titancore_shift_core", OFFHAND_EQUIPMENT, ["berserker_core"] )
 	//Melee
-	titan.GiveOffhandWeapon( "melee_titan_punch_scorch", OFFHAND_MELEE )
+	// gives 10% damage reduction, changes titan's melee damageSourceId
+	// npc melee damage is handled by aiSettings
+	titan.GiveOffhandWeapon( "melee_titan_punch_scorch", OFFHAND_MELEE, ["bison_punch"] )
 
 	// title should be setup by npc pilot's spawn func
 	//titan.SetTitle( "#NPC_TITAN_AUTO_OGRE_FIGHTER" )
@@ -1187,7 +1204,7 @@ bool function IsValidNPCAssaultTarget( entity ent )
 	return true
 }
 
-array<entity> function FindNPCAssaultHeavyArmorTargets_FallSafeToAllTargets( array<entity> targetsToSearch )
+array<entity> function FindNPCAssaultHeavyArmorTargets_FailSafeToAllTargets( array<entity> targetsToSearch )
 {
 	array<entity> validTargets
 
@@ -1205,7 +1222,7 @@ array<entity> function FindNPCAssaultHeavyArmorTargets_FallSafeToAllTargets( arr
 			foundHeavyArmorTarget = true
 		}
 	}
-	// fallsafe: can't find any heavyarmor target!
+	// failsafe: can't find any heavyarmor target!
 	if ( !foundHeavyArmorTarget )
 	{
 		// use all targets instead
@@ -1411,6 +1428,20 @@ bool function CC_SpawnFakeMLTSpectre( entity player, array<string> args )
 	return true
 }
 
+bool function CC_SpawnGruntDroppod( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+	
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+
+	thread ExtraSpawner_SpawnSpecialistGruntDropPod( pos, rot, GetPlayerAISpawnTeam( player, args ), "npc_soldier", "npc_soldier_sidearm" )
+
+	return true
+}
+
 void function PrintColdWarNPCPrimaryAttack( entity npc )
 {
 	npc.EndSignal( "OnDeath" )
@@ -1502,6 +1533,7 @@ void function HotDrop_Spawnpoint( vector origin, int team, float impactTime, boo
 	{
 		damageAreaInfo = CreateEntity( "info_target" )
 		DispatchSpawn( damageAreaInfo )
+		damageAreaInfo.SetOrigin( origin )
 		int dangerousTeam = FriendlyFire_IsEnabled() ? TEAM_BOTH : team // add friendlyfire support: if we enabled friendlyfire, this dangerous area will work for friendly npcs
 		AI_CreateDangerousArea_DamageDef( damageDef, damageAreaInfo, dangerousTeam, true, true )
 	}
@@ -1604,6 +1636,7 @@ void function ExtraSpawner_ApplyNPCExtraWeaponMods( entity npc )
 	}
 }
 
+// npcs will do this callback on player titan transfer
 void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 {
 	// every npc has this, but we'll save ones who have better proficiency
@@ -1629,18 +1662,27 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 	bool isHeavyArmorTarget = enemy.GetArmorType() == ARMOR_TYPE_HEAVY
 
 	string weaponToChange = ""
-	if ( isHeavyArmorTarget && !antiTitanActive )
+	if ( isHeavyArmorTarget )
 	{
+		// move antiTitanActive checks inside: we can ignore checks if antititan is already active
+		// but we shouldn't run "else if ( antiTitanActive )" case to make grunts switch off AT weapon
+		if ( antiTitanActive )
+		{
+			//print( "AT weapon already active for: " + string( guy ) )
+			return
+		}
 		// first try to find an appropriate weapon
 		foreach ( entity weapon in weapons )
 		{
 			string className = weapon.GetWeaponClassName()
+			if ( acitveWeaponName == className ) // already holding this weapon
+				continue
 			bool isMainWeapon = weapon == weapons[0]
 			bool isAntiTitan = !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+			// debug
+			//print( string( weapon ) + " isAntiTitan: " + string( isAntiTitan ) )
 			if ( isAntiTitan && !isMainWeapon )
 			{
-				if ( acitveWeaponName == className ) // already holding this weapon
-					return
 				weaponToChange = className
 				break
 			}
@@ -1651,12 +1693,14 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		foreach ( entity weapon in weapons )
 		{
 			string className = weapon.GetWeaponClassName()
+			if ( acitveWeaponName == className ) // already holding this weapon
+				continue
 			bool isMainWeapon = weapon == weapons[0]
 			bool isAntiTitan = !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
+			// debug
+			//print( string( weapon ) + " isAntiTitan: " + string( isAntiTitan ) )
 			if ( isMainWeapon || !isAntiTitan )
 			{
-				if ( acitveWeaponName == className ) // already holding this weapon
-					return
 				weaponToChange = className
 				break
 			}
@@ -1667,6 +1711,7 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		return
 
 	guy.SetActiveWeaponByName( weaponToChange )
+	// debug
 	//print( "weaponToChange: " + weaponToChange )
 
 	// grunt specific: do dialogue(vanilla missing this in grunt_chatter_mp.rpak)
@@ -2280,7 +2325,7 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 
 	// pilot settings!
 	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1500, false, characterModel, pilotTitle )
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, NPC_PILOT_MAX_HEALTH_BOSS, false, characterModel, pilotTitle )
 
 	// merc boss titan behavior
 	if ( titanType == TITAN_MERC )
@@ -2417,15 +2462,19 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 		thread HotDrop_Spawnpoint( origin, team, impactTime, false, damagedef_titan_fall )
 	}
 
+	float impactTime = GetHotDropImpactTime( titan, animation )
 	thread NPCTitanHotdrops( titan, standUp, animation )
-	titan.WaitSignal( "TitanHotDropComplete" )
-	//print( "NPCTitanHotdrops finished!" )
+	wait impactTime // bubble shield creates at impactTime - 0.1, we wait full impact time here
 
 	// vanilla missing behavior: we shouldn't target npc titan in a bubble shield
 	thread MonitorNPCTitanTargetingInBubbleShield( titan )
+
+	titan.WaitSignal( "TitanHotDropComplete" )
+	// debug
+	//print( "NPCTitanHotdrops finished!" )
 }
 
-const float NPC_BUBBLE_FALLSAFE_DELAY = 3.0
+const float NPC_BUBBLE_FAILSAFE_DELAY = 3.0
 void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
 {
 	titan.EndSignal( "OnDeath" )
@@ -2436,11 +2485,13 @@ void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
 	
 	// find bubble shield
 	WaitEndFrame() // wait for next frame so we won't be cleared notarget by NPCTitanHotdrops()
-	float maxWait = Time() + NPC_BUBBLE_FALLSAFE_DELAY
+	float maxWait = Time() + NPC_BUBBLE_FAILSAFE_DELAY
 	entity bubbleShield
 	while ( Time() < maxWait )
 	{
 		bubbleShield = soul.soul.bubbleShield
+		// debug
+		//print( "bubbleShield: " + string( bubbleShield ) )
 		if ( IsValid( bubbleShield ) )
 			break
 
@@ -2450,9 +2501,11 @@ void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
 		return
 
 	titan.SetNoTarget( true )
+	// debug
 	//print( "Awaiting titan bubble run out!" )
 	WaitSignal( bubbleShield, "OnDestroy" )
 	titan.SetNoTarget( false )
+	// debug
 	//print( "Titan bubble has been destroyed!" )
 }
 
@@ -2494,7 +2547,7 @@ entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int te
 
 	// titan won't have a soul until they DispatchSpawn()
 	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, 1000, false, $"", "鐵馭" )
+	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, NPC_PILOT_MAX_HEALTH, false, $"", "鐵馭" )
 	
 	titan.SetTitle( "#NPC_PILOT" )
 	// apply amped behaviors
@@ -2986,8 +3039,8 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	ExtraSpawner_SetUpNPCPilot( pilot )
 	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
 	pilot.SetModel( modelAsset )
-	pilot.SetMaxHealth( 1000 )
-	pilot.SetHealth( 1000 )
+	pilot.SetMaxHealth( NPC_PILOT_MAX_HEALTH )
+	pilot.SetHealth( NPC_PILOT_MAX_HEALTH )
 	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
 
 	ExtraSpawner_ApplyNPCWeapons( pilot )
@@ -3274,6 +3327,9 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	}
 }
 
+// if pilot still not touching ground after this amount of time
+// we reset it's animation
+const float PILOT_EJECTING_ANIM_FAILSAFE = 8.0
 void function NPCPilotEjectingAnimation( entity pilot )
 {
 	pilot.EndSignal( "OnDestroy" )
@@ -3289,8 +3345,14 @@ void function NPCPilotEjectingAnimation( entity pilot )
 	)
 
 	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
-	while( !pilot.IsOnGround() )
+
+	float failSafeTime = Time() + PILOT_EJECTING_ANIM_FAILSAFE
+	while( Time() < failSafeTime )
+	{
+		if ( pilot.IsOnGround() )
+			break
 		WaitFrame()
+	}
 }
 
 // modified things
@@ -3331,11 +3393,12 @@ void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsValid( attacker ) )
 		return
+	
+	// hardcode version
+	/*
 	if ( !attacker.IsTitan() )
 		return
 
-	// hardcode version
-	/*
 	// titan step
 	if( damageSourceID == damagedef_titan_step ) 
 		DamageInfo_SetDamage( damageInfo, TITAN_STEPPING_ON_DAMAGE_NPC_PILOT )
@@ -3358,6 +3421,29 @@ void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 			DamageInfo_SetDamage( damageInfo, NPC_TITAN_MELEE_DAMAGE_NPC_PILOT )
 	}
 	*/
+
+	// DPS version
+	// guess we can't use damage history for non-player nor soul entity
+	// we'll store it manually
+	int dpsTaken = int( GetTotalDamageTakenInTime( pilot, 1.0 ) )
+	// debug
+	//print( "dpsTaken: " + string( dpsTaken ) )
+	if ( dpsTaken >= NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND )
+		DamageInfo_SetDamage( damageInfo, 0 )
+	else
+	{
+		int maxDamage = NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND - dpsTaken
+		int currentDamage = int( DamageInfo_GetDamage( damageInfo ) )
+		DamageInfo_SetDamage( damageInfo, min( currentDamage, maxDamage ) )
+	}
+
+	// debug
+	//print( "npc pilot modified damage: " + string( DamageInfo_GetDamage( damageInfo ) ) )
+	// store some necessary damage history for npc pilots
+	DamageHistoryStruct damageHistory
+	damageHistory.damage = DamageInfo_GetDamage( damageInfo )
+	damageHistory.time = Time()
+	pilot.e.recentDamageHistory.insert( 0, damageHistory )
 }
 
 void function NPCPilotDamageModifier( entity victim, var damageInfo )
@@ -3391,6 +3477,7 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 	float damageScale = 1.0
 
 	bool nerfDamage = false
+	bool heavyArmorTarget = false
 	// prowler's craw damage is 80, pounce damage is 100
 	if ( victim.IsPlayer() ) // nerf it's damage agains players
 		nerfDamage = true
@@ -3402,8 +3489,12 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 		if ( IsValid( victim.GetOwner() ) )
 			nerfDamage = true
 	}
+	if ( victim.GetArmorType() == ARMOR_TYPE_HEAVY )
+		heavyArmorTarget = true
 
-	if ( nerfDamage )
+	if ( heavyArmorTarget )
+		damageScale *= NPC_PROWLER_DAMAGE_MULTIPLIER_HEAVYARMOR
+	else if ( nerfDamage )
 		damageScale *= NPC_PROWLER_DAMAGE_MULTIPLIER
 	
 	if ( victim in file.isProwlerSquadmate ) // prowler squad specific
@@ -3519,7 +3610,7 @@ void function ExtraSpawner_TitanHandler( entity titan )
 
 		// we mostly search for heavy armor targets
 		// if there're no valid targets, we use all targets instead
-		points = FindNPCAssaultHeavyArmorTargets_FallSafeToAllTargets( pointsToSearch )
+		points = FindNPCAssaultHeavyArmorTargets_FailSafeToAllTargets( pointsToSearch )
 
 		ArrayRemoveDead( points ) // remove dead entities
 		if ( points.len() == 0 ) // no points valid!
@@ -3890,7 +3981,7 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 
 		// we mostly search for heavy armor targets
 		// if there're no valid targets, we use all targets instead
-		points = FindNPCAssaultHeavyArmorTargets_FallSafeToAllTargets( pointsToSearch )
+		points = FindNPCAssaultHeavyArmorTargets_FailSafeToAllTargets( pointsToSearch )
 
 		ArrayRemoveDead( points ) // remove dead targets
 		if ( points.len() == 0 )

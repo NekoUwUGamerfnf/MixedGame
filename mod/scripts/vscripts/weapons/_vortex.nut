@@ -1183,18 +1183,19 @@ function Vortex_CreateImpactEventData( entity vortexWeapon, entity attacker, vec
 		{
 			impactData.projectileModel <- weaponOrProjectile.GetModelName()
 			// get default trail effect, compare to current trail: if modified, do a extra trail effect
-			// seems complex, some modded weapon have their trail effect in infoKeyField. removed for now
-			/*
 			asset defaultTrail = GetWeaponInfoFileKeyFieldAsset_Global( weaponName, "projectile_trail_effect_0" )
 			asset modTrail = weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+			// debug
+			//print( "defaultTrail: " + string( defaultTrail ) )
+			//print( "modTrail: " + string( modTrail ) )
 			if ( defaultTrail != modTrail )
 			{
+				// debug
 				//print( "refired projectile trail has been modified!" )
 				impactData.projectileTrail <- modTrail
 			}
-			*/
 			// this may require tons of resources to display?
-			impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
+			//impactData.projectileTrail <- weaponOrProjectile.GetProjectileWeaponSettingAsset( eWeaponVar.projectile_trail_effect_0 )
 			// convert asset to string
 			string impactFXName = GetImpactTableNameFromWeaponOrProjectile( weaponOrProjectile ) // shared from _unpredicted_impact_fix.gnut
 			impactData.impact_effect_table = impactFXName
@@ -1710,12 +1711,16 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData )
 	}
 }
 
-// delay one frame, so client can predict it
+// delay one frame, so client themselves can see it
 void function DelayedStartParticleEffectOnProjectile( entity projectile, asset trailEffect )
 {
 	WaitFrame()
 	if ( IsValid( projectile ) )
+	{
+		// debug
+		//print( "starting trail on refired projectile!" )
 		StartParticleEffectOnEntity( projectile, GetParticleSystemIndex( trailEffect ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	}
 }
 //
 

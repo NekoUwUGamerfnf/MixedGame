@@ -2,6 +2,7 @@ untyped // for player.GetPlayerSettingsMods()
 global function BisonUtil_Init
 
 const float BISON_DAMAGE_REDUCTION_SEVERITY = 0.1
+const float BISON_MELEE_DAMAGE_AGAINST_DOOMED_TITAN = 1.5 // bison can't termination, so we use higher doomed damage for them
 const float BISON_SPEED_BOOST_SEVERITY = 0.0 // was 0.15, will cause bison's movement animations messed up
 const float BISON_VICTIM_SLOW_DURATION = 0.0 // was 0.3, no slow effect for now
 const float BISON_DASH_RECHARGE_RATE_SCALE = 3.0 // since we've removed bison's speed boost, should give them more charge
@@ -23,8 +24,10 @@ void function BisonUtil_Init()
     // adding a new damageSourceId. it's gonna transfer to client automatically
 	RegisterWeaponDamageSource( "melee_titan_punch_bison", "Bison Punch" )
 
+    AddDamageFinalCallback( "npc_titan", OnBisonFinalDamage )
+    AddDamageFinalCallback( "player", OnBisonFinalDamage )
     AddCallback_OnPilotBecomesTitan( OnPlayerBecomeBison )
-    AddSpawnCallback( "npc_titan", OnBisonSpawned )
+
     AddDamageCallbackSourceID( eDamageSourceId.melee_titan_punch_bison, BisonMelee_DamagedTarget )
 
     // bison grapple settings
@@ -43,71 +46,65 @@ void function BisonUtil_Init()
     TitanMelee_AddDamageSourceIdMod( BISON_PUNCH_MOD_NAME, eDamageSourceId.melee_titan_punch_bison ) // bison unique melee damageSourceId
 }
 
+// main checks
+bool function TitanIsMeleeBison( entity titan )
+{
+    entity weapon = titan.GetMeleeWeapon()
+    if ( !IsValid( weapon ) )
+        return false
+    
+    return weapon.HasMod( "bison_punch" )
+}
+
+// STUB
+bool function TitanIsGunnerBison( entity titan )
+{
+    return false
+}
+
 void function BisonMelee_DamagedTarget( entity victim, var damageInfo )
 {
     // since we added fighter_melee, should check this...
     entity attacker = DamageInfo_GetAttacker( damageInfo )
     if ( !IsValid( attacker ) )
         return
-
-    entity weapon = attacker.GetMeleeWeapon()
-    if ( !IsValid( weapon ) )
+    if ( !TitanIsMeleeBison( attacker ) )
         return
-    if ( !weapon.HasMod( "bison_punch" ) )
-        return
+    
 
     if( !victim.IsTitan() )
         return
     entity soul = victim.GetTitanSoul()
     if( !IsValid( soul ) )
         return
+
+    // titan slow effect needs to apply on soul
     StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 0.25, BISON_VICTIM_SLOW_DURATION, 0.25 )
-    StatusEffect_AddTimed( soul, eStatusEffect.dodge_speed_slow, 0.25, BISON_VICTIM_SLOW_DURATION * 2, 1.0 )
+    StatusEffect_AddTimed( soul, eStatusEffect.dodge_speed_slow, 0.25, BISON_VICTIM_SLOW_DURATION * 2, 1.0 ) 
     if( soul.IsDoomed() )
-        DamageInfo_SetDamage( damageInfo, DamageInfo_GetDamage( damageInfo ) * 1.5 )
+        DamageInfo_ScaleDamage( damageInfo, BISON_MELEE_DAMAGE_AGAINST_DOOMED_TITAN )
+}
+
+void function OnBisonFinalDamage( entity victim, var damageInfo )
+{
+    if ( !victim.IsTitan() )
+        return
+    
+    if ( TitanIsMeleeBison( victim ) )
+        DamageInfo_ScaleDamage( damageInfo, 1.0 - BISON_DAMAGE_REDUCTION_SEVERITY )
 }
 
 void function OnPlayerBecomeBison( entity player, entity titan )
 {
-    thread HandlePlayerBisonAbility( player )
+    HandlePlayerMeleeBisonAbility( player )
 }
 
-void function OnBisonSpawned( entity titan )
+void function HandlePlayerMeleeBisonAbility( entity player )
 {
-    entity soul = titan.GetTitanSoul()
-    if( !IsValid( soul ) )
-        return
-    entity meleeWeapon = titan.GetMeleeWeapon()
-    if( !IsValid( meleeWeapon ) )
-        return
-    if( !meleeWeapon.HasMod( "bison_punch" ) )
-        return
-
-    // bison can still execute npc titans, always use scorch prime's
-    soul.soul.titanLoadout.titanExecution = "execution_scorch_prime" 
-    thread HandleBisonDamageReduction( soul, meleeWeapon )
-    
+    thread HandlePlayerMeleeBisonAbility_Threaded( player )
 }
 
-void function HandleBisonDamageReduction( entity soul, entity meleeWeapon )
-{
-    soul.EndSignal( "OnDestroy" )
-    meleeWeapon.EndSignal( "OnDestroy" ) // bison's confirmation: melee weapon
-
-    int damageReduction = StatusEffect_AddEndless( soul, eStatusEffect.damage_reduction, BISON_DAMAGE_REDUCTION_SEVERITY )
-
-    OnThreadEnd(
-        function(): ( soul, damageReduction )
-        {
-            if( IsValid( soul ) )
-                StatusEffect_Stop( soul, damageReduction )
-        }
-    )
-
-    WaitForever()
-}
-
-void function HandlePlayerBisonAbility( entity player )
+void function HandlePlayerMeleeBisonAbility_Threaded( entity player )
 {
     wait 0.1
     if( !IsValid( player ) )

@@ -97,8 +97,6 @@ void function Modded_Gamemode_GruntMode_Init()
 
 	AddCallback_OnClientConnected( OnPlayerConnected )
 
-	AddCallback_NPCLeeched( OnSpectreLeeched )
-
 	ClassicMP_ForceDisableEpilogue( true )
 	Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
 	Riff_ForceTitanAvailability( eTitanAvailability.Never )
@@ -168,21 +166,19 @@ void function OnPlayerConnected( entity player )
 
 void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var damageInfo )
 {
-	if( !IsValid( attacker ) )
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAITdmScore( victim ) )
 		return
-	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
+	
+	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
 		return
 
 	// if it's a npc with bossplayer/owner...
 	if ( attacker.IsNPC() )
 	{
 		// reassign attacker
-		attacker = GetAiTDMAttackOwner( attacker )
+		attacker = GetAITdmAttackOwner( attacker )
 	}
-
-	// if victim is a non-titan npc that owned by players, don't add score
-	if ( !VictimIsValidForAiTDMScore( victim ) )
-		return
 
 	string className = victim.GetClassName()
 	int scoreToAdd = 0
@@ -267,7 +263,7 @@ void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var
 	}
 
 	if ( scoreToAdd > 0 )
-		AddAiTDMTeamScore( attacker, scoreToAdd ) // this can handle both players' and npcs' kills
+		AddAITdmTeamScore( attacker, scoreToAdd ) // this can handle both players' and npcs' kills
 	if( attacker.IsPlayer() ) // specific for players
 	{
 		if ( scoreEvent != "" )
@@ -275,9 +271,12 @@ void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var
 	}
 }
 
-bool function AttackerIsValidForAiTDMScore( entity victim, entity attacker, var damageInfo )
+bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var damageInfo )
 {
-	if( !attacker.IsNPC() && !attacker.IsPlayer() ) // not killed by anybody
+	if( !IsValid( attacker ) )
+		return false
+
+	if( !attacker.IsNPC() && !attacker.IsPlayer() ) // not killed by any combat character
 		return false
 
 	if ( attacker == victim ) // suicide!
@@ -287,7 +286,7 @@ bool function AttackerIsValidForAiTDMScore( entity victim, entity attacker, var 
 	return true
 }
 
-bool function VictimIsValidForAiTDMScore( entity victim )
+bool function VictimIsValidForAITdmScore( entity victim )
 {
 	// if victim is a non-titan npc that owned by players, don't add score
 	if ( victim.IsNPC() && !victim.IsTitan() )
@@ -310,7 +309,7 @@ bool function VictimIsValidForAiTDMScore( entity victim )
 	return true
 }
 
-entity function GetAiTDMAttackOwner( entity ent )
+entity function GetAITdmAttackOwner( entity ent )
 {
 	entity attacker
 	if ( ent.IsPlayer() ) // player always use themselves as attacker
@@ -325,7 +324,7 @@ entity function GetAiTDMAttackOwner( entity ent )
 	return attacker
 }
 
-void function AddAiTDMTeamScore( entity ent, int score )
+void function AddAITdmTeamScore( entity ent, int score )
 {
 	// Add score + update network int to trigger the "Score +n" popup
 	AddTeamScore( ent.GetTeam(), score )
@@ -339,37 +338,38 @@ void function AddAiTDMTeamScore( entity ent, int score )
 // for handling doomed health loss titans
 void function HandleTitanDoomedScore( entity victim, var damageInfo, bool firstDoom )
 {
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAITdmScore( victim ) )
+		return
+	
 	if ( !firstDoom ) // only add score on first doom
 		return
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) )
-		return
-
-	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
+	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
 		return
 
 	// if it's a npc with bossplayer/owner...
 	if ( attacker.IsNPC() )
 	{
 		// reassign attacker
-		attacker = GetAiTDMAttackOwner( attacker )
+		attacker = GetAITdmAttackOwner( attacker )
 	}
 
-	// if victim is a non-titan npc that owned by players, don't add score
-	if ( !VictimIsValidForAiTDMScore( victim ) )
-		return
-
 	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
-		AddAiTDMTeamScore( attacker, TITAN_SCORE_AMOUNT )
+		AddAITdmTeamScore( attacker, TITAN_SCORE_AMOUNT )
 }
 
 //------------------------------------------------------
 
 // CHECK FUNCTIONS
 
-bool function ShouldSpawnSpecialistSquad()
+bool function ShouldSpawnSpecialistSquad( string otherSpawnWith = "" )
 {
+	// never spawn specialist grunt with stalkers
+	// stalkers are slow and they've already got pretty high health and damage
+	if ( otherSpawnWith == "stalker" )
+		return false
 	// removed. to make game more chaotic, always spawn specialist squad
 	//return RandomInt( 3 ) > 0 // 66% chance of spawning a specialist squad(??
 	return true
@@ -560,7 +560,7 @@ void function SpawnIntroBatch( int team )
 				index = RandomInt( podNodes.len() )
 			
 			node = podNodes[ index ]
-			if ( ShouldSpawnSpecialistSquad() )
+			if ( ShouldSpawnSpecialistSquad( introSpawnClass ) )
 			{
 				array< entity > points = GetZiplineDropshipSpawns()
 				string leaderSet = GetGruntModeSpecialistGruntLeader()
@@ -579,7 +579,7 @@ void function SpawnIntroBatch( int team )
 				startIndex = i // save where we started
 			
 			node = shipNodes[ i - startIndex ]
-			if ( ShouldSpawnSpecialistSquad() )
+			if ( ShouldSpawnSpecialistSquad( introSpawnClass ) )
 			{
 				array< entity > points = GetZiplineDropshipSpawns()
 				string leaderSet = GetGruntModeSpecialistGruntLeader()
@@ -661,7 +661,7 @@ void function SpawnerSquads( int team )
 				array<entity> droppodPoints = SpawnPoints_GetDropPod()
 				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
 
-				if ( ShouldSpawnSpecialistSquad() )
+				if ( ShouldSpawnSpecialistSquad( ent ) )
 				{
 					string leaderSet = GetGruntModeSpecialistGruntLeader()
 					// add health depending on what npc it spawning with
@@ -1016,17 +1016,6 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 
 //------------------------------------------------------
 
-// Award for hacking
-void function OnSpectreLeeched( entity spectre, entity player )
-{
-	// Set Owner so we can filter in HandleScore
-	spectre.SetOwner( player )
-	// Add score + update network int to trigger the "Score +n" popup
-	AddTeamScore( player.GetTeam(), 1 )
-	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 )
-	player.SetPlayerNetInt("AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
-}
-
 // ticks clean up
 void function CleanUpOverloadedTicks()
 {
@@ -1104,8 +1093,6 @@ void function CleanupBoredNPCThread( entity guy )
 
 		if ( guy.Anim_IsActive() ) // anim active, such as marvin doing a job or npc being executed
 			continue
-		if ( IsAlive( guy.GetEnemy() ) ) // in combat, not just wondering around
-			continue
 
 		// if the npc is owner by player, we skip checks
 		entity owner = guy.GetOwner()
@@ -1169,7 +1156,9 @@ void function CleanupBoredNPCThread( entity guy )
 			failedChecks = true
 		}
 
-		if ( Distance( guy.GetOrigin(), lastCheckOrigin ) <= 64 ) // assume they're not moving
+		if ( !IsAlive( guy.GetEnemy() ) 
+			 && Distance( guy.GetOrigin(), lastCheckOrigin ) <= 64 
+			 ) // assume they're not moving nor combating
 			failedChecks = true // mark as checks failed
 
 		if ( failedChecks )

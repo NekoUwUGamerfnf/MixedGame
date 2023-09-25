@@ -158,7 +158,10 @@ function DeployArcPylon( entity projectile )
 	int team = owner.GetTeam()
 
 	entity tower = CreatePropScript( LASER_TRIP_MODEL, origin, angles, SOLID_VPHYSICS )
-	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	// TRACE_COLLISION_GROUP_BLOCK_WEAPONS makes scorch thermite pass through entity
+	// Super.Mixed.Game has changed basic laser tripwire, guess I'll change this too
+	//tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS_AND_PHYSICS
 	//tower.EnableAttackableByAI( 20, 0, AI_AP_FLAG_NONE )
 	SetTargetName( tower, "Laser Tripwire Base" )
 	//tower.SetMaxHealth( 500000 )

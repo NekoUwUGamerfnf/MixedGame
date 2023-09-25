@@ -160,7 +160,11 @@ void function OnPlayerConnected( entity player )
 // Used to handle both player and ai events
 void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
 {
-	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAITdmScore( victim ) )
+		return
+	
+	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
 		return
 
 	int playerScore
@@ -200,17 +204,19 @@ void function HandleScoreEvent( entity victim, entity attacker, var damageInfo )
 			playerScore += 10
 	}
 
-	AddAiTDMPlayerTeamScore( attacker, playerScore )
+	AddAITdmPlayerTeamScore( attacker, playerScore )
 }
 
-bool function AttackerIsValidForAiTDMScore( entity victim, entity attacker, var damageInfo )
+bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var damageInfo )
 {
 	// Basic checks
+	if ( !IsValid( attacker ) )
+		return false
 	if ( victim == attacker || !( attacker.IsPlayer() || attacker.IsTitan() ) || GetGameState() != eGameState.Playing )
 		return false
 	
 	// Hacked spectre and pet titan filter
-	if ( victim.GetOwner() == attacker )
+	if ( victim.GetOwner() == attacker || victim.GetBossPlayer() == attacker )
 		return false
 	
 	// NPC titans without an owner player will not count towards any team's score
@@ -221,7 +227,30 @@ bool function AttackerIsValidForAiTDMScore( entity victim, entity attacker, var 
 	return true
 }
 
-void function AddAiTDMPlayerTeamScore( entity player, int score )
+bool function VictimIsValidForAITdmScore( entity victim )
+{
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( victim.IsNPC() && !victim.IsTitan() )
+	{
+		entity bossPlayer = victim.GetBossPlayer()
+		entity owner = victim.GetOwner()
+		if ( IsValid( bossPlayer ) )
+		{
+			if ( bossPlayer.IsPlayer() )
+				return false
+		}
+		if ( IsValid( owner ) )
+		{
+			if ( owner.IsPlayer() )
+				return false
+		}
+	}
+
+	// all checks passed
+	return true
+}
+
+void function AddAITdmPlayerTeamScore( entity player, int score )
 {
 	// Add score + update network int to trigger the "Score +n" popup
 	AddTeamScore( player.GetTeam(), score )
@@ -232,18 +261,20 @@ void function AddAiTDMPlayerTeamScore( entity player, int score )
 // modified: for handling doomed health loss titans
 void function HandleTitanDoomedScore( entity victim, var damageInfo, bool firstDoom )
 {
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAITdmScore( victim ) )
+		return
+	
 	if ( !firstDoom ) // only add score on first doom
 		return
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) )
-		return
-	if ( !AttackerIsValidForAiTDMScore( victim, attacker, damageInfo ) )
+	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
 		return
 
 	// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
 	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
-		AddAiTDMPlayerTeamScore( attacker, 10 )
+		AddAITdmPlayerTeamScore( attacker, 10 )
 }
 
 // When attrition starts both teams spawn ai on preset nodes, after that
@@ -672,9 +703,7 @@ void function OnSpectreLeeched( entity spectre, entity player )
 	// Set Owner so we can filter in HandleScore
 	spectre.SetOwner( player )
 	// Add score + update network int to trigger the "Score +n" popup
-	AddTeamScore( player.GetTeam(), 1 )
-	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 )
-	player.SetPlayerNetInt("AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+	AddAITdmPlayerTeamScore( player, 1 )
 }
 
 // Same as SquadHandler, just for reapers
@@ -725,7 +754,7 @@ void function ReaperHandler( entity reaper )
 				foundHeavyArmorTarget = true
 			}
 		}
-		// fallsafe: can't find any heavyarmor target!
+		// failsafe: can't find any heavyarmor target!
 		if ( !foundHeavyArmorTarget )
 		{
 			// use all targets instead

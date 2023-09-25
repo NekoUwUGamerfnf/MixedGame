@@ -76,8 +76,8 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 
 	entity soul = owner.GetTitanSoul()
 	table storedShield = {}
-	storedShield.starterShield <- soul.GetShieldHealth()
-	storedShield.starterMaxShield <- soul.GetShieldHealthMax()
+	storedShield.startingShield <- soul.GetShieldHealth()
+	storedShield.startingShield <- soul.GetShieldHealthMax()
 
 	if ( owner.IsPlayer() )
 	{
@@ -112,7 +112,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			if ( IsValid( soul ) )
 			{
 				CleanupCoreEffect( soul )
-				int orgMaxShield = expect int ( storedShield.starterMaxShield )
+				int orgMaxShield = expect int ( storedShield.startingMaxShield )
 				soul.SetShieldHealth( min( orgMaxShield, soul.GetShieldHealth() ) )
 				soul.SetShieldHealthMax( orgMaxShield )
 			}
