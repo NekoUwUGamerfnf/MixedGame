@@ -6,24 +6,46 @@
 		TitanLoadoutSwitch_RegisterAmmoClipWeapon( string weapon )
 		TitanLoadoutSwitch_RegisterSharedEnergyWeapon( string weapon )
 		// don't register ignored weapon to any type
+
+		// EDIT: using a enum could be better for registering listed stuffs
+		// EDIT2: could just use cooldown_type and add ignore weapon names
+				  why respawn keep hardcoding everything?
 */
 global function TitanLoadoutSwitch_Init
 
-global function GetWeaponCooldownsForTitanLoadoutSwitch
-global function SetWeaponCooldownsForTitanLoadoutSwitch
+global function TitanLoadoutSwitch_GetWeaponCooldowns
+global function TitanLoadoutSwitch_SetWeaponCooldownsFromTable
 
+// registering ignored weapons
+global function TitanLoadoutSwitch_AddCooldownIgnoredWeaponName
+
+// always reduced from cooldown if you try to switch
 const float LOADOUT_SWITCH_COOLDOWN_PENALTY = 0.1
+
+const array<int> LOADOUT_SWITCH_RECORD_OFFHAND_SLOTS =
+[
+	OFFHAND_SPECIAL,
+	OFFHAND_ANTIRODEO,
+	OFFHAND_ORDNANCE,
+	// no melee and no core
+]
 
 struct WeaponCooldownData
 {
-	string weaponName
+	// never use weaponName in case we have same weapons for different titans
+	// why not use slot?
+	//string weaponName
+	int slot
 	float timeStored
 	float severity
 }
 
 struct
 {
+	// store cooldown data per player
 	table< entity, array<WeaponCooldownData> > playerCooldownData
+	// adding ignored weapons
+	array<string> loadoutSwitchIgnoredWeapons
 } file
 
 void function TitanLoadoutSwitch_Init()
@@ -36,120 +58,110 @@ void function OnClientConnected( entity player )
 	file.playerCooldownData[ player ] <- []
 }
 
-table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player )
+void function TitanLoadoutSwitch_AddCooldownIgnoredWeaponName( string weapon )
+{
+	if ( !file.loadoutSwitchIgnoredWeapons.contains( weapon ) )
+		file.loadoutSwitchIgnoredWeapons.append( weapon )
+}
+
+table<int,float> function TitanLoadoutSwitch_GetWeaponCooldowns( entity player )
 {
 	if ( !player.IsPlayer() ) // used on npcs?
 		return {}
 	if ( !player.IsTitan() )
 		return {}
 
-	entity coreWeapon = player.GetOffhandWeapon( OFFHAND_EQUIPMENT )
-	entity meleeWeapon = player.GetMeleeWeapon()
-	array<entity> offhandWeapons = player.GetOffhandWeapons()
-
 	table<int,float> cooldowns = {}
-	cooldowns[ OFFHAND_ORDNANCE ] <- 0.0
-	cooldowns[ OFFHAND_SPECIAL ] <- 0.0
-	cooldowns[ OFFHAND_ANTIRODEO ] <- 0.0
+	foreach ( int slot in LOADOUT_SWITCH_RECORD_OFFHAND_SLOTS )
+		cooldowns[ slot ] <- 0.0
 
-	foreach ( slot,severity in cooldowns )
+	// you know what? we should use for() instead of foreach to get sloted weapons
+	for ( int slot = 0; slot < OFFHAND_COUNT - 1; slot ++ )
 	{
+		if ( !LOADOUT_SWITCH_RECORD_OFFHAND_SLOTS.contains( slot ) )
+			continue
+		
 		entity offhand = player.GetOffhandWeapon( slot )
-
 		if ( !IsValid( offhand ) )
 			continue
-		if ( offhand == meleeWeapon )
-			continue
-		if ( offhand == coreWeapon )
-			continue
 
-		switch( offhand.GetWeaponClassName() )
+		string weaponName = offhand.GetWeaponClassName()
+		
+		// Do nothing:
+		if ( file.loadoutSwitchIgnoredWeapons.contains( weaponName ) )
+			cooldowns[slot] = 1.0
+		else
 		{
-			// Next attack time (burst fire):
-			case "mp_titanweapon_homing_rockets":
+			// I think it's genericly stupid when you try to... ughh, hardcoding weapon name
+			switch( GetWeaponInfoFileKeyField_Global( weaponName, "cooldown_type" ) )
 			{
-				float cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
-				float nextAttackTime = offhand.GetNextAttackAllowedTime()
-				if ( nextAttackTime < Time() ) // already be allowed to attack
-					nextAttackTime = Time()
-				float NAT = nextAttackTime - Time()
-
-				if ( NAT >= 0 )
-					cooldowns[slot] = 1.0 - NAT/cooldownTime
-			}
-			break
-
-
-			// Set charge to 100%:
-			case "mp_titanweapon_vortex_shield":
-			case "mp_titanweapon_heat_shield":
-			case "mp_titanweapon_shoulder_rockets":
-			{
-				cooldowns[slot] = 1.0 - offhand.GetWeaponChargeFraction()
-			}
-			break
-
-			// Set clip ammo to 0:
-			case "mp_titanability_smoke":
-			case "mp_titanability_tether_trap":
-			case "mp_titanability_phase_dash":
-			case "mp_titanability_hover":
-			case "mp_titanability_sonar_pulse":
-			case "mp_titanability_particle_wall":
-			case "mp_titanability_gun_shield":
-			case "mp_titanweapon_flame_wall":
-			case "mp_titanability_slow_trap":
-			case "mp_titanweapon_arc_wave":
-			case "mp_titanweapon_dumbfire_rockets":
-			case "mp_titanability_power_shot":
-			case "mp_titanability_rearm":
-			case "mp_titanweapon_stun_laser":
-			case "mp_titanability_rocketeer_ammo_swap":
-			case "mp_titanweapon_salvo_rockets":
-			case "mp_titanability_laser_trip":
-			{
-				if ( offhand.IsWeaponRegenDraining() )
+				// Do nothing:
+				case "ammo_swordblock":
 				{
-					cooldowns[slot] = 0.0
+					cooldowns[slot] = 1.0
 				}
-				else
+				break
+
+				// Using charge frac( reversed cooldown ):
+				case "charged_shot":
+				case "vortex_drain":
 				{
-					int maxClipAmmo = offhand.GetWeaponPrimaryClipCountMax()
-					int currentAmmo = offhand.GetWeaponPrimaryClipCount()
-					cooldowns[slot] = (float( currentAmmo ) / float( maxClipAmmo ))
+					cooldowns[slot] = 1.0 - offhand.GetWeaponChargeFraction()
 				}
-			}
-			break
+				break
 
-			// Do nothing:
-			case "mp_titanweapon_laser_lite":		// shared energy
-			case "mp_titanability_laser_trip":		// shared energy
-			case "mp_titanweapon_vortex_shield_ion":// shared energy
-			{
-				cooldowns[slot] = float( player.GetSharedEnergyCount() ) / float( player.GetSharedEnergyTotal() )
-			}
-			break
+				// Using ammo clip:
+				case "ammo":
+				case "ammo_instant":
+				case "ammo_per_shot":
+				case "ammo_deployed":
+				case "ammo_timed":
+				{
+					if ( offhand.IsWeaponRegenDraining() )
+					{
+						cooldowns[slot] = 0.0
+					}
+					else
+					{
+						int maxClipAmmo = offhand.GetWeaponPrimaryClipCountMax()
+						int currentAmmo = offhand.GetWeaponPrimaryClipCount()
+						cooldowns[slot] = (float( currentAmmo ) / float( maxClipAmmo ))
+					}
+				}
+				break
 
-			case "mp_titanability_basic_block":
-			case "mp_titanweapon_tracker_rockets":
-			case "mp_titanability_ammo_swap":
-			{
-				cooldowns[slot] = 1.0
-			}
-			break
+				// Shared energy
+				case "shared_energy":
+				case "shared_energy_drain":
+				{
+					cooldowns[slot] = float( player.GetSharedEnergyCount() ) / float( player.GetSharedEnergyTotal() )
+				}
+				break
 
-			default:
-			{
-				//CodeWarning( offhand.GetWeaponClassName() + " - not handled in GetWeaponCooldownsForTitanLoadoutSwitch()." )
+				default:
+				{
+					// Next attack time (burst fire):
+					float cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
+					float nextAttackTime = offhand.GetNextAttackAllowedTime()
+					if ( nextAttackTime < Time() ) // already be allowed to attack
+						nextAttackTime = Time()
+					float NAT = nextAttackTime - Time()
+
+					if ( NAT >= 0 )
+						cooldowns[slot] = 1.0 - NAT/cooldownTime
+
+					// THIS IS BECAUSE YOU'RE HARDCODING EVERYTHING
+					//CodeWarning( offhand.GetWeaponClassName() + " - not handled in TitanLoadoutSwitch_GetWeaponCooldowns()." )
+				}
+				break
 			}
 		}
 
-		string weaponName = offhand.GetWeaponClassName()
 		array<WeaponCooldownData> playerDatas = file.playerCooldownData[ player ]
 		bool foundData = false
 		foreach ( WeaponCooldownData data in playerDatas )
 		{
-			if ( data.weaponName == weaponName ) // found one valid data?
+			if ( data.slot == slot ) // found one valid data?
 			{
 				// update it
 				data.timeStored = Time()
@@ -162,46 +174,49 @@ table<int,float> function GetWeaponCooldownsForTitanLoadoutSwitch( entity player
 		{
 			// append a new one
 			WeaponCooldownData data
-			data.weaponName = weaponName
+			data.slot = slot
 			data.timeStored = Time()
 			data.severity = cooldowns[slot]
 
 			file.playerCooldownData[ player ].append( data )
 		}
 
-		//printt( "GET: " + slot + " " + offhand.GetWeaponClassName() + " - " + cooldowns[slot] )
+		// debug
+		printt( "GET: " + slot + " " + offhand.GetWeaponClassName() + " - " + cooldowns[slot] )
 	}
 
 	return cooldowns
 }
 
-void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,float> cooldowns )
+void function TitanLoadoutSwitch_SetWeaponCooldownsFromTable( entity player, table<int,float> cooldowns )
 {
 	if ( !player.IsPlayer() ) // used on npcs?
 		return
 	if ( !player.IsTitan() )
 		return
 
-	entity coreWeapon = player.GetOffhandWeapon( OFFHAND_EQUIPMENT )
-	entity meleeWeapon = player.GetMeleeWeapon()
-	array<entity> offhandWeapons = player.GetOffhandWeapons()
-
 	// 1 is fully available, 0 is used up
 	float highestSeverity = 1.0
 
-	foreach ( slot,severity in cooldowns )
+	foreach ( slot, severity in cooldowns )
 	{
+		if ( !LOADOUT_SWITCH_RECORD_OFFHAND_SLOTS.contains( slot ) )
+			continue
+		
 		entity offhand = player.GetOffhandWeapon( slot )
-
 		if ( !IsValid( offhand ) )
 			continue
 
-		string offhandName = offhand.GetWeaponClassName()
+		string weaponName = offhand.GetWeaponClassName()
+		// Do nothing:
+		if ( file.loadoutSwitchIgnoredWeapons.contains( weaponName ) )
+			continue
 
+		float severity = 1.0
 		array<WeaponCooldownData> playerDatas = file.playerCooldownData[ player ]
 		foreach ( WeaponCooldownData data in playerDatas )
 		{
-			if ( data.weaponName == offhandName ) // found saved severity in data
+			if ( data.slot == slot ) // found saved severity in data
 			{
 				float savedSeverity = CalculateCurrentWeaponCooldownFromStoredTime( player, offhand, data )
 				severity = min( savedSeverity, severity )
@@ -210,75 +225,56 @@ void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,
 
 		highestSeverity = min( severity, highestSeverity )
 
-		if ( offhand == meleeWeapon )
-			continue
-		if ( offhand == coreWeapon )
-			continue
+		// debug
+		printt( "SET: " + slot + " " + offhand.GetWeaponClassName() + " - " + severity )
 
-		//printt( "SET: " + slot + " " + offhand.GetWeaponClassName() + " - " + severity )
-
-		switch( offhandName )
+		// I think it's genericly stupid when you try to... ughh, hardcoding weapon name
+		switch( GetWeaponInfoFileKeyField_Global( weaponName, "cooldown_type" ) )
 		{
-			// Next attack time (burst fire):
-			case "mp_titanweapon_homing_rockets":
+			// Do nothing:
+			case "ammo_swordblock":
+			case "shared_energy":
+			case "shared_energy_drain":
 			{
-				float cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
-				offhand.SetNextAttackAllowedTime( Time() + ( cooldownTime * (1.0 - severity) ) )
+
 			}
 			break
 
-			// Set charge to 100%:
-			case "mp_titanweapon_vortex_shield":
-			case "mp_titanweapon_heat_shield":
-			case "mp_titanweapon_shoulder_rockets":
+			// Using charge frac( reversed cooldown ):
+			case "charged_shot":
+			case "vortex_drain":
 			{
 				offhand.SetWeaponChargeFractionForced( 1.0 - severity )
 			}
 			break
 
-			// Set clip ammo to 0:
-			case "mp_titanability_smoke":
-			case "mp_titanability_tether_trap":
-			case "mp_titanability_phase_dash":
-			case "mp_titanability_hover":
-			case "mp_titanability_sonar_pulse":
-			case "mp_titanability_gun_shield":
-			case "mp_titanability_particle_wall":
-			case "mp_titanweapon_flame_wall":
-			case "mp_titanability_slow_trap":
-			case "mp_titanweapon_arc_wave":
-			case "mp_titanweapon_dumbfire_rockets":
-			case "mp_titanability_power_shot":
-			case "mp_titanability_rearm":
-			case "mp_titanweapon_stun_laser":
-			case "mp_titanability_rocketeer_ammo_swap":
-			case "mp_titanweapon_salvo_rockets":
-			case "mp_titanability_laser_trip":
+			// Using ammo clip:
+			case "ammo":
+			case "ammo_instant":
+			case "ammo_per_shot":
+			case "ammo_deployed":
+			case "ammo_timed":
 			{
 				int maxClipAmmo = offhand.GetWeaponPrimaryClipCountMax()
 				offhand.SetWeaponPrimaryClipCountAbsolute( maxClipAmmo * severity )
 			}
 			break
 
-			// Do nothing:
-			case "mp_titanability_basic_block":
-			case "mp_titanweapon_tracker_rockets":
-			case "mp_titanability_ammo_swap":
-			case "mp_titanweapon_laser_lite":		// shared energy
-			case "mp_titanability_laser_trip":		// shared energy
-			case "mp_titanweapon_vortex_shield_ion":// shared energy
-			{
-			}
-			break
-
 			default:
 			{
-				//CodeWarning( offhand.GetWeaponClassName() + " - not handled in SetWeaponCooldownsForTitanLoadoutSwitch()." )
+				// Next attack time (burst fire):
+				float cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
+				offhand.SetNextAttackAllowedTime( Time() + ( cooldownTime * (1.0 - severity) ) )
+
+				// THIS IS BECAUSE YOU'RE HARDCODING EVERYTHING
+				//CodeWarning( offhand.GetWeaponClassName() + " - not handled in TitanLoadoutSwitch_SetWeaponCooldownsFromTable()." )
 			}
+			break
 		}
 	}
 
-	//printt( "highestSeverity: " + highestSeverity )
+	// debug
+	printt( "highestSeverity: " + highestSeverity )
 	int energy = player.GetSharedEnergyCount()
 	int totalEnergy = player.GetSharedEnergyTotal()
 	int idealEnergy = int( player.GetSharedEnergyTotal() * highestSeverity )
@@ -291,42 +287,29 @@ void function SetWeaponCooldownsForTitanLoadoutSwitch( entity player, table<int,
 float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, entity offhand, WeaponCooldownData data )
 {
 	float cooldownTime = 10.0
-	switch( offhand.GetWeaponClassName() )
+	switch( GetWeaponInfoFileKeyField_Global( offhand.GetWeaponClassName(), "cooldown_type" ) )
 	{
-		// Next attack time (burst fire):
-		case "mp_titanweapon_homing_rockets":
+		// Do nothing:
+		case "ammo_swordblock":
 		{
-			cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
+			cooldownTime = LOADOUT_SWITCH_COOLDOWN_PENALTY // still adds penalty
 		}
 		break
-
-		// Set charge to 100%:
-		case "mp_titanweapon_vortex_shield":
-		case "mp_titanweapon_heat_shield":
-		case "mp_titanweapon_shoulder_rockets":
+			
+		// Using charge frac( reversed cooldown ):
+		case "charged_shot":
+		case "vortex_drain":
 		{
 			cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_time ) + offhand.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
 		}
 		break
 
-		// Set clip ammo to 0:
-		case "mp_titanability_smoke":
-		case "mp_titanability_tether_trap":
-		case "mp_titanability_phase_dash":
-		case "mp_titanability_hover":
-		case "mp_titanability_sonar_pulse":
-		case "mp_titanability_particle_wall":
-		case "mp_titanability_gun_shield":
-		case "mp_titanweapon_flame_wall":
-		case "mp_titanability_slow_trap":
-		case "mp_titanweapon_arc_wave":
-		case "mp_titanweapon_dumbfire_rockets":
-		case "mp_titanability_power_shot":
-		case "mp_titanability_rearm":
-		case "mp_titanweapon_stun_laser":
-		case "mp_titanability_rocketeer_ammo_swap":
-		case "mp_titanweapon_salvo_rockets":
-		case "mp_titanability_laser_trip":
+		// Using ammo clip:
+		case "ammo":
+		case "ammo_instant":
+		case "ammo_per_shot":
+		case "ammo_deployed":
+		case "ammo_timed":
 		{
 			float maxClipAmmo = float( offhand.GetWeaponPrimaryClipCountMax() )
 			float refillRate = offhand.GetWeaponSettingFloat( eWeaponVar.regen_ammo_refill_rate )
@@ -341,10 +324,9 @@ float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, enti
 		}
 		break
 
-		// Do nothing:
-		case "mp_titanweapon_laser_lite":		// shared energy
-		case "mp_titanability_laser_trip":		// shared energy
-		case "mp_titanweapon_vortex_shield_ion":// shared energy
+		// Shared energy:
+		case "shared_energy":
+		case "shared_energy_drain":
 		{
 			float maxEnergy = float( player.GetSharedEnergyTotal() )
 			float refillRate = player.GetSharedEnergyRegenRate()
@@ -353,18 +335,15 @@ float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, enti
 		}
 		break
 
-		case "mp_titanability_basic_block":
-		case "mp_titanweapon_tracker_rockets":
-		case "mp_titanability_ammo_swap":
-		{
-			cooldownTime = 0.1
-		}
-		break
-
 		default:
 		{
+			// Next attack time (burst fire):
+			cooldownTime = offhand.GetWeaponSettingFloat( eWeaponVar.burst_fire_delay )
+
+			// THIS IS BECAUSE YOU'RE HARDCODING EVERYTHING
 			//CodeWarning( offhand.GetWeaponClassName() + " - not handled in GetWeaponCooldownsForTitanLoadoutSwitch()." )
 		}
+		break
 	}
 
 	float startTime = min( data.timeStored + LOADOUT_SWITCH_COOLDOWN_PENALTY, Time() )
@@ -372,5 +351,6 @@ float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, enti
 
 	float severity = elapsedTime / cooldownTime
 
+	print( "calculated severity: " + string( clamp( severity + data.severity, 0, 1 ) ) )
 	return clamp( severity + data.severity, 0, 1 )
 }
