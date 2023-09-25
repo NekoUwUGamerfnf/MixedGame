@@ -7,6 +7,8 @@ global function TitanReplace_Init
 // settings
 global function TitanReplace_SetEnabled
 
+global function TitanReplace_UseGunnerBisonVariant // bison variant
+
 // fixes, always gets applied no matter titan_replace is enabled or not
 global function TitanReplace_EnableNorthstarReBalance // rebalance northstar's railgun
 global function TitanReplace_EnableRoninCoreFix // fix ronin's sword core behavior
@@ -46,6 +48,7 @@ global function TitanReplace_BecomeScorch
 global function TitanReplace_BecomeLegion
 global function TitanReplace_BecomeOgre
 global function TitanReplace_BecomeBison
+global function TitanReplace_BecomeGunnerBison // bison variant
 global function TitanReplace_BecomeMonarch
 global function TitanReplace_BecomeArchon
 global function TitanReplace_BecomeBrute
@@ -82,6 +85,8 @@ struct
 	// settings
 	bool defaultReplaceEnabled
 
+	bool useGunnerBison
+
 	// fixes
 	bool northstarReBalanceEnabled
 	bool roninCoreFixEnabled
@@ -113,6 +118,11 @@ void function TitanReplace_Init()
 void function TitanReplace_SetEnabled( bool enabled )
 {
 	file.defaultReplaceEnabled = enabled
+}
+
+void function TitanReplace_UseGunnerBisonVariant( bool use )
+{
+	file.useGunnerBison = use
 }
 
 // fixes
@@ -212,10 +222,18 @@ void function TitanReplace_GiveTitanLoadoutReplace( entity titan )
 
 			case $"models/titans/heavy/titan_heavy_scorch_prime.mdl":
 				SendHudMessage(player, "已启用野牛泰坦装备，取消至尊泰坦以使用原版烈焰",  -1, 0.3, 200, 200, 225, 255, 0.15, 5, 1);
-				// Melee Bison
-				TitanPick_SoulSetEnableWeaponDrop( titanSoul, false ) // setting titans won't drop weapon
-				TitanPick_SoulSetEnableWeaponPick( titanSoul, false ) // setting players unable to replace weapons from ground
-				TitanReplace_BecomeBison( titan, false, true )
+				if ( file.useGunnerBison ) // bison vairant
+				{
+					// Gunner Bison
+					TitanReplace_BecomeGunnerBison( titan, false, true )
+				}
+				else
+				{
+					// Melee Bison
+					TitanPick_SoulSetEnableWeaponDrop( titanSoul, false ) // setting titans won't drop weapon
+					TitanPick_SoulSetEnableWeaponPick( titanSoul, false ) // setting players unable to replace weapons from ground
+					TitanReplace_BecomeBison( titan, false, true )
+				}
 				break
 
 			case $"models/titans/medium/titan_medium_ion_prime.mdl":
@@ -1439,6 +1457,118 @@ void function TitanReplace_BecomeBison( entity titan, bool isPickup = false, boo
 				//titan.GiveWeapon( "mp_weapon_gunship_missile", ["titan_electric_fist_primary"] )
 				//titan.GiveOffhandWeapon( "melee_titan_punch_fighter", OFFHAND_MELEE, ["berserker", "dash_punch", "bison_punch"] )
 				//titan.SetActiveWeaponByName( "mp_weapon_gunship_missile" )
+
+				// Execution
+    			soul.soul.titanLoadout.titanExecution = "execution_scorch_prime" 
+			}
+		}
+	}
+}
+
+// bison variant
+void function TitanReplace_BecomeGunnerBison( entity titan, bool isPickup = false, bool isSpawning = false )
+{
+	if( !titan.IsTitan() )
+		return
+	if (IsValid( titan )) 
+	{
+		entity soul = titan.GetTitanSoul()
+		entity player = titan
+		if( !titan.IsPlayer() )
+		{
+			player = GetPetTitanOwner( titan )
+		}
+		if (IsValid( soul ) && IsValid( player ))
+		{
+            if( IsTitanCoreFiring( player ) )
+            {
+                SendHudMessage( player, "核心启动期间不可以更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
+                return
+            }
+
+			if( !isSpawning )
+			{
+            	SendHudMessage( player, "更换至 野牛 泰坦技能组", -1, 0.3, 255, 255, 0, 0, 0.15, 6, 0.15 )
+            	player.SetTitle( "#NPC_TITAN_OGRE_FIGHTER" )
+			}
+			TitanReplace_UpdateSoulTitanTitle( soul, "#NPC_TITAN_OGRE_FIGHTER" )
+			TitanPick_SoulSetWeaponDropTitanCharacterName( soul, "bison_gunner" )
+			TitanEmbark_SetSoulFirstPersonEmbarkEnabled( soul, false )
+			PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( soul, true )
+			MeleeSyncedTitan_SetSoulDoClassicExecution( soul, false )
+			MeleeSyncedTitan_SetSoulCanBeExecuted( soul, false ) // cannot execute bison
+
+			// spawn as bison
+			if( !isPickup )
+			{
+				int passiveType = TitanReplace_GetPassiveType( TitanReplace_GetSoulStartingPassive( soul ) )
+				TitanReplace_RemoveUnmatchedPassivesForTitan( titan )
+
+				//Bison have damage reduction
+				//Gunner bison shouldn't have?
+				soul.SetPreventCrits( true )
+				//Skin & Camo
+				int skinIndex
+				int camoIndex
+				bool foundSkin = false
+				foreach( entity weapon in titan.GetMainWeapons() )
+				{
+					if ( !foundSkin )
+					{
+						skinIndex = weapon.GetSkin()
+						camoIndex = weapon.GetCamo()
+						foundSkin = true
+					}
+					titan.TakeWeaponNow( weapon.GetWeaponClassName() )
+				}
+				foreach( entity offhand in titan.GetOffhandWeapons() )
+				{
+					if ( offhand.GetWeaponClassName() != CORE_SMOKE_WEAPON )
+						titan.TakeWeaponNow( offhand.GetWeaponClassName() )
+				}
+				//Weapon
+				entity newWeapon = titan.GiveWeapon( "mp_titanweapon_xo16_shorty", ["gunner_bison_xo16", "extended_ammo"] ) // removed "electric_rounds", it's horribles
+				newWeapon.SetSkin( skinIndex )
+				newWeapon.SetCamo( camoIndex )
+
+				//Defence
+				titan.GiveOffhandWeapon("mp_titanweapon_stun_laser", OFFHAND_SPECIAL, ["pas_vanguard_shield"] )
+
+				//Tactical
+				titan.GiveOffhandWeapon("mp_ability_heal", OFFHAND_ANTIRODEO, ["bc_long_stim1", "pas_power_cell"] )
+
+				//Offence
+				// can't handle sharedEnergyTotal without modifying bison_util.nut, just temp removed here
+				// needs to add a weapon mod named "gunner_bison_laser", and do SetSharedEnergyTotal() in bison util checks
+				// should be handled by weapon's OwnerChanged callbacks...
+				// it's WIP now
+				//titan.GiveOffhandWeapon("mp_titanweapon_laser_lite", OFFHAND_ORDNANCE, ["gunner_bison_laser"] )
+				titan.GiveOffhandWeapon("mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE )
+
+				//Titan Core
+				titan.GiveOffhandWeapon( "mp_titancore_shift_core", OFFHAND_EQUIPMENT, ["berserker_core"] )
+
+				//Melee, primary weapon for bison
+				titan.GiveOffhandWeapon( "melee_titan_punch_scorch", OFFHAND_MELEE )
+			}
+
+			// pick up bison loadout
+			if ( isPickup )
+			{
+				//Passives
+				soul.SetPreventCrits( true )
+
+				//Executions
+				if ( GetSoulTitanSubClass( soul ) == "ogre" ) // ogre titan
+				{
+					ChangeSoulTitanExecution( soul, "execution_scorch_prime", "execution_random_1" )
+					MeleeSyncedTitan_SetSoulShouldReplaceLoadoutOnExecution( soul, false )
+				}
+				else // other titans
+				{
+					soul.soul.titanLoadout.titanExecution = TitanReplace_GetSoulStartingExecutionRef( soul ) // restore to starting execution
+					MeleeSyncedTitan_SetSoulShouldReplaceLoadoutOnExecution( soul, true ) // enable execution callbacks for them
+				}
 			}
 		}
 	}
@@ -1970,6 +2100,7 @@ void function RegisterDefaultTitanPickCharacters()
 	RegisterScorchTitanCharacter()
 	RegisterLegionTitanCharacter()
 	RegisterOgreTitanCharacter()
+	RegisterGunnerBisonTitanCharacter() // bison variant
 	RegisterArchonTitanCharacter()
 	RegisterBruteTitanCharacter()
 
@@ -2681,6 +2812,52 @@ string function OgreWeaponDisplayNameFunc( entity weapon )
 }
 
 // bison shouldn't drop any weapon
+
+// bison gunner variant
+void function RegisterGunnerBisonTitanCharacter()
+{
+	TitanPick_RegisterTitanWeaponDrop( "bison_gunner", GunnerBisonWeaponWeaponPropFunc, GunnerBisonWeaponDisplayNameFunc, TitanReplace_BecomeGunnerBison, SwitchOffGunnerBisonLoadout )
+}
+
+entity function GunnerBisonWeaponWeaponPropFunc( entity weapon, vector origin, vector angles )
+{
+	string weaponName = weapon.GetWeaponClassName()
+	array<string> mods = weapon.GetMods()
+
+	if ( weaponName != "mp_titanweapon_xo16_shorty" )
+		return // return empty will cancel the weapon drop
+	
+	if ( !mods.contains( "gunner_bison_xo16" ) )
+		return
+
+	asset modelName = $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl"
+	entity weaponProp = CreatePropDynamic( modelName, origin, angles, SOLID_VPHYSICS )
+
+	return weaponProp
+}
+
+string function GunnerBisonWeaponDisplayNameFunc( entity weapon )
+{
+	string weaponName = weapon.GetWeaponClassName()
+	array<string> mods = weapon.GetMods()
+
+	if ( weaponName != "mp_titanweapon_xo16_shorty" )
+		return "" // return empty will cancel the weapon drop
+	
+	if ( !mods.contains( "gunner_bison_xo16" ) )
+		return ""
+
+	return "野牛 技能組"
+}
+
+void function SwitchOffGunnerBisonLoadout( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		soul.SetPreventCrits( false ) // clean up
+	}
+}
 
 // monarch, code name is "vanguard", should we use that?
 void function RegisterMonarchTitanCharacter()
