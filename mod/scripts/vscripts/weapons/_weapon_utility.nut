@@ -3542,11 +3542,11 @@ void function EMPGrenade_AffectsAccuracy( entity npcTitan, float duration = EMP_
 		return
 
 	npcTitan.s.titanAccuracyDown = true // mark as we're taking accuracy penalty
-	float starterAccuracy = float( npcTitan.kv.AccuracyMultiplier ) // save current accuracy for later we clean up
+	float startingAccuracy = float( npcTitan.kv.AccuracyMultiplier ) // save current accuracy for later we clean up
 	npcTitan.kv.AccuracyMultiplier = 0.5
 
 	wait duration
-	npcTitan.kv.AccuracyMultiplier = starterAccuracy // restore accuracy
+	npcTitan.kv.AccuracyMultiplier = startingAccuracy // restore accuracy
 	npcTitan.s.titanAccuracyDown = false
 }
 
