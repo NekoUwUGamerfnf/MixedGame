@@ -25,6 +25,11 @@ global function DecideSpawnZone_CTF
 
 // modified: make a new function so ai gamemodes don't have to re-decide for each spawn
 global function GetCurrentSpawnZoneForTeam
+//global function FindSpawnPoint_ForDropPod
+
+//global function GetAllValidSpawnPointsInSpawnZone
+
+//global function FindSpawnPoint_WithCustomSpawnPointRule
 
 const float PLAYER_NOSPAWN_RADIUS = 1000
 const float PROJECTILE_NOSPAWN_RADIUS = 1000
