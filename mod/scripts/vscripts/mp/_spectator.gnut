@@ -181,15 +181,16 @@ void function SpectatorFunc_Default( entity player )
 		else
 			targets.extend( GetPlayerArrayOfTeam_Alive( player.GetTeam() ) )
 		
+		// modified target validation rules
+		foreach ( entity target in targets )
+		{
+			if ( !Spectator_IsSpecTargetValid( player, target ) )
+				targets.fastremovebyvalue( target )
+		}
+		
+		// get target after validation checks
 		if ( targets.len() > 0 )
 		{
-			// modified target validation rules
-			foreach ( entity target in targets )
-			{
-				if ( !Spectator_IsSpecTargetValid( player, target ) )
-					targets.removebyvalue( target )
-			}
-
 			if ( result.next )
 				targetIndex = ( targetIndex + 1 ) % targets.len()
 			else
@@ -213,14 +214,15 @@ void function SpectatorFunc_Default( entity player )
 			{
 				try
 				{
+					player.SetSpecReplayDelay( FIRST_PERSON_SPECTATOR_DELAY ) // vanilla do have replay delay for both TP and FP spectate
 					player.SetObserverTarget( target )
 					player.StartObserverMode( OBS_MODE_CHASE )
-					player.SetSpecReplayDelay( 0.1 ) // at least 0.1s specReplayDelay is required for client to know that player is spectating, and they can send "spec_mode" client command
 				}
 				catch ( ex ) { }
 			}
 			else
 			{
+				player.SetObserverTarget( null ) // clean up callsign display
 				player.SetObserverModeStaticPosition( target.GetOrigin() )
 				player.SetObserverModeStaticAngles( target.GetAngles() )
 				player.StartObserverMode( OBS_MODE_STATIC )
@@ -229,6 +231,21 @@ void function SpectatorFunc_Default( entity player )
 			// signals "ObserverTargetChanged" if target no longer valid
 			if ( IsValid( target ) )
 				thread SpectatorCheckTargetValidation( player, target )
+		}
+		else // failsafe: no target valid, try set to intermission cam
+		{
+			player.StopObserverMode()
+			if ( player.IsWatchingSpecReplay() )
+				player.SetSpecReplayDelay( 0.0 ) // clear spectator replay
+
+			entity intermissionCam = GetEnt( "info_intermission" )
+			if ( IsValid( intermissionCam ) )
+			{
+				player.SetObserverTarget( null ) // clean up callsign display
+				player.SetObserverModeStaticPosition( intermissionCam.GetOrigin() )
+				player.SetObserverModeStaticAngles( intermissionCam.GetAngles() )
+				player.StartObserverMode( OBS_MODE_STATIC )
+			}
 		}
 
 		player.StopPhysics()
@@ -243,6 +260,9 @@ void function SpectatorCheckTargetValidation( entity player, entity target )
 	player.EndSignal( "OnRespawned" )
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "PlayerRespawnStarted" )
+
+	// end on target change
+	player.EndSignal( "ObserverTargetChanged" )
 
 	// modified!! for we can stop spectator mode manually
 	player.EndSignal( "StopSpectatorMode" )
@@ -317,8 +337,8 @@ bool function ClientCommandCallback_spec_mode( entity player, array<string> args
 	else if ( player.GetObserverMode() == OBS_MODE_IN_EYE )
 	{	
 		// set to third person spectate
+		player.SetSpecReplayDelay( FIRST_PERSON_SPECTATOR_DELAY ) // vanilla do have replay delay for both TP and FP spectate
 		player.StartObserverMode( OBS_MODE_CHASE )
-		player.SetSpecReplayDelay( 0.1 ) // at least 0.1s specReplayDelay is required for client to know that player is spectating, and they can send "spec_mode" client command
 	}
 	
 	return true
