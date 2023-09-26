@@ -245,11 +245,11 @@ void function OnHit_TitanWeaponParticleAccelerator( entity victim, var damageInf
 	array<string> mods = Vortex_GetRefiredProjectileMods( inflictor ) // I don't care, let's break vanilla behavior
 	if ( ( IsSingleplayer() || SoulHasPassive( soul, ePassives.PAS_ION_WEAPON ) || mods.contains( "pas_ion_weapon" ) ) && IsCriticalHit( attacker, victim, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamage( damageInfo ), DamageInfo_GetDamageType( damageInfo ) ) )
 	{
-			//array<string> mods = inflictor.ProjectileGetMods() // moved up for better check
-			if ( mods.contains( "proto_particle_accelerator" ) )
-				attacker.AddSharedEnergy( SPLIT_SHOT_CRITICAL_ENERGY_RESTORE_AMOUNT )
-			else
-				attacker.AddSharedEnergy( CRITICAL_ENERGY_RESTORE_AMOUNT )
+		//array<string> mods = inflictor.ProjectileGetMods() // moved up for better check
+		if ( mods.contains( "proto_particle_accelerator" ) )
+			attacker.AddSharedEnergy( SPLIT_SHOT_CRITICAL_ENERGY_RESTORE_AMOUNT )
+		else
+			attacker.AddSharedEnergy( CRITICAL_ENERGY_RESTORE_AMOUNT )
 	}
 }
 #endif
