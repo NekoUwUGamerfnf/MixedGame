@@ -340,6 +340,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     weaponProp.SetUsableByGroup( "titan" )
     weaponProp.SetUsePrompts( "按住 %use% 以撿起 " + displayName, "按下 %use% 以撿起 " + displayName )
     weaponProp.SetScriptName( TITAN_DROPPED_WEAPON_SCRIPTNAME )
+    weaponProp.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS // Debris - Don't collide with the player or other debris
     AddCallback_OnUseEntity( weaponProp, PickupDroppedTitanWeapon )
 
     DroppedTitanWeapon weaponStruct
