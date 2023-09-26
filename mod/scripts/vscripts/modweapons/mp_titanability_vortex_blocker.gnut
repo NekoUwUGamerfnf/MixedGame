@@ -11,26 +11,9 @@ const float VORTEX_BLOCKER_ENERGY_REGEN_RATE        = 160 // was 125, for normal
 const float VORTEX_BLOCKER_ENERGY_REGEN_DELAY       = 0.5 // 
 const float VORTEX_BLOCKER_ACTIVATION_COST_FRAC     = 0.05 // each activation will cost some energy
 
-#if SERVER
-struct PlayerSharedEnergy
-{
-    float regenRate
-    float regenDelay
-}
-
-struct
-{
-    table<entity, entity> blockerLastOwner
-    table<entity, PlayerSharedEnergy> blockerOwnerSharedEnergyTable
-} file
-#endif
-
 void function MpTitanAbilityVortexBlocker_Init()
 {
-#if SERVER
-    AddCallback_OnPilotBecomesTitan( OnClassChangeBecomeTitan )
-    AddCallback_OnTitanBecomesPilot( OnClassChangeBecomePilot )
-#endif
+
 }
 
 void function OnWeaponOwnerChanged_titanability_vortex_blocker( entity weapon, WeaponOwnerChangedParams changeParams )
@@ -63,64 +46,14 @@ void function OnWeaponOwnerChanged_titanability_vortex_blocker( entity weapon, W
     // initialize end
 
 #if SERVER
-    if ( !( weapon in file.blockerLastOwner ) )
-        file.blockerLastOwner[ weapon ] <- null // init
-    // vortex blocker
-    entity lastOwner = file.blockerLastOwner[ weapon ]
-    //print( "lastOwner is: " + string( lastOwner ) )
-    entity oldOwner = changeParams.oldOwner
-    //print( "oldOwner is: " + string( oldOwner ) )
-    entity newOwner = changeParams.newOwner
-    //print( "newOwner is: " + string( newOwner ) )
-    if ( IsValid( oldOwner ) )
-    {
-        if ( oldOwner == lastOwner ) // was the weapon's last owner!
-        {
-            if ( oldOwner in file.blockerOwnerSharedEnergyTable ) // in sharedEnergyTable!
-            {
-                //print( "try to restore saved energy settings" )
-                // reset the regen
-                float regenRate = file.blockerOwnerSharedEnergyTable[ oldOwner ].regenRate
-                //print( "regenRate is: " + string( regenRate ) )
-                float regenDelay = file.blockerOwnerSharedEnergyTable[ oldOwner ].regenDelay
-                //print( "regenDelay is: " + string( regenDelay ) )
-                oldOwner.SetSharedEnergyRegenRate( regenRate )
-                oldOwner.SetSharedEnergyRegenDelay( regenDelay )
-            }
-        }
-    }
-    if ( IsValid( newOwner ) ) // don't change sharedEnergyTotal, since client can't predict it
-    {
-        if ( !( newOwner in file.blockerOwnerSharedEnergyTable ) )
-        {
-            PlayerSharedEnergy emptyStruct
-            file.blockerOwnerSharedEnergyTable[ newOwner ] <- emptyStruct
-        }
-        file.blockerLastOwner[ weapon ] = newOwner // update ownership
-
-        // save current energy stats
-        //print( "try to store energy settings" )
-        float regenRate = newOwner.GetSharedEnergyRegenRate()
-        //print( "regenRate is: " + string( regenRate ) )
-        float regenDelay = newOwner.GetSharedEnergyRegenDelay()
-        //print( "regenDelay is: " + string( regenDelay ) )
-        file.blockerOwnerSharedEnergyTable[ newOwner ].regenRate = regenRate
-        file.blockerOwnerSharedEnergyTable[ newOwner ].regenDelay = regenDelay
-
-        //print( "try to update energy" )
-        //int totalEnergy = newOwner.GetSharedEnergyTotal()
-        //int currentEnergy = newOwner.GetSharedEnergyCount()
-        //float energyLeft = float ( currentEnergy ) / float ( totalEnergy ) // get current energy left
-        // get new regen rate and regen delay
-        float newRegenRate = VORTEX_BLOCKER_ENERGY_REGEN_RATE
-        //print( "newRegenRate is: " + string( newRegenRate ) )
-        float newRegenDelay = VORTEX_BLOCKER_ENERGY_REGEN_DELAY
-        //print( "newRegenDelay is: " + string( newRegenDelay ) )
-
-        // update to owner
-        newOwner.SetSharedEnergyRegenRate( newRegenRate )
-        newOwner.SetSharedEnergyRegenDelay( newRegenDelay )
-    }
+    // shared from _shared_energy_update.gnut
+    // for handling modified shared energy regen
+    UpdateSharedEnergyOnWeaponOwnerChanged(
+        weapon,
+        changeParams,
+        VORTEX_BLOCKER_ENERGY_REGEN_RATE,           // energyRegenRate
+        VORTEX_BLOCKER_ENERGY_REGEN_DELAY           // energyRegenDelay
+    )
 #endif
 }
 
@@ -277,42 +210,6 @@ bool function OnWeaponVortexHitProjectile_titanability_vortex_blocker( entity we
 }
 
 #if SERVER
-// this will be running after setPlayerSettings(), it will apply to titan
-void function OnClassChangeBecomeTitan( entity player, entity titan )
-{
-    //print( "HasVortexBlocker( player ): " + string( HasVortexBlocker( player ) ) )
-    //print( "HasVortexBlocker( titan ): " + string( HasVortexBlocker( titan ) ) )
-    if ( !HasVortexBlocker( player ) )
-        return
-
-    entity weapon = GetVortexBlocker( player )
-    if ( !IsValid( weapon ) )
-        return
-    if ( !( weapon in file.blockerLastOwner ) )
-        return
-
-    // do this check again!
-    entity lastOwner = file.blockerLastOwner[ weapon ]
-    //print( "lastOwner is: " + string( lastOwner ) )
-    //print( "embarkedPlayer is: " + string( player ) )
-    if ( lastOwner == player )
-    {
-        // update again, for player has been reset playerSettings
-        float newRegenRate = VORTEX_BLOCKER_ENERGY_REGEN_RATE
-        //print( "newRegenRate is: " + string( newRegenRate ) )
-        float newRegenDelay = VORTEX_BLOCKER_ENERGY_REGEN_DELAY
-        //print( "newRegenDelay is: " + string( newRegenDelay ) )
-
-        player.SetSharedEnergyRegenRate( newRegenRate )
-        player.SetSharedEnergyRegenDelay( newRegenDelay )
-    }
-}
-
-void function OnClassChangeBecomePilot( entity player, entity titan )
-{
-
-}
-
 bool function HasVortexBlocker( entity ent )
 {
     entity shieldWeapon = GetVortexBlocker( ent )

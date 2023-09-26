@@ -182,7 +182,7 @@ table<int,float> function TitanLoadoutSwitch_GetWeaponCooldowns( entity player )
 		}
 
 		// debug
-		printt( "GET: " + slot + " " + offhand.GetWeaponClassName() + " - " + cooldowns[slot] )
+		//printt( "GET: " + slot + " " + offhand.GetWeaponClassName() + " - " + cooldowns[slot] )
 	}
 
 	return cooldowns
@@ -226,7 +226,7 @@ void function TitanLoadoutSwitch_SetWeaponCooldownsFromTable( entity player, tab
 		highestSeverity = min( severity, highestSeverity )
 
 		// debug
-		printt( "SET: " + slot + " " + offhand.GetWeaponClassName() + " - " + severity )
+		//printt( "SET: " + slot + " " + offhand.GetWeaponClassName() + " - " + severity )
 
 		// I think it's genericly stupid when you try to... ughh, hardcoding weapon name
 		switch( GetWeaponInfoFileKeyField_Global( weaponName, "cooldown_type" ) )
@@ -274,7 +274,7 @@ void function TitanLoadoutSwitch_SetWeaponCooldownsFromTable( entity player, tab
 	}
 
 	// debug
-	printt( "highestSeverity: " + highestSeverity )
+	//printt( "highestSeverity: " + highestSeverity )
 	int energy = player.GetSharedEnergyCount()
 	int totalEnergy = player.GetSharedEnergyTotal()
 	int idealEnergy = int( player.GetSharedEnergyTotal() * highestSeverity )

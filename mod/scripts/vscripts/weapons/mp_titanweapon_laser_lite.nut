@@ -7,6 +7,15 @@ global function OnWeaponPrimaryAttack_titanweapon_laser_lite
 global function OnWeaponNPCPrimaryAttack_titanweapon_laser_lite
 #endif
 
+// modified callbacks
+// currently hardcoded "gunner_bison_laser"
+global function OnWeaponOwnerChanged_titanweapon_laser_lite
+
+// "gunner_bison_laser"
+const float GUNNER_BISON_LASER_REGEN_RATE = 60
+const float GUNNER_BISON_LASER_REGEN_DELAY = 1.0
+const int GUNNER_BISON_LASER_ENERGY_TOTAL = 550 // one laser shot
+
 void function MpTitanWeaponLaserLite_Init()
 {
 	#if SERVER
@@ -62,3 +71,23 @@ void function LaserLite_DamagedTarget( entity target, var damageInfo )
 }
 
 #endif
+
+// modified callbacks
+// currently hardcoded "gunner_bison_laser"
+void function OnWeaponOwnerChanged_titanweapon_laser_lite( entity weapon, WeaponOwnerChangedParams changeParams )
+{
+	if ( weapon.HasMod( "gunner_bison_laser" ) )
+	{
+#if SERVER
+		// shared from _shared_energy_update.gnut
+		// for handling modified shared energy regen
+		UpdateSharedEnergyOnWeaponOwnerChanged(
+			weapon,
+			changeParams,
+			GUNNER_BISON_LASER_REGEN_RATE,           	// energyRegenRate
+			GUNNER_BISON_LASER_REGEN_DELAY,           	// energyRegenDelay
+			GUNNER_BISON_LASER_ENERGY_TOTAL				// energyTotalCount
+		)
+#endif
+	}
+}
