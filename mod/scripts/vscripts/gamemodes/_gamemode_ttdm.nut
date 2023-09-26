@@ -26,7 +26,7 @@ void function GamemodeTTDM_Init()
 // northstar missing
 void function SetUpTTDMScoreEvents()
 {
-	// pilot kill: 15%
+	// pilot kill: 15% for titans
 	// titan kill: 0%
 	// titan assist: 0%
 	// execution: 0%

@@ -12,7 +12,11 @@ void function FFA_Init()
 	//ClassicMP_ForceDisableEpilogue( true )
 	ScoreEvent_SetupEarnMeterValuesForMixedModes()
 
-	AddCallback_OnPlayerKilled( OnPlayerKilled )
+	// northstar missing titan score value
+	AddCallback_OnPlayerKilled( HandleFFAScoreEventValue )
+	AddCallback_OnNPCKilled( HandleFFAScoreEventValue )
+
+	SetUpFFAScoreEvents() // northstar missing
 
 	// modified for northstar
 	AddCallback_OnClientConnected( OnClientConnected )
@@ -21,18 +25,34 @@ void function FFA_Init()
 	EarnMeterMP_SetPassiveGainProgessEnable( true ) // enable earnmeter gain progressing like vanilla
 }
 
-void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
+// northstar missing
+void function SetUpFFAScoreEvents()
 {
-	if ( victim != attacker && victim.IsPlayer() && attacker.IsPlayer() && GetGameState() == eGameState.Playing )
-	{
-		// use AddFFAPlayerScore() for better handling
-		//AddTeamScore( attacker.GetTeam(), 1 )
-		// why isn't this PGS_SCORE? odd game
-		//attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 )
+	// pilot kill: 20%
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.10 )
+}
 
-		// modified for northstar
-		AddFFAPlayerTeamScore( attacker, 1 )
-		attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 ) // add to scoreboard
+void function HandleFFAScoreEventValue( entity victim, entity attacker, var damageInfo )
+{
+	if ( attacker.IsPlayer() && victim != attacker && GetGameState() == eGameState.Playing  )
+	{
+		// northstar missing: titan score value
+		if ( victim.IsTitan() && ( victim.IsPlayer() || ( IsValid( victim.GetTitanSoul() ) && GetPetTitanOwner( victim ) != attacker ) ) )
+		{
+			AddFFAPlayerTeamScore( attacker, 3 )
+		}
+
+		// pilot score value, will also be added if killed a titan with pilot
+		if ( victim.IsPlayer() )
+		{
+			// use AddFFAPlayerScore() for better handling
+			//AddTeamScore( attacker.GetTeam(), 1 )
+			// why isn't this PGS_SCORE? odd game
+			//attacker.AddToPlayerGameStat( PGS_ASSAULT_SCORE, 1 )
+
+			// modified for northstar
+			AddFFAPlayerTeamScore( attacker, 1 )
+		}
 	}
 }
 
@@ -41,6 +61,7 @@ void function AddFFAPlayerTeamScore( entity player, int scoreAmount )
 {
 	AddTeamScore( player.GetTeam(), scoreAmount ) // add to team score
 	file.ffaPlayerScore[ player ] += scoreAmount // add for later we clean up
+	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, scoreAmount ) // add to scoreboard
 }
 
 void function OnClientConnected( entity player )
