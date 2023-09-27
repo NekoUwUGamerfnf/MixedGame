@@ -1322,8 +1322,8 @@ void function CleanUpEntitiesForRoundEnd()
 		{
 			// debug
 			//print( "Try to kill player: " + string( player ) )
-			player.BecomeRagdoll( < 0,0,0 >, false ) // drop weapons immediately			
 			player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = eDamageSourceId.round_end } )
+			player.BecomeRagdoll( < 0,0,0 >, false ) // drop weapons immediately
 		}
 		// spectator player: needs to stop their spec mode on clean up
 		// otherwise when they respawn, they get weird camera forever
