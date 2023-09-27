@@ -701,7 +701,10 @@ void function SquadHandler( array<entity> guys )
 void function OnSpectreLeeched( entity spectre, entity player )
 {
 	// Set Owner so we can filter in HandleScore
-	spectre.SetOwner( player )
+	// not a good idea. score could be handled by GetBossPlayer()
+	// setting an owner will make entity have no collision with their owner
+	//spectre.SetOwner( player )
+	spectre.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
 	// Add score + update network int to trigger the "Score +n" popup
 	AddAITdmPlayerTeamScore( player, 1 )
 }
