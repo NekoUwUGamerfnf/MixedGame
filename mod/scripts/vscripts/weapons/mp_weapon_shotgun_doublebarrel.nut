@@ -90,7 +90,7 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 				if ( weapon.HasMod( "projectile_shotgun_npc" ) )
 				{
 					// fix effect
-					StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"P_mastiff_proj" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+					StartParticleEffectOnEntity( bolt, GetParticleSystemIndex( $"P_mastiff_proj_amp" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 					EmitSoundOnEntity( bolt, "wpn_leadwall_projectile_crackle" )
 				}
 			}
