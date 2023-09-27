@@ -23,6 +23,7 @@ global function SetRecalculateRespawnAsTitanStartPointCallback
 
 // I want my game to have this
 global function PlayerWatchesKillReplayWrapper // this function should share with _gamestate_mp.nut
+global function PlayerClassChangeToSpectator
 global function SetPlayerCameraToIntermissionCam // shared
 global function GetReplayTimeSinceAttackerSpawned // shared with _gamestate_mp.nut
 global function StopKillReplayForPlayer // shared with _gamestate_mp.nut
@@ -40,7 +41,7 @@ global function SetLateJoinRespawnEnabled // respawn the player if they join mid
 
 global function SetGamemodeAnnouncementEnabled
 
-global function SetDeathCamLengthForced
+global function SetDeathCamLengthForced // note that if death cam is shorter than 1.0s, player may won't have chance to drop a weapon!
 global function GetForcedDeathCamLength // shared with _utility_shared.nut
 global function SetReplayStartDelayOverride // only gets applied when death cam modified!
 
@@ -666,8 +667,9 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	// now setting these in DoRespawnPlayer() to prevent crash
 	//player.SetPlayerSettings( "spectator" ) // prevent a crash with going from titan => pilot on respawn
 	//player.StopPhysics() // need to set this after SetPlayerSettings
-	if ( !deathCamModified )
-		PlayerClassChangeToSpectator( player )
+	// vanilla seems never change player to spectator on death...
+	//if ( !deathCamModified )
+	//	PlayerClassChangeToSpectator( player )
 
 	// fix: get respawn avaibility before death cam delay
 	//if ( RespawnsEnabled() )
@@ -760,10 +762,7 @@ void function SetPlayerCameraToIntermissionCam( entity player, float delay = 0 )
 
 	if ( file.intermissionCamera != null )
 	{
-		// player may not become spectator since death cam can be modified
-		if ( player.GetPlayerSettings() != "spectator" )
-			PlayerClassChangeToSpectator( player )
-
+		PlayerClassChangeToSpectator( player )
 		//print( "Setting player camera to intermissionCam" )
 		player.SetObserverModeStaticPosition( file.intermissionCamera.GetOrigin() )
 		player.SetObserverModeStaticAngles( file.intermissionCamera.GetAngles() )
@@ -776,6 +775,7 @@ void function SetPlayerCameraToIntermissionCam( entity player, float delay = 0 )
 
 void function PlayerClassChangeToSpectator( entity player )
 {
+	TakeAllWeapons( player ) // before becoming ragdoll, should have their weapons out( otherwise a gibbed player can drop another weapon )
 	player.BecomeRagdoll( player.GetVelocity(), true ) // better become ragdoll before setting to spectator, so player won't have spectator class model out
 	player.SetPlayerSettings( "spectator" ) 
 	player.StopPhysics()
@@ -876,8 +876,7 @@ void function PlayerWatchesKillReplayWrapper( entity player, int inflictorEHandl
 	player.watchingKillreplayEndTime = Time() + replayLength
 
 	// have to be spectator before watching kill replay
-	if ( player.GetPlayerSettings() != "spectator" )
-		PlayerClassChangeToSpectator( player )
+	PlayerClassChangeToSpectator( player )
 
 	//player.SetPredictionEnabled( false )
 	player.SetPredictionEnabled( true ) // should we enable prediction during killreplay? I think it might make replay smoother
