@@ -610,7 +610,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	// pilot kill
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.10, 0.05 )
-	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.03, 0.021, 0.0 ) // if set to "0.03, 0.02", will display as "4%"
+	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.03, 0.020001, 0.0 ) // if set to "0.03, 0.02", will display as "4%"
 	// titan kill
 	ScoreEvent_SetEarnMeterValues( "DoomTitan", 0.0, 0.0 )
 	// don't know why auto titan kills appear to be no value in vanilla
@@ -627,7 +627,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryApplied", 0.0, 0.35, 0.0 )
 	// special method of killing
 	ScoreEvent_SetEarnMeterValues( "Headshot", 0.0, 0.02, 0.0 )
-	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.03, 0.021, 0.0 ) // if set to "0.03, 0.02", will display as "4%"
+	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.03, 0.020001, 0.0 ) // if set to "0.03, 0.02", will display as "4%"
 	
 	// ai
 	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.02, 0.02, 0.5 )
