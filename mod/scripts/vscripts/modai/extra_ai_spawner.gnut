@@ -2242,7 +2242,7 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
-	else if ( standUp && GetNPCHandlerForClass( "npc_titan" ) != null ) // only stood up titans run handlers
+	else if ( GetNPCHandlerForClass( "npc_titan" ) != null )
 		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 
 	return titan
@@ -2537,6 +2537,9 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
+	else if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+		thread GetNPCHandlerForClass( "npc_titan" )( titan )
+
 
 	return titan
 }
@@ -2961,6 +2964,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
+	ExtraSpawner_StopDefaultHandler( pilot ) // stop pilot's default handler, so they'll try embarking first
 	// attach to a droppod
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
@@ -3007,7 +3011,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	thread NpcPilotEmbarksTitan( pilot, titan )
 }
 
-void function StandUnboardedTitan( entity titan, bool doHandler = false )
+void function StandUnboardedTitan( entity titan )
 {
 	titan.EndSignal( "OnDestroy" )
 
@@ -3019,16 +3023,9 @@ void function StandUnboardedTitan( entity titan, bool doHandler = false )
 	SetStanceStand( titan.GetTitanSoul() )
 
 	titan.ClearInvulnerable()
-
-	if ( doHandler )
-	{
-		// titan handler
-		if ( GetNPCHandlerForClass( "npc_titan" ) != null )
-			thread GetNPCHandlerForClass( "npc_titan" )( titan )
-	}
 }
 
-entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
+entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team, void functionref( entity pilot ) pilotHandler = null )
 {
 	entity pilot = CreateNPC( "npc_pilot_elite", team, pos, rot )//CreateNPC( "npc_soldier", team, pos, rot )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( pilot ) // grenade have to be given before DispatchSpawn()
@@ -3048,7 +3045,7 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team )
 	return pilot
 }
 
-void function ExtraSpawner_SetUpNPCPilot( entity pilot )
+void function ExtraSpawner_SetUpNPCPilot( entity pilot, void functionref( entity pilot ) pilotHandler = null )
 {
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE ) // hardcoded!
 	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
@@ -3059,6 +3056,12 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot )
 
 	pilot.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( pilot )
+
+	// pilots are bit special, start handler in setup func
+	if ( pilotHandler != null )
+		thread pilotHandler( pilot )
+	else if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
+		thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
 }
 
 void function PilotSpawnProtection( entity pilot, entity titan, float duration )
@@ -3099,12 +3102,13 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 					if( titan.ContextAction_IsBusy() ) // embarking?
 						return
 					// don't start titan handler. titan will follow the pilot
+					ExtraSpawner_StopDefaultHandler( titan )
 					if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
 						thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
 					pilot.SetNPCMoveSpeedScale( 1.25 ) // reset move speed
 					pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
 
-					thread StandUnboardedTitan( titan, true )
+					thread StandUnboardedTitan( titan )
 				}
 			}
 			else
@@ -3113,7 +3117,7 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 				{
 					if( titan.GetTitanSoul().soul.seatedNpcPilot.isValid )
 						return
-					thread StandUnboardedTitan( titan, true )
+					thread StandUnboardedTitan( titan )
 				}
 			}
 		}
@@ -3177,8 +3181,9 @@ function OnNpcPilotBecomesTitan( pilot, titan )
 	//titan.SetAISettings( titan.GetAISettingsName() + "_bounty" ) // so they will show up a health bar, letting players know they're npc pilot controled
 	//Highlight_ClearEnemyHighlight( titan ) // this resets highlights in modified sh_highlights
 	// titan handler
-	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
-		thread GetNPCHandlerForClass( "npc_titan" )( titan )
+	// already handled by ExtraSpawner_SpawnTitan()
+	//if ( GetNPCHandlerForClass( "npc_titan" ) != null )
+	//	thread GetNPCHandlerForClass( "npc_titan" )( titan )
 }
 
 void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
@@ -3285,10 +3290,7 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 
 	// if titan is spawned by extraSpawner, pilot should also be marked
 	file.npcSpawnFromExtraSpawner[ pilot ] <- true
-	ExtraSpawner_SetUpNPCPilot( pilot )
-	// pilot handler
-	if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
-		thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
+	ExtraSpawner_SetUpNPCPilot( pilot ) // also included handler call
 
 	if ( IsValid( titan ) )
 	{
@@ -3509,6 +3511,8 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 
 void function ExtraSpawner_PilotHandler( entity pilot )
 {
+	pilot.EndSignal( "OnDestroy" )
+	pilot.EndSignal( "OnDeath" )
 	// Signals for controlling
 	pilot.Signal( "StopDefaultHandler" )
 	pilot.EndSignal( "StopDefaultHandler" )
@@ -3526,10 +3530,6 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 	while ( true )
 	{	
 		WaitFrame() // always wait a frame before each loop
-		
-		// Check if alive
-		if ( !IsAlive( pilot ) )
-			return
 
 		// check leechable
 		if ( pilot.GetTeam() != team )
@@ -3574,6 +3574,12 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 
 void function ExtraSpawner_TitanHandler( entity titan )
 {
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	soul.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
 	// Signals for controlling
 	titan.Signal( "StopDefaultHandler" )
 	titan.EndSignal( "StopDefaultHandler" )
@@ -3581,10 +3587,14 @@ void function ExtraSpawner_TitanHandler( entity titan )
 	int team = titan.GetTeam()
 	array<entity> points
 
-	titan.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 	// show on enemy radar
 	AddMinimapForNPC( titan )
-	
+
+	// wait for standup
+	while ( soul.GetStance() < STANCE_STANDING )
+		WaitFrame()
+	titan.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+
 	wait 3 // initial wait before titans can move
 
 	// Every 10 - 20 secs get a closest target and go to them
@@ -3592,9 +3602,9 @@ void function ExtraSpawner_TitanHandler( entity titan )
 	{	
 		WaitFrame() // always wait a frame before each loop
 
-		// Check if alive
-		if ( !IsAlive( titan ) )
-			return
+		// wait for standup
+		while ( soul.GetStance() < STANCE_STANDING )
+			WaitFrame()
 
 		// check capturable
 		if ( titan.GetTeam() != team )
@@ -3885,12 +3895,6 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	file.npcSpawnFromExtraSpawner[ reaper ] <- true
 	DispatchSpawn( reaper )
 
-	reaper.WaitSignal( "WarpfallComplete" )
-	ShowName( reaper ) // show name again after drop
-	// non-fd mode don't support stational point, write my own one
-	//thread ReaperMinionLauncherThink( reaper, tickSettings ) 
-	thread ExtraSpawner_ReaperTickLaunchThink( reaper, tickSettings )
-	
 	// modified _ai_superspectre.gnut, extremely powerful reaper
 	SuperSpectre_AddNukeDeath( reaper ) // force this reaper to nuke on death without having to change aisettings
 	//SuperSpectre_SetDropBatteryOnDeath( reaper, true ) // now supports mp. since they're very powerful, give some reward?
@@ -3915,6 +3919,13 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	// reaper handler
 	if ( GetNPCHandlerForClass( "npc_super_spectre" ) != null )
 		thread GetNPCHandlerForClass( "npc_super_spectre" )( reaper )
+
+	reaper.WaitSignal( "WarpfallComplete" )
+	ShowName( reaper ) // show name again after drop
+
+	// non-fd mode don't support stational point, write my own one
+	//thread ReaperMinionLauncherThink( reaper, tickSettings ) 
+	thread ExtraSpawner_ReaperTickLaunchThink( reaper, tickSettings )
 }
 
 void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType )
@@ -3945,6 +3956,8 @@ void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType
 // Same as SquadHandler, just for reapers
 void function ExtraSpawner_ReaperHandler( entity reaper )
 {
+	reaper.EndSignal( "OnDestroy" )
+	reaper.EndSignal( "OnDeath" )
 	// Signals for controlling
 	reaper.Signal( "StopDefaultHandler" )
 	reaper.EndSignal( "StopDefaultHandler" )
@@ -3955,6 +3968,8 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 	// show on enmey radar
 	AddMinimapForNPC( reaper )
 	
+	// wait for warpfall
+	reaper.WaitSignal( "WarpfallComplete" )
 	reaper.AssaultSetGoalRadius( 500 ) // goal radius
 
 	wait 3 // initial wait before reapers do startup animation
@@ -3963,10 +3978,6 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 	while( true )
 	{
 		WaitFrame() // always wait before each loop!
-
-		// Check if alive
-		if ( !IsAlive( reaper ) )
-			return
 
 		// check leechable
 		if ( reaper.GetTeam() != team )
