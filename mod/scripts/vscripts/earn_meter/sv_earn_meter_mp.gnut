@@ -10,7 +10,7 @@ global function EarnMeterMP_SetPassiveGainProgessEnable
 // when client display a 99% frac, server actually has "0.989999"
 // needs to add a small amount to avoid earnmeter displays as 99% but player can't earn goal
 // this also fixes player can't gain reward when their meter is right at required value
-const float EARNMETER_FRAC_FIX				= 0.0001
+const float EARNMETER_FRAC_FIX				= 0.000001
 
 const float EARNMETER_GAIN_FRAC				= 0.01 + EARNMETER_FRAC_FIX
 const float EARNMETER_GAIN_INTERVAL			= 5.0
@@ -29,7 +29,8 @@ struct
 	bool passiveMeterGainEnabled = true
 
 	// vanilla behavior settings...
-	float passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
+	table<int, float> teamPassiveMeterGainInterval // gets updated based on player's calculation
+	table<entity, float> playerPassiveMeterGainInterval
 	bool passiveGainProgressEnabled = false // vanilla seems only enable this in few gamemodes( mostly titan allowed modes )
 } file
 
@@ -46,8 +47,8 @@ void function Sv_EarnMeterMP_Init()
 	// move here from sv_earn_meter.gnut
 	RegisterSignal( "EarnMeterDecayThink" )
 	RegisterSignal( "OverDriveClearOnDeath" )
-	// progressing earnmeter frac
-	EarnMeterMP_ProgessFracCalculate()
+	// earnmeter progress
+	RegisterSignal( "ProgessFracCalculate" )
 }
 
 void function EarnMeterMP_SetTitanLoadout( entity player )
@@ -92,6 +93,10 @@ void function OnClientConnected( entity player )
 
 	// vanilla behavior recover
 	file.playerLastPassiveGainTime[ player ] <- 0.0
+	file.playerPassiveMeterGainInterval[ player ] <- EARNMETER_GAIN_INTERVAL
+
+	// progressing earnmeter frac
+	EarnMeterMP_ProgessFracCalculate( player )
 }
 
 void function SetupPlayerEarnMeter( entity player )
@@ -278,7 +283,7 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 			}
 			*/
 
-			if ( Time() - file.playerLastPassiveGainTime[ player ] >= file.passiveMeterGainInterval && file.passiveMeterGainEnabled ) // this might be 5.0
+			if ( file.passiveMeterGainEnabled && Time() - file.playerLastPassiveGainTime[ player ] >= file.playerPassiveMeterGainInterval[ player ] )
 			{
 				PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_GAIN_FRAC )
 				file.playerLastPassiveGainTime[ player ] = Time() // update last passive gain time
@@ -457,36 +462,38 @@ void function OverDriveClearOnDeath( entity player )
 
 // progressFrac calculate
 // vanilla seems only enable this in few gamemodes( mostly titan allowed modes such as aitdm and tdm )
-void function EarnMeterMP_ProgessFracCalculate()
+void function EarnMeterMP_ProgessFracCalculate( entity player )
 {
-	thread EarnMeterMP_ProgessFracCalculate_Threaded()
+	thread EarnMeterMP_ProgessFracCalculate_Threaded( player )
 }
 
-void function EarnMeterMP_ProgessFracCalculate_Threaded()
+void function EarnMeterMP_ProgessFracCalculate_Threaded( entity player )
 {
+	// no support for FFA and roundbased mode
+	if ( IsFFAGame() || IsRoundBased() )
+		return
+	
+	player.EndSignal( "OnDestroy" )
+	// prevent this instance running multiple times
+	player.Signal( "ProgessFracCalculate" )
+	player.EndSignal( "ProgessFracCalculate" )
+
 	// progressFrac calculate
 	while ( true )
 	{
 		WaitFrame() // always wait before each loop
 
-		// no support for roundbased mode
-		if ( IsRoundBased() )
-		{
-			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
-			continue
-		}
+		int playerTeam = player.GetTeam()
+		// init team gain inverval
+		if ( !( playerTeam in file.teamPassiveMeterGainInterval ) )
+			file.teamPassiveMeterGainInterval[ playerTeam ] <- EARNMETER_GAIN_INTERVAL
 
-		// not enabled settings
-		if ( !file.passiveGainProgressEnabled )
+		// not enabled settings or in prematch
+		if ( !file.passiveGainProgressEnabled || GetGameState() < eGameState.Playing )
 		{
-			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
-			continue
-		}
-
-		// in prematch or something
-		if ( GetGameState() < eGameState.Playing )
-		{
-			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL
+			// reset to default value
+			file.playerPassiveMeterGainInterval[ player ] = EARNMETER_GAIN_INTERVAL
+			file.teamPassiveMeterGainInterval[ playerTeam ] = EARNMETER_GAIN_INTERVAL
 			continue
 		}
 
@@ -495,64 +502,38 @@ void function EarnMeterMP_ProgessFracCalculate_Threaded()
 		// they just keep the value calculated from playing state
 		if ( GetGameState() == eGameState.Epilogue || GetGameState() == eGameState.SuddenDeath )
 		{
-			//file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL_MIN
+			//file.playerPassiveMeterGainInterval[ player ] = EARNMETER_GAIN_INTERVAL_MIN
+			file.playerPassiveMeterGainInterval[ player ] = file.teamPassiveMeterGainInterval[ playerTeam ]
 			continue
 		}
 
 		// generic calculation while game playing
 		if ( GetGameState() == eGameState.Playing )
 		{
-			float startTime = expect float( GetServerVar( "gameStateChangeTime" ) )
-			// could cache these, but what if we update it midgame?
-			float endTime = expect float( GetServerVar( "gameEndTime" ) )
-			//if( IsSwitchSidesBased() ) // this has already being calculated in gamestate_mp, don't do it again
-			//	endTime /= 2
-				
-			float totalTime = endTime - startTime
-			float maxLevelTime = totalTime * EARNMETER_GAIN_MAX_LEVEL
-			
-			// vanilla doesn't seem to have progress based on score
-			// they only calculate based on time...
-			/*
+			// calculate max score level
 			int totalScore = GameMode_GetScoreLimit( GAMETYPE )
 			if( IsRoundBased() )
 				totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
 			int maxLevelScore = int( totalScore * EARNMETER_GAIN_MAX_LEVEL )
-			*/
-
-			// base frac based on gameTime
-			float timeElapsed = Time() - startTime
-			float timeLevel = timeElapsed / maxLevelTime
-			
-			// vanilla doesn't seem to have progress based on score
-			// they only calculate based on time...
-			/*
-			// calculate again based on team scores
-			float scoreLevel = 0.0
-			if ( !IsSwitchSidesBased() ) // we don't do scoreLevel in switchSideBased modes
-			{
-				int winningTeam = GetWinningTeamWithFFASupport() // GetWinningTeam() won't be set up if match hasn't end yet
-				if ( winningTeam < TEAM_UNASSIGNED ) // no valid winner
-					winningTeam = TEAM_UNASSIGNED
-				int highestScore = GameRules_GetTeamScore( winningTeam )
-
-				scoreLevel = float( highestScore ) / float( maxLevelScore )
-			}
-			*/
+		
+			// calculate based on enemy team scores
+			int enemyTeam = GetOtherTeam( playerTeam )
+			int enemyTeamScore = GameRules_GetTeamScore( enemyTeam )
+			float scoreLevel = float( enemyTeamScore ) / float( maxLevelScore )
 
 			// get max level
-			// vanilla doesn't seem to have progress based on score
-			// they only calculate based on time...
-			//float gainLevel = max( timeLevel, scoreLevel )
-			float gainLevel = timeLevel
+			float gainLevel = scoreLevel
 			if ( gainLevel >= 1.0 )
 				gainLevel = 1.0
 			//print( "gainLevel: " + string( gainLevel ) )
 			// get max time reduction
 			float maxIntervalReduction = EARNMETER_GAIN_INTERVAL - EARNMETER_GAIN_INTERVAL_MIN
 
-			file.passiveMeterGainInterval = EARNMETER_GAIN_INTERVAL - ( maxIntervalReduction * gainLevel )
-			//print( "passiveMeterGainInterval: " + string( file.passiveMeterGainInterval ) )
+			file.playerPassiveMeterGainInterval[ player ] = EARNMETER_GAIN_INTERVAL - ( maxIntervalReduction * gainLevel )
+			//print( "passiveMeterGainInterval: " + string( file.playerPassiveMeterGainInterval[ player ] ) )
+
+			// update team gain
+			file.teamPassiveMeterGainInterval[ playerTeam ] = file.playerPassiveMeterGainInterval[ player ]
 
 			continue
 		}

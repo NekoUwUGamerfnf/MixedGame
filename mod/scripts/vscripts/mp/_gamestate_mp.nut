@@ -350,8 +350,6 @@ void function GameStateEnter_Playing_Threaded()
 			int winningTeam
 			if ( file.timeoutWinnerDecisionFunc != null )
 				winningTeam = file.timeoutWinnerDecisionFunc()
-			else if( IsRoundBased() )
-				winningTeam = GetWinningTeam()
 			else
 				winningTeam = GetWinningTeamWithFFASupport()
 
@@ -400,9 +398,7 @@ void function GameStateEnter_WinnerDetermined()
 void function GameStateEnter_WinnerDetermined_Threaded()
 {
 	// do win announcement
-	int winningTeam = GetWinningTeam()
-	if( IsFFAGame() )
-		winningTeam = GetWinningTeamWithFFASupport()
+	int winningTeam = GetWinningTeamWithFFASupport()
 
 	// match ending think
 	bool isMatchEnd = true
@@ -572,7 +568,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		int roundsPlayed = expect int ( GetServerVar( "roundsPlayed" ) )
 		SetServerVar( "roundsPlayed", roundsPlayed + 1 )
 		
-		int winningTeam = GetWinningTeam() //GetWinningTeamWithFFASupport() // seriously no need to use this, check should be done on winnerDetermined
+		int winningTeam = GetWinningTeamWithFFASupport()
 		
 		int highestScore = GameRules_GetTeamScore( winningTeam )
 		int roundScoreLimit = GameMode_GetRoundScoreLimit( GAMETYPE )
@@ -1691,13 +1687,22 @@ void function SetTimeoutWinnerDecisionReason( string winningReason, string losin
 	file.timeoutLosingReason = losingReason
 }
 
-int function GetWinningTeamWithFFASupport()
+// using a struct so we can sort them
+struct TeamScoreStruct
+{
+	int team
+	int score
+}
+
+int function GetWinningTeamWithFFASupport( int ffaTeamPlace = 1 ) // by default we return the team that places at 1st
 {
 	if ( !IsFFAGame() )
-		return GameScore_GetWinningTeam()
+		return GetWinningTeam() // never access GameScore_GetWinningTeam(), using this is good enough
 	else
 	{
 		// custom logic for calculating ffa winner as GameScore_GetWinningTeam doesn't handle this
+		// trying to implement sorted team score...
+		/*
 		int winningTeam = TEAM_UNASSIGNED
 		int winningScore = 0
 		
@@ -1713,11 +1718,64 @@ int function GetWinningTeamWithFFASupport()
 				winningScore = currentScore
 			}
 		}
-		
+
 		return winningTeam
+		*/
+		int winningTeam = TEAM_UNASSIGNED
+		int winningScore = 0
+		array<TeamScoreStruct> teamScoreValues
+		foreach ( entity player in GetPlayerArray() )
+		{
+			int playerTeam = player.GetTeam()
+			int playerScore = GameRules_GetTeamScore( playerTeam )
+			
+			if ( playerScore == winningScore )
+				winningTeam = TEAM_UNASSIGNED // if 2 teams are equal, return TEAM_UNASSIGNED
+			else if ( playerScore > winningScore )
+			{
+				winningTeam = player.GetTeam()
+				winningScore = playerScore
+			}
+
+			TeamScoreStruct teamStruct
+			teamStruct.team = playerTeam
+			teamStruct.score = playerScore
+			teamScoreValues.append( teamStruct )
+		}
+
+		if ( winningTeam == TEAM_UNASSIGNED ) // if 2 teams are equal or no team to compare, return TEAM_UNASSIGNED
+			return TEAM_UNASSIGNED
+		else
+		{
+			teamScoreValues.sort( CompareTeamScore )
+
+			// debug
+			print( "sorted team numbers:" )
+			foreach ( TeamScoreStruct teamStruct in teamScoreValues )
+			{
+				print( "team number: " + string( teamStruct.team ) )
+				print( "team score: " + string( teamStruct.score ) )
+			}
+			//
+
+			if ( teamScoreValues.len() >= ffaTeamPlace )
+				return teamScoreValues[ ffaTeamPlace - 1 ].team
+			else
+				return teamScoreValues[ 0 ].team // if no enough teams to compare, just return 1st team
+		}
 	}
 	
 	unreachable
+}
+
+int function CompareTeamScore( TeamScoreStruct team1, TeamScoreStruct team2 )
+{
+	if ( team1.score > team2.score )
+		return -1 // move higher score up
+	else if ( team1.score < team2.score )
+		return 1
+
+	return 0
 }
 
 // idk
@@ -1751,12 +1809,10 @@ float function GetTimeLimit_ForGameMode()
 	return GetCurrentPlaylistVarFloat( playlistString, 10 )
 }
 
-// faction dialogue, not supporting FFA now
+// faction dialogue
 void function DialoguePlayNormal()
 {
 	svGlobal.levelEnt.EndSignal( "GameStateChanged" )
-	if( IsFFAGame() )
-		return
 
 	const float DIALOGUE_INTERVAL = 181 // play a faction dailogue every 180 + 1s to prevent play together with winner dialogue
 
@@ -1770,8 +1826,6 @@ void function DialoguePlayNormal()
 
 void function DialoguePlayWinnerDetermined()
 {
-	if( IsFFAGame() )
-		return
 	int winningTeam = TEAM_UNASSIGNED
 
 	if( file.enteredSuddenDeath && !IsFFAGame() || !RespawnsEnabled() ) // respawn not enabled, or game in sudden death
@@ -1801,57 +1855,126 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 	int totalScore = GameMode_GetScoreLimit( GAMETYPE )
 	if( IsRoundBased() )
 		totalScore = GameMode_GetRoundScoreLimit( GAMETYPE )
-	int winningTeam
-	int losingTeam
-	bool scoreTied
-	int mltScore = GameRules_GetTeamScore( TEAM_MILITIA )
-	int imcScore = GameRules_GetTeamScore( TEAM_IMC )
 
-	if( IsRoundBased() )
+	// FFA variant
+	if ( IsFFAGame() )
 	{
-		mltScore = GameRules_GetTeamScore2( TEAM_MILITIA )
-		imcScore = GameRules_GetTeamScore2( TEAM_MILITIA )
-	}
-
-	if( mltScore < imcScore )
-	{
-		winningTeam = TEAM_IMC
-		losingTeam = TEAM_MILITIA
-	}
-	else if( mltScore > imcScore )
-	{
-		winningTeam = TEAM_MILITIA
-		losingTeam = TEAM_IMC
-	}
-	else if( mltScore == imcScore )
-	{
-		scoreTied = true
-	}
-
-	int winningTeamScore = GameRules_GetTeamScore( winningTeam )
-	int losingTeamScore = GameRules_GetTeamScore( losingTeam )
-	if( scoreTied && GetServerVar( "winningTeam" ) <= TEAM_UNASSIGNED )
-	{
-		if( tied != "" )
+		int winningTeam = GetWinningTeamWithFFASupport()
+		if ( winningTeam > TEAM_UNASSIGNED ) // returns TEAM_UNASSIGNED means score tied
 		{
-			PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_IMC )
-			PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_MILITIA )
+			int winningTeamScore = GameRules_GetTeamScore( winningTeam )
+			
+			foreach ( entity player in GetPlayerArray() )
+			{
+				int playerTeam = player.GetTeam()
+				int scoreDiffer = -1
+				if ( playerTeam == winningTeam ) // winning team player
+				{
+					// compare with 2nd team
+					int secondTeam = GetWinningTeamWithFFASupport( 2 )
+					if ( secondTeam == winningTeamScore ) // we don't have enough teams to compare?
+						continue
+					int secondTeamScore = GameRules_GetTeamScore( secondTeam )
+					scoreDiffer = winningTeamScore - secondTeamScore
+				}
+				else // other players
+				{
+					// compare with 2nd team
+					int playerTeamScore = GameRules_GetTeamScore( playerTeam )
+					scoreDiffer = winningTeamScore - playerTeamScore
+				}
+				// compare score
+				print( "scoreDiffer: " + string( scoreDiffer ) )
+				if ( scoreDiffer < 0 )
+					continue
+				string dialogue = ""
+				if ( playerTeam == winningTeam ) // winning team player
+				{
+					if( scoreDiffer >= totalScore * 0.4 )
+						dialogue = "scoring_" + winningLarge
+					else if( scoreDiffer <= totalScore * 0.1 )
+						dialogue = "scoring_" + winningClose
+					else
+						dialogue = "scoring_" + winning
+				}
+				else // other players
+				{
+					if( scoreDiffer >= totalScore * 0.4 )
+						dialogue = "scoring_" + losingLarge
+					else if( scoreDiffer <= totalScore * 0.1 )
+						dialogue = "scoring_" + losingClose
+					else
+						dialogue = "scoring_" + losing
+				}
+
+				if ( dialogue != "" )
+					PlayFactionDialogueToTeam( dialogue, playerTeam )
+			}
+		}
+		else // this must mean score tied
+		{
+			print( "FFA score tied!" )
+			if( tied != "" )
+			{
+				foreach ( entity player in GetPlayerArray() )
+					PlayFactionDialogueToPlayer( "scoring_" + tied, player )
+			}
 		}
 	}
-	else if( winningTeamScore - losingTeamScore >= totalScore * 0.4 )
+	else // two-team gamemode
 	{
-		PlayFactionDialogueToTeam( "scoring_" + winningLarge, winningTeam )
-		PlayFactionDialogueToTeam( "scoring_" + losingLarge, losingTeam )
-	}
-	else if( winningTeamScore - losingTeamScore <= totalScore * 0.1 )
-	{
-		PlayFactionDialogueToTeam( "scoring_" + winningClose, winningTeam )
-		PlayFactionDialogueToTeam( "scoring_" + losingClose, losingTeam )
-	}
-	else
-	{
-		PlayFactionDialogueToTeam( "scoring_" + winning, winningTeam )
-		PlayFactionDialogueToTeam( "scoring_" + losing, losingTeam )
+		int winningTeam
+		int losingTeam
+		bool scoreTied
+		int mltScore = GameRules_GetTeamScore( TEAM_MILITIA )
+		int imcScore = GameRules_GetTeamScore( TEAM_IMC )
+
+		if( IsRoundBased() )
+		{
+			mltScore = GameRules_GetTeamScore2( TEAM_MILITIA )
+			imcScore = GameRules_GetTeamScore2( TEAM_MILITIA )
+		}
+
+		if( mltScore < imcScore )
+		{
+			winningTeam = TEAM_IMC
+			losingTeam = TEAM_MILITIA
+		}
+		else if( mltScore > imcScore )
+		{
+			winningTeam = TEAM_MILITIA
+			losingTeam = TEAM_IMC
+		}
+		else if( mltScore == imcScore )
+		{
+			scoreTied = true
+		}
+
+		int winningTeamScore = GameRules_GetTeamScore( winningTeam )
+		int losingTeamScore = GameRules_GetTeamScore( losingTeam )
+		if( scoreTied && GetServerVar( "winningTeam" ) <= TEAM_UNASSIGNED )
+		{
+			if( tied != "" )
+			{
+				PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_IMC )
+				PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_MILITIA )
+			}
+		}
+		else if( winningTeamScore - losingTeamScore >= totalScore * 0.4 )
+		{
+			PlayFactionDialogueToTeam( "scoring_" + winningLarge, winningTeam )
+			PlayFactionDialogueToTeam( "scoring_" + losingLarge, losingTeam )
+		}
+		else if( winningTeamScore - losingTeamScore <= totalScore * 0.1 )
+		{
+			PlayFactionDialogueToTeam( "scoring_" + winningClose, winningTeam )
+			PlayFactionDialogueToTeam( "scoring_" + losingClose, losingTeam )
+		}
+		else
+		{
+			PlayFactionDialogueToTeam( "scoring_" + winning, winningTeam )
+			PlayFactionDialogueToTeam( "scoring_" + losing, losingTeam )
+		}
 	}
 }
 

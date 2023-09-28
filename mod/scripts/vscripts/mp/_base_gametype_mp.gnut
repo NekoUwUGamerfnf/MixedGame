@@ -23,7 +23,7 @@ global function SetRecalculateRespawnAsTitanStartPointCallback
 
 // I want my game to have this
 global function PlayerWatchesKillReplayWrapper // this function should share with _gamestate_mp.nut
-global function PlayerClassChangeToSpectator
+global function PlayerClassChangeToSpectator // shared with other files such as _base_gametype.gnut and _spectator.gnut
 global function SetPlayerCameraToIntermissionCam // shared
 global function GetReplayTimeSinceAttackerSpawned // shared with _gamestate_mp.nut
 global function StopKillReplayForPlayer // shared with _gamestate_mp.nut
@@ -41,14 +41,14 @@ global function SetLateJoinRespawnEnabled // respawn the player if they join mid
 
 global function SetGamemodeAnnouncementEnabled
 
-global function SetDeathCamLengthForced // note that if death cam is shorter than 1.0s, player may won't have chance to drop a weapon!
+global function SetDeathCamLengthForced
 global function GetForcedDeathCamLength // shared with _utility_shared.nut
 global function SetReplayStartDelayOverride // only gets applied when death cam modified!
 
 global function SetDeathHintsEnabled
-global function SetDeathHintsInterval // how many deaths needed for a death hint to show
+global function SetDeathHintsInterval
 
-global function CalculateTitanDamageTaken
+global function CalculateTitanDamageTaken // can be shared with gamemode files
 
 // CodeCallbacks that exists in _base_gametype_sp.gnut
 global function CodeCallback_OnWeaponAttack
@@ -88,13 +88,15 @@ struct
 	// death cam modifier
 	float forcedDeathCamLength = -1
 	float replayStartDelayOverride = -1
+	// with modified deathcam player may unable to drop weapon... we need to force them drop at least one weapon on death
+	table<entity, entity> playerActiveWeaponBeforeDeathPackage
 
 	bool deathHintsEnabled = true
 	table<entity, float> playerDeathHintAllowedTime
 	int deathHintsInterval = 60
 
 	// vanilla missing AddCallbacks
-	array< void functionref( entity player, entity weapon, string weaponName, int ammoUsed ) > onWeaponAttackCallbacks
+	array< void functionref( entity player, entity weapon, string weaponName, int ammoUsed ) > onWeaponAttackCallbacks // NOTE: this callback isn't called at all!
 	array< void functionref( entity player ) > onPlayerMatchmakingChangedCallbacks
 	array< void functionref( entity player, entity weapon, int ammoRecieved ) > onWeaponTouchCallbacks
 	array< void functionref( entity weapon ) > weaponDroppedCallbacks
@@ -181,6 +183,7 @@ void function CodeCallback_OnClientConnectionStarted( entity player )
 	file.playerDeathHintAllowedTime[ player ] <- 0.0
 	file.playerDisableForcedRespawn[ player ] <- false
 	file.playerRespawnDelay[ player ] <- GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 )
+	file.playerActiveWeaponBeforeDeathPackage[ player ] <- null
 
 	Assert( !player._entityVars )
 	InitEntityVars( player )
@@ -353,6 +356,8 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	// vanilla seem to have this behavior, otherwise being executed by legion will make player force ragdoll forever
 	player.e.forceGibDeath = false
 	player.e.forceRagdollDeath = false
+	// modified cleanup
+	file.playerActiveWeaponBeforeDeathPackage[ player ] = null
 
 	//player.ClearReplayDelay() // these has been done in CPlayer::RespawnPlayer()
 	//player.ClearViewEntity()
@@ -444,6 +449,10 @@ void function CodeCallback_OnPlayerKilled( entity player, var damageInfo )
 	// disable prediction to prevent it messing with ragdoll in some places, as well as killreplay and such
 	player.SetPredictionEnabled( false )
 
+	// store last active weapon before death package drop player's weapon( gib or ragdoll )
+	file.playerActiveWeaponBeforeDeathPackage[ player ] = player.GetActiveWeapon()
+	//print( "playerActiveWeaponBeforeDeathPackage: " + string( file.playerActiveWeaponBeforeDeathPackage[ player ] ) )
+	
 	HandleDeathPackage( player, damageInfo )
 
 	// refering to CodeCallback_OnNPCKilled(): should fix doomed callbacks if titan player died without entering doom
@@ -491,6 +500,15 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	player.SetNoTargetSmartAmmo( false )
 
 	player.ClearExtraWeaponMods()
+
+	// death package think
+	// ragdoll or gib will make player drop weapon before their actual death
+	// in this case we should remove all weapons for player
+	// so that they won't have screen sway from their weapons
+	bool playerDroppedWeaponFromDeathPackage = file.playerActiveWeaponBeforeDeathPackage[ player ] != player.GetActiveWeapon()
+	//print( "playerDroppedWeaponFromDeathPackage: " + string( playerDroppedWeaponFromDeathPackage ) )
+	if ( playerDroppedWeaponFromDeathPackage )
+		TakeAllWeapons( player )
 
 	// we're not delayed yet, get damage table from damageInfo, so we can use it in ShouldForceRespawnPlayer_FromDamageTable()
 	table damageTable = GetDamageTableFromInfo( damageInfo )
@@ -676,6 +694,21 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	//if ( !deathCamModified )
 	//	PlayerClassChangeToSpectator( player )
 
+	// because death cam can be modified, player may not have chance to drop weapon during death animation
+	// if that ever happens, manually drop player's weapon
+	if ( deathCamModified && !playerDroppedWeaponFromDeathPackage )
+	{
+		entity activeWeapon = player.GetActiveWeapon()
+		// activeWeapon will become invalid if player is dropping weapon from death animation
+		if ( IsValid( activeWeapon ) )
+		{
+			//print( "Death cam length modified but player can't make it to drop weapon!" )
+			//print( "Dropping " + string( activeWeapon ) + " manually" )
+			player.DropWeapon( activeWeapon )
+			activeWeapon.SetVelocity( player.GetVelocity() )
+		}
+	}
+
 	// fix: get respawn avaibility before death cam delay
 	//if ( RespawnsEnabled() )
 	if ( respawnsEnableBeforeDeathCam )
@@ -780,7 +813,7 @@ void function SetPlayerCameraToIntermissionCam( entity player, float delay = 0 )
 
 void function PlayerClassChangeToSpectator( entity player )
 {
-	TakeAllWeapons( player ) // before becoming ragdoll, should have their weapons out( otherwise a gibbed player can drop another weapon )
+	TakeAllWeapons( player ) // before becoming ragdoll, should have their weapons out, otherwise a player can drop another weapon
 	player.BecomeRagdoll( player.GetVelocity(), true ) // better become ragdoll before setting to spectator, so player won't have spectator class model out
 	player.SetPlayerSettings( "spectator" ) 
 	player.StopPhysics()
