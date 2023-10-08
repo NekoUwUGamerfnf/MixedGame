@@ -518,6 +518,10 @@ void function FreezeNPCsForBossTitanIntro( entity titan )
             if ( npc.ContextAction_IsBusy() ) // context action check. animation npcs should be set to busy!
                 continue
 
+            // player respawning as this titan
+            if ( npc.IsTitan() && IsValid( GetPetTitanOwner( npc ) ) && GetPetTitanOwner( npc ).isSpawning )
+                continue
+
             if ( !npc.IsFrozen() )
             {
                 if ( !( npc in npcBeingFrozen ) )
@@ -645,12 +649,18 @@ void function BossTitanPlayerView( entity player, bool useExistingMover, entity 
                     camera.Destroy()
                 }
 
-                mover.Destroy()
+                if ( IsValid( mover ) )
+                    mover.Destroy()
 
                 if ( IsValid( player ) )
                 {
+                    player.SetPredictionEnabled( true )
                     player.ClearParent()
                     player.ClearViewEntity()
+                    // defensive cleanup
+                    player.DeployWeapon()
+                    player.Server_TurnOffhandWeaponsDisabledOff()
+
                     RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
                     RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
                 }
@@ -681,7 +691,10 @@ void function BossTitanPlayerView( entity player, bool useExistingMover, entity 
 
         player.SetVelocity( < 0,0,0 > )
         player.MakeInvisible()
-        HolsterAndDisableWeapons( player )
+        player.HolsterWeapon()
+        player.Server_TurnOffhandWeaponsDisabledOn()
+
+        player.SetPredictionEnabled( false )
 
         wait waittime // wait for the AI to blend into the anim
 
@@ -691,15 +704,6 @@ void function BossTitanPlayerView( entity player, bool useExistingMover, entity 
         mover.SetOrigin( player.CameraPosition() )
         mover.SetAngles( player.CameraAngles() )
         player.SetViewEntity( camera, true )
-
-        player.SetPredictionEnabled( false )
-        OnThreadEnd(
-        function() : ( player )
-            {
-                if ( IsValid( player ) )
-                    player.SetPredictionEnabled( true )
-            }
-        )
 
         while ( Time() - startTime < moveTime )
         {
@@ -751,8 +755,9 @@ void function BossTitanPlayerView( entity player, bool useExistingMover, entity 
 
         ClearPlayerAnimViewEntity( player )
         player.SnapEyeAngles( moverStartAng )
-        DeployAndEnableWeapons( player )
         player.MakeVisible()
+        player.DeployWeapon()
+        player.Server_TurnOffhandWeaponsDisabledOff()
 
         EmitSoundOnEntityOnlyToPlayer( player, player, "UI_Lobby_RankChip_Disable" )
     }
@@ -767,7 +772,11 @@ void function BossTitanViewPlayerEffect( entity player )
     // limit movement
     player.SetVelocity( < 0,0,0 > )
     player.MakeInvisible()
-    HolsterAndDisableWeapons( player )
+    
+    // this will sometimes make executions disable player's offhands forever idk why
+    //HolsterAndDisableWeapons( player )
+    player.HolsterWeapon()
+    player.Server_TurnOffhandWeaponsDisabledOn()
 }
 
 void function ClearBossTitanViewPlayerEffect( entity player )
@@ -775,7 +784,9 @@ void function ClearBossTitanViewPlayerEffect( entity player )
     RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
     RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
     player.MakeVisible()
-    DeployAndEnableWeapons( player )
+    //DeployAndEnableWeapons( player )
+    player.DeployWeapon()
+    player.Server_TurnOffhandWeaponsDisabledOff()
 }
 
 entity function GetNewestIntroTitan()
