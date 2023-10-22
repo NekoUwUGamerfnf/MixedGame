@@ -419,8 +419,8 @@ void function AT_ScoreEventsValueSetUp()
 	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.15, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.0, 0.0 ) // bounty boss is autotitan, add 0.0
 	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.05, 0.02 )
-	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.06, 0.040001, 0.5 ) // if set to "0.06, 0.04", will display as "10%"
-	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.06, 0.040001, 0.5 ) // if set to "0.06, 0.04", will display as "10%"
+	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.08, 0.020001 ) // if set to "0.08, 0.02", will display as "9%"
+	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.08, 0.020001 ) // if set to "0.08, 0.02", will display as "9%"
 	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.20, 0.10 )
 
 	// HACK
