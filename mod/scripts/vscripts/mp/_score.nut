@@ -638,12 +638,15 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "FirstStrike", 0.03, 0.020001, 0.0 ) // if set to "0.03, 0.02", will display as "4%"
 	
 	// ai
-	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.03, 0.01 )
-	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.03, 0.01 )
-	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.03, 0.01 )
-	ScoreEvent_SetEarnMeterValues( "KillHackedSpectre", 0.03, 0.01 )
-	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.03, 0.01 )
-	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.15, 0.05 )
+	// so here's a funny twist, respawn don't know "0.03, 0.02" will display as 4%
+	// which means actual vanilla infantry value is 5% but it displays as 4%
+	// (if you set earnmeter multiplier to 5.0 it displays as 24%, proving my thought)
+	ScoreEvent_SetEarnMeterValues( "KillGrunt", 0.03, 0.020001, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSpectre", 0.03, 0.020001, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "LeechSpectre", 0.03, 0.020001, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillHackedSpectre", 0.03, 0.020001, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.03, 0.020001, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.10, 0.10, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.05 )
 }
 
