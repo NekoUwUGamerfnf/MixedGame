@@ -21,5 +21,6 @@ var function OnWeaponNpcPrimaryAttack_gunship_turret( entity weapon, WeaponPrima
 
     int damageFlags = weapon.GetWeaponDamageFlags()
     weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, damageFlags )
+    return 1
 }
 #endif
