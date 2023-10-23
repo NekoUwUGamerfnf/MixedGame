@@ -32,27 +32,7 @@ function MpWeaponGunshipLauncher_Init()
 	PrecacheParticleSystem( FX_GUNSHIPMINE_IGNITION )
 	PrecacheParticleSystem( FX_MINE_TRAIL )
 	PrecacheParticleSystem( FX_MINE_LIGHT )
-
-	/*
-	// northstar missing: plantedMinesManagedEntArrayID init for players
-	#if SERVER
-		AddCallback_OnClientConnected( OnClientConnected )
-	#endif
-	*/
 }
-
-// northstar missing: plantedMinesManagedEntArrayID init for players
-// welp, it's still not usable for players since some function calls in FireGunshipLauncher()
-// but, it has no client prediction at all
-// maybe just change OnWeaponPrimaryAttack_GunshipLauncher() to fake primary weapon stuffs?
-/*
-#if SERVER
-void function OnClientConnected( entity player )
-{
-	player.s.plantedMinesManagedEntArrayID <- CreateScriptManagedEntArray()
-}
-#endif
-*/
 
 var function OnWeaponPrimaryAttack_GunshipLauncher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
@@ -78,6 +58,9 @@ function FireGunshipLauncher( entity weapon, WeaponPrimaryAttackParams attackPar
 	if ( !IsValid( targetEnemy ) )
 		return
 
+	// vanilla missing anti-crash
+	if ( !( "plantedMinesManagedEntArrayID" in weaponOwner.s ) )
+		weaponOwner.s.plantedMinesManagedEntArrayID <- CreateScriptManagedEntArray()
 	// Too many mines planted already? Then abort this attack
 	int plantedMineCount = GetScriptManagedEntArrayLen( weaponOwner.s.plantedMinesManagedEntArrayID )
 	if ( plantedMineCount >= MAX_PLANTED_MINES )
