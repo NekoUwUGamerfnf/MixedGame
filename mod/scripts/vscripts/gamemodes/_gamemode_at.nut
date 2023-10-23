@@ -409,7 +409,7 @@ void function OnEntitiesDidLoad()
 void function AT_ScoreEventsValueSetUp()
 {
 	// override settings
-	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.10, 0.5 )
+	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.10, 0.5 ) // mostly never called cuz it's overwriten by AttritionPilotKilled
 
 	// BH specific
 	// in vanilla, autotitan kills seems to be 0 value
@@ -418,10 +418,10 @@ void function AT_ScoreEventsValueSetUp()
 	ScoreEvent_SetEarnMeterValues( "AttritionTitanKilled", 0.0, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "AttritionPilotKilled", 0.10, 0.10, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "AttritionBossKilled", 0.0, 0.0 ) // bounty boss is autotitan, add 0.0
-	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.04, 0.03, 0.67 )
-	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.06, 0.04, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.06, 0.04, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.20, 0.10 )
+	ScoreEvent_SetEarnMeterValues( "AttritionGruntKilled", 0.02, 0.05, 0.4 )
+	ScoreEvent_SetEarnMeterValues( "AttritionSpectreKilled", 0.05, 0.050001, 0.4 ) // if set to "0.05, 0.05", will display as "9%"
+	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.05, 0.050001, 0.4 ) // if set to "0.05, 0.05", will display as "9%"
+	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.15, 0.15, 0.67 )
 
 	// HACK
 	foreach ( string eventName in AT_ENABLE_SCOREEVENTS )

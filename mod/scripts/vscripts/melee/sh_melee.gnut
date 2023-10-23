@@ -230,12 +230,8 @@ bool function CodeCallback_IsValidMeleeExecutionTarget( entity attacker, entity 
 	if ( attacker == target )
 		return false
 
-	// npc execution case
-	if ( attacker.IsPlayer() )
-	{
-		if ( !ShouldPlayerExecuteTarget( attacker, target ) )
-			return false
-	}
+	if ( !ShouldPlayerExecuteTarget( attacker, target ) )
+		return false
 
 	// airborne execution case
 	if( file.noSyncedMeleeLimit )
@@ -1321,6 +1317,10 @@ bool function ShouldPlayerExecuteTarget( entity player, entity target )
 		if ( Flag( "ForceSyncedMelee" )  )
 			return true
 
+		// modified here: add health percent for executing case
+		// 0 means we need titan to be doomed
+		// checks also changed, titan cannot execute target without an soul( may cause issue when soul transfering but whatever )
+		/*
 		if ( !GetDoomedState( target ) )
 			return false
 
@@ -1330,9 +1330,43 @@ bool function ShouldPlayerExecuteTarget( entity player, entity target )
 			if ( soul.GetShieldHealth() > 0 && GetCurrentPlaylistVarInt( "titan_shield_blocks_execution", 0 ) != 0 )
 				return false
 		}
+		*/
 
-		if ( !SyncedMelee_IsAllowed( player ) )
+		// modified contents starts here
+		// target checks
+		entity targetSoul = target.GetTitanSoul()
+		if ( !IsValid( targetSoul ) )
 			return false
+		if ( targetSoul.GetShieldHealth() > 0 && GetCurrentPlaylistVarInt( "titan_shield_blocks_execution", 0 ) != 0 )
+			return false
+		
+		// attacker settings
+		entity attackerSoul = player.GetTitanSoul()
+		if ( !IsValid( attackerSoul ) )
+			return false
+		// function shared from _melee_synced_titan.gnut
+		// server only!
+		#if SERVER
+			float healthFracRequired = MeleeSyncedTitan_GetSoulExecutionTargetRequiredHealthFrac( attackerSoul )
+			if ( healthFracRequired > 0 )
+			{
+				if ( GetHealthFrac( target ) > healthFracRequired )
+					return false
+			}
+			else // default case: 0 health frac required, meaning we need target titan to be doomed before executing them
+			{
+				if ( !GetDoomedState( target ) )
+					return false
+			}
+		#endif
+		// modified contents end
+
+		// npc execution case
+		if ( player.IsPlayer() )
+		{
+			if ( !SyncedMelee_IsAllowed( player ) )
+				return false
+		}
 
 		return true
 	}
@@ -1347,8 +1381,12 @@ bool function ShouldPlayerExecuteTarget( entity player, entity target )
 			return true
 #endif // #if SERVER
 
-		if ( !SyncedMelee_IsAllowed( player ) )
-			return false
+		// npc execution case
+		if ( player.IsPlayer() )
+		{
+			if ( !SyncedMelee_IsAllowed( player ) )
+				return false
+		}
 	}
 
 	return true

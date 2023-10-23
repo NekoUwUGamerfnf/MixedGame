@@ -17,6 +17,9 @@ const float EARNMETER_GAIN_INTERVAL			= 5.0
 const float EARNMETER_GAIN_INTERVAL_MIN		= 1.0
 const float EARNMETER_GAIN_MAX_LEVEL		= 0.9 // if time reaches this percentage, we will use EARNMETER_GAIN_INTERVAL_MIN
 
+const float FILL_ANIM_DURATION 				= 0.7 // always keep the same as cl_earnmeter.gnut
+const float EARNMETER_DECAY_TICK			= 0.1
+
 struct
 {
 	// these are purely in-file and no need to change
@@ -387,7 +390,7 @@ void function EarnMeterMP_SetBoostByRef( entity player, string boostRef )
 
 // move here from sv_earn_meter.gnut
 // in vanilla, only passive gain triggers EarnMeter_DecayHold()
-// which means you'll drop less overdrive when the match is near end
+// which means you'll drop less overdrive over time when the match is near end
 void function EarnMeterDecayThink( entity player )
 {
 	player.EndSignal( "OnDestroy" )
@@ -398,9 +401,18 @@ void function EarnMeterDecayThink( entity player )
 	thread OverDriveClearOnDeath( player )
 
 	//float startTime = Time()
+	float lastTickearnValue
+	float lastTickownValue
+	float decayPauseEndTime = -1
+	float lastDecayPauseStartValue = -1
 	while ( true )
 	{
-		WaitFrame() // wait before each loop
+		// update last tick earned value
+		lastTickearnValue = PlayerEarnMeter_GetEarnedFrac( player )
+		lastTickownValue = PlayerEarnMeter_GetOwnedFrac( player )
+		
+		wait EARNMETER_DECAY_TICK // wait before each loop
+		
 		//float frameTime = Time() - startTime
 		//startTime = Time()
 
@@ -409,18 +421,49 @@ void function EarnMeterDecayThink( entity player )
 			continue
 
 		// decay hold think
-		float decayHoldEndTime = file.playerLastPassiveGainTime[ player ] + EarnMeter_DecayHold() + 0.1 // add 0.1s more for better handle min interval
+		float decayHoldEndTime = file.playerLastPassiveGainTime[ player ] + EarnMeter_DecayHold() + EARNMETER_DECAY_TICK // add 1 tick more for better handling min interval
 		// if player in decay hold, we never reduce their earnmeter frac
 		if ( Time() < decayHoldEndTime )
 			continue
 
-		float earnedValue = PlayerEarnMeter_GetEarnedFrac( player )
-		float ownedValue = PlayerEarnMeter_GetOwnedFrac( player )
-		if ( earnedValue > ownedValue )
+		float earnValue = PlayerEarnMeter_GetEarnedFrac( player )
+		float ownValue = PlayerEarnMeter_GetOwnedFrac( player )
+
+		// earnmeter animation think
+		// pause is required after player successfully earned value
+		// otherwise player will have their earnmeter decayed during earnmeter bar filling animation
+		// which will cancel out filling animation and without blending, into decay animation
+		float earnValueIncrement = earnValue - lastTickearnValue
+		if ( earnValueIncrement > 0 )
+		{
+			if ( earnValue > lastDecayPauseStartValue ) // only update decayPauseEndTime when earn value is higher than lastDecayPauseStartValue
+			{
+				// using 0.25s as basic pause, increases based on earn percentage( earnValueIncrement )
+				float expectedPause = 0.25 + ( earnValueIncrement + ( 0.25 / FILL_ANIM_DURATION ) ) * FILL_ANIM_DURATION
+				float decayPause = min( expectedPause, FILL_ANIM_DURATION ) + EARNMETER_DECAY_TICK // add 1 tick more for better handling min interval
+				lastDecayPauseStartValue = earnValue
+				if ( decayPauseEndTime == -1 ) // first pause
+					decayPauseEndTime = Time() + decayPause
+				else // following pauses( player may earning kill streak )
+					decayPauseEndTime = decayPauseEndTime + decayPause
+				// debug
+				//print( "expectedPause: " + string( expectedPause ) )
+				//print( "decayPause: " + string( decayPause ) )
+			}
+		}
+		if ( Time() < decayPauseEndTime )
+			continue
+		else // clean up stuffs
+		{
+			lastDecayPauseStartValue = -1
+			decayPauseEndTime = -1
+		}
+
+		if ( earnValue > ownValue )
 		{
 			// 10% over 20 seconds
-			float decayRate = ( 1.0 / 135.0 ) * 0.1 // 0.1 is for 1tick
-			float diff = earnedValue - ownedValue
+			float decayRate = ( 1.0 / 135.0 ) * EARNMETER_DECAY_TICK
+			float diff = earnValue - ownValue
 			decayRate = min( decayRate, diff )
 			PlayerEarnMeter_AddEarnedFrac( player, -decayRate )
 		}
@@ -434,11 +477,11 @@ void function OverDriveClearOnDeath( entity player )
 	player.EndSignal( "OverDriveClearOnDeath" )
 	player.WaitSignal( "OnDeath" )
 
-	float earnedValue = PlayerEarnMeter_GetEarnedFrac( player )
-	float ownedValue = PlayerEarnMeter_GetOwnedFrac( player )
-	if ( earnedValue > ownedValue )
+	float earnValue = PlayerEarnMeter_GetEarnedFrac( player )
+	float ownValue = PlayerEarnMeter_GetOwnedFrac( player )
+	if ( earnValue > ownValue )
 	{
-		float diff = earnedValue - ownedValue
+		float diff = earnValue - ownValue
 		PlayerEarnMeter_AddEarnedFrac( player, -diff )
 	}
 }

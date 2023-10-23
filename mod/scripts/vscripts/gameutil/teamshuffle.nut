@@ -228,7 +228,7 @@ void function FixShuffle( float delay = 0 )
 
 		if( IsAlive( poorGuy ) ) // poor guy
 		{
-			poorGuy.Die( null, null, { damageSourceId = eDamageSourceId.team_switch } ) // better
+			poorGuy.Die( poorGuy, poorGuy, { damageSourceId = eDamageSourceId.team_switch } ) // better
 			if ( poorGuy.GetPlayerGameStat( PGS_DEATHS ) >= 1 ) // reduce the death count
 				poorGuy.AddToPlayerGameStat( PGS_DEATHS, -1 )
 		}
@@ -306,7 +306,7 @@ bool function PlayerTrySwitchTeam( entity player, bool fixRespawn = false )
 
 	if( IsAlive( player ) ) // poor guy
 	{
-		player.Die( null, null, { damageSourceId = eDamageSourceId.team_switch } ) // better
+		player.Die( player, player, { damageSourceId = eDamageSourceId.team_switch } ) // better
 		if ( player.GetPlayerGameStat( PGS_DEATHS ) >= 1 ) // reduce the death count
 			player.AddToPlayerGameStat( PGS_DEATHS, -1 )
 	}

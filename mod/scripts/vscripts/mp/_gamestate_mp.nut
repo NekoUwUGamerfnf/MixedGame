@@ -1697,7 +1697,7 @@ struct TeamScoreStruct
 int function GetWinningTeamWithFFASupport( int ffaTeamPlace = 1 ) // by default we return the team that places at 1st
 {
 	if ( !IsFFAGame() )
-		return GetWinningTeam() // never access GameScore_GetWinningTeam(), using this is good enough
+		return GameScore_GetWinningTeam() // GetWinningTeam() won't be setup if we're not assigning networkvar "winningTeam" yet, needs to use score checks
 	else
 	{
 		// custom logic for calculating ffa winner as GameScore_GetWinningTeam doesn't handle this
@@ -1750,12 +1750,14 @@ int function GetWinningTeamWithFFASupport( int ffaTeamPlace = 1 ) // by default 
 			teamScoreValues.sort( CompareTeamScore )
 
 			// debug
+			/*
 			print( "sorted team numbers:" )
 			foreach ( TeamScoreStruct teamStruct in teamScoreValues )
 			{
 				print( "team number: " + string( teamStruct.team ) )
 				print( "team score: " + string( teamStruct.score ) )
 			}
+			*/
 			//
 
 			if ( teamScoreValues.len() >= ffaTeamPlace )
@@ -1884,7 +1886,7 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 					scoreDiffer = winningTeamScore - playerTeamScore
 				}
 				// compare score
-				print( "scoreDiffer: " + string( scoreDiffer ) )
+				//print( "scoreDiffer: " + string( scoreDiffer ) )
 				if ( scoreDiffer < 0 )
 					continue
 				string dialogue = ""
@@ -1913,7 +1915,7 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 		}
 		else // this must mean score tied
 		{
-			print( "FFA score tied!" )
+			//print( "FFA score tied!" )
 			if( tied != "" )
 			{
 				foreach ( entity player in GetPlayerArray() )
