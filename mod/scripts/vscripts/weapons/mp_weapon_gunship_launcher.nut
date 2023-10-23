@@ -32,7 +32,20 @@ function MpWeaponGunshipLauncher_Init()
 	PrecacheParticleSystem( FX_GUNSHIPMINE_IGNITION )
 	PrecacheParticleSystem( FX_MINE_TRAIL )
 	PrecacheParticleSystem( FX_MINE_LIGHT )
+
+	// northstar missing: plantedMinesManagedEntArrayID init for players
+	#if SERVER
+		AddCallback_OnClientConnected( OnClientConnected )
+	#endif
 }
+
+// northstar missing: plantedMinesManagedEntArrayID init for players
+#if SERVER
+void function OnClientConnected( entity player )
+{
+	player.s.plantedMinesManagedEntArrayID <- CreateScriptManagedEntArray()
+}
+#endif
 
 var function OnWeaponPrimaryAttack_GunshipLauncher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
