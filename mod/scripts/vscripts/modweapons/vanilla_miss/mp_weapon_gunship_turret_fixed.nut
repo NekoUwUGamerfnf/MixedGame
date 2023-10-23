@@ -14,7 +14,7 @@ void function MpWeaponGunshipTurret_Init()
 }
 
 #if SERVER
-void function OnWeaponNpcPrimaryAttack_gunship_turret( entity weapon, WeaponPrimaryAttackParams attackParams )
+var function OnWeaponNpcPrimaryAttack_gunship_turret( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
     // manually play a muzzle flash fx
     weapon.PlayWeaponEffect( $"", $"wpn_muzzleflash_sentry", "muzzle_flash" )
