@@ -33,25 +33,33 @@ function MpWeaponGunshipLauncher_Init()
 	PrecacheParticleSystem( FX_MINE_TRAIL )
 	PrecacheParticleSystem( FX_MINE_LIGHT )
 
+	/*
 	// northstar missing: plantedMinesManagedEntArrayID init for players
 	#if SERVER
 		AddCallback_OnClientConnected( OnClientConnected )
 	#endif
+	*/
 }
 
 // northstar missing: plantedMinesManagedEntArrayID init for players
+// welp, it's still not usable for players since some function calls in FireGunshipLauncher()
+// but, it has no client prediction at all
+// maybe just change OnWeaponPrimaryAttack_GunshipLauncher() to fake primary weapon stuffs?
+/*
 #if SERVER
 void function OnClientConnected( entity player )
 {
 	player.s.plantedMinesManagedEntArrayID <- CreateScriptManagedEntArray()
 }
 #endif
+*/
 
 var function OnWeaponPrimaryAttack_GunshipLauncher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	#if SERVER
-		return FireGunshipLauncher( weapon, attackParams, PROJECTILE_PREDICTED )
-	#endif
+	// removing player usage
+	//#if SERVER
+	//	return FireGunshipLauncher( weapon, attackParams, PROJECTILE_PREDICTED )
+	//#endif
 }
 
 #if SERVER
