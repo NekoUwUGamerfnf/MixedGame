@@ -2711,23 +2711,33 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	gunship.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( gunship )
 
+	gunship.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // turrets inherit weapon proficiency from gunship
+
 	// attach turrets to them for attacking!
 	TakeAllWeapons( gunship )
-	array<string> gunshipWeapons =
-	[
-		//"mp_weapon_gunship_launcher", // kinda weird for turrets to use, removed for now
-		"mp_weapon_gunship_missile",
-		"mp_weapon_gunship_turret",
-	]
-	gunship.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // turrets inherit weapon proficiency from gunship
 	
-	// turret weapons
-	string leftTurretWeapon = gunshipWeapons[ RandomInt( gunshipWeapons.len() ) ]
-	gunshipWeapons.removebyvalue( leftTurretWeapon ) // one gunship shouldn't have two same weapons
-	entity leftTurret = CreateTurretForGunship( gunship, "L_turret_attach", leftTurretWeapon )
-	string rightTurretWeapon = gunshipWeapons[ RandomInt( gunshipWeapons.len() ) ]
-	gunshipWeapons.removebyvalue( rightTurretWeapon ) 
-	entity rightTurret = CreateTurretForGunship( gunship, "R_turret_attach", rightTurretWeapon )
+	table< string, asset > gunshipValidWeaponAndModel
+	gunshipValidWeaponAndModel["mp_weapon_gunship_launcher"] <- ROCKET_TURRET_MODEL
+	gunshipValidWeaponAndModel["mp_weapon_gunship_missile"] <- ROCKET_TURRET_MODEL // should be PLASMA_TURRET_MODEL, but we're not enabling mp_weapon_gunship_launcher now, just use rocket turret
+	gunshipValidWeaponAndModel["mp_weapon_gunship_turret"] <- HITSCAN_TURRET_MODEL
+
+	const array<string> validAttachments = ["L_turret_attach", "R_turret_attach"]
+
+	// assign specific weapon and mods
+	array<string> validWeapons
+	foreach ( weapon, mods in gunshipValidWeaponAndModel )
+		validWeapons.append( weapon )
+
+	for ( string attachment in validAttachments )
+	{
+		if ( validWeapons.len() == 0 ) // no valid weapons left?
+			break
+		string weaponToChoose = validWeapons[ RandomInt( validWeapons.len() ) ]
+		asset turretModel = gunshipValidWeaponAndModel[ weaponToChoose ]
+		validWeapons.removebyvalue( weaponToChoose ) // one gunship shouldn't have two same weapons
+		
+		CreateTurretForGunship( gunship, attachment, leftTurretWeapon, turretModel )
+	}
 
 	// start trail effect
 	thread GunshipJetTrailEffect( gunship )
@@ -2742,7 +2752,7 @@ void function GunshipSpawnSettings( entity gunship )
 }
 
 // based on DeployTurret() in mp_ability_turretweapon.nut
-entity function CreateTurretForGunship( entity gunship, string attachment, string weapon = "mp_weapon_gunship_turret" )
+entity function CreateTurretForGunship( entity gunship, string attachment, string weapon = "mp_weapon_gunship_turret", asset turretModel = $"" )
 {
 	vector offset = <0, 0, 1>
 	int team = gunship.GetTeam()
@@ -2759,8 +2769,13 @@ entity function CreateTurretForGunship( entity gunship, string attachment, strin
 	SetTeam( turret, team )
 	EmitSoundOnEntity( turret, "Boost_Card_SentryTurret_Deployed_3P" )
 	turret.Highlight_SetInheritHighlight( true ) // setup highlight
+	if ( turretModel != $"" )
+		turret.SetValueForModelKey( turretModel )
 
 	DispatchSpawn( turret )
+	// update model after dispatchSpawn
+	if ( turretModel != $"" )
+		turret.SetModel( turretModel )
 
 	// change weapon
 	TakeAllWeapons( turret )
