@@ -2664,39 +2664,222 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 {
-	entity gunship = CreateNPC("npc_gunship", team, pos, rot )
-	HideName( gunship ) // won't make it's info target( or health bar ) teleport into battle
-	file.npcSpawnFromExtraSpawner[ gunship ] <- true
+	// first gunship: only for playing animation
+	// its a hack! gunship after animation stops thinking for some reason
+	// needs to spawn a new one
+	entity animGunship = CreateNPC("npc_gunship", team, pos, rot )
+	HideName( animGunship ) // won't make it's info target( or health bar ) teleport into battle
+	file.npcSpawnFromExtraSpawner[ animGunship ] <- true
+	DispatchSpawn( animGunship )
+	SetDefaultMPEnemyHighlight( animGunship )
+
+	// dont let AI titan get enemies while flying. Don't do trigger checks
+	animGunship.SetEfficientMode( true )
+	animGunship.SetTouchTriggers( false )
+	animGunship.SetNoTarget( true )
+	animGunship.SetAimAssistAllowed( false )
+	animGunship.SetInvulnerable()
+	animGunship.NotSolid()
+
+	// fly in
+	thread PlayAnim( animGunship, "st_AngelCity_IMC_Win_ComeIn" ) // flying anim
+	// warp effect
+	thread WarpInEffectGunship( animGunship )
+	
+    WaittillAnimDone( animGunship )
+	ShowName( animGunship ) // show info target again
+
+	vector spawnpoint = animGunship.GetOrigin()
+	vector spawnang = animGunship.GetAngles()
+
+	// replacement gunship
+	// its a hack! gunship after animation stops thinking for some reason
+	// needs to spawn a new one
+	if ( !IsValid( animGunship ) ) // if gunship already destroyed for some reason
+		return // don't run following replacement code
+	//gunship.Destroy() // might be a little weird because it's jet trail gonna disappear immediately
+	// now using delayed destroy
+	thread DelayedDestroyAnimGunship( animGunship )
+
+	// spawning new gunship for combating( their behavior is bad though, almost never attack anybody )
+	entity gunship = CreateNPC( "npc_gunship", team, spawnpoint, spawnang )
 	DispatchSpawn( gunship )
 
+	gunship.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( gunship )
-	thread PlayAnim( gunship , "st_AngelCity_IMC_Win_ComeIn" ) // flying anim
-    WaittillAnimDone( gunship )
-	ShowName( gunship ) // show info target again
 
-	vector spawnpoint = gunship.GetOrigin()
-	vector spawnang = gunship.GetAngles()
-	if ( IsValid( gunship ) )
-		gunship.Destroy()
-
-	entity gunship2 = CreateNPC( "npc_gunship", team, spawnpoint, spawnang )
-	gunship2.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
-	SetDefaultMPEnemyHighlight( gunship2 )
-
-	file.npcSpawnFromExtraSpawner[ gunship2 ] <- true
-	DispatchSpawn( gunship2 )
-
+	// attach turrets to them for attacking!
+	TakeAllWeapons( gunship )
 	array<string> gunshipWeapons =
 	[
-		"mp_weapon_gunship_launcher", // might be most useful weapon?
-		//"mp_weapon_gunship_missile", // temp removed
+		//"mp_weapon_gunship_launcher", // kinda weird for turrets to use, removed for now
+		"mp_weapon_gunship_missile",
+		"mp_weapon_gunship_turret",
 	]
-	string currentWeapon = gunshipWeapons[ RandomInt( gunshipWeapons.len() ) ]
-	gunship2.TakeWeaponNow( "mp_weapon_gunship_missile" ) // take default weapon
-	gunship2.GiveWeapon( currentWeapon ) // removed [ "npc_elite_weapon" ]
-	gunship2.SetActiveWeaponByName( currentWeapon )
+	gunship.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // turrets inherit weapon proficiency from gunship
+	
+	// turret weapons
+	string leftTurretWeapon = gunshipWeapons[ RandomInt( gunshipWeapons.len() ) ]
+	gunshipWeapons.removebyvalue( leftTurretWeapon ) // one gunship shouldn't have two same weapons
+	entity leftTurret = CreateTurretForGunship( gunship, "L_turret_attach", leftTurretWeapon )
+	string rightTurretWeapon = gunshipWeapons[ RandomInt( gunshipWeapons.len() ) ]
+	gunshipWeapons.removebyvalue( rightTurretWeapon ) 
+	entity rightTurret = CreateTurretForGunship( gunship, "R_turret_attach", rightTurretWeapon )
 
-	gunship2.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // they can shoot very nice
+	// start trail effect
+	thread GunshipJetTrailEffect( gunship )
+}
+
+// based on DeployTurret() in mp_ability_turretweapon.nut
+entity function CreateTurretForGunship( entity gunship, string attachment, string weapon = "mp_weapon_gunship_turret" )
+{
+	vector offset = <0, 0, 1>
+	int team = gunship.GetTeam()
+
+	entity turret = CreateEntity( "npc_turret_sentry" )
+	SetSpawnOption_AISettings( turret, "npc_turret_sentry" )
+
+	turret.SetParent( gunship, attachment )
+	turret.SetOrigin( offset )
+	turret.SetOwner( gunship )
+	turret.ai.preventOwnerDamage = true
+	turret.StartDeployed()
+
+	SetTeam( turret, team )
+	EmitSoundOnEntity( turret, "Boost_Card_SentryTurret_Deployed_3P" )
+	turret.Highlight_SetInheritHighlight( true ) // setup highlight
+
+	DispatchSpawn( turret )
+
+	// change weapon
+	TakeAllWeapons( turret )
+	turret.GiveWeapon( weapon )
+	turret.SetActiveWeaponByName( weapon )
+
+	// currently turret is bind together with gunship and cannot be destroyed
+	HideName( turret )
+	turret.SetInvulnerable()
+	turret.SetNoTarget( true )
+	turret.SetNoTargetSmartAmmo( true )
+	turret.NotSolid()
+	//turret.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // this will also hide all effects that may play on it
+	SentryTurretStopLaser( turret ) // modified function in _ai_turret_sentry.gnut, stop laser effect
+
+	// gunship life tracker
+	thread GunshipTurretThink( turret, gunship )
+	thread TrackTurretOwnerGunshipDeath( turret, gunship )
+	// unused behavior
+	//thread DestroyOnDeathDelayed( turret, 0.15 )
+
+	return turret
+}
+
+// sync everything with the gunship
+void function GunshipTurretThink( entity turret, entity gunship )
+{
+	turret.EndSignal( "OnDestroy" )
+	gunship.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		if ( turret.GetTitle() != gunship.GetTitle() )
+			turret.SetTitle( gunship.GetTitle() )
+
+		if ( turret.GetEnemy() != gunship.GetEnemy() )
+		{
+			if ( !IsValid( gunship.GetEnemy() ) )
+				turret.ClearEnemy()
+			else
+				turret.SetEnemy( gunship.GetEnemy() )
+		}
+
+		if ( turret.kv.WeaponProficiency != gunship.kv.WeaponProficiency )
+			turret.kv.WeaponProficiency = gunship.kv.WeaponProficiency
+		if ( turret.kv.AccuracyMultiplier != gunship.kv.AccuracyMultiplier )
+			turret.kv.AccuracyMultiplier = gunship.kv.AccuracyMultiplier
+		
+		wait 0.25 // same wait as GunshipThink() does
+	}
+}
+
+void function TrackTurretOwnerGunshipDeath( entity turret, entity gunship )
+{
+	turret.EndSignal( "OnDestroy" )
+	WaitSignal( gunship, "OnDeath", "OnDestroy" )
+	turret.Destroy()
+}
+
+void function DestroyOnDeathDelayed( entity turret, float delay )
+{
+	turret.EndSignal( "OnDestroy" )
+	turret.WaitSignal( "OnDeath" )
+
+	wait delay
+
+	// TODO: explosion or other FX
+	turret.Destroy()
+}
+
+// from _evac.gnut, my own function with some tweak
+void function WarpInEffectGunship( entity gunship )
+{
+	gunship.EndSignal( "OnDestroy" )
+	gunship.Hide() // this still shows it's lights
+	//gunship.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
+
+	float sfxWait = 0.1
+	float totalTime = WARPINFXTIME
+	float preWaitTime = 0.16 // give it some time so it's actually playing anim, and we can get it's "origin" attatch
+	string sfx = "dropship_warpin"
+
+	wait preWaitTime
+
+	int attach = gunship.LookupAttachment( "origin" )
+	vector origin = gunship.GetAttachmentOrigin( attach )
+	vector angles = gunship.GetAttachmentAngles( attach )
+
+	gunship.Show()
+	//gunship.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	entity fx = PlayFX( FX_GUNSHIP_CRASH_EXPLOSION_ENTRANCE, origin, angles )
+	fx.FXEnableRenderAlways()
+	fx.DisableHibernation()
+
+	wait sfxWait
+	EmitSoundAtPosition( TEAM_UNASSIGNED, origin, sfx )
+
+	wait totalTime - sfxWait
+}
+
+void function DelayedDestroyAnimGunship( entity animGunship )
+{
+	animGunship.EndSignal( "OnDestroy" )
+	animGunship.Hide() // this still shows it's lights, but trail also needed to show
+	animGunship.Freeze() // freeze gunship so it can't move
+
+	wait 0.8 // wait for jet trail fadeout normally
+	animGunship.Destroy()
+}
+
+void function GunshipJetTrailEffect( entity gunship )
+{
+	array<entity> fxs
+	fxs.append( PlayLoopFXOnEntity( $"veh_contrails_01", gunship, "L_WING_TIP", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
+	fxs.append( PlayLoopFXOnEntity( $"veh_contrails_01", gunship, "R_WING_TIP", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
+	fxs.append( PlayLoopFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
+	fxs.append( PlayLoopFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
+
+	OnThreadEnd
+	(
+		function(): ( fxs )
+		{
+			foreach ( effect in fxs )
+			{
+				if ( IsValid( effect ) )
+					EffectStop( effect )
+			}
+		}
+	)
+
+	WaitSignal( gunship, "OnDestroy" )
 }
 
 void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team, string spawnName = "" )
