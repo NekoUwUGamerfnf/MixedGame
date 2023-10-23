@@ -50,6 +50,9 @@ var function OnWeaponNpcPrimaryAttack_gunship_missile( entity weapon, WeaponPrim
 		{
 			EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )
 			missile.InitMissileForRandomDriftFromWeaponSettings( attackParams.pos, attackParams.dir )
+		
+			// modified damageSourceId in mp_weapon_gunship_missile_fixed.nut, fixes display name
+			missile.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_gunship_missile_fixed )
 		}
 	#endif
 }
