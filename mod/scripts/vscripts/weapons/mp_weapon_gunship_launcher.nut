@@ -12,13 +12,13 @@ global function OnWeaponNpcPrimaryAttack_GunshipLauncher
 // Gunship - Proximity Mine launcher
 //
 const FX_GUNSHIPMINE_IGNITION = $"wpn_grenade_TT_activate"
-const FX_MINE_TRAIL = $"Rocket_Smoke_Large"
+const FX_MINE_TRAIL = $"Rocket_Smoke_Large" // vanilla uses $"Rocket_Smoke_Large", which is kinda annoying
 const FX_MINE_LIGHT = $"tower_light_red"
 global const GUNSHIPMINE_LAUNCH_VELOCITY = 3000.0
-global const GUNSHIPMINE_MIN_MINE_FUSE_TIME = 6.0
-global const GUNSHIPMINE_MAX_MINE_FUSE_TIME = 6.0
-global const GUNSHIPMINE_MINE_FIELD_ACTIVATION_TIME = 1.15 //After landing
-global const GUNSHIPMINE_MINE_FIELD_EXPLODE_TELL_TIME = 3.00 // Time before detonation to start glowing & warning players
+global const GUNSHIPMINE_MIN_MINE_FUSE_TIME = 6.0 // my first version uses 3.0, but it causes airburst very often
+global const GUNSHIPMINE_MAX_MINE_FUSE_TIME = 6.0 // my first version uses 3.0, but it causes airburst very often
+global const GUNSHIPMINE_MINE_FIELD_ACTIVATION_TIME = 1.15 //(Unused)After landing, vanilla uses 1.15
+global const GUNSHIPMINE_MINE_FIELD_EXPLODE_TELL_TIME = 4.0 // Time before detonation to start glowing & warning players. vanilla uses 3.0
 global const GUNSHIPMINE_MINE_FIELD_TITAN_ONLY = false
 global const GUNSHIPMINE_NUM_SHOTS = 4
 const MAX_PLANTED_MINES = 32
@@ -45,6 +45,9 @@ var function OnWeaponPrimaryAttack_GunshipLauncher( entity weapon, WeaponPrimary
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_GunshipLauncher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// manually play another muzzle flash fx
+    weapon.PlayWeaponEffect( $"", $"P_wpn_muzzleflash_mgl_FULL", "muzzle_flash" )
+
 	return FireGunshipLauncher( weapon, attackParams, PROJECTILE_NOT_PREDICTED )
 }
 #endif // #if SERVER
@@ -150,12 +153,19 @@ function FireGunshipLauncher( entity weapon, WeaponPrimaryAttackParams attackPar
 function ExplodeWarningFX( entity grenade, float fuseTime )
 {
 	grenade.EndSignal("OnDestroy")
+	grenade.s.doPreIgnitionEffect <- true // mark as we're pending an ignition effect
 
 	wait fuseTime - GUNSHIPMINE_MINE_FIELD_EXPLODE_TELL_TIME
 
-	PlayLoopFXOnEntity( FX_GUNSHIPMINE_IGNITION, grenade )
+	// we're adding pre-ignition effect for MineThink(), don't want it to overlap
+	if ( grenade.s.doPreIgnitionEffect )
+	{
+		PlayLoopFXOnEntity( FX_GUNSHIPMINE_IGNITION, grenade )
+		grenade.s.doPreIgnitionEffect = false // mark as we've done ignition effect
+	}
 }
-#endif // SERVER
+// modified: move down to file bottom
+//#endif // SERVER
 
 
 function EnableCollision( entity grenade )
@@ -170,6 +180,7 @@ function EnableCollision( entity grenade )
 
 function MineThink( grenade, fuseTime )
 {
+	expect entity( grenade ) // required for PlayLoopFXOnEntity
 	grenade.EndSignal( "OnDestroy" )
 
 	float popDelay = RandomFloatRange( 0.2, 0.3 )
@@ -182,6 +193,13 @@ function MineThink( grenade, fuseTime )
 	{
 		// TEMP - Replace with a real sound
 		EmitSoundOnEntity( grenade, "NPE_Missile_Alarm")
+	}
+
+	// if we triggered mine, also do ignition effect
+	if ( ( "doPreIgnitionEffect" in grenade.s ) && grenade.s.doPreIgnitionEffect )
+	{
+		PlayLoopFXOnEntity( FX_GUNSHIPMINE_IGNITION, grenade )
+		grenade.s.doPreIgnitionEffect = false // mark as we've done ignition effect
 	}
 
 	EmitSoundOnEntity( grenade, "Triple_Threat_Grenade_Charge" )
@@ -197,5 +215,11 @@ function Mine_Explode( grenade, collisionEnt = null)
 	vector normal = Vector( 0, 0, 1 )
 	if( "collisionNormal" in grenade.s )
 		normal = expect vector( grenade.s.collisionNormal )
+
+	// fix sound for triplethreat impact effect
+	// because it's sound isn't fully implemented for tf2
+	EmitSoundAtPosition( TEAM_UNASSIGNED, grenade.GetOrigin(), "Explo_40mm_Impact_3P" )
+
 	grenade.GrenadeExplode( normal )
 }
+#endif // SERVER
