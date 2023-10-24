@@ -13,6 +13,31 @@ const float WALLCLIMB_ANGLE_LIMIT = 45.0 // other than this will consider as not
 const bool WALLCLIMB_CLASSMODS_UPDATE = true // may not good if using this... but player will feel better contolling their characters
 const bool WALLCLIMB_LERP_PLAYER_VIEW = false // if WALLCLIMB_CLASSMODS_UPDATE is enabled, we may don't need this
 
+// extra sound when player enter wallrun with wall climb mod equipped
+const string WALLCLIMB_ATTACHED_SOUND_1P = "mantle_extralow"
+const string WALLCLIMB_ATTACHED_SOUND_3P = "mantle_3p_enemy"
+
+// hardcoded wallclimb mods list
+const array<string> WALLCLIMB_MODS =
+[
+	"only_wallclimb", // generic wallclimb
+	"normal_wallclimb", // wallclimb with only wallrun's vertical speed. usually used when player also having doublejump
+]
+
+// will use AMPED suffix settings
+const array<string> AMPED_WALLCLIMB_MODS =
+[
+	"amped_wallclimb",
+]
+
+enum ePlayerWallClimbModType
+{
+	NONE, // no valid wallclimb mod
+
+	WALLCLIMB_NORMAL, // mods in WALLCLIMB_MODS
+	WALLCLIMB_AMPED, // mods in AMPED_WALLCLIMB_MODS
+}
+
 struct StoredPlayerSettingsStruct
 {
 	string settings
@@ -61,7 +86,7 @@ void function OnClientConnected( entity player )
 	file.playerWallRunBeginTime[player] <- 0.0
 	file.playerClassChangeThroughWallClimb[ player ] <- false
 
-	AddPlayerMovementEventCallback( player, ePlayerMovementEvents.BEGIN_WALLRUN, UpdatePlayerWallRunBeginTime )
+	AddPlayerMovementEventCallback( player, ePlayerMovementEvents.BEGIN_WALLRUN, OnPlayerBeginWallRun )
 }
 
 void function OnPlayerClassChanged( entity player )
@@ -69,9 +94,26 @@ void function OnPlayerClassChanged( entity player )
     thread PilotWallClimbThink( player )
 }
 
+void function OnPlayerBeginWallRun( entity player )
+{
+	UpdatePlayerWallRunBeginTime( player )
+	TryWallClimbStartSound( player )
+}
+
 void function UpdatePlayerWallRunBeginTime( entity player )
 {
 	file.playerWallRunBeginTime[player] = Time()
+}
+
+bool function TryWallClimbStartSound( entity player )
+{
+	// only run for players who have wallclimb mod
+	if ( GetPlayerWallClimbModType( player ) == ePlayerWallClimbModType.NONE )
+		return false
+
+	EmitSoundOnEntityOnlyToPlayer( player, player, WALLCLIMB_ATTACHED_SOUND_1P )
+	EmitSoundOnEntityExceptToPlayer( player, player, WALLCLIMB_ATTACHED_SOUND_3P )
+	return true
 }
 
 //////////////////////////////////
@@ -84,6 +126,20 @@ void function UpdatePlayerWallRunBeginTime( entity player )
 ///// UTILITY FUNCTIONS /////
 /////////////////////////////
 
+int function GetPlayerWallClimbModType( entity player )
+{
+	array<string> classMods = player.GetPlayerSettingsMods()
+	foreach ( mod in classMods )
+	{
+		if ( WALLCLIMB_MODS.contains( mod ) )
+			return ePlayerWallClimbModType.WALLCLIMB_NORMAL
+		else if ( AMPED_WALLCLIMB_MODS.contains( mod ) )
+			return ePlayerWallClimbModType.WALLCLIMB_AMPED
+	}
+
+	return ePlayerWallClimbModType.NONE
+}
+
 void function PilotWallClimbThink( entity player )
 {
 	// only run for living players( dead players will also change class to "spectator", prevent it )
@@ -93,32 +149,21 @@ void function PilotWallClimbThink( entity player )
 	if ( file.playerClassChangeThroughWallClimb[ player ] )
 		return
 
+	// only run for players who have wallclimb mod
+	// ttf2 don't have other ways to modify classmods than changing class so this check is enough
+	if ( GetPlayerWallClimbModType( player ) == ePlayerWallClimbModType.NONE )
+		return
+
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
 	player.Signal( "PilotWallClimbThink" )
 	player.EndSignal( "PilotWallClimbThink" )
 
-	// check wallclimb mod, ttf2 don't have other ways to modify classmods than changing class so this is enough
-	bool hasWallClimb = false
-	float angleLimit
-	float slowMoveSeverity
-	array<string> classMods = player.GetPlayerSettingsMods()
-	// grunt mode climber, should be a array to store them
-	if ( 
-		classMods.contains( "only_wallclimb" ) ||
-		classMods.contains( "normal_wallclimb" ) ||
-		classMods.contains( "amped_wallclimb" )
-	) 
-	{
-		hasWallClimb = true
-		angleLimit = WALLCLIMB_ANGLE_LIMIT
-		slowMoveSeverity = WALLCLIMB_MOVE_SLOW_SEVERITY
-		if ( classMods.contains( "amped_wallclimb" ) ) // amped wallclimb
-			slowMoveSeverity = WALLCLIMB_MOVE_SLOW_SEVERITY_AMPED
-	}
-
-	if ( !hasWallClimb )
-		return
+	float angleLimit = WALLCLIMB_ANGLE_LIMIT
+	float slowMoveSeverity = WALLCLIMB_MOVE_SLOW_SEVERITY
+	// amped wallclimb
+	if ( GetPlayerWallClimbModType( player ) == ePlayerWallClimbModType.WALLCLIMB_AMPED )
+		slowMoveSeverity = WALLCLIMB_MOVE_SLOW_SEVERITY_AMPED
 
 	bool isClimbingWall = false
 	vector wallAngles
@@ -134,6 +179,7 @@ void function PilotWallClimbThink( entity player )
 		{
 			if ( IsValid( player ) )
 			{
+				player.DeployWeapon() // clean up holstered weapon
 				player.UnforceCrouch()
 				player.UnforceStand()
 				if ( moveSlowEffectHandle > 0 )
@@ -154,6 +200,7 @@ void function PilotWallClimbThink( entity player )
 		bool lastTickAnimActive = player.IsTraversing() || IsValid( player.GetParent() ) || player.Anim_IsActive()
 		if ( isClimbingWall && !player.IsWallRunning() ) // considering player has left the wall?
 		{
+			player.DeployWeapon() // clean up holstered weapon
 			player.Signal( "PilotStopWallClimb" )
 			isClimbingWall = false
 			facingWallAtStart = false
@@ -372,6 +419,7 @@ void function PilotWallClimbThink( entity player )
 
 			if ( !isClimbingWall )
 			{
+				player.HolsterWeapon() // in case player attached to the wall but their weapon still out, always holster weapon for them
 				player.Signal( "PilotStartWallClimb" )
 				isClimbingWall = true // mark as start climbing
 				groundTouched = false // mark as player still not touched ground
