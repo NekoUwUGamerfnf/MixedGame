@@ -8,7 +8,11 @@ global function OnWeaponNpcPrimaryAttack_gunship_missile
 var function OnWeaponNpcPrimaryAttack_gunship_missile( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	//self.EmitWeaponSound( "Weapon_ARL.Single" )
-	weapon.EmitWeaponSound( "ShoulderRocket_Salvo_Fire_3P" )
+	// removing scripted firing sound now, try to use settings file
+	//weapon.EmitWeaponSound( "ShoulderRocket_Salvo_Fire_3P" )
+
+	// manually play another muzzle flash fx
+    weapon.PlayWeaponEffect( $"", $"wpn_muzzleflash_40mm", "muzzle_flash" )
 
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
