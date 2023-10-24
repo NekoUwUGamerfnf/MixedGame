@@ -68,6 +68,14 @@ global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
 // these are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
+// hornet model is easier to be hit than straton
+// so we'd better pick a random one for balancing
+const array<asset> GUNSHIP_VALID_MODELS =
+[
+	$"models/vehicle/straton/straton_imc_gunship_01.mdl",
+	$"models/vehicle/hornet/hornet_fighter.mdl",
+]
+
 // debug
 const bool EXTRA_SPAWNER_DEBUG = false
 #if EXTRA_SPAWNER_DEBUG
@@ -207,6 +215,8 @@ struct
 	table<entity, bool> isProwlerSquadmate
 	// scripted npc dialogue
 	table<entity, float> npcDialogueNextAllowedTimeOnPlayer
+	// gunship forced model for replacement ship spawn
+	table<entity, asset> gunshipForcedSpawnModel
 } file
 
 void function ExtraAISpawner_Init()
@@ -257,6 +267,10 @@ void function ExtraAISpawner_Init()
 	// convert imc stalkers to white ones
 	// this is hardcode and not vanilla behavior.. just want to add some funny stuff		
 	AddSpawnCallback( "npc_stalker", OnStalkerSpawned )
+	// pick random gunship model
+	// this is hardcoded because hornet model is easier to be hit than straton
+	// using team-based model is bad, better pick a random one
+	AddSpawnCallback( "npc_gunship", OnGunshipSpawned )
 
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
@@ -291,7 +305,29 @@ void function OnStalkerSpawned( entity stalker )
 		stalker.SetValueForModelKey( $"models/Robots/stalker/robot_stalker.mdl" )
 		// the problem is we can't handle dropship condition, may break their animation
 		// maybe just modify aisettings file?
+		// EDIT: no, it's all good. DispatchSpawn() is where this callback called, animation is done after that
 		stalker.SetModel( $"models/Robots/stalker/robot_stalker.mdl" )
+	}
+}
+
+void function OnGunshipSpawned( entity gunship )
+{
+	if ( gunship in file.npcSpawnFromExtraSpawner )
+	{
+		asset gunshipModel = $""
+		// gunship may have a specific model picked
+		// because if they played an intro, we'll need to spawn a new gunship and they should keep the same model
+		// we'll use that
+		if ( gunship in file.gunshipForcedSpawnModel )
+			gunshipModel = file.gunshipForcedSpawnModel[ gunship ]
+		else // otherwise we just pick a random one
+			gunshipModel = GUNSHIP_VALID_MODELS[ RandomInt( GUNSHIP_VALID_MODELS.len() ) ]
+
+		if ( gunshipModel != $"" )
+		{
+			gunship.SetValueForModelKey( gunshipModel )
+			gunship.SetModel( gunshipModel )
+		}
 	}
 }
 
@@ -2946,14 +2982,22 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 {
+	// pick an random model and we keep using it for current gunship spawn think
+	asset gunshipModel = GUNSHIP_VALID_MODELS[ RandomInt( GUNSHIP_VALID_MODELS.len() ) ]
+
 	// first gunship: only for playing animation
 	// its a hack! gunship after animation stops thinking for some reason
 	// needs to spawn a new one
-	entity animGunship = CreateNPC("npc_gunship", team, pos, rot )
-	HideName( animGunship ) // won't make it's info target( or health bar ) teleport into battle
-	file.npcSpawnFromExtraSpawner[ animGunship ] <- true
+	entity animGunship = CreateNPC( "npc_gunship", team, pos, rot )
+	HideName( animGunship ) // this gunship will be deleted soon, never show it's name
+	
+	file.npcSpawnFromExtraSpawner[ animGunship ] <- true // adding this mark so we can update gunship's model on their spawn
+	file.gunshipForcedSpawnModel[ animGunship ] <- gunshipModel // assign forced model
 	DispatchSpawn( animGunship )
+
+	// setup visual
 	SetDefaultMPEnemyHighlight( animGunship )
+	AddMinimapForNPC( animGunship ) // only dropships can show on map though, gunships are not trakced by client
 
 	// dont let AI titan get enemies while flying. Don't do trigger checks
 	animGunship.SetEfficientMode( true )
@@ -2967,10 +3011,10 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	thread PlayAnim( animGunship, "st_AngelCity_IMC_Win_ComeIn" ) // flying anim
 	// warp effect
 	thread WarpInEffectGunship( animGunship )
-	
     WaittillAnimDone( animGunship )
 
-	vector spawnpoint = animGunship.GetOrigin()
+	vector offset = < 0, 0, -5 > // actual spawnpoint is not identical as animation's origin
+	vector spawnpoint = animGunship.GetOrigin() + offset
 	vector spawnang = animGunship.GetAngles()
 
 	// replacement gunship
@@ -2984,20 +3028,41 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 
 	// spawning new gunship for combating( their behavior is bad though, almost never attack anybody )
 	entity gunship = CreateNPC( "npc_gunship", team, spawnpoint, spawnang )
+	// dropship dogfighter version... abandoned, they're not smart enough
+	/*
+	entity gunship = CreateNPC( "npc_dropship", team, spawnpoint, spawnang )
+	SetSpawnOption_AISettings( gunship, "npc_dropship_dogfighter" )
+	gunship.SetBehaviorSelector( "behavior_gunship" )
+	*/
+
+	// setup accruacy
+	gunship.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // turrets inherit weapon proficiency from gunship
+	gunship.kv.AccuracyMultiplier = 1.5 // higher accuracy because they're flying around. turrets inherit it's accuracy
+
+	file.npcSpawnFromExtraSpawner[ gunship ] <- true // adding this mark so we can update gunship's model on their spawn
+	file.gunshipForcedSpawnModel[ gunship ] <- gunshipModel // assign forced model
 	DispatchSpawn( gunship )
 
+	// visual effect
 	gunship.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( gunship )
-
-	gunship.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // turrets inherit weapon proficiency from gunship
+	AddMinimapForNPC( gunship ) // only dropships can show on map though, gunships are not trakced by client
 
 	// attach turrets to them for attacking!
 	TakeAllWeapons( gunship )
 	
+	// a gunship always have a turret weapon
 	table< string, asset > gunshipValidWeaponAndModel
-	//gunshipValidWeaponAndModel["mp_weapon_gunship_launcher"] <- ROCKET_TURRET_MODEL // currently works bad, not implemented yet
-	gunshipValidWeaponAndModel["mp_weapon_gunship_missile"] <- ROCKET_TURRET_MODEL // should be PLASMA_TURRET_MODEL, but we're not enabling mp_weapon_gunship_launcher now, just use rocket turret
-	gunshipValidWeaponAndModel["mp_weapon_gunship_turret"] <- HITSCAN_TURRET_MODEL
+	gunshipValidWeaponAndModel["mp_weapon_gunship_turret"] <- PLASMA_TURRET_MODEL // was HITSCAN_TURRET_MODEL, but it's barrel don't look nice enough for XO16 firing sound
+	// then they'll pick an weapon from launcher or missile
+	// temp not enabled. gunship_launcher can make them unable to hit each other, which is pretty bad
+	/*
+	if ( CoinFlip() )
+		gunshipValidWeaponAndModel["mp_weapon_gunship_launcher"] <- PLASMA_TURRET_MODEL
+	else
+		gunshipValidWeaponAndModel["mp_weapon_gunship_missile"] <- ROCKET_TURRET_MODEL
+	*/
+	gunshipValidWeaponAndModel["mp_weapon_gunship_missile"] <- ROCKET_TURRET_MODEL
 
 	const array<string> validAttachments = ["L_turret_attach", "R_turret_attach"]
 
@@ -3019,6 +3084,8 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 
 	// start trail effect
 	thread GunshipJetTrailEffect( gunship )
+	// enemy changed callback
+	gunship.SetEnemyChangeCallback( OnEnemyChanged_Gunship )
 }
 
 // based on DeployTurret() in mp_ability_turretweapon.nut
@@ -3150,7 +3217,8 @@ void function DelayedDestroyAnimGunship( entity animGunship )
 {
 	animGunship.EndSignal( "OnDestroy" )
 	animGunship.Hide() // this still shows it's lights, but trail also needed to show
-	animGunship.Freeze() // freeze gunship so it can't move
+	if ( !animGunship.IsFrozen() ) // anti-crash for post-match cleanup condition( which will freeze all npcs )
+		animGunship.Freeze() // freeze gunship so it can't move
 
 	wait 0.8 // wait for jet trail fadeout normally
 	animGunship.Destroy()
@@ -3161,8 +3229,8 @@ void function GunshipJetTrailEffect( entity gunship )
 	array<entity> fxs
 	fxs.append( PlayLoopFXOnEntity( $"veh_contrails_01", gunship, "L_WING_TIP", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
 	fxs.append( PlayLoopFXOnEntity( $"veh_contrails_01", gunship, "R_WING_TIP", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
-	fxs.append( PlayLoopFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
-	fxs.append( PlayLoopFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
+	//fxs.append( PlayLoopFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
+	//fxs.append( PlayLoopFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
 
 	OnThreadEnd
 	(
@@ -3177,6 +3245,19 @@ void function GunshipJetTrailEffect( entity gunship )
 	)
 
 	WaitSignal( gunship, "OnDestroy" )
+}
+
+void function OnEnemyChanged_Gunship( entity gunship )
+{
+	GunshipJetPackEffect( gunship )
+}
+
+// jetpack effect for gunship
+void function GunshipJetPackEffect( entity gunship )
+{
+	//print( "RUNNING GunshipJetPackEffect()" )
+	PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1" )
+	PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1" )
 }
 
 void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team, string spawnName = "" )
