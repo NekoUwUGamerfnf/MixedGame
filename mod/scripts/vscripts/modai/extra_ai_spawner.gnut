@@ -27,6 +27,7 @@ global function ExtraSpawner_SpawnPilotCanEmbark
 global function ExtraSpawner_SpawnTitanWithPilot
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetNPCWeapons
+global function ExtraSpawner_SetNPCSecondaryWeapons // needs AI behavior that included SelectSchedule_SwitchWeapon to work
 global function ExtraSpawner_SetNPCAntiTitanWeapons
 global function ExtraSpawner_SetNPCGrenadeWeapons
 global function ExtraSpawner_SetNPCExtraWeaponMods // mods added by this func will be applies to npcs
@@ -141,6 +142,14 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	*/
 ]
 
+// this array is hardcoded. it only contains models that included "pete_agent.mdl"( mostly SP pilot models )
+// if pilot has been setup with model in this array, they'll be change to "behavior_pilot_elite_assassin" which makes them able to switch weapon
+const array<asset> NPC_PILOT_SWITCH_WEAPON_ALLOWED_MODELS =
+[
+	$"models/humans/pilots/sp_medium_geist_f.mdl", 
+	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
+	$"models/humans/pilots/sp_medium_stalker_m.mdl", 
+]
 
 // for ExtraSpawner_SpawnTitan() picking random titans
 struct TitanSpawnStruct
@@ -191,6 +200,7 @@ struct
 	// modifiable variables( through functions )
 	// npc weapons, should we add a struct to set up mods for them?
 	table< string, array<string> > npcMainWeaponsTable
+	table< string, array<string> > npcSecondaryWeaponsTable
 	table< string, array<string> > npcAntiTitanWeaponsTable
 	table< string, array<string> > npcGrenadeWeaponsTable
 	table< string, array<string> > npcExtraWeaponModsTable
@@ -291,6 +301,7 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
 		AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 		AddClientCommandCallback( "fakespectre", CC_SpawnFakeMLTSpectre )
+		ExtraSpawner_SetNPCSecondaryWeapons( "npc_pilot_elite", ["mp_weapon_autopistol", "mp_weapon_semipistol"] )
 		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
 		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
 		AddClientCommandCallback( "npcweapon_bodygrouptest", CC_DoNPCWeaponBodyGroupTestSpawn )
@@ -1091,6 +1102,13 @@ void function ExtraSpawner_SetNPCWeapons( string npcClass, array<string> weapons
 	file.npcMainWeaponsTable[ npcClass ] = weapons
 }
 
+void function ExtraSpawner_SetNPCSecondaryWeapons( string npcClass, array<string> weapons )
+{
+	if ( !( npcClass in file.npcSecondaryWeaponsTable ) )
+		file.npcSecondaryWeaponsTable[ npcClass ] <- []
+	file.npcSecondaryWeaponsTable[ npcClass ] = weapons
+}
+
 void function ExtraSpawner_SetNPCAntiTitanWeapons( string npcClass, array<string> weapons )
 {
 	if ( !( npcClass in file.npcAntiTitanWeaponsTable ) )
@@ -1404,10 +1422,10 @@ bool function CC_SpawnPilotElite( entity player, array<string> args )
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
    
 	entity pilot = ExtraSpawner_SpawnPilotElite( pos, rot, GetPlayerAISpawnTeam( player, args ) )
-    TakeAllWeapons( pilot )
+    //TakeAllWeapons( pilot )
 	//pilot.GiveWeapon( "mp_titanweapon_arc_cannon", ["archon_arc_cannon"] )
 	//pilot.GiveWeapon( "mp_weapon_defender" )
-	pilot.GiveWeapon( "mp_weapon_pulse_lmg" )
+	//pilot.GiveWeapon( "mp_weapon_pulse_lmg" )
 	//pilot.GiveWeapon( "mp_weapon_hemlok" )
 	return true
 }
@@ -1664,9 +1682,12 @@ void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons =
 	string className = npc.GetClassName()
 
 	array<string> mainWeapons
+	array<string> secondaryWeapons
 	array<string> antiTitanWeapons
 	if ( className in file.npcMainWeaponsTable )
 		mainWeapons = file.npcMainWeaponsTable[ className ]
+	if ( className in file.npcSecondaryWeaponsTable )
+		secondaryWeapons = file.npcSecondaryWeaponsTable[ className ]
 	if ( className in file.npcAntiTitanWeaponsTable )
 		antiTitanWeapons = file.npcAntiTitanWeaponsTable[ className ]
 
@@ -1687,14 +1708,22 @@ void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons =
 
 	// main weapon
 	bool giveMainWeapon = mainWeapons.len() > 0
+	bool giveSecondaryWeapon = secondaryWeapons.len() > 0
 	if ( !replaceAllWeapons && npc.GetMainWeapons().len() >= 1 ) // npc already have a weapon and we disabled replace!
+	{
 		giveMainWeapon = false // don't give main weapon again
+		giveSecondaryWeapon = false // here we also don't want to replace secondary
+	}
 	if ( giveMainWeapon )
 	{
 		string weaponName = mainWeapons[ RandomInt( mainWeapons.len() ) ]
 		npc.GiveWeapon( weaponName )
 		npc.SetActiveWeaponByName( weaponName )
 	}
+	// secondary
+	if ( giveSecondaryWeapon ) // secondary weapon needs npc to have SelectSchedule_SwitchWeapon in their behavior to work
+		npc.GiveWeapon( secondaryWeapons[ RandomInt( secondaryWeapons.len() ) ] )
+
 	// anti-titan
 	bool giveAntiTitanWeapon = antiTitanWeapons.len() > 0
 	if ( giveAntiTitanWeapon )
@@ -2032,14 +2061,28 @@ void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int team, int pi
 	titanSoul.soul.seatedNpcPilot.health				= pilotHealth
 
 	// set up weapons
-	array<string> mainWeapons = file.npcMainWeaponsTable[ "npc_pilot_elite" ]
-	array<string> antiTitanWeapons = file.npcAntiTitanWeaponsTable[ "npc_pilot_elite" ]
+	array<string> mainWeapons
+	array<string> secondaryWeapons
+	array<string> antiTitanWeapons
+	if ( "npc_pilot_elite" in file.npcMainWeaponsTable )
+		mainWeapons = file.npcMainWeaponsTable[ "npc_pilot_elite" ]
+	if ( "npc_pilot_elite" in file.npcSecondaryWeaponsTable )
+		secondaryWeapons = file.npcSecondaryWeaponsTable[ "npc_pilot_elite" ]
+	if ( "npc_pilot_elite" in file.npcAntiTitanWeaponsTable )
+		antiTitanWeapons = file.npcAntiTitanWeaponsTable[ "npc_pilot_elite" ]
 	// main weapon
 	if ( mainWeapons.len() > 0 )
 	{
 		NPCPilotWeaponStruct mainWeaponStruct
 		mainWeaponStruct.weaponName = mainWeapons[ RandomInt( mainWeapons.len() ) ]
 		titanSoul.soul.seatedNpcPilot.weapons.append( mainWeaponStruct )
+	}
+	// secondary weapon
+	if ( mainWeapons.len() > 0 )
+	{
+		NPCPilotWeaponStruct secondaryWeaponStruct
+		secondaryWeaponStruct.weaponName = secondaryWeapons[ RandomInt( secondaryWeapons.len() ) ]
+		titanSoul.soul.seatedNpcPilot.weapons.append( secondaryWeaponStruct )
 	}
 	// anti-titan
 	if ( antiTitanWeapons.len() > 0 )
@@ -3482,9 +3525,11 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team, 
 	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
 
-	ExtraSpawner_SetUpNPCPilot( pilot )
-	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
+	// update model before setup
+	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt( NPC_PILOT_ALLOWED_MODELS.len() ) ]
 	pilot.SetModel( modelAsset )
+
+	ExtraSpawner_SetUpNPCPilot( pilot )
 	pilot.SetMaxHealth( NPC_PILOT_MAX_HEALTH )
 	pilot.SetHealth( NPC_PILOT_MAX_HEALTH )
 	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
@@ -3505,6 +3550,12 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot, void functionref( entity
 
 	pilot.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( pilot )
+
+	// some pilot model don't have "pete_agent.mdl" included, which means they can't change to their secondary weapon
+	// "behavior_pilot_elite_assassin" has been reworked. it's the same as normal pilot behavior, but with SelectSchedule_SwitchWeapon added
+	// we change to "behavior_pilot_elite_assassin" if this model is ideal for switch weapon
+	if ( NPC_PILOT_SWITCH_WEAPON_ALLOWED_MODELS.contains( pilot.GetModelName() ) )
+		pilot.SetBehaviorSelector( "behavior_pilot_elite_assassin" )
 
 	// pilots are bit special, start handler in setup func
 	if ( pilotHandler != null )
