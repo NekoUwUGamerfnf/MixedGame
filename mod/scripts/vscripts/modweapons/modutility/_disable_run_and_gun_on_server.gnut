@@ -7,21 +7,12 @@ untyped // for WaitSignal()
 global function Server_DisableRunAndGun_Init
 global function Disable_RunAndGun_ServerSide
 
-// this version works pretty weird...
-// player can tap-attacking to prevent speed penalty very easily
-const bool RUN_AND_GUN_CHECK_ATTACK_INPUT = false
-
 void function Server_DisableRunAndGun_Init()
 {
     RegisterSignal( "Disable_RunAndGun_ServerSide" )
 }
 
 void function Disable_RunAndGun_ServerSide( entity weapon, WeaponOwnerChangedParams changeParams )
-{
-    thread Disable_RunAndGun_ServerSide_Threaded( weapon, changeParams )
-}
-
-void function Disable_RunAndGun_ServerSide_Threaded( entity weapon, WeaponOwnerChangedParams changeParams )
 {
     // always signal this out, so it can cancel out last player's think
     weapon.Signal( "Disable_RunAndGun_ServerSide" )
@@ -32,8 +23,55 @@ void function Disable_RunAndGun_ServerSide_Threaded( entity weapon, WeaponOwnerC
     // only affects player
     if ( !IsValid( newOwner ) || !newOwner.IsPlayer() )
         return
+    
+    thread Disable_RunAndGun_Timed( weapon, newOwner )
+    thread Disable_RunAndGun_Input( weapon, newOwner )
+}
 
-    entity player = newOwner
+void function Disable_RunAndGun_Timed( entity weapon, entity player )
+{
+    weapon.EndSignal( "Disable_RunAndGun_ServerSide" )
+    weapon.EndSignal( "OnDestroy" )
+    player.EndSignal( "OnDestroy" )
+
+    while ( true )
+    {
+        // weapon already blocked firing?
+        if ( !weapon.GetWeaponSettingBool( eWeaponVar.primary_fire_does_not_block_sprint ) )
+        {
+            WaitFrame()
+            continue
+        }
+
+        var results = WaitSignal( player, "OnPrimaryAttack" )
+        string receivedSignal = expect string( results.signal )
+        
+        if ( receivedSignal == "OnPrimaryAttack" && "activator" in results )
+        {
+            entity signaledWeapon = expect entity( results.activator )
+            if ( signaledWeapon != weapon )
+                continue
+            if ( !weapon.HasMod( "disable_run_and_gun_server" ) )
+                continue
+            
+            // owner is zooming? that will cancel sprinting
+            float zoomFrac = player.GetZoomFrac()
+            if ( zoomFrac > 0 )
+                continue
+
+            float fireInverval = 1 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
+            // add bit longer slow effect
+            // because player is still no need to raise weapon before attacking, this is kinda for balancing
+            float slowDuration = fireInverval * 1.6
+            float fadeoutDuration = fireInverval * 0.4
+            StatusEffect_AddTimed( player, eStatusEffect.move_slow, 0.1, slowDuration, fadeoutDuration )
+            StatusEffect_AddTimed( player, eStatusEffect.speed_boost, 0.054, slowDuration, fadeoutDuration )
+        }
+    }
+}
+
+void function Disable_RunAndGun_Input( entity weapon, entity player )
+{
     weapon.EndSignal( "Disable_RunAndGun_ServerSide" )
     weapon.EndSignal( "OnDestroy" )
     player.EndSignal( "OnDestroy" )
@@ -52,61 +90,45 @@ void function Disable_RunAndGun_ServerSide_Threaded( entity weapon, WeaponOwnerC
 
     while ( true )
     {
+        WaitFrame()
+        
         // weapon already blocked firing?
         if ( !weapon.GetWeaponSettingBool( eWeaponVar.primary_fire_does_not_block_sprint ) )
-        {
-            WaitFrame()
             continue
-        }
+
+        // owner is zooming? that will cancel sprinting
+        float zoomFrac = player.GetZoomFrac()
+        if ( zoomFrac > 0 )
+            continue
 
         entity activeWeapon = player.GetActiveWeapon()
-
         // input check version
         // this version works pretty weird...
         // player can tap-attacking to prevent speed penalty very easily
-        #if RUN_AND_GUN_CHECK_ATTACK_INPUT
-            if ( activeWeapon == weapon 
-                && activeWeapon.HasMod( "disable_run_and_gun_server" ) 
-                && player.IsInputCommandHeld( IN_ATTACK )
-                ) // player holding current weapon and holding attack... this is exactly the same check as respawn's weapon blocking sprinting...
+        // now use together with Disable_RunAndGun_Timed to fix
+        if ( activeWeapon == weapon 
+            && activeWeapon.HasMod( "disable_run_and_gun_server" ) 
+            && player.IsInputCommandHeld( IN_ATTACK )
+            ) // player holding current weapon and holding attack... this is exactly the same check as respawn's weapon blocking sprinting...
+        {
+            if ( !runAndGunDisabled )
             {
-                if ( !runAndGunDisabled )
-                {
-                    statusEffectsHandle.append( StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.1 ) )
-                    statusEffectsHandle.append( StatusEffect_AddEndless( player, eStatusEffect.speed_boost, 0.054 ) ) // speed boost is slightly stronger than move_slow
-                    runAndGunDisabled = true
-                }
-                
+                statusEffectsHandle.append( StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.1 ) )
+                statusEffectsHandle.append( StatusEffect_AddEndless( player, eStatusEffect.speed_boost, 0.054 ) ) // speed boost is slightly stronger than move_slow
+                runAndGunDisabled = true
             }
-            else // player released attack or changing weapon
-            {
-                if ( runAndGunDisabled )
-                {
-                    StopGroupedStatusEffect( player, statusEffectsHandle )
-                    runAndGunDisabled = false
-                }
-            }
-
-            WaitFrame()
-        #else // timed speed penalty version
-            var results = WaitSignal( player, "OnPrimaryAttack" )
-            string receivedSignal = expect string( results.signal )
             
-            if ( receivedSignal == "OnPrimaryAttack" && "activator" in results )
+        }
+        else // player released attack or changing weapon
+        {
+            if ( runAndGunDisabled )
             {
-                entity signaledWeapon = expect entity( results.activator )
-                if ( signaledWeapon != weapon )
-                    continue
-                if ( !weapon.HasMod( "disable_run_and_gun_server" ) )
-                    continue
-
-                float fireInverval = 1 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
-                // add bit longer slow effect
-                // because player is still no need to raise weapon before attacking, this is kinda for balancing
-                StatusEffect_AddTimed( player, eStatusEffect.move_slow, 0.1, fireInverval * 1.5, fireInverval * 0.5 )
-                StatusEffect_AddTimed( player, eStatusEffect.speed_boost, 0.054, fireInverval * 1.5, fireInverval * 0.5 )
+                StopGroupedStatusEffect( player, statusEffectsHandle )
+                runAndGunDisabled = false
             }
-        #endif // RUN_AND_GUN_CHECK_ATTACK_INPUT
+        }
+
+        WaitFrame()
     }
 }
 
