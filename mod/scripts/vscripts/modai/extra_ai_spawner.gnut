@@ -32,6 +32,7 @@ global function ExtraSpawner_SetNPCGrenadeWeapons
 global function ExtraSpawner_SetNPCExtraWeaponMods // mods added by this func will be applies to npcs
 // set up funcs
 global function ExtraSpawner_ApplyNPCWeapons
+global function ExtraSpawner_StartUpdatingNPCWeaponBodyGroup // vanilla missing behavior
 global function ExtraSpawner_ApplyNPCGrenadeWeapon // grenade have to be given before DispatchSpawn()
 global function ExtraSpawner_ApplyNPCExtraWeaponMods
 global function ExtraSpawner_SetUpNPCPilot
@@ -77,12 +78,13 @@ const array<asset> GUNSHIP_VALID_MODELS =
 ]
 
 // debug
-const bool EXTRA_SPAWNER_DEBUG = false
+const bool EXTRA_SPAWNER_DEBUG = true
 #if EXTRA_SPAWNER_DEBUG
 global function PrintPrimaryAttackSignal
 #endif // EXTRA_SPAWNER_DEBUG
 
 // modifiable consts
+
 // npc damage
 
 // npc pilot health
@@ -138,6 +140,7 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	$"models/humans/heroes/mlt_hero_sarah.mdl", 
 	*/
 ]
+
 
 // for ExtraSpawner_SpawnTitan() picking random titans
 struct TitanSpawnStruct
@@ -244,6 +247,8 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
 	// gunship 
 	RegisterSignal( "GunshipJetBurstEffect" )
+	// npc weapon bodygroup update
+	RegisterSignal( "StartUpdatingNPCWeaponBodyGroup" )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -288,6 +293,7 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "fakespectre", CC_SpawnFakeMLTSpectre )
 		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
 		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
+		AddClientCommandCallback( "npcweapon_bodygrouptest", CC_DoNPCWeaponBodyGroupTestSpawn )
 	#endif // EXTRA_SPAWNER_DEBUG
 }
 
@@ -1503,6 +1509,48 @@ bool function CC_SpawnGruntDroppod( entity player, array<string> args )
 	return true
 }
 
+bool function CC_DoNPCWeaponBodyGroupTestSpawn( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+
+	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	SetSpawnOption_Weapon( grunt, "mp_weapon_rspn101_og" )
+
+	file.npcSpawnFromExtraSpawner[ grunt ] <- true
+	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
+
+	//grunt.SetModel( $"models/robots/spectre/imc_spectre.mdl" )
+	entity weapon = grunt.GetActiveWeapon()
+	print( "grunt weapon: " + string( weapon ) )
+	thread DEBUG_UpdateNPCWeaponBodyGroup( grunt )
+
+	return true
+}
+
+void function DEBUG_UpdateNPCWeaponBodyGroup( entity grunt )
+{
+	grunt.EndSignal( "OnDeath" )
+	grunt.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		entity weapon = grunt.GetActiveWeapon()
+		if ( IsValid( weapon ) )
+		{
+			int bodyGroupIndex = weapon.FindBodyGroup( "sight_aog_r1" )
+			if ( bodyGroupIndex > 0 )
+				weapon.SetBodygroup( bodyGroupIndex, 1 )
+		}
+
+		WaitFrame()
+	}
+}
+
 void function PrintColdWarNPCPrimaryAttack( entity npc )
 {
 	npc.EndSignal( "OnDeath" )
@@ -1657,6 +1705,72 @@ void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons =
 
 	// also make them use heavy armor weapon
 	npc.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon )
+	// start updating weapon bodygroup
+	ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( npc )
+}
+
+// best way to update bodygroups... because some npc may switch weapon and SetEnemyChangeCallback() can't handle it
+void function ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( entity npc )
+{
+	thread StartUpdatingNPCWeaponBodyGroup_Threaded( npc )
+}
+
+void function StartUpdatingNPCWeaponBodyGroup_Threaded( entity npc )
+{
+	npc.EndSignal( "OnDestroy" )
+	npc.Signal( "StartUpdatingNPCWeaponBodyGroup" )
+	npc.EndSignal( "StartUpdatingNPCWeaponBodyGroup" )
+
+	entity lastPrimaryWeaponEnt
+	while ( true )
+	{
+		entity activeWeapon = npc.GetActiveWeapon()
+		if ( IsValid( activeWeapon ) )
+		{
+			if ( activeWeapon != lastPrimaryWeaponEnt ) // weapon changed?
+				UpdateNPCWeaponBodyGroup( npc )
+		}
+
+		lastPrimaryWeaponEnt = activeWeapon
+
+		WaitFrame()
+	}
+}
+
+// ttf2 currently have up to 9 bodygroups for a weapon
+const int WEAPON_BODYGROUP_MAX_COUNT = 9
+
+void function UpdateNPCWeaponBodyGroup( entity npc )
+{
+	entity weapon = npc.GetActiveWeapon()
+	if ( IsValid( weapon ) )
+	{
+		for ( int i = 0; i < WEAPON_BODYGROUP_MAX_COUNT; i++ )
+		{
+			string bodyGroupNum = string( i + 1 )
+			string bodyGroupName = "bodygroup" + bodyGroupNum + "_name"
+			string bodyGroupSet = "bodygroup" + bodyGroupNum + "_set"
+
+			local currentBodyGroup = weapon.GetWeaponInfoFileKeyField( bodyGroupName )
+			//print( "currentBodyGroup: " + currentBodyGroup )
+			if ( currentBodyGroup == null )
+				continue
+			expect string( currentBodyGroup )
+			
+			int bodyGroupIndex = weapon.FindBodyGroup( currentBodyGroup )
+			//print( "bodyGroupIndex: " + string( bodyGroupIndex ) )
+			if ( bodyGroupIndex <= 0 )
+				continue
+			
+			int newBodyGroup = weapon.GetWeaponSettingInt( eWeaponVar[ bodyGroupSet ] )
+			//print( "newBodyGroup: " + string( newBodyGroup ) )
+			if ( newBodyGroup <= 0 )
+				continue
+
+			// all checks passed, update bodygroup
+			weapon.SetBodygroup( bodyGroupIndex, newBodyGroup )
+		}
+	}
 }
 
 // grenade have to be given before DispatchSpawn()
@@ -2876,6 +2990,7 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			string sideArmName = SNIPER_VALID_SIDEARMS[ RandomInt( SNIPER_VALID_SIDEARMS.len() ) ]
 			entity sideArm = npc.GiveWeapon( sideArmName )
 			//sideArm.AddMod( "npc_sniper_grunt" ) // removed, which is overpowered
+			sideArm.AddMod( "silencer" ) // we've added npc weapon bodygroup update, can use silencer now( needs weapon files to be modified )
 
 			npc.EnableNPCFlag( NPC_NO_WEAPON_DROP ) // due sniper grunts have specific weapon, make them never drop weapons
 			npc.DisableNPCFlag( NPC_CROUCH_COMBAT ) // pistol activity don't have crouch animations, disable crouch combat
