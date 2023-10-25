@@ -10,6 +10,9 @@ global function OnWeaponBulletHit_weapon_smart_pistol
 global function OnWeaponStartZoomIn_weapon_smart_pistol
 global function OnWeaponStartZoomOut_weapon_smart_pistol
 
+// modified callbacks
+global function OnWeaponOwnerChanged_weapon_smart_pistol
+
 const float SMART_PISTOL_TRACKER_TIME = 10.0
 
 function MpWeaponSmartPistol_Init()
@@ -168,3 +171,10 @@ void function CreateFakeModelForSmartPistol( entity weapon )
 	FakeWorldModel_CreateForWeapon( weapon, model )
 }
 #endif
+
+// modified callbacks
+void function OnWeaponOwnerChanged_weapon_smart_pistol( entity weapon, WeaponOwnerChangedParams changeParams )
+{
+	// disable run_and_gun on server-side
+	Disable_RunAndGun_ServerSide( weapon, changeParams )
+}
