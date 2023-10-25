@@ -33,6 +33,9 @@ function MpWeaponSmartPistol_Init()
 		"fake_smart_xo16",									// weapon mod
 		eDamageSourceId.mp_titanweapon_xo16_vanguard		// damageSourceId override
 	)
+
+	// modded weapon
+	AddDamageCallbackSourceID( eDamageSourceid.mp_weapon_smart_pistol, SmartPistolDamagedTarget )
 #endif
 }
 
@@ -178,3 +181,20 @@ void function OnWeaponOwnerChanged_weapon_smart_pistol( entity weapon, WeaponOwn
 	// disable run_and_gun on server-side
 	Disable_RunAndGun_ServerSide( weapon, changeParams )
 }
+
+// modded weapon
+#if SERVER
+void function SmartPistolDamagedTarget( entity ent, var damageInfo )
+{
+	entity weapon = DamageInfo_GetWeapon( damageInfo )
+	if ( IsValid( weapon ) )
+	{
+		// grenade_detonator: only damage grenades
+		if ( weapon.HasMod( "grenade_detonator" ) )
+		{
+			if ( !ent.IsProjectile() )
+				DamageInfo_SetDamage( damageInfo, 0 )
+		}
+	}
+}
+#endif
