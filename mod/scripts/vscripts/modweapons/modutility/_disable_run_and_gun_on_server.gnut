@@ -1,0 +1,117 @@
+untyped // for WaitSignal()
+// modified behavior: disabling "primary_fire_does_not_block_sprint" on server-side
+// give player move_slow effect to cancel sprinting
+// called by OnWeaponOwnerChanged callbacks
+// player can still fire weapon without transfering into walking state, but it's alright
+
+global function Server_DisableRunAndGun_Init
+global function Disable_RunAndGun_ServerSide
+
+// this version works pretty weird...
+// player can tap-attacking to prevent speed penalty very easily
+const bool RUN_AND_GUN_CHECK_ATTACK_INPUT = false
+
+void function Server_DisableRunAndGun_Init()
+{
+    RegisterSignal( "Disable_RunAndGun_ServerSide" )
+}
+
+void function Disable_RunAndGun_ServerSide( entity weapon, WeaponOwnerChangedParams changeParams )
+{
+    thread Disable_RunAndGun_ServerSide_Threaded( weapon, changeParams )
+}
+
+void function Disable_RunAndGun_ServerSide_Threaded( entity weapon, WeaponOwnerChangedParams changeParams )
+{
+    // always signal this out, so it can cancel out last player's think
+    weapon.Signal( "Disable_RunAndGun_ServerSide" )
+
+    entity oldOwner = changeParams.oldOwner
+    entity newOwner = changeParams.newOwner
+
+    // only affects player
+    if ( !IsValid( newOwner ) || !newOwner.IsPlayer() )
+        return
+
+    entity player = newOwner
+    weapon.EndSignal( "Disable_RunAndGun_ServerSide" )
+    weapon.EndSignal( "OnDestroy" )
+    player.EndSignal( "OnDestroy" )
+
+    bool runAndGunDisabled = false
+    array<int> statusEffectsHandle
+
+    OnThreadEnd
+    (
+        function(): ( player, statusEffectsHandle )
+        {
+            if ( IsValid( player ) )
+                StopGroupedStatusEffect( player, statusEffectsHandle )
+        }
+    )
+
+    while ( true )
+    {
+        // weapon already blocked firing?
+        if ( !weapon.GetWeaponSettingBool( eWeaponVar.primary_fire_does_not_block_sprint ) )
+        {
+            WaitFrame()
+            continue
+        }
+
+        entity activeWeapon = player.GetActiveWeapon()
+
+        // input check version
+        // this version works pretty weird...
+        // player can tap-attacking to prevent speed penalty very easily
+        #if RUN_AND_GUN_CHECK_ATTACK_INPUT
+            if ( activeWeapon == weapon 
+                && activeWeapon.HasMod( "disable_run_and_gun_server" ) 
+                && player.IsInputCommandHeld( IN_ATTACK )
+                ) // player holding current weapon and holding attack... this is exactly the same check as respawn's weapon blocking sprinting...
+            {
+                if ( !runAndGunDisabled )
+                {
+                    statusEffectsHandle.append( StatusEffect_AddEndless( player, eStatusEffect.move_slow, 0.1 ) )
+                    statusEffectsHandle.append( StatusEffect_AddEndless( player, eStatusEffect.speed_boost, 0.054 ) ) // speed boost is slightly stronger than move_slow
+                    runAndGunDisabled = true
+                }
+                
+            }
+            else // player released attack or changing weapon
+            {
+                if ( runAndGunDisabled )
+                {
+                    StopGroupedStatusEffect( player, statusEffectsHandle )
+                    runAndGunDisabled = false
+                }
+            }
+
+            WaitFrame()
+        #else // timed speed penalty version
+            var results = WaitSignal( player, "OnPrimaryAttack" )
+            string receivedSignal = expect string( results.signal )
+            
+            if ( receivedSignal == "OnPrimaryAttack" && "activator" in results )
+            {
+                entity signaledWeapon = expect entity( results.activator )
+                if ( signaledWeapon != weapon )
+                    continue
+
+                float fireInverval = 1 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
+                // add bit longer slow effect
+                // because player is still no need to raise weapon before attacking, this is kinda for balancing
+                StatusEffect_AddTimed( player, eStatusEffect.move_slow, 0.1, fireInverval * 1.5, fireInverval * 0.5 )
+                StatusEffect_AddTimed( player, eStatusEffect.speed_boost, 0.054, fireInverval * 1.5, fireInverval * 0.5 )
+            }
+        #endif // RUN_AND_GUN_CHECK_ATTACK_INPUT
+    }
+}
+
+void function StopGroupedStatusEffect( entity player, array<int> statusEffectsHandle )
+{
+    foreach ( handle in statusEffectsHandle )
+    {
+        StatusEffect_Stop( player, handle )
+    }
+}
