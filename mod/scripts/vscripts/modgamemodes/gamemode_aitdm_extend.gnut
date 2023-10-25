@@ -71,7 +71,7 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 
 	AddCallback_OnClientConnected( OnPlayerConnected )
 
-	AddCallback_NPCLeeched( OnSpectreLeeched )
+	AddCallback_NPCLeeched( AITdmExtend_OnNPCLeeched )
 
     // game settings
 	Highlight_SetCustomHighlightFunction( AITdmExtend_Highlight ) // highlight handle for phase shift and such
@@ -411,7 +411,7 @@ void function SetUpAITdmExtendedScoreEvent()
 	// ai(extended)
 	ScoreEvent_SetEarnMeterValues( "KillProwler", 0.03, 0.020001, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillDrone", 0.01, 0.01 )
-	ScoreEvent_SetEarnMeterValues( "FlyerKill", 0.15, 0.10 ) // this is actually used for gunship kill
+	ScoreEvent_SetEarnMeterValues( "FlyerKill", 0.15, 0.10, 0.5 ) // this is actually used for gunship kill
 }
 
 //------------------------------------------------------
@@ -446,49 +446,28 @@ void function OnPlayerConnected( entity player )
 
 //------------------------------------------------------
 
-void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var damageInfo )
+int function AITdmExtend_GetScoreValue( entity ent )
 {
-	// if victim is a non-titan npc that owned by players, don't add score
-	if ( !VictimIsValidForAITdmScore( victim ) )
-		return
-	
-	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
-		return
-
-	// if it's a npc with bossplayer/owner...
-	if ( attacker.IsNPC() )
-	{
-		// reassign attacker
-		attacker = GetAITdmAttackOwner( attacker )
-	}
-
-	string className = victim.GetClassName()
 	int scoreToAdd = 0
-	string scoreEvent = "" // for npcs can't handle by OnNPCKilled(), do a extra score event
 
-	if ( victim.IsPlayer() )
+	if ( ent.IsPlayer() )
 		scoreToAdd = PLAYER_SCORE_AMOUNT
+	
+	string className = ent.GetClassName()
 
 	if ( className == "npc_pilot_elite" )
-	{
 		scoreToAdd = PILOT_SCORE_AMOUNT
-		scoreEvent = "EliminatePilot"
-		// we can't add a obitary for npc pilots since OBITUARY_ENABLED_NPC is false
-	}
-
+	
 	if ( className == "npc_gunship" )
-	{
 		scoreToAdd = GUNSHIP_SCORE_AMOUNT
-		scoreEvent = "FlyerKill" // vanilla don't have "Killed Gunship" events, guess this is good enough
-	}
-
+	
 	if ( className == "npc_marvin" )
 		scoreToAdd = MARVIN_SCORE_AMOUNT
 
 	if ( className == "npc_prowler" )
 	{
 		// hardcoded here: if it's a small prowler we add less score
-		if ( float( victim.kv.modelscale ) < 1.0 )
+		if ( float( ent.kv.modelscale ) < 1.0 )
 			scoreToAdd = SMALL_PROWLER_SCORE_AMOUNT
 		else
 			scoreToAdd = PROWLER_SCORE_AMOUNT
@@ -505,7 +484,7 @@ void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var
 
 	if ( className == "npc_soldier" )
 	{
-		if ( SPECIALIST_GRUNTS.contains( victim.GetAISettingsName() ) )
+		if ( SPECIALIST_GRUNTS.contains( ent.GetAISettingsName() ) )
 			scoreToAdd = SPECIALIST_GRUNT_SCORE_AMOUNT
 		else
 			scoreToAdd = GRUNT_SCORE_AMOUNT
@@ -514,27 +493,65 @@ void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var
 	if ( className == "npc_drone" )
 		scoreToAdd = DRONE_SCORE_AMOUNT
 
-	// Player ejecting triggers this without the extra check
-	if ( victim.IsTitan() && victim.GetBossPlayer() != attacker )
+	if ( ent.IsTitan() )
 	{
-		if ( TitanHasNpcPilot( victim ) ) // pilot was killed without ejecting
-		{
+		if ( TitanHasNpcPilot( ent ) ) // pilot was killed without ejecting
 			scoreToAdd = TITAN_SCORE_AMOUNT + PILOT_SCORE_AMOUNT
-			scoreEvent = "EliminatePilot"
-		}
-		else if ( victim.IsPlayer() ) // fix for player score!
+		else if ( ent.IsPlayer() ) // fix for player score!
 			scoreToAdd = TITAN_SCORE_AMOUNT + PLAYER_SCORE_AMOUNT
 		else // ejecting auto titan
 			scoreToAdd = TITAN_SCORE_AMOUNT
 
 		// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
-		if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+		if ( !TitanHealth_GetSoulInfiniteDoomedState( ent.GetTitanSoul() ) )
 			scoreToAdd -= TITAN_SCORE_AMOUNT // remove titan score on kill for doomed health loss titans
-
-		// obit, has been fixed in _score.gnut
-		//foreach ( entity player in GetPlayerArray() )
-		//	Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
 	}
+
+	return scoreToAdd
+}
+
+// for npcs those are not handled by OnNPCKilled(), do a extra score event( such as gunship and npc pilot )
+string function AITdmExtend_GetScoreEvent( entity ent )
+{
+	string scoreEvent = ""
+
+	string className = ent.GetClassName()
+
+	if ( className == "npc_pilot_elite" )
+		scoreEvent = "EliminatePilot"
+
+	if ( className == "npc_gunship" )
+		scoreEvent = "FlyerKill" // vanilla don't have "Killed Gunship" events, guess this is good enough
+
+	// Player ejecting triggers this without the extra check
+	if ( ent.IsTitan() )
+	{
+		if ( TitanHasNpcPilot( ent ) ) // pilot was killed without ejecting
+			scoreEvent = "EliminatePilot"
+	}
+
+	return scoreEvent
+}
+
+void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var damageInfo )
+{
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAITdmScore( victim ) )
+		return
+	
+	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
+		return
+
+	// if it's a npc with bossplayer/owner...
+	if ( attacker.IsNPC() )
+	{
+		// reassign attacker
+		attacker = GetAITdmAttackOwner( attacker )
+	}
+
+	// start adding score
+	int scoreToAdd = AITdmExtend_GetScoreValue( victim )
+	string scoreEvent = AITdmExtend_GetScoreEvent( victim )
 
 	if ( scoreToAdd > 0 )
 		AddAITdmTeamScore( attacker, scoreToAdd ) // this can handle both players' and npcs' kills
@@ -555,6 +572,15 @@ bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var 
 
 	if ( attacker == victim ) // suicide!
 		return false
+
+	// npc titan case
+	if ( victim.IsTitan() && victim.IsNPC() )
+	{
+		entity soul = victim.GetTitanSoul()
+		// victim is titan but their bossPlayer is attacker... usually happens when ejecting without taking damage
+		if ( IsValid( soul ) && GetPetTitanOwner( victim ) == attacker )
+			return false
+	}
 
 	// all checks passed
 	return true
@@ -595,6 +621,7 @@ entity function GetAITdmAttackOwner( entity ent )
 	// attacker still not valid?
 	if ( !IsValid( attacker ) )
 		return ent // use npc or something itself
+	
 	return attacker
 }
 
@@ -1227,15 +1254,29 @@ int function GetSpawnPointIndex( array< entity > points, int team )
 //------------------------------------------------------
 
 // Award for hacking
-void function OnSpectreLeeched( entity spectre, entity player )
+// can't name it "OnNPCLeeched()" because there's a deprecated function with same name... and it's globalized. yay.
+void function AITdmExtend_OnNPCLeeched( entity npc, entity player )
 {
 	// Set Owner so we can filter in HandleScore
 	// not a good idea. score could be handled by GetBossPlayer()
 	// setting an owner will make entity have no collision with their owner
-	//spectre.SetOwner( player )
-	spectre.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
-	// Add score + update network int to trigger the "Score +n" popup
-	AddAITdmTeamScore( player, 1 )
+	//npc.SetOwner( player )
+	npc.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
+
+	// adding score, same as killing the target does
+	// score event is handled in leeching file, no future support for that
+	// start adding score
+	int scoreToAdd = AITdmExtend_GetScoreValue( npc )
+	string scoreEvent = ""//AITdmExtend_GetScoreEvent( npc )
+
+	if ( scoreToAdd > 0 )
+		AddAITdmTeamScore( player, scoreToAdd )
+	if ( scoreEvent != "" )
+		AddPlayerScore( player, scoreEvent, npc )
+
+	// disable leech on this spectre, don't let them to be multiple-leeched by diffrent team...
+	DisableLeeching( npc )
+	npc.UnsetUsable()
 }
 
 // ticks clean up

@@ -83,7 +83,7 @@ void function GamemodeAITdm_Init()
 
 		AddCallback_OnClientConnected( OnPlayerConnected )
 		
-		AddCallback_NPCLeeched( OnSpectreLeeched )
+		AddCallback_NPCLeeched( AITdm_OnNPCLeeched )
 		
 		if ( GetCurrentPlaylistVarInt( "aitdm_archer_grunts", 0 ) == 0 )
 		{
@@ -698,15 +698,37 @@ void function SquadHandler( array<entity> guys )
 }
 
 // Award for hacking
-void function OnSpectreLeeched( entity spectre, entity player )
+// can't name it "OnNPCLeeched()" because there's a deprecated function with same name... and it's globalized. yay.
+void function AITdm_OnNPCLeeched( entity npc, entity player )
 {
 	// Set Owner so we can filter in HandleScore
 	// not a good idea. score could be handled by GetBossPlayer()
 	// setting an owner will make entity have no collision with their owner
-	//spectre.SetOwner( player )
-	spectre.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
+	//npc.SetOwner( player )
+	npc.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
+
+	// adding score
+	int playerScore = 0
+	switch ( npc.GetClassName() )
+	{
+		case "npc_soldier":
+		case "npc_spectre":
+		case "npc_stalker":
+			playerScore = 1
+			break
+		case "npc_super_spectre":
+			playerScore = 3
+			break
+		default:
+			playerScore = 0
+			break
+	}
 	// Add score + update network int to trigger the "Score +n" popup
-	AddAITdmPlayerTeamScore( player, 1 )
+	AddAITdmPlayerTeamScore( player, playerScore )
+	
+	// disable leech on this spectre, don't let them to be multiple-leeched by diffrent team...
+	DisableLeeching( npc )
+	npc.UnsetUsable()
 }
 
 // Same as SquadHandler, just for reapers
