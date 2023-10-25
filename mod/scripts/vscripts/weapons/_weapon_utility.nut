@@ -4052,6 +4052,15 @@ RadiusDamageData function GetRadiusDamageDataFromProjectile( entity projectile, 
 // this might cause too many sounds playing together! modifying it
 void function Thermite_DamagePlayerOrNPCSounds( entity ent )
 {
+	// sound shouldn't play on projectile...
+	// grenades are projectiles that can take damage
+	if ( ent.IsProjectile() )
+	{
+		if ( ent.proj.onlyAllowSmartPistolDamage )
+			return
+	}
+	//
+
 	// fix for thermite sound, prevent too many sounds playing together
 	if ( !( ent in file.entNextThermiteSoundAllowedTime ) )
 		file.entNextThermiteSoundAllowedTime[ ent ] <- 0.0
