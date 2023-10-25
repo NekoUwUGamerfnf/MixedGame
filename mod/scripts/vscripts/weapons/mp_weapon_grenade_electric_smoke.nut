@@ -83,8 +83,8 @@ void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projec
 			hitbox = hitbox
 		}
 
-		// due we added smoke mine, should move model check in vanilla behavior case
-		//projectile.SetModel( $"models/dev/empty_model.mdl" )
+		if( !mods.contains( "smoke_mine" ) )
+			projectile.SetModel( $"models/dev/empty_model.mdl" ) // model change should be done before PlantStickyEntity(), otherwise projectile will detach
 		bool result = PlantStickyEntity( projectile, collisionParams, <90.0, 0.0, 0.0> )
 		
 #if SERVER
@@ -95,7 +95,6 @@ void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projec
 		else
 		{
 #endif
-			projectile.SetModel( $"models/dev/empty_model.mdl" ) // moved down here
 
 #if SERVER
 			if ( !result )
