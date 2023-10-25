@@ -242,6 +242,8 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "StopDefaultHandler" )
 	// npc pilot think
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
+	// gunship 
+	Registered( "GunshipJetBurstEffect" )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -2989,6 +2991,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	// its a hack! gunship after animation stops thinking for some reason
 	// needs to spawn a new one
 	entity animGunship = CreateNPC( "npc_gunship", team, pos, rot )
+	SetSpawnOption_AISettings( animGunship, "npc_gunship_scripted" ) // for other files can recognize this is a gunship that only used for playing animation
 	HideName( animGunship ) // this gunship will be deleted soon, never show it's name
 	
 	file.npcSpawnFromExtraSpawner[ animGunship ] <- true // adding this mark so we can update gunship's model on their spawn
@@ -3022,8 +3025,8 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	// needs to spawn a new one
 	if ( !IsValid( animGunship ) ) // if gunship already destroyed for some reason
 		return // don't run following replacement code
-	//gunship.Destroy() // might be a little weird because it's jet trail gonna disappear immediately
-	// now using delayed destroy
+	//gunship.Destroy() // might be a little weird because it's trail gonna disappear immediately
+	// now using delayed destroy, so we can wait for trail fadeout normally
 	thread DelayedDestroyAnimGunship( animGunship )
 
 	// spawning new gunship for combating( their behavior is bad though, almost never attack anybody )
@@ -3083,7 +3086,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	}
 
 	// start trail effect
-	thread GunshipJetTrailEffect( gunship )
+	thread GunshipFlightTrailEffect( gunship )
 	// enemy changed callback
 	gunship.SetEnemyChangeCallback( OnEnemyChanged_Gunship )
 }
@@ -3220,11 +3223,11 @@ void function DelayedDestroyAnimGunship( entity animGunship )
 	if ( !animGunship.IsFrozen() ) // anti-crash for post-match cleanup condition( which will freeze all npcs )
 		animGunship.Freeze() // freeze gunship so it can't move
 
-	wait 0.8 // wait for jet trail fadeout normally
+	wait 0.8 // wait for trail fadeout normally
 	animGunship.Destroy()
 }
 
-void function GunshipJetTrailEffect( entity gunship )
+void function GunshipFlightTrailEffect( entity gunship )
 {
 	array<entity> fxs
 	fxs.append( PlayLoopFXOnEntity( $"veh_contrails_01", gunship, "L_WING_TIP", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
@@ -3236,28 +3239,52 @@ void function GunshipJetTrailEffect( entity gunship )
 	(
 		function(): ( fxs )
 		{
-			foreach ( effect in fxs )
+			foreach ( fx in fxs )
 			{
-				if ( IsValid( effect ) )
-					EffectStop( effect )
+				if ( IsValid( fx ) )
+					EffectStop( fx )
 			}
 		}
 	)
 
-	WaitSignal( gunship, "OnDestroy" )
+	WaitSignal( gunship, "OnDestroy" ) // gunship gets destroyed once they died
 }
 
 void function OnEnemyChanged_Gunship( entity gunship )
 {
-	GunshipJetPackEffect( gunship )
+	GunshipJetBurstEffect( gunship )
 }
 
-// jetpack effect for gunship
-void function GunshipJetPackEffect( entity gunship )
+// jet burst effect for gunship
+void function GunshipJetBurstEffect( entity gunship )
 {
-	//print( "RUNNING GunshipJetPackEffect()" )
-	PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1" )
-	PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1" )
+	//print( "RUNNING GunshipJetBurstEffect()" )
+	thraed GunshipJetBurstEffect_Threaded( gunship )
+}
+
+// stop last played jet effect when we starting a new one
+void function GunshipJetBurstEffect_Threaded( entity gunship )
+{
+	gunship.Signal( "GunshipJetBurstEffect" )
+	gunship.EndSignal( "GunshipJetBurstEffect" )
+
+	array<entity> fxs
+	fxs.append( PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1" ) )
+	fxs.append( PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1" ) )
+
+	OnThreadEnd
+	(
+		function(): ( fxs )
+		{
+			foreach ( fx in fxs )
+			{
+				if ( IsValid( fx ) )
+					EffectStop( fx )
+			}
+		}
+	)
+
+	WaitSignal( gunship, "OnDestroy" ) // gunship gets destroyed once they died
 }
 
 void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team, string spawnName = "" )
