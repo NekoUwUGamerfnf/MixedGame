@@ -35,7 +35,7 @@ function MpWeaponSmartPistol_Init()
 	)
 
 	// modded weapon
-	AddDamageCallbackSourceID( eDamageSourceid.mp_weapon_smart_pistol, SmartPistolDamagedTarget )
+	AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_smart_pistol, SmartPistolDamagedTarget )
 #endif
 }
 
@@ -179,7 +179,9 @@ void function CreateFakeModelForSmartPistol( entity weapon )
 void function OnWeaponOwnerChanged_weapon_smart_pistol( entity weapon, WeaponOwnerChangedParams changeParams )
 {
 	// disable run_and_gun on server-side
+	#if SERVER
 	Disable_RunAndGun_ServerSide( weapon, changeParams )
+	#endif
 }
 
 // modded weapon
