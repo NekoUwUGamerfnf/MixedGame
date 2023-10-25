@@ -31,7 +31,7 @@ void function MpWeaponGreandeElectricSmoke_Init()
 
 void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-	#if SERVER
+	// modded weapons
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( mods.contains( "creeping_bombardment" ) )
 	{
@@ -48,6 +48,7 @@ void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projec
 	if ( projectile.GrenadeHasIgnited() )
 		return
 
+#if SERVER
 	if( mods.contains( "flashbang" ) )
 	{
 		if( projectile.proj.projectileBounceCount == 0 ) // first bounce
@@ -73,6 +74,7 @@ void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projec
 	}
 	else
 	{
+#endif
 		table collisionParams =
 		{
 			pos = pos,
@@ -81,16 +83,21 @@ void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projec
 			hitbox = hitbox
 		}
 
-		if( !mods.contains( "smoke_mine" ) )
-			projectile.SetModel( $"models/dev/empty_model.mdl" )
+		// due we added smoke mine, should move model check in vanilla behavior case
+		//projectile.SetModel( $"models/dev/empty_model.mdl" )
 		bool result = PlantStickyEntity( projectile, collisionParams, <90.0, 0.0, 0.0> )
 		
+#if SERVER
 		if( mods.contains( "smoke_mine" ) )
 		{
 			thread SmokeMineThink( projectile )
 		}
 		else
 		{
+#endif
+			projectile.SetModel( $"models/dev/empty_model.mdl" ) // moved down here
+
+#if SERVER
 			if ( !result )
 			{
 				projectile.SetVelocity( <0.0, 0.0, 0.0> )
@@ -99,6 +106,14 @@ void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projec
 			}
 			else if ( IsValid( hitEnt ) && ( hitEnt.IsPlayer() || hitEnt.IsTitan() || hitEnt.IsNPC() ) )
 			{
+				// this is vanilla missing behavior:
+				// should never let electric smoke grenade stick on entities
+				// their smokescreen never moves
+				projectile.ClearParent()
+				projectile.SetVelocity( <0.0, 0.0, 0.0> )
+				projectile.StopPhysics()
+				//
+
 				ElectricGrenadeSmokescreen( projectile, FX_ELECTRIC_SMOKESCREEN_PILOT_AIR )
 			}
 			else
@@ -110,7 +125,7 @@ void function OnProjectileCollision_weapon_grenade_electric_smoke( entity projec
 			projectile.SetDoesExplode( false )
 		}
 	}
-	#endif
+#endif
 }
 
 void function OnProjectileIgnite_weapon_grenade_electirc_smoke( entity projectile )
