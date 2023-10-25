@@ -27,11 +27,13 @@ global function ExtraSpawner_SpawnPilotCanEmbark
 global function ExtraSpawner_SpawnTitanWithPilot
 // these settings should be done in prematch, don't do it right after levelLoad
 global function ExtraSpawner_SetNPCWeapons
+global function ExtraSpawner_SetNPCSecondaryWeapons // needs AI behavior that included SelectSchedule_SwitchWeapon to work
 global function ExtraSpawner_SetNPCAntiTitanWeapons
 global function ExtraSpawner_SetNPCGrenadeWeapons
 global function ExtraSpawner_SetNPCExtraWeaponMods // mods added by this func will be applies to npcs
 // set up funcs
 global function ExtraSpawner_ApplyNPCWeapons
+global function ExtraSpawner_StartUpdatingNPCWeaponBodyGroup // vanilla missing behavior
 global function ExtraSpawner_ApplyNPCGrenadeWeapon // grenade have to be given before DispatchSpawn()
 global function ExtraSpawner_ApplyNPCExtraWeaponMods
 global function ExtraSpawner_SetUpNPCPilot
@@ -83,6 +85,7 @@ global function PrintPrimaryAttackSignal
 #endif // EXTRA_SPAWNER_DEBUG
 
 // modifiable consts
+
 // npc damage
 
 // npc pilot health
@@ -139,6 +142,15 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	*/
 ]
 
+// this array is hardcoded. it only contains models that included "pete_agent.mdl"( mostly SP pilot models )
+// if pilot has been setup with model in this array, they'll be change to "behavior_pilot_elite_assassin" which makes them able to switch weapon
+const array<asset> NPC_PILOT_SWITCH_WEAPON_ALLOWED_MODELS =
+[
+	$"models/humans/pilots/sp_medium_geist_f.mdl", 
+	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
+	$"models/humans/pilots/sp_medium_stalker_m.mdl", 
+]
+
 // for ExtraSpawner_SpawnTitan() picking random titans
 struct TitanSpawnStruct
 {
@@ -188,6 +200,7 @@ struct
 	// modifiable variables( through functions )
 	// npc weapons, should we add a struct to set up mods for them?
 	table< string, array<string> > npcMainWeaponsTable
+	table< string, array<string> > npcSecondaryWeaponsTable
 	table< string, array<string> > npcAntiTitanWeaponsTable
 	table< string, array<string> > npcGrenadeWeaponsTable
 	table< string, array<string> > npcExtraWeaponModsTable
@@ -242,6 +255,10 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "StopDefaultHandler" )
 	// npc pilot think
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
+	// gunship 
+	RegisterSignal( "GunshipJetBurstEffect" )
+	// npc weapon bodygroup update
+	RegisterSignal( "StartUpdatingNPCWeaponBodyGroup" )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -284,8 +301,10 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
 		AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 		AddClientCommandCallback( "fakespectre", CC_SpawnFakeMLTSpectre )
+		ExtraSpawner_SetNPCSecondaryWeapons( "npc_pilot_elite", ["mp_weapon_autopistol", "mp_weapon_semipistol"] )
 		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
 		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
+		AddClientCommandCallback( "npcweapon_bodygrouptest", CC_DoNPCWeaponBodyGroupTestSpawn )
 	#endif // EXTRA_SPAWNER_DEBUG
 }
 
@@ -1083,6 +1102,13 @@ void function ExtraSpawner_SetNPCWeapons( string npcClass, array<string> weapons
 	file.npcMainWeaponsTable[ npcClass ] = weapons
 }
 
+void function ExtraSpawner_SetNPCSecondaryWeapons( string npcClass, array<string> weapons )
+{
+	if ( !( npcClass in file.npcSecondaryWeaponsTable ) )
+		file.npcSecondaryWeaponsTable[ npcClass ] <- []
+	file.npcSecondaryWeaponsTable[ npcClass ] = weapons
+}
+
 void function ExtraSpawner_SetNPCAntiTitanWeapons( string npcClass, array<string> weapons )
 {
 	if ( !( npcClass in file.npcAntiTitanWeaponsTable ) )
@@ -1396,10 +1422,10 @@ bool function CC_SpawnPilotElite( entity player, array<string> args )
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
    
 	entity pilot = ExtraSpawner_SpawnPilotElite( pos, rot, GetPlayerAISpawnTeam( player, args ) )
-    TakeAllWeapons( pilot )
+    //TakeAllWeapons( pilot )
 	//pilot.GiveWeapon( "mp_titanweapon_arc_cannon", ["archon_arc_cannon"] )
 	//pilot.GiveWeapon( "mp_weapon_defender" )
-	pilot.GiveWeapon( "mp_weapon_pulse_lmg" )
+	//pilot.GiveWeapon( "mp_weapon_pulse_lmg" )
 	//pilot.GiveWeapon( "mp_weapon_hemlok" )
 	return true
 }
@@ -1499,6 +1525,48 @@ bool function CC_SpawnGruntDroppod( entity player, array<string> args )
 	thread ExtraSpawner_SpawnSpecialistGruntDropPod( pos, rot, GetPlayerAISpawnTeam( player, args ), "npc_soldier", "npc_soldier_sidearm" )
 
 	return true
+}
+
+bool function CC_DoNPCWeaponBodyGroupTestSpawn( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+
+	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
+	SetSpawnOption_Weapon( grunt, "mp_weapon_rspn101_og" )
+
+	file.npcSpawnFromExtraSpawner[ grunt ] <- true
+	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
+
+	//grunt.SetModel( $"models/robots/spectre/imc_spectre.mdl" )
+	entity weapon = grunt.GetActiveWeapon()
+	print( "grunt weapon: " + string( weapon ) )
+	thread DEBUG_UpdateNPCWeaponBodyGroup( grunt )
+
+	return true
+}
+
+void function DEBUG_UpdateNPCWeaponBodyGroup( entity grunt )
+{
+	grunt.EndSignal( "OnDeath" )
+	grunt.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		entity weapon = grunt.GetActiveWeapon()
+		if ( IsValid( weapon ) )
+		{
+			int bodyGroupIndex = weapon.FindBodyGroup( "sight_aog_r1" )
+			if ( bodyGroupIndex > 0 )
+				weapon.SetBodygroup( bodyGroupIndex, 1 )
+		}
+
+		WaitFrame()
+	}
 }
 
 void function PrintColdWarNPCPrimaryAttack( entity npc )
@@ -1614,9 +1682,12 @@ void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons =
 	string className = npc.GetClassName()
 
 	array<string> mainWeapons
+	array<string> secondaryWeapons
 	array<string> antiTitanWeapons
 	if ( className in file.npcMainWeaponsTable )
 		mainWeapons = file.npcMainWeaponsTable[ className ]
+	if ( className in file.npcSecondaryWeaponsTable )
+		secondaryWeapons = file.npcSecondaryWeaponsTable[ className ]
 	if ( className in file.npcAntiTitanWeaponsTable )
 		antiTitanWeapons = file.npcAntiTitanWeaponsTable[ className ]
 
@@ -1637,14 +1708,22 @@ void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons =
 
 	// main weapon
 	bool giveMainWeapon = mainWeapons.len() > 0
+	bool giveSecondaryWeapon = secondaryWeapons.len() > 0
 	if ( !replaceAllWeapons && npc.GetMainWeapons().len() >= 1 ) // npc already have a weapon and we disabled replace!
+	{
 		giveMainWeapon = false // don't give main weapon again
+		giveSecondaryWeapon = false // here we also don't want to replace secondary
+	}
 	if ( giveMainWeapon )
 	{
 		string weaponName = mainWeapons[ RandomInt( mainWeapons.len() ) ]
 		npc.GiveWeapon( weaponName )
 		npc.SetActiveWeaponByName( weaponName )
 	}
+	// secondary
+	if ( giveSecondaryWeapon ) // secondary weapon needs npc to have SelectSchedule_SwitchWeapon in their behavior to work
+		npc.GiveWeapon( secondaryWeapons[ RandomInt( secondaryWeapons.len() ) ] )
+
 	// anti-titan
 	bool giveAntiTitanWeapon = antiTitanWeapons.len() > 0
 	if ( giveAntiTitanWeapon )
@@ -1655,6 +1734,72 @@ void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons =
 
 	// also make them use heavy armor weapon
 	npc.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon )
+	// start updating weapon bodygroup
+	ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( npc )
+}
+
+// best way to update bodygroups... because some npc may switch weapon and SetEnemyChangeCallback() can't handle it
+void function ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( entity npc )
+{
+	thread StartUpdatingNPCWeaponBodyGroup_Threaded( npc )
+}
+
+void function StartUpdatingNPCWeaponBodyGroup_Threaded( entity npc )
+{
+	npc.EndSignal( "OnDestroy" )
+	npc.Signal( "StartUpdatingNPCWeaponBodyGroup" )
+	npc.EndSignal( "StartUpdatingNPCWeaponBodyGroup" )
+
+	entity lastPrimaryWeaponEnt
+	while ( true )
+	{
+		entity activeWeapon = npc.GetActiveWeapon()
+		if ( IsValid( activeWeapon ) )
+		{
+			if ( activeWeapon != lastPrimaryWeaponEnt ) // weapon changed?
+				UpdateNPCWeaponBodyGroup( npc )
+		}
+
+		lastPrimaryWeaponEnt = activeWeapon
+
+		WaitFrame()
+	}
+}
+
+// ttf2 currently have up to 9 bodygroups for a weapon
+const int WEAPON_BODYGROUP_MAX_COUNT = 9
+
+void function UpdateNPCWeaponBodyGroup( entity npc )
+{
+	entity weapon = npc.GetActiveWeapon()
+	if ( IsValid( weapon ) )
+	{
+		for ( int i = 0; i < WEAPON_BODYGROUP_MAX_COUNT; i++ )
+		{
+			string bodyGroupNum = string( i + 1 )
+			string bodyGroupName = "bodygroup" + bodyGroupNum + "_name"
+			string bodyGroupSet = "bodygroup" + bodyGroupNum + "_set"
+
+			local currentBodyGroup = weapon.GetWeaponInfoFileKeyField( bodyGroupName )
+			//print( "currentBodyGroup: " + currentBodyGroup )
+			if ( currentBodyGroup == null )
+				continue
+			expect string( currentBodyGroup )
+			
+			int bodyGroupIndex = weapon.FindBodyGroup( currentBodyGroup )
+			//print( "bodyGroupIndex: " + string( bodyGroupIndex ) )
+			if ( bodyGroupIndex <= 0 )
+				continue
+			
+			int newBodyGroup = weapon.GetWeaponSettingInt( eWeaponVar[ bodyGroupSet ] )
+			//print( "newBodyGroup: " + string( newBodyGroup ) )
+			if ( newBodyGroup <= 0 )
+				continue
+
+			// all checks passed, update bodygroup
+			weapon.SetBodygroup( bodyGroupIndex, newBodyGroup )
+		}
+	}
 }
 
 // grenade have to be given before DispatchSpawn()
@@ -1916,14 +2061,31 @@ void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int team, int pi
 	titanSoul.soul.seatedNpcPilot.health				= pilotHealth
 
 	// set up weapons
-	array<string> mainWeapons = file.npcMainWeaponsTable[ "npc_pilot_elite" ]
-	array<string> antiTitanWeapons = file.npcAntiTitanWeaponsTable[ "npc_pilot_elite" ]
+	// because weapon setup has become more compilicated( contains 3 main weapons and their mods )
+	// it's better to spawn a pilot and assign weapon for it, destroy the pilot after weapon assignment done
+	/*
+	array<string> mainWeapons
+	array<string> secondaryWeapons
+	array<string> antiTitanWeapons
+	if ( "npc_pilot_elite" in file.npcMainWeaponsTable )
+		mainWeapons = file.npcMainWeaponsTable[ "npc_pilot_elite" ]
+	if ( "npc_pilot_elite" in file.npcSecondaryWeaponsTable )
+		secondaryWeapons = file.npcSecondaryWeaponsTable[ "npc_pilot_elite" ]
+	if ( "npc_pilot_elite" in file.npcAntiTitanWeaponsTable )
+		antiTitanWeapons = file.npcAntiTitanWeaponsTable[ "npc_pilot_elite" ]
 	// main weapon
 	if ( mainWeapons.len() > 0 )
 	{
 		NPCPilotWeaponStruct mainWeaponStruct
 		mainWeaponStruct.weaponName = mainWeapons[ RandomInt( mainWeapons.len() ) ]
 		titanSoul.soul.seatedNpcPilot.weapons.append( mainWeaponStruct )
+	}
+	// secondary weapon
+	if ( mainWeapons.len() > 0 )
+	{
+		NPCPilotWeaponStruct secondaryWeaponStruct
+		secondaryWeaponStruct.weaponName = secondaryWeapons[ RandomInt( secondaryWeapons.len() ) ]
+		titanSoul.soul.seatedNpcPilot.weapons.append( secondaryWeaponStruct )
 	}
 	// anti-titan
 	if ( antiTitanWeapons.len() > 0 )
@@ -1932,6 +2094,16 @@ void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int team, int pi
 		antiTitanWeaponStruct.weaponName = antiTitanWeapons[ RandomInt( antiTitanWeapons.len() ) ]
 		titanSoul.soul.seatedNpcPilot.weapons.append( antiTitanWeaponStruct )
 	}
+	*/
+	entity tempPilot = ExtraSpawner_SpawnPilotElite( < 0, 0, 10000 >, < 0, 0, 0 >, team ) // spawn in air so nobody can see it, and it won't be killed by triggers
+	foreach ( entity weapon in tempPilot.GetMainWeapons() )
+	{
+		NPCPilotWeaponStruct storedWeapon
+		storedWeapon.weaponName = weapon.GetWeaponClassName()
+		storedWeapon.weaponMods = weapon.GetMods()
+		titanSoul.soul.seatedNpcPilot.weapons.append( storedWeapon )
+	}
+	tempPilot.Destroy()
 }
 
 // npc pilot embarking npc titans
@@ -2874,6 +3046,7 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			string sideArmName = SNIPER_VALID_SIDEARMS[ RandomInt( SNIPER_VALID_SIDEARMS.len() ) ]
 			entity sideArm = npc.GiveWeapon( sideArmName )
 			//sideArm.AddMod( "npc_sniper_grunt" ) // removed, which is overpowered
+			sideArm.AddMod( "silencer" ) // we've added npc weapon bodygroup update, can use silencer now( needs weapon files to be modified )
 
 			npc.EnableNPCFlag( NPC_NO_WEAPON_DROP ) // due sniper grunts have specific weapon, make them never drop weapons
 			npc.DisableNPCFlag( NPC_CROUCH_COMBAT ) // pistol activity don't have crouch animations, disable crouch combat
@@ -2989,6 +3162,9 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	// its a hack! gunship after animation stops thinking for some reason
 	// needs to spawn a new one
 	entity animGunship = CreateNPC( "npc_gunship", team, pos, rot )
+	// for other files can recognize this is a gunship that only used for playing animation
+	// removing. "npc_gunship_scripted" is a separented class, not the same as "npc_gunship"
+	//SetSpawnOption_AISettings( animGunship, "npc_gunship_scripted" )
 	HideName( animGunship ) // this gunship will be deleted soon, never show it's name
 	
 	file.npcSpawnFromExtraSpawner[ animGunship ] <- true // adding this mark so we can update gunship's model on their spawn
@@ -3022,8 +3198,8 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	// needs to spawn a new one
 	if ( !IsValid( animGunship ) ) // if gunship already destroyed for some reason
 		return // don't run following replacement code
-	//gunship.Destroy() // might be a little weird because it's jet trail gonna disappear immediately
-	// now using delayed destroy
+	//gunship.Destroy() // might be a little weird because it's trail gonna disappear immediately
+	// now using delayed destroy, so we can wait for trail fadeout normally
 	thread DelayedDestroyAnimGunship( animGunship )
 
 	// spawning new gunship for combating( their behavior is bad though, almost never attack anybody )
@@ -3083,7 +3259,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	}
 
 	// start trail effect
-	thread GunshipJetTrailEffect( gunship )
+	thread GunshipFlightTrailEffect( gunship )
 	// enemy changed callback
 	gunship.SetEnemyChangeCallback( OnEnemyChanged_Gunship )
 }
@@ -3220,44 +3396,75 @@ void function DelayedDestroyAnimGunship( entity animGunship )
 	if ( !animGunship.IsFrozen() ) // anti-crash for post-match cleanup condition( which will freeze all npcs )
 		animGunship.Freeze() // freeze gunship so it can't move
 
-	wait 0.8 // wait for jet trail fadeout normally
+	wait 0.8 // wait for trail fadeout normally
 	animGunship.Destroy()
 }
 
-void function GunshipJetTrailEffect( entity gunship )
+void function GunshipFlightTrailEffect( entity gunship )
 {
 	array<entity> fxs
 	fxs.append( PlayLoopFXOnEntity( $"veh_contrails_01", gunship, "L_WING_TIP", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
 	fxs.append( PlayLoopFXOnEntity( $"veh_contrails_01", gunship, "R_WING_TIP", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
 	//fxs.append( PlayLoopFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
 	//fxs.append( PlayLoopFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1", null, null, ENTITY_VISIBLE_TO_EVERYONE ) )
+	
+	// make them have infinite fadedist like dogfighter trails( the diffence is those trails are played by client-side )
+	foreach ( fx in fxs )
+		fx.DisableHibernation()
 
 	OnThreadEnd
 	(
 		function(): ( fxs )
 		{
-			foreach ( effect in fxs )
+			foreach ( fx in fxs )
 			{
-				if ( IsValid( effect ) )
-					EffectStop( effect )
+				if ( IsValid( fx ) )
+					EffectStop( fx )
 			}
 		}
 	)
 
-	WaitSignal( gunship, "OnDestroy" )
+	WaitSignal( gunship, "OnDestroy" ) // gunship gets destroyed once they died
 }
 
 void function OnEnemyChanged_Gunship( entity gunship )
 {
-	GunshipJetPackEffect( gunship )
+	GunshipJetBurstEffect( gunship )
 }
 
-// jetpack effect for gunship
-void function GunshipJetPackEffect( entity gunship )
+// jet burst effect for gunship
+void function GunshipJetBurstEffect( entity gunship )
 {
-	//print( "RUNNING GunshipJetPackEffect()" )
-	PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1" )
-	PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1" )
+	//print( "RUNNING GunshipJetBurstEffect()" )
+	thread GunshipJetBurstEffect_Threaded( gunship )
+}
+
+// stop last played jet effect when we starting a new one
+void function GunshipJetBurstEffect_Threaded( entity gunship )
+{
+	gunship.Signal( "GunshipJetBurstEffect" )
+	gunship.EndSignal( "GunshipJetBurstEffect" )
+
+	array<entity> fxs
+	fxs.append( PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "L_exhaust_rear_1" ) )
+	fxs.append( PlayFXOnEntity( $"veh_jetwash_exit_eng_blast", gunship, "R_exhaust_rear_1" ) )
+	// make them have infinite fadedist like dogfighter trails( the diffence is those trails are played by client-side )
+	foreach ( fx in fxs )
+		fx.DisableHibernation()
+
+	OnThreadEnd
+	(
+		function(): ( fxs )
+		{
+			foreach ( fx in fxs )
+			{
+				if ( IsValid( fx ) )
+					EffectStop( fx )
+			}
+		}
+	)
+
+	WaitSignal( gunship, "OnDestroy" ) // gunship gets destroyed once they died
 }
 
 void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team, string spawnName = "" )
@@ -3338,14 +3545,18 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team, 
 	file.npcSpawnFromExtraSpawner[ pilot ] <- true
 	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
 
-	ExtraSpawner_SetUpNPCPilot( pilot )
-	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt(NPC_PILOT_ALLOWED_MODELS.len()) ]
+	// give weapons
+	ExtraSpawner_ApplyNPCWeapons( pilot )
+	// update model before setup
+	asset modelAsset = NPC_PILOT_ALLOWED_MODELS[ RandomInt( NPC_PILOT_ALLOWED_MODELS.len() ) ]
 	pilot.SetModel( modelAsset )
+
 	pilot.SetMaxHealth( NPC_PILOT_MAX_HEALTH )
 	pilot.SetHealth( NPC_PILOT_MAX_HEALTH )
 	pilot.SetTitle( "鐵馭" ) // "#NPC_PILOT", using a localized string will cause auto-titan's title to be wrong
 
-	ExtraSpawner_ApplyNPCWeapons( pilot )
+	// main setup for npc pilots spawn from this file
+	ExtraSpawner_SetUpNPCPilot( pilot )
 
 	return pilot
 }
@@ -3361,6 +3572,27 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot, void functionref( entity
 
 	pilot.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( pilot )
+
+	// some pilot model don't have "pete_agent.mdl" included, which means they can't change to their secondary weapon
+	// "behavior_pilot_elite_assassin" has been reworked. it's the same as normal pilot behavior, but with SelectSchedule_SwitchWeapon added
+	// we change to "behavior_pilot_elite_assassin" if this model is ideal for switch weapon
+	// welp, doesn't seem to work, the pilot never changes weapon
+	if ( NPC_PILOT_SWITCH_WEAPON_ALLOWED_MODELS.contains( pilot.GetModelName() ) )
+	{
+		// debug
+		/*
+		print( "Updating pilot to assassin behavior!" )
+		print( "=====PILOT WEAPONS=====" )
+		foreach ( entity weapon in pilot.GetMainWeapons() )
+			print( weapon)
+		*/
+
+		pilot.SetBehaviorSelector( "behavior_pilot_elite_assassin" )
+	}
+
+	// start updating bodygroup
+	// this will handle npc pilot disembarking/ejecting case
+	ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( pilot )
 
 	// pilots are bit special, start handler in setup func
 	if ( pilotHandler != null )

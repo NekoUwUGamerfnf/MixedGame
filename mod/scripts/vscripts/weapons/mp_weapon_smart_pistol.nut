@@ -10,6 +10,9 @@ global function OnWeaponBulletHit_weapon_smart_pistol
 global function OnWeaponStartZoomIn_weapon_smart_pistol
 global function OnWeaponStartZoomOut_weapon_smart_pistol
 
+// modified callbacks
+global function OnWeaponOwnerChanged_weapon_smart_pistol
+
 const float SMART_PISTOL_TRACKER_TIME = 10.0
 
 function MpWeaponSmartPistol_Init()
@@ -30,6 +33,9 @@ function MpWeaponSmartPistol_Init()
 		"fake_smart_xo16",									// weapon mod
 		eDamageSourceId.mp_titanweapon_xo16_vanguard		// damageSourceId override
 	)
+
+	// modded weapon
+	AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_smart_pistol, SmartPistolDamagedTarget )
 #endif
 }
 
@@ -166,5 +172,31 @@ void function CreateFakeModelForSmartPistol( entity weapon )
 	asset model = FAKE_MODEL_MODS[ fakeModelMod ]
 	// shared utility from _fake_world_weapon_model.gnut
 	FakeWorldModel_CreateForWeapon( weapon, model )
+}
+#endif
+
+// modified callbacks
+void function OnWeaponOwnerChanged_weapon_smart_pistol( entity weapon, WeaponOwnerChangedParams changeParams )
+{
+	// disable run_and_gun on server-side
+	#if SERVER
+	Disable_RunAndGun_ServerSide( weapon, changeParams )
+	#endif
+}
+
+// modded weapon
+#if SERVER
+void function SmartPistolDamagedTarget( entity ent, var damageInfo )
+{
+	entity weapon = DamageInfo_GetWeapon( damageInfo )
+	if ( IsValid( weapon ) )
+	{
+		// grenade_detonator: only damage grenades
+		if ( weapon.HasMod( "grenade_detonator" ) )
+		{
+			if ( !ent.IsProjectile() )
+				DamageInfo_SetDamage( damageInfo, 0 )
+		}
+	}
 }
 #endif

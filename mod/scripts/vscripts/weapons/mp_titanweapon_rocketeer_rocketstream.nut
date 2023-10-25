@@ -311,6 +311,10 @@ void function OnWeaponOwnerChanged_TitanWeapon_Rocketeer_RocketStream( entity we
 	// vanilla behavior
 	#if SERVER
 	weapon.w.missileFiredCallback = null
+
+	// modified behavior
+	// idk why respawn make run_and_gun for quad rocket, try to disable it's effect on server-side
+	Disable_RunAndGun_ServerSide( weapon, changeParams )
 	#endif
 }
 
