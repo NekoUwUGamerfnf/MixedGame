@@ -164,60 +164,28 @@ void function OnPlayerConnected( entity player )
 
 //------------------------------------------------------
 
-void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var damageInfo )
+int function GruntMode_GetScoreValue( entity ent )
 {
-	// if victim is a non-titan npc that owned by players, don't add score
-	if ( !VictimIsValidForAITdmScore( victim ) )
-		return
-	
-	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
-		return
-
-	// if it's a npc with bossplayer/owner...
-	if ( attacker.IsNPC() )
-	{
-		// reassign attacker
-		attacker = GetAITdmAttackOwner( attacker )
-	}
-
-	string className = victim.GetClassName()
 	int scoreToAdd = 0
-	string scoreEvent = "" // for npcs can't handle by OnNPCKilled(), do a extra score event
 
-	if ( victim.IsPlayer() )
-	{
-		if ( GruntMode_IsSpecialistClass( victim ) )
-			scoreToAdd = PLAYER_SPECIALIST_SCORE_AMOUNT
-		else
-			scoreToAdd = PLAYER_SCORE_AMOUNT
-
-		// fake score event
-		if ( victim.IsMechanical() )
-			scoreEvent = "AttritionSpectreKilled" // centered medal event
-		else
-			scoreEvent = "AttritionGruntKilled" // centered medal event
-	}
+	if ( ent.IsPlayer() )
+		scoreToAdd = PLAYER_SCORE_AMOUNT
+	
+	string className = ent.GetClassName()
 
 	if ( className == "npc_pilot_elite" )
-	{
 		scoreToAdd = PILOT_SCORE_AMOUNT
-		scoreEvent = "EliminatePilot"
-		// we can't add a obitary for npc pilots since OBITUARY_ENABLED_NPC is false
-	}
-
+	
 	if ( className == "npc_gunship" )
-	{
 		scoreToAdd = GUNSHIP_SCORE_AMOUNT
-		scoreEvent = "FlyerKill" // vanilla don't have "Killed Gunship" events, guess this is good enough
-	}
-
+	
 	if ( className == "npc_marvin" )
 		scoreToAdd = MARVIN_SCORE_AMOUNT
 
 	if ( className == "npc_prowler" )
 	{
 		// hardcoded here: if it's a small prowler we add less score
-		if ( float( victim.kv.modelscale ) < 1.0 )
+		if ( float( ent.kv.modelscale ) < 1.0 )
 			scoreToAdd = SMALL_PROWLER_SCORE_AMOUNT
 		else
 			scoreToAdd = PROWLER_SCORE_AMOUNT
@@ -234,7 +202,7 @@ void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var
 
 	if ( className == "npc_soldier" )
 	{
-		if ( GRUNTMODE_SPECIALIST_GRUNTS.contains( victim.GetAISettingsName() ) )
+		if ( GRUNTMODE_SPECIALIST_GRUNTS.contains( ent.GetAISettingsName() ) )
 			scoreToAdd = SPECIALIST_GRUNT_SCORE_AMOUNT
 		else
 			scoreToAdd = GRUNT_SCORE_AMOUNT
@@ -243,27 +211,65 @@ void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var
 	if ( className == "npc_drone" )
 		scoreToAdd = DRONE_SCORE_AMOUNT
 
-	// Player ejecting triggers this without the extra check
-	if ( victim.IsTitan() && victim.GetBossPlayer() != attacker )
+	if ( ent.IsTitan() )
 	{
-		if ( TitanHasNpcPilot( victim ) ) // pilot was killed without ejecting
-		{
+		if ( TitanHasNpcPilot( ent ) ) // pilot was killed without ejecting
 			scoreToAdd = TITAN_SCORE_AMOUNT + PILOT_SCORE_AMOUNT
-			scoreEvent = "EliminatePilot"
-		}
-		else if ( victim.IsPlayer() ) // fix for player score!
+		else if ( ent.IsPlayer() ) // fix for player score!
 			scoreToAdd = TITAN_SCORE_AMOUNT + PLAYER_SCORE_AMOUNT
 		else // ejecting auto titan
 			scoreToAdd = TITAN_SCORE_AMOUNT
 
 		// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
-		if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+		if ( !TitanHealth_GetSoulInfiniteDoomedState( ent.GetTitanSoul() ) )
 			scoreToAdd -= TITAN_SCORE_AMOUNT // remove titan score on kill for doomed health loss titans
-
-		// obit, has been fixed in _score.gnut
-		//foreach ( entity player in GetPlayerArray() )
-		//	Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), DamageInfo_GetCustomDamageType( damageInfo ), DamageInfo_GetDamageSourceIdentifier( damageInfo ) )
 	}
+
+	return scoreToAdd
+}
+
+// for npcs those are not handled by OnNPCKilled(), do a extra score event( such as gunship and npc pilot )
+string function GruntMode_GetScoreEvent( entity ent )
+{
+	string scoreEvent = ""
+
+	string className = ent.GetClassName()
+
+	if ( className == "npc_pilot_elite" )
+		scoreEvent = "EliminatePilot"
+
+	if ( className == "npc_gunship" )
+		scoreEvent = "FlyerKill" // vanilla don't have "Killed Gunship" events, guess this is good enough
+
+	// Player ejecting triggers this without the extra check
+	if ( ent.IsTitan() )
+	{
+		if ( TitanHasNpcPilot( ent ) ) // pilot was killed without ejecting
+			scoreEvent = "EliminatePilot"
+	}
+
+	return scoreEvent
+}
+
+void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var damageInfo )
+{
+	// if victim is a non-titan npc that owned by players, don't add score
+	if ( !VictimIsValidForAITdmScore( victim ) )
+		return
+	
+	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
+		return
+
+	// if it's a npc with bossplayer/owner...
+	if ( attacker.IsNPC() )
+	{
+		// reassign attacker
+		attacker = GetAITdmAttackOwner( attacker )
+	}
+
+	// start adding score
+	int scoreToAdd = GruntMode_GetScoreValue( victim )
+	string scoreEvent = GruntMode_GetScoreEvent( victim )
 
 	if ( scoreToAdd > 0 )
 		AddAITdmTeamScore( attacker, scoreToAdd ) // this can handle both players' and npcs' kills
@@ -284,6 +290,15 @@ bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var 
 
 	if ( attacker == victim ) // suicide!
 		return false
+
+	// npc titan case
+	if ( victim.IsTitan() && victim.IsNPC() )
+	{
+		entity soul = victim.GetTitanSoul()
+		// victim is titan but their bossPlayer is attacker... usually happens when ejecting without taking damage
+		if ( IsValid( soul ) && GetPetTitanOwner( victim ) == attacker )
+			return false
+	}
 
 	// all checks passed
 	return true
@@ -324,6 +339,7 @@ entity function GetAITdmAttackOwner( entity ent )
 	// attacker still not valid?
 	if ( !IsValid( attacker ) )
 		return ent // use npc or something itself
+	
 	return attacker
 }
 
