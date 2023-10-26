@@ -1213,10 +1213,8 @@ void function ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( entity titan )
 	if ( IsValid( soul ) )
 	{
 		// modified functions in sh_titan.gnut
-		// prevent titan get destroyed before nuke ends and dealing damage to friendly players
-		TitanEject_SetSoulUseNPCPilotAsNukeAttacker( soul, true )
 		// make damage same as player's titan does, with longer explosion duration
-		TitanEject_SetSoulNukeExplosionDamageOverride( 
+		TitanEject_SetSoulNukeExplosionDamageOverride(
 			soul, 			// current soul
 			10, 			// explosion count
 			1.5, 			// explosion duration
@@ -1226,7 +1224,8 @@ void function ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( entity titan )
 			600, 			// outer radius
 			SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
 			0,				// explosion force
-			DF_RAGDOLL | DF_EXPLOSION			// script damage flags
+			DF_RAGDOLL | DF_EXPLOSION,			// script damage flags
+			damagedef_nuclear_core				// damage source
 		)
 	}
 }
@@ -3740,6 +3739,11 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 		#if EXTRA_SPAWNER_DEBUG
 			//MeleeSyncedTitan_SetSoulExecutionTargetRequiredHealthFrac( soul, 1.0 ) // titan can execute any target below this health frac( 1.0 means they'll always execute any other titans )
 		#endif
+
+		// use npc pilot as it's eject explosion and nuke attacker
+		// prevent titan get destroyed before nuke ends and dealing damage to friendly players
+		// can't assign to soul.soul.nukeAttacker because it's not gonna be updated when npc pilot ejects...
+		TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, true )
 	}
 
 	// start specific think, for anti-rodeo countermeasure
@@ -3868,6 +3872,7 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	{
 		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.0 ) // reset core build speed to normal
 		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, false ) // disable npc titan reward electric smoke usage
+		TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, false ) // stop using disembarked npc pilot for nuke
 	}
 }
 
@@ -3888,15 +3893,62 @@ void function NPCPilotEjectingAnimation( entity pilot )
 		}
 	)
 
-	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
+	// debug
+	float startTime = Time()
 
+	// now changing method: use certain animation
+	// failed...
+	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 ) // once tried "ACT_MP_JUMP_FLOAT" but it isn't looped...
+	//float animCycle = pilot.GetSequenceDuration( "jump_loop" ) * 0.7 // wait for shorter than anim duration
+
+	float lastAnimPlayedTime = -1
 	float failSafeTime = Time() + PILOT_EJECTING_ANIM_FAILSAFE
 	while( Time() < failSafeTime )
 	{
-		if ( pilot.IsOnGround() )
+		// now changing to better think
+		//if ( pilot.IsOnGround() )
+		if ( IsPilotNearGround( pilot ) )
 			break
+
+		// anim play think
+		// don't know why when using "Anim_ScriptedPlay()", the pilot will just fly away
+		// PlayAnim() also don't work.. whatever
+		//if ( lastAnimPlayedTime == -1 || ( Time() - lastAnimPlayedTime > animCycle ) )
+		//	thread PlayAnim( pilot, "jump_loop" )
+		
 		WaitFrame()
 	}
+
+	// debug
+	//print( "pilot eject flight time: " + string( Time() - startTime ) )
+}
+
+bool function IsPilotNearGround( entity pilot )
+{
+	vector pilotVelocity = pilot.GetVelocity()
+	// never consider near ground if pilot is moving upward
+	if ( pilotVelocity.z >= 0 )
+		return false
+
+	array<entity> ignoreEnts
+	// always ignore all npcs and players, try to hit onto ground
+	// landing on other entities is all good, anim can be as short as possible
+	//ignoreEnts.extend( GetPlayerArray() )
+	//ignoreEnts.extend( GetNPCArray() )
+	ignoreEnts.append( pilot ) // self no checks
+
+	vector traceStart = pilot.GetOrigin()
+	float nextFrameVerticalMove = fabs( pilotVelocity.z ) * 0.15 // bit higher value than one script tick( 0.1s ) 
+	// debug
+	//print( "nextFrameVerticalMove: " + string( nextFrameVerticalMove ) )
+	vector traceEnd = traceStart - < 0, 0, nextFrameVerticalMove >
+
+	TraceResults downTrace = TraceLine( traceStart, traceEnd, ignoreEnts, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+	entity hitEnt = downTrace.hitEnt
+	if ( !IsValid( hitEnt ) ) // we cannot trace any entity
+		return false
+
+	return true
 }
 
 // modified things
