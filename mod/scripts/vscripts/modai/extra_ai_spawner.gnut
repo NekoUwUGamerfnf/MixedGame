@@ -79,7 +79,7 @@ const array<asset> GUNSHIP_VALID_MODELS =
 ]
 
 // debug
-const bool EXTRA_SPAWNER_DEBUG = false
+const bool EXTRA_SPAWNER_DEBUG = true
 #if EXTRA_SPAWNER_DEBUG
 global function PrintPrimaryAttackSignal
 #endif // EXTRA_SPAWNER_DEBUG
@@ -3893,15 +3893,62 @@ void function NPCPilotEjectingAnimation( entity pilot )
 		}
 	)
 
-	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
+	// debug
+	float startTime = Time()
 
+	// now changing method: use certain animation
+	// failed...
+	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 ) // once tried "ACT_MP_JUMP_FLOAT" but it isn't looped...
+	//float animCycle = pilot.GetSequenceDuration( "jump_loop" ) * 0.7 // wait for shorter than anim duration
+
+	float lastAnimPlayedTime = -1
 	float failSafeTime = Time() + PILOT_EJECTING_ANIM_FAILSAFE
 	while( Time() < failSafeTime )
 	{
-		if ( pilot.IsOnGround() )
+		// now changing to better think
+		//if ( pilot.IsOnGround() )
+		if ( IsPilotNearGround( pilot ) )
 			break
+
+		// anim play think
+		// don't know why when using "Anim_ScriptedPlay()", the pilot will just fly away
+		// PlayAnim() also don't work.. whatever
+		//if ( lastAnimPlayedTime == -1 || ( Time() - lastAnimPlayedTime > animCycle ) )
+		//	thread PlayAnim( pilot, "jump_loop" )
+		
 		WaitFrame()
 	}
+
+	// debug
+	//print( "pilot eject flight time: " + string( Time() - startTime ) )
+}
+
+bool function IsPilotNearGround( entity pilot )
+{
+	vector pilotVelocity = pilot.GetVelocity()
+	// never consider near ground if pilot is moving upward
+	if ( pilotVelocity.z >= 0 )
+		return false
+
+	array<entity> ignoreEnts
+	// always ignore all npcs and players, try to hit onto ground
+	// landing on other entities is all good, anim can be as short as possible
+	//ignoreEnts.extend( GetPlayerArray() )
+	//ignoreEnts.extend( GetNPCArray() )
+	ignoreEnts.append( pilot ) // self no checks
+
+	vector traceStart = pilot.GetOrigin()
+	float nextFrameVerticalMove = fabs( pilotVelocity.z ) * 0.15 // bit higher value than one script tick( 0.1s ) 
+	// debug
+	//print( "nextFrameVerticalMove: " + string( nextFrameVerticalMove ) )
+	vector traceEnd = traceStart - < 0, 0, nextFrameVerticalMove >
+
+	TraceResults downTrace = TraceLine( traceStart, traceEnd, ignoreEnts, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+	entity hitEnt = downTrace.hitEnt
+	if ( !IsValid( hitEnt ) ) // we cannot trace any entity
+		return false
+
+	return true
 }
 
 // modified things
