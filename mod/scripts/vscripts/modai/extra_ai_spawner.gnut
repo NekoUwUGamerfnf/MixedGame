@@ -271,6 +271,8 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "GunshipJetBurstEffect" )
 	// npc weapon bodygroup update
 	RegisterSignal( "StartUpdatingNPCWeaponBodyGroup" )
+	// npc pilot embarking
+	RegisterSignal( "StandUnboardedTitan" )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -310,8 +312,8 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
 		AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
 		AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
-		AddClientCommandCallback( "boss_titan", CC_SpawnBossTitan )
-		AddClientCommandCallback( "boss_titan_intro", CC_SpawnBossTitanWithIntro )
+		AddClientCommandCallback( "bosstitan", CC_SpawnBossTitan )
+		AddClientCommandCallback( "bosstitan_intro", CC_SpawnBossTitanWithIntro )
 		AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 		AddClientCommandCallback( "fakespectre", CC_SpawnFakeMLTSpectre )
 		ExtraSpawner_SetNPCSecondaryWeapons( "npc_pilot_elite", ["mp_weapon_autopistol", "mp_weapon_semipistol"] )
@@ -1371,6 +1373,56 @@ void function ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( entity titan )
 			DF_RAGDOLL | DF_EXPLOSION,			// script damage flags
 			damagedef_nuclear_core				// damage source
 		)
+	}
+}
+
+// disable any sensing: dont let AI get enemies. Don't do trigger checks
+// mainly used for scripted npc stuffs
+void function ExtraSpawner_DisableSensingForNPC( entity npc, bool invulnerable = false, bool hide = false, bool freeze = false )
+{
+	npc.SetEfficientMode( true )
+	npc.SetTouchTriggers( false )
+	npc.SetAimAssistAllowed( false )
+
+	if ( invulnerable )
+	{
+		npc.SetInvulnerable()
+		npc.SetNoTarget( true ) // notarget bind together with invulnerablility
+	}
+	if ( hide )
+	{
+		npc.Hide()
+		HideName( npc )
+		RemoveMinimapForNPC( npc )
+	}
+	if ( freeze )
+	{
+		if ( !npc.IsFrozen() )
+			npc.Freeze()
+	}
+}
+
+void function ExtraSpawner_RestoreSensingForNPC( entity npc, bool vulnerable = false, bool show = false, bool unfreeze = false )
+{
+	npc.SetEfficientMode( false )
+	npc.SetTouchTriggers( true )
+	npc.SetAimAssistAllowed( true )
+
+	if ( vulnerable )
+	{
+		npc.ClearInvulnerable()
+		npc.SetNoTarget( false )
+	}
+	if ( show )
+	{
+		npc.Show()
+		ShowName( npc )
+		AddMinimapForNPC( npc )
+	}
+	if ( unfreeze )
+	{
+		if ( npc.IsFrozen() )
+			npc.Unfreeze()
 	}
 }
 
@@ -2745,7 +2797,6 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 
 		// we're trying to warpfall an existing titan
 		// we don't want to show the titan nor destroying it... so we try to hide it
-		titan.SetInvulnerable()
 		if ( !titan.IsFrozen() )
 			titan.Freeze()
 		titan.NotSolid()
@@ -2755,12 +2806,9 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 		// move it to the sky so player won't notice it's here
 		titan.SetOrigin( origin + < 0, 0, 10000 > )
 
-		// dont let AI titan get enemies while dropping. Don't do trigger checks
+		// dont let AI titan get enemies while dropping. Don't do trigger checks, become invulnerable
 		// cleanup handled by NPCTitanHotdrops()
-		titan.SetEfficientMode( true )
-		titan.SetTouchTriggers( false )
-		titan.SetNoTarget( true )
-		titan.SetAimAssistAllowed( false )
+		ExtraSpawner_DisableSensingForNPC( titan, true )
 
 		asset model = titan.GetModelName()
 		Attachment warpAttach = GetAttachmentAtTimeFromModel( model, animation, "offset", origin, angles, 0 )
@@ -2796,7 +2844,7 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 		wait WARPFALL_FX_DELAY
 
 		// restore visibility
-		titan.ClearInvulnerable()
+		titan.ClearInvulnerable() // not cleaned by NPCTitanHotdrops() but was added by ExtraSpawner_DisableSensingForNPC(), needs to clean up
 		if ( titan.IsFrozen() )
 			titan.Unfreeze()
 		titan.Solid()
@@ -3333,12 +3381,8 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	SetDefaultMPEnemyHighlight( animGunship )
 	AddMinimapForNPC( animGunship ) // only dropships can show on map though, gunships are not trakced by client
 
-	// dont let AI titan get enemies while flying. Don't do trigger checks
-	animGunship.SetEfficientMode( true )
-	animGunship.SetTouchTriggers( false )
-	animGunship.SetNoTarget( true )
-	animGunship.SetAimAssistAllowed( false )
-	animGunship.SetInvulnerable()
+	// dont let AI titan get enemies while flying. Don't do trigger checks, become invulnerable
+	ExtraSpawner_DisableSensingForNPC( animGunship, true )
 	animGunship.NotSolid()
 
 	// fly in
@@ -3648,7 +3692,8 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
 	pilot.SetParent( pod, "ATTACH", true )
-	pilot.Hide() // we show them after pod landing! try to avoid sometimes they have wrong animation inside a droppod
+	// disable any sensing: dont let AI get enemies. Don't do trigger checks
+	ExtraSpawner_DisableSensingForNPC( pilot, true, true, true )
 
 	thread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
@@ -3659,7 +3704,9 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	pilot.SetNPCMoveSpeedScale( 1.8 ) // want this pilot run to titan's start point faster
 	thread NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet, false ) // passing the same embark set, don't waitthread
 	
-	thread ForceStartTitan( titan, pilot, 10 ) // to fit ownerLifeTimeCheck(), if pilot died instantly we stand the titan
+	thread ForceStartTitan( titan, pilot, 10 ) // to fit ownerLifeTimeCheck(), if pilot died we stand the titan
+	thread PilotSpawnProtection( pilot, titan, 20 ) // at least don't let players kill pilots while their titans're not landing
+
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
 
@@ -3670,17 +3717,19 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 				return
 			if( !IsAlive( pilot ) )
 			{
-				thread StandUnboardedTitan( titan )
+				// pilot died for some reason... force start titan ignoring ForceStartTitan()'s delay
+				// deprecated. no need to manually do this
+				//thread StandUnboardedTitan( titan )
 				return
 			}
 		}
 	)
 
 	wait podLaunchTime - 2.5 // wait for pod launch complete( wait 0.5s more )
-	pilot.Show()
 
+	// activate pod, releasing the pilot, don't clear it's invulerability
+	ExtraSpawner_RestoreSensingForNPC( pilot, false, true, true )
 	ActivateFireteamDropPod( pod, [ pilot ] )
-	thread PilotSpawnProtection( pilot, titan, 15 ) // at least don't let players kill pilots while their titans're not landing
 
 	NpcPilotSetPetTitan( pilot, titan )
 	titan.SetTitle( pilot.GetTitle() + " 's Auto-Titan" )
@@ -3692,6 +3741,8 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 
 void function StandUnboardedTitan( entity titan )
 {
+	titan.Signal( "StandUnboardedTitan" )
+	titan.EndSignal( "StandUnboardedTitan" )
 	titan.EndSignal( "OnDestroy" )
 
 	waitthread WaitForHotdropToEnd( titan )
@@ -3774,16 +3825,29 @@ void function PilotSpawnProtection( entity pilot, entity titan, float duration )
 	titan.EndSignal( "OnDestroy" ) // pilot's titan has been robbed?
 
 	pilot.SetInvulnerable()
+	pilot.SetNoTarget( true )
 	OnThreadEnd(
 		function(): ( pilot )
 		{
 			if( IsAlive( pilot ) )
+			{
 				pilot.ClearInvulnerable()
+				pilot.SetNoTarget( false )
+			}
 		}
 	)
 
-	wait duration
-	//pilot.ClearInvulnerable() // fixed: if pilots're killed before titan lands their titan will stuck in the sky!
+	// debugging version
+	// guess I'll keep it in any case we need it
+	float endTime = Time() + duration
+	while ( Time() < endTime )
+	{
+		//print( "pilot notarget state while spawn protection: " + string( pilot.GetNoTarget() ) )
+		WaitFrame()
+	}
+
+	//wait duration
+	//pilot.ClearInvulnerable() // fixed by reworked ForceStartTitan(): if pilots're killed before titan lands their titan will stuck in the sky!
 }
 
 void function ForceStartTitan( entity titan, entity pilot, float delay )
@@ -3801,8 +3865,9 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 				{
 					titan.SetOwner( pilot )
 					NPCFollowsNPC( titan, pilot )
-					// shared signals in _ai_pilots.gnut
-					pilot.Signal( "StopRunsToEmbark" ) // pilot will still embark if they reached titan
+					// shared function in _ai_pilots.gnut
+					// pilot will still embark if they reached titan because we're not calling NpcPilotStopEmbarkAttempts()
+					NpcPilotStopRunsToEmbark( pilot )
 					if( titan.ContextAction_IsBusy() ) // embarking?
 						return
 					// don't start titan handler. titan will follow the pilot
