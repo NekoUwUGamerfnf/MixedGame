@@ -309,6 +309,7 @@ void function ExtraAISpawner_Init()
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
 		MeleeSyncedNPC_EnableAll_Init()
+		AddClientCommandCallback( "killallspawnernpc", CC_KillAllNPCsFromExtraSpawner )
 		AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
 		AddClientCommandCallback( "tickreaper", CC_SpawnReaperCanLaunchTicks )
 		AddClientCommandCallback( "gunship", CC_SpawnGunShip )
@@ -1570,6 +1571,17 @@ void function ExtraSpawner_StopDefaultHandler( entity npc )
 //------------------------------------------------------
 // for debugging
 #if EXTRA_SPAWNER_DEBUG
+bool function CC_KillAllNPCsFromExtraSpawner( entity player, array<string> args )
+{
+	foreach ( entity npc, bool spawnFrom in file.npcSpawnFromExtraSpawner )
+	{
+		if ( IsAlive( npc ) )
+			npc.Die()
+	}
+
+	return true
+}
+
 bool function CC_SpawnPilotAndTitan( entity player, array<string> args )
 {   
 	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
@@ -1681,7 +1693,7 @@ bool function CC_SpawnBossTitan( entity player, array<string> args )
 	vector pos = GetPlayerCrosshairOrigin( player )
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
-	int team = TEAM_BOTH
+	int team = RandomIntRange( 2, 4 )
 
 	string bossType = args[0].tolower()
 	ExtraSpawner_SpawnBossTitan( pos, rot, team, bossType )
@@ -4127,8 +4139,9 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		bool isEjecting = titanSoul.IsEjecting()
 		if( isEjecting )
 			thread NPCPilotEjectingAnimation( pilot )
-		else // not ejecting, reset to normal behavior. this never happens cause there're no logic about npc pilot disembarking
-			ExtraSpawner_SetUpNPCDisembarkedTitan( titan )
+		
+		// setup disembarked behaviors
+		ExtraSpawner_SetUpNPCDisembarkedTitan( titan )
 
 		// kinda annoying to have a info target all around them.
 		//string aiSetFile = titan.GetAISettingsName()
@@ -4144,13 +4157,17 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	titan.SetBehaviorSelector( "behavior_mp_auto_titan" )
 	if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, true ) // restore synced melee for auto-titans
+	
 	// soul settings
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 	{
+		bool isEjecting = soul.IsEjecting() // we don't want to cleanup some stuff if titan is ejecting
+
 		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.0 ) // reset core build speed to normal
 		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, false ) // disable npc titan reward electric smoke usage
-		TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, false ) // stop using disembarked npc pilot for nuke
+		if ( !isEjecting )
+			TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, false ) // stop using disembarked npc pilot for nuke
 	}
 }
 
