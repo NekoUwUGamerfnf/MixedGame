@@ -198,7 +198,7 @@ function DeploySlowTrap( entity projectile )
 		// sp_enemy_pilot kinda bad, visible through viewmodel
 		//Highlight_SetFriendlyHighlight( tower, "sp_enemy_pilot" )
 		Highlight_SetFriendlyHighlight( tower, "sp_friendly_pilot" )
-		tower.Highlight_SetParam( 1, 0, < 3,3,3 > )
+		tower.Highlight_SetParam( 1, 0, < 3,3,3 > ) // white for teammates
 		Highlight_SetOwnedHighlight( tower, "sp_friendly_hero" )
 		//Highlight_SetEnemyHighlight( reaper, "enemy_titan" )
 	}
