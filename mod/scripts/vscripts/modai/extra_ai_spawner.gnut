@@ -195,6 +195,19 @@ struct EmbarkedNPCTitanStruct
 	string embarkedTitle = ""
 }
 
+// vanguard is the chassis that spawn with random loadout
+// BT model do have animations for them
+// here we store setfile so we can use OverwriteLoadoutWithDefaultsForSetFile() to get loadouts
+// and we'll need to store their unique behavior selector, loadout function, ETC
+// don't want to add specific spawn logic to allow vanguard choose a certain weapon or registering new weapons for them... that will be too complicated
+struct NPCVanguardLoadout
+{
+	string setFile
+	string behaviorSelector
+	void functionref( entity ) loadoutFunction // leave this empty means we'll use OverwriteLoadoutWithDefaultsForSetFile() to get loadouts
+	array<int> lockedAbilities // make some ability won't change on giving default loadout( melee is always unchanged, this doesn't affect loadoutFunction )
+}
+
 struct
 {
 	// modifiable variables( through functions )
@@ -210,6 +223,8 @@ struct
 	table<string, TitanSpawnStruct> titanSpawnList
 	// for ExtraSpawner_SpawnBossTitan() picking random titans
 	table<string, BossTitanSpawnStruct> bossTitanSpawnList
+	// for BossLoadout_Vanguard() picking random loadouts
+	array<NPCVanguardLoadout> npcVanguardLoadouts
 	// npc handler func
 	void functionref( array<entity> ) squadHandlerFunc
 	table< string, void functionref( entity ) > npcHandlerFuncs
@@ -259,6 +274,8 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "GunshipJetBurstEffect" )
 	// npc weapon bodygroup update
 	RegisterSignal( "StartUpdatingNPCWeaponBodyGroup" )
+	// npc pilot embarking
+	RegisterSignal( "StandUnboardedTitan" )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -298,7 +315,8 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
 		AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
 		AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
-		AddClientCommandCallback( "boss_intro", CC_SpawnBossTitanWithIntro )
+		AddClientCommandCallback( "bosstitan", CC_SpawnBossTitan )
+		AddClientCommandCallback( "bosstitan_intro", CC_SpawnBossTitanWithIntro )
 		AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 		AddClientCommandCallback( "fakespectre", CC_SpawnFakeMLTSpectre )
 		ExtraSpawner_SetNPCSecondaryWeapons( "npc_pilot_elite", ["mp_weapon_autopistol", "mp_weapon_semipistol"] )
@@ -597,7 +615,7 @@ void function InitDefaultTitanList()
 	ExtraSpawner_RegisterToTitanSpawnList
 	(
 		"brute",										// spawn name. unique
-		"titan_stryder_sniper",							// setFile
+		"titan_stryder_sniper",							// setFile. titan_stryder_rocketeer isn't implemented good enough for MP usage, using sniper instead. loadout handled by loadoutFunction
 		"npc_titan_auto_stryder_sniper",				// aiSet, rocketeer stryder don't have a autotitan aiSet
 		"execution_northstar_prime",					// executionRef, this one don't require weapons
 		// after being embarked by npcs
@@ -664,7 +682,7 @@ void function NPCBruteLoadout( entity titan )
 {
 	TakeAllWeapons( titan )
 	//Weapon
-	titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["brute_rocket"] )
+	titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["brute_rocket", "disable_run_and_gun_server"] )
 	//Defence
 	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex"] )
 	// Utility
@@ -931,11 +949,11 @@ void function InitDefaultBossTitanList()
 		"jack",											// spawn name. unique
 		"",												// boss name. leave empty if this is not a valid boss titan
 		"titan_buddy",									// setFile
-		"npc_titan_buddy",								// aiSet
+		"npc_titan_vanguard",							// aiSet. was using npc_titan_buddy but it won't show health bar
 		"behavior_titan",								// titan behavior
 		"execution_bt",									// executionRef
-		"#NPC_BT_NAME",									// boss title
-		"傑克庫柏",										// pilot title. can't use localized string
+		"#PATCH_PILOT2",								// boss title. was using #NPC_BT_NAME but it's not very identical as other bosses
+		"傑克",											// pilot title. can't use localized string
 		$"models/humans/heroes/mlt_hero_jack.mdl",		// character model
 		BossLoadout_Jack, 								// loadout function
 		-1,												// skin index, -1 means don't reset
@@ -948,7 +966,7 @@ void function InitDefaultBossTitanList()
 		"sarah",										// spawn name. unique
 		"",												// boss name. leave empty if this is not a valid boss titan
 		"titan_buddy",									// setFile
-		"npc_titan_buddy",								// aiSet
+		"npc_titan_vanguard",							// aiSet. was using npc_titan_buddy but it won't show health bar
 		"behavior_titan",								// titan behavior
 		"execution_bt",									// executionRef
 		"#FACTION_LEADER_NAME_SARAH",					// boss title
@@ -977,6 +995,26 @@ void function InitDefaultBossTitanList()
 		-1												// decal index, -1 means don't reset
 	)
 	*/
+
+	// vanguard
+	// vanguard is the chassis that spawn with random loadout
+	InitNPCVanguardLoadouts()
+	// not doing it in normal titans because it has unique aiSet and bad embark animation...
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"vanguard",										// spawn name. unique
+		"",												// boss name. leave empty if this is not a valid boss titan
+		"titan_buddy",									// setFile
+		"npc_titan_vanguard",							// aiSet. was using npc_titan_buddy but it won't show health bar
+		"behavior_titan_buddy",							// titan behavior, we'll need to update it in loadout function, here's just a placeholder
+		"execution_bt",									// executionRef
+		"#NPC_TITAN_VANGUARD_SP",						// boss title
+		"Pilot",										// pilot title. can't use localized string
+		$"",											// character model. leaving empty meaning it will pick a random one
+		BossLoadout_Vanguard, 							// loadout function
+		1,												// skin index
+		0												// decal index
+	)
 }
 //
 
@@ -1003,8 +1041,10 @@ void function BossLoadout_Generic_IMCBoss( entity titan )
 
 void function BossLoadout_Jack( entity titan )
 {
-	// bt require a "squad" to spawn
-	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "ZiplineTable" ) )
+	// require a unique squad to spawn AIClass titan_buddy
+	// because all titan_buddy will be assigned to the same "bt" squad
+	// if we spawn an enemy buddy titan we'll crush
+	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
 	SetSquad( titan, squadName )
 
 	// re-assign weapons
@@ -1029,8 +1069,10 @@ void function BossLoadout_Jack( entity titan )
 
 void function BossLoadout_Sarah( entity titan )
 {
-	// bt require a "squad" to spawn
-	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "ZiplineTable" ) )
+	// require a unique squad to spawn AIClass titan_buddy
+	// because all titan_buddy will be assigned to the same "bt" squad
+	// if we spawn an enemy buddy titan we'll crush
+	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
 	SetSquad( titan, squadName )
 
 	// re-assign weapons
@@ -1078,6 +1120,152 @@ void function BossLoadout_SarahMonarch( entity titan )
 
 	// may needs to update spawn loadout
 	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
+}
+
+// NPC vanguard loadouts, hardcoded!
+void function InitNPCVanguardLoadouts()
+{
+	NPCVanguardLoadout emptyLoadout
+
+	// expedition
+	NPCVanguardLoadout expeditionLoadout = clone emptyLoadout
+	expeditionLoadout.setFile = "titan_buddy"
+	expeditionLoadout.behaviorSelector = "behavior_titan"
+	expeditionLoadout.loadoutFunction = VanguardExpeditionLoadout
+	file.npcVanguardLoadouts.append( expeditionLoadout )
+
+	// ion
+	NPCVanguardLoadout ionLoadout = clone emptyLoadout
+	ionLoadout.setFile = "titan_atlas_stickybomb"
+	ionLoadout.behaviorSelector = "behavior_titan"
+	ionLoadout.loadoutFunction = null
+	file.npcVanguardLoadouts.append( ionLoadout )
+
+	// tone
+	NPCVanguardLoadout toneLoadout = clone emptyLoadout
+	toneLoadout.setFile = "titan_atlas_tracker"
+	toneLoadout.behaviorSelector = "behavior_titan_long_range"
+	toneLoadout.loadoutFunction = null
+	file.npcVanguardLoadouts.append( toneLoadout )
+
+	// ronin
+	NPCVanguardLoadout roninLoadout = clone emptyLoadout
+	roninLoadout.setFile = "titan_stryder_leadwall"
+	roninLoadout.behaviorSelector = "behavior_titan_shotgun"
+	roninLoadout.loadoutFunction = null
+	file.npcVanguardLoadouts.append( roninLoadout )
+
+	// northstar
+	NPCVanguardLoadout northstarLoadout = clone emptyLoadout
+	northstarLoadout.setFile = "titan_stryder_sniper"
+	northstarLoadout.behaviorSelector = "behavior_titan_sniper"
+	northstarLoadout.loadoutFunction = null
+	northstarLoadout.lockedAbilities = [OFFHAND_ANTIRODEO, OFFHAND_EQUIPMENT] // BT can't use hover abilities
+	file.npcVanguardLoadouts.append( northstarLoadout )
+
+	// brute
+	NPCVanguardLoadout bruteLoadout = clone emptyLoadout
+	bruteLoadout.setFile = "titan_stryder_sniper" // titan_stryder_rocketeer isn't implemented good enough for MP usage, using sniper instead. loadout handled by loadoutFunction
+	bruteLoadout.behaviorSelector = "behavior_titan_rocketeer"
+	bruteLoadout.loadoutFunction = VanguardBruteLoadout
+	file.npcVanguardLoadouts.append( bruteLoadout )
+
+	// legion
+	NPCVanguardLoadout legionLoadout = clone emptyLoadout
+	legionLoadout.setFile = "titan_ogre_minigun"
+	legionLoadout.behaviorSelector = "behavior_titan_minigun"
+	legionLoadout.loadoutFunction = null
+	file.npcVanguardLoadouts.append( legionLoadout )
+
+	// scorch
+	NPCVanguardLoadout scorchLoadout = clone emptyLoadout
+	scorchLoadout.setFile = "titan_ogre_meteor"
+	scorchLoadout.behaviorSelector = "behavior_titan_meteor"
+	scorchLoadout.loadoutFunction = null
+	file.npcVanguardLoadouts.append( scorchLoadout )
+}
+
+void function BossLoadout_Vanguard( entity titan )
+{
+	// require a unique squad to spawn AIClass titan_buddy
+	// because all titan_buddy will be assigned to the same "bt" squad
+	// if we spawn an enemy buddy titan we'll crush
+	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
+	SetSquad( titan, squadName )
+	
+	// generic setup for vanguard
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( soul, false )	// disable earnmeter smoke availability, they already have electric smoke
+		MeleeSyncedTitan_SetSoulCanBeExecuted( soul, false ) // cannot execute BT, they don't have enough animations
+		Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // bt don't have battery on hatch, don't allow removing
+	}
+
+	// start giving loadout
+	NPCVanguardLoadout pickedLoadout = file.npcVanguardLoadouts[ RandomInt( file.npcVanguardLoadouts.len() ) ]
+	// update behavior first, so loadout functions can modify it
+	titan.SetBehaviorSelector( pickedLoadout.behaviorSelector )
+	// modified loadout case
+	if ( pickedLoadout.loadoutFunction != null )
+		pickedLoadout.loadoutFunction( titan )
+	else // vanilla loadout case
+	{
+		TitanLoadoutDef titanLoadout
+    	titanLoadout.setFile = pickedLoadout.setFile
+		OverwriteLoadoutWithDefaultsForSetFile( titanLoadout )
+		// manually apply loadout! only weapons are needed
+		// directly modify this struct is all good
+		TakeAllWeapons( titan )
+		if ( titanLoadout.primary != "" )
+		{
+			titanLoadout.primaryMods.removebyvalue( "" ) // primaryMods can have invalid values
+			titan.GiveWeapon( titanLoadout.primary, titanLoadout.primaryMods )
+		}
+		if ( titanLoadout.ordnance != "" && !pickedLoadout.lockedAbilities.contains( OFFHAND_ORDNANCE ) )
+			titan.GiveOffhandWeapon( titanLoadout.ordnance, OFFHAND_ORDNANCE, titanLoadout.ordnanceMods )
+		if ( titanLoadout.special != "" && !pickedLoadout.lockedAbilities.contains( OFFHAND_SPECIAL ) )
+			titan.GiveOffhandWeapon( titanLoadout.special, OFFHAND_SPECIAL, titanLoadout.specialMods )
+		if ( titanLoadout.antirodeo != "" && !pickedLoadout.lockedAbilities.contains( OFFHAND_ANTIRODEO ) )
+			titan.GiveOffhandWeapon( titanLoadout.antirodeo, OFFHAND_ANTIRODEO, titanLoadout.antirodeoMods )
+		if ( titanLoadout.coreAbility != "" && !pickedLoadout.lockedAbilities.contains( OFFHAND_EQUIPMENT ) )
+			titan.GiveOffhandWeapon( titanLoadout.coreAbility, OFFHAND_EQUIPMENT )
+		// vanguard should never replaces melee weapon
+		//if ( titanLoadout.melee != "" )
+		//	titan.GiveOffhandWeapon( titanLoadout.melee, OFFHAND_MELEE )
+	}
+}
+
+// loadout functions for vanguard
+void function VanguardExpeditionLoadout( entity titan )
+{
+	// re-assign weapons
+	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
+	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["arc_rounds"] ) // use the arc-rounds monarch xo16
+	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix weapon mod
+	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
+}
+
+void function VanguardBruteLoadout( entity titan )
+{
+	TakeAllWeapons( titan )
+	//Weapon
+	titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["brute_rocket", "disable_run_and_gun_server"] )
+	//Defence
+	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex"] )
+	// Utility. leaving it unchanged, vanguard can't use hover
+	//titan.GiveOffhandWeapon( "mp_titanability_hover", OFFHAND_ANTIRODEO )
+	titan.GiveOffhandWeapon( "mp_titanability_smoke", OFFHAND_ANTIRODEO )
+	//Offence
+	//titan.GiveOffhandWeapon( "mp_titanweapon_shoulder_rockets", OFFHAND_ORDNANCE )
+	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["brute4_grenade_volley"] )
+	//Titan Core. leaving it unchanged, vanguard can't use hover
+	//titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT )
+	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["npc_bt_balance"] )
+	//Melee
+	// vanguard should never replaces melee weapon
+	//titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
 }
 
 void function InitDefaultNPCHandlerFunctions()
@@ -1227,6 +1415,56 @@ void function ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( entity titan )
 			DF_RAGDOLL | DF_EXPLOSION,			// script damage flags
 			damagedef_nuclear_core				// damage source
 		)
+	}
+}
+
+// disable any sensing: dont let AI get enemies. Don't do trigger checks
+// mainly used for scripted npc stuffs
+void function ExtraSpawner_DisableSensingForNPC( entity npc, bool invulnerable = false, bool hide = false, bool freeze = false )
+{
+	npc.SetEfficientMode( true )
+	npc.SetTouchTriggers( false )
+	npc.SetAimAssistAllowed( false )
+
+	if ( invulnerable )
+	{
+		npc.SetInvulnerable()
+		npc.SetNoTarget( true ) // notarget bind together with invulnerablility
+	}
+	if ( hide )
+	{
+		npc.Hide()
+		HideName( npc )
+		RemoveMinimapForNPC( npc )
+	}
+	if ( freeze )
+	{
+		if ( !npc.IsFrozen() )
+			npc.Freeze()
+	}
+}
+
+void function ExtraSpawner_RestoreSensingForNPC( entity npc, bool vulnerable = false, bool show = false, bool unfreeze = false )
+{
+	npc.SetEfficientMode( false )
+	npc.SetTouchTriggers( true )
+	npc.SetAimAssistAllowed( true )
+
+	if ( vulnerable )
+	{
+		npc.ClearInvulnerable()
+		npc.SetNoTarget( false )
+	}
+	if ( show )
+	{
+		npc.Show()
+		ShowName( npc )
+		AddMinimapForNPC( npc )
+	}
+	if ( unfreeze )
+	{
+		if ( npc.IsFrozen() )
+			npc.Unfreeze()
 	}
 }
 
@@ -1426,6 +1664,28 @@ bool function CC_SpawnPilotElite( entity player, array<string> args )
 	//pilot.GiveWeapon( "mp_weapon_defender" )
 	//pilot.GiveWeapon( "mp_weapon_pulse_lmg" )
 	//pilot.GiveWeapon( "mp_weapon_hemlok" )
+	return true
+}
+
+bool function CC_SpawnBossTitan( entity player, array<string> args )
+{
+	if ( !GetConVarBool( "sv_cheats" ) )
+	{
+		if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+			return false
+	}
+
+	if ( args.len() == 0 )
+		return true
+
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+	int team = TEAM_BOTH
+
+	string bossType = args[0].tolower()
+	ExtraSpawner_SpawnBossTitan( pos, rot, team, bossType )
+
 	return true
 }
 
@@ -2622,7 +2882,6 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 
 		// we're trying to warpfall an existing titan
 		// we don't want to show the titan nor destroying it... so we try to hide it
-		titan.SetInvulnerable()
 		if ( !titan.IsFrozen() )
 			titan.Freeze()
 		titan.NotSolid()
@@ -2632,12 +2891,9 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 		// move it to the sky so player won't notice it's here
 		titan.SetOrigin( origin + < 0, 0, 10000 > )
 
-		// dont let AI titan get enemies while dropping. Don't do trigger checks
+		// dont let AI titan get enemies while dropping. Don't do trigger checks, become invulnerable
 		// cleanup handled by NPCTitanHotdrops()
-		titan.SetEfficientMode( true )
-		titan.SetTouchTriggers( false )
-		titan.SetNoTarget( true )
-		titan.SetAimAssistAllowed( false )
+		ExtraSpawner_DisableSensingForNPC( titan, true )
 
 		asset model = titan.GetModelName()
 		Attachment warpAttach = GetAttachmentAtTimeFromModel( model, animation, "offset", origin, angles, 0 )
@@ -2673,7 +2929,7 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 		wait WARPFALL_FX_DELAY
 
 		// restore visibility
-		titan.ClearInvulnerable()
+		titan.ClearInvulnerable() // not cleaned by NPCTitanHotdrops() but was added by ExtraSpawner_DisableSensingForNPC(), needs to clean up
 		if ( titan.IsFrozen() )
 			titan.Unfreeze()
 		titan.Solid()
@@ -2748,7 +3004,7 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	{
 	    Remote_CallFunction_Replay( player, "ServerCallback_ReplacementTitanSpawnpoint", pos.x, pos.y, pos.z, Time() + 5 )
 	}
-	string squadName = MakeSquadName( team, UniqueString( "ZiplineTable" ) )
+	
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, "npc_titan_buddy")
 	//SetSpawnOption_NPCTitan( titan, TITAN_HENCH ) // mp don't need boss titan setting
@@ -2758,15 +3014,20 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	file.npcSpawnFromExtraSpawner[ titan ] <- true
 	DispatchSpawn( titan )
 
+	// require a unique squad to spawn AIClass titan_buddy
+	// because all titan_buddy will be assigned to the same "bt" squad
+	// if we spawn an enemy buddy titan we'll crush
+	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
+	SetSquad( titan, squadName )
+
+	thread ExtraSpawner_NPCTitanDrops( titan )
+
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix mod
 	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
 	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
 	//titan.SetSkin(1) // sarah skin
-	SetSquad( titan, squadName )
-
-	thread ExtraSpawner_NPCTitanDrops( titan )
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
@@ -3174,12 +3435,8 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	SetDefaultMPEnemyHighlight( animGunship )
 	AddMinimapForNPC( animGunship ) // only dropships can show on map though, gunships are not trakced by client
 
-	// dont let AI titan get enemies while flying. Don't do trigger checks
-	animGunship.SetEfficientMode( true )
-	animGunship.SetTouchTriggers( false )
-	animGunship.SetNoTarget( true )
-	animGunship.SetAimAssistAllowed( false )
-	animGunship.SetInvulnerable()
+	// dont let AI titan get enemies while flying. Don't do trigger checks, become invulnerable
+	ExtraSpawner_DisableSensingForNPC( animGunship, true )
 	animGunship.NotSolid()
 
 	// fly in
@@ -3188,7 +3445,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	thread WarpInEffectGunship( animGunship )
     WaittillAnimDone( animGunship )
 
-	vector offset = < 0, 0, -5 > // actual spawnpoint is not identical as animation's origin
+	vector offset = < 0, 0, -30 > // actual spawnpoint is not identical as animation's origin( doesn't really affects )
 	vector spawnpoint = animGunship.GetOrigin() + offset
 	vector spawnang = animGunship.GetAngles()
 
@@ -3480,7 +3737,8 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	InitFireteamDropPod( pod, eDropPodFlag.DISSOLVE_AFTER_DISEMBARKS ) // for fast dissolving
 	pilot.SetParent( pod, "ATTACH", true )
-	pilot.Hide() // we show them after pod landing! try to avoid sometimes they have wrong animation inside a droppod
+	// disable any sensing: dont let AI get enemies. Don't do trigger checks
+	ExtraSpawner_DisableSensingForNPC( pilot, true, true, true )
 
 	thread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
@@ -3491,7 +3749,9 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	pilot.SetNPCMoveSpeedScale( 1.8 ) // want this pilot run to titan's start point faster
 	thread NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet, false ) // passing the same embark set, don't waitthread
 	
-	thread ForceStartTitan( titan, pilot, 10 ) // to fit ownerLifeTimeCheck(), if pilot died instantly we stand the titan
+	thread ForceStartTitan( titan, pilot, 10 ) // to fit ownerLifeTimeCheck(), if pilot died we stand the titan
+	thread PilotSpawnProtection( pilot, titan, 20 ) // at least don't let players kill pilots while their titans're not landing
+
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
 
@@ -3502,17 +3762,19 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 				return
 			if( !IsAlive( pilot ) )
 			{
-				thread StandUnboardedTitan( titan )
+				// pilot died for some reason... force start titan ignoring ForceStartTitan()'s delay
+				// deprecated. no need to manually do this
+				//thread StandUnboardedTitan( titan )
 				return
 			}
 		}
 	)
 
 	wait podLaunchTime - 2.5 // wait for pod launch complete( wait 0.5s more )
-	pilot.Show()
 
+	// activate pod, releasing the pilot, don't clear it's invulerability
+	ExtraSpawner_RestoreSensingForNPC( pilot, false, true, true )
 	ActivateFireteamDropPod( pod, [ pilot ] )
-	thread PilotSpawnProtection( pilot, titan, 15 ) // at least don't let players kill pilots while their titans're not landing
 
 	NpcPilotSetPetTitan( pilot, titan )
 	titan.SetTitle( pilot.GetTitle() + " 的自動泰坦" )
@@ -3524,6 +3786,8 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 
 void function StandUnboardedTitan( entity titan )
 {
+	titan.Signal( "StandUnboardedTitan" )
+	titan.EndSignal( "StandUnboardedTitan" )
 	titan.EndSignal( "OnDestroy" )
 
 	waitthread WaitForHotdropToEnd( titan )
@@ -3606,16 +3870,29 @@ void function PilotSpawnProtection( entity pilot, entity titan, float duration )
 	titan.EndSignal( "OnDestroy" ) // pilot's titan has been robbed?
 
 	pilot.SetInvulnerable()
+	pilot.SetNoTarget( true )
 	OnThreadEnd(
 		function(): ( pilot )
 		{
 			if( IsAlive( pilot ) )
+			{
 				pilot.ClearInvulnerable()
+				pilot.SetNoTarget( false )
+			}
 		}
 	)
 
-	wait duration
-	//pilot.ClearInvulnerable() // fixed: if pilots're killed before titan lands their titan will stuck in the sky!
+	// debugging version
+	// guess I'll keep it in any case we need it
+	float endTime = Time() + duration
+	while ( Time() < endTime )
+	{
+		//print( "pilot notarget state while spawn protection: " + string( pilot.GetNoTarget() ) )
+		WaitFrame()
+	}
+
+	//wait duration
+	//pilot.ClearInvulnerable() // fixed by reworked ForceStartTitan(): if pilots're killed before titan lands their titan will stuck in the sky!
 }
 
 void function ForceStartTitan( entity titan, entity pilot, float delay )
@@ -3633,8 +3910,9 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 				{
 					titan.SetOwner( pilot )
 					NPCFollowsNPC( titan, pilot )
-					// shared signals in _ai_pilots.gnut
-					pilot.Signal( "StopRunsToEmbark" ) // pilot will still embark if they reached titan
+					// shared function in _ai_pilots.gnut
+					// pilot will still embark if they reached titan because we're not calling NpcPilotStopEmbarkAttempts()
+					NpcPilotStopRunsToEmbark( pilot )
 					if( titan.ContextAction_IsBusy() ) // embarking?
 						return
 					// don't start titan handler. titan will follow the pilot
@@ -4478,7 +4756,9 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	entity reaper = CreateSuperSpectre( team, pos, rot )
 	reaper.EndSignal( "OnDestroy" )
 	// reaper highlight
-	Highlight_SetFriendlyHighlight( reaper, "sp_enemy_pilot" )
+	// sp_enemy_pilot kinda bad, visible through viewmodel
+	//Highlight_SetFriendlyHighlight( reaper, "sp_enemy_pilot" )
+	Highlight_SetFriendlyHighlight( reaper, "sp_friendly_pilot" ) // vanilla seems using this
 	reaper.Highlight_SetParam( 1, 0, HIGHLIGHT_COLOR_FRIENDLY )
 	reaper.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( reaper )

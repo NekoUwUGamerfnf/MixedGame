@@ -195,8 +195,10 @@ function DeploySlowTrap( entity projectile )
 		//tower.SetOwner( owner ) // still can't set owner, which will cause tower to have no collision
 		tower.SetBossPlayer( owner )
 		tower.e.noOwnerFriendlyFire = false
-		Highlight_SetFriendlyHighlight( tower, "sp_enemy_pilot" )
-		tower.Highlight_SetParam( 1, 0, < 3,3,3 > )
+		// sp_enemy_pilot kinda bad, visible through viewmodel
+		//Highlight_SetFriendlyHighlight( tower, "sp_enemy_pilot" )
+		Highlight_SetFriendlyHighlight( tower, "sp_friendly_pilot" )
+		tower.Highlight_SetParam( 1, 0, < 3,3,3 > ) // white for teammates
 		Highlight_SetOwnedHighlight( tower, "sp_friendly_hero" )
 		//Highlight_SetEnemyHighlight( reaper, "enemy_titan" )
 	}

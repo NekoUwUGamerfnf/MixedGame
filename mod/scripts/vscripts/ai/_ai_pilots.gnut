@@ -6,13 +6,20 @@ global function AiPilots_Init
 #if NPC_TITAN_PILOT_PROTOTYPE
 global function NpcPilotRunsToEmbarkTitan
 global function NpcPilotEmbarksTitan
+
+// vanilla missing behavior controller
+global function NpcPilotStopRunsToEmbark
+global function NpcPilotStopEmbarkAttempts
+
 global function NpcPilotDisembarksTitan
 global function NpcPilotBecomesTitan
+
 global function NpcTitanBecomesPilot
 global function TitanHasNpcPilot
 global function NpcPilotGetPetTitan
 global function NpcPilotSetPetTitan
-// vanilla missing
+
+// vanilla missing utility function
 global function GetTitanNpcPilotPetOwner
 global function TitanIsNpcPilotPetTitan
 #endif
@@ -68,14 +75,16 @@ function AiPilots_Init()
 	// modified
 	AddSpawnCallback( "npc_pilot_elite", OnNpcPilotSpawned )
 	RegisterSignal( "StopRunsToEmbark" )
+	RegisterSignal( "StopEmbarkAttempts" )
 }
 
 // modified
-// we could have setup npc pilot here
+// we could have setup npc pilot here, not by CaptainThink()( which has been removed )
 void function OnNpcPilotSpawned( entity pilot )
 {
 	pilot.s.petTitan <- null
-	pilot.s.nextTitanRespawnAvailable <- null
+	//pilot.s.nextTitanRespawnAvailable <- null // unused in my version
+	pilot.s.attemptingEmbark <- false // so we can manually cancel embarking
 }
 
 function ScriptCallback_OnNpcPilotBecomesTitan( pilot, titan )
@@ -142,9 +151,22 @@ void function NpcPilotRunsToEmbarkTitan( entity pilot, entity titan, embarkSet =
 	titan.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
-	pilot.EndSignal( "StopRunsToEmbark" ) // for manually cancel embarks
 
-	pilot.SetNoTarget( true )
+	// modified, for manually cancel embarks
+	// if code already hits NpcPilotEmbarksTitan(), also need to do NpcPilotStopEmbarkAttempts()
+	pilot.EndSignal( "StopRunsToEmbark" )
+
+	// modified, if pilot already have noTarget we don't do it again!
+	//pilot.SetNoTarget( true )
+	table results = {
+		enabledNoTarget = false
+		canMoveAndShoot = false
+	}
+	if ( !pilot.GetNoTarget() )
+	{
+		pilot.SetNoTarget( true )
+		results.enabledNoTarget = true
+	}
 	pilot.Anim_Stop()
 	// want they move faster to their titans
 	//pilot.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE )
@@ -152,22 +174,29 @@ void function NpcPilotRunsToEmbarkTitan( entity pilot, entity titan, embarkSet =
 	pilot.DisableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE | NPCMF_FOLLOW_SAFE_PATHS )
 	pilot.EnableNPCMoveFlag( NPCMF_DISABLE_DANGEROUS_AREA_DISPLACEMENT | NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	pilot.DisableArrivalOnce( true )
-	bool canMoveAndShoot = pilot.GetCapabilityFlag( bits_CAP_MOVE_SHOOT )
+	// change to table for storing
+	//bool canMoveAndShoot = pilot.GetCapabilityFlag( bits_CAP_MOVE_SHOOT )
+	results.canMoveAndShoot = pilot.GetCapabilityFlag( bits_CAP_MOVE_SHOOT )
 	pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
 
 	OnThreadEnd(
-		function () : ( pilot, canMoveAndShoot )
+		// change to table for storing
+		//function () : ( pilot, canMoveAndShoot )
+		function () : ( pilot, results )
 		{
 			//print( "NpcPilotRunsToEmbarkTitan: OnThreadEnd()!" )
 			if ( !IsAlive( pilot ) )
 				return
 
-			pilot.SetNoTarget( false )
+			if ( results.enabledNoTarget )
+				pilot.SetNoTarget( false )
 			//pilot.EnableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE )
 			//pilot.DisableNPCMoveFlag( NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 			pilot.EnableNPCMoveFlag( NPCMF_INDOOR_ACTIVITY_OVERRIDE | NPCMF_FOLLOW_SAFE_PATHS )
 			pilot.DisableNPCMoveFlag( NPCMF_DISABLE_DANGEROUS_AREA_DISPLACEMENT | NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
-			pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, canMoveAndShoot )
+			// change to table for storing
+			//pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, canMoveAndShoot )
+			pilot.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, results.canMoveAndShoot )
 		}
 	)
 
@@ -188,6 +217,12 @@ void function NpcPilotRunsToEmbarkTitan( entity pilot, entity titan, embarkSet =
 		waitthread RunToAnimStartForced_Deprecated( pilot, pilotAnim, titan, "hijack", true, true )
 	else
 		thread RunToAnimStartForced_Deprecated( pilot, pilotAnim, titan, "hijack", true, true )
+}
+
+// modified function
+void function NpcPilotStopRunsToEmbark( entity pilot )
+{
+	pilot.Signal( "StopRunsToEmbark" )
 }
 
 /************************************************************************************************\
@@ -213,21 +248,49 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
 
-	/* // move to actual embarking animation
-	OnThreadEnd(
-		function () : ( titan, pilot )
-		{
-			if ( IsAlive( titan ) )
-			{
-				if ( titan.ContextAction_IsBusy() )
-					titan.ContextAction_ClearBusy()
-				titan.ClearInvulnerable()
+	// modified, for manually cancel embark attempts
+	pilot.EndSignal( "StopEmbarkAttempts" )
 
-				Assert( !IsAlive( pilot ) )
+	// mark as pilot is attempting embark
+	pilot.s.attemptingEmbark = true
+
+	// modified results think
+	table result = {
+		embarkSequenceTriggered = false
+		embarkSucceeded = false // since we've removed invulnerable for titan, needs to handle titan killed condition
+	}
+
+	// OnThreadEnd() before first wait starts
+	OnThreadEnd
+	(
+		function(): ( pilot, titan, result )
+		{
+			// embark sequence has been found and performing
+			if ( result.embarkSequenceTriggered )
+			{
+				if ( IsAlive( titan ) )
+				{
+					if ( titan.ContextAction_IsBusy() )
+						titan.ContextAction_ClearBusy()
+				}
+
+				// function didn't reach last line
+				if ( !result.embarkSucceeded )
+				{
+					if ( !IsAlive( titan ) && IsAlive( pilot ) ) // titan killed but pilot still alive
+					{
+						if ( IsValid( titan ) )
+							titan.Anim_Stop() // stop anim for dead titan!
+						pilot.Die( null, null, { damageSourceId = damagedef_suicide, scriptType = DF_RAGDOLL } ) // kill the pilot!
+					}
+				}
+			}
+			else // embark sequence not found yet. because pilot died or manually cancelled function...
+			{
+				pilot.s.attemptingEmbark = false
 			}
 		}
 	)
-	*/
 
 	local titanSubClass = GetSoulTitanSubClass( titan.GetTitanSoul() )
 	local embarkSet = FindBestEmbark( pilot, titan )
@@ -264,30 +327,6 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 
 	if ( IsCloaked( pilot ) )
 		pilot.SetCloakDuration( 0, 0, 1.5 )
-
-	// since we've removed invulnerable for titan, needs to handle titan killed condition
-	table result = {
-		embarkSucceeded = false
-	}
-
-	OnThreadEnd
-	(
-		function(): ( pilot, titan, result )
-		{
-			if ( IsAlive( titan ) )
-			{
-				if ( titan.ContextAction_IsBusy() )
-					titan.ContextAction_ClearBusy()
-			}
-
-			if ( !result.embarkSucceeded ) // function didn't reach last line
-			{
-				if ( !IsAlive( titan ) && IsAlive( pilot ) ) // titan killed but pilot still alive
-					pilot.Die( null, null, { damageSourceId = damagedef_suicide, scriptType = DF_RAGDOLL } ) // kill the pilot!
-			}
-		}
-	)
-	//
 	
 	// this fucks things up
 	//pilot.SetParent( titan, "hijack", false, 0.5 ) //the time is just in case their not exactly at the right starting position
@@ -295,10 +334,18 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 	//thread PlayAnim( pilot, pilotAnim, titan, "hijack" )
 	//waitthread PlayAnim( titan, titanAnim )
 
+	// mark as we've triggerred embark sequence
+	result.embarkSequenceTriggered = true
+	// pilot have found embarkSet
+	pilot.s.attemptingEmbark = false
+
 	// invulnerable done here, titan never get invulnerable.
 	local isInvulnerable = pilot.IsInvulnerable()
 	pilot.SetInvulnerable()
 	//titan.SetInvulnerable()
+	// vanilla missing, shouldn't let other npcs target embarking pilots
+	// no need to clean up because after embarking pilot will be destroyed; if embarking failed pilot will be killed
+	pilot.SetNoTarget( true ) 
 
 	// better one!
 	HideName( pilot )
@@ -313,6 +360,16 @@ function NpcPilotEmbarksTitan( entity pilot, entity titan )
 	result.embarkSucceeded = true // mark as embark succeeded
 
 	NpcPilotBecomesTitan( pilot, titan )
+}
+
+// modified function
+void function NpcPilotStopEmbarkAttempts( entity pilot )
+{
+	// should only signal this if pilot is marked as "attempting embark"
+	// otherwise if we hit OnThreadEnd() in NpcPilotEmbarksTitan() while pilot succeeded attempt and starts embarking
+	// they'll be killed for no reason
+	if ( pilot.s.attemptingEmbark )
+		pilot.Signal( "StopEmbarkAttempts" )
 }
 
 entity function NpcPilotDisembarksTitan( entity titan )
