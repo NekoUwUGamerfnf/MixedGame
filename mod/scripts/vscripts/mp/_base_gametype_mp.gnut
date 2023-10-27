@@ -680,7 +680,10 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	if ( shouldDoReplay )
 	{
 		table replayTracker = { validTime = null } // required to track replay victim destroy time
-		thread TrackDestroyTimeForReplay( attacker, replayTracker )
+		thread TrackDestroyTimeForReplay( attacker, replayTracker ) // shared from base_gametype.gnut
+		// due we added modified death cam, for players we'll need to track respawn time
+		if ( attacker.IsPlayer() )
+			thread TrackRespawnTimeForReplay( attacker, replayTracker )
 		// try to do delayed replay	
 		float actualReplayStartDelay = replayStartDelay + deathcamLength // always wait for death cam to end before we do any replay
 		// debug
@@ -933,6 +936,29 @@ void function TrackPlayerDeathCamTargetRespawn( entity player, entity target )
 	// Clear Target on target's respawn
 	WaitSignal( target, "RespawnMe", "OnRespawned", "PlayerRespawnStarted" )
 	player.SetObserverTarget( null )
+}
+
+// due we added modified death cam, for players we'll need to track respawn time
+void function TrackRespawnTimeForReplay( entity attacker, table replayTracker )
+{
+	float startTime = Time()
+	// tracks the time until the attacker respawn
+	EndSignal( replayTracker, "OnDestroy" )
+
+	OnThreadEnd(
+		function () : ( replayTracker, startTime )
+		{
+			// to avoid conflict with TrackDestroyTimeForReplay() ( technically it never happens because destroyed entity won't trigger endSignals )
+			// we should only update validTime if it's staying null
+			if ( replayTracker.validTime == null )
+				replayTracker.validTime = Time() - startTime
+		}
+	)
+
+	if ( IsAlive( attacker ) )
+		WaitSignal( attacker, "RespawnMe", "OnRespawned", "PlayerRespawnStarted" )
+	else
+		WaitSignalOnDeadEnt( attacker, "RespawnMe", "OnRespawned", "PlayerRespawnStarted" )
 }
 //
 
