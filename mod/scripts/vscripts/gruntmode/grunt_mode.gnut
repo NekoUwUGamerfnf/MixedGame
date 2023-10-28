@@ -1,28 +1,31 @@
 untyped
 global function Modded_Gamemode_GruntMode_Init
 
-// npc counts
+// npc counts default value
+// can be modified by playlistvar
 const int SQUADS_PER_TEAM = 5
 //const int SQUADS_PER_TEAM_MORE_PLAYERS = 3 // maybe do reduced squad if we have more players and reached higher level
 const int SQUADS_PER_TEAM_HIGH_LEVEL = 3 // maybe do reduced squad if we have reached higher level
-const int REAPERS_PER_TEAM = 2 // was 2, reduced reaper spawn since we're using tick spawner reapers
 
 const int MARVINS_PER_TEAM = 0
 const int PROWLERS_PER_TEAM = 3
 const int PROWLER_SQUADS_PER_TEAM = 0 // prowler squad: 2 cqb prowler with 3 small prowlers
-const int PILOTS_PER_TEAM = 3
 
-const int TITANS_PER_TEAM = 0
+const int REAPERS_PER_TEAM = 2 // was 3, reduced reaper spawn since we're using tick spawner reapers
 const int GUNSHIPS_PER_TEAM = 2
+
+const int PILOTS_PER_TEAM = 3
+const int TITANS_PER_TEAM = 0
 
 const float WEAPON_PACKAGE_INTERVAL = 55.0 // time for each weapon care package( gruntmode_weapon_carepackage 1 )
 const float AMMO_PACKAGE_INTERVAL = 35.0 // time for each ammo care package
 
-// escalator
+// escalator default value
+// can be modified by playlistvar
 const int LEVEL_SPECTRES = 50
 const int LEVEL_STALKERS = 100
 const int LEVEL_REAPERS = 180
-const int LEVEL_GUNSHIPS = 200
+//const int LEVEL_GUNSHIPS = 200 // has been merged to reaper spawns
 const int LEVEL_TITANS = 250
 
 // scores
@@ -63,16 +66,31 @@ const array<string> GRUNT_MODE_PLAYLIST =
 struct
 {
 	// Due to team based escalation everything is an array
-	array< int > levels = [ LEVEL_SPECTRES, LEVEL_SPECTRES ]
+	array< int > levels = [] //[ LEVEL_SPECTRES, LEVEL_SPECTRES ] // modified, since we added playlistvar should leave this init inside functions
 	array< array< string > > podEntities = [ [ "npc_soldier" ], [ "npc_soldier" ] ]
-	array< bool > reapers = [ false, false ]
 
 	array< bool > marvins = [ false, false ]
 	array< bool > prowlers = [ false, false ] // bind with stalkers
 
-	array< bool > gunships = [ false, false ]
-	array< bool > pilots = [ false, false ]
+	array< bool > reapers = [ false, false ]
+	array< bool > gunships = [ false, false ] // bind with reapers
+
 	array< bool > titans = [ false, false ]
+	array< bool > pilots = [ false, false ] // bind with titans
+
+
+	// spawn settings
+	int squadCount
+	int squadCountHighLevel
+	int prowlerCount
+	int reaperCount
+	int gunshipCount
+	int pilotCount
+	// escalator settings
+	int levelSpectres
+	int levelStalkers
+	int levelReapers
+	int levelTitans
 } file
 
 
@@ -104,6 +122,21 @@ void function Modded_Gamemode_GruntMode_Init()
 	// so you're likely no need to wait so freaking long, !!! tempfix specific
 	SetWaitingForPlayersMaxDuration( 1.0 )
     ClassicMP_SetCustomIntro( ClassicMP_GruntModeIntro_Setup, GRUNTMODE_INTRO_LENGTH )
+
+
+	// update settings from playlistvar, with default values implemented
+	file.squadCount = GetCurrentPlaylistVarInt( "modaitdm_squad_count", SQUADS_PER_TEAM )
+	file.squadCountHighLevel = GetCurrentPlaylistVarInt( "modaitdm_squad_count", SQUADS_PER_TEAM_HIGH_LEVEL )
+	file.prowlerCount = GetCurrentPlaylistVarInt( "modaitdm_prowler_count", PROWLERS_PER_TEAM )
+	file.reaperCount = GetCurrentPlaylistVarInt( "modaitdm_reaper_count", REAPERS_PER_TEAM )
+	file.gunshipCount = GetCurrentPlaylistVarInt( "modaitdm_gunship_count", GUNSHIPS_PER_TEAM )
+	file.pilotCount = GetCurrentPlaylistVarInt( "modaitdm_pilot_count", PILOTS_PER_TEAM )
+
+	file.levelSpectres = GetCurrentPlaylistVarInt( "modaitdm_spectre_spawn_score", LEVEL_SPECTRES )
+	file.levelStalkers = GetCurrentPlaylistVarInt( "modaitdm_stalker_spawn_score", LEVEL_STALKERS )
+	file.levelReapers = GetCurrentPlaylistVarInt( "modaitdm_reaper_spawn_score", LEVEL_REAPERS )
+	file.levelTitans = GetCurrentPlaylistVarInt( "modaitdm_titan_spawn_score", LEVEL_TITANS )
+	file.levels = [ file.levelSpectres, file.levelSpectres ] // init levels
 }
 
 //------------------------------------------------------
@@ -479,12 +512,12 @@ string function GetBossTitanSpawnName( int team )
 	{
 		const array<string> imcBossList =
 		[
-			"slone",
+			"blisk",
+			"kane",
 			"ash",
 			"richter",
-			"kane",
-			"blisk",
 			"viper",
+			"slone",
 		]
 		return imcBossList[ RandomInt( imcBossList.len() ) ]
 	}
@@ -495,6 +528,8 @@ string function GetBossTitanSpawnName( int team )
 			"jack",
 			"sarah",
 			//"sarah_monarch",
+			"vanguard",
+			"gates"
 		]
 		return mltBossList[ RandomInt( mltBossList.len() ) ]
 	}
@@ -582,7 +617,7 @@ void function SpawnIntroBatch( int team )
 	int ships = shipNodes.len()
 	bool spawnSucceeded = false
 
-	for ( int i = 0; i < SQUADS_PER_TEAM; i++ )
+	for ( int i = 0; i < file.squadCount; i++ )
 	{
 		if ( ( pods != 0 || ships == 0 ) && podNodes.len() > 0 ) // defensive fix for podNodes can sometimes be 0
 		{
@@ -620,7 +655,7 @@ void function SpawnIntroBatch( int team )
 				thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, leaderSet, leaderHealth )
 			}
 			else
-				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4 )
+				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, SQUAD_SIZE )
 			
 			ships--
 		}
@@ -676,11 +711,11 @@ void function SpawnerSquads( int team )
 		int prowlerCount = GetNPCArrayEx( "npc_prowler", team, -1, <0,0,0>, -1 ).len()
 
 		// NORMAL SPAWNS
-		int maxSquads = SQUADS_PER_TEAM
+		int maxSquads = file.squadCount
 		//if ( ReachedPlayerCheckAmount() && file.reapers[ index ] ) // if we have pretty much players and reached reaper level
 		//	maxSquads = SQUADS_PER_TEAM_MORE_PLAYERS // do reduced minions count
 		if ( file.reapers[ index ] )
-			maxSquads = SQUADS_PER_TEAM_HIGH_LEVEL
+			maxSquads = file.squadCountHighLevel
 		
 		int squadsToSpawn = ( maxSquads * SQUAD_SIZE - 2 - infantryCount ) / SQUAD_SIZE
 		if ( squadsToSpawn > 0 )
@@ -716,7 +751,7 @@ void function SpawnerSquads( int team )
 					if ( ShouldSpawnDropship() )
 					{
 						entity node = dropshipPoints[ GetSpawnPointIndex( dropshipPoints, team ) ]
-						thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, 4 )
+						thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, SQUAD_SIZE )
 						continue
 					}
 
@@ -773,7 +808,7 @@ void function SpawnerHeavyArmor( int team )
 		// REAPERS
 		if ( file.reapers[ index ] )
 		{
-			int reapersToSpawn = REAPERS_PER_TEAM - reaperCount
+			int reapersToSpawn = file.reaperCount - reaperCount
 			if ( reapersToSpawn > 0 )
 			{
 				for ( int i = 0; i < reapersToSpawn; i++ )
@@ -800,7 +835,7 @@ void function SpawnerHeavyArmor( int team )
 		// GUNSHIPS
 		if ( file.gunships[ index ] )
 		{
-			int gunshipsToSpawn = GUNSHIPS_PER_TEAM - gunshipCount
+			int gunshipsToSpawn = file.gunshipCount - gunshipCount
 			if ( gunshipsToSpawn > 0 )
 			{
 				for ( int i = 0; i < gunshipsToSpawn; i++ )
@@ -840,7 +875,7 @@ void function SpawnerHeavyArmor( int team )
 		// PILOTS
 		if ( file.pilots[ index ] )
 		{
-			int pilotsToSpawn = PILOTS_PER_TEAM - titanCount // count titans
+			int pilotsToSpawn = file.pilotCount - titanCount // count titans
 			if ( pilotsToSpawn > 0 )
 			{
 				for ( int i = 0; i < pilotsToSpawn; i++ )
@@ -908,7 +943,7 @@ void function SpawnerNPCs( int team )
 		{
 			const int spawnAmount = 1 // spawn 1 prowler per droppod
 			const string spawnEnt = "npc_prowler"
-			int prowlersToSpawn = ( PROWLERS_PER_TEAM * spawnAmount - 1 - prowlerCount ) / spawnAmount
+			int prowlersToSpawn = ( file.prowlerCount * spawnAmount - 1 - prowlerCount ) / spawnAmount
 			if ( prowlersToSpawn > 0 )
 			{
 				for ( int i = 0; i < prowlersToSpawn; i++ )
@@ -984,39 +1019,73 @@ void function Escalate( int team )
 
 	switch ( file.levels[ index ] )
 	{
-		case LEVEL_SPECTRES:
-			file.levels[ index ] = LEVEL_STALKERS
+		case file.levelSpectres:
+			// change levels
+			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
+			if ( file.levelSpectres == file.levelStalkers )
+				file.levelStalkers += 1
+			if ( file.levelStalkers < file.levelSpectres )
+				file.levelStalkers = file.levelSpectres + 1
+			file.levels[ index ] = file.levelStalkers
+
+			// level spawn content
 			file.marvins[ index ] = true
 			file.podEntities[ index ].append( "npc_spectre" )
-			SetGlobalNetInt( defcon, 2 )
+			SetGlobalNetInt( defcon, 2 ) // Enemy Spectres Incoming
 			return
 
-		case LEVEL_STALKERS:
-			file.levels[ index ] = LEVEL_REAPERS
-			file.marvins[ index ] = false
+		case file.levelStalkers:
+			// change levels
+			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
+			if ( file.levelStalkers == file.levelReapers )
+				file.levelReapers += 1
+			if ( file.levelReapers < file.levelStalkers )
+				file.levelReapers = file.levelStalkers + 1
+			file.levels[ index ] = file.levelReapers
+
+			// level spawn content
+			//file.marvins[ index ] = false // never remove marvin spawns ;)
 			file.prowlers[ index ] = true
 			file.podEntities[ index ].append( "npc_stalker" )
-			SetGlobalNetInt( defcon, 3 )
+			SetGlobalNetInt( defcon, 3 ) // Enemy Stalkers Incoming
 			return
 
-		case LEVEL_REAPERS:
-			file.levels[ index ] = LEVEL_GUNSHIPS
+		case file.levelReapers:
+			// gunship level removed
+			//file.levels[ index ] = LEVEL_GUNSHIPS
+
+			// change levels
+			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
+			if ( file.levelReapers == file.levelTitans )
+				file.levelTitans += 1
+			if ( file.levelTitans < file.levelReapers )
+				file.levelTitans = file.levelReapers + 1
+			file.levels[ index ] = file.levelTitans
+
+			// level spawn content
 			file.reapers[ index ] = true
-			SetGlobalNetInt( defcon, 4 )
+			file.gunships[ index ] = true // adding here because we've removed gunship level removed
+			SetGlobalNetInt( defcon, 4 ) // Enemy Reapers Incoming
 			return
 
+		// has been merged to reaper spawns
+		/*
         case LEVEL_GUNSHIPS:
 			file.levels[ index ] = LEVEL_TITANS
 			file.gunships[ index ] = true
 			SetGlobalNetInt( defcon, 5 )
 			return
+		*/
 
-		case LEVEL_TITANS:
-			file.levels[ index ] = 9999
-			file.prowlers[ index ] = false
-			file.pilots[ index ] = true
+		// MAX level
+		case file.levelTitans:
+			file.levels[ index ] = -1 // was 9999, but it makes no sense, already the max level
+			//file.prowlers[ index ] = false // we've added prowler damage against titans, no need to remove them
+			
+			// level spawn content
 			file.titans[ index ] = true
-			SetGlobalNetInt( defcon, 6 )
+			file.pilots[ index ] = true
+			SetGlobalNetInt( defcon, 6 ) // this will show nothing
 			return
 	}
 
@@ -1057,15 +1126,38 @@ void function CleanUpOverloadedTicks()
 
 void function CleanUpOverloadedTicks_Threaded()
 {
-	array<entity> tickArray = GetNPCArrayByClass( "npc_frag_drone" )
-	int maxTicks = REAPERS_PER_TEAM * 4 + 2
+	int maxTicks = file.reaperCount * 2 * 4 + 2 // clean up ticks spawned by reapers
+	
 	while ( true )
 	{
-		if( tickArray.len() > maxTicks ) // clean up ticks spawned by reapers
+		array<entity> tickArray
+		foreach ( entity tick in GetNPCArrayByClass( "npc_frag_drone" ) )
 		{
-			if ( IsAlive( tickArray[0] ) )
-				tickArray[0].Die() // this may kill somebody lol
+			if ( !IsAlive( tick ) )
+				continue
+			
+			// player owned tick?
+			if ( IsValid( tick.GetBossPlayer() ) )
+				continue
+
+			// still arming up?
+			if ( !tick.ai.fragDroneArmed )
+				continue
+
+			// pending explode?
+			if ( tick.Anim_IsActive() )
+				continue
+
+			tickArray.append( tick )
 		}
+
+		if( tickArray.len() > maxTicks )
+		{
+			// clean up first spawned tick in array
+			// validation checks already done
+			tickArray[0].Signal( "SuicideSpectreExploding" ) // this will make them explode
+		}
+
 		WaitFrame()
 	}
 }

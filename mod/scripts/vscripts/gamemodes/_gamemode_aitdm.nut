@@ -368,7 +368,7 @@ void function SpawnIntroBatch_Threaded( int team )
 				startIndex = i // save where we started
 			
 			node = shipNodes[ i - startIndex ]
-			thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
+			thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, SQUAD_SIZE, SquadHandler )
 			
 			ships--
 		}
@@ -450,7 +450,7 @@ void function Spawner_Threaded( int team )
 					if ( RandomInt( points.len() ) )
 					{
 						entity node = points[ GetSpawnPointIndex( points, team ) ]
-						thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, 4, SquadHandler )
+						thread AiGameModes_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, SQUAD_SIZE, SquadHandler )
 						continue
 					}
 				}
