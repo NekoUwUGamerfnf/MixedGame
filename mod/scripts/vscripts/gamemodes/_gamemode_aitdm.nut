@@ -708,27 +708,33 @@ void function AITdm_OnNPCLeeched( entity npc, entity player )
 	npc.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
 
 	// adding score
-	int playerScore = 0
-	switch ( npc.GetClassName() )
+	// same validation check as killing the target
+	// they can be re-hacked and we need to prevent gain score multiple times
+	if ( VictimIsValidForAITdmScore( npc ) )
 	{
-		case "npc_soldier":
-		case "npc_spectre":
-		case "npc_stalker":
-			playerScore = 1
-			break
-		case "npc_super_spectre":
-			playerScore = 3
-			break
-		default:
-			playerScore = 0
-			break
+		int playerScore = 0
+		switch ( npc.GetClassName() )
+		{
+			case "npc_soldier":
+			case "npc_spectre":
+			case "npc_stalker":
+				playerScore = 1
+				break
+			case "npc_super_spectre":
+				playerScore = 3
+				break
+			default:
+				playerScore = 0
+				break
+		}
+		// Add score + update network int to trigger the "Score +n" popup
+		AddAITdmPlayerTeamScore( player, playerScore )
 	}
-	// Add score + update network int to trigger the "Score +n" popup
-	AddAITdmPlayerTeamScore( player, playerScore )
 	
 	// disable leech on this spectre, don't let them to be multiple-leeched by diffrent team...
-	DisableLeeching( npc )
-	npc.UnsetUsable()
+	// reverted. it is vanilla behavior! and it's pretty funny
+	//DisableLeeching( npc )
+	//npc.UnsetUsable()
 }
 
 // Same as SquadHandler, just for reapers
