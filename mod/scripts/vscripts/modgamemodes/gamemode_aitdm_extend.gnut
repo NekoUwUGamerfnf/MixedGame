@@ -3,25 +3,28 @@
 untyped
 global function Modded_Gamemode_AITdm_Extended_Init
 
-// npc counts
+// npc counts default value
+// can be modified by playlistvar
 const int SQUADS_PER_TEAM = 5
 //const int SQUADS_PER_TEAM_MORE_PLAYERS = 3 // maybe do reduced squad if we have more players and reached higher level
 const int SQUADS_PER_TEAM_HIGH_LEVEL = 3 // maybe do reduced squad if we have reached higher level
-const int REAPERS_PER_TEAM = 2 // was 2, reduced reaper spawn since we're using tick spawner reapers
 
 const int MARVINS_PER_TEAM = 0
 const int PROWLERS_PER_TEAM = 4
 const int PROWLER_SQUADS_PER_TEAM = 0 // prowler squad: 2 cqb prowler with 3 small prowlers
-const int PILOTS_PER_TEAM = 3
 
-const int TITANS_PER_TEAM = 0
+const int REAPERS_PER_TEAM = 2 // was 3, reduced reaper spawn since we're using tick spawner reapers
 const int GUNSHIPS_PER_TEAM = 2
 
+const int PILOTS_PER_TEAM = 3
+const int TITANS_PER_TEAM = 0
+
 // escalator default value
+// can be modified by playlistvar
 const int LEVEL_SPECTRES = 80
 const int LEVEL_STALKERS = 150
 const int LEVEL_REAPERS = 230
-const int LEVEL_GUNSHIPS = 280
+//const int LEVEL_GUNSHIPS = 280 // has been merged to reaper spawns
 const int LEVEL_TITANS = 330
 
 // scores
@@ -39,19 +42,54 @@ const int REAPER_SCORE_AMOUNT = 5
 const int DRONE_SCORE_AMOUNT = 0
 const int TITAN_SCORE_AMOUNT = 10
 
+// fake coop
+// npc spawn
+const float FAKE_COOP_PLAYER_TEAM_NPC_PERCENT = 0.7 // 3-2 squads, 2 prowlers, 1 reaper and gunship, 2 titans
+const float FAKE_COOP_ENEMY_TEAM_NPC_PERCENT_MIN = 1.0
+const float FAKE_COOP_ENEMY_TEAM_NPC_PERCENT_INCREMENT = 0.5 // 4 players = max spawn
+const float FAKE_COOP_ENEMY_TEAM_NPC_PERCENT_MAX = 2.5 // 12-7 squads, 10 prowlers, 5 reapers and gunships, 7 titans
+// scoring
+const float FAKE_COOP_PLAYER_PILOT_SCORE_MULTIPLIER = 2.0 // gets applied on npc killing player team pilot
+const float FAKE_COOP_PLAYER_TITAN_SCORE_MULTIPLIER = 3.0 // gets applied on npc killing player team titan
+
 struct
 {
 	// Due to team based escalation everything is an array
-	array< int > levels = [ LEVEL_SPECTRES, LEVEL_SPECTRES ]
+	array< int > levels = [] //[ LEVEL_SPECTRES, LEVEL_SPECTRES ] // modified, since we added playlistvar should leave this init inside functions
 	array< array< string > > podEntities = [ [ "npc_soldier" ], [ "npc_soldier" ] ]
-	array< bool > reapers = [ false, false ]
-
+	
 	array< bool > marvins = [ false, false ]
 	array< bool > prowlers = [ false, false ] // bind with stalkers
 
-	array< bool > gunships = [ false, false ]
-	array< bool > pilots = [ false, false ]
+	array< bool > reapers = [ false, false ]
+	array< bool > gunships = [ false, false ] // bind with reapers
+
 	array< bool > titans = [ false, false ]
+	array< bool > pilots = [ false, false ] // bind with titans
+
+
+	// spawn settings
+	int squadCount
+	int squadCountHighLevel
+	int prowlerCount
+	int reaperCount
+	int gunshipCount
+	int pilotCount
+	// escalator settings
+	int levelSpectres
+	int levelStalkers
+	int levelReapers
+	int levelTitans
+
+	// fake coop
+	// npc spawn
+	float friendlyNPCPercent
+	float enemyNPCMinPercent
+	float enemyNPCIncrementPerPlayer
+	float enemyNPCMaxPercent
+	// scoring
+	float teamPilotScoreMultiplier
+	float teamTitanScoreMultiplier
 } file
 
 
@@ -103,6 +141,39 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 	// tempfix specifics
 	SetShouldPlayDefaultMusic( true ) // play music when score or time reaches some point
 	EarnMeterMP_SetPassiveGainProgessEnable( true ) // enable earnmeter gain progressing like vanilla
+
+
+	// update settings from playlistvar, with default values implemented
+	file.squadCount = GetCurrentPlaylistVarInt( "modaitdm_squad_count", SQUADS_PER_TEAM )
+	file.squadCountHighLevel = GetCurrentPlaylistVarInt( "modaitdm_squad_count", SQUADS_PER_TEAM_HIGH_LEVEL )
+	file.prowlerCount = GetCurrentPlaylistVarInt( "modaitdm_prowler_count", PROWLERS_PER_TEAM )
+	file.reaperCount = GetCurrentPlaylistVarInt( "modaitdm_reaper_count", REAPERS_PER_TEAM )
+	file.gunshipCount = GetCurrentPlaylistVarInt( "modaitdm_gunship_count", GUNSHIPS_PER_TEAM )
+	file.pilotCount = GetCurrentPlaylistVarInt( "modaitdm_pilot_count", PILOTS_PER_TEAM )
+
+	file.levelSpectres = GetCurrentPlaylistVarInt( "modaitdm_spectre_spawn_score", LEVEL_SPECTRES )
+	file.levelStalkers = GetCurrentPlaylistVarInt( "modaitdm_stalker_spawn_score", LEVEL_STALKERS )
+	file.levelReapers = GetCurrentPlaylistVarInt( "modaitdm_reaper_spawn_score", LEVEL_REAPERS )
+	file.levelTitans = GetCurrentPlaylistVarInt( "modaitdm_titan_spawn_score", LEVEL_TITANS )
+	file.levels = [ file.levelSpectres, file.levelSpectres ] // init levels
+
+	// fake coop
+	// everything is based on GetPlayerArray()[0]( listen server host, or the first joined player )
+	if ( GetCurrentPlaylistVarInt( "aitdm_extended_coop", 0 ) == 1 )
+	{
+		// npc spawn
+		file.friendlyNPCPercent = GetCurrentPlaylistVarFloat( "aitdm_coop_friendly_npc_percent", FAKE_COOP_PLAYER_TEAM_NPC_PERCENT )
+		file.enemyNPCMinPercent = GetCurrentPlaylistVarFloat( "aitdm_coop_enemy_npc_min_percent", FAKE_COOP_ENEMY_TEAM_NPC_PERCENT_MIN )
+		file.enemyNPCIncrementPerPlayer = GetCurrentPlaylistVarFloat( "aitdm_coop_enemy_npc_increment_per_player", FAKE_COOP_ENEMY_TEAM_NPC_PERCENT_INCREMENT )
+		file.enemyNPCMaxPercent = GetCurrentPlaylistVarFloat( "aitdm_coop_enemy_npc_max_percent", FAKE_COOP_ENEMY_TEAM_NPC_PERCENT_MAX )
+
+		// scoring
+		file.teamPilotScoreMultiplier = GetCurrentPlaylistVarFloat( "aitdm_coop_pilot_score_multiplier", FAKE_COOP_PLAYER_PILOT_SCORE_MULTIPLIER )
+		file.teamTitanScoreMultiplier = GetCurrentPlaylistVarFloat( "aitdm_coop_titan_score_multiplier", FAKE_COOP_PLAYER_TITAN_SCORE_MULTIPLIER )
+
+		// start updating all player's team
+		UpdateCOOPPlayerTeam()
+	}
 }
 
 void function AITdmExtend_Highlight( entity ent )
@@ -147,6 +218,66 @@ void function AITdmExtend_EnemyThreatenHighlight( entity ent )
 {
 	Highlight_SetEnemyHighlight( ent, "sp_enemy_pilot" )
 	ent.Highlight_SetParam( 2, 0, < 2, 0, 0 > )
+}
+
+
+// fake coop utility
+// leader player: GetPlayerArray()[0]( listen server host, or the first joined player )
+entity function GetCOOPLeaderPlayer()
+{
+	if ( GetPlayerArray().len() >= 1 )
+		return GetPlayerArray()[0]
+
+	return null
+}
+
+// npc spawn count modifier
+int function GetTeamNPCSpawnCountModifier( int expectedSpawn, int team = -1 )
+{
+	bool coopEnabled = GetCurrentPlaylistVarInt( "aitdm_extended_coop", 0 ) == 1
+	entity coopLeader = GetCOOPLeaderPlayer()
+	if ( team > TEAM_UNASSIGNED && coopEnabled && IsValid( coopLeader ) )
+	{
+		// friendly team
+		if ( team == coopLeader.GetTeam() )
+			return int( float( expectedSpawn ) * file.friendlyNPCPercent )
+		else // enemy team
+		{
+			int playersOtherThanLeader = GetPlayerArray().len() - 1
+			float npcSpawnModifier = file.enemyNPCMinPercent + ( file.enemyNPCIncrementPerPlayer * playersOtherThanLeader )
+			npcSpawnModifier = min( file.enemyNPCMaxPercent, npcSpawnModifier )
+			// debug
+			//print( "spawnModifier: " + string( int( float( expectedSpawn ) * npcSpawnModifier ) ) )
+			return int( float( expectedSpawn ) * npcSpawnModifier )
+		}
+	}
+
+	return expectedSpawn // no modifier, just return default value
+}
+
+// player team updating
+void function UpdateCOOPPlayerTeam()
+{
+	thread UpdateCOOPPlayerTeam_Threaded()
+}
+
+void function UpdateCOOPPlayerTeam_Threaded()
+{
+	while ( true )
+	{
+		WaitFrame()
+
+		entity leaderPlayer = GetCOOPLeaderPlayer()
+		if ( !IsValid( leaderPlayer ) )
+			continue
+
+		int leaderTeam = leaderPlayer.GetTeam()
+		foreach ( entity player in GetPlayerArray() )
+		{
+			if ( player.GetTeam() != leaderTeam )
+				SetTeam( player, leaderTeam )
+		}
+	}	
 }
 
 ////////////////////////////////
@@ -456,8 +587,16 @@ int function AITdmExtend_GetScoreValue( entity ent )
 {
 	int scoreToAdd = 0
 
+	// fake coop support
+	bool coopEnabled = GetCurrentPlaylistVarInt( "aitdm_extended_coop", 0 ) == 1
+
+	int playerScore = PLAYER_SCORE_AMOUNT
+	// coop case: scale player score
+	if ( coopEnabled )
+		playerScore = int( PLAYER_SCORE_AMOUNT * file.teamPilotScoreMultiplier )
+
 	if ( ent.IsPlayer() )
-		scoreToAdd = PLAYER_SCORE_AMOUNT
+		scoreToAdd = playerScore
 	
 	string className = ent.GetClassName()
 
@@ -501,16 +640,25 @@ int function AITdmExtend_GetScoreValue( entity ent )
 
 	if ( ent.IsTitan() )
 	{
+		int titanScore = TITAN_SCORE_AMOUNT
+		// player owned titan
+		if ( IsValid( ent.GetTitanSoul() ) && IsValid( GetPetTitanOwner( ent ) ) )
+		{
+			// coop case: scale player owned titan score
+			if ( coopEnabled )
+				titanScore = int( TITAN_SCORE_AMOUNT * file.teamTitanScoreMultiplier )
+		}
+
 		if ( TitanHasNpcPilot( ent ) ) // pilot was killed without ejecting
-			scoreToAdd = TITAN_SCORE_AMOUNT + PILOT_SCORE_AMOUNT
+			scoreToAdd = titanScore + PILOT_SCORE_AMOUNT
 		else if ( ent.IsPlayer() ) // fix for player score!
-			scoreToAdd = TITAN_SCORE_AMOUNT + PLAYER_SCORE_AMOUNT
-		else // ejecting auto titan
-			scoreToAdd = TITAN_SCORE_AMOUNT
+			scoreToAdd = titanScore + playerScore
+		else // auto titan
+			scoreToAdd = titanScore
 
 		// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
 		if ( !TitanHealth_GetSoulInfiniteDoomedState( ent.GetTitanSoul() ) )
-			scoreToAdd -= TITAN_SCORE_AMOUNT // remove titan score on kill for doomed health loss titans
+			scoreToAdd -= titanScore // remove titan score on kill for doomed health loss titans
 	}
 
 	return scoreToAdd
@@ -722,7 +870,7 @@ int function GetSpecialistLeaderHealth( int team, string otherSpawnWith )
 
 bool function ShouldSpawnBossTitan()
 {
-	return RandomInt( 5 ) == 0 // boss titans has 20% chance to spawn
+	return RandomInt( 2 ) == 0 // boss titans has 50% chance to spawn( was 20%, but we've added many new bosses... )
 }
 
 string function GetBossTitanSpawnName( int team )
@@ -732,12 +880,12 @@ string function GetBossTitanSpawnName( int team )
 	{
 		const array<string> imcBossList =
 		[
-			"slone",
+			"blisk",
+			"kane",
 			"ash",
 			"richter",
-			"kane",
-			"blisk",
 			"viper",
+			"slone",
 		]
 		return imcBossList[ RandomInt( imcBossList.len() ) ]
 	}
@@ -748,12 +896,45 @@ string function GetBossTitanSpawnName( int team )
 			"jack",
 			"sarah",
 			//"sarah_monarch",
+			"vanguard",
+			"gates"
 		]
 		return mltBossList[ RandomInt( mltBossList.len() ) ]
 	}
 
 	// default case
 	return "" // empty string means random
+}
+
+int function GetBossTitanSpawnTeam( int friendlyTeam = -1 )
+{
+	if ( friendlyTeam == -1 ) // unchanged!
+		return -1
+
+	bool coopEnabled = GetCurrentPlaylistVarInt( "aitdm_extended_coop", 0 ) == 1
+	bool teamBasedBossTitan = GetCurrentPlaylistVarInt( "aitdm_coop_team_boss_titans", 0 ) == 1
+
+	// only do checks if coop enabled
+	if ( friendlyTeam > TEAM_UNASSIGNED && coopEnabled && teamBasedBossTitan )
+	{
+		if ( GetPlayerArray().len() == 1 ) // single player
+		{
+			// use faction team
+			entity player = GetPlayerArray()[0]
+			int factionTeam = ConvertPlayerFactionToIMCOrMilitiaTeam( player )
+			bool isFriendlySpawn = player.GetTeam() == friendlyTeam
+			return isFriendlySpawn ? factionTeam : GetOtherTeam( factionTeam )
+		}
+		else if ( GetPlayerArray().len() > 1 ) // multiplayer coop
+		{
+			// use player leader's team
+			int leaderTeam = GetCOOPLeaderPlayer().GetTeam()
+			bool isFriendlySpawn = leaderTeam == friendlyTeam
+			return isFriendlySpawn ? leaderTeam : GetOtherTeam( leaderTeam )
+		}
+	}
+
+	return -1 // -1 means no team-based checks, always pick random boss titans
 }
 
 bool function ReachedPlayerCheckAmount()
@@ -835,7 +1016,7 @@ void function SpawnIntroBatch( int team )
 	int ships = shipNodes.len()
 	bool spawnSucceeded = false
 
-	for ( int i = 0; i < SQUADS_PER_TEAM; i++ )
+	for ( int i = 0; i < GetTeamNPCSpawnCountModifier( file.squadCount, team ); i++ )
 	{
 		if ( ( pods != 0 || ships == 0 ) && podNodes.len() > 0 ) // defensive fix for podNodes can sometimes be 0
 		{
@@ -873,7 +1054,7 @@ void function SpawnIntroBatch( int team )
 				thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, leaderSet, leaderHealth )
 			}
 			else
-				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4 )
+				thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, SQUAD_SIZE )
 			
 			ships--
 		}
@@ -929,11 +1110,11 @@ void function SpawnerSquads( int team )
 		int prowlerCount = GetNPCArrayEx( "npc_prowler", team, -1, <0,0,0>, -1 ).len()
 
 		// NORMAL SPAWNS
-		int maxSquads = SQUADS_PER_TEAM
+		int maxSquads = GetTeamNPCSpawnCountModifier( file.squadCount, team )
 		//if ( ReachedPlayerCheckAmount() && file.reapers[ index ] ) // if we have pretty much players and reached reaper level
 		//	maxSquads = SQUADS_PER_TEAM_MORE_PLAYERS // do reduced minions count
 		if ( file.reapers[ index ] )
-			maxSquads = SQUADS_PER_TEAM_HIGH_LEVEL
+			maxSquads = GetTeamNPCSpawnCountModifier( file.squadCountHighLevel, team )
 		
 		int squadsToSpawn = ( maxSquads * SQUAD_SIZE - 2 - infantryCount ) / SQUAD_SIZE
 		if ( squadsToSpawn > 0 )
@@ -969,7 +1150,7 @@ void function SpawnerSquads( int team )
 					if ( ShouldSpawnDropship() )
 					{
 						entity node = dropshipPoints[ GetSpawnPointIndex( dropshipPoints, team ) ]
-						thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, 4 )
+						thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, SQUAD_SIZE )
 						continue
 					}
 
@@ -985,7 +1166,7 @@ void function SpawnerSquads( int team )
 		if ( file.prowlers[ index ] )
 		{
 			//print( "prowlerCount: " + string( prowlerCount ) )
-			int squadsToSpawn = ( PROWLER_SQUADS_PER_TEAM * 4 - 2 - prowlerCount ) / 4
+			int squadsToSpawn = ( GetTeamNPCSpawnCountModifier( PROWLER_SQUADS_PER_TEAM, team ) * 4 - 2 - prowlerCount ) / 4
 			if ( squadsToSpawn > 0 )
 			{
 				for ( int i = 0; i < squadsToSpawn; i++ )
@@ -1026,7 +1207,7 @@ void function SpawnerHeavyArmor( int team )
 		// REAPERS
 		if ( file.reapers[ index ] )
 		{
-			int reapersToSpawn = REAPERS_PER_TEAM - reaperCount
+			int reapersToSpawn = GetTeamNPCSpawnCountModifier( file.reaperCount, team ) - reaperCount
 			if ( reapersToSpawn > 0 )
 			{
 				for ( int i = 0; i < reapersToSpawn; i++ )
@@ -1053,7 +1234,7 @@ void function SpawnerHeavyArmor( int team )
 		// GUNSHIPS
 		if ( file.gunships[ index ] )
 		{
-			int gunshipsToSpawn = GUNSHIPS_PER_TEAM - gunshipCount
+			int gunshipsToSpawn = GetTeamNPCSpawnCountModifier( file.gunshipCount, team ) - gunshipCount
 			if ( gunshipsToSpawn > 0 )
 			{
 				for ( int i = 0; i < gunshipsToSpawn; i++ )
@@ -1073,7 +1254,7 @@ void function SpawnerHeavyArmor( int team )
 		// TITANS
 		if ( file.titans[ index ] )
 		{
-			int titansToSpawn = TITANS_PER_TEAM - titanCount
+			int titansToSpawn = GetTeamNPCSpawnCountModifier( TITANS_PER_TEAM, team ) - titanCount
 			if ( titansToSpawn > 0 )
 			{
 				for ( int i = 0; i < titansToSpawn; i++ )
@@ -1093,7 +1274,7 @@ void function SpawnerHeavyArmor( int team )
 		// PILOTS
 		if ( file.pilots[ index ] )
 		{
-			int pilotsToSpawn = PILOTS_PER_TEAM - titanCount // count titans
+			int pilotsToSpawn = GetTeamNPCSpawnCountModifier( file.pilotCount, team ) - titanCount // count titans
 			if ( pilotsToSpawn > 0 )
 			{
 				for ( int i = 0; i < pilotsToSpawn; i++ )
@@ -1108,7 +1289,7 @@ void function SpawnerHeavyArmor( int team )
 					//entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team )
 					if ( ShouldSpawnBossTitan() ) 
 					{
-						string spawnName = GetBossTitanSpawnName( -1 ) // get bosstitan spawn name without team check
+						string spawnName = GetBossTitanSpawnName( GetBossTitanSpawnTeam( team ) )
 						thread ExtraSpawner_SpawnBossTitan( node.GetOrigin(), node.GetAngles(), team, spawnName )
 					}
 					else
@@ -1138,7 +1319,7 @@ void function SpawnerNPCs( int team )
 		{
 			const int spawnAmount = 2 // spawn 2 marvins per droppod
 			const string spawnEnt = "npc_marvin"
-			int marvinsToSpawn = ( MARVINS_PER_TEAM * spawnAmount - 1 - marvinCount ) / spawnAmount
+			int marvinsToSpawn = ( GetTeamNPCSpawnCountModifier( MARVINS_PER_TEAM, team ) * spawnAmount - 1 - marvinCount ) / spawnAmount
 			if ( marvinsToSpawn > 0 )
 			{
 				for ( int i = 0; i < marvinsToSpawn; i++ )
@@ -1161,7 +1342,7 @@ void function SpawnerNPCs( int team )
 		{
 			const int spawnAmount = 1 // spawn 1 prowler per droppod
 			const string spawnEnt = "npc_prowler"
-			int prowlersToSpawn = ( PROWLERS_PER_TEAM * spawnAmount - 1 - prowlerCount ) / spawnAmount
+			int prowlersToSpawn = ( GetTeamNPCSpawnCountModifier( file.prowlerCount, team ) * spawnAmount - 1 - prowlerCount ) / spawnAmount
 			if ( prowlersToSpawn > 0 )
 			{
 				for ( int i = 0; i < prowlersToSpawn; i++ )
@@ -1194,39 +1375,73 @@ void function Escalate( int team )
 
 	switch ( file.levels[ index ] )
 	{
-		case LEVEL_SPECTRES:
-			file.levels[ index ] = LEVEL_STALKERS
+		case file.levelSpectres:
+			// change levels
+			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
+			if ( file.levelSpectres == file.levelStalkers )
+				file.levelStalkers += 1
+			if ( file.levelStalkers < file.levelSpectres )
+				file.levelStalkers = file.levelSpectres + 1
+			file.levels[ index ] = file.levelStalkers
+
+			// level spawn content
 			file.marvins[ index ] = true
 			file.podEntities[ index ].append( "npc_spectre" )
-			SetGlobalNetInt( defcon, 2 )
+			SetGlobalNetInt( defcon, 2 ) // Enemy Spectres Incoming
 			return
 
-		case LEVEL_STALKERS:
-			file.levels[ index ] = LEVEL_REAPERS
-			file.marvins[ index ] = false
+		case file.levelStalkers:
+			// change levels
+			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
+			if ( file.levelStalkers == file.levelReapers )
+				file.levelReapers += 1
+			if ( file.levelReapers < file.levelStalkers )
+				file.levelReapers = file.levelStalkers + 1
+			file.levels[ index ] = file.levelReapers
+
+			// level spawn content
+			//file.marvins[ index ] = false // never remove marvin spawns ;)
 			file.prowlers[ index ] = true
 			file.podEntities[ index ].append( "npc_stalker" )
-			SetGlobalNetInt( defcon, 3 )
+			SetGlobalNetInt( defcon, 3 ) // Enemy Stalkers Incoming
 			return
 
-		case LEVEL_REAPERS:
-			file.levels[ index ] = LEVEL_GUNSHIPS
+		case file.levelReapers:
+			// gunship level removed
+			//file.levels[ index ] = LEVEL_GUNSHIPS
+
+			// change levels
+			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
+			if ( file.levelReapers == file.levelTitans )
+				file.levelTitans += 1
+			if ( file.levelTitans < file.levelReapers )
+				file.levelTitans = file.levelReapers + 1
+			file.levels[ index ] = file.levelTitans
+
+			// level spawn content
 			file.reapers[ index ] = true
-			SetGlobalNetInt( defcon, 4 )
+			file.gunships[ index ] = true // adding here because we've removed gunship level removed
+			SetGlobalNetInt( defcon, 4 ) // Enemy Reapers Incoming
 			return
 
+		// has been merged to reaper spawns
+		/*
         case LEVEL_GUNSHIPS:
 			file.levels[ index ] = LEVEL_TITANS
 			file.gunships[ index ] = true
 			SetGlobalNetInt( defcon, 5 )
 			return
+		*/
 
-		case LEVEL_TITANS:
-			file.levels[ index ] = 9999
-			file.prowlers[ index ] = false
-			file.pilots[ index ] = true
+		// MAX level
+		case file.levelTitans:
+			file.levels[ index ] = -1 // was 9999, but it makes no sense, already the max level
+			//file.prowlers[ index ] = false // we've added prowler damage against titans, no need to remove them
+			
+			// level spawn content
 			file.titans[ index ] = true
-			SetGlobalNetInt( defcon, 6 )
+			file.pilots[ index ] = true
+			SetGlobalNetInt( defcon, 6 ) // this will show nothing
 			return
 	}
 
@@ -1291,15 +1506,38 @@ void function CleanUpOverloadedTicks()
 
 void function CleanUpOverloadedTicks_Threaded()
 {
-	array<entity> tickArray = GetNPCArrayByClass( "npc_frag_drone" )
-	int maxTicks = REAPERS_PER_TEAM * 4 + 2
+	int maxTicks = file.reaperCount * 2 * 4 + 2 // clean up ticks spawned by reapers
+
 	while ( true )
 	{
-		if( tickArray.len() > maxTicks ) // clean up ticks spawned by reapers
+		array<entity> tickArray
+		foreach ( entity tick in GetNPCArrayByClass( "npc_frag_drone" ) )
 		{
-			if ( IsAlive( tickArray[0] ) )
-				tickArray[0].Die() // this may kill somebody lol
+			if ( !IsAlive( tick ) )
+				continue
+			
+			// player owned tick?
+			if ( IsValid( tick.GetBossPlayer() ) )
+				continue
+
+			// still arming up?
+			if ( !tick.ai.fragDroneArmed )
+				continue
+
+			// pending explode?
+			if ( tick.Anim_IsActive() )
+				continue
+
+			tickArray.append( tick )
 		}
+
+		if( tickArray.len() > maxTicks )
+		{
+			// clean up first spawned tick in array
+			// validation checks already done
+			tickArray[0].Signal( "SuicideSpectreExploding" ) // this will make them explode
+		}
+
 		WaitFrame()
 	}
 }
