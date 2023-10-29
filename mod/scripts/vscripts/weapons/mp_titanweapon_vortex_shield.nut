@@ -178,6 +178,7 @@ function StartVortex( entity weapon )
 	#endif
 }
 
+// this needs to rework and should be fully handled by VortexReflectAttack()
 function AmpedVortexRefireThink( entity weapon )
 {
 	entity weaponOwner = weapon.GetWeaponOwner()
@@ -269,15 +270,20 @@ bool function OnWeaponVortexHitBullet_titanweapon_vortex_shield( entity weapon, 
 		string attackerWeaponName	= attackerWeapon.GetWeaponClassName()
 		int damageType				= DamageInfo_GetCustomDamageType( damageInfo )
 
-		// fix ttf2 vanilla behavior: burn mod vortex shield
+		// NOTE: after we add delayed refire for TryVortexAbsorb(), this tempfix should be removed!
+
+		// tempfix ttf2 vanilla behavior: burn mod vortex shield
 		// never try to catch a burn mod vortex's refiring bullets if we're using burn mod vortex shield
-		// otherwise it may cause infinite refire and crash the server
+		// otherwise it may cause infinite refire and crash the server( indicates by SCRIPT ERROR Failed to Create Entity "info_particle_system", the failure is because we've created so much entities due to infinite refire )
 		if ( weapon.HasMod( "burn_mod_titan_vortex_shield" ) && attackerWeapon.HasMod( "burn_mod_titan_vortex_shield" ) )
 		{
 			// build impact data
 			local impactData = Vortex_CreateImpactEventData( weapon, attacker, origin, damageSourceID, attackerWeaponName, "hitscan" )
 			// do vortex drain
 			VortexDrainedByImpact( weapon, attackerWeapon, null, null )
+			// like heat shield and TryVortexAbsorb() behavior: if it's absorb behavior, we don't do FX
+			if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
+				return true
 			// generic shield ping FX, modified to globalize this function in _vortex.nut
 			Vortex_SpawnShieldPingFX( weapon, impactData )
 			return true
@@ -308,6 +314,27 @@ bool function OnWeaponVortexHitProjectile_titanweapon_vortex_shield( entity weap
 
 		int damageSourceID = projectile.ProjectileGetDamageSourceID()
 		string weaponName = projectile.ProjectileGetWeaponClassName()
+
+		// NOTE: after we add delayed refire for TryVortexAbsorb(), this tempfix should be removed!
+
+		// tempfix ttf2 vanilla behavior: burn mod vortex shield
+		// never try to catch a burn mod vortex's refiring bullets if we're using burn mod vortex shield
+		// otherwise it may cause infinite refire and crash the server( indicates by SCRIPT ERROR Failed to Create Entity "info_particle_system", the failure is because we've created so much entities due to infinite refire )
+		// if a projectile is fired by amped vortex, can get it in projectile.ProjectileGetMods()
+		if ( weapon.HasMod( "burn_mod_titan_vortex_shield" ) && projectile.ProjectileGetMods().contains( "burn_mod_titan_vortex_shield" ) )
+		{
+			// build impact data
+			local impactData = Vortex_CreateImpactEventData( weapon, attacker, contactPos, damageSourceID, weaponName, "projectile" )
+			// do vortex drain
+			VortexDrainedByImpact( weapon, projectile, projectile, null )
+			// like heat shield and TryVortexAbsorb() behavior: if it's absorb behavior, we don't do FX
+			if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
+				return true
+			// generic shield ping FX, modified to globalize this function in _vortex.nut
+			Vortex_SpawnShieldPingFX( weapon, impactData )
+			return true
+		}
+		//
 
 		return TryVortexAbsorb( vortexSphere, attacker, contactPos, damageSourceID, projectile, weaponName, "projectile", projectile, null, weapon.HasMod( "burn_mod_titan_vortex_shield" ) )
 	#endif

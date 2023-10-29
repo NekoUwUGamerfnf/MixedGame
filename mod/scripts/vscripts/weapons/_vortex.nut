@@ -880,6 +880,7 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 	if ( impactData.refireBehavior == VORTEX_REFIRE_ABSORB )
 		return true
 
+	// this is hardcoded for no reason
 	if ( vortexWeapon.GetWeaponClassName() == "mp_titanweapon_heat_shield" )
 		return true
 
@@ -906,6 +907,11 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 
 	if ( reflect )
 	{
+		// this seem to work bad in TTF2
+		// we do need to wait for next frame before firing them back... to prevent some infinite reflecting happens
+		// the error indicates by SCRIPT ERROR Failed to Create Entity "info_particle_system", the failure is because we've created so much entities due to infinite refire
+		// maybe also need to rework AmpedVortexRefireThink()? it fire back with script fps limit( triggers after WaitSignal() )
+		
 		local attackParams = {}
 		attackParams.pos <- owner.EyePosition()
 		attackParams.dir <- owner.GetPlayerOrNPCViewVector()
