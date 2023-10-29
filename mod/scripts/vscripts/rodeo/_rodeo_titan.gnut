@@ -1972,21 +1972,16 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 		if( hideIcon || file.alwaysHideBatteryIcons )
 		{
 			batteryPack.s.hideIcon <- true
-			batteryPack.Minimap_Hide( TEAM_MILITIA, null )
-			batteryPack.Minimap_Hide( TEAM_IMC, null )
-			if( IsFFAGame() ) // hide for ffa
-			{
-				for( int i = 0; i <= 30; i++ ) // ttf2 is up to 20 teams, Minimap_Hide() cap to 31 teams. hardcoded!
-					batteryPack.Minimap_Hide( i, null ) // do i + 4 to ignore TEAM_MILITIA(2) and TEAM_IMC(3)
-			}
+			Nessie_BatteryHideIcon( batteryPack )
 		}
-		else // for nessie batteries
+		else // this case is vanilla behavior
 		{
-			batteryPack.s.hideIcon <- false
 			batteryPack.Minimap_SetClampToEdge( false )
 			batteryPack.Minimap_AlwaysShow( TEAM_MILITIA, null )
 			batteryPack.Minimap_AlwaysShow( TEAM_IMC, null )
 		}
+
+		// modified battery cleanups
 		if( file.shouldRandomBattery )
 			batteryPack.SetSkin( RandomInt(3) )
 		
@@ -2015,7 +2010,7 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 			}
 			*/
 		}
-	#else // vanilla behavior
+	#else // vanilla behavior for SP
 		batteryPack.Minimap_SetClampToEdge( false )
 		batteryPack.Minimap_AlwaysShow( TEAM_MILITIA, null )
 		batteryPack.Minimap_AlwaysShow( TEAM_IMC, null )
@@ -2046,7 +2041,7 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 
 	batteryPack.Highlight_SetInheritHighlight( true )
 
-	// modified for nessy.gnut
+	// has been modified for nessy.gnut
 	if( batteryOwner != null )
 	{
 		if( !IsPilot( batteryOwner ) )
@@ -2084,7 +2079,6 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 
 			vector batteryVel = playerVel + viewVector * 50 + verticalAdjustment
 			batteryPack.SetVelocity( batteryVel )
-
 		}
 	}
 
@@ -2107,6 +2101,25 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 
 	//thread MonitorBatteryVelocity( batteryPack )
 	return batteryPack
+}
+
+// nessie modified function
+void function Nessie_BatteryHideIcon( entity batteryPack )
+{
+	// hide for current in-game players
+	foreach ( entity player in GetPlayerArray() )
+	{
+		batteryPack.Minimap_Hide( 0, player )
+	}
+
+	// hide for late joiners, based on team
+	batteryPack.Minimap_Hide( TEAM_MILITIA, null )
+	batteryPack.Minimap_Hide( TEAM_IMC, null )
+	if( IsFFAGame() ) // hide for ffa. hardcoded as hell!
+	{
+		for( int i = 0; i <= 30; i++ ) // ttf2 is up to 20 teams, Minimap_Hide() cap to 31 teams. hardcoded!
+			batteryPack.Minimap_Hide( i, null )
+	}
 }
 
 void function Battery_StartFX( entity battery )
@@ -2209,6 +2222,7 @@ void function Rodeo_PilotPicksUpBattery_Silent( entity pilot, entity battery )
 		SetBatteryOnBack( pilot, battery )
 	}
 
+	// W T F is this case? why we have to hardcode like this?
 	if ( GAMETYPE == FREE_AGENCY && PlayerHasMaxBatteryCount( pilot ) && PlayerEarnMeter_GetOwnedFrac( pilot ) < 1.0 )
 	{
 		Rodeo_RemoveAllBatteriesOffPlayer( pilot )
@@ -2249,26 +2263,27 @@ entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 		}
 
 		// nessie defensive fix
-		if( GetPlayerBatteryCount( pilot ) == 0 )
-			return
+		// better not handle it here
+		// network var isn't that important, really no need to cancel full function call if checks failed
+		//if( GetPlayerBatteryCount( pilot ) == 0 )
+		//	return
 	#endif
-		
-	SetPlayerBatteryCount( pilot, GetPlayerBatteryCount( pilot ) - 1 )
-
+	
+	// nessie defensive fix
 	if ( GetPlayerBatteryCount( pilot ) == 0 )
+		SetPlayerBatteryCount( pilot, GetPlayerBatteryCount( pilot ) - 1 )
+
+	// why is this only handled 1 battery condition?
+	// we do need to create a new battery if player still have battery left...
+	// I don't care, removing some of respawn's remaining code. "unreachable" and hardcodes never makes any sense
+	entity battery = GetBatteryOnBack( pilot )
+	// clear out exisiting battery network var
+	SetBatteryOnBack( pilot, null ) //Defensive fix for 209362. Set it to null before doing any other actions on it which might cause execution to jump somewhere else. I think doing PutEntityInSafeSpot() might cause this?
+
+	// nessie fix
+	// sometimes battery can be invalid( but with multiple carried battery fix that should be less frequent )
+	if( IsValid( battery ) )
 	{
-		entity battery = GetBatteryOnBack( pilot )
-		Assert( IsValid( battery ) )
-		Assert( battery.GetParent() == pilot )
-
-		#if MP // nessie modify
-			// nessie fix
-			if( !IsValid( battery ) )
-				return
-		#endif
-
-		SetBatteryOnBack( pilot, null ) //Defensive fix for 209362. Set it to null before doing any other actions on it which might cause execution to jump somewhere else. I think doing PutEntityInSafeSpot() might cause this?
-		
 		#if MP // nessie modify
 			bool shouldHideIcon = false
 			if( "hideIcon" in battery.s ) // icon hide for battery
@@ -2277,20 +2292,14 @@ entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 					shouldHideIcon = true
 			}
 
-			if( !shouldHideIcon )
+			if( !shouldHideIcon ) // this is vanilla behavior
 			{
 				battery.Minimap_AlwaysShow( TEAM_MILITIA, null )
 				battery.Minimap_AlwaysShow( TEAM_IMC, null )
 			}
-			else
+			else // modified condition: allow hiding new dropped batteries so we don't have to do loop checks in nessy.gnut
 			{
-				battery.Minimap_Hide( TEAM_MILITIA, null )
-				battery.Minimap_Hide( TEAM_IMC, null )
-				if( IsFFAGame() ) // hide for ffa
-				{
-					for( int i = 0; i <= 30; i++ ) // ttf2 is up to 30 teams
-						battery.Minimap_Hide( i, null )
-				}
+				Nessie_BatteryHideIcon( battery )
 			}
 		#endif // MP
 
@@ -2311,14 +2320,19 @@ entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 		battery.SetAngles( <0, 0, 0 > )
 		battery.SetVelocity( < 0, 0, 1 > )
 		PutEntityInSafeSpot( battery, pilot, null, pilot.GetOrigin(), battery.GetOrigin() ) //This might cause thread of execution to jump somewhere else, see 209362
-		return battery
-	}
-	else
-	{
-		return null
 	}
 
-	unreachable
+	// last battery has dropped to ground( or it's invalid )
+	// in any case player still have a battery
+	// create a new battery on their back, so they can use them
+	// which also prevents crash when carry multiple batteries and embarking the titan
+	if ( GetPlayerBatteryCount( pilot ) > 0 )
+	{
+		entity carriedBattery = Rodeo_CreateBatteryPack()
+		Rodeo_PilotPicksUpBattery_Silent( pilot, carriedBattery )
+	}
+
+	return battery
 }
 
 void function Rodeo_PilotThrowsBattery( entity pilot )
@@ -2412,11 +2426,16 @@ void function Rodeo_DropAllBatteries( entity player )
 		vector baseVelocity = player.GetVelocity()
 		baseVelocity.z = 0
 		newBattery.SetVelocity( baseVelocity + direction * 100 + <0, 0, 1> )
-		Rodeo_TakeBatteryAwayFromPilot( player )
+		// because we're spawning new batteries, should use remove for players, which will destroy their existing batt
+		//Rodeo_TakeBatteryAwayFromPilot( player )
 	}
 
-	entity battery = Rodeo_TakeBatteryAwayFromPilot( player )
-	Assert ( IsValid( battery ) )
+	// destroy all carrying batteries
+	Rodeo_RemoveAllBatteriesOffPlayer( player )
+
+	// removed. meaningless codes
+	//entity battery = Rodeo_TakeBatteryAwayFromPilot( player )
+	//Assert ( IsValid( battery ) )
 }
 
 void function Rodeo_RemoveBatteryOffPlayer( entity player ) //Meant to be used in prematch etc.
