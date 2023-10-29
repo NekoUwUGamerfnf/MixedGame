@@ -5,13 +5,19 @@ global function AiGunship_Init
 global function GunshipThink
 
 global const SOUND_GUNSHIP_HOVER = "Gunship_Hover"
-global const SOUND_GUNSHIP_EXPLODE_DEFAULT = "Gunship_Explode"
-global const FX_GUNSHIP_EXPLOSION = $"P_veh_exp_crow"
+global const SOUND_GUNSHIP_EXPLODE_DEFAULT = "Goblin_Dropship_Explode" // "Gunship_Explode" is not added to TF2
+const FX_GUNSHIP_DAMAGE =  $"veh_gunship_damage_FULL" // taken from _vehicle_dropship_new.nut. why it isn't added for gunships?
+const GUNSHIP_HEAVY_DAMAGE_THRESHOLD = 0.05 // when gunship takes a damage that is higher than this percentage of it's max health, we play FX_GUNSHIP_DAMAGE for them
+const GUNSHIP_REPEAT_DAMAGE_THRESHOLD = 0.125 // when gunship takes repeatly damage within 1s that is higher than this percentage of it's max health, we play FX_GUNSHIP_DAMAGE for them
+global const FX_GUNSHIP_EXPLOSION = $"P_veh_exp_hornet" // was $"P_veh_exp_crow"
 
 function AiGunship_Init()
 {
 	PrecacheParticleSystem( FX_GUNSHIP_EXPLOSION )
 	AddDeathCallback( "npc_gunship", GunshipDeath )
+	// taken from _vehicle_dropship_new.nut. why it isn't added for gunships?
+	// dropship uses AddDamageCallback()... that can't get calculated damage at all!
+	AddDamageFinalCallback( "npc_gunship", OnGunshipFinalDamaged )
 }
 
 
@@ -94,8 +100,60 @@ void function GunshipDeath( entity gunship, var damageInfo )
 	//TEMP
 	entity fx = PlayFX( FX_GUNSHIP_EXPLOSION, gunship.GetOrigin() )
 	fx.DisableHibernation() // infinite fadedist
-	EmitSoundAtPosition( TEAM_UNASSIGNED, gunship.GetOrigin(), "Goblin_Dropship_Explode" )
+	// sound event, change to be not hardcoded
+	//EmitSoundAtPosition( TEAM_UNASSIGNED, gunship.GetOrigin(), "Goblin_Dropship_Explode" )
+	EmitSoundAtPosition( TEAM_UNASSIGNED, gunship.GetOrigin(), SOUND_GUNSHIP_EXPLODE_DEFAULT )
+	// destroy the gunship because they're not handled to be hide on death by code
+	// needs to add one tick period before destroy, for other death callbacks can go through
+	//gunship.Destroy()
+	thread DelayedDestroyGunship( gunship )
+}
+
+// modified function
+void function DelayedDestroyGunship( entity gunship )
+{
+	gunship.EndSignal( "OnDestroy" )
+	gunship.Hide() // temp hide. not using VisibilityFlags because we want to keep their jet effect on
+	
+	WaitFrame() // wait for other death callbacks go through
 	gunship.Destroy()
 }
 
+// taken from _vehicle_dropship_new.nut. why it isn't added for gunships?
+void function OnGunshipFinalDamaged( entity gunship, var damageInfo )
+{
+	//print( "Gunship taking damage!" )
+	int maxHealth = gunship.GetMaxHealth()
+	int heavyDamageThreshold = int( maxHealth * GUNSHIP_HEAVY_DAMAGE_THRESHOLD )
+	int repeatDamageThreshold = int( maxHealth * GUNSHIP_REPEAT_DAMAGE_THRESHOLD )
+	float damage = DamageInfo_GetDamage( damageInfo )
 
+	//print( "heavyDamageThreshold: " + string( heavyDamageThreshold ) )
+	//print( "repeatDamageThreshold: " + string( repeatDamageThreshold ) )
+	//print( "damage: " + string( damage ) )
+
+	// store some necessary damage history for npc gunships so we can calculate DPS
+	DamageHistoryStruct damageHistory
+	damageHistory.damage = damage
+	damageHistory.time = Time()
+	gunship.e.recentDamageHistory.insert( 0, damageHistory )
+
+	// get DPS( includes current damage )
+	int damageTakenWithinSecond = int( GetTotalDamageTakenInTime( gunship, 1.0 ) )
+	//print( "damageTakenWithinSecond: " + string( damageTakenWithinSecond ) )
+	vector pos = DamageInfo_GetDamagePosition( damageInfo )
+	// repeat damage threshold
+	if ( damageTakenWithinSecond > repeatDamageThreshold )
+	{
+		//print( "Gunship Repeat damage threshold triggered!" )
+		// if triggered, clear out damageHistory
+		ClearRecentDamageHistory( gunship )
+		PlayFX( FX_GUNSHIP_DAMAGE, pos )
+	}
+	// heavy damage threshold
+	else if ( damage > heavyDamageThreshold )
+	{
+		//print( "Gunship Heavy damage threshold triggered!" )
+		PlayFX( FX_GUNSHIP_DAMAGE, pos )
+	}
+}
