@@ -610,7 +610,9 @@ void function RodeoBatteryRemoval_ShowBattery( entity pilot )
 
 void function RodeoBatteryStealthMovementWarning( entity pilot )
 {
-	if ( !PlayerHasPassive( pilot, ePassives.PAS_STEALTH_MOVEMENT ) )
+	// modified settings override, in case we want to hide player's jetpack flame but we don't want to make them use stealth rodeo
+	//if ( !PlayerHasPassive( pilot, ePassives.PAS_STEALTH_MOVEMENT ) )
+	if ( !Rodeo_PlayerDoStealthMovement( pilot ) )
 		return
 
 	entity titanSoul = pilot.GetTitanSoulBeingRodeoed()
@@ -931,7 +933,9 @@ function PlayerBeginsTitanRodeo( entity player, RodeoPackageStruct rodeoPackage,
 		bool ignoreWarning = ClassicRodeo_IsEnabled() && !file.automaticallyDoRodeoSequence
 		if ( !ignoreWarning )
 		{
-			if ( player.GetTeam() != rodeoTitan.GetTeam() && !PlayerHasPassive( player, ePassives.PAS_STEALTH_MOVEMENT ) )
+			// modified settings override, in case we want to hide player's jetpack flame but we don't want to make them use stealth rodeo
+			//if ( player.GetTeam() != rodeoTitan.GetTeam() && !PlayerHasPassive( player, ePassives.PAS_STEALTH_MOVEMENT ) )
+			if ( player.GetTeam() != rodeoTitan.GetTeam() && !Rodeo_PlayerDoStealthMovement( player ) )
 				soul.SetLastRodeoHitTime( Time() ) // Alert Titan immediately if you don't have passive
 		}
 
@@ -1137,6 +1141,18 @@ void function TryBatteryStyleRodeo( entity rodeoPilot, entity rodeoTitan, entity
 		bool classicRodeo = ClassicRodeo_IsEnabled()
 		bool meleePressing = rodeoPilot.IsInputCommandHeld( IN_MELEE )
 		bool usePressing = rodeoPilot.IsInputCommandHeld( IN_USE )
+
+		if( FriendlyFire_IsEnabled() ) // friendly fire conditions
+		{
+			if( sameTeam && meleePressing ) // rip friendly battery if player holding MELEE while climbing
+				shouldDoFriendlyGrab = false
+			else if( !sameTeam && usePressing ) // safely grab enemy titan if player holding USE while climbing
+				shouldDoFriendlyGrab = true
+			
+			// reversed rodeo
+			if ( FriendlyFire_ShouldDoReversedRodeo() )
+				shouldDoFriendlyGrab = !sameTeam // reverse it
+		}
 		
 		if( classicRodeo ) // classic rodeo condition: never do friendlyGrab, cause we need to do ClassicRodeoThink() below
 			shouldDoFriendlyGrab = false
@@ -2257,13 +2273,15 @@ entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 	
 	SetPlayerBatteryCount( pilot, GetPlayerBatteryCount( pilot ) - 1 )
 
-	// removing some of respawn's remaining code. "unreachable" and hardcodes never makes any sense
+	// why is this only handled 1 battery condition?
+	// we do need to create a new battery if player still have battery left...
+	// I don't care, removing some of respawn's remaining code. "unreachable" and hardcodes never makes any sense
 	entity battery = GetBatteryOnBack( pilot )
 	// clear out exisiting battery network var
 	SetBatteryOnBack( pilot, null ) //Defensive fix for 209362. Set it to null before doing any other actions on it which might cause execution to jump somewhere else. I think doing PutEntityInSafeSpot() might cause this?
 
 	// nessie fix
-	// sometimes battery can be invalid
+	// sometimes battery can be invalid( but with multiple carried battery fix that should be less frequent )
 	if( IsValid( battery ) )
 	{
 		#if MP // nessie modify
@@ -2302,6 +2320,19 @@ entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 		battery.SetAngles( <0, 0, 0 > )
 		battery.SetVelocity( < 0, 0, 1 > )
 		PutEntityInSafeSpot( battery, pilot, null, pilot.GetOrigin(), battery.GetOrigin() ) //This might cause thread of execution to jump somewhere else, see 209362
+	}
+
+	// last battery has dropped to ground( or it's invalid )
+	// in any case player still have a battery
+	// create a new battery on their back, so they can use them
+	// which also prevents crash when carry multiple batteries and embarking the titan
+	if ( GetPlayerBatteryCount( pilot ) > 0 )
+	{
+		print( "Player still have battery left! creating new battery" )
+		entity carriedBattery = Rodeo_CreateBatteryPack()
+		Rodeo_PilotPicksUpBattery_Silent( pilot, carriedBattery )
+		// battery count is added again by Rodeo_PilotPicksUpBattery_Silent(), reduce it down
+		SetPlayerBatteryCount( pilot, GetPlayerBatteryCount( pilot ) - 1 )
 	}
 
 	return battery
@@ -2387,10 +2418,12 @@ void function Rodeo_DropAllBatteries( entity player )
 	if ( !PlayerHasBattery( player ) )
 		return
 
-	// reduced by 1 because player will always drop a battery in center position by first time calling Rodeo_TakeBatteryAwayFromPilot()
+	// reduced by 1 because player will always drop a battery in center position by Rodeo_TakeBatteryAwayFromPilot()
 	float batteryCount = float( GetPlayerBatteryCount( player ) - 1 ) // Floats instead of ints since we need decimal values for the math
+	//print( "batteryCount from Rodeo_DropAllBatteries(): " + string( batteryCount ) )
 	for ( float i = 1.0; GetPlayerBatteryCount( player ) > 1; i += 1.0 )
 	{
+		//print( "LOOPING! in Rodeo_DropAllBatteries()" )
 		entity newBattery = Rodeo_CreateBatteryPack()
 		newBattery.s.touchEnabledTime = Time() + 0.3
 		vector direction = AnglesToForward( <0, i/batteryCount * 360.0, 0> )
@@ -2399,12 +2432,17 @@ void function Rodeo_DropAllBatteries( entity player )
 		vector baseVelocity = player.GetVelocity()
 		baseVelocity.z = 0
 		newBattery.SetVelocity( baseVelocity + direction * 100 + <0, 0, 1> )
-		Rodeo_TakeBatteryAwayFromPilot( player )
+		// we've modified Rodeo_TakeBatteryAwayFromPilot(), can't use it here because it will create new batteries for each on player's back
+		//Rodeo_TakeBatteryAwayFromPilot( player )
+		Rodeo_RemoveBatteryOffPlayer( player ) // remove current battery
 	}
 
-	// this drops one battery when player only have 1 battery carried
+	// take last battery, dropped directly by player
 	entity battery = Rodeo_TakeBatteryAwayFromPilot( player )
 	Assert ( IsValid( battery ) )
+
+	// we've modified Rodeo_TakeBatteryAwayFromPilot(), needs to remove any other exsiting battery for player
+	Rodeo_RemoveAllBatteriesOffPlayer( player )
 }
 
 void function Rodeo_RemoveBatteryOffPlayer( entity player ) //Meant to be used in prematch etc.
@@ -2694,7 +2732,8 @@ void function Rodeo_PilotAddsBatteryToFriendlyTitan( entity rider, entity titan 
 	if ( !titan.IsTitan() )
 		return
 
-	if ( titan.GetTeam() != rider.GetTeam() )
+	//if ( titan.GetTeam() != rider.GetTeam() )
+	if ( titan.GetTeam() != rider.GetTeam() && !FriendlyFire_IsEnabled() ) // allow applying to enemy titans if friendlyFireOn
 		return
 
 	if ( !PlayerHasBattery( rider ) )
@@ -2876,7 +2915,8 @@ bool function PilotCanApplyBattery( entity rodeoPilot, entity rodeoTitan )
 	if ( !Rodeo_IsTitanRodeoSequenceEnabled( rodeoTitan ) )
 		return false
 
-	if ( rodeoTitan.GetTeam() != rodeoPilot.GetTeam() )
+	//if ( rodeoTitan.GetTeam() != rodeoPilot.GetTeam() )
+	if ( rodeoTitan.GetTeam() != rodeoPilot.GetTeam() && !FriendlyFire_IsEnabled() ) // allow applying battery to enemy if friendlyFireOn...
 		return false
 
 	if ( !PlayerHasBattery( rodeoPilot ) )
@@ -3153,9 +3193,11 @@ void function RemovePlayerAirControl( entity player ) //This function should rea
 void function RestorePlayerAirControl( entity player ) //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 {
 	Assert( player.IsPlayer() )
-	player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
-	// northstar mods modified version
-	player.kv.airAcceleration = GetCurrentPlaylistVarInt( "custom_air_accel_pilot", int( player.GetPlayerSettingsField( "airAcceleration" ) ) )
+	// modified to use saved settings!
+	//player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
+	//player.kv.airAcceleration = player.GetPlayerSettingsField( "airAcceleration" )
+	RestorePlayerPermanentAirSpeed( player )
+	RestorePlayerPermanentAirAcceleration( player )
 }
 
 bool function ShouldThrowGrenadeInHatch( entity rodeoPilot )
@@ -3326,6 +3368,9 @@ void function ClassicRodeoThink( entity rodeoPilot, entity titanSoul, RodeoPacka
 	entity rodeoTitan = titanSoul.GetTitan()
 	string rodeoTitanType = rodeoPackage.rodeoTargetType
 	bool isEnemyStyle = rodeoPilot.GetTeam() != rodeoTitan.GetTeam()
+	// reversed rodeo
+	if ( FriendlyFire_ShouldDoReversedRodeo() )
+		isEnemyStyle = !isEnemyStyle
 
 	bool didRodeoSequence = false
 
@@ -3381,6 +3426,9 @@ void function ClassicRodeoThink( entity rodeoPilot, entity titanSoul, RodeoPacka
 		rodeoTitan = titanSoul.GetTitan() // update rodeo titan each loop
 		if( file.automaticallyDoRodeoSequence && isEnemyStyle )
 		{
+			//if( ClassicRodeo_GetSoulBatteryCount( titanSoul ) >= 1 && 
+			//	( !sameTeam || ( FriendlyFire_IsEnabled() && sameTeam && rodeoPilot.IsInputCommandHeld( IN_MELEE ) ) )
+			//) // modified condition: titan's bossplayer applied a battery to their titan, friendly rider will try to remove if holding melee
 			if( ClassicRodeo_GetSoulBatteryCount( titanSoul ) >= 1 ) // remove new-applied battery!
 				waitthread ClassicRodeo_TryRemoveNewAppliedBattery( rodeoPilot, titanSoul, rodeoPackage )
 		}
@@ -3421,17 +3469,18 @@ void function ClassicRodeo_SequenceThink( entity rodeoPilot, entity titanSoul, R
 		entity rodeoTitan = titanSoul.GetTitan()
 		string rodeoTitanType = rodeoPackage.rodeoTargetType
 		bool sameTeam = rodeoPilot.GetTeam() == titanSoul.GetTeam()
+		bool friendlyFireOn = FriendlyFire_IsEnabled()
 		bool pilotHasBattery = PlayerHasBattery( rodeoPilot )
 		bool titanHasBattery = ClassicRodeo_GetSoulBatteryCount( titanSoul ) >= 1
 
 		if( result.signal == "RodeoDefensiveSequence" )
 		{
-			if( ClassicRodeo_GetBatteryCountPlayerAllowedToApply( rodeoPilot ) >= 1 && pilotHasBattery && sameTeam )
+			if( ClassicRodeo_GetBatteryCountPlayerAllowedToApply( rodeoPilot ) >= 1 && pilotHasBattery && ( friendlyFireOn || sameTeam ) )
 				waitthread ClassicRodeo_PlayerAppliesBatteryPackWhileOnBoard( rodeoPilot, titanSoul, rodeoPackage )
 		}
 		else if( result.signal == "RodeoOffensiveSequence" )
 		{
-			if( !sameTeam )
+			if( friendlyFireOn || !sameTeam )
 				waitthread ClassicRodeo_PlayerOffensiveSequenceWhileOnBoard( rodeoPilot, titanSoul, rodeoPackage, titanHasBattery )
 		}
 	}
@@ -3611,6 +3660,7 @@ void function ClassicRodeo_DoHintsBaseOnRodeoConditions( entity player, entity t
 	if ( Time() < file.playerNextRodeoHintAllowedTime[ player ] ) // don't want to spam message to player
 		return
 
+	bool friendlyFireOn = FriendlyFire_IsEnabled()
 	bool sameTeam = titanSoul.GetTeam() == player.GetTeam()
 	bool ableToApplyBattery = ClassicRodeo_GetBatteryCountPlayerAllowedToApply( player ) >= 1
 	bool titanHasBattery = ClassicRodeo_GetSoulBatteryCount( titanSoul ) >= 1
@@ -3618,7 +3668,7 @@ void function ClassicRodeo_DoHintsBaseOnRodeoConditions( entity player, entity t
 
 	string curHints = ""
 	string puncToAdd
-	if( !sameTeam ) // offensive hint
+	if( friendlyFireOn || !sameTeam ) // offensive hint
 	{
 		if( titanHasBattery && !file.automaticallyDoRodeoSequence )
 			curHints = "按下 近戰 拔取電池"
@@ -3626,7 +3676,7 @@ void function ClassicRodeo_DoHintsBaseOnRodeoConditions( entity player, entity t
 			curHints = "可直接攻擊電池倉，或按下 近戰 投擲手雷"
 	}
 
-	if( ableToApplyBattery && ( sameTeam ) )
+	if( ableToApplyBattery && ( friendlyFireOn || sameTeam ) )
 	{
 		if ( !file.automaticallyDoRodeoSequence )
 		{
