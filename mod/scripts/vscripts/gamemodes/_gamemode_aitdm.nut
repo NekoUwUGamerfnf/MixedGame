@@ -708,9 +708,8 @@ void function AITdm_OnNPCLeeched( entity npc, entity player )
 	npc.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
 
 	// adding score
-	// same validation check as killing the target
 	// they can be re-hacked and we need to prevent gain score multiple times
-	if ( VictimIsValidForAITdmScore( npc ) )
+	if ( !( "givenAttritionScore" in npc.s ) )
 	{
 		int playerScore = 0
 		switch ( npc.GetClassName() )
@@ -729,6 +728,7 @@ void function AITdm_OnNPCLeeched( entity npc, entity player )
 		}
 		// Add score + update network int to trigger the "Score +n" popup
 		AddAITdmPlayerTeamScore( player, playerScore )
+		npc.s.givenAttritionScore <- true // mark the npc as already given score to player
 	}
 	
 	// disable leech on this spectre, don't let them to be multiple-leeched by diffrent team...
