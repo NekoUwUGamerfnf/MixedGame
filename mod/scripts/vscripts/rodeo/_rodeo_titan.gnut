@@ -76,8 +76,12 @@ global function ClassicRodeo_OwnerApplyBatteryAllowed // owner can't add battery
 global function ClassicRodeo_SetShouldAutomaticallyDoRodeoSequence // player won't remove batteries or do other sequences if they're not inputing anything
 global function ClassicRodeo_SetDeathBatteiesDropEnabled
 
+global function ClassicRodeo_IsPlayerApplyingBatteryPack
 global function ClassicRodeo_IsPlayerRemovingBatteryPack
 global function ClassicRodeo_IsPlayerThrowingGrenadeInHatch
+
+// get active rodeo package
+global function ClassicRodeo_GetPlayerActiveRodeoPackage
 #endif // MP
 
 #if MP // nessie modify
@@ -179,6 +183,7 @@ struct
 	table <entity, bool> playerThrowingGrenadeInHatch
 	table <entity, int> playerBatteryCountAllowedToApply
 	table <entity, float> playerNextRodeoHintAllowedTime
+	table <entity, RodeoPackageStruct> playerActiveRodeoPackage
 
 	// titan tables
     //
@@ -289,6 +294,7 @@ void function RodeoTitan_Init()
 		AddSpawnCallback( "titan_soul", ClassicRodeo_InitTitanSoulSettings )
 		AddDeathCallback( "player", ClassicRodeo_OnPlayerOrNPCTitanKilled )
 		AddDeathCallback( "npc_titan", ClassicRodeo_OnPlayerOrNPCTitanKilled )
+		AddSoulTransferFunc( ClassicRodeo_PilotRegrabTitan ) // this is hacky, but is required to make disembarked player able to damage rodeo pilot... they'll become invulnerable after titan transfering
 		AddCallback_OnPilotBecomesTitan( ClassicRodeo_UpdateBatteryContainer )
 		AddCallback_OnTitanBecomesPilot( ClassicRodeo_UpdateBatteryContainer )
 	#endif // MP
@@ -428,6 +434,10 @@ void function RecreateRodeoPanelDamageFX( entity soul, entity titan, entity oldT
 void function RecreateRodeoPanelDamageFX_threaded( entity soul )
 {
 	WaitEndFrame()
+	// vanilla missing anti-crush
+	if ( !IsValid( soul ) )
+		return
+	
 	entity panel = soul.soul.batteryContainer
 
 	if (! IsValid( panel ) )
@@ -793,6 +803,9 @@ function PlayerBeginsTitanRodeo( entity player, RodeoPackageStruct rodeoPackage,
 	player.Signal( "RodeoStarted" )
 
 	bool playerHadBatteryAtStartOfRodeo = PlayerHasBattery( player )
+
+	// update active rodeo package before OnThreadEnd()
+	file.playerActiveRodeoPackage[ player ] = rodeoPackage
 
 	OnThreadEnd(
 		function () : ( player, soul, sameTeam, rodeoTitan, playerHadBatteryAtStartOfRodeo )
@@ -3739,6 +3752,33 @@ void function ClassicRodeo_DropAllStoredBatteries( entity ent, var damageInfo )
 	}
 }
 
+// this is hacky, but is required to make disembarked player able to damage rodeo pilot...
+// rodeo pilot will become invulnerable after titan transfer
+void function ClassicRodeo_PilotRegrabTitan( entity soul, entity titan, entity oldTitan )
+{
+	thread ClassicRodeo_PilotRegrabTitan_Threaded( soul, titan, oldTitan )
+}
+
+void function ClassicRodeo_PilotRegrabTitan( entity soul, entity titan, entity oldTitan )
+{
+	entity rodeopilot = GetRodeoPilot( titan )
+	if ( IsAlive( rodeopilot ) )
+	{
+		// check if pilot is doing any other activity
+		if ( ClassicRodeo_IsPlayerApplyingBatteryPack( rodeoPilot ) 
+			 || ClassicRodeo_IsPlayerRemovingBatteryPack ( rodeoPilot )
+			 || ClassicRodeo_IsPlayerThrowingGrenadeInHatch( rodeoPilot ) 
+			)
+			return // if in other activity, player will re-grab titan automatically. no need 
+		
+		if ( !ClassicRodeo_IsPlayerGrabbingTitan( rodeoPilot ) ) // not grabbing, is still climbing!
+			return
+
+		RodeoPackageStruct activePackage = ClassicRodeo_GetPlayerActiveRodeoPackage( rodeoPilot )
+		ClassicRodeo_GrabTargetTitan( rodeoPilot, soul, rodeoPackage, false )
+	}
+}
+
 void function ClassicRodeo_UpdateBatteryContainer( entity player, entity titan )
 {
 	if( !ClassicRodeo_IsEnabled() )
@@ -3814,6 +3854,9 @@ void function ClassicRodeo_InitPlayerSettings( entity player )
 	file.playerBatteryCountAllowedToApply[player] <- 0
 	// message, no need to clean up
 	file.playerNextRodeoHintAllowedTime[player] <- 0.0
+	// active rodeo package, so we can get rodeopackage from other functoins
+	RodeoPackageStruct emptyStruct
+	file.playerActiveRodeoPackage[player] = emptyStruct
 }
 
 void function ClassicRodeo_PlayerSettingsCleanUp( entity player )
@@ -3823,6 +3866,9 @@ void function ClassicRodeo_PlayerSettingsCleanUp( entity player )
 	file.playerRemovingBatteryPack[player] = false
 	file.playerThrowingGrenadeInHatch[player] = false
 	file.playerBatteryCountAllowedToApply[player] = 0
+	// active rodeo package, so we can get rodeopackage from other functoins
+	RodeoPackageStruct emptyStruct
+	file.playerActiveRodeoPackage[player] = emptyStruct
 }
 
 void function ClassicRodeo_InitTitanSettings( entity titan )
@@ -3960,6 +4006,11 @@ bool function ClassicRodeo_IsPlayerThrowingGrenadeInHatch( entity player )
 		return false
 
 	return file.playerThrowingGrenadeInHatch[player]
+}
+
+RodeoPackageStruct function ClassicRodeo_GetPlayerActiveRodeoPackage( entity player )
+{
+	return file.playerActiveRodeoPackage[ player ]
 }
 
 int function ClassicRodeo_GetBatteryCountPlayerAllowedToApply( entity player )
