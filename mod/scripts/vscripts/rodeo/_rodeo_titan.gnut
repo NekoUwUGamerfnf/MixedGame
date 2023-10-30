@@ -68,7 +68,8 @@ global function ClassicRodeo_IsEnabled
 
 global function ClassicRodeo_SetStartingBatteryCount
 global function ClassicRodeo_AllowContinuallyRemoveBattery // this will make players able to remove batteries until
-global function ClassicRodeo_SetBatteryRemovalDamageAmped // this will make removing batteries also removing titan's shield
+global function ClassicRodeo_SetBatteryRemovalRemovesShield // this will make removing batteries also removing titan's shield
+global function ClassicRodeo_SetBatteryRemovalDamageFlags // classic rodeo's special damage flag modifier, by default it contains DF_BYPASS_SHIELD
 global function ClassicRodeo_SetBatteryRemovalDamageCoreMeter // removing battery will reduce a titan's core meter!
 global function ClassicRodeo_BatteryContainerOnlyProtectsOnce // every titan only have one battery protects their panel like ttf1's panel
 global function ClassicRodeo_OwnerApplyBatteryAllowed // owner can't add battery count to their titans
@@ -104,10 +105,10 @@ global function Rodeo_SetAmpedBatteryRegenScale
 global function Rodeo_SetBatteryShieldRegenScale
 global function Rodeo_SetAmpedBatteryShieldRegenScale
 
-global function Rodeo_SetBatteryRemovalDamageFlags // modify damageflag by this
-global function Rodeo_SetBatteryRemovalDamageScale
-global function Rodeo_SetRodeoGrenadeDamageScale // default is 0.5, half the damage as battery removal
-global function Rodeo_BatteryRemovalKillsDoomedTitan
+global function Rodeo_SetBatteryRemovalDamageFlags // modify damageflag by this. not shared with classic rodeo, which uses ClassicRodeo_SetBatteryRemovalDamageFlags()
+global function Rodeo_SetBatteryRemovalDamageScale // shared with classic rodeo
+global function Rodeo_SetRodeoGrenadeDamageScale // default is 0.5, half the damage as battery removal. shared with classic rodeo
+global function Rodeo_BatteryRemovalKillsDoomedTitan // shared with shared with classic rodeo
 #endif // MP
 
 #if DEV
@@ -197,7 +198,8 @@ struct
 	int classicRodeoStartingBatteryCount = 1 // titans start with this battery count
 	int classicRodeoMaxBatteryCount = 1 // default
 	bool continuallyRemoveBattery = false
-	bool batteryRemovalDamageAmped = false
+	bool batteryRemovalRemovesShield = false
+	int classicBatteryRemovalDamageFlags = damageTypes.rodeoBatteryRemoval | DF_BYPASS_SHIELD // default comes together with bypass shield
 	bool batteryRemovalDamageCoreMeter = false
 	bool batteryContainerOnlyProtectsOnce = true
 	bool ownerApplyBatteryAllowed = false
@@ -1733,6 +1735,9 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 		// modified damage flags
 		//int damageScriptType = damageTypes.rodeoBatteryRemoval
 		int damageScriptType = file.batteryRemovalDamageFlags
+		// classic rodeo variant
+		if ( classicRodeo )
+			damageScriptType = file.classicBatteryRemovalDamageFlags
 
 		// modify damage again
 		float damageScale = file.batteryRemovalDamageScale
@@ -1747,12 +1752,12 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 		{
 			if ( GetDoomedState( victim ) )
 			{
-				damageAmount = victim.GetHealth() + 1
+				damageAmount = victim.GetHealth() + 1 // this actually can't kill titan if they have shields
 			}
-			else if ( IsHardcoreGameMode() )
-			{
-				damageAmount = victim.GetHealth()
-			}
+		}
+		else if ( IsHardcoreGameMode() )
+		{
+			damageAmount = victim.GetHealth()
 		}
 
 		table damageTable =
@@ -1761,13 +1766,13 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 			forceKill = false
 			damageSourceId = eDamageSourceId.rodeo_battery_removal
 			origin = victim.GetOrigin()
-			hitbox = 2
+			hitbox = 2 // what?
 		}
 
 		if( !isGrenadeDamage && classicRodeo ) // confirm it's batteryStyle damage and classic rodeo
 		{
 			// take additional damage to remove all shields. victim.GetShieldHealth() won't work for titans! have to track soul's shield amount
-			if ( file.batteryRemovalDamageAmped ) // if damageAmped, will also remove all shields from victim, means it will always deal 2500 damage to titan's health
+			if ( file.batteryRemovalRemovesShield ) // if damageAmped, will also remove all shields from victim, means it will always deal 2500 damage to titan's health
 			{
 				//victimTitanSoul.SetShieldHealth( 0 ) // this method won't give player additional titanMeters, maybe better?
 				table ampDamageTable = clone damageTable
@@ -4145,9 +4150,14 @@ void function ClassicRodeo_AllowContinuallyRemoveBattery( bool allow )
 	file.continuallyRemoveBattery = allow
 }
 
-void function ClassicRodeo_SetBatteryRemovalDamageAmped( bool amp )
+void function ClassicRodeo_SetBatteryRemovalRemovesShield( bool remove )
 {
-	file.batteryRemovalDamageAmped = amp
+	file.batteryRemovalRemovesShield = remove
+}
+
+void function ClassicRodeo_SetBatteryRemovalDamageFlags( int flags )
+{
+	file.classicBatteryRemovalDamageFlags = flags
 }
 
 void function ClassicRodeo_SetBatteryRemovalDamageCoreMeter( bool damageCore )
