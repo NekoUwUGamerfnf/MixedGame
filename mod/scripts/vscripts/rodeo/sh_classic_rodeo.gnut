@@ -12,7 +12,16 @@ global function AddCallback_ClassicRodeo_WeakpointTitanDamaged
 
 // debug
 const bool CLASSIC_RODEO_WEAKPOINT_DEBUG = false
-												
+
+// settings
+const array<asset> RODEO_WEAKPOINT_DAMAGE_STATE_FX =
+[
+	$"P_rodeo_damage_1",
+	$"P_rodeo_damage_2",
+	$"P_rodeo_damage_3"
+]
+const asset RODEO_WEAKPOINT_HITBOX_MODEL = $"models/weapons/bullets/triple_threat_projectile.mdl" // $"models/Weapons/ammoboxes/backpack_single.mdl" // this one's too big, will block many damages
+
 struct
 {
 	float classicRodeoAdditionalDamage = 1.0 // default additional damage value, should make it changable through playlistVars
@@ -23,9 +32,6 @@ struct
 	bool isWeakpointDamage // for OnWeakpointAttachedTitanDamaged() handle damage
 } file
 #endif
-
-
-const asset RODEO_WEAKPOINT_HITBOX_MODEL = $"models/weapons/bullets/triple_threat_projectile.mdl" // $"models/Weapons/ammoboxes/backpack_single.mdl" // this one's too big, will block many damages
 
 void function ClassicRodeo_InitPlaylistVars()
 {
@@ -160,11 +166,43 @@ void function OnRodeoWeakpointPostDamaged( entity weakpoint, var damageInfo )
 				file.isWeakpointDamage = true // mark as this will be weak point damage
 				titan.TakeDamage( rodeoDamage, attacker, attacker, { damageSourceId = eDamageSourceId.rodeo, scriptType = damageTypes } )
 				file.isWeakpointDamage = false // clean up
+
+				// update rodoe panel damaged effect
+				RodeoWeakpointDamagedEffect( weakpoint, titan, rodeoDamage )
 			}
 		}
 	}
 	
 	DamageInfo_SetDamage( damageInfo, 0 ) // make sure weakpoint ent doesn't die ever
+}
+
+void function RodeoWeakpointDamagedEffect( entity weakpoint, entity titan, float rodeoDamage )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	entity panel = soul.soul.batteryContainer
+	int actualDamage = int( rodeoDamage )
+	if ( !( "weakpointDamageAmount" in panel.s ) )
+		panel.s.weakpointDamageAmount <- 0
+
+	// current damage spark
+	CreateSparksInsideTitanPanel( panel )
+
+	// total damage state
+	int totalDamageStates = RODEO_WEAKPOINT_DAMAGE_STATE_FX.len()
+	int damageStateHealth = GetSegmentHealthForTitan( titan ) //titan.GetMaxHealth() / totalDamageStates
+	int currentDamageState = expect int( panel.s.weakpointDamageAmount ) / damageStateHealth
+	//print( "currentDamageState: " + string( currentDamageState ) )
+	if ( currentDamageState < totalDamageStates )
+	{
+		int nextDamageState = currentDamageState + 1
+		int nextDamageStateHealth = damageStateHealth * nextDamageState
+		// we just damaged titan over a bar?
+		if ( panel.s.weakpointDamageAmount < nextDamageStateHealth && panel.s.weakpointDamageAmount + actualDamage >= nextDamageStateHealth )
+			CreateDamageStateParticlesForPanel( panel, RODEO_WEAKPOINT_DAMAGE_STATE_FX[ nextDamageState - 1 ] )
+	}
+	panel.s.weakpointDamageAmount += actualDamage
 }
 
 void function AddCallback_ClassicRodeo_WeakpointTitanDamaged( void functionref( entity, var ) callbackFunc )

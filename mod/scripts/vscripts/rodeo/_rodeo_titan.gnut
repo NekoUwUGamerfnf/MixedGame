@@ -56,6 +56,10 @@ global function Battery_StopFXAndHideIconForPlayer
 global function RemovePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 global function RestorePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 
+// globalized for classic rodeo to use
+global function CreateSparksInsideTitanPanel
+global function CreateDamageStateParticlesForPanel
+
 // RODEO modifiers
 #if MP
 // classic rodeo
@@ -90,8 +94,11 @@ global function Rodeo_SetTitanPickupBatteryAllowed
 global function Rodeo_BatteryThiefHighlightEnabled
 global function Rodeo_SetTitanBatteryDropOnDeath
 
+// allowing modify regen
 global function Rodeo_SetBatteryRegenScale
 global function Rodeo_SetAmpedBatteryRegenScale
+global function Rodeo_SetBatteryShieldRegenScale
+global function Rodeo_SetAmpedBatteryShieldRegenScale
 
 global function Rodeo_SetBatteryRemovalDamageFlags // modify damageflag by this
 global function Rodeo_SetBatteryRemovalDamageScale
@@ -201,8 +208,11 @@ struct
 	bool batteryThiefHighlightEnable = true
 	bool titanBatteryDropOnDeath = false
 
+	// battery regen settings
 	float batteryRegenScale = 1.0
 	float ampedBatteryRegenScale = 1.0
+	float batteryShieldRegenScale = 1.0 // 1.0 means max shield regen
+	float ampedBatteryShieldRegenScale = 1.0
 
 	int batteryRemovalDamageFlags = damageTypes.rodeoBatteryRemoval
 	float batteryRemovalDamageScale = 1.0
@@ -257,11 +267,8 @@ void function RodeoTitan_Init()
 		RegisterSignal( "TryNukeGrenade" )
 		RegisterSignal( "RodeoNukeWindowEnded" )
 		#endif
-
-		// nessie move
-		AddSoulInitFunc( DisableBTRodeo )
 	}
-	//else // bt rodeo has been fixed
+	//else // bt rodeo has been fixed, should be handled by Rodeo_SetTitanRodeoSequenceEnabled()
 	//{
 		//AddSoulInitFunc( DisableBTRodeo )
 	//}
@@ -274,7 +281,7 @@ void function RodeoTitan_Init()
 
 		RegisterSignal( "ClassicRodeoThink" )
 		RegisterSignal( "RodeoSequenceThink" )
-		RegisterSignal( "RodeoWeakPointThink" )
+		RegisterSignal( "RodeoWeakpointThink" )
 		RegisterSignal( "ApplyBatteryToTitan" )
 
 		AddSpawnCallback( "player", ClassicRodeo_InitPlayerSettings )
@@ -2543,13 +2550,20 @@ void function Rodeo_ApplyBatteryToTitan( entity battery, entity titan, bool owne
 		if ( soul.IsDoomed() && batteryIsAmped )
 		{
 			UndoomTitan( titan, 1 )
-			soul.SetShieldHealth( soul.GetShieldHealthMax() )
+			// now adding settings to allow modifying shield regen amount
+			//soul.SetShieldHealth( soul.GetShieldHealthMax() )
 		}
 		else
 		{
 			titan.SetHealth( totalHealth )
-			soul.SetShieldHealth( soul.GetShieldHealthMax() )
+			// now adding settings to allow modifying shield regen amount
+			//soul.SetShieldHealth( soul.GetShieldHealthMax() )
 		}
+
+		// modified settings
+		float shieldRegenFrac = batteryIsAmped ? file.ampedBatteryShieldRegenScale : file.batteryShieldRegenScale
+		int shieldRegen = int( shieldMaxHealth * shieldRegenFrac )
+		soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + shieldRegen ) )
 	
 		// northstarFD new adding callbacks
 		// Added via AddBatteryHealCallbacks()
@@ -3384,7 +3398,7 @@ void function ClassicRodeoThink( entity rodeoPilot, entity titanSoul, RodeoPacka
 		if( rodeoPilot.GetTitanSoulBeingRodeoed() == titanSoul ) // pilot still rodeoing
 		{
 			//print( "re-Creating weaponPoint!" )
-			waitthread ClassicRodeo_WeakPointThink( rodeoPilot, titanSoul, rodeoPackage ) // re-create hitbox if victim titan has been transfered
+			waitthread ClassicRodeo_WeakpointThink( rodeoPilot, titanSoul, rodeoPackage ) // re-create hitbox if victim titan has been transfered
 		}
 	}
 }
@@ -3433,13 +3447,13 @@ void function ClassicRodeo_SequenceThink( entity rodeoPilot, entity titanSoul, R
 	}
 }
 
-void function ClassicRodeo_WeakPointThink( entity rodeoPilot, entity titanSoul, RodeoPackageStruct rodeoPackage )
+void function ClassicRodeo_WeakpointThink( entity rodeoPilot, entity titanSoul, RodeoPackageStruct rodeoPackage )
 {
-	//print( "startring WeakPointThink()!" )
+	//print( "startring WeakpointThink()!" )
 	// this function is waitthreaded from others, no need to add signals
 
-	rodeoPilot.Signal( "RodeoWeakPointThink" )
-	rodeoPilot.EndSignal( "RodeoWeakPointThink" )
+	rodeoPilot.Signal( "RodeoWeakpointThink" )
+	rodeoPilot.EndSignal( "RodeoWeakpointThink" )
 	entity rodeoTitan = titanSoul.GetTitan()
 	// signals for titan transfering
 	rodeoTitan.EndSignal( "OnDestroy" )
@@ -3468,7 +3482,7 @@ void function ClassicRodeo_WeakPointThink( entity rodeoPilot, entity titanSoul, 
 		WaitFrame() // do one WaitFrame() at the start to avoid influencing animations
 
 		if( ClassicRodeo_GetSoulBatteryCount( titanSoul ) >= 1 ) // titan still have battery left! maybe they applied one through embark
-			weakpointHitbox.NotSolid() // not able to attack weakPoint till remove the battery
+			weakpointHitbox.NotSolid() // not able to attack weakpoint till remove the battery
 		else // battery has been removed
 			weakpointHitbox.Solid()
 	}
@@ -4109,6 +4123,16 @@ void function Rodeo_SetBatteryRegenScale( float scale )
 }
 
 void function Rodeo_SetAmpedBatteryRegenScale( float scale )
+{
+	file.ampedBatteryRegenScale = scale
+}
+
+void function Rodeo_SetBatteryShieldRegenScale( float scale )
+{
+	file.batteryShieldRegenScale = scale
+}
+
+void function Rodeo_SetAmpedBatteryShieldRegenScale( float scale )
 {
 	file.ampedBatteryRegenScale = scale
 }
