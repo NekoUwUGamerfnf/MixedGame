@@ -120,12 +120,12 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	// now leaving only sp pilot models
 	// reverted. mp pilot model is good enough for using
 	// sp model is now saved exclusively for boss titan spawns
-	$"models/humans/pilots/pilot_medium_stalker_m.mdl", 
+	//$"models/humans/pilots/pilot_medium_stalker_m.mdl", // has been used to fake boss kane
 	$"models/humans/pilots/pilot_medium_stalker_f.mdl", 
 	$"models/humans/pilots/pilot_medium_geist_m.mdl", 
 	$"models/humans/pilots/pilot_medium_geist_f.mdl", 
-	$"models/humans/pilots/pilot_medium_reaper_m.mdl", 
-	$"models/humans/pilots/pilot_medium_reaper_f.mdl",
+	//$"models/humans/pilots/pilot_medium_reaper_m.mdl", // has been used to fake boss viper
+	//$"models/humans/pilots/pilot_medium_reaper_f.mdl", // has been uses to fake boss slone
 	/*
 	$"models/humans/pilots/sp_medium_geist_f.mdl", 
 	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
@@ -150,6 +150,13 @@ const array<asset> NPC_PILOT_SWITCH_WEAPON_ALLOWED_MODELS =
 	$"models/humans/pilots/sp_medium_geist_f.mdl", 
 	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
 	$"models/humans/pilots/sp_medium_stalker_m.mdl", 
+]
+
+// this array is hardcoded. it only contains models that included "pete_core.mdl"( most human models except for light and heavy pilots )
+// if a pilot spawned with other models, they should always go into ExtraSpawner_SpawnTitanWithPilot() instead of ExtraSpawner_SpawnPilotCanEmbark()
+const array<asset> NPC_PILOT_ALL_VALID_MODELS =
+[
+	// temp stub, until I have time to implement SP model pack mod
 ]
 
 // for ExtraSpawner_SpawnTitan() picking random titans
@@ -3754,10 +3761,11 @@ void function GunshipJetBurstEffect_Threaded( entity gunship )
 
 void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team, string spawnName = "" )
 {
-	// a dummy pod for getting droppod impact time
-	float podLaunchTime = expect float ( GetDropPodAnimDuration() )
-
-	entity pilot = ExtraSpawner_SpawnPilotElite( pos, rot, team )
+	// spawns a npc pilot that can use invalid model, we handle them with SpawnPilotCanEmbark_FailSafeToSpawnTitan()
+	entity pilot = ExtraSpawner_SpawnPilotElite( pos, rot, team, false )
+	// failsafe case: pilot's model is not good for MP usage, we'll spawn a titan directly
+	if ( SpawnPilotCanEmbark_FailSafeToSpawnTitan( pilot, pos, rot, team, spawnName ) )
+		return
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
@@ -3799,6 +3807,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 		}
 	)
 
+	float podLaunchTime = expect float( GetDropPodAnimDuration() )
 	wait podLaunchTime - 2.5 // wait for pod launch complete( wait 0.5s more )
 
 	// activate pod, releasing the pilot, don't clear it's invulerability
@@ -3811,6 +3820,13 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	
 	waitthread NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet, false ) // passing the same embark set, don't waitthread
 	thread NpcPilotEmbarksTitan( pilot, titan )
+}
+
+// if pilot don't have valid model for npc usage, we need to spawn a titan without embarking think
+bool function SpawnPilotCanEmbark_FailSafeToSpawnTitan( entity spawnedPilot, vector pos, vector rot, int team, string spawnName )
+{
+	// stub
+	return false
 }
 
 void function StandUnboardedTitan( entity titan )
@@ -3829,7 +3845,7 @@ void function StandUnboardedTitan( entity titan )
 	titan.ClearInvulnerable()
 }
 
-entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team, void functionref( entity pilot ) pilotHandler = null )
+entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team, void functionref( entity pilot ) pilotHandler = null, bool mpValidModelOnly = true )
 {
 	entity pilot = CreateNPC( "npc_pilot_elite", team, pos, rot )//CreateNPC( "npc_soldier", team, pos, rot )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( pilot ) // grenade have to be given before DispatchSpawn()
