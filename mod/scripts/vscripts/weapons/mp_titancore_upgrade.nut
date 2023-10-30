@@ -4,8 +4,13 @@ global function OnWeaponPrimaryAttack_UpgradeCore
 global function OnCoreCharge_UpgradeCore
 global function OnCoreChargeEnd_UpgradeCore
 //
+
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_UpgradeCore
+// modified settings
+// allow modifying shield regen amount when using custom shield amount
+global function UpgradeCore_SetShieldRegenScale
+//
 #endif
 #if CLIENT
 global function ServerCallback_VanguardUpgradeMessage
@@ -14,6 +19,13 @@ global function ServerCallback_VanguardUpgradeMessage
 const LASER_CHAGE_FX_1P = $"P_handlaser_charge"
 const LASER_CHAGE_FX_3P = $"P_handlaser_charge"
 const FX_SHIELD_GAIN_SCREEN		= $"P_xo_shield_up"
+
+// modified settings
+struct
+{
+	// allow modifying shield regen amount when using custom shield amount
+	float shieldRegenScale = 1.0 // 1.0 means regen to max shield
+} file
 
 void function UpgradeCore_Init()
 {
@@ -321,9 +333,9 @@ void function UpgradeCoreThink( entity weapon, float coreDuration )
 	EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Monarch_Smart_Core_Activated_3P" )
 	entity soul = owner.GetTitanSoul()
 	//soul.SetShieldHealth( soul.GetShieldHealthMax() )
-	// upgrade core should only regen 2500 points of shield even when shield value is modified
-    // hardcoded!
-    soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + 2500 ) )
+	// adding settings that allows shield regen amount to be modified
+	int shieldRegen = int( soul.GetShieldHealthMax() * file.shieldRegenScale )
+    soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + shieldRegen ) )
 
 	OnThreadEnd(
 	function() : ( weapon, owner, soul )
@@ -402,5 +414,14 @@ void function ServerCallback_VanguardUpgradeMessage( int upgradeID )
 			AnnouncementMessageSweep( GetLocalClientPlayer(), Localize( "#GEAR_VANGUARD_CORE9" ), Localize( "#GEAR_VANGUARD_CORE9_UPGRADEDESC" ), <255, 135, 10> )
 			break
 	}
+}
+#endif
+
+// modified settings
+#if SERVER
+// allow modifying shield regen amount when using custom shield amount
+void function UpgradeCore_SetShieldRegenScale( float scale )
+{
+	file.shieldRegenScale = scale
 }
 #endif
