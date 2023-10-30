@@ -288,6 +288,7 @@ void function RodeoTitan_Init()
 		RegisterSignal( "RodeoSequenceThink" )
 		RegisterSignal( "RodeoWeakpointThink" )
 		RegisterSignal( "ApplyBatteryToTitan" )
+		RegisterSignal( "ClassicRodeo_PilotRegrabTitan" )
 
 		AddSpawnCallback( "player", ClassicRodeo_InitPlayerSettings )
 		AddSpawnCallback( "npc_titan", ClassicRodeo_InitTitanSettings )
@@ -3759,23 +3760,69 @@ void function ClassicRodeo_PilotRegrabTitan( entity soul, entity titan, entity o
 	thread ClassicRodeo_PilotRegrabTitan_Threaded( soul, titan, oldTitan )
 }
 
-void function ClassicRodeo_PilotRegrabTitan( entity soul, entity titan, entity oldTitan )
+void function ClassicRodeo_PilotRegrabTitan_Threaded( entity soul, entity titan, entity oldTitan )
 {
-	entity rodeopilot = GetRodeoPilot( titan )
-	if ( IsAlive( rodeopilot ) )
+	soul.EndSignal( "OnDestroy" )
+	soul.Signal( "ClassicRodeo_PilotRegrabTitan" )
+	soul.EndSignal( "ClassicRodeo_PilotRegrabTitan" )
+
+	WaitEndFrame() // wait for soul being transferred
+
+	// get new titan
+	titan = soul.GetTitan()
+	if ( !IsValid( titan ) )
+		return
+	// get current pilot
+	entity rodeoPilot = GetRodeoPilot( titan )
+	if ( !IsAlive( rodeoPilot ) )
+		return
+
+	// wait for pilot finish doing other activity
+	waitthread WaitForPilotFinishRodeoSequence( rodeoPilot, soul )
+
+	// validate titan & pilot
+	titan = soul.GetTitan()
+	if ( !IsValid( titan ) )
+		return
+	if ( !IsAlive( rodeoPilot ) || rodeoPilot != GetRodeoPilot( titan ) )
+		return
+
+	// all checks and wait passed
+	//print( "Pilot Grabbing titan Again!" )
+	RodeoPackageStruct activePackage = ClassicRodeo_GetPlayerActiveRodeoPackage( rodeoPilot )
+	rodeoPilot.ClearParent() // try to temp clear from titan... see if it's gonna make pilot vulnerable to damage
+	ClassicRodeo_GrabTargetTitan( rodeoPilot, soul, activePackage, false )
+}
+
+void function WaitForPilotFinishRodeoSequence( entity rodeoPilot, entity titanSoul )
+{
+	while ( true )
 	{
+		// validation checks
+		if ( !IsValid( titanSoul ) )
+			return
+		entity titan = titanSoul.GetTitan()
+		if ( !IsValid( titan ) )
+			return
+		entity currentPilot = GetRodeoPilot( titan )
+		if ( !IsAlive( currentPilot ) || currentPilot != rodeoPilot )
+			return
+		
 		// check if pilot is doing any other activity
+		bool pilotReadyToGrab = true
 		if ( ClassicRodeo_IsPlayerApplyingBatteryPack( rodeoPilot ) 
 			 || ClassicRodeo_IsPlayerRemovingBatteryPack ( rodeoPilot )
 			 || ClassicRodeo_IsPlayerThrowingGrenadeInHatch( rodeoPilot ) 
 			)
-			return // if in other activity, player will re-grab titan automatically. no need 
+			pilotReadyToGrab = false
 		
 		if ( !ClassicRodeo_IsPlayerGrabbingTitan( rodeoPilot ) ) // not grabbing, is still climbing!
-			return
+			pilotReadyToGrab = false
 
-		RodeoPackageStruct activePackage = ClassicRodeo_GetPlayerActiveRodeoPackage( rodeoPilot )
-		ClassicRodeo_GrabTargetTitan( rodeoPilot, soul, rodeoPackage, false )
+		if ( pilotReadyToGrab )
+			break
+
+		WaitFrame()
 	}
 }
 
@@ -3856,7 +3903,7 @@ void function ClassicRodeo_InitPlayerSettings( entity player )
 	file.playerNextRodeoHintAllowedTime[player] <- 0.0
 	// active rodeo package, so we can get rodeopackage from other functoins
 	RodeoPackageStruct emptyStruct
-	file.playerActiveRodeoPackage[player] = emptyStruct
+	file.playerActiveRodeoPackage[player] <- emptyStruct
 }
 
 void function ClassicRodeo_PlayerSettingsCleanUp( entity player )
