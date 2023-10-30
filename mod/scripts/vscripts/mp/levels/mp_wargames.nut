@@ -456,7 +456,7 @@ void function PlayerWatchesWargamesIntro( entity player )
 
 void function DelayedGamemodeAnnouncement( entity player )
 {
-	wait 2.0 // wait for player screen fade from white
+	wait 1.5 // wait for player screen fade from white
 	if( IsValid( player ) )
 	{
 		TryGameModeAnnouncement( player )
