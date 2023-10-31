@@ -77,12 +77,10 @@ global function ClassicRodeo_OwnerApplyBatteryAllowed // owner can't add battery
 global function ClassicRodeo_SetShouldAutomaticallyDoRodeoSequence // player won't remove batteries or do other sequences if they're not inputing anything
 global function ClassicRodeo_SetDeathBatteiesDropEnabled
 
+global function ClassicRodeo_IsPlayerDoingRodeoSequence // mixed function
 global function ClassicRodeo_IsPlayerApplyingBatteryPack
 global function ClassicRodeo_IsPlayerRemovingBatteryPack
 global function ClassicRodeo_IsPlayerThrowingGrenadeInHatch
-
-// get active rodeo package
-global function ClassicRodeo_GetPlayerActiveRodeoPackage
 #endif // MP
 
 #if MP // nessie modify
@@ -184,7 +182,6 @@ struct
 	table <entity, bool> playerThrowingGrenadeInHatch
 	table <entity, int> playerBatteryCountAllowedToApply
 	table <entity, float> playerNextRodeoHintAllowedTime
-	table <entity, RodeoPackageStruct> playerActiveRodeoPackage
 
 	// titan tables
     //
@@ -806,9 +803,6 @@ function PlayerBeginsTitanRodeo( entity player, RodeoPackageStruct rodeoPackage,
 	player.Signal( "RodeoStarted" )
 
 	bool playerHadBatteryAtStartOfRodeo = PlayerHasBattery( player )
-
-	// update active rodeo package before OnThreadEnd()
-	file.playerActiveRodeoPackage[ player ] = rodeoPackage
 
 	OnThreadEnd(
 		function () : ( player, soul, sameTeam, rodeoTitan, playerHadBatteryAtStartOfRodeo )
@@ -3478,10 +3472,7 @@ void function ClassicRodeo_SequenceThink( entity rodeoPilot, entity titanSoul, R
 		table result = rodeoPilot.WaitSignal( "RodeoDefensiveSequence", "RodeoOffensiveSequence" )
 
 		// already doing a sequence?
-		if ( ClassicRodeo_IsPlayerApplyingBatteryPack( rodeoPilot )
-			 || ClassicRodeo_IsPlayerRemovingBatteryPack( rodeoPilot )
-			 || ClassicRodeo_IsPlayerThrowingGrenadeInHatch( rodeoPilot ) 
-			 )
+		if ( ClassicRodeo_IsPlayerDoingRodeoSequence( player ) )
 			 continue
 
 		entity rodeoTitan = titanSoul.GetTitan()
@@ -3787,12 +3778,16 @@ void function ClassicRodeo_PilotRegrabTitan_Threaded( entity soul, entity titan,
 	titan = soul.GetTitan()
 	if ( !IsValid( titan ) )
 		return
+	// only npc titans will make their parented entities invincible
+	if ( !titan.IsNPC() )
+		return
 	// get current pilot
 	entity rodeoPilot = GetRodeoPilot( titan )
 	if ( !IsAlive( rodeoPilot ) )
 		return
 
 	// wait for pilot finish doing other activity
+	/*
 	waitthread WaitForPilotFinishRodeoSequence( rodeoPilot, soul )
 
 	// validate titan & pilot
@@ -3804,9 +3799,17 @@ void function ClassicRodeo_PilotRegrabTitan_Threaded( entity soul, entity titan,
 
 	// all checks and wait passed
 	//print( "Pilot Grabbing titan Again!" )
-	RodeoPackageStruct activePackage = ClassicRodeo_GetPlayerActiveRodeoPackage( rodeoPilot )
+	RodeoPackageStruct activePackage = rodeoPilot.p.rodeoPackage
 	rodeoPilot.ClearParent() // try to temp clear from titan... see if it's gonna make pilot vulnerable to damage
 	ClassicRodeo_GrabTargetTitan( rodeoPilot, soul, activePackage, false )
+	*/
+
+	// using a less janky way to handle it, this can handle all situations
+	string titanAttachment = rodeoPilot.GetParentAttachment()
+	//print( "titanAttachment: " + titanAttachment )
+	rodeoPilot.ClearParent()
+	//rodeoPilot.SetParent( titan, "hijack", false, 1 ) // this is hacky! only titans always use hijack as their rodeo attachment
+	rodeoPilot.SetParent( titan, titanAttachment ) // try to use this one to re-bind rodeo player
 }
 
 void function WaitForPilotFinishRodeoSequence( entity rodeoPilot, entity titanSoul )
@@ -3825,10 +3828,7 @@ void function WaitForPilotFinishRodeoSequence( entity rodeoPilot, entity titanSo
 		
 		// check if pilot is doing any other activity
 		bool pilotReadyToGrab = true
-		if ( ClassicRodeo_IsPlayerApplyingBatteryPack( rodeoPilot ) 
-			 || ClassicRodeo_IsPlayerRemovingBatteryPack ( rodeoPilot )
-			 || ClassicRodeo_IsPlayerThrowingGrenadeInHatch( rodeoPilot ) 
-			)
+		if ( ClassicRodeo_IsPlayerDoingRodeoSequence( rodeoPilot ) ) // already doing a sequence?
 			pilotReadyToGrab = false
 		
 		if ( !ClassicRodeo_IsPlayerGrabbingTitan( rodeoPilot ) ) // not grabbing, is still climbing!
@@ -3916,9 +3916,6 @@ void function ClassicRodeo_InitPlayerSettings( entity player )
 	file.playerBatteryCountAllowedToApply[player] <- 0
 	// message, no need to clean up
 	file.playerNextRodeoHintAllowedTime[player] <- 0.0
-	// active rodeo package, so we can get rodeopackage from other functoins
-	RodeoPackageStruct emptyStruct
-	file.playerActiveRodeoPackage[player] <- emptyStruct
 }
 
 void function ClassicRodeo_PlayerSettingsCleanUp( entity player )
@@ -3928,9 +3925,6 @@ void function ClassicRodeo_PlayerSettingsCleanUp( entity player )
 	file.playerRemovingBatteryPack[player] = false
 	file.playerThrowingGrenadeInHatch[player] = false
 	file.playerBatteryCountAllowedToApply[player] = 0
-	// active rodeo package, so we can get rodeopackage from other functoins
-	RodeoPackageStruct emptyStruct
-	file.playerActiveRodeoPackage[player] = emptyStruct
 }
 
 void function ClassicRodeo_InitTitanSettings( entity titan )
@@ -4046,6 +4040,19 @@ bool function ClassicRodeo_IsPlayerGrabbingTitan( entity player )
 	return file.playerGrabbingTitan[player]
 }
 
+// includes: apply battery, remove battery and throw grenade
+bool function ClassicRodeo_IsPlayerDoingRodeoSequence( entity player )
+{
+	if ( ClassicRodeo_IsPlayerApplyingBatteryPack( rodeoPilot ) 
+		 || ClassicRodeo_IsPlayerRemovingBatteryPack ( rodeoPilot )
+		 || ClassicRodeo_IsPlayerThrowingGrenadeInHatch( rodeoPilot ) 
+		)
+		return true
+
+	// all checks passed
+	return false
+}
+
 bool function ClassicRodeo_IsPlayerApplyingBatteryPack( entity player )
 {
 	if( !IsAlive( player ) )
@@ -4068,11 +4075,6 @@ bool function ClassicRodeo_IsPlayerThrowingGrenadeInHatch( entity player )
 		return false
 
 	return file.playerThrowingGrenadeInHatch[player]
-}
-
-RodeoPackageStruct function ClassicRodeo_GetPlayerActiveRodeoPackage( entity player )
-{
-	return file.playerActiveRodeoPackage[ player ]
 }
 
 int function ClassicRodeo_GetBatteryCountPlayerAllowedToApply( entity player )
