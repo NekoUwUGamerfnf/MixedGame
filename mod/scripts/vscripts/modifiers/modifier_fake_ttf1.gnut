@@ -2,16 +2,39 @@ untyped // GiveExtraWeaponMod() requires untyped
 
 global function GameModifier_Fake_Titanfall1_Init
 
+// titan health system
 const int TITAN_SHIELD_BASE = 1000 // every chassis will have 1000 shield by default
 const int TITAN_SHIELD_PER_SEGMENT = 500 // shield value scale with health segments
 const int TITAN_HEALTH_PER_SEGMENT = 1500
 const float TITAN_DOOMED_HEALTH_FRAC = 1.0 // fake ttf1 behavior: doomed health is almost same as undoomed health
+
+const bool ENABLE_TITAN_SHIELD_REGEN = true
+const float FAKETF1_TITAN_SHIELD_REGEN_DELAY = TITAN_SHIELD_REGEN_DELAY
+const float FAKETF1_TITAN_SHIELD_REGEN_TIME = TITAN_SHIELD_REGEN_TIME * 0.5 // 3.0
+const float TITAN_SHIELD_DAMAGE_REDUCTION = 0.7 // titan shield no longer protects full damage
+// doomed state
+const bool DOOMED_HEALTH_MATCH_MAX_HEALTH = true // if enabled, titan's doomed health will be the same as their base health
+const float ENABLE_INFINITE_DOOMED_STATE = true // titan will start lose health on doom
+const float DOOMED_HEALTH_LOSS_DAMAGE_SCALE = 0.8
+
 // needs to rework most of the titancore ability before we can use this...
 const bool DISABLE_TITAN_CORE_ON_DOOM = false
 
+// pilot health settings
 const bool ENABLE_ALWAYS_FAST_REGEN = false
 const float PILOT_HEALTH_MULTIPLAYER = 1.25
 
+// rodeo settings
+const float BATTERY_REMOVAL_DAMAGE_SCALE = 0.8 // take less damage from battery removal( current: 1500 -> 1200 )
+const float RODEO_GRENADE_DAMAGE_SCALE = 0.6667 // take higher damage from rodeo grenades( current: 750 -> ~1000 )
+const float BATTERY_REGEN_SCALE = 1.3333 // regen more health from batteries( current: 750 -> ~1000 )
+const float BATTERY_SHIELD_REGEN_SCALE = 0.0 // battery never regen shields. instead, start recharging shields like campaign( done in OnTitanGetsBatteryHeal() )
+const float UPGRADE_CORE_SHIELD_REGEN_SCALE = 0.0 // for handling upgrade core, make it start regen shields instead of instant restore( handled in OnTitanCoreUsed() )
+// classic rodeo
+const bool FAKETF1_CLASSIC_RODEO = true
+const float CLASSIC_RODEO_DAMAGE_SCALE = 1.0
+
+// announcement
 const string ANSI_COLOR_END = "\x1b[0m"
 const string ANSI_COLOR_BLUE = "\x1b[38;5;81m"
 const string ANSI_COLOR_RED = "\x1b[38;5;196m"
@@ -54,20 +77,22 @@ void function GameModifier_Fake_Titanfall1_Init()
     AddCallback_GameStateEnter( eGameState.Prematch, SetUpFakeTTF1ScoreEvent )
 
     // rodeo modifier settings!
-    Rodeo_SetBatteryRemovalDamageFlags( damageTypes.rodeoBatteryRemoval | DF_BYPASS_SHIELD ) // rodeo will deal bvpass_shield damage to titans
-    Rodeo_SetBatteryRemovalDamageScale( 0.8 ) // take less damage from battery removal( current: 1500 -> 1200 )
-    Rodeo_SetRodeoGrenadeDamageScale( 0.6667 ) // take higher damage from rodeo grenades( current: 750 -> ~1000 )
+    // classic rodeo now handled separently by ClassicRodeo_SetBatteryRemovalDamageFlags(), this is added for normal rodeoing!
+    //Rodeo_SetBatteryRemovalDamageFlags( damageTypes.rodeoBatteryRemoval | DF_BYPASS_SHIELD ) // rodeo will deal bvpass_shield damage to titans
+    Rodeo_SetBatteryRemovalDamageScale( BATTERY_REMOVAL_DAMAGE_SCALE )
+    Rodeo_SetRodeoGrenadeDamageScale( RODEO_GRENADE_DAMAGE_SCALE ) 
     //Rodeo_BatteryRemovalKillsDoomedTitan( false ) // rodeo battery removal and grenade won't instant kill doomed titan
-    Rodeo_SetBatteryRegenScale( 1.3333 ) // regen more health from batteries( current: 750 -> ~1000 )
-    Rodeo_SetBatteryShieldRegenScale( 0.0 ) // battery never regen shields. instead, start recharging shields like campaign
+    Rodeo_SetBatteryRegenScale( BATTERY_REGEN_SCALE ) 
+    Rodeo_SetBatteryShieldRegenScale( BATTERY_SHIELD_REGEN_SCALE ) 
 
     // modified settings
-    UpgradeCore_SetShieldRegenScale( 0.0 ) // modified settings in mp_titancore_upgrade.nut. for handling upgrade core, make it start regen shields instead of instant restore
+    UpgradeCore_SetShieldRegenScale( UPGRADE_CORE_SHIELD_REGEN_SCALE ) // modified settings in mp_titancore_upgrade.nut
 
     // classic rodeo modifier settings!
-    ClassicRodeo_SetEnabled( true ) // enable fake-ttf1 rodeo style
-	ClassicRodeo_SetRodeoAttackDamageScale( 1.0 ) // damage taken from classic rodeo
-	ClassicRodeo_BatteryContainerOnlyProtectsOnce( true ) // battery container can only protect once
+    ClassicRodeo_SetEnabled( FAKETF1_CLASSIC_RODEO ) // enable fake-ttf1 rodeo style
+	ClassicRodeo_SetRodeoAttackDamageScale( CLASSIC_RODEO_DAMAGE_SCALE ) // damage taken from classic rodeo
+    // this has default to be true
+	//ClassicRodeo_BatteryContainerOnlyProtectsOnce( true ) // battery container can only protect once
 
     // death package
     DeathPackage_TitanAlwaysGibOnDeath( false ) // titan won't alwasy be gibbed on death
@@ -160,13 +185,13 @@ void function SetupTTF1StyleTitan( entity titan, TitanLoadoutDef titanLoadout )
         return
 
     // shield regen
-    TitanHealth_SetSoulEnableShieldRegen( soul, true )
-	TitanHealth_SetSoulShieldRegenDelay( soul, TITAN_SHIELD_REGEN_DELAY )
-	TitanHealth_SetSoulShieldRegenTime( soul, TITAN_SHIELD_REGEN_TIME )
-	TitanHealth_SetSoulShieldDamageReductionScale( soul, 0.7 )
+    TitanHealth_SetSoulEnableShieldRegen( soul, ENABLE_TITAN_SHIELD_REGEN )
+	TitanHealth_SetSoulShieldRegenDelay( soul, FAKETF1_TITAN_SHIELD_REGEN_DELAY )
+	TitanHealth_SetSoulShieldRegenTime( soul, FAKETF1_TITAN_SHIELD_REGEN_TIME )
+	TitanHealth_SetSoulShieldDamageReductionScale( soul, TITAN_SHIELD_DAMAGE_REDUCTION )
     // doomed state
-    TitanHealth_SetSoulInfiniteDoomedState( soul, false )
-    TitanHealth_SetSoulDoomedHealthLossDamage( soul, 0.8 )
+    TitanHealth_SetSoulInfiniteDoomedState( soul, ENABLE_INFINITE_DOOMED_STATE )
+    TitanHealth_SetSoulDoomedHealthLossDamage( soul, DOOMED_HEALTH_LOSS_DAMAGE_SCALE )
 
     // class mods
     // add turbo titan, replace turbo engine with hyper core
@@ -199,7 +224,8 @@ void function TitanHealthWatcher( entity titan )
         return
 
     // initial setup
-    int segments = titan.GetMaxHealth() / 2500 // hardcoded
+    int baseSegmentHealth = GetSegmentHealthForTitan( titan ) // never change this! this is un-modified default value
+    int segments = titan.GetMaxHealth() / baseSegmentHealth
     soul.SetShieldHealthMax( TITAN_SHIELD_BASE + segments * TITAN_SHIELD_PER_SEGMENT ) // 1000(was 1250) shield per segment
     soul.SetShieldHealth( soul.GetShieldHealthMax() )
     titan.SetMaxHealth( segments * TITAN_HEALTH_PER_SEGMENT ) // 1500 health per segment
@@ -208,9 +234,11 @@ void function TitanHealthWatcher( entity titan )
     int startingMaxHealth = titan.GetMaxHealth()
     // modified function in sh_titan_triple_health.gnut
     TitanHealth_SetSoulSegmentHealthOverride( soul, TITAN_HEALTH_PER_SEGMENT )
-    // fake ttf1 behavior: doomed health is almost same as undoomed health
-    // modified function in sh_titan_soul.gnut
-    TitanSoul_SetSoulDoomedHealthOverride( soul, int( titan.GetMaxHealth() * TITAN_DOOMED_HEALTH_FRAC ) )
+    #if DOOMED_HEALTH_MATCH_MAX_HEALTH
+        // fake ttf1 behavior: doomed health is almost same as undoomed health
+        // modified function in sh_titan_soul.gnut
+        TitanSoul_SetSoulDoomedHealthOverride( soul, int( titan.GetMaxHealth() * TITAN_DOOMED_HEALTH_FRAC ) )
+    #endif
     // start watching
     while ( true )
     {
@@ -221,7 +249,7 @@ void function TitanHealthWatcher( entity titan )
             continue
         //print( "startingMaxHealth: " + string( startingMaxHealth ) )
         //print( "current max health: " + string( titan.GetMaxHealth() ) )
-        segments = titan.GetMaxHealth() / 2500 // keep updating
+        segments = titan.GetMaxHealth() / baseSegmentHealth // keep updating
         if ( startingMaxHealth != titan.GetMaxHealth() ) // max health updated!
         {
             //print( "Health Updated!" )
@@ -232,8 +260,10 @@ void function TitanHealthWatcher( entity titan )
             startingMaxHealth = titan.GetMaxHealth()
             // update segment health
             TitanHealth_SetSoulSegmentHealthOverride( soul, TITAN_HEALTH_PER_SEGMENT )
-            // update doomed health
-            TitanSoul_SetSoulDoomedHealthOverride( soul, int( titan.GetMaxHealth() * TITAN_DOOMED_HEALTH_FRAC ) )
+            #if DOOMED_HEALTH_MATCH_MAX_HEALTH
+                // update doomed health
+                TitanSoul_SetSoulDoomedHealthOverride( soul, int( titan.GetMaxHealth() * TITAN_DOOMED_HEALTH_FRAC ) )
+            #endif
         }
     }
 }
