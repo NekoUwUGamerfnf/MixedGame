@@ -204,8 +204,6 @@ function RodeoSharedTitanAnim_Init()
 
 	AddAnimAlias( "atlas", "pt_nuke_rodeo_back_right_apply_battery", 		"pt_nuke_rodeo_ride_R_return_battery" )
 	AddAnimAlias( "atlas", "ptpov_nuke_rodeo_back_right_apply_battery", 		"ptpov_nuke_rodeo_ride_R_return_battery" )
-	AddAnimAlias( "buddy", "pt_nuke_rodeo_back_right_apply_battery", 		"pt_nuke_rodeo_ride_R_return_battery" )
-	AddAnimAlias( "buddy", "ptpov_nuke_rodeo_back_right_apply_battery", 		"ptpov_nuke_rodeo_ride_R_return_battery" )
 	AddAnimAlias( "ogre", "pt_nuke_rodeo_back_right_apply_battery", 			"pt_nuke_rodeo_ogre_return_battery" )
 	AddAnimAlias( "ogre", "ptpov_nuke_rodeo_back_right_apply_battery", 		"ptpov_nuke_rodeo_ogre_R_return_battery" )
 	AddAnimAlias( "stryder", "pt_nuke_rodeo_back_right_apply_battery", 		"pt_nuke_rodeo_stryder_ride_R_return_battery" )
@@ -219,13 +217,6 @@ function RodeoSharedTitanAnim_Init()
 	AddAudioAlias( "atlas", "rodeo_battery_return_1p", "rodeo_medium_battery_return_int" )
 	AddAudioAlias( "atlas", "rodeo_grenade_3p", "rodeo_medium_grenade_ext" )
 	AddAudioAlias( "atlas", "rodeo_grenade_1p", "rodeo_medium_grenade_int" )
-
-	AddAudioAlias( "buddy", "rodeo_battery_steal_3p", "rodeo_medium_battery_steal_ext" )
-	AddAudioAlias( "buddy", "rodeo_battery_steal_1p", "rodeo_medium_battery_steal_int" )
-	AddAudioAlias( "buddy", "rodeo_battery_return_3p", "rodeo_medium_battery_return_ext" )
-	AddAudioAlias( "buddy", "rodeo_battery_return_1p", "rodeo_medium_battery_return_int" )
-	AddAudioAlias( "buddy", "rodeo_grenade_3p", "rodeo_medium_grenade_ext" )
-	AddAudioAlias( "buddy", "rodeo_grenade_1p", "rodeo_medium_grenade_int" )
 
 	AddAudioAlias( "ogre", "rodeo_battery_steal_3p", "rodeo_heavy_battery_steal_ext" )
 	AddAudioAlias( "ogre", "rodeo_battery_steal_1p", "rodeo_heavy_battery_steal_int" )
@@ -243,12 +234,99 @@ function RodeoSharedTitanAnim_Init()
 
 	AddAudioAlias( "atlas", "nuke_rodeo_battery_return_3p", "rodeo_medium_battery_return_ext" )
 	AddAudioAlias( "atlas", "nuke_rodeo_battery_return_1p", "rodeo_medium_battery_return_int" )
-	AddAudioAlias( "buddy", "nuke_rodeo_battery_return_3p", "rodeo_medium_battery_return_ext" )
-	AddAudioAlias( "buddy", "nuke_rodeo_battery_return_1p", "rodeo_medium_battery_return_int" )
 	AddAudioAlias( "ogre", "nuke_rodeo_battery_return_3p", "rodeo_heavy_battery_return_ext" )
 	AddAudioAlias( "ogre", "nuke_rodeo_battery_return_1p", "rodeo_heavy_battery_return_int" )
 	AddAudioAlias( "stryder", "nuke_rodeo_battery_return_3p", "rodeo_light_battery_return_ext" )
 	AddAudioAlias( "stryder", "nuke_rodeo_battery_return_1p", "rodeo_light_battery_return_int" )
+
+
+	// modified to add here: use audio alias for climbing sound...
+	// actual changes in sh_rodeo_titan.gnut
+	// so we can handle BT sounds? there're no sounds like Rodeo_Buddy_Rodeo_XXX sounds and I don't want to hardcode stuffs
+	// atlas
+	AddAudioAlias( "atlas", "rodeo_climbon_front_3p", "rodeo_atlas_rodeo_climbon_front_exterior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_front_1p", "rodeo_atlas_rodeo_climbon_front_interior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_back_3p", "rodeo_atlas_rodeo_climbon_back_exterior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_back_1p", "rodeo_atlas_rodeo_climbon_back_interior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_back_mid_3p", "rodeo_atlas_rodeo_climbon_back_mid_exterior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_back_mid_1p", "rodeo_atlas_rodeo_climbon_back_mid_interior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_left_3p", "rodeo_atlas_rodeo_climbon_left_exterior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_left_1p", "rodeo_atlas_rodeo_climbon_left_interior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_right_3p", "rodeo_atlas_rodeo_climbon_right_exterior" )
+	AddAudioAlias( "atlas", "rodeo_climbon_right_1p", "rodeo_atlas_rodeo_climbon_right_interior" )
+
+	AddAudioAlias( "atlas", "rodeo_landon_above_3p", "rodeo_atlas_rodeo_landon_above_exterior" )
+	AddAudioAlias( "atlas", "rodeo_landon_above_1p", "rodeo_atlas_rodeo_landon_above_interior" )
+	AddAudioAlias( "atlas", "rodeo_landon_back_3p", "rodeo_atlas_rodeo_landon_back_exterior" )
+	AddAudioAlias( "atlas", "rodeo_landon_back_3p", "rodeo_atlas_rodeo_landon_back_exterior" )
+
+	// ogre
+	AddAudioAlias( "ogre", "rodeo_climbon_front_3p", "rodeo_ogre_rodeo_climbon_front_exterior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_front_1p", "rodeo_ogre_rodeo_climbon_front_interior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_back_3p", "rodeo_ogre_rodeo_climbon_back_exterior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_back_1p", "rodeo_ogre_rodeo_climbon_back_interior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_back_mid_3p", "rodeo_ogre_rodeo_climbon_back_mid_exterior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_back_mid_1p", "rodeo_ogre_rodeo_climbon_back_mid_interior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_left_3p", "rodeo_ogre_rodeo_climbon_left_exterior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_left_1p", "rodeo_ogre_rodeo_climbon_left_interior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_right_3p", "rodeo_ogre_rodeo_climbon_right_exterior" )
+	AddAudioAlias( "ogre", "rodeo_climbon_right_1p", "rodeo_ogre_rodeo_climbon_right_interior" )
+
+	AddAudioAlias( "ogre", "rodeo_landon_above_3p", "rodeo_ogre_rodeo_landon_above_exterior" )
+	AddAudioAlias( "ogre", "rodeo_landon_above_1p", "rodeo_ogre_rodeo_landon_above_interior" )
+	AddAudioAlias( "ogre", "rodeo_landon_back_3p", "rodeo_ogre_rodeo_landon_back_exterior" )
+	AddAudioAlias( "ogre", "rodeo_landon_back_3p", "rodeo_ogre_rodeo_landon_back_exterior" )
+
+	// stryder
+	AddAudioAlias( "stryder", "rodeo_climbon_front_3p", "rodeo_stryder_rodeo_climbon_front_exterior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_front_1p", "rodeo_stryder_rodeo_climbon_front_interior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_back_3p", "rodeo_stryder_rodeo_climbon_back_exterior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_back_1p", "rodeo_stryder_rodeo_climbon_back_interior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_back_mid_3p", "rodeo_stryder_rodeo_climbon_back_mid_exterior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_back_mid_1p", "rodeo_stryder_rodeo_climbon_back_mid_interior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_left_3p", "rodeo_stryder_rodeo_climbon_left_exterior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_left_1p", "rodeo_stryder_rodeo_climbon_left_interior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_right_3p", "rodeo_stryder_rodeo_climbon_right_exterior" )
+	AddAudioAlias( "stryder", "rodeo_climbon_right_1p", "rodeo_stryder_rodeo_climbon_right_interior" )
+
+	AddAudioAlias( "stryder", "rodeo_landon_above_3p", "rodeo_stryder_rodeo_landon_above_exterior" )
+	AddAudioAlias( "stryder", "rodeo_landon_above_1p", "rodeo_stryder_rodeo_landon_above_interior" )
+	AddAudioAlias( "stryder", "rodeo_landon_back_3p", "rodeo_stryder_rodeo_landon_back_exterior" )
+	AddAudioAlias( "stryder", "rodeo_landon_back_3p", "rodeo_stryder_rodeo_landon_back_exterior" )
+
+
+	// vanilla missing titan_buddy events, using the same stuffs as atlas titans
+	// they're still using ttf1 anim sequence on climbing up
+	// missing anim
+	AddAnimAlias( "atlas", "pt_nuke_rodeo_back_right_apply_battery", 		"pt_nuke_rodeo_ride_R_return_battery" )
+	AddAnimAlias( "atlas", "ptpov_nuke_rodeo_back_right_apply_battery", 		"ptpov_nuke_rodeo_ride_R_return_battery" )
+
+	// audio
+	AddAudioAlias( "buddy", "rodeo_battery_steal_3p", "rodeo_medium_battery_steal_ext" )
+	AddAudioAlias( "buddy", "rodeo_battery_steal_1p", "rodeo_medium_battery_steal_int" )
+	AddAudioAlias( "buddy", "rodeo_battery_return_3p", "rodeo_medium_battery_return_ext" )
+	AddAudioAlias( "buddy", "rodeo_battery_return_1p", "rodeo_medium_battery_return_int" )
+	AddAudioAlias( "buddy", "rodeo_grenade_3p", "rodeo_medium_grenade_ext" )
+	AddAudioAlias( "buddy", "rodeo_grenade_1p", "rodeo_medium_grenade_int" )
+
+	AddAudioAlias( "buddy", "nuke_rodeo_battery_return_3p", "rodeo_medium_battery_return_ext" )
+	AddAudioAlias( "buddy", "nuke_rodeo_battery_return_1p", "rodeo_medium_battery_return_int" )
+
+	AddAudioAlias( "buddy", "rodeo_climbon_front_3p", "rodeo_atlas_rodeo_climbon_front_exterior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_front_1p", "rodeo_atlas_rodeo_climbon_front_interior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_back_3p", "rodeo_atlas_rodeo_climbon_back_exterior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_back_1p", "rodeo_atlas_rodeo_climbon_back_interior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_back_mid_3p", "rodeo_atlas_rodeo_climbon_back_mid_exterior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_back_mid_1p", "rodeo_atlas_rodeo_climbon_back_mid_interior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_left_3p", "rodeo_atlas_rodeo_climbon_left_exterior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_left_1p", "rodeo_atlas_rodeo_climbon_left_interior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_right_3p", "rodeo_atlas_rodeo_climbon_right_exterior" )
+	AddAudioAlias( "buddy", "rodeo_climbon_right_1p", "rodeo_atlas_rodeo_climbon_right_interior" )
+
+	AddAudioAlias( "buddy", "rodeo_landon_above_3p", "rodeo_atlas_rodeo_landon_above_exterior" )
+	AddAudioAlias( "buddy", "rodeo_landon_above_1p", "rodeo_atlas_rodeo_landon_above_interior" )
+	AddAudioAlias( "buddy", "rodeo_landon_back_3p", "rodeo_atlas_rodeo_landon_back_exterior" )
+	AddAudioAlias( "buddy", "rodeo_landon_back_3p", "rodeo_atlas_rodeo_landon_back_exterior" )
 }
 
 
