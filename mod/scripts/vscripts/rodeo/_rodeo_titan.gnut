@@ -309,6 +309,7 @@ void function RodeoTitan_Init()
 
 		// modified callback in _titan_npc_behavior.gnut, recover ttf1 titan behavior
 		AddCallback_NPCTitanShouldKneel( ClassicRodeo_NPCTitanShouldKneel )
+		AddSpawnCallback( "npc_titan", ClassicRodeo_SavePlayerTitanMode )
 	#endif // MP
 }
 
@@ -3918,32 +3919,74 @@ void function UpdateBatteryContainerForEmbark( entity player, entity titan, bool
 		rodeoPanel.Anim_Play( GetAnimFromAlias( titanType, "hatch_rodeo_up" ) )
 }
 
-void function ClassicRodeo_NPCTitanShouldKneel( entity titan )
+bool function ClassicRodeo_NPCTitanShouldKneel( entity titan )
 {
 	// return default value( false ) if classic rodeo not enabled
 	if ( !ClassicRodeo_IsEnabled() )
 		return false
 
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+
+	// allows player change titan mode to cancel kneeling
+	// can't figure out how to make it work, removing now...
+	/*
+	entity player = GetPetTitanOwner( titan )
+	int lastTitanMode = GetPlayerSavedTitanMode( player )
+	if ( IsValid( player ) && ( lastTitanMode > 0 && lastTitanMode != player.GetPetTitanMode() ) )
+	{
+		print( "player has changed titan mode! not kneeling")
+		return false
+	}
+	*/
+
 	// for classic rodeo, if titan having a enemy pilot rodeoing, we let them kneel
 	// so their owner can shoot down pilots easier
-	if ( HasEnemyRodeoRiders( titan ) )
+	if ( HasEnemyRodeoRiders( titan ) ) // modified function in _titan_npc_behavior.gnut
 		return true
 
 	return false
 }
 
-bool function HasEnemyRodeoRiders( entity titan )
+// allows player change titan mode to cancel kneeling
+// save their titan's last mode on spawn
+void function ClassicRodeo_SavePlayerTitanMode( entity titan )
 {
-	// we get rider from soul.GetLastRodeoHitTime()
-	// same as rodeo alert, can handle PAS_STEALTH_MOVEMENT case
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 	{
-		if ( soul.GetLastRodeoHitTime() > 0 )
-			return true
+		entity player = GetPetTitanOwner( titan )
+		if ( IsValid( player ) )
+		{
+			if ( titan.e.isHotDropping )
+				thread WaitForHotDropTitanLandingToSaveMode( player, titan )
+			else
+				SavePlayerLastTitanMode( player )
+		}
 	}
+}
 
-	return false
+void function WaitForHotDropTitanLandingToSaveMode( entity player, entity titan )
+{
+	player.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	player.WaitSignal( "titan_impact" ) // player specific hotdrop signal
+	WaitEndFrame() // wait for titan starting TitanNPC_WaitForBubbleShield_StartAutoTitanBehavior()
+	SavePlayerLastTitanMode( player )
+}
+
+int function GetPlayerSavedTitanMode( entity player )
+{
+	return expect int( player.s.lastTitanMode )
+}
+
+void function SavePlayerLastTitanMode( entity player )
+{
+	player.s.lastTitanMode = player.GetPetTitanMode()
+	print( "Saving player lastTitanMode: " + string( player.s.lastTitanMode ) )
 }
 
 ///// ENTITY SETTINGS /////
@@ -3956,6 +3999,8 @@ void function ClassicRodeo_InitPlayerSettings( entity player )
 	file.playerBatteryCountAllowedToApply[player] <- 0
 	// message, no need to clean up
 	file.playerNextRodeoHintAllowedTime[player] <- 0.0
+	// allows player change titan mode to cancel kneeling, no need to clean up
+	player.s.lastTitanMode <- -1 // default value below 0
 }
 
 void function ClassicRodeo_PlayerSettingsCleanUp( entity player )
