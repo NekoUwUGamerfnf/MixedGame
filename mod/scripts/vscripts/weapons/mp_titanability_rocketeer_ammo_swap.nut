@@ -105,10 +105,14 @@ void function SwapRocketAmmo( entity weaponOwner, entity offhand, entity weapon 
 
 	weapon.SetWeaponPrimaryClipCount( 0 )
 	// no matter weapon reloading or not, we always re-deploy current weapon to make player reload
-	weapon.AddMod( "fast_deploy" )
-	weaponOwner.HolsterWeapon()
-	weaponOwner.DeployWeapon()
-	weapon.RemoveMod( "fast_deploy" )
+	// that should only happen on player, npcs don't have such method...
+	if ( weaponOwner.IsPlayer() )
+	{
+		weapon.AddMod( "fast_deploy" )
+		weaponOwner.HolsterWeapon()
+		weaponOwner.DeployWeapon()
+		weapon.RemoveMod( "fast_deploy" )
+	}
 
 	OnThreadEnd(
 	function() : ( weaponOwner, weapon, offhand )
