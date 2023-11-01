@@ -271,6 +271,12 @@ void function RodeoTitan_Init()
 		RegisterSignal( "TryNukeGrenade" )
 		RegisterSignal( "RodeoNukeWindowEnded" )
 		#endif
+
+		// due we added "Rodeo_SetTitanRodeoSequenceEnabled()" for titans
+		// should make pilots re-grab a titan that has disabled rodeo sequence
+		// otherwise they'll be fully invincible after being transferred to npc titan
+		RegisterSignal( "PilotRegrabTitan" )
+		AddSoulTransferFunc( PilotRegrabTitan )
 	}
 	//else // bt rodeo has been fixed, should be handled by Rodeo_SetTitanRodeoSequenceEnabled()
 	//{
@@ -294,9 +300,15 @@ void function RodeoTitan_Init()
 		AddSpawnCallback( "titan_soul", ClassicRodeo_InitTitanSoulSettings )
 		AddDeathCallback( "player", ClassicRodeo_OnPlayerOrNPCTitanKilled )
 		AddDeathCallback( "npc_titan", ClassicRodeo_OnPlayerOrNPCTitanKilled )
-		AddSoulTransferFunc( ClassicRodeo_PilotRegrabTitan ) // this is hacky, but is required to make disembarked player able to damage rodeo pilot... they'll become invulnerable after titan transfering
+
+		// this is hacky, but is required to make disembarked player able to damage rodeo pilot...
+		// they'll become invulnerable after titan transfering
+		AddSoulTransferFunc( ClassicRodeo_PilotRegrabTitan )
 		AddCallback_OnPilotBecomesTitan( ClassicRodeo_UpdateBatteryContainer )
 		AddCallback_OnTitanBecomesPilot( ClassicRodeo_UpdateBatteryContainer )
+
+		// modified callback in _titan_npc_behavior.gnut, recover ttf1 titan behavior
+		AddCallback_NPCTitanShouldKneel( ClassicRodeo_NPCTitanShouldKneel )
 	#endif // MP
 }
 
@@ -3906,6 +3918,34 @@ void function UpdateBatteryContainerForEmbark( entity player, entity titan, bool
 		rodeoPanel.Anim_Play( GetAnimFromAlias( titanType, "hatch_rodeo_up" ) )
 }
 
+void function ClassicRodeo_NPCTitanShouldKneel( entity titan )
+{
+	// return default value( false ) if classic rodeo not enabled
+	if ( !ClassicRodeo_IsEnabled() )
+		return false
+
+	// for classic rodeo, if titan having a enemy pilot rodeoing, we let them kneel
+	// so their owner can shoot down pilots easier
+	if ( HasEnemyRodeoRiders( titan ) )
+		return true
+
+	return false
+}
+
+bool function HasEnemyRodeoRiders( entity titan )
+{
+	// we get rider from soul.GetLastRodeoHitTime()
+	// same as rodeo alert, can handle PAS_STEALTH_MOVEMENT case
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		if ( soul.GetLastRodeoHitTime() > 0 )
+			return true
+	}
+
+	return false
+}
+
 ///// ENTITY SETTINGS /////
 void function ClassicRodeo_InitPlayerSettings( entity player )
 {
@@ -4234,6 +4274,44 @@ void function Rodeo_SetWorldBatteryMaxCount( int count )
 void function Rodeo_SetTitanPickupBatteryAllowed( bool allow )
 {
 	file.titanPickUpBattery = allow
+}
+
+// due we added "Rodeo_SetTitanRodeoSequenceEnabled()" for titans
+// should make pilots re-grab a titan that has disabled rodeo sequence
+// otherwise they'll be fully invincible after being transferred to npc titan
+void function PilotRegrabTitan( entity soul, entity titan, entity oldTitan )
+{
+	thread PilotRegrabTitan_Threaded( soul, titan, oldTitan )
+}
+
+void function PilotRegrabTitan_Threaded( entity soul, entity titan, entity oldTitan )
+{
+	soul.EndSignal( "OnDestroy" )
+	soul.Signal( "PilotRegrabTitan" )
+	soul.EndSignal( "PilotRegrabTitan" )
+
+	WaitEndFrame() // wait for soul being transferred
+
+	// get new titan
+	titan = soul.GetTitan()
+	if ( !IsValid( titan ) )
+		return
+	// only npc titans will make their parented entities invincible
+	if ( !titan.IsNPC() )
+		return
+	// we only do re-grab if titan disabled rodeo sequence, so that pilot can disembark and try to kill them
+	if ( Rodeo_IsTitanRodeoSequenceEnabled( titan ) )
+		return
+	// get current pilot
+	entity rodeoPilot = GetRodeoPilot( titan )
+	if ( !IsAlive( rodeoPilot ) )
+		return
+	
+	// all checks passed, do re-grab( re-bind to npc titans )
+	string titanAttachment = rodeoPilot.GetParentAttachment()
+	rodeoPilot.ClearParent()
+	//rodeoPilot.SetParent( titan, "hijack", false, 1 ) // this is hacky! only titans always use hijack as their rodeo attachment
+	rodeoPilot.SetParent( titan, titanAttachment ) // try to use this one to re-bind rodeo player
 }
 
 void function Rodeo_SetTitanRodeoSequenceEnabled( entity titan, bool enabled )
