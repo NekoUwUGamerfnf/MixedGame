@@ -86,8 +86,6 @@ global function ClassicRodeo_IsPlayerThrowingGrenadeInHatch
 #if MP // nessie modify
 global function Rodeo_SetTitanRodeoSequenceEnabled // modified, this titan won't able to be remove battery, but player can still stay on it's back. basically for bt
 
-global function Rodeo_SetBatterySkinRandom 
-global function Rodeo_IsBatteryNowRandom
 global function Rodeo_SetBatteryThrowEnabled
 global function Rodeo_IsBatteryThrowEnabled
 
@@ -206,7 +204,6 @@ struct
 	// nessie modify
 	int worldBatteryMaxCount = WORLD_BATTERY_MAX_COUNT_DEFAULT
 	bool canThrowBattery = false
-	bool shouldRandomBattery = false 
 	bool alwaysHideBatteryIcons = false
 	bool titanPickUpBattery = false
 	bool batteryThiefHighlightEnable = true
@@ -1990,7 +1987,7 @@ void function Burnmeter_EmergencyBattery( entity player )
 
 }
 
-entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPickup = false, bool hideIcon = false ) //( entity titanStolenFrom = null )
+entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isTitanPickup = false, bool hideIcon = false ) //( entity titanStolenFrom = null )
 {
 	entity batteryPack = CreateEntity( "item_titan_battery" )
 	batteryPack.SetValueForModelKey( RODEO_BATTERY_MODEL )
@@ -2018,9 +2015,6 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 		}
 
 		// modified battery cleanups
-		if( file.shouldRandomBattery )
-			batteryPack.SetSkin( RandomInt(3) )
-		
 		array<entity> batteryArray = GetEntArrayByClass_Expensive( "item_titan_battery" )
 		// fix for nessie
 		if( batteryArray.len() > file.worldBatteryMaxCount )
@@ -2121,13 +2115,14 @@ entity function Rodeo_CreateBatteryPack( entity batteryOwner = null, bool isPick
 	//batteryPack.Highlight_SetInheritHighlight( true ) // moved up
 
 	#if MP // nessie modify
-		// so we can decide if battery can be picked up by titans
-		if( isPickup || file.titanPickUpBattery )
+		// so we can decide whether battery can be picked up by titans
+		bool canBePickedupByTitan = isTitanPickup || file.titanPickUpBattery || GetCurrentPlaylistVarInt( "rodeo_battery_disembark_to_pickup", 1 ) == 1
+		if( canBePickedupByTitan )
 		{
 			thread AttachTriggerToBattery( batteryPack )
 			Highlight_SetNeutralHighlight( batteryPack, "health_pickup" )
 		}
-	#else // vanill behavior
+	#else // vanilla behavior
 		if ( IsSingleplayer() )
 		{
 			thread AttachTriggerToBattery( batteryPack )
@@ -2276,9 +2271,11 @@ void function Rodeo_PilotPicksUpBattery( entity pilot, entity battery )
 	Rodeo_PilotPicksUpBattery_Silent( pilot, battery )
 	EmitSoundOnEntityOnlyToPlayer( pilot, pilot, PILOT_PICKS_UP_BATTERY_SOUND )
 	
-	#if MP // nessie modify
+	#if MP // nessie modify, adding this feature back
 		// allows player throw battery in non-titan modes
-		if( Riff_TitanAvailability() == eTitanAvailability.Never && file.canThrowBattery )
+		// removed. now always allow in any gamemode
+		//if( Riff_TitanAvailability() == eTitanAvailability.Never && file.canThrowBattery )
+		if ( Rodeo_IsBatteryThrowEnabled() )
 		{
 			AddPlayerHeldButtonEventCallback( pilot, IN_USE, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME )
 			//for controller players
@@ -2291,7 +2288,10 @@ entity function Rodeo_TakeBatteryAwayFromPilot( entity pilot )
 {
 	#if MP // nessie modify
 		// allows player throw battery in non-titan modes
-		if( Riff_TitanAvailability() == eTitanAvailability.Never && file.canThrowBattery )
+		// needs to rework this when we featured multi-battery carrying
+		// removed. now always allow in any gamemode
+		//if( Riff_TitanAvailability() == eTitanAvailability.Never && file.canThrowBattery )
+		if ( Rodeo_IsBatteryThrowEnabled() )
 		{
 			RemovePlayerHeldButtonEventCallback( pilot, IN_USE, Rodeo_PilotThrowsBattery, RODEO_THROW_BATTERY_BUTTON_HOLD_TIME )
 			//for controller players
@@ -2364,6 +2364,7 @@ void function Rodeo_PilotThrowsBattery( entity pilot )
 		return
 
 	// these should be handled in places that calls the function, not here!
+	// may needs to add a callback like "AddCallback_PlayerCanThrowBattery()" to avoid hardcode
 	//if( Bleedout_IsPlayerBleeding( pilot ) ) // modified function in _bleedout.gnut
     //    return
 	// nessie mix, save for shield battery
@@ -2633,7 +2634,7 @@ bool function Rodeo_OnTouchBatteryPack( entity player, entity batteryPack )
 	return false
 }
 
-void function Rodeo_OnTouchBatteryPack_Internal( entity player, entity batteryPack, bool isPickup = false )
+void function Rodeo_OnTouchBatteryPack_Internal( entity player, entity batteryPack, bool isTitanPickup = false )
 {
 	float currentTime = Time()
 
@@ -2680,8 +2681,9 @@ void function Rodeo_OnTouchBatteryPack_Internal( entity player, entity batteryPa
 	{
 		#if MP // nessie modify
 			//Try Titans not being able to pick up battery
-			//if ( GetCurrentPlaylistVarInt( "rodeo_battery_disembark_to_pickup", 1 ) == 1 )
-			if ( !isPickup ) // modified for BatteryTrigger_ApplyBattery()
+			// modified to add script checks
+			bool titanCanPickupBattery = isTitanPickup || file.titanPickUpBattery || GetCurrentPlaylistVarInt( "rodeo_battery_disembark_to_pickup", 1 ) == 1
+			if ( !titanCanPickupBattery ) // modified for BatteryTrigger_ApplyBattery()
 			{
 				if ( currentTime - player.p.batteryLastTouchedNotificationTime > 5.0 )
 				{
@@ -4287,17 +4289,6 @@ void function ClassicRodeo_SetDeathBatteiesDropEnabled( bool enabled )
 //////////////////////////////
 ///// MODIFIED UTILITIES /////
 //////////////////////////////
-
-void function Rodeo_SetBatterySkinRandom( bool random )
-{
-	file.shouldRandomBattery = random
-}
-
-bool function Rodeo_IsBatteryNowRandom()
-{
-	return file.shouldRandomBattery
-}
-
 void function Rodeo_SetBatteryThrowEnabled( bool enabled )
 {
 	file.canThrowBattery = enabled
