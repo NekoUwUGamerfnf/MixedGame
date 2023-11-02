@@ -57,15 +57,15 @@ global function RemovePlayerAirControl //This function should really be in a ser
 global function RestorePlayerAirControl //This function should really be in a server only SP & MP utility script file. No such file exists as of right now.
 
 // globalized for classic rodeo to use
+// removed... particles and their attachment not working well in titanfall2
+/*
 global function CreateSparksInsideTitanPanel
 global function CreateDamageStateParticlesForPanel
+*/
 
 // RODEO modifiers
 #if MP
 // classic rodeo
-global function ClassicRodeo_SetEnabled
-global function ClassicRodeo_IsEnabled
-
 global function ClassicRodeo_SetStartingBatteryCount
 global function ClassicRodeo_AllowContinuallyRemoveBattery // this will make players able to remove batteries until
 global function ClassicRodeo_SetBatteryRemovalRemovesShield // this will make removing batteries also removing titan's shield
@@ -105,6 +105,9 @@ global function Rodeo_SetBatteryRemovalDamageFlags // modify damageflag by this.
 global function Rodeo_SetBatteryRemovalDamageScale // shared with classic rodeo
 global function Rodeo_SetRodeoGrenadeDamageScale // default is 0.5, half the damage as battery removal. shared with classic rodeo
 global function Rodeo_BatteryRemovalKillsDoomedTitan // shared with shared with classic rodeo
+
+// modified new adding callbacks
+global function AddCallback_OnBatteryRemovalDamage
 #endif // MP
 
 #if DEV
@@ -113,7 +116,9 @@ global function GetDebugRodeoPrint
 #endif
 
 #if MP
-global function SetApplyBatteryCallback
+// reworked. may cause compatibility issue but who cares
+//global function SetApplyBatteryCallback
+global function AddCallback_PlayerApplyBattery
 #endif
 
 const float BATTERY_PICKUP_IGNORE_FRAC = 0.98
@@ -160,7 +165,7 @@ struct
 	array<void functionref(entity,entity)> onRodeoEndedCallbacks
 	array<void functionref(entity,entity)> onRodeoStartedCallbacks
 	// northstarFD new adding callbacks
-	array<void functionref(entity,entity,int,int)> batteryHealCallbacks
+	array<void functionref( entity battery, entity titan, int shieldDifference, int addHealth )> batteryHealCallbacks
 
 	table<entity, AntiRodeoPlayerData> antiRodeoPlayerData
 
@@ -169,8 +174,9 @@ struct
 
 	table<entity, bool> playersThatWantToUseRodeoGrenade
 
-	void functionref(entity,entity,entity) applyBatteryCallback
-
+	// reworked. may cause compatibility issue but who cares
+	//void functionref(entity,entity,entity) applyBatteryCallback
+	array<void functionref( entity rider, entity titan,entity battery )> applyBatteryCallbacks
 
 	// classic rodeo
 	// player tables
@@ -189,7 +195,6 @@ struct
 	table <entity, bool> soulClassicRodeoInited
 
 	// gameplay settings, classic rodeo
-	bool classicRodeoEnabled = false
 	int classicRodeoStartingBatteryCount = 1 // titans start with this battery count
 	int classicRodeoMaxBatteryCount = 1 // default
 	bool continuallyRemoveBattery = false
@@ -219,7 +224,10 @@ struct
 	float batteryRemovalDamageScale = 1.0
 	float rodeoGrenadeDamageScale = 0.5 // default value
 	bool batteryRemovalKillsDoomedTitan = true // vanilla always kill doomed titan if rodeoed
+	// modified new adding callbacks
+	array<void functionref( entity attacker, entity titan, bool isGrenadeDamage, int damageAmount )> batteryRemovalDamageCallbacks
 
+	// in-file table
 	table <entity, bool> titanSoulRodeoSequenceEnabled
 } file
 
@@ -793,10 +801,13 @@ void function AddOnRodeoEndedCallback( void functionref(entity,entity) callbackF
 }
 
 // northstarFD new adding callbacks
-void function AddBatteryHealCallback( void functionref(entity,entity,int,int) callbackFunc )
+void function AddBatteryHealCallback( void functionref( entity battery, entity titan, int shieldDifference, int addHealth ) callbackFunc )
 {
-	Assert (!( file.batteryHealCallbacks.contains( callbackFunc ) ))
-	file.batteryHealCallbacks.append( callbackFunc )
+	//Assert (!( file.batteryHealCallbacks.contains( callbackFunc ) ))
+	//file.batteryHealCallbacks.append( callbackFunc )
+
+	if ( !file.batteryHealCallbacks.contains( callbackFunc ) )
+		file.batteryHealCallbacks.append( callbackFunc )
 }
 //
 
@@ -1780,12 +1791,16 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 			// take additional damage to remove all shields. victim.GetShieldHealth() won't work for titans! have to track soul's shield amount
 			if ( file.batteryRemovalRemovesShield ) // if damageAmped, will also remove all shields from victim, means it will always deal 2500 damage to titan's health
 			{
-				//victimTitanSoul.SetShieldHealth( 0 ) // this method won't give player additional titanMeters, maybe better?
+				victimTitanSoul.SetShieldHealth( 0 ) // this method won't give player additional titanMeters, maybe better?
+				
+				// method below WILL give player additional titan meter
+				/*
 				table ampDamageTable = clone damageTable
 				// try to remove DF_BYPASS_SHIELD from shield damage
 				if ( ampDamageTable.scriptType & DF_BYPASS_SHIELD )
 					ampDamageTable.scriptType = ampDamageTable.scriptType & ~DF_BYPASS_SHIELD
 				victim.TakeDamage( victimTitanSoul.GetShieldHealth(), attacker, attacker, ampDamageTable )
+				*/
 			}
 
 			if ( file.batteryRemovalDamageCoreMeter )
@@ -1805,6 +1820,10 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 
 		// deal damage
 		victim.TakeDamage( damageAmount, attacker, attacker, damageTable )
+
+		// modified callbacks
+		foreach ( callbackFunc in file.batteryRemovalDamageCallbacks )
+			callbackFunc( attacker, victim, isGrenadeDamage, damageAmount )
 	#else
 		if ( PlayerHasBattery( attacker ) ) //i.e. you are throwing a grenade
 		damageAmount /= 2
@@ -2574,10 +2593,12 @@ void function Rodeo_ApplyBatteryToTitan( entity battery, entity titan, bool owne
 
 		AddCreditToTitanCoreBuilder( titan, coreFrac ) //Always give core
 
-		int shieldHealth = soul.GetShieldHealth()
-		int shieldMaxHealth = soul.GetShieldHealthMax()
+		// moved down for reworked regen system
+		/*
+		
 
 		int shieldDifference = shieldMaxHealth - shieldHealth
+		*/
 
 		bool batteryIsAmped = IsAmpedBattery( battery )
 		float frac = batteryIsAmped ? ampedHealthSegmentFrac : healthSegmentFrac
@@ -2605,11 +2626,17 @@ void function Rodeo_ApplyBatteryToTitan( entity battery, entity titan, bool owne
 			//soul.SetShieldHealth( soul.GetShieldHealthMax() )
 		}
 
+		int shieldHealth = soul.GetShieldHealth()
+		int shieldMaxHealth = soul.GetShieldHealthMax()
 		// modified settings
 		float shieldRegenFrac = batteryIsAmped ? file.ampedBatteryShieldRegenScale : file.batteryShieldRegenScale
 		int shieldRegen = int( shieldMaxHealth * shieldRegenFrac )
 		soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + shieldRegen ) )
-	
+		
+		// update shield difference
+		int shieldHealthAfterRegen = soul.GetShieldHealth()
+		int shieldDifference = shieldHealthAfterRegen - shieldHealth
+
 		// northstarFD new adding callbacks
 		// Added via AddBatteryHealCallbacks()
 		foreach ( callbackFunc in file.batteryHealCallbacks )
@@ -2764,8 +2791,11 @@ void function Rodeo_PilotAddsBatteryToFriendlyTitan( entity rider, entity titan 
 	entity battery = Rodeo_TakeBatteryAwayFromPilot( rider )
 	bool amped = IsAmpedBattery( battery )
 
-	if ( file.applyBatteryCallback != null )
-		file.applyBatteryCallback( rider, titan, battery )
+	// reworked. may cause compatibility issue but who cares
+	//if ( file.applyBatteryCallback != null )
+	//	file.applyBatteryCallback( rider, titan, battery )
+	foreach ( callbackFunc in file.applyBatteryCallbacks )
+		callbackFunc( rider, titan, battery )
 
 	Rodeo_ApplyBatteryToTitan( battery, titan ) //This destroys the battery
 
@@ -3253,9 +3283,18 @@ bool function GetDebugRodeoPrint()
 #endif
 
 #if MP
+// reworked. may cause compatibility issue but who cares
+/*
 void function SetApplyBatteryCallback( void functionref(entity,entity,entity) func )
 {
 	file.applyBatteryCallback = func
+}
+*/
+
+void function AddCallback_PlayerApplyBattery( void functionref( entity rider, entity titan,entity battery ) callbackFunc )
+{
+	if ( !file.applyBatteryCallbacks.contains( callbackFunc ) )
+		file.applyBatteryCallbacks.append( callbackFunc )
 }
 
 bool function PlayerWantsToThrowNukeGrenade( entity player )
@@ -3990,7 +4029,7 @@ int function GetPlayerSavedTitanMode( entity player )
 void function SavePlayerLastTitanMode( entity player )
 {
 	player.s.lastTitanMode = player.GetPetTitanMode()
-	print( "Saving player lastTitanMode: " + string( player.s.lastTitanMode ) )
+	//print( "Saving player lastTitanMode: " + string( player.s.lastTitanMode ) )
 }
 
 ///// ENTITY SETTINGS /////
@@ -4216,16 +4255,6 @@ void function ClassicRodeo_TryMoveBatteryDown( entity soul, bool isClimbingRemov
 }
 
 ///// MODE CONFRIMATION UTILITY /////
-void function ClassicRodeo_SetEnabled( bool enabled )
-{
-	file.classicRodeoEnabled = enabled
-}
-
-bool function ClassicRodeo_IsEnabled()
-{
-	return GetCurrentPlaylistVarInt( "classic_rodeo", 0 ) == 1 || file.classicRodeoEnabled
-}
-
 void function ClassicRodeo_SetStartingBatteryCount( int count )
 {
 	if( count <= 0 ) // at least start with 0 battery
@@ -4424,5 +4453,11 @@ void function Rodeo_SetRodeoGrenadeDamageScale( float scale )
 void function Rodeo_BatteryRemovalKillsDoomedTitan( bool alwaysKill )
 {
 	file.batteryRemovalKillsDoomedTitan = alwaysKill
+}
+
+void function AddCallback_OnBatteryRemovalDamage( void functionref( entity attacker, entity titan, bool isGrenadeDamage, int damageAmount ) callbackFunc )
+{
+	if ( !file.batteryRemovalDamageCallbacks.contains( callbackFunc ) )
+		file.batteryRemovalDamageCallbacks.append( callbackFunc )
 }
 #endif // MP
