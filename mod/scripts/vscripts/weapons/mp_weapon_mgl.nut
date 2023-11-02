@@ -20,13 +20,6 @@ global function OnWeaponStartZoomOut_weapon_mgl
 
 const MAX_BONUS_VELOCITY	= 1250
 
-// modded weapon
-struct
-{
-	table<entity, bool> mglWeaponUpdateArcFromMod // for saving a mgl that has "grenade_arc_on_ads" got "ar_trajectory" from this script, so we can remove them
-} file
-//
-
 void function OnWeaponActivate_weapon_mgl( entity weapon )
 {
 	// vanilla behavior
