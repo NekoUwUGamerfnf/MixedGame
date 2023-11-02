@@ -17,5 +17,10 @@ void function MpWeaponMGL_Init()
 		GetWeaponInfoFileKeyFieldAsset_Global( "mp_weapon_mgl", "vortex_absorb_effect_third_person" ), // absorb effect 3p
 		"absorb" // refire behavior
 	)
+
+	// modded weapon mod: grenade_arc_on_ads
+	// gives ar_trajectory on weapon ads, similar to softball ads arc
+	RegisterSignal( "AwaitingWeaponOwnerADSEnd" )
+	RegisterSignal( "MGLZoomOut" )
 #endif
 }

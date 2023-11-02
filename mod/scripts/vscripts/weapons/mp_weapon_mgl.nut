@@ -14,17 +14,25 @@ global function OnClientAnimEvent_weapon_mgl
 global function OnWeaponNpcPrimaryAttack_weapon_mgl
 #endif // #if SERVER
 
+// modified callbacks
+global function OnWeaponStartZoomIn_weapon_mgl
+global function OnWeaponStartZoomOut_weapon_mgl
+
 const MAX_BONUS_VELOCITY	= 1250
+
+// modded weapon
+struct
+{
+	table<entity, bool> mglWeaponUpdateArcFromMod // for saving a mgl that has "grenade_arc_on_ads" got "ar_trajectory" from this script, so we can remove them
+} file
+//
 
 void function OnWeaponActivate_weapon_mgl( entity weapon )
 {
+	// vanilla behavior
 #if CLIENT
 	UpdateViewmodelAmmo( false, weapon )
 #endif // #if CLIENT
-
-	// modded weapon
-	if( weapon.HasMod( "tripwire_launcher" ) )
-		return OnWeaponActivate_weapon_zipline( weapon )
 }
 
 // modified callbacks
@@ -134,3 +142,62 @@ void function OnProjectileCollision_weapon_mgl( entity projectile, vector pos, v
 		}
 	}
 }
+
+// modified callbacks
+void function OnWeaponStartZoomIn_weapon_mgl( entity weapon )
+{
+	// modded weapon
+	// gives ar_trajectory on weapon ads, similar to softball ads arc
+	if ( weapon.HasMod( "grenade_arc_on_ads" ) )
+	{
+		#if SERVER
+			UpdateWeaponArTrajectory( weapon )
+		#endif
+	}
+}
+
+void function OnWeaponStartZoomOut_weapon_mgl( entity weapon )
+{
+	// modded weapon
+	#if SERVER
+		weapon.Signal( "MGLZoomOut" ) // ends "AwaitingWeaponOwnerADSEnd" thread
+	#endif
+}
+
+#if SERVER
+void function UpdateWeaponArTrajectory( entity weapon )
+{
+	entity owner = weapon.GetWeaponOwner()
+	if ( !owner.IsPlayer() )
+		return
+
+	thread AwaitingWeaponOwnerADSEnd( owner, weapon, "ar_trajectory" )
+}
+
+void function AwaitingWeaponOwnerADSEnd( entity owner, entity weapon, string newMod = "ar_trajectory" )
+{
+	if ( weapon.HasMod( newMod ) )
+		return
+	
+	weapon.AddMod( newMod )
+
+	weapon.Signal( "AwaitingWeaponOwnerADSEnd" )
+	weapon.EndSignal( "AwaitingWeaponOwnerADSEnd" )
+	weapon.EndSignal( "OnDestroy" )
+	weapon.EndSignal( "MGLZoomOut" )
+	owner.EndSignal( "OnDeath" )
+	owner.EndSignal( "OnDestroy" )
+
+	OnThreadEnd
+	(
+		function(): ( weapon, newMod )
+		{
+			if ( IsValid( weapon ) )
+				weapon.RemoveMod( newMod )
+		}
+	)
+
+	while ( owner.GetZoomFrac() > 0.0 )
+		WaitFrame()
+}
+#endif
