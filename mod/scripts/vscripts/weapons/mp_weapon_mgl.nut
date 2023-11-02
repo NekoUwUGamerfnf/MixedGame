@@ -160,6 +160,8 @@ void function OnWeaponStartZoomOut_weapon_mgl( entity weapon )
 {
 	// modded weapon
 	#if SERVER
+		// may seem bad. vanilla zoom arc is based on zoomFrac
+		// I don't care, it works fine
 		weapon.Signal( "MGLZoomOut" ) // ends "AwaitingWeaponOwnerADSEnd" thread
 	#endif
 }
@@ -167,6 +169,7 @@ void function OnWeaponStartZoomOut_weapon_mgl( entity weapon )
 #if SERVER
 void function UpdateWeaponArTrajectory( entity weapon )
 {
+	//print( "RUNNING UpdateWeaponArTrajectory()" )
 	entity owner = weapon.GetWeaponOwner()
 	if ( !owner.IsPlayer() )
 		return
@@ -180,6 +183,7 @@ void function AwaitingWeaponOwnerADSEnd( entity owner, entity weapon, string new
 		return
 	
 	weapon.AddMod( newMod )
+	//print( "Added " + newMod + " for player " + string( owner ) )
 
 	weapon.Signal( "AwaitingWeaponOwnerADSEnd" )
 	weapon.EndSignal( "AwaitingWeaponOwnerADSEnd" )
@@ -193,11 +197,26 @@ void function AwaitingWeaponOwnerADSEnd( entity owner, entity weapon, string new
 		function(): ( weapon, newMod )
 		{
 			if ( IsValid( weapon ) )
+			{
 				weapon.RemoveMod( newMod )
+				//print( "Removing mgl new mod" )
+			}
 		}
 	)
 
-	while ( owner.GetZoomFrac() > 0.0 )
-		WaitFrame()
+	//const float zoomOutFrac = 0.4 // if zoom frac is lower than this we consider player as zoomed out
+
+	while ( true )
+	{
+		WaitFrame() // at least let arc last 1 tick, also giving owner a grace period to start zoom in
+
+		float zoomFrac = owner.GetZoomFrac()
+		entity activeWeapon = owner.GetActiveWeapon()
+		if ( zoomFrac == 0.0 )
+			break
+		if ( IsValid( activeWeapon ) && activeWeapon != weapon )
+			break
+	}
+	//print( "AwaitingWeaponOwnerADSEnd reached last line!" )
 }
 #endif
