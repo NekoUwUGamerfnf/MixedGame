@@ -258,7 +258,7 @@ function RodeoSharedTitanAnim_Init()
 	AddAudioAlias( "atlas", "rodeo_landon_above_3p", "rodeo_atlas_rodeo_landon_above_exterior" )
 	AddAudioAlias( "atlas", "rodeo_landon_above_1p", "rodeo_atlas_rodeo_landon_above_interior" )
 	AddAudioAlias( "atlas", "rodeo_landon_back_3p", "rodeo_atlas_rodeo_landon_back_exterior" )
-	AddAudioAlias( "atlas", "rodeo_landon_back_3p", "rodeo_atlas_rodeo_landon_back_exterior" )
+	AddAudioAlias( "atlas", "rodeo_landon_back_1p", "rodeo_atlas_rodeo_landon_back_interior" )
 
 	// ogre
 	AddAudioAlias( "ogre", "rodeo_climbon_front_3p", "rodeo_ogre_rodeo_climbon_front_exterior" )
@@ -275,7 +275,7 @@ function RodeoSharedTitanAnim_Init()
 	AddAudioAlias( "ogre", "rodeo_landon_above_3p", "rodeo_ogre_rodeo_landon_above_exterior" )
 	AddAudioAlias( "ogre", "rodeo_landon_above_1p", "rodeo_ogre_rodeo_landon_above_interior" )
 	AddAudioAlias( "ogre", "rodeo_landon_back_3p", "rodeo_ogre_rodeo_landon_back_exterior" )
-	AddAudioAlias( "ogre", "rodeo_landon_back_3p", "rodeo_ogre_rodeo_landon_back_exterior" )
+	AddAudioAlias( "ogre", "rodeo_landon_back_1p", "rodeo_ogre_rodeo_landon_back_interior" )
 
 	// stryder
 	AddAudioAlias( "stryder", "rodeo_climbon_front_3p", "rodeo_stryder_rodeo_climbon_front_exterior" )
@@ -292,7 +292,7 @@ function RodeoSharedTitanAnim_Init()
 	AddAudioAlias( "stryder", "rodeo_landon_above_3p", "rodeo_stryder_rodeo_landon_above_exterior" )
 	AddAudioAlias( "stryder", "rodeo_landon_above_1p", "rodeo_stryder_rodeo_landon_above_interior" )
 	AddAudioAlias( "stryder", "rodeo_landon_back_3p", "rodeo_stryder_rodeo_landon_back_exterior" )
-	AddAudioAlias( "stryder", "rodeo_landon_back_3p", "rodeo_stryder_rodeo_landon_back_exterior" )
+	AddAudioAlias( "stryder", "rodeo_landon_back_1p", "rodeo_stryder_rodeo_landon_back_interior" )
 
 
 	// vanilla missing titan_buddy events, using the same stuffs as atlas titans
@@ -326,7 +326,7 @@ function RodeoSharedTitanAnim_Init()
 	AddAudioAlias( "buddy", "rodeo_landon_above_3p", "rodeo_atlas_rodeo_landon_above_exterior" )
 	AddAudioAlias( "buddy", "rodeo_landon_above_1p", "rodeo_atlas_rodeo_landon_above_interior" )
 	AddAudioAlias( "buddy", "rodeo_landon_back_3p", "rodeo_atlas_rodeo_landon_back_exterior" )
-	AddAudioAlias( "buddy", "rodeo_landon_back_3p", "rodeo_atlas_rodeo_landon_back_exterior" )
+	AddAudioAlias( "buddy", "rodeo_landon_back_1p", "rodeo_atlas_rodeo_landon_back_interior" )
 }
 
 
