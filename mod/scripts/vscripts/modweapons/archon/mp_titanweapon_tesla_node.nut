@@ -293,6 +293,11 @@ function DeployArcPylon( entity projectile )
   if( !IsValid( pylon ) )
       return
 
+	// teamed dangerous area, blocking enemy only
+	// untested, temp remove
+	//int safeTeam = FriendlyFire_IsEnabled() ? TEAM_INVALID : owner.GetTeam() // only add friendly think if friendly fire off
+	//AI_CreateDangerousArea_Static( pylon, projectile, ARC_TITAN_EMP_FIELD_RADIUS + 50, safeTeam, true, true, pylonOrigin )
+
  	string attachment = ""
 	int attachID = pylon.LookupAttachment( attachment )
   	thread CreateArcPylonField( pylon, projectile, pylonOrigin, attachment, attachID, FX_EMP_FIELD, FX_NODE_RING, ARC_PYLON_LIFETIME )
