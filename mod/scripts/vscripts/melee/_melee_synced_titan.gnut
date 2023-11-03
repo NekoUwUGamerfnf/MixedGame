@@ -1419,17 +1419,20 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	if ( !shouldApplyBatteryAfterRodeo && executionRef == "execution_vanguard_kit" )
 		shouldApplyBatteryAfterRodeo = true
 
+	// move up here to handle npc BT random executions case
+	bool titanHasPilot = target.IsPlayer()
+	#if HAS_BOSS_AI
+		titanHasPilot = titanHasPilot || ( IsBossTitan( target ) )
+	#elseif NPC_TITAN_PILOT_PROTOTYPE // modified condition
+		titanHasPilot = titanHasPilot || TitanHasNpcPilot( target )
+	#endif
+
 	// add a condition for bt can use random executions
 	if ( executionRef == "execution_bt" ) // if we're using unnamed bt execution
 	{
 		// select a random one
 		array<string> btExecutions = ["execution_bt_flip"] // always enabled
-		bool titanHasPilot = target.IsPlayer()
-		#if HAS_BOSS_AI
-			titanHasPilot = titanHasPilot || ( IsBossTitan( target ) )
-		#elseif NPC_TITAN_PILOT_PROTOTYPE // modified condition
-			titanHasPilot = titanHasPilot || TitanHasNpcPilot( target )
-		#endif
+		
 		if ( titanHasPilot ) // try to use pilotrip only if target has a seated pilot model
 			btExecutions.append( "execution_bt_pilotrip" )
 		if ( attacker.GetMainWeapons().len() > 0 ) // try to use kickshoot only if attacker has at least one main weapon
@@ -1526,12 +1529,15 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	entity attackerViewBody
 	FirstPersonSequenceStruct attackerBodySequence
 
+	// has been moved up
+	/*
 	bool titanHasPilot = target.IsPlayer()
 	#if HAS_BOSS_AI
 		titanHasPilot = titanHasPilot || ( IsBossTitan( target ) )
 	#elseif NPC_TITAN_PILOT_PROTOTYPE // modified condition
 		titanHasPilot = titanHasPilot || TitanHasNpcPilot( target )
 	#endif
+	*/
 
 	if ( attacker.IsPlayer() )
 	{
@@ -1563,7 +1569,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 	// modified for npc executions!
 	//if ( data.attackerAnimation3pPilot[ victimType ] != "" && attacker.IsPlayer() )
-	if ( data.attackerAnimation3pPilot[ victimType ] != "" && ( attacker.IsPlayer() || TitanHasNpcPilot( attacker ) ) )
+	if ( data.attackerAnimation3pPilot[ victimType ] != "" && titanHasPilot )
 	{
 		if ( attacker.IsNPC() ) // saved for npc executions
 			attackerViewBody = CreateNpcTitanPilotModel( attacker )
@@ -1824,6 +1830,52 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		targetBodySequence.useAnimatedRefAttachment = true
 		thread FirstPersonSequence( targetBodySequence, targetViewBody, target )
 	}
+
+	// Fake First person exeuction
+	if ( GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1 )
+	{
+		if ( attacker.IsPlayer() )
+		{
+			if ( IsValid( attackerViewBody ) )
+			{
+				// hide viewbody for attacker
+				attackerViewBody.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE & ~ENTITY_VISIBLE_TO_OWNER
+				attackerViewBody.SetOwner( attacker )
+
+				entity attackerViewBodyProxy = Wallrun_CreateCopyOfPilotModel( attacker )
+				// use existing ownerProxy, don't create thirdPersonProxy, don't hide player
+				FirstPersonSequenceForce1P( attackerBodySequence, attacker, attacker, FORCE1P_PILOT_BODYTYPE, attackerViewBodyProxy, null, false, false )
+				ScreenFadeFromBlack( attacker, 1.0, 0.5 ) // faking disembarking screen effect( no effect because ServerCallback_HideHudForFPHackAnim() )
+			}
+			else // titan execution
+			{
+				entity fakeFPSequenceTarget = isAttackerRef ? null : target
+				FirstPersonSequenceForce1P( attackerSequence, attacker, fakeFPSequenceTarget )
+			}
+			RemoveCinematicFlag( attacker, CE_FLAG_EXECUTION ) // stop execution DOF
+		}
+		if ( target.IsPlayer() )
+		{
+			if ( IsValid( targetViewBody ) )
+			{
+				// hide viewbody for target
+				targetViewBody.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE & ~ENTITY_VISIBLE_TO_OWNER
+				targetViewBody.SetOwner( target )
+
+				entity targetViewBodyProxy = Wallrun_CreateCopyOfPilotModel( target )
+				// use existing ownerProxy, don't create thirdPersonProxy, don't hide player
+				FirstPersonSequenceForce1P( targetSequence, target, target, FORCE1P_PILOT_BODYTYPE, targetViewBodyProxy, null, false, false )
+				ScreenFadeFromBlack( target, 1.0, 0.5 ) // faking disembarking screen effect( no effect because ServerCallback_HideHudForFPHackAnim() )
+			}
+			else // titan execution
+			{
+				entity fakeFPSequenceAttacker = isAttackerRef ? null : attacker
+				FirstPersonSequenceForce1P( targetBodySequence, target, fakeFPSequenceAttacker )
+			}
+			RemoveCinematicFlag( target, CE_FLAG_EXECUTION ) // stop execution DOF
+		}
+	}
+	//
 
 	if ( isAttackerRef )
 	{
