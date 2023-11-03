@@ -5,40 +5,73 @@ global function FirstPersonSequenceForce1P_InitPlaylistVars
 #if SERVER
 	global function FirstPersonSequenceForce1P
 
-	global function FakeFirstPersonSequence
+	global function FakeFirstPersonSequence // modified version, currently only used for fake first person embark
 #endif
 
 #if CLIENT
 	global function ServerCallback_HideHudForFPHackAnim
 #endif
 
-global const string FORCE1P_PILOT_1P_ATTACHMENT = "HEADFOCUS"
-global const string FORCE1P_TITAN_1P_ATTACHMENT = "HATCH_HEAD" // CHEST_LASER could be better, but is only on atlas titans
+const string FORCE1P_PILOT_1P_ATTACHMENT = "HEADFOCUS"
+const string FORCE1P_TITAN_1P_ATTACHMENT = "HATCH_HEAD" // CHEST_LASER could be better, but is only on atlas titans
 
-global const string FORCE1P_PILOT_1P_HIDDEN_BODYGROUP = "head"
-global const string FORCE1P_TITAN_1P_HIDDEN_BODYGROUP = "torso"
+// chassic specific settings!
+// some chassic may have better attachment for them
+const string FORCE1P_TITAN_1P_ATTACHMENT_ATLAS = "CHESTFOCUS" // CHEST_LASER has bad rotation and offset...
+const string FORCE1P_TITAN_1P_ATTACHMENT_STRYDER = "CHESTFOCUS"
+const string FORCE1P_TITAN_1P_ATTACHMENT_OGRE = "CHESTFOCUS" // HATCH_HEAD has bad rotation
+
+// use table to make them find all the way down... until find valid one
+const table<string, int> FORCE1P_PILOT_1P_HIDDEN_BODYGROUP = // bodygroup, value
+{
+	["head"]			= 1,
+	["removableHead"]	= 1,
+}
+const table<string, int> FORCE1P_TITAN_1P_HIDDEN_BODYGROUP = // bodygroup, value
+{
+	["torso"]			= 2,
+}
 
 global const string FORCE1P_PILOT_ENTITYCLASS = "npc_pilot_elite"
 global const string FORCE1P_TITAN_ENTITYCLASS = "npc_titan"
+// forced bodytype
+global const string FORCE1P_PILOT_BODYTYPE = "pilot"
+global const string FORCE1P_TITAN_BODYTYPE = "titan"
+
+// adding some offset
+const vector FORCE1P_PILOT_1P_OFFSET = < 2, 0, 0 >
+const vector FORCE1P_PILOT_1P_OFFSET_SHOWN_BODYGROUP = < 6, 0, 0 > // if pilot not succesfully hidden their bodygroup, should use higher offset
+const vector FORCE1P_PILOT_1P_ANGLES = < 0, 0, 0 >
+const vector FORCE1P_TITAN_1P_OFFSET = < 0, 0, 0 >
+const vector FORCE1P_TITAN_1P_OFFSET_SHOWN_BODYGROUP = < 40, 0, 0 >
+const vector FORCE1P_TITAN_1P_ANGLES = < 0, 0, 0 >
+
+// chassic specific settings!
+// some chassic may need to adjust angles or offset because of attachment change
+const vector FORCE1P_TITAN_1P_OFFSET_ATLAS = < 0, 0, 30 > //< 10, 20, 0 >
+const vector FORCE1P_TITAN_1P_ANGLES_ATLAS = < -20, 0, 0 > //< 0, 0, -90 > // CHEST_LASER needs to rotate
+const vector FORCE1P_TITAN_1P_OFFSET_STRYDER = < 10, 0, 20 >
+const vector FORCE1P_TITAN_1P_ANGLES_STRYDER = < 0, 0, 0 >
+const vector FORCE1P_TITAN_1P_OFFSET_OGRE = < 10, 0, 30 >
+const vector FORCE1P_TITAN_1P_ANGLES_OGRE = < -20, 0, 0 >
 
 
+// modified version, currently only used for fake first person embark
+// no titan support because we definetly needs to hide bodygroup for their huge body
 const string FAKEFP_PILOT_ATTACHMENT = "HEADFOCUS"
-const string FAKEFP_TITAN_ATTACHMENT = "HATCH_HEAD" // CHEST_LASER could be better, but is only on atlas titans
 const vector FAKEFP_PILOT_OFFSET = < 6, 0, 0 >
 const vector FAKEFP_PILOT_ANGLES = < 0, 0, 0 >
 // titan embarking variants
 const vector FAKEFP_PILOT_OFFSET_ATLAS_EMBARK = < 6, 0, -6 >
 const vector FAKEFP_PILOT_ANGLES_ATLAS_EMBARK = < 25, 0, 0 >
-const vector FAKEFP_PILOT_OFFSET_STRYER_EMBARK = < 6, 0, 0 >
+const vector FAKEFP_PILOT_OFFSET_STRYDER_EMBARK = < 6, 0, 0 >
 const vector FAKEFP_PILOT_ANGLES_STRYDER_EMBARK = < 15, 0, 0 >
 const vector FAKEFP_PILOT_OFFSET_OGRE_EMBARK = < 6, 0, 0 >
 const vector FAKEFP_PILOT_ANGLES_OGRE_EMBARK = < 0, 0, 0 >
 
-const vector FAKEFP_TITAN_OFFSET = < 10, 0, 0 >
-const vector FAKEFP_TITAN_ANGLES = < 0, 0, 0 >
-
 global struct Forced1PSequenceData
 {
+	bool playerHidden
 	entity player
 	entity camera
 	entity ownerProxy
@@ -64,87 +97,173 @@ void function FirstPersonSequenceForce1P_RegisterCustomNetworkFunctions()
 }
 
 #if SERVER
-Forced1PSequenceData function FirstPersonSequenceForce1P( FirstPersonSequenceStruct sequence, entity player, entity other = null )
+Forced1PSequenceData function FirstPersonSequenceForce1P( FirstPersonSequenceStruct sequence, entity player, entity other = null, string forcedBodyType = "", entity ownerProxy = null, entity thirdPersonProxy = null, bool createThirdPersonProxyIfInvalid = true, bool hidePlayer = true )
 {
-	string attachment = FORCE1P_PILOT_1P_ATTACHMENT
-	string hiddenBodygroup = FORCE1P_PILOT_1P_HIDDEN_BODYGROUP
-	string entityclass = FORCE1P_PILOT_ENTITYCLASS
+	// debug
+	/*
+	printt( "RUNNING FirstPersonSequenceForce1P()" )
+	printt( "--------------------Passed Values--------------------" )
+	printt( "player: " + string( player ) )
+	printt( "other: " + string( other ) )
+	print( "forcedBodyType: " + forcedBodyType )
+	printt( "ownerProxy: " + string( ownerProxy ) )
+	printt( "thirdPersonProxy: " + string( thirdPersonProxy ) )
+	printt( "hidePlayer: " + string( hidePlayer ) )
+	*/
 
-	if ( player.IsTitan() )
+	string attachment = FORCE1P_PILOT_1P_ATTACHMENT
+	string entityclass = FORCE1P_PILOT_ENTITYCLASS
+	vector offset = FORCE1P_PILOT_1P_OFFSET
+	vector cameraAngles = FORCE1P_PILOT_1P_ANGLES
+
+	bool isTitanBodyType = ( player.IsTitan() || forcedBodyType == FORCE1P_TITAN_BODYTYPE ) && forcedBodyType != FORCE1P_PILOT_BODYTYPE
+	if ( isTitanBodyType )
 	{
 		attachment = FORCE1P_TITAN_1P_ATTACHMENT
-		hiddenBodygroup = FORCE1P_TITAN_1P_HIDDEN_BODYGROUP	
 		entityclass	= FORCE1P_TITAN_ENTITYCLASS
+		offset = FORCE1P_TITAN_1P_OFFSET
+		cameraAngles = FORCE1P_TITAN_1P_ANGLES
+
+		// chassis settings override
+		entity titanSoul = player.GetTitanSoul()
+		if ( IsValid( titanSoul ) )
+		{
+			string titanType = GetSoulTitanSubClass( titanSoul )
+			switch ( titanType )
+			{
+				case "atlas":
+					attachment = FORCE1P_TITAN_1P_ATTACHMENT_ATLAS
+					offset = FORCE1P_TITAN_1P_OFFSET_ATLAS
+					cameraAngles = FORCE1P_TITAN_1P_ANGLES_ATLAS
+					break
+				case "stryder":
+					attachment = FORCE1P_TITAN_1P_ATTACHMENT_STRYDER
+					offset = FORCE1P_TITAN_1P_OFFSET_STRYDER
+					cameraAngles = FORCE1P_TITAN_1P_ANGLES_STRYDER
+					break
+				case "ogre":
+					attachment = FORCE1P_TITAN_1P_ATTACHMENT_OGRE
+					offset = FORCE1P_TITAN_1P_OFFSET_OGRE
+					cameraAngles = FORCE1P_TITAN_1P_ANGLES_OGRE
+					break
+			}
+		}
 	}
 			
 	// hide player from everyone, unlike VisibilityFlags, this won't hide children, which is way easier to deal with
-	player.Hide()
+	if ( hidePlayer )
+		player.Hide()
 	
 	Forced1PSequenceData cleanupData
+	cleanupData.playerHidden = hidePlayer
 	cleanupData.player = player
 	
 	// for some melee sequences, player.GetAngles() will be the angles the player had before they began the melee, which can cause desyncs
 	// eyeangles are fine though
-	vector angles = player.GetAngles()
-	angles.y = player.EyeAngles().y
+	vector proxyAngles = player.GetAngles()
+	proxyAngles.y = player.EyeAngles().y
 	
+	// modified: only create if we didn't pass one
 	// create the first proxy entity, this should visually be identical to the player, but only visible to them, and with head/torso hidden
 	// this is an npc because some firstpersonsequences use animation features that only work on npcs and pilots, not props, so need to do this
-	entity ownerProxy = CreateEntity( entityclass ) //CreatePropDynamic( player.GetModelName(), player.GetOrigin(), player.GetAngles() )
-	ownerProxy.SetModel( player.GetModelName() )
-	ownerProxy.SetValueForModelKey( player.GetModelName() )
+	bool shouldCreateOwnerProxy = !IsValid( ownerProxy )
+	//entity ownerProxy = CreateEntity( entityclass ) //CreatePropDynamic( player.GetModelName(), player.GetOrigin(), player.GetAngles() )
+	if ( shouldCreateOwnerProxy )
+	{
+		ownerProxy = CreateEntity( entityclass )
+		ownerProxy.SetModel( player.GetModelName() )
+		ownerProxy.SetValueForModelKey( player.GetModelName() )
+	}
 	ownerProxy.SetOrigin( player.GetOrigin() )
-	ownerProxy.SetAngles( angles )
+	ownerProxy.SetAngles( proxyAngles )
 	ownerProxy.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
 	ownerProxy.kv.solid = 0 // nonsolid
 	SetTeam( ownerProxy, player.GetTeam() )
 	ownerProxy.SetOwner( player )
-	ownerProxy.SetSkin( player.GetSkin() )
-	ownerProxy.SetCamo( player.GetCamo() ) // note: this seems weird, doesn't set right
-	DispatchSpawn( ownerProxy )
-	ownerProxy.SetModel( player.GetModelName() )
-	ownerProxy.SetValueForModelKey( player.GetModelName() )
+	//ownerProxy.SetSkin( player.GetSkin() )
+	//ownerProxy.SetCamo( player.GetCamo() ) // note: this seems weird, doesn't set right
+
+	if ( shouldCreateOwnerProxy ) // new created one, needs spawn and setup
+	{
+		DispatchSpawn( ownerProxy )
+		ownerProxy.SetModel( player.GetModelName() )
+		ownerProxy.SetValueForModelKey( player.GetModelName() )
+	}
+
 	ownerProxy.SetInvulnerable()
-	HideName( ownerProxy )
+	if ( ownerProxy instanceof CBaseCombatCharacter ) // props don't have HideName
+		HideName( ownerProxy )
 	cleanupData.ownerProxy = ownerProxy
 	
-	int bodygroupValue = 1
-	if ( hiddenBodygroup == "torso" )
-		bodygroupValue = 2
-	
 	// hide annoying bodygroup
-	ownerProxy.SetBodygroup( ownerProxy.FindBodyGroup( hiddenBodygroup ), bodygroupValue )
+	// find from valid bodygroups
+	table<string, int> bodyGroupTable = isTitanBodyType ? FORCE1P_TITAN_1P_HIDDEN_BODYGROUP : FORCE1P_PILOT_1P_HIDDEN_BODYGROUP
+	bool foundBodyGroup = false
+	foreach ( string bodyGroup, int value in bodyGroupTable )
+	{
+		int bodyGroupIndex = ownerProxy.FindBodyGroup( bodyGroup )
+		if ( bodyGroupIndex > 0 )
+		{
+			ownerProxy.SetBodygroup( bodyGroupIndex, value )
+			foundBodyGroup = true
+			break
+		}
+	}
+
+	if ( !foundBodyGroup ) // bodygroup not hidden, add higher offset
+	{
+		offset = FORCE1P_PILOT_1P_OFFSET_SHOWN_BODYGROUP
+		if ( isTitanBodyType )
+			offset = FORCE1P_TITAN_1P_OFFSET_SHOWN_BODYGROUP
+	}
 	// don't play anim until later so we can do cleanup stuff
 		
+	// modified: only create if we didn't pass one
 	// create the second proxy entity, this visible to everyone else
-	entity thirdPersonProxy = CreateEntity( entityclass ) //CreatePropDynamic( player.GetModelName(), player.GetOrigin(), player.GetAngles() )
-	thirdPersonProxy.SetModel( player.GetModelName() )
-	thirdPersonProxy.SetValueForModelKey( player.GetModelName() )
-	thirdPersonProxy.SetOrigin( player.GetOrigin() )
-	thirdPersonProxy.SetAngles( angles )
-	thirdPersonProxy.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE & ~ENTITY_VISIBLE_TO_OWNER
-	thirdPersonProxy.kv.solid = 0 // nonsolid
-	SetTeam( thirdPersonProxy, player.GetTeam() )
-	thirdPersonProxy.SetOwner( player )
-	thirdPersonProxy.SetSkin( player.GetSkin() )
-	thirdPersonProxy.SetCamo( player.GetCamo() ) // note: this seems weird, doesn't set right
-	DispatchSpawn( thirdPersonProxy	)
-	thirdPersonProxy.SetModel( player.GetModelName() )
-	thirdPersonProxy.SetValueForModelKey( player.GetModelName() )
-	thirdPersonProxy.SetInvulnerable()
-	HideName( thirdPersonProxy )
-	cleanupData.thirdPersonProxy = thirdPersonProxy
+	//entity thirdPersonProxy = CreateEntity( entityclass ) //CreatePropDynamic( player.GetModelName(), player.GetOrigin(), player.GetAngles() )
+	bool shouldCreateThirdPersonProxy = !IsValid( thirdPersonProxy ) && createThirdPersonProxyIfInvalid
+	if ( shouldCreateThirdPersonProxy )
+	{
+		thirdPersonProxy = CreateEntity( entityclass )
+		thirdPersonProxy.SetModel( player.GetModelName() )
+		thirdPersonProxy.SetValueForModelKey( player.GetModelName() )
+	}
+	if ( IsValid( thirdPersonProxy ) ) // thirdPersonProxy can be null now
+	{
+		thirdPersonProxy.SetOrigin( player.GetOrigin() )
+		thirdPersonProxy.SetAngles( proxyAngles )
+		thirdPersonProxy.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE & ~ENTITY_VISIBLE_TO_OWNER
+		thirdPersonProxy.kv.solid = 0 // nonsolid
+		SetTeam( thirdPersonProxy, player.GetTeam() )
+		thirdPersonProxy.SetOwner( player )
+		//thirdPersonProxy.SetSkin( player.GetSkin() )
+		//thirdPersonProxy.SetCamo( player.GetCamo() ) // note: this seems weird, doesn't set right
+
+		if ( shouldCreateThirdPersonProxy ) // new created one, needs spawn and setup
+		{
+			DispatchSpawn( thirdPersonProxy	)
+			thirdPersonProxy.SetModel( player.GetModelName() )
+			thirdPersonProxy.SetValueForModelKey( player.GetModelName() )
+		}
 	
-	if ( player.IsTitan() )
-		Highlight_SetEnemyHighlight( thirdPersonProxy, "enemy_titan" )
-	else
-		Highlight_SetEnemyHighlight( thirdPersonProxy, "enemy_player" )
-	
-	thread FirstPersonSequence( sequence, thirdPersonProxy, other )
+		thirdPersonProxy.SetInvulnerable()
+		if ( thirdPersonProxy instanceof CBaseCombatCharacter ) // props don't have HideName
+			HideName( thirdPersonProxy )
+		cleanupData.thirdPersonProxy = thirdPersonProxy
+
+		if ( isTitanBodyType )
+			Highlight_SetEnemyHighlight( thirdPersonProxy, "enemy_titan" )
+		else
+			Highlight_SetEnemyHighlight( thirdPersonProxy, "enemy_player" )
+		
+		thread FirstPersonSequence( sequence, thirdPersonProxy, other )
+	}
 	
 	// create the viewpoint entity
 	entity camera = CreateEntity( "point_viewcontrol" )
 	camera.SetParent( ownerProxy, attachment )
+	camera.SetOrigin( offset )
+	camera.SetAngles( cameraAngles )
 	camera.kv.spawnflags = 56
 	DispatchSpawn( camera )
 	player.SetViewEntity( camera, true )
@@ -155,7 +274,9 @@ Forced1PSequenceData function FirstPersonSequenceForce1P( FirstPersonSequenceStr
 	// this is so we get a cockpit in these anims, issue with it is that the cockpit seems to break alot of rendering stuff
 	// which really sucks since it'd be awesome to have a cockpit over these anims, really makes them better, even the client func to render through cockpits doesn't seem to work for it, just makes stuff rendering through the cockpit invisible rather than rendering in a broken way
 	
-	Remote_CallFunction_NonReplay( player, "ServerCallback_HideHudForFPHackAnim" )
+	// this can cause issue on player disconnect, also make ScreenFade stuffs don't work
+	//Remote_CallFunction_NonReplay( player, "ServerCallback_HideHudForFPHackAnim" )
+	AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
 	// play this anim now, so we can cleanup after it's done
 	thread CleanupForced1PSequenceAfterAnimDone( sequence, ownerProxy, other, cleanupData )
 	return cleanupData
@@ -177,16 +298,32 @@ void function CleanupForced1PSequenceAfterAnimDone( FirstPersonSequenceStruct se
 
 void function CleanupForced1PSequence( Forced1PSequenceData cleanupData )
 {
-	cleanupData.player.Show()
-	cleanupData.player.ClearViewEntity()
-	cleanupData.camera.Destroy()
-	cleanupData.ownerProxy.Destroy()
-	cleanupData.thirdPersonProxy.Destroy()
+	bool playerHidden = cleanupData.playerHidden
+	entity player = cleanupData.player
+	entity camera = cleanupData.camera
+	entity ownerProxy = cleanupData.ownerProxy
+	entity thirdPersonProxy = cleanupData.thirdPersonProxy
+
+	if ( IsValid( cleanupData.player ) )
+	{
+		if ( playerHidden )
+			player.Show()
+		player.ClearViewEntity()
+		RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+	}
+	if ( IsValid( camera ) )
+		camera.Destroy()
+	if ( IsValid( ownerProxy ) )
+		ownerProxy.Destroy()
+	if ( IsValid( thirdPersonProxy ) )
+		thirdPersonProxy.Destroy()
 }
 
 void function FakeFirstPersonSequence( entity player )
 {
 	if ( !player.IsPlayer() )
+		return
+	if ( player.IsTitan() ) // no titan support
 		return
 		
 	player.EndSignal( "OnDeath" ) // clean up when death
@@ -198,12 +335,6 @@ void function FakeFirstPersonSequence( entity player )
 	vector offset = FAKEFP_PILOT_OFFSET
 	vector angles = FAKEFP_PILOT_ANGLES
 
-	if ( player.IsTitan() )
-	{
-		attachment = FAKEFP_TITAN_ATTACHMENT
-		offset = FAKEFP_TITAN_OFFSET
-		angles = FAKEFP_TITAN_ANGLES
-	}
 	int attachID = player.LookupAttachment( attachment )
 	if ( attachID < 0 ) // don't have attachment?
 		return
@@ -235,7 +366,7 @@ void function FakeFirstPersonSequence( entity player )
 						angles = FAKEFP_PILOT_ANGLES_ATLAS_EMBARK
 						break
 					case "stryder":
-						offset = FAKEFP_PILOT_OFFSET_STRYER_EMBARK
+						offset = FAKEFP_PILOT_OFFSET_STRYDER_EMBARK
 						angles = FAKEFP_PILOT_ANGLES_STRYDER_EMBARK
 						break
 					case "ogre":
