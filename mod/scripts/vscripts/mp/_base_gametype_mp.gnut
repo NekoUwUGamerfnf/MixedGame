@@ -979,12 +979,17 @@ void function DecideRespawnPlayer( entity player )
 	// this isn't even used atm, could likely be removed if some vanilla code didn't rely on it
 }
 
-void function RespawnAsPilot( entity player )
+void function RespawnAsPilot( entity player, entity spawnpointOverride = null )
 {
-	DoRespawnPlayer( player, FindSpawnPoint( player, false, ( ShouldStartSpawn( player ) || Flag( "ForceStartSpawn" ) ) && !IsFFAGame() ) )
+	entity spawnpoint = FindSpawnPoint( player, false, ( ShouldStartSpawn( player ) || Flag( "ForceStartSpawn" ) ) && !IsFFAGame() )
+	if ( spawnpointOverride != null )
+		spawnpoint = spawnpointOverride
+	
+	DoRespawnPlayer( player, spawnpoint )
 }
 
-void function RespawnAsTitan( entity player, bool manualPosition = false, entity spawnPointOverride = null )
+// manualPosition is unused... just keep here to avoid conflict with other Northstar scripts
+void function RespawnAsTitan( entity player, bool manualPosition = false, entity spawnpointOverride = null )
 {
 	if( IsAlive( player ) )
 		return
@@ -997,9 +1002,9 @@ void function RespawnAsTitan( entity player, bool manualPosition = false, entity
 	
 	player.isSpawning = true
 	entity spawnpoint = FindSpawnPoint( player, true, ( ShouldStartSpawn( player ) || Flag( "ForceStartSpawn" ) ) && !IsFFAGame() )
-	if ( manualPosition && spawnPointOverride != null ) // modified to add: spawnpoint override
-		spawnpoint = spawnPointOverride
-	else if ( file.recalculateRespawnAsTitanStartPointCallback != null )
+	if ( spawnpointOverride != null ) // modified to add: spawnpoint override
+		spawnpoint = spawnpointOverride
+	else if ( file.recalculateRespawnAsTitanStartPointCallback != null ) // spawnpoint re-calculate callbacks
 		spawnpoint = file.recalculateRespawnAsTitanStartPointCallback( player, spawnpoint )
 
  	TitanLoadoutDef titanLoadout = GetTitanLoadoutForPlayer( player )
@@ -1019,7 +1024,6 @@ void function RespawnAsTitan( entity player, bool manualPosition = false, entity
 
 	// titan cleanup
 	ClearTitanAvailable( player ) // clear titan availability once it's created, to avoid we failed transfering into titan and softlock our earnmeter
-	PlayerEarnMeter_Reset( player ) // we've spawned our replacement titan, clean up earnmeter so they can have better visual on entering titan( northstar earnmeter only, vanilla doesn't seem to work like this )
 
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // hide hud
 	// do titanfall scoreevent
@@ -1059,29 +1063,34 @@ void function RespawnAsTitan( entity player, bool manualPosition = false, entity
 	player.EndSignal( "OnDestroy" )
 	titan.EndSignal( "OnDeath" ) // titan already alive, they can sometimes die
 	titan.EndSignal( "OnDestroy" )
-	OnThreadEnd( function() : ( player, titan, camera )
-	{
-		if ( IsValid( player ) )
-		{
-			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // show hud
-			player.isSpawning = false
-		}
-	
-		if ( IsValid( titan ) )
-			titan.Destroy() // pilotbecomestitan leaves an npc titan that we need to delete
-		else
-		{
-			RespawnAsPilot( player ) // this is 100% an edgecase, just avoid softlocking if we ever hit it in playable gamestates
-			// this edgecase can be triggered due to bad spawnpoints...
-			// we'd better ragdoll kill player like dropships ragdolling npcs inside of it on death
-			// using worldspawn is to keep identical with _gamestate_mp.nut's cleanup
-			// damagedef_suicide will trigger death package, using DF_RAGDOLL as scriptType is enough
-			player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = damagedef_suicide, scriptType = DF_RAGDOLL } )
-		}
 
-		camera.Fire( "Disable", "!activator", 0, player )
-		camera.Destroy()
-	})
+	OnThreadEnd
+	( 
+		function() : ( player, titan, camera, spawnpoint )
+		{
+			if ( IsValid( player ) )
+			{
+				RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // show hud
+				player.isSpawning = false
+			}
+		
+			//if ( IsValid( titan ) ) // should use IsAlive() because we've added "OnDeath" as endsignal
+			if ( IsAlive( titan ) )
+				titan.Destroy() // pilotbecomestitan leaves an npc titan that we need to delete
+			else if ( IsValid( player ) ) // titan died for some reason...
+			{
+				RespawnAsPilot( player, spawnpoint ) // this is 100% an edgecase, just avoid softlocking if we ever hit it in playable gamestates
+				// this edgecase can be triggered due to bad spawnpoints...
+				// we'd better ragdoll kill player like dropships ragdolling npcs inside of it on death
+				// using worldspawn is to keep identical with _gamestate_mp.nut's cleanup
+				// damagedef_suicide will trigger death package, using DF_RAGDOLL as scriptType is enough
+				player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = damagedef_suicide, scriptType = DF_RAGDOLL } )
+			}
+
+			camera.Fire( "Disable", "!activator", 0, player )
+			camera.Destroy()
+		}
+	)
 	
 	waitthread TitanHotDrop( titan, "at_hotdrop_01", spawnpoint.GetOrigin(), spawnpoint.GetAngles(), player, camera ) // do hotdrop anim
 		
