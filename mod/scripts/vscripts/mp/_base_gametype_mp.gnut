@@ -1070,7 +1070,11 @@ void function RespawnAsTitan( entity player, bool manualPosition = false, entity
 
 	ClearPlayerEliminated( player ) // mark as player not eliminated
 	ClearRespawnAvailable( player ) // need so the respawn icon doesn't show
-	
+
+	// titan cleanup
+	ClearTitanAvailable( player ) // clear titan availability once it's created, to avoid we failed transfering into titan and softlock our earnmeter
+	PlayerEarnMeter_Reset( player ) // we've spawned our replacement titan, clean up earnmeter so they can have better visual on entering titan( northstar earnmeter only, vanilla doesn't seem to work like this )
+
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // hide hud
 	// do titanfall scoreevent
 	if ( !level.firstTitanfall )
@@ -1107,6 +1111,7 @@ void function RespawnAsTitan( entity player, bool manualPosition = false, entity
 	camera.Fire( "Enable", "!activator", 0, player )
 	
 	player.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" ) // titan already alive, they can sometimes die
 	titan.EndSignal( "OnDestroy" )
 	OnThreadEnd( function() : ( player, titan, camera )
 	{
@@ -1114,14 +1119,20 @@ void function RespawnAsTitan( entity player, bool manualPosition = false, entity
 		{
 			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // show hud
 			player.isSpawning = false
-			ClearTitanAvailable( player ) // we've done everything, considering clear titan available
 		}
 	
 		if ( IsValid( titan ) )
 			titan.Destroy() // pilotbecomestitan leaves an npc titan that we need to delete
 		else
+		{
 			RespawnAsPilot( player ) // this is 100% an edgecase, just avoid softlocking if we ever hit it in playable gamestates
-			
+			// this edgecase can be triggered due to bad spawnpoints...
+			// we'd better ragdoll kill player like dropships ragdolling npcs inside of it on death
+			// using worldspawn is to keep identical with _gamestate_mp.nut's cleanup
+			// damagedef_suicide will trigger death package, using DF_RAGDOLL as scriptType is enough
+			player.Die( svGlobal.worldspawn, svGlobal.worldspawn, { damageSourceId = damagedef_suicide, scriptType = DF_RAGDOLL } )
+		}
+
 		camera.Fire( "Disable", "!activator", 0, player )
 		camera.Destroy()
 	})
