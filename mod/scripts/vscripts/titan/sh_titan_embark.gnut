@@ -692,6 +692,8 @@ function PlayerEmbarksTitan( entity player, entity titan, table embark )
 				player.p.isEmbarking = false
 				// modified utility for getting a pilot's embarking titan
 				file.playerEmbarkingTitan[ player ] = null
+				// modified clean up
+				RemoveCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
 				//
 
 				if ( IsAlive( player ) )
@@ -1004,17 +1006,28 @@ function TitanEmbark_PlayerEmbarks( entity player, entity titan, table e )
 
 	#if MP
 		// northstar version of fp embark is not good enough, add a modified check
-		if ( ShouldDoFirstPersonEmbark( titan ) && !doFirstPersonAnim )
+		if ( ShouldDoFirstPersonEmbark( titan ) )
 		{
 			// phase embark is dizzy! don't do fake FP if we're doing a phase embark, only do screen effect
-			if ( sequence.thirdPersonAnim.find( "fast" ) != null )
+			if ( !doFirstPersonAnim && sequence.thirdPersonAnim.find( "fast" ) != null )
 			{
 				// make player can see themselves and their titan during phase
 				player.SetForceVisibleInPhaseShift( true )
 				titan.SetForceVisibleInPhaseShift( true )
 			}
 			else
-				thread FakeFirstPersonSequence( player )
+			{
+				player.SetCinematicEventFlags( player.GetCinematicEventFlags() & (~CE_FLAG_EMBARK) ) // disable dof
+				// if we don't have a fp animation playing, manually do a fake sequence
+				if ( !doFirstPersonAnim )
+				{
+					thread FakeFirstPersonSequence( player )
+				}
+				else // otherwise we remove normal embarking's DOF and hides player hud
+				{
+					AddCinematicFlag( player, CE_FLAG_HIDE_MAIN_HUD )
+				}
+			}
 		}
 		// northstar version of fp embark
 		else if ( !doFirstPersonAnim && GetCurrentPlaylistVarInt( "fp_embark_enabled", 0 ) == 1)
@@ -1099,7 +1112,7 @@ const array<string> FP_EMBARK_ANIM_ALIASES =
 	"mount_atlas_kneel_behind",
 	"mount_atlas_kneel_above_right",
 	"mount_atlas_kneel_above_left",
-	"mount_atlas_kneel_airgrab",
+	//"mount_atlas_kneel_airgrab", // don't have fp animations
 ]
 
 bool function TitanHasFPEmbarkAnimation( entity titan, string thirdPersonAnim )
@@ -2420,6 +2433,10 @@ void function SetEmbarkDebugPrint( bool value )
 // northstar version is not good, add a modified check
 bool function ShouldDoFirstPersonEmbark( entity titan )
 {
+	// bind together with classic_executions
+	if ( GetCurrentPlaylistVarInt( "classic_execution_enabled", 0 ) == 1 )
+		return true
+
 	bool doFPEmbark = false
 	entity soul = titan.GetTitanSoul()
 	if( !IsValid( soul ) )
