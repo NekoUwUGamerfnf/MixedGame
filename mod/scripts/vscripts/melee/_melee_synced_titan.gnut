@@ -379,6 +379,7 @@ void functionref( SyncedMelee action, entity attacker, entity target ) function 
 	return null
 }
 
+// modified: forced cleanup or sound fixes
 void function ForceRemoveExecutionCinematic( entity ent )
 {
 	if( ent.IsPlayer() )
@@ -387,6 +388,128 @@ void function ForceRemoveExecutionCinematic( entity ent )
 		RemoveCinematicFlag( ent, CE_FLAG_TITAN_3P_CAM )
 	}
 }
+
+// we delay player becomes pilot, so they can have cockpit model
+// hard to control, don't do it. just screen fade to cockpit open?
+/*
+void function DelayedTitanBecomesPilot( entity player, entity titan, float delay )
+{
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	// temp change model to player's, for playing animation( HACKY as hell )
+	asset pilotModel = GetPlayerSettingsAssetForClassName( player.s.storedPlayerSettings, "bodymodel" )
+	player.SetModel( pilotModel )
+	wait delay
+
+	TitanBecomesPilot( player, titan )
+}
+*/
+
+void function AtlasVsTitanShortSoundEvent( entity attacker, entity target )
+{
+	wait 0.7
+
+	// shared view: target gets punch
+	if ( IsAlive( target ) )
+	{
+		EmitSoundOnEntity( target, "monarch_battery_execution_part_03_titans" )
+	}
+}
+
+void function StryderVsTitanSoundEvent( entity attacker, entity target )
+{
+	wait 0.3
+
+	// shared view: target being ripped out and attacker prepare to crush pilot
+	if ( IsAlive( attacker ) )
+	{
+		EmitSoundOnEntity( attacker, "northstar_prime_execution_part_01" )
+	}
+
+	wait 2.4
+	// shared view: crush the target
+	// now handled by MeleePinkMist()
+	/*
+	print( "target alive: " + string( IsAlive( target ) ) )
+	if ( IsAlive( target ) )
+	{
+		EmitSoundOnEntity( target, "monarch_battery_execution_bone_crush" )
+	}
+	*/
+}
+
+void function AtlasVsTitanSoundEvent( entity attacker, entity target )
+{
+	wait 0.4
+
+	entity targetTitan = target
+	if ( IsAlive( target ) && target.IsPlayer() )
+		targetTitan = target.GetPetTitan()
+	// shared view: target being ripped out
+	if ( IsAlive( targetTitan ) )
+	{
+		//EmitSoundOnEntityOnlyToPlayer( targetTitan, target, "monarch_execution_part_03_2ch_v1_01" )
+		EmitSoundOnEntity( targetTitan, "monarch_execution_part_03_2ch_v1_01" )
+	}
+
+	wait 0.2
+	// shared view: attacker preparing throw
+	if ( IsAlive( attacker ) )
+	{
+		EmitSoundOnEntity( attacker, "tone_dlc_execution_part_02" )
+	}
+
+	wait 0.5
+	// non-attacker-only view: target being throw out
+	if ( IsAlive( attacker ) )
+	{
+		if ( attacker.IsPlayer() )
+			EmitSoundOnEntityExceptToPlayer( attacker, attacker, "tone_execution_part_03" )
+		else
+			EmitSoundOnEntity( attacker, "tone_execution_part_03" )
+	}
+
+	wait 1.5
+	// attacker-only view: target being throw out
+	if ( IsAlive( attacker ) )
+	{
+		if ( attacker.IsPlayer() )
+			EmitSoundOnEntityOnlyToPlayer( attacker, attacker, "tone_execution_part_03" )
+	}
+}
+
+void function OgreVsTitanSoundEvent( entity attacker, entity target )
+{
+	// starting sound
+	if ( IsAlive( attacker ) )
+	{
+		EmitSoundOnEntity( attacker, "legion_prime_execution_part_01" )
+	}
+	
+	// shared view: rip left arm
+	if ( IsAlive( attacker ) )
+	{
+		EmitSoundOnEntity( attacker, "ion_execution_part_02" )
+	}
+
+	wait 1.5
+	// shared view: rip right arm
+	if ( IsAlive( attacker ) )
+	{
+		EmitSoundOnEntity( attacker, "ion_execution_part_02" )
+	}
+
+	wait 1.4
+	// shared view: throw arms to face
+	if ( IsAlive( target ) )
+	{
+		EmitSoundOnEntity( target, "legion_prime_execution_part_02" )
+	}
+}
+// modified functions end
 
 void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker, entity target )
 {
@@ -466,6 +589,8 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 
 	// needs shortened verions
 	EmitDifferentSoundsOnEntityForPlayerAndWorld( "Titan_1p_Sync_Melee_vs_AutoTitan", "Titan_3p_Sync_Melee_vs_AutoTitan", attacker, attacker )
+	// manually do some titanfall2 sounds
+	thread AtlasVsTitanShortSoundEvent( attacker, target )
 
 	local soul = target.GetTitanSoul()
 	soul.SetInvalidHealthBarEnt( true )
@@ -597,8 +722,18 @@ void function MeleeThread_StyderVsTitan( SyncedMelee action, entity attacker, en
 	e.targetPilotAnimationForObserver <- "pt_stry_melee_sync_front_pilotkill_3rd"
 	e.targetPilotAnimationForObserver1st <- "ptpov_stry_tvtmelee_targetdeath"
 	e.TitanSpecific1pSyncMeleeSound <- "Stryder_1p_Sync_Melee"
-	e.TitanSpecific3pSyncMeleeSound <- "Stryder_3p_Sync_Melee"
+	e.TitanSpecific3pSyncMeleeSound <- "Stryder_3p_Sync_Melee" // empty sound in ttf2
+	// we delay player becomes pilot, so they can have cockpit model
+	// hard to control, don't do it. just screen fade to cockpit open?
+	//e.playerTitanBecomePilotDelay <- 0.4
 
+	// fake the screen fade on disembark
+	// same fadeout time, longer hold
+	if ( target.IsPlayer() )
+		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.6, FFADE_IN | FFADE_PURGE )
+	// manually add some sound using titanfall 2's sounds
+	thread StryderVsTitanSoundEvent( attacker, target )
+	
 	MeleeThread_TitanRipsPilot( e, action, attacker, target )
 }
 
@@ -612,8 +747,18 @@ void function MeleeThread_AtlasVsTitan( SyncedMelee action, entity attacker, ent
 	e.targetPilotAnimationForAttacker <- "pt_melee_sync_front_pilotkill_1st"
 	e.targetPilotAnimationForObserver <- "pt_melee_sync_front_pilotkill_3rd"
 	e.targetPilotAnimationForObserver1st <- "ptpov_tvtmelee_targetdeath"
-	e.TitanSpecific1pSyncMeleeSound <- "Atlas_1p_Sync_Melee"
+	e.TitanSpecific1pSyncMeleeSound <- "Atlas_1p_Sync_Melee" // empty sound in ttf2
 	e.TitanSpecific3pSyncMeleeSound <- "Atlas_3p_Sync_Melee"
+	// we delay player becomes pilot, so they can have cockpit model
+	// hard to control, don't do it. just screen fade to cockpit open?
+	//e.playerTitanBecomePilotDelay <- 0.4
+
+	// fake the screen fade on disembark
+	// same fadeout time, longer hold
+	if ( target.IsPlayer() )
+		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.3, FFADE_IN | FFADE_PURGE )
+	// manually add some sound using titanfall 2's sounds
+	thread AtlasVsTitanSoundEvent( attacker, target )
 
 	MeleeThread_TitanRipsPilot( e, action, attacker, target )
 }
@@ -725,10 +870,10 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 		targetTitan = CreateAutoTitanForPlayer_ForTitanBecomesPilot( target ) //TargetTitan is the NPC Titan that is created temporarily during execution
 		DispatchSpawn( targetTitan )
 
-		// fake the screen fade on disembark
-		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.2, FFADE_IN | FFADE_PURGE )
-
+		// we delay player becomes pilot, so they can have cockpit model
+		// hard to control, don't do it. just screen fade to cockpit open?
 		TitanBecomesPilot( target, targetTitan )
+		//thread DelayedTitanBecomesPilot( target, targetTitan, expect float( e.playerTitanBecomePilotDelay ) )
 		DisableTitanRodeo( targetTitan )
 		targetTitan.SetOwner( target )
 		targetTitan.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) //owner cant see
@@ -933,6 +1078,7 @@ asset function GetNpcTitanPilotModel( entity titan )
 function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodySequence, entity attackerViewBody, entity ref, FirstPersonSequenceStruct targetBodySequence, entity target, FirstPersonSequenceStruct attackerSequence, entity attacker, FirstPersonSequenceStruct targetSequence, entity targetTitan, table e )
 {
 	e.thrown <- false
+	e.thrownKilled <- false // if throw takes too long, it will be killed by MeleePinkMist()
 	OnThreadEnd (
 		function () : ( targetTitan, target, attacker, e )
 		{
@@ -942,7 +1088,8 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 
 			if ( !IsAlive( attacker ) )
 			{
-				attacker.Anim_Stop()
+				if ( IsValid( attacker ) )
+					attacker.Anim_Stop()
 
 				if ( !e.thrown && IsAlive( target ) )
 				{
@@ -1033,12 +1180,32 @@ void function MeleePinkMist( table e )
 	if ( !IsAlive( target ) )
 		return
 
-	e.attackerViewBody.Dissolve( ENTITY_DISSOLVE_PINKMIST, Vector( 0, 0, 0 ), 0 )
-	if ( IsValid( e.attacker ) )
+	// attacker visual effect
+	if ( IsValid( e.attackerViewBody ) )
 	{
+		// attacker sound fix
+		if ( !e.thrown && IsValid( e.attacker ) && e.attacker.IsPlayer() ) // only do sound fix if we're not throwing target
+			EmitSoundAtPositionOnlyToPlayer( TEAM_ANY, e.attackerViewBody.GetOrigin(), e.attacker, "monarch_battery_execution_bone_crush" )
+		
+		e.attackerViewBody.Dissolve( ENTITY_DISSOLVE_PINKMIST, Vector( 0, 0, 0 ), 0 )
+	}
+	if ( IsValid( e.attacker ) ) // target dying
+	{
+		// non-attacker sound event fix
+		if ( IsValid( e.attackerViewBody ) )
+		{
+			if ( !e.thrown ) // only do sound fix if we're not throwing target. because if throw sequence going too long it will also trigger this function as a failsafe case, which seems bad to fix sound
+			{
+				if ( e.attacker.IsPlayer() )
+					EmitSoundAtPositionExceptToPlayer( TEAM_ANY, e.attackerViewBody.GetOrigin(), e.attacker, "monarch_battery_execution_bone_crush" )
+				else
+					EmitSoundAtPosition( TEAM_ANY, e.attackerViewBody.GetOrigin(), "monarch_battery_execution_bone_crush" )
+			}
+		}
+
 		target.Die( e.attacker, e.attacker, { damageSourceId = eDamageSourceId.titan_execution, scriptType = DF_GIB } )
 	}
-	else
+	else // attacker invalid, guess execution has failed... no need to fix sound
 	{
 		target.Die( e.target, target, { damageSourceId = eDamageSourceId.titan_execution, scriptType = DF_GIB } )
 	}
@@ -1055,7 +1222,7 @@ void function MeleePinkMist( table e )
 function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 {
 	OnThreadEnd(
-		function () : ( target, e )
+		function () : ( attacker, target, e )
 		{
 			if ( IsValid( target ) )
 			{
@@ -1066,6 +1233,11 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 				// breaks vanilla behavior but whatever
 				target.SetNoTarget( false )
 			}
+
+			// vanilla missing: if target hits a wall earlier than we expected, should end attacker sequence
+			// makes execution sequence's duration not stable, but ttf2's execution do need this
+			if ( IsValid( attacker ) && e.thrownKilled )
+				attacker.Anim_Stop()
 		}
 	)
 
@@ -1129,6 +1301,14 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 
 	WaitFrame() // ragdoll take hold!
 	EmitSoundOnEntity( target, "Titan_Victim_Wall_Splat" )
+	
+	// Titan_Victim_Wall_Splat isn't good enough for tf2, needs to fix some
+	EmitSoundOnEntity( target, "titan_grunt_squish" )
+	//EmitSoundOnEntity( target, "titan_punch_human_impact" )
+	EmitSoundOnEntity( target, "phys_imp_bodyfall_human_hard_default" )
+
+	// if code hits here, we can consider that our throwing killed the target
+	e.thrownKilled = true
 
 	if ( e.gib )
 	{
@@ -1314,8 +1494,11 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 				if ( !target.IsNPC() )
 					target.PlayerMelee_ExecutionEndTarget()
 
-				if ( e.lostArm && IsAlive( target ) )
+				// remove lostArm check. ttf2 titan executions always kill target
+				//if ( e.lostArm && IsAlive( target ) )
+				if ( IsAlive( target ) )
 				{
+					target.Anim_Stop()
 					target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
 					return
 				}
@@ -1327,8 +1510,10 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 				// fix for death animation
 				// in older version player will show a spectator model on ground
 				// with fixed base_gametype_mp this should no longer be a issue
-				//if ( !IsAlive( target ) ) // target killed!
-				//	target.BecomeRagdoll( < 0, 0, 0 >, false )
+				// but it's still good to make victim become ragdoll rather than make them staying at ground
+				// also we need ragdoll to hide their client-side modelFX
+				if ( IsValid( target ) && !IsAlive( target ) ) // target killed!
+					target.BecomeRagdoll( < 0, 0, 0 >, false )
 			}
 		}
 	)
@@ -1344,6 +1529,8 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 	//
 
 	EmitDifferentSoundsOnEntityForPlayerAndWorld( "Ogre_1p_Sync_Melee", "Ogre_3p_Sync_Melee", attacker, attacker )
+	// manually do some titanfall2 sounds
+	thread OgreVsTitanSoundEvent( attacker, target )
 
 	AddAnimEvent( target, "lost_arm", TitanLostArm, e )
 
@@ -2035,16 +2222,26 @@ void function MeleeKilledRagdoll( entity titan ) // this is actually "pilot" ins
 
 	if ( !IsValid( attacker ) )
 		return
+	// has been modified to handle npc executions
 	if( !IsAlive( titan ) )
 	{
 		if( !titan.IsPlayer() )
 			return
 		titan = titan.GetPetTitan()
 		if( IsAlive( titan ) )
+		{
+			//print( "pet titan gets killed! " + string( titan ) )
+			//titan.e.forceRagdollDeath = true // this is the proper way to ragdoll a npc titan, but here should be safe to manually ragdoll it?
 			titan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
+			//titan.SetContinueAnimatingAfterRagdoll( true ) // never allow animating, just die
+			titan.BecomeRagdoll( < 0, 0, 0 >, false )
+			return
+		}
 	}
+	//print( "titan gets killed! " + string( titan ) )
+	//titan.e.forceRagdollDeath = true // this is the proper way to ragdoll a npc titan, but here should be safe to manually ragdoll it?
 	titan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
-	titan.SetContinueAnimatingAfterRagdoll( true )
+	//titan.SetContinueAnimatingAfterRagdoll( true ) // never allow animating, just die
 	titan.BecomeRagdoll( < 0, 0, 0 >, false )
 }
 
