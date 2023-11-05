@@ -416,19 +416,6 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	else if( victim.IsNPC() ) // vanilla still use KillAutoTitan even if the titan is pet titan... pretty weird
 	{
 		scoreEvent = "KillAutoTitan"
-		
-		// melee execution case: if a titan's pilot gets ripped out, should still consider them as player's titan
-		if ( titan.ContextAction_IsMeleeExecutionTarget() 
-			 && IsValid( titan.GetTitanSoul() ) // validation check before using GetPetTitanOwner()
-			 && IsValid( GetPetTitanOwner( titan ) ) 
-			 && GetPetTitanOwner( titan ).GetOwner() == attacker // melee hide target from attacker's view
-			)
-		{
-			print( "titan;s pilot got ripped out" )
-			scoreEvent = "KillTitan"
-			if ( attacker.IsTitan() )
-				scoreEvent = "TitanKillTitan"
-		}
 
 		// modified for npc pilot embarked titan
 #if NPC_TITAN_PILOT_PROTOTYPE
@@ -437,7 +424,6 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 			scoreEvent = "KillTitan"
 			if ( attacker.IsTitan() )
 				scoreEvent = "TitanKillTitan"
-			// no need to handle melee execution because in pilot rip there's actually a fake pilot created
 		}
 #endif
 	}
