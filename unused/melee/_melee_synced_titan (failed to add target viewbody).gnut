@@ -285,6 +285,12 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 	}
 	//#endif
 
+	// modified: if function reaches here it must means titan being executed, we delay 1 frame and drop their weapon
+#if MP
+	ExecutedTitanDropWeapon( target )
+#endif
+	//
+
 	// save for npc executions. don't want them to have weird rotation after animation
 	dataStruct.attackerStartingAngles = attacker.GetAngles()
 	//
@@ -898,28 +904,38 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 		targetTitan.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) //owner cant see
 		targetTitan.PlayerMelee_ExecutionStartTarget( attacker )
     	e.target <- target
+
+		// modified for titanpick!
+		// don't drop weapon on this titan. CreateAutoTitanForPlayer_ForTitanBecomesPilot() won't spawn a soul, so we get soul after player transfer their titanSoul(through TitanBecomesPilot) to this targetTitan
+		entity soul = targetTitan.GetTitanSoul()
+		if ( IsValid( soul ) )
+			TitanPick_SoulSetEnableWeaponDrop( soul, false )
 	}
 	else
 	{
 		targetTitan = target
 
+		// modified for titanpick!
+		// don't drop weapon on this titan
+		// fix: the target is still a titan, not transfering, guess no need to manually disable weapon drop
+		//entity soul = targetTitan.GetTitanSoul()
+		//if ( IsValid( soul ) )
+		//	TitanPick_SoulSetEnableWeaponDrop( soul, false )
+
+		// target is now a random dude
 		// npc pilot variant
 		#if NPC_TITAN_PILOT_PROTOTYPE
-			// here's a fake pilot. score is handled by the titan because script will still think there's a npc pilot inside of it
-			target = CreateNPC( "npc_pilot_elite", targetTitan.GetTeam(), targetTitan.GetOrigin(), < 0,0,0 > )
-			DispatchSpawn( target )
+			target = NpcTitanBecomesPilot( targetTitan )
 			TakeAllWeapons( target )
-		#else // vnilla behavior: target is now a random dude
+		#else
 			target = CreateSoldier( target.GetTeam(), Vector(0,0,0), Vector(0,0,0) )
 			DispatchSpawn( target )
 		#endif // NPC_TITAN_PILOT_PROTOTYPE
 
-		target.SetModel( GetNpcTitanPilotModel( targetTitan ) )
-
-		// modified: mark as silentDeath
 		target.s.silentDeath <- true
 		e.target <- target
 
+		// vanilla missing
 		target.SetInvulnerable()
 		target.SetNoTarget( true )
 	}
@@ -936,10 +952,23 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	targetTitan.SetNoTarget( true )
 
 	// setOwner is bad. the proper way is we hide target and spawn a target viewbody
-	// we can't make only two players can't see targetViewBody... now revert back to SetOwner()
-	// but we don't do NpcTitanBecomesPilot() so the pilot isn't there for players to kill, score can be handled by checking TitanHasNpcPilot() on titans
-	target.SetOwner( attacker )
-	target.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) //owner cant see
+	//target.SetOwner( attacker )
+	//target.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) //owner cant see
+	target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // hide anything, including parented stuffs
+	
+	entity targetViewBody
+	if ( target.IsPlayer() )
+	{
+	    targetViewBody = Wallrun_CreateCopyOfPilotModel( target ) //attackerViewBody is the model of the pilot getting ripped out of the cockpit
+	}
+	else
+	{
+	    targetViewBody = CreateNpcTitanPilotModel( target )
+	}
+
+	targetViewBody.SetOwner( attacker )
+	targetViewBody.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) //owner cant see
+	e.targetViewBody <- targetViewBody
 	
 	e.targetTitan <- targetTitan
 
@@ -947,11 +976,23 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 		thread OnNPCTitanSignalDeath( targetTitan )
 
 	OnThreadEnd(
-		function() : ( ref, attacker, target, targetTitan, e )
+		// modified to add: targetViewBody
+		function() : ( ref, attacker, target, targetTitan, targetViewBody, e )
 		{
 			// modified here: we've added failsafe timer for melee throw
 			// if throw succeeded we delay the cleanup
 			local targetInFlight = e.thrown && !e.thrownKilled
+
+			// we're now using target's viewbody, can handle it better
+			// target viewbody can be destroyed by TitanSyncedMeleeAnimationsPlay()
+			if ( !targetInFlight ) // if target gets throwed, cleanup handled by DelayedCleanupSyncedMeleeForThrownTarget()
+			{
+				if ( IsValid( targetViewBody ) )
+				{
+					targetViewBody.Hide()
+					targetViewBody.Destroy()
+				}
+			}
 
 			if ( IsValid( ref ) )
 			{
@@ -1035,12 +1076,10 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 					print( "Player still in throw flight after melee thread!" )
 					// do a special think for throwing case
 					// this also cleans up ref
-					thread DelayedCleanupSyncedMeleeForThrownTarget( target, ref )
+					thread DelayedCleanupSyncedMeleeForThrownTarget( target, ref, targetViewBody )
 				}
 				else // vanilla behavior
 				{
-					target.SetOwner( null ) // defensive cleanup
-
 					if ( !target.IsNPC() )
 					{
 						target.PlayerMelee_ExecutionEndTarget()
@@ -1089,16 +1128,25 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	}
 	//
 
-	waitthread TitanSyncedMeleeAnimationsPlay( attackerBodySequence, attackerViewBody, ref, targetBodySequence, target, attackerSequence, attacker, targetSequence, targetTitan, e )
+	// modified to add: target view body
+	//waitthread TitanSyncedMeleeAnimationsPlay( attackerBodySequence, attackerViewBody, ref, targetBodySequence, target, attackerSequence, attacker, targetSequence, targetTitan, e )
+	waitthread TitanSyncedMeleeAnimationsPlay( attackerBodySequence, attackerViewBody, ref, targetBodySequence, target, attackerSequence, attacker, targetSequence, targetTitan, targetViewBody, e )
 }
 
 // modified
-void function DelayedCleanupSyncedMeleeForThrownTarget( entity target, entity ref )
+void function DelayedCleanupSyncedMeleeForThrownTarget( entity target, entity ref, entity targetViewBody )
 {
 	target.EndSignal( "OnDestroy" )
 	target.WaitSignal( "OnDeath" )
 
 	print( "player killed by melee throw!" )
+
+	// clean up target viewbody
+	if ( IsValid( targetViewBody ) )
+	{
+		targetViewBody.Hide()
+		targetViewBody.Destroy()
+	}
 
 	// clean up ref
 	if ( IsValid( target ) )
@@ -1117,8 +1165,6 @@ void function DelayedCleanupSyncedMeleeForThrownTarget( entity target, entity re
 	}
 
 	// target stuffs cleanup
-	target.SetOwner( null ) // defensive cleanup
-
 	if ( !target.IsNPC() )
 	{
 		target.PlayerMelee_ExecutionEndTarget()
@@ -1160,12 +1206,15 @@ asset function GetNpcTitanPilotModel( entity titan )
 	return modelName
 }
 
-function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodySequence, entity attackerViewBody, entity ref, FirstPersonSequenceStruct targetBodySequence, entity target, FirstPersonSequenceStruct attackerSequence, entity attacker, FirstPersonSequenceStruct targetSequence, entity targetTitan, table e )
+// modified to add: targetViewbody
+//function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodySequence, entity attackerViewBody, entity ref, FirstPersonSequenceStruct targetBodySequence, entity target, FirstPersonSequenceStruct attackerSequence, entity attacker, FirstPersonSequenceStruct targetSequence, entity targetTitan, table e )
+function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodySequence, entity attackerViewBody, entity ref, FirstPersonSequenceStruct targetBodySequence, entity target, FirstPersonSequenceStruct attackerSequence, entity attacker, FirstPersonSequenceStruct targetSequence, entity targetTitan, entity targetViewBody, table e )
 {
 	e.thrown <- false
 	e.thrownKilled <- false // if throw takes too long, target will be killed by MeleePinkMist()
 	OnThreadEnd (
-		function () : ( targetTitan, target, attacker, e )
+		// modified to add: targetViewbody
+		function () : ( targetTitan, targetViewBody, target, attacker, e )
 		{
 			// insure visibility
 			if ( IsValid( targetTitan ) )
@@ -1195,8 +1244,15 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 				if ( !e.thrown && IsAlive( target ) )
 				{
 					target.Anim_Stop()
-					target.SetOwner( null )
+					//target.SetOwner( null )
 					target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // needs to show target
+
+					// we've added target viewbody, ownership and visibility is handled by it
+					if ( IsValid( targetViewBody ) )
+					{
+						targetViewBody.Hide()
+						targetViewBody.Destroy()
+					}
 
 					if ( target.IsPlayer() )
 					{
@@ -1230,6 +1286,8 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 	}
 
 	thread FirstPersonSequence( targetBodySequence, target, ref )
+	// modified to add: target viewbody. others will only see it, not target themselves
+	thread FirstPersonSequence( targetBodySequence, targetViewBody, ref )
 	thread FirstPersonSequence( attackerSequence, attacker, ref )
 	thread FirstPersonSequence( targetSequence, targetTitan, ref )
 	targetTitan.Anim_AdvanceCycleEveryFrame( true )
@@ -1277,6 +1335,10 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 void function MeleePinkMistAnimEvent( entity target ) //parameter isn't used, but function signature is like this because it's being called from an anim event
 {
 	table e = expect table( GetOptionalAnimEventVar( target, "pink_mist" ) )
+
+	// we've added target viewbody
+	if ( IsValid( e.targetViewBody ) && target == e.targetViewBody )
+		return // viewbody gets destroyed properly, no need to do pinkmist
 
 	MeleePinkMist( e )
 }
@@ -1443,12 +1505,11 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 	}
 
 	// if victim is a npc, should kill them here because ragdolling a npc means destroy them
-	// nevermind, just ragdoll them and never kill, because they're just fake bodies
-	//if ( target.IsNPC() )
-	//	MeleeWallSplatKillTarget( attacker, target, e )
+	if ( target.IsNPC() )
+		MeleeWallSplatKillTarget( attacker, target, e )
 
 	// modified: if target didn't hits wall, should inherit velocity
-	// this will destroy npc target and ends the thread
+	// this will destroy npc target
 	//print( "hitsWall: " + string( hitsWall ) )
 	if ( !e.gib )
 	{
@@ -1461,8 +1522,7 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 	}
 
 	// kill player
-	if ( target.IsPlayer() )
-		MeleeWallSplatKillTarget( attacker, target, e )
+	MeleeWallSplatKillTarget( attacker, target, e )
 }
 
 function MeleeWallSplatKillTarget( entity attacker, entity target, e )
@@ -2542,6 +2602,114 @@ void function Rocket_Pod( entity guy, string tag, entity victim )
 	if ( oldOffhandWeapon )
  		guy.GiveOffhandWeapon( oldOffhandWeapon.GetWeaponClassName(), 0, oldOffhandWeapon.GetMods() )
 }
+
+
+////////////////////
+///// MODIFIED /////
+////////////////////
+#if MP
+void function ExecutedTitanDropWeapon( entity titan )
+{
+	thread ExecutedTitanDropWeapon_Threaded( titan )
+}
+
+void function ExecutedTitanDropWeapon_Threaded( entity titan )
+{
+	if ( titan.GetMainWeapons().len() == 0 )
+		return
+
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" ) // if titan won't drop weapon on being executed, will be handled by OnTitanKilled()
+	
+	table results = {}
+	results.droppedWeapon <- false
+
+	// create weaponProp here, to prevent messed up by AE_DROP_WEAPON, hide it for now
+	if ( !TitanPick_ShouldTitanDropWeapon( titan ) )
+		return
+	entity weaponProp = TitanPick_TitanDropWeapon( titan )
+	if ( !IsValid( weaponProp ) )
+		return
+	weaponProp.NotSolid() // prevent it mess up execution
+	weaponProp.Hide()
+	weaponProp.UnsetUsable()
+	// don't drop weapon again for this soul
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+		TitanPick_SoulSetEnableWeaponDrop( soul, false )
+
+	OnThreadEnd
+	(
+		function(): ( weaponProp, results )
+		{
+			if ( IsValid( weaponProp ) )
+			{
+				if ( results.droppedWeapon ) // dropped another weapon in this func?
+				{
+					//print( "should destroy existing weaponProp!" )
+					weaponProp.Destroy()
+					return
+				}
+				// show weaponProp again
+				weaponProp.Solid()
+				weaponProp.Show()
+				weaponProp.SetUsable()
+			}
+		}
+	)
+
+	entity weaponToDrop = titan.GetMainWeapons()[0]
+	string name = weaponToDrop.GetWeaponClassName()
+	array<string> mods = weaponToDrop.GetMods()
+	int skin = weaponToDrop.GetSkin()
+	int camo = weaponToDrop.GetCamo()
+	int ammoLeft = 0
+	try { ammoLeft = weaponToDrop.GetWeaponPrimaryClipCount() }
+    catch(ex) {}
+
+	// manually handle AE_DROP_WEAPON, wait for this weapon being dropped, then create a new one and drop it
+	while ( TitanHasWeaponEntity( titan, weaponToDrop ) )
+		WaitFrame()
+	
+	// AE_DROP_WEAPON triggered! re-enable weapon drop
+	if ( IsValid( soul ) )
+		TitanPick_SoulSetEnableWeaponDrop( soul, true )
+
+	//print( "TitanPick_ShouldTitanDropWeapon( titan ): " + string( TitanPick_ShouldTitanDropWeapon( titan ) ) )
+	if ( !TitanPick_ShouldTitanDropWeapon( titan ) )
+		return
+
+	//print( "Titan dropped weapon for being executed" )
+	// temp give a weapon
+	foreach ( entity weapon in titan.GetMainWeapons() )
+		titan.TakeWeapon( weapon.GetWeaponClassName() )
+	entity newWeapon = titan.GiveWeapon( name, mods )
+	newWeapon.SetSkin( skin )
+	newWeapon.SetCamo( camo )
+	try { newWeapon.SetWeaponPrimaryClipCount( ammoLeft ) }
+	catch(ex1) {}
+
+	TitanPick_TitanDropWeapon( titan ) // drop this weapon
+	results.droppedWeapon = true // mark as we dropped weapon!
+	newWeapon.Destroy()
+
+	// don't drop weapon again for this soul
+	if ( IsValid( soul ) )
+		TitanPick_SoulSetEnableWeaponDrop( soul, false )
+}
+
+bool function TitanHasWeaponEntity( entity titan, entity weapon )
+{
+	foreach ( entity holdingWeapon in titan.GetMainWeapons() )
+	{
+		//print( "holdingWeapon: " + string( holdingWeapon ) )
+		//print( "weapon: " + string( weapon ) )
+		if ( holdingWeapon == weapon )
+			return true
+	}
+	return false
+}
+#endif
 
 //
 void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
