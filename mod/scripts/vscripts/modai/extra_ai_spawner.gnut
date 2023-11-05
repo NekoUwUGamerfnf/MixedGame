@@ -2980,6 +2980,11 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 
 	float impactTime = GetHotDropImpactTime( titan, animation )
 	thread NPCTitanHotdrops( titan, standUp, animation )
+	// archon case
+	#if EXTRA_SPAWNER_HAS_ARCHON
+		// archon modified "bt_hotdrop_turbo" and "bt_hotdrop_turbo_upgraded", we'll have to stop them manually
+		thread StopBTHotdropSound( titan, animation )
+	#endif
 	wait impactTime // bubble shield creates at impactTime - 0.1, we wait full impact time here
 
 	// vanilla missing behavior: we shouldn't target npc titan in a bubble shield
@@ -2989,6 +2994,43 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 	// debug
 	//print( "NPCTitanHotdrops finished!" )
 }
+
+// archon case
+#if EXTRA_SPAWNER_HAS_ARCHON
+// archon modified "bt_hotdrop_turbo" and "bt_hotdrop_turbo_upgraded", we'll have to stop them manually
+void function StopBTHotdropSound( entity titan, string animation )
+{
+	// only titan_buddy model has such sound playing during hotdrop
+	if ( titan.GetModelName() != $"models/titans/buddy/titan_buddy.mdl" )
+		return
+
+	print( "Detected BT hotdrop!" )
+
+	titan.EndSignal( "OnDestroy" )
+
+	string sound = "bt_hotdrop_turbo"
+	float soundDelay = 3.6 // 108th frame with 30fps, defined in titan_buddy_embark.qc
+	int maxSoundStopTries = 5 // max try is 5 times
+	if ( animation == "at_hotdrop_drop_2knee_turbo_upgraded" )
+	{
+		sound = "bt_hotdrop_turbo_upgraded"
+		soundDelay = 1.1 // 31th frame with 30fps, defined in titan_buddy_embark.qc
+		maxSoundStopTries = 3 // sound is shorter, max try is 3 times
+	}
+	else
+		titan.EndSignal( "TitanHotDropComplete" ) // only do hotdrop complete EndSignal if it's not warpfall( warpfall is too short to trigger sound fix )
+
+	wait soundDelay + 0.1 // add 0.1s for client syncing
+
+	// try to stop sound every 1s until titan lands
+	for ( int i = 0; i < maxSoundStopTries; i++ )
+	{
+		print( "Try to stop sound: " + sound )
+		StopSoundOnEntity( titan, sound )
+		wait 1
+	}
+}
+#endif // EXTRA_SPAWNER_HAS_ARCHON
 
 const float NPC_BUBBLE_FAILSAFE_DELAY = 3.0
 void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
