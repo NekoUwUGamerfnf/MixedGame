@@ -402,7 +402,7 @@ void function DelayedTitanBecomesPilot( entity player, entity titan, float delay
 }
 */
 
-void function AtlasVsTitanShortSoundEvent( entity attacker, entity target )
+function AtlasVsTitanShortSoundEvent( entity attacker, entity target, executionTable )
 {
 	wait 0.7
 
@@ -413,7 +413,7 @@ void function AtlasVsTitanShortSoundEvent( entity attacker, entity target )
 	}
 }
 
-void function StryderVsTitanSoundEvent( entity attacker, entity target )
+function StryderVsTitanSoundEvent( entity attacker, entity target, executionTable )
 {
 	wait 0.3
 
@@ -435,7 +435,7 @@ void function StryderVsTitanSoundEvent( entity attacker, entity target )
 	*/
 }
 
-void function AtlasVsTitanSoundEvent( entity attacker, entity target )
+function AtlasVsTitanSoundEvent( entity attacker, entity target, executionTable )
 {
 	wait 0.4
 
@@ -449,47 +449,59 @@ void function AtlasVsTitanSoundEvent( entity attacker, entity target )
 		EmitSoundOnEntity( targetTitan, "monarch_execution_part_03_2ch_v1_01" )
 	}
 
-	wait 0.2
+	wait 0.6
 	// shared view: attacker preparing throw
 	if ( IsAlive( attacker ) )
 	{
 		EmitSoundOnEntity( attacker, "tone_dlc_execution_part_02" )
 	}
 
-	wait 0.5
-	// non-attacker-only view: target being throw out
-	if ( IsAlive( attacker ) )
-	{
-		if ( attacker.IsPlayer() )
-			EmitSoundOnEntityExceptToPlayer( attacker, attacker, "tone_execution_part_03" )
-		else
-			EmitSoundOnEntity( attacker, "tone_execution_part_03" )
-	}
-
-	wait 1.5
-	// attacker-only view: target being throw out
+	wait 1.6
+	// shared view: target being throw out
 	if ( IsAlive( attacker ) )
 	{
 		if ( attacker.IsPlayer() )
 			EmitSoundOnEntityOnlyToPlayer( attacker, attacker, "tone_execution_part_03" )
 	}
+	if ( IsAlive( attacker ) && IsAlive( target ) )
+	{
+		// was emitting sound on attacker, but we want target to hear it...
+		if ( attacker.IsPlayer() )
+			EmitSoundOnEntityExceptToPlayer( target, attacker, "tone_execution_part_03" )
+		else
+			EmitSoundOnEntity( target, "tone_execution_part_03" )
+	}
 }
 
-void function OgreVsTitanSoundEvent( entity attacker, entity target )
+function OgreVsTitanSoundEvent( entity attacker, entity target, executionTable )
 {
 	// starting sound
+	// moved down to before rip right arm
+	// cover the sound fadeout of multiple ion_execution_part_02 playing together
+	// works bad. reverted
 	if ( IsAlive( attacker ) )
 	{
 		EmitSoundOnEntity( attacker, "legion_prime_execution_part_01" )
 	}
-	
+
 	// shared view: rip left arm
 	if ( IsAlive( attacker ) )
 	{
 		EmitSoundOnEntity( attacker, "ion_execution_part_02" )
 	}
 
+	//wait 1.2
+	// cover the sound fadeout of ion_execution_part_02
+	// works bad. reverted
+	/*
+	if ( IsAlive( attacker ) )
+	{
+		EmitSoundOnEntity( attacker, "legion_prime_execution_part_01" )
+	}
+	*/
+
 	wait 1.5
+	//wait 0.3
 	// shared view: rip right arm
 	if ( IsAlive( attacker ) )
 	{
@@ -552,7 +564,10 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 	{
 		// this will sometimes make executions disable player's offhands forever idk why
 		//HolsterViewModelAndDisableWeapons( attacker )  //Melee anims need to use this to stop players from firing weapons but for the weapon to still show up in the 3p anims
-		attacker.DisableWeaponViewModel()
+		// it's better to use holster attacker weapon for tf-1 executions I think
+		// we're in first person and wants to re-deploy weapon after animation
+		attacker.DisableWeaponViewModel() // we still need disable viewmodel, so player can't see weapon holster animation
+		attacker.HolsterWeapon()
 		attacker.Server_TurnOffhandWeaponsDisabledOn()
 		
 		attacker.ClearOffhand() // since this is first person execution, should clear out player's offhand weapon( eg.melee )
@@ -584,12 +599,15 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 	// needs shortened verions
 	EmitDifferentSoundsOnEntityForPlayerAndWorld( "Titan_1p_Sync_Melee_vs_AutoTitan", "Titan_3p_Sync_Melee_vs_AutoTitan", attacker, attacker )
 	// manually do some titanfall2 sounds
-	thread AtlasVsTitanShortSoundEvent( attacker, target )
+	thread AtlasVsTitanShortSoundEvent( attacker, target, e )
 
 	local soul = target.GetTitanSoul()
 	soul.SetInvalidHealthBarEnt( true )
 
-	AddAnimEvent( target, "rider_rodeo_over", ForceTitanRodeoToEnd  )
+	// some tf1 execution is missing this callback
+	// let's just call it manually on execution start
+	//AddAnimEvent( target, "rider_rodeo_over", ForceTitanRodeoToEnd  )
+	ForceTitanRodeoToEnd( target )
 
 	target.SetInvulnerable() //Setting target of execution as invulnerable to prevent them dying mid-way
 	// targets should be ignored while being executed
@@ -622,8 +640,12 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 					// modified
 					//DeployAndEnableWeapons( attacker )
 					//DeployViewModelAndEnableWeapons( attacker )
+
+					// it's better to use holster attacker weapon for tf-1 executions I think
+					// we're in first person and wants to re-deploy weapon after animation
 					if ( IsAlive( attacker ) )
 						attacker.EnableWeaponViewModel()
+					attacker.DeployWeapon() // deploy should always happen, unlike enableViewModel should only happen when player alive
 					attacker.Server_TurnOffhandWeaponsDisabledOff()
 
 					attacker.PlayerMelee_ExecutionEndAttacker()
@@ -726,7 +748,7 @@ void function MeleeThread_StyderVsTitan( SyncedMelee action, entity attacker, en
 	if ( target.IsPlayer() )
 		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.6, FFADE_IN | FFADE_PURGE )
 	// manually add some sound using titanfall 2's sounds
-	thread StryderVsTitanSoundEvent( attacker, target )
+	thread StryderVsTitanSoundEvent( attacker, target, e )
 	
 	MeleeThread_TitanRipsPilot( e, action, attacker, target )
 }
@@ -752,7 +774,7 @@ void function MeleeThread_AtlasVsTitan( SyncedMelee action, entity attacker, ent
 	if ( target.IsPlayer() )
 		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.3, FFADE_IN | FFADE_PURGE )
 	// manually add some sound using titanfall 2's sounds
-	thread AtlasVsTitanSoundEvent( attacker, target )
+	thread AtlasVsTitanSoundEvent( attacker, target, e )
 
 	MeleeThread_TitanRipsPilot( e, action, attacker, target )
 }
@@ -780,6 +802,9 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 
 	target.e.syncedMeleeAttacker = attacker
 
+	// manually call rodeo stop
+	ForceTitanRodeoToEnd( target )
+
 	//	attacker.SetInvulnerable()
 	target.SetInvulnerable()    //HACK: Have to SetInvulnerable first before attacker holsters weapon, because if the attacker is vortexing, holster will release bullets caught and kill off the victim if low enough health
 	// targets should be ignored while being executed
@@ -798,7 +823,10 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	{
 		// this will sometimes make executions disable player's offhands forever idk why
 		//HolsterViewModelAndDisableWeapons( attacker )  //Melee anims need to use this to stop players from firing weapons but for the weapon to still show up in the 3p anims
-		attacker.DisableWeaponViewModel()
+		// it's better to use holster attacker weapon for tf-1 executions I think
+		// we're in first person and wants to re-deploy weapon after animation
+		attacker.DisableWeaponViewModel() // we still need disable viewmodel, so player can't see weapon holster animation
+		attacker.HolsterWeapon()
 		attacker.Server_TurnOffhandWeaponsDisabledOn()
 		
 		attacker.ClearOffhand() // since this is first person execution, should clear out player's offhand weapon( eg.melee )
@@ -947,8 +975,12 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 					// modified
 					//DeployAndEnableWeapons( attacker )
 					//DeployViewModelAndEnableWeapons( attacker )
+
+					// it's better to use holster attacker weapon for tf-1 executions I think
+					// we're in first person and wants to re-deploy weapon after animation
 					if ( IsAlive( attacker ) )
 						attacker.EnableWeaponViewModel()
+					attacker.DeployWeapon() // deploy should always happen, unlike enableViewModel should only happen when player alive
 					attacker.Server_TurnOffhandWeaponsDisabledOff()
 					attacker.PlayerMelee_ExecutionEndAttacker()
 				}
@@ -1066,6 +1098,22 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 			// insure visibility
 			if ( IsValid( targetTitan ) )
 				targetTitan.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+
+			// might be missing behavior here
+			// after targetTitan is shown, really should stop attacker sequence
+			// they're too long and titanfall 2 executions will deploy weapon after target dies
+			// no need to do recover animation, will softlock player for a moment
+
+			// hardcoded for stryder execution! atlas needs to wait for target hits a wall
+			// welp, atlas execution won't hit this line because their target gets killed pretty late
+			// but still needs to hardcode for stryder, for whatever reason
+			if ( e.attackerAnimation3p == "stry_melee_sync_frontkill" )
+			{
+				if ( IsAlive( attacker ) && !IsAlive( target ) )
+				{
+					attacker.Anim_Stop()
+				}
+			}
 
 			if ( !IsAlive( attacker ) )
 			{
@@ -1223,6 +1271,7 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 	)
 
 	target.EndSignal( "OnDeath" )
+	target.EndSignal( "OnDestroy" ) // vanilla missing
 
 	e.startOrigin <- target.GetOrigin()
 	wait 2.8
@@ -1284,9 +1333,17 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 	EmitSoundOnEntity( target, "Titan_Victim_Wall_Splat" )
 	
 	// Titan_Victim_Wall_Splat isn't good enough for tf2, needs to fix some
-	EmitSoundOnEntity( target, "titan_grunt_squish" )
-	//EmitSoundOnEntity( target, "titan_punch_human_impact" )
-	EmitSoundOnEntity( target, "phys_imp_bodyfall_human_hard_default" )
+	if ( IsValid( attacker ) && attacker.IsPlayer() ) // this sound shouldn't be played on attacker
+	{
+		EmitSoundOnEntityExceptToPlayer( target, attacker, "titan_grunt_squish" )
+		EmitSoundOnEntityExceptToPlayer( target, attacker, "phys_imp_bodyfall_human_hard_default" )
+	}
+	else
+	{
+		EmitSoundOnEntity( target, "titan_grunt_squish" )
+		//EmitSoundOnEntity( target, "titan_punch_human_impact" )
+		EmitSoundOnEntity( target, "phys_imp_bodyfall_human_hard_default" )
+	}
 
 	// if code hits here, we can consider that our throwing killed the target
 	e.thrownKilled = true
@@ -1364,12 +1421,18 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 	{
 		// this will sometimes make executions disable player's offhands forever idk why
 		//HolsterViewModelAndDisableWeapons( attacker )  //Melee anims need to use this to stop players from firing weapons but for the weapon to still show up in the 3p anims
-		attacker.DisableWeaponViewModel()
+		// it's better to use holster attacker weapon for tf-1 executions I think
+		// we're in first person and wants to re-deploy weapon after animation
+		attacker.DisableWeaponViewModel() // we still need disable viewmodel, so player can't see weapon holster animation
+		attacker.HolsterWeapon()
 		attacker.Server_TurnOffhandWeaponsDisabledOn()
 		
 		attacker.ClearOffhand() // since this is first person execution, should clear out player's offhand weapon( eg.melee )
 		attacker.Anim_StopGesture( 0 ) // ttf1 executions lasts short, should instant stop their animation and set to executions
 	}
+
+	// manually call rodeo stop
+	ForceTitanRodeoToEnd( target )
 
 	// modified
 	//DisableWeapons( target, [] ) 
@@ -1421,8 +1484,12 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 					attacker.PlayerMelee_ExecutionEndAttacker()
 					// modified
 					//DeployViewModelAndEnableWeapons( attacker ) // so ogre titans can have their weapon back
+					
+					// it's better to use holster attacker weapon for tf-1 executions I think
+					// we're in first person and wants to re-deploy weapon after animation
 					if ( IsAlive( attacker ) )
 						attacker.EnableWeaponViewModel()
+					attacker.DeployWeapon() // deploy should always happen, unlike enableViewModel should only happen when player alive
 					attacker.Server_TurnOffhandWeaponsDisabledOff()
 				}
 				else // npc
@@ -1479,7 +1546,9 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 				//if ( e.lostArm && IsAlive( target ) )
 				if ( IsAlive( target ) )
 				{
+					//print( "hits failsafe kill!" )
 					target.Anim_Stop()
+					target.e.forceRagdollDeath = true // properway to make titan become ragdoll, they won't do explode fx which gets destroyed on manually ragdoll
 					target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
 					return
 				}
@@ -1493,8 +1562,10 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 				// with fixed base_gametype_mp this should no longer be a issue
 				// but it's still good to make victim become ragdoll rather than make them staying at ground
 				// also we need ragdoll to hide their client-side modelFX
-				if ( IsValid( target ) && !IsAlive( target ) ) // target killed!
-					target.BecomeRagdoll( < 0, 0, 0 >, false )
+				// failsafe case handled by target.e.forceRagdollDeath, AE_MELEE_KILLED case handled by lostArm animevent
+				// no need to use this anymore
+				//if ( IsValid( target ) && !IsAlive( target ) ) // target killed!
+				//	target.BecomeRagdoll( < 0, 0, 0 >, false )
 			}
 		}
 	)
@@ -1511,7 +1582,7 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 
 	EmitDifferentSoundsOnEntityForPlayerAndWorld( "Ogre_1p_Sync_Melee", "Ogre_3p_Sync_Melee", attacker, attacker )
 	// manually do some titanfall2 sounds
-	thread OgreVsTitanSoundEvent( attacker, target )
+	thread OgreVsTitanSoundEvent( attacker, target, e )
 
 	AddAnimEvent( target, "lost_arm", TitanLostArm, e )
 
@@ -2194,7 +2265,26 @@ void function TitanLostArm( entity titan )
 {
 	table e = expect table( GetOptionalAnimEventVar( titan, "lost_arm" ) )
 
-	e.lostArm = true
+	e.lostArm = true // this is actually marked the titan for death, but in titanfall 2 termination always kills target titan, currently no where uses this variable
+
+	// titan should be killed after this point
+	// needs to hide titan's arm bodygroup so their ragdoll won't show that
+	// doesn't really help with ragdoll... maybe ttf1 makes them explode? I don't care
+	/*
+	const array<string> bodyGroupsToHide = ["left_arm", "right_arm"]
+	foreach ( bodyGroup in bodyGroupsToHide )
+	{
+		int bodyGroupIndex = titan.FindBodyGroup( bodyGroup )
+		if ( bodyGroupIndex > 0 )
+		{
+			//The last body group should be empty
+			int stateIndex = titan.GetBodyGroupModelCount( bodyGroupIndex ) -1
+			titan.SetBodygroup( bodyGroupIndex, stateIndex )
+		}
+	}
+	*/
+
+	titan.e.forceRagdollDeath = true // properway to make titan become ragdoll, they won't do explode fx which gets destroyed on manually ragdoll
 }
 
 void function MeleeKilledRagdoll( entity titan ) // this is actually "pilot" inside the titan 
@@ -2212,18 +2302,18 @@ void function MeleeKilledRagdoll( entity titan ) // this is actually "pilot" ins
 		if( IsAlive( titan ) )
 		{
 			//print( "pet titan gets killed! " + string( titan ) )
-			//titan.e.forceRagdollDeath = true // this is the proper way to ragdoll a npc titan, but here should be safe to manually ragdoll it?
+			titan.e.forceRagdollDeath = true // this is the proper way to ragdoll a titan, they won't do explode fx which gets destroyed on manually ragdoll
 			titan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
 			//titan.SetContinueAnimatingAfterRagdoll( true ) // never allow animating, just die
-			titan.BecomeRagdoll( < 0, 0, 0 >, false )
+			//titan.BecomeRagdoll( < 0, 0, 0 >, false )
 			return
 		}
 	}
 	//print( "titan gets killed! " + string( titan ) )
-	//titan.e.forceRagdollDeath = true // this is the proper way to ragdoll a npc titan, but here should be safe to manually ragdoll it?
+	titan.e.forceRagdollDeath = true // this is the proper way to ragdoll a titan, they won't do explode fx which gets destroyed on manually ragdoll
 	titan.Die( attacker, attacker, { scriptType = DF_MELEE, damageSourceId = eDamageSourceId.titan_execution } )
 	//titan.SetContinueAnimatingAfterRagdoll( true ) // never allow animating, just die
-	titan.BecomeRagdoll( < 0, 0, 0 >, false )
+	//titan.BecomeRagdoll( < 0, 0, 0 >, false )
 }
 
 void function OnNPCTitanDeath( entity titan, var damageInfo ) //Debug function, for bug 129802
