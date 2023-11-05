@@ -46,12 +46,16 @@ void function Sv_EarnMeterMP_Init()
 	//AddCallback_OnClientConnected( SetupPlayerEarnMeter )
 	AddCallback_OnClientConnected( OnClientConnected )
 	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying ) // can't change boost after prematch
+	
+	// earnmeter think
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	// life time think( connect->disconnt )
+	RegisterSignal( "EarnMeterMP_PlayerLifeThink" )
+	// earnmeter progress
+	RegisterSignal( "ProgessFracCalculate" )
 	// move here from sv_earn_meter.gnut
 	RegisterSignal( "EarnMeterDecayThink" )
 	RegisterSignal( "OverDriveClearOnDeath" )
-	// earnmeter progress
-	RegisterSignal( "ProgessFracCalculate" )
 }
 
 void function EarnMeterMP_SetTitanLoadout( entity player )
@@ -88,8 +92,8 @@ void function OnClientConnected( entity player )
 	file.playerLastPassiveGainTime[ player ] <- 0.0
 	file.playerPassiveMeterGainInterval[ player ] <- EARNMETER_GAIN_INTERVAL
 
-	// progressing earnmeter frac
-	EarnMeterMP_ProgessFracCalculate( player )
+	EarnMeterMP_PlayerLifeThink( player ) // start life think until player disconnects
+	EarnMeterMP_ProgessFracCalculate( player ) // progressing earnmeter frac
 }
 
 void function SetupPlayerEarnMeter( entity player )
@@ -137,7 +141,7 @@ void function OnPlaying()
 
 void function OnPlayerRespawned( entity player )
 {
-	thread EarnMeterMP_PlayerLifeThink( player )
+	EarnMeterMP_OnPlayerRespawned( player )
 
 	// what is this call?
 	//if ( PlayerEarnMeter_IsRewardAvailable( player ) )
@@ -162,41 +166,26 @@ void function EarnMeterMP_ReplaceReward( entity player, EarnObject reward, float
 	}
 }
 
+// this think has been reworked. now tracking player's whole connection time, not just a single life
 void function EarnMeterMP_PlayerLifeThink( entity player )
 {
-	player.EndSignal( "OnDeath" )
+	thread EarnMeterMP_PlayerLifeThink_Threaded( player )
+}
+
+void function EarnMeterMP_PlayerLifeThink_Threaded( entity player )
+{
+	player.Signal( "EarnMeterMP_PlayerLifeThink" )
+	player.EndSignal( "EarnMeterMP_PlayerLifeThink" )
 	player.EndSignal( "OnDestroy" )
 
-	// start from disabled mode
-	PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
-
-	// every time player respawns, should reset their last gain time
-	// otherwise in most situation player can earn passive gain right on respawn...
-	file.playerLastPassiveGainTime[ player ] = Time()
-	// on respawn: If titan avaliable and we're nearly reach it, do a dialogue
-	TryTitanSoonAnnouncement( player )
-	// move here from sv_earn_meter.gnut
-	// in vanilla, only passive gain triggers EarnMeter_DecayHold()
-	// which means you'll drop less overdrive when the match is near end
-	thread EarnMeterDecayThink( player )
-
-	OnThreadEnd(
-		function() : ( player )
-		{
-			if ( !IsValid( player ) )
-			{
-				// Resets the meter to the pilot version if the player dies in a titan or while their titan is alive (otherwise they can be stuck with e-smoke)
-				int earnMode = PlayerEarnMeter_GetMode( player )
-				if( earnMode != eEarnMeterMode.DEFAULT )
-					PlayerEarnMeter_Reset( player ) // reset everything. recovering handled by SetupPlayerEarnMeter()
-			}
-		}
-	)
+	EarnObject pilotReward = PlayerEarnMeter_GetReward( player ) 
+	float pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
+	int lastEarnMeterMode = PlayerEarnMeter_GetMode( player )
 
 	while ( true )
 	{
 		if( GetGameState() < eGameState.Playing ) // Prematch
-			file.playerLastPassiveGainTime[ player ] = Time() // reset gain timer
+			EarnMeterMP_ResetPlayerPassiveGainTimer( player ) // reset gain timer
 		
 		int desiredEarnMeterMode
 		entity petTitan = player.GetPetTitan()
@@ -204,7 +193,7 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 
 		if ( player.IsTitan() )
 		{
-			file.playerLastPassiveGainTime[ player ] = Time() // staying in titan should reset earnmeter gain timer
+			EarnMeterMP_ResetPlayerPassiveGainTimer( player ) // staying in titan should reset earnmeter gain timer
 			
 			if ( IsValid( soul ) ) // stupid anti-crash, possibly no need
 			{
@@ -218,26 +207,33 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 		//else if ( IsValid( player.GetPetTitan() ) )
 		else if ( IsValid( petTitan ) )
 		{
-			file.playerLastPassiveGainTime[ player ] = Time() // having a pet titan should reset earnmeter gain timer
+			EarnMeterMP_ResetPlayerPassiveGainTimer( player ) // having a pet titan should reset earnmeter gain timer
 			desiredEarnMeterMode = eEarnMeterMode.PET
 		}
 		else
 			desiredEarnMeterMode = eEarnMeterMode.DEFAULT
 
-		if ( desiredEarnMeterMode != PlayerEarnMeter_GetMode( player ) ) // mode changed!
+		if ( desiredEarnMeterMode != lastEarnMeterMode )
 		{
 			PlayerEarnMeter_SetMode( player, desiredEarnMeterMode )
 
+			if ( lastEarnMeterMode == eEarnMeterMode.DEFAULT ) // Set these here in case the player changed boost during the match (e.g. in dropship)
+			{
+				pilotReward = PlayerEarnMeter_GetReward( player ) 
+				pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
+			}
+			
 			if ( desiredEarnMeterMode == eEarnMeterMode.DEFAULT ) // Only occurs when auto titan dies. Resets reward progress and reverts it back to boost.
 			{
-				// re-enable goal and boost stuffs
-				SetupPlayerEarnMeter( player )
+				// Resets the meter to the pilot version if the player dies in a titan or while their titan is alive (otherwise they can be stuck with e-smoke)
+				EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
+				PlayerEarnMeter_EnableGoal( player ) // re-enable goal
 			}
 			else if ( desiredEarnMeterMode == eEarnMeterMode.PET )
 			{
 				// once pet titan is spawned, should reset earnmeter! so they don't have to drain to 0 on first embark
 				// idk how to add viusal effect for titan destroy, just remove all of them
-				PlayerEarnMeter_Reset( player )
+				//PlayerEarnMeter_Reset( player )
 			}
 			else if ( desiredEarnMeterMode == eEarnMeterMode.CORE ) // Replace the pilot's earn meter reward with smoke when they enter their titan.
 			{
@@ -257,20 +253,73 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 				// now tried to fix it in sh_titancore_utility.gnut, call a PlayerEarnMeter_SetRewardUsed() after core use
 				PlayerEarnMeter_EnableReward( player )
 			}
+
+			lastEarnMeterMode = desiredEarnMeterMode
 		}
 
 		// below is default earnmeter looping case
-		if ( PlayerEarnMeter_GetMode( player ) == eEarnMeterMode.DEFAULT )
+		if ( lastEarnMeterMode == eEarnMeterMode.DEFAULT )
 		{
-			if ( file.passiveMeterGainEnabled && Time() - file.playerLastPassiveGainTime[ player ] >= file.playerPassiveMeterGainInterval[ player ] )
+			//print( "Reward enabled: " + string( PlayerEarnMeter_IsRewardEnabled( player ) ) )
+
+			// Removed... client doesn't seem to show "titan ready" in goal ready case
+			// the alerts only shown when SetTitanAvailable() is used
+			// looping to refresh goal seems bad
+			/*
+			if ( PlayerEarnMeter_GetOwnedFrac( player ) < 1.0 )
+				PlayerEarnMeter_DisableGoal( player )
+			else if ( player.GetPlayerNetInt( "goalState" ) != eRewardState.UNAVAILABLE )
 			{
-				PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_GAIN_FRAC )
-				file.playerLastPassiveGainTime[ player ] = Time() // update last passive gain time
+				// if goal is enabled then the client will show "titan ready" alerts even if it isn't
+				// the problem is that if the goal isn't available when we fill the earnmeter, then it won't make it available
+				// so unfortunately we have to do this manually
+				player.SetPlayerNetInt( "goalState", eRewardState.AVAILABLE )
+				PlayerEarnMeter_RefreshGoal( player )
+			}
+			*/
+
+			if ( file.passiveMeterGainEnabled ) // earnmeter passive gain
+			{
+				if ( IsAlive( player ) // passive gain should only happen when player is alive
+					 && Time() - EarnMeterMP_GetPlayerLastPassiveGainTime( player ) >= EarnMeterMP_GetPlayerPassiveMeterGainInterval( player ) 
+					)
+				{
+					PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_GAIN_FRAC )
+					EarnMeterMP_ResetPlayerPassiveGainTimer( player ) // update last passive gain time
+				}
 			}
 		}
 
 		WaitFrame()
 	}
+}
+
+void function EarnMeterMP_OnPlayerRespawned( entity player )
+{
+	// every time player respawns, should reset their last gain time
+	// otherwise in most situation player can earn passive gain right on respawn...
+	EarnMeterMP_ResetPlayerPassiveGainTimer( player )
+	// on respawn: If titan avaliable and we're nearly reach it, do a dialogue
+	TryTitanSoonAnnouncement( player )
+	// move here from sv_earn_meter.gnut
+	// in vanilla, only passive gain triggers EarnMeter_DecayHold()
+	// which means you'll drop less overdrive when the match is near end
+	thread EarnMeterDecayThink( player )
+}
+
+void function EarnMeterMP_ResetPlayerPassiveGainTimer( entity player )
+{
+	file.playerLastPassiveGainTime[ player ] = Time() // reset gain timer
+}
+
+float function EarnMeterMP_GetPlayerLastPassiveGainTime( entity player )
+{
+	return file.playerLastPassiveGainTime[ player ]
+}
+
+float function EarnMeterMP_GetPlayerPassiveMeterGainInterval( entity player )
+{
+	return file.playerPassiveMeterGainInterval[ player ]
 }
 
 void function TryTitanSoonAnnouncement( entity player )
@@ -287,14 +336,13 @@ void function TryTitanSoonAnnouncement( entity player )
 
 bool function ShouldDoTitanSoonAnnouncement( entity player )
 {
-	if( 
-		EarnMeterMP_IsTitanEarnGametype() && 
-		PlayerEarnMeter_GetOwnedFrac( player ) >= 0.8 && 
-		!IsTitanAvailable( player ) && 
-		!player.IsTitan() && 
-		!IsValid( player.GetPetTitan() ) &&
-		GetGameState() == eGameState.Playing
-	  )
+	if( EarnMeterMP_IsTitanEarnGametype() 
+		&& PlayerEarnMeter_GetOwnedFrac( player ) >= 0.8 
+		&& !IsTitanAvailable( player ) 
+		&& !player.IsTitan() 
+		&& !IsValid( player.GetPetTitan() ) 
+		&& GetGameState() == eGameState.Playing
+	   )
 		return true
 
 	return false
@@ -336,8 +384,18 @@ void function EarnMeterMP_TitanEarned( entity player )
 	}
 	else
 	{
-		// pilot earn type: always update on filled up
-		SetupPlayerEarnMeter( player )
+		float oldRewardFrac = PlayerEarnMeter_GetRewardFrac( player ) // get reward frac before it gets reset
+		PlayerEarnMeter_Reset( player )
+		// don't enable reward if we've disabled it, otherwise the icon will be shown incorrectly
+		if ( Riff_BoostAvailability() != eBoostAvailability.Disabled )
+		{
+			if ( oldRewardFrac > 0 )
+			{
+				PlayerEarnMeter_SetRewardFrac( player, oldRewardFrac )
+				PlayerEarnMeter_EnableReward( player )
+			}
+		}
+		PlayerEarnMeter_EnableGoal( player ) // re-enable goal
 	}
 }
 
