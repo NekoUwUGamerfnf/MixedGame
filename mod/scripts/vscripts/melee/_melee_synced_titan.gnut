@@ -467,7 +467,7 @@ function AtlasVsTitanSoundEvent( entity attacker, entity target, executionTable 
 			EmitSoundOnEntityOnlyToPlayer( attacker, attacker, "tone_dlc_execution_part_02" )
 	}
 
-	wait 1.4
+	wait 1.35
 	// non_attacker view: target being throw out
 	if ( IsAlive( attacker ) && IsAlive( target ) )
 	{
@@ -478,7 +478,7 @@ function AtlasVsTitanSoundEvent( entity attacker, entity target, executionTable 
 			EmitSoundOnEntity( target, "tone_execution_part_03" )
 	}
 
-	wait 0.2
+	wait 0.25
 	// attacker view: target being throw out
 	if ( IsAlive( attacker ) )
 	{
@@ -746,7 +746,7 @@ void function MeleeThread_StyderVsTitan( SyncedMelee action, entity attacker, en
 	// fake the screen fade on disembark
 	// same fadeout time, longer hold
 	if ( target.IsPlayer() )
-		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.6, FFADE_IN | FFADE_PURGE )
+		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.65, FFADE_IN | FFADE_PURGE )
 	// manually add some sound using titanfall 2's sounds
 	thread StryderVsTitanSoundEvent( attacker, target, e )
 	
@@ -772,7 +772,7 @@ void function MeleeThread_AtlasVsTitan( SyncedMelee action, entity attacker, ent
 	// fake the screen fade on disembark
 	// same fadeout time, longer hold
 	if ( target.IsPlayer() )
-		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.3, FFADE_IN | FFADE_PURGE )
+		ScreenFade( target, 0, 1, 0, 255, 0.2, 0.45, FFADE_IN | FFADE_PURGE )
 	// manually add some sound using titanfall 2's sounds
 	thread AtlasVsTitanSoundEvent( attacker, target, e )
 
@@ -801,9 +801,6 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	targetSequence.blendTime = 0.25
 
 	target.e.syncedMeleeAttacker = attacker
-
-	// manually call rodeo stop
-	ForceTitanRodeoToEnd( target )
 
 	//	attacker.SetInvulnerable()
 	target.SetInvulnerable()    //HACK: Have to SetInvulnerable first before attacker holsters weapon, because if the attacker is vortexing, holster will release bullets caught and kill off the victim if low enough health
@@ -906,23 +903,31 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	{
 		targetTitan = target
 
-		// target is now a random dude
-		//target = CreateSoldier( target.GetTeam(), Vector(0,0,0), Vector(0,0,0) )
-		target = CreateNPC( "npc_pilot_elite", targetTitan.GetTeam(), targetTitan.GetOrigin(), < 0,0,0 > )
-		DispatchSpawn( target )
-		// modified: make them use pilot's model, and mark as silentDeath
-		TakeAllWeapons( target )
-		target.SetModel( GetNpcTitanPilotModel( targetTitan ) )
-		target.s.silentDeath <- true
-    	e.target <- target
+		// npc pilot variant
+		#if NPC_TITAN_PILOT_PROTOTYPE
+			// here's a fake pilot. score is handled by the titan because script will still think there's a npc pilot inside of it
+			target = CreateNPC( "npc_pilot_elite", targetTitan.GetTeam(), targetTitan.GetOrigin(), < 0,0,0 > )
+			DispatchSpawn( target )
+			TakeAllWeapons( target )
+		#else // vnilla behavior: target is now a random dude
+			target = CreateSoldier( target.GetTeam(), Vector(0,0,0), Vector(0,0,0) )
+			DispatchSpawn( target )
+		#endif // NPC_TITAN_PILOT_PROTOTYPE
 
-		// vanilla missing
+		target.SetModel( GetNpcTitanPilotModel( targetTitan ) )
+
+		// modified: mark as silentDeath
+		target.s.silentDeath <- true
+		e.target <- target
+
 		target.SetInvulnerable()
 		target.SetNoTarget( true )
 	}
 
 
-	AddAnimEvent( targetTitan, "rider_rodeo_over", ForceTitanRodeoToEnd  )
+	//AddAnimEvent( targetTitan, "rider_rodeo_over", ForceTitanRodeoToEnd  )
+	// manually call rodeo stop
+	ForceTitanRodeoToEnd( targetTitan )
 	AddAnimEvent( targetTitan, "melee_killed_ragdoll", MeleeKilledRagdoll, attacker )
 
 	targetTitan.SetInvulnerable() //Setting target of execution as invulnerable to prevent them dying mid-way
@@ -930,16 +935,24 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	// breaks vanilla behavior but whatever
 	targetTitan.SetNoTarget( true )
 
+	// setOwner is bad. the proper way is we hide target and spawn a target viewbody
+	// we can't make only two players can't see targetViewBody... now revert back to SetOwner()
+	// but we don't do NpcTitanBecomesPilot() so the pilot isn't there for players to kill, score can be handled by checking TitanHasNpcPilot() on titans
 	target.SetOwner( attacker )
 	target.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) //owner cant see
+	
 	e.targetTitan <- targetTitan
 
 	if ( GetBugReproNum() == 129802 )
 		thread OnNPCTitanSignalDeath( targetTitan )
 
 	OnThreadEnd(
-		function() : ( ref, attacker, target, targetTitan, e  )
+		function() : ( ref, attacker, target, targetTitan, e )
 		{
+			// modified here: we've added failsafe timer for melee throw
+			// if throw succeeded we delay the cleanup
+			local targetInFlight = e.thrown && !e.thrownKilled
+
 			if ( IsValid( ref ) )
 			{
 				if ( IsValid( attacker ) )
@@ -951,17 +964,22 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 					TryClearParent( attacker )
 				}
 
-				if ( IsValid( target ) )
+				// modified here: we've added failsafe timer for melee throw
+				// if throw succeeded we should delay cleanup these stuffs
+				if ( !IsAlive( target ) || !targetInFlight ) // target should be killed! if target gets throwed, cleanup handled by DelayedCleanupSyncedMeleeForThrownTarget()
 				{
-					target.ClearParent()
-				}
-				else
-				{
-					TryClearParent( target )
-				}
+					if ( IsValid( target ) )
+					{
+						target.ClearParent()
+					}
+					else
+					{
+						TryClearParent( target )
+					}
 
-				AssertNoPlayerChildren( ref )
-				ref.Kill_Deprecated_UseDestroyInstead()
+					AssertNoPlayerChildren( ref )
+					ref.Kill_Deprecated_UseDestroyInstead()
+				}
 			}
 
 			if ( IsValid( attacker ) )
@@ -1006,25 +1024,40 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 
 			if ( IsValid( target ) )
 			{
-				if ( !target.IsNPC() )
-				{
-					target.PlayerMelee_ExecutionEndTarget()
-					ClearPlayerAnimViewEntity( target )
-					// modified
-					//DeployAndEnableWeapons( target )
-					//DeployViewModelAndEnableWeapons( target )
-					if ( IsAlive( target ) )
-						target.EnableWeaponViewModel()
-					target.Server_TurnOffhandWeaponsDisabledOff()
-				}
-
+				// modified here: we've added failsafe timer for melee throw
+				// if throw succeeded we never pinkmist them
+				// shared cleanup
 				if ( HasAnimEvent( target, "pink_mist" ) )
 					DeleteAnimEvent( target, "pink_mist" )
 
-				if ( IsAlive( expect entity( e.target ) ) )
-					MeleePinkMist( e )
+				if ( targetInFlight ) // still in throw flight...
+				{
+					print( "Player still in throw flight after melee thread!" )
+					// do a special think for throwing case
+					// this also cleans up ref
+					thread DelayedCleanupSyncedMeleeForThrownTarget( target, ref )
+				}
+				else // vanilla behavior
+				{
+					target.SetOwner( null ) // defensive cleanup
 
-				target.e.syncedMeleeAttacker = null
+					if ( !target.IsNPC() )
+					{
+						target.PlayerMelee_ExecutionEndTarget()
+						ClearPlayerAnimViewEntity( target )
+						// modified
+						//DeployAndEnableWeapons( target )
+						//DeployViewModelAndEnableWeapons( target )
+						if ( IsAlive( target ) )
+							target.EnableWeaponViewModel()
+						target.Server_TurnOffhandWeaponsDisabledOff()
+					}
+					
+					if ( IsAlive( expect entity( e.target ) ) )
+						MeleePinkMist( e )
+
+					target.e.syncedMeleeAttacker = null
+				}
 			}
 
 			if ( IsValid( e.attackerViewBody ) )
@@ -1059,6 +1092,45 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	waitthread TitanSyncedMeleeAnimationsPlay( attackerBodySequence, attackerViewBody, ref, targetBodySequence, target, attackerSequence, attacker, targetSequence, targetTitan, e )
 }
 
+// modified
+void function DelayedCleanupSyncedMeleeForThrownTarget( entity target, entity ref )
+{
+	target.EndSignal( "OnDestroy" )
+	target.WaitSignal( "OnDeath" )
+
+	print( "player killed by melee throw!" )
+
+	// clean up ref
+	if ( IsValid( target ) )
+	{
+		target.ClearParent()
+	}
+	else
+	{
+		TryClearParent( target )
+	}
+
+	if ( IsValid( ref ) )
+	{
+		AssertNoPlayerChildren( ref )
+		ref.Kill_Deprecated_UseDestroyInstead()
+	}
+
+	// target stuffs cleanup
+	target.SetOwner( null ) // defensive cleanup
+
+	if ( !target.IsNPC() )
+	{
+		target.PlayerMelee_ExecutionEndTarget()
+		ClearPlayerAnimViewEntity( target )
+		if ( IsAlive( target ) )
+			target.EnableWeaponViewModel()
+		target.Server_TurnOffhandWeaponsDisabledOff()
+	}
+
+	target.e.syncedMeleeAttacker = null
+}
+
 entity function CreateNpcTitanPilotModel( entity titan )
 {
 	asset modelName = GetNpcTitanPilotModel( titan )
@@ -1091,7 +1163,7 @@ asset function GetNpcTitanPilotModel( entity titan )
 function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodySequence, entity attackerViewBody, entity ref, FirstPersonSequenceStruct targetBodySequence, entity target, FirstPersonSequenceStruct attackerSequence, entity attacker, FirstPersonSequenceStruct targetSequence, entity targetTitan, table e )
 {
 	e.thrown <- false
-	e.thrownKilled <- false // if throw takes too long, it will be killed by MeleePinkMist()
+	e.thrownKilled <- false // if throw takes too long, target will be killed by MeleePinkMist()
 	OnThreadEnd (
 		function () : ( targetTitan, target, attacker, e )
 		{
@@ -1104,7 +1176,7 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 			// they're too long and titanfall 2 executions will deploy weapon after target dies
 			// no need to do recover animation, will softlock player for a moment
 
-			// hardcoded for stryder execution! atlas needs to wait for target hits a wall
+			// hardcoded for stryder execution! atlas needs to wait for target hits a wall, handled by MonitorMeleeThrowAnimation()
 			// welp, atlas execution won't hit this line because their target gets killed pretty late
 			// but still needs to hardcode for stryder, for whatever reason
 			if ( e.attackerAnimation3p == "stry_melee_sync_frontkill" )
@@ -1124,7 +1196,8 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 				{
 					target.Anim_Stop()
 					target.SetOwner( null )
-					target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+					target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // needs to show target
+
 					if ( target.IsPlayer() )
 					{
 						ClearPlayerAnimViewEntity( target )
@@ -1164,7 +1237,13 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 
 	if ( e.targetAnimation3p == "at_melee_sync_frontdeath" )
 	{
-		thread MeleeThrowIntoWallSplat( attacker, target, e )
+		thread MeleeThrowIntoWallSplat( attacker, target, e, duration )
+		// modified: we stop animation after certain delay, don't have to wait for animation fully ends
+		// end signals to allow intterupt animation
+		// this will cause throw less likely to success
+		attacker.EndSignal( "OnAnimationDone" )
+		attacker.EndSignal( "OnAnimationInterrupted" )
+		thread MonitorMeleeThrowAnimation( attacker, target, e, duration )
 	}
 	else
 	{
@@ -1214,7 +1293,7 @@ void function MeleePinkMist( table e )
 	{
 		// attacker sound fix
 		if ( !e.thrown && IsValid( e.attacker ) && e.attacker.IsPlayer() ) // only do sound fix if we're not throwing target
-			EmitSoundAtPositionOnlyToPlayer( TEAM_ANY, e.attackerViewBody.GetOrigin(), e.attacker, "monarch_battery_execution_bone_crush" )
+			EmitSoundAtPositionOnlyToPlayer( target.GetTeam(), e.attackerViewBody.GetOrigin(), e.attacker, "monarch_battery_execution_bone_crush" )
 		
 		e.attackerViewBody.Dissolve( ENTITY_DISSOLVE_PINKMIST, Vector( 0, 0, 0 ), 0 )
 	}
@@ -1226,9 +1305,9 @@ void function MeleePinkMist( table e )
 			if ( !e.thrown ) // only do sound fix if we're not throwing target. because if throw sequence going too long it will also trigger this function as a failsafe case, which seems bad to fix sound
 			{
 				if ( e.attacker.IsPlayer() )
-					EmitSoundAtPositionExceptToPlayer( TEAM_ANY, e.attackerViewBody.GetOrigin(), e.attacker, "monarch_battery_execution_bone_crush" )
+					EmitSoundAtPositionExceptToPlayer( target.GetTeam(), e.attackerViewBody.GetOrigin(), e.attacker, "monarch_battery_execution_bone_crush" )
 				else
-					EmitSoundAtPosition( TEAM_ANY, e.attackerViewBody.GetOrigin(), "monarch_battery_execution_bone_crush" )
+					EmitSoundAtPosition( target.GetTeam(), e.attackerViewBody.GetOrigin(), "monarch_battery_execution_bone_crush" )
 			}
 		}
 
@@ -1248,7 +1327,9 @@ void function MeleePinkMist( table e )
 	target.SetNoTarget( false )
 }
 
-function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
+// modified to add duration parameter
+//function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
+function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 {
 	OnThreadEnd(
 		function () : ( attacker, target, e )
@@ -1286,13 +1367,22 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 	angles = AnglesCompose( angles, Vector( -15, 0, 0 ) )
 	local forward = AnglesToForward( angles )
 
-	local endPos
-	for ( ;; )
+	// removed attacker trace
+	//local endPos
+	// add failsafe timer, we always ragdoll the target if timer ends...
+	float endTime = Time() + expect float( duration ) - 2.8 // besure to minus 2.8s wait above
+	//print( "duration: " + string( duration ) )
+	bool hitsWall = false // only do sound if actually hits a wall
+	//for ( ;; )
+	while ( Time() < endTime )
 	{
 		if ( !target.Anim_IsActive() )
 			break
 
 		local org = target.GetOrigin()
+		// removed attacker trace
+		// we stop animation after certain delay so player don't have to wait
+		/*
 		if ( IsAlive( attacker ) )
 		{
 			TraceResults titanPilotTrace = TraceLine( attacker.EyePosition(), org, attacker )
@@ -1303,22 +1393,27 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 				break
 			}
 		}
+		*/
 
 
 		TraceResults result = TraceLine( org, org + forward * 200 )
 		if ( result.fraction < 1.0 )
 		{
 			wait result.fraction * 0.06
+			hitsWall = true // mark as we hit a wall!
 			break
 		}
 
 		WaitFrame()
 	}
 
+	// removed attacker trace
+	/*
 	if ( endPos )
 	{
 		target.SetOrigin( endPos )
 	}
+	*/
 
 	Assert( IsAlive( target ) )
 
@@ -1327,27 +1422,55 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 	// breaks vanilla behavior but whatever
 	target.SetNoTarget( false )
 
-	target.BecomeRagdoll( Vector(0,0,0), false )
-
-	WaitFrame() // ragdoll take hold!
-	EmitSoundOnEntity( target, "Titan_Victim_Wall_Splat" )
-	
-	// Titan_Victim_Wall_Splat isn't good enough for tf2, needs to fix some
-	if ( IsValid( attacker ) && attacker.IsPlayer() ) // this sound shouldn't be played on attacker
+	// modified: only do sound if target actually hits a wall
+	// call it earlier than becomeragdoll because a npc gets ragdolled is considered as dead
+	if ( hitsWall )
 	{
-		EmitSoundOnEntityExceptToPlayer( target, attacker, "titan_grunt_squish" )
-		EmitSoundOnEntityExceptToPlayer( target, attacker, "phys_imp_bodyfall_human_hard_default" )
-	}
-	else
-	{
-		EmitSoundOnEntity( target, "titan_grunt_squish" )
-		//EmitSoundOnEntity( target, "titan_punch_human_impact" )
-		EmitSoundOnEntity( target, "phys_imp_bodyfall_human_hard_default" )
+		EmitSoundOnEntity( target, "Titan_Victim_Wall_Splat" )
+		
+		// Titan_Victim_Wall_Splat isn't good enough for tf2, needs to fix some
+		if ( IsValid( attacker ) && attacker.IsPlayer() ) // this sound shouldn't be played on attacker
+		{
+			EmitSoundAtPositionExceptToPlayer( target.GetTeam(), target.GetOrigin(), attacker, "titan_grunt_squish" )
+			EmitSoundAtPositionExceptToPlayer( target.GetTeam(), target.GetOrigin(), attacker, "phys_imp_bodyfall_human_hard_default" )
+		}
+		else
+		{
+			EmitSoundAtPosition( target.GetTeam(), target.GetOrigin(), "titan_grunt_squish" )
+			//EmitSoundOnEntity( target, "titan_punch_human_impact" )
+			EmitSoundAtPosition( target.GetTeam(), target.GetOrigin(), "phys_imp_bodyfall_human_hard_default" )
+		}
 	}
 
+	// if victim is a npc, should kill them here because ragdolling a npc means destroy them
+	// nevermind, just ragdoll them and never kill, because they're just fake bodies
+	//if ( target.IsNPC() )
+	//	MeleeWallSplatKillTarget( attacker, target, e )
+
+	// modified: if target didn't hits wall, should inherit velocity
+	// this will destroy npc target and ends the thread
+	//print( "hitsWall: " + string( hitsWall ) )
+	if ( !e.gib )
+	{
+		if ( !hitsWall )
+			target.BecomeRagdoll( forward * 1000 + Vector(0,0,1000), false )
+		else
+			target.BecomeRagdoll( Vector(0,0,0), false )
+
+		WaitFrame() // player ragdoll take hold!
+	}
+
+	// kill player
+	if ( target.IsPlayer() )
+		MeleeWallSplatKillTarget( attacker, target, e )
+}
+
+function MeleeWallSplatKillTarget( entity attacker, entity target, e )
+{
 	// if code hits here, we can consider that our throwing killed the target
 	e.thrownKilled = true
 
+	print( "meleeWallSplat target killed, attacker: " + string( attacker ) )
 	if ( e.gib )
 	{
 		local force = Vector(0,0,0)
@@ -1365,6 +1488,30 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 	}
 }
 
+// modified think
+// we stop animation after certain delay, don't have to wait for animation fully ends
+function MonitorMeleeThrowAnimation( entity attacker, entity target, e, duration )
+{
+	attacker.EndSignal( "OnDeath" )
+	attacker.EndSignal( "OnDestroy" )
+	// end signals. should only trigger them at the end of function
+	attacker.EndSignal( "OnAnimationDone" )
+	attacker.EndSignal( "OnAnimationInterrupted" )
+	target.EndSignal( "OnDeath" )
+	target.EndSignal( "OnDestroy" )
+
+	wait duration - 0.45 // same timer as TitanSyncedMeleeAnimationsPlay() does
+	print( "melee throw attacker sequence ends!" )
+	if ( !e.thrownKilled ) // if target isn't killed by thrown yet, stop attacker animation
+	{
+		if ( attacker.IsPlayer() )
+		{
+			ClearPlayerAnimViewEntity( attacker )
+			attacker.GetFirstPersonProxy().Anim_Stop()
+		}
+		attacker.Anim_Stop()
+	}
+}
 
 function MeleeAnimThrow( attacker, target, throwDuration )
 {
