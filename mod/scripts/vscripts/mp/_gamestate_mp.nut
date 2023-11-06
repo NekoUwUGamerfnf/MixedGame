@@ -21,6 +21,9 @@ global function SetRoundWinningKillReplayAttacker
 global function SetRoundWinningHighlightReplayPlayer
 // fix for projectile kill replay
 global function SetRoundWinningKillReplayInflictor
+// northstar new adding callbacks
+global function SetCallback_TryUseProjectileReplay
+global function ShouldTryUseProjectileReplay
 
 global function SetWinner
 // modified. we only do replay if game wins by player earning score
@@ -123,6 +126,8 @@ struct {
 	array<void functionref()> roundEndCleanupCallbacks
 	// new adding
 	array<void functionref()> matchEndCleanupCallbacks
+	// northstar new adding callbacks
+	bool functionref( entity victim, entity attacker, var damageInfo, bool isRoundEnd ) shouldTryUseProjectileReplayCallback
 
 	// modified
 	float waitingForPlayersMaxDuration = 20.0
@@ -1484,14 +1489,32 @@ void function SetRoundWinningHighlightReplayPlayer( entity player )
 }
 
 // fix for projectile kill replay
-// inflictor isn't necessary, we could just return if inflictor not valid
-void function SetRoundWinningKillReplayInflictor( entity inflictor )
+// projectile inflictor isn't necessary, but a proper inflictor is always needed
+// we will use attacker if it failsafe
+void function SetRoundWinningKillReplayInflictor( entity inflictor, entity attacker = null )
 {
-	if ( !IsValid( inflictor ) ) // have to do IsValid() check for inflictors
-		return
-
-	if ( inflictor.IsProjectile() && inflictor.GetProjectileWeaponSettingBool( eWeaponVar.projectile_killreplay_enabled ) )
+	if ( IsValid( inflictor ) // have to do IsValid() check for inflictors
+		 && inflictor.IsProjectile() 
+		 && inflictor.GetProjectileWeaponSettingBool( eWeaponVar.projectile_killreplay_enabled ) // vanilla weapon settings check
+		)
 		file.roundWinningKillReplayInflictorEHandle = inflictor.GetEncodedEHandle()
+	else if ( IsValid( attacker ) )
+		file.roundWinningKillReplayInflictorEHandle = attacker.GetEncodedEHandle()
+}
+
+// northstar new adding callbacks
+void function SetCallback_TryUseProjectileReplay( bool functionref( entity victim, entity attacker, var damageInfo, bool isRoundEnd ) callbackFunc )
+{
+	file.shouldTryUseProjectileReplayCallback = callbackFunc
+}
+
+bool function ShouldTryUseProjectileReplay( entity victim, entity attacker, var damageInfo, bool isRoundEnd )
+{
+	if ( file.shouldTryUseProjectileReplayCallback != null )
+		return file.shouldTryUseProjectileReplayCallback( victim, attacker, damageInfo, isRoundEnd )
+	
+	// default to true (vanilla behaviour)
+	return true
 }
 
 // generic setup if we have damageInfo
@@ -1536,7 +1559,11 @@ void function SetUpRoundWinningKillReplayFromDamageInfo( entity victim, var dama
 	file.roundWinningKillReplayMethodOfDeath = methodOfDeath
 	file.roundWinningKillReplayHealthFrac = GetHealthFrac( attacker )
 	// setup inflictor
-	SetRoundWinningKillReplayInflictor( DamageInfo_GetInflictor( damageInfo ) ) // inflictor isn't necessary, it's function has IsValid() checks
+	// run northstar new adding callbacks
+	if ( ShouldTryUseProjectileReplay( victim, attacker, damageInfo, true ) ) // I think this can be considered as "roundEnd"?
+		SetRoundWinningKillReplayInflictor( DamageInfo_GetInflictor( damageInfo ), attacker ) // inflictor isn't necessary, it's function has IsValid() checks
+	else
+		file.roundWinningKillReplayInflictorEHandle = attacker.GetEncodedEHandle() // a proper inflictor is always needed. by default they'll be attacker themselves
 
 	// setup replay length
 	file.roundWinningKillReplayLength = replayLength
