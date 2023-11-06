@@ -177,8 +177,9 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 
-	// start from disabled mode
-	PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
+	EarnObject pilotReward = PlayerEarnMeter_GetReward( player ) 
+	float pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
+	int lastEarnMeterMode = PlayerEarnMeter_GetMode( player )
 
 	// every time player respawns, should reset their last gain time
 	// otherwise in most situation player can earn passive gain right on respawn...
@@ -191,15 +192,15 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 	thread EarnMeterDecayThink( player )
 
 	OnThreadEnd(
-		function() : ( player )
+		function() : ( player, pilotReward, pilotRewardFrac )
 		{
 			if ( !IsValid( player ) )
-			{
-				// Resets the meter to the pilot version if the player dies in a titan or while their titan is alive (otherwise they can be stuck with e-smoke)
-				int earnMode = PlayerEarnMeter_GetMode( player )
-				if( earnMode != eEarnMeterMode.DEFAULT )
-					PlayerEarnMeter_Reset( player ) // reset everything. recovering handled by SetupPlayerEarnMeter()
-			}
+				return
+
+			// Resets the meter to the pilot version if the player dies in a titan or while their titan is alive (otherwise they can be stuck with e-smoke)
+			int earnMode = PlayerEarnMeter_GetMode( player )
+			if( earnMode != eEarnMeterMode.DEFAULT )
+				EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
 		}
 	)
 
@@ -234,21 +235,19 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 		else
 			desiredEarnMeterMode = eEarnMeterMode.DEFAULT
 
-		if ( desiredEarnMeterMode != PlayerEarnMeter_GetMode( player ) ) // mode changed!
+		if ( desiredEarnMeterMode != lastEarnMeterMode )
 		{
 			PlayerEarnMeter_SetMode( player, desiredEarnMeterMode )
+			if ( lastEarnMeterMode == eEarnMeterMode.DEFAULT ) // Set these here in case the player changed boost during the match (e.g. in dropship)
+			{
+				pilotReward = PlayerEarnMeter_GetReward( player ) 
+				pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
+			}
 
 			if ( desiredEarnMeterMode == eEarnMeterMode.DEFAULT ) // Only occurs when auto titan dies. Resets reward progress and reverts it back to boost.
 			{
-				// re-enable goal and boost stuffs
-				string burncardRef = GetSelectedBurnCardRef( player )
-				EarnMeterMP_SetBoostByRef( player, burncardRef )
-			}
-			else if ( desiredEarnMeterMode == eEarnMeterMode.PET )
-			{
-				// once pet titan is spawned, should reset earnmeter! so they don't have to drain to 0 on first embark
-				// idk how to add viusal effect for titan destroy, just remove all of them
-				PlayerEarnMeter_Reset( player )
+				EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
+				PlayerEarnMeter_EnableGoal( player ) // re-enable goal
 			}
 			else if ( desiredEarnMeterMode == eEarnMeterMode.CORE ) // Replace the pilot's earn meter reward with smoke when they enter their titan.
 			{
@@ -268,11 +267,31 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 				// now tried to fix it in sh_titancore_utility.gnut, call a PlayerEarnMeter_SetRewardUsed() after core use
 				PlayerEarnMeter_EnableReward( player )
 			}
+
+			lastEarnMeterMode = desiredEarnMeterMode
 		}
 
 		// below is default earnmeter looping case
-		if ( PlayerEarnMeter_GetMode( player ) == eEarnMeterMode.DEFAULT )
+		if ( lastEarnMeterMode == eEarnMeterMode.DEFAULT )
 		{
+			//print( "Reward enabled: " + string( PlayerEarnMeter_IsRewardEnabled( player ) ) )
+
+			// Removed... client doesn't seem to show "titan ready" in goal ready case
+			// the alerts only shown when SetTitanAvailable() is used
+			// looping to refresh goal seems bad
+			/*
+			if ( PlayerEarnMeter_GetOwnedFrac( player ) < 1.0 )
+				PlayerEarnMeter_DisableGoal( player )
+			else if ( player.GetPlayerNetInt( "goalState" ) != eRewardState.UNAVAILABLE )
+			{
+				// if goal is enabled then the client will show "titan ready" alerts even if it isn't
+				// the problem is that if the goal isn't available when we fill the earnmeter, then it won't make it available
+				// so unfortunately we have to do this manually
+				player.SetPlayerNetInt( "goalState", eRewardState.AVAILABLE )
+				PlayerEarnMeter_RefreshGoal( player )
+			}
+			*/
+
 			if ( file.passiveMeterGainEnabled && Time() - file.playerLastPassiveGainTime[ player ] >= file.playerPassiveMeterGainInterval[ player ] )
 			{
 				PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_GAIN_FRAC )
@@ -332,8 +351,7 @@ void function EarnMeterMP_BoostEarned( entity player )
 	for ( int i = 0; i < rewardCount; i++ )
 		BurnMeter_GiveRewardDirect( player, burncard.ref )
 
-	//PlayerEarnMeter_DisableReward( player )
-	PlayerEarnMeter_SetRewardUsed( player ) // this might be the proper way to disable reward icon
+	PlayerEarnMeter_DisableReward( player )
 }
 
 void function EarnMeterMP_TitanEarned( entity player )
@@ -348,8 +366,18 @@ void function EarnMeterMP_TitanEarned( entity player )
 	}
 	else
 	{
-		// pilot earn type: always update on filled up
-		SetupPlayerEarnMeter( player )
+		float oldRewardFrac = PlayerEarnMeter_GetRewardFrac( player ) // get reward frac before it gets reset
+		PlayerEarnMeter_Reset( player )
+		// don't enable reward if we've disabled it, otherwise the icon will be shown incorrectly
+		if ( Riff_BoostAvailability() != eBoostAvailability.Disabled )
+		{
+			if ( oldRewardFrac > 0 )
+			{
+				PlayerEarnMeter_SetRewardFrac( player, oldRewardFrac )
+				PlayerEarnMeter_EnableReward( player )
+			}
+		}
+		PlayerEarnMeter_EnableGoal( player ) // re-enable goal
 	}
 }
 
@@ -362,11 +390,7 @@ void function EarnMeterMP_SetBoostByRef( entity player, string boostRef )
 	{
 		PlayerEarnMeter_SetReward( player, earnobject ) // pretty sure this works?
 		PlayerEarnMeter_SetRewardFrac( player, burncard.cost )
-		// player already earned reward?
-		if ( PlayerEarnMeter_GetEarnedFrac( player ) >= burncard.cost || PlayerEarnMeter_GetOwnedFrac( player ) >= burncard.cost )
-			PlayerEarnMeter_SetRewardUsed( player ) // disable reward
-		else
-			PlayerEarnMeter_EnableReward( player ) // re-enable reward
+		PlayerEarnMeter_EnableReward( player )
 	}
 
 	// goal should always been enabled
