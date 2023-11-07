@@ -20,6 +20,13 @@ const float EARNMETER_GAIN_MAX_LEVEL		= 0.9 // if time reaches this percentage, 
 const float FILL_ANIM_DURATION 				= 0.7 // always keep the same as cl_earnmeter.gnut
 const float EARNMETER_DECAY_TICK			= 0.1
 
+// for EarnMeterMP_PlayerLifeThink() store player's reward and give it back on dying as titan
+struct PlayerSavedEarnMeterReward
+{
+	EarnObject pilotReward
+	float pilotRewardFrac
+}
+
 struct
 {
 	// these are purely in-file and no need to change
@@ -47,6 +54,8 @@ void function Sv_EarnMeterMP_Init()
 	AddCallback_OnClientConnected( OnClientConnected )
 	AddCallback_GameStateEnter( eGameState.Playing, OnPlaying ) // can't change boost after prematch
 	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	// lifetime think
+	Registered( "EarnMeterMP_PlayerLifeThink" )
 	// move here from sv_earn_meter.gnut
 	RegisterSignal( "EarnMeterDecayThink" )
 	RegisterSignal( "OverDriveClearOnDeath" )
@@ -174,13 +183,24 @@ void function EarnMeterMP_ReplaceReward( entity player, EarnObject reward, float
 
 void function EarnMeterMP_PlayerLifeThink( entity player )
 {
+	player.Signal( "EarnMeterMP_PlayerLifeThink" )
+	player.EndSignal( "EarnMeterMP_PlayerLifeThink" )
+
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 
-	EarnObject pilotReward = PlayerEarnMeter_GetReward( player ) 
-	float pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
-	int lastEarnMeterMode = PlayerEarnMeter_GetMode( player )
+	// here goes a bug: non-table or struct variable can't be passed properly into OnThreadEnd()
+	// they'll keep their value assigned before OnThreadEnd() scope is placed
+	// in this case it means if we changed boost during prematch and die inside our titan at first life
+	// our boost will be reset to start value
+	//EarnObject pilotReward = PlayerEarnMeter_GetReward( player ) 
+	//float pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
+	PlayerSavedEarnMeterReward playerLifetimeReward
+	playerLifetimeReward.pilotReward = PlayerEarnMeter_GetReward( player )
+	playerLifetimeReward.pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
 
+	// setup earnmeter stuffs on respawn:
+	int lastEarnMeterMode = PlayerEarnMeter_GetMode( player )
 	// every time player respawns, should reset their last gain time
 	// otherwise in most situation player can earn passive gain right on respawn...
 	file.playerLastPassiveGainTime[ player ] = Time()
@@ -192,7 +212,9 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 	thread EarnMeterDecayThink( player )
 
 	OnThreadEnd(
-		function() : ( player, pilotReward, pilotRewardFrac )
+		// non-table or struct variable can't be passed properly into OnThreadEnd()
+		//function() : ( player, pilotReward, pilotRewardFrac )
+		function() : ( player, playerLifetimeReward )
 		{
 			if ( !IsValid( player ) )
 				return
@@ -201,7 +223,9 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 			int earnMode = PlayerEarnMeter_GetMode( player )
 			if( earnMode != eEarnMeterMode.DEFAULT )
 			{
-				EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
+				// modified: using struct for storing variables
+				//EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
+				EarnMeterMP_ReplaceReward( player, playerLifetimeReward.pilotReward, playerLifetimeReward.pilotRewardFrac )
 				PlayerEarnMeter_DisableReward( player ) // temp disable reward icon, until next respawn goes into "if ( desiredEarnMeterMode == eEarnMeterMode.DEFAULT )"" case
 			}
 		}
@@ -243,13 +267,18 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 			PlayerEarnMeter_SetMode( player, desiredEarnMeterMode )
 			if ( lastEarnMeterMode == eEarnMeterMode.DEFAULT ) // Set these here in case the player changed boost during the match (e.g. in dropship)
 			{
-				pilotReward = PlayerEarnMeter_GetReward( player ) 
-				pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
+				// modified: using struct for storing variables
+				//pilotReward = PlayerEarnMeter_GetReward( player ) 
+				//pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
+				playerLifetimeReward.pilotReward = PlayerEarnMeter_GetReward( player )
+				playerLifetimeReward.pilotRewardFrac = PlayerEarnMeter_GetRewardFrac( player )
 			}
 
 			if ( desiredEarnMeterMode == eEarnMeterMode.DEFAULT ) // Only occurs when auto titan dies. Resets reward progress and reverts it back to boost.
 			{
-				EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
+				// modified: using struct for storing variables
+				//EarnMeterMP_ReplaceReward( player, pilotReward, pilotRewardFrac )
+				EarnMeterMP_ReplaceReward( player, playerLifetimeReward.pilotReward, playerLifetimeReward.pilotRewardFrac )
 				PlayerEarnMeter_EnableGoal( player ) // re-enable goal
 			}
 			else if ( desiredEarnMeterMode == eEarnMeterMode.CORE ) // Replace the pilot's earn meter reward with smoke when they enter their titan.
