@@ -408,6 +408,21 @@ void function DelayedTitanBecomesPilot( entity player, entity titan, float delay
 }
 */
 
+// for emitting some sound that isn't valid for both target and attacker
+void function EmitSoundOnEntityForPlayersInRange( entity ent, string sound, float range, array<entity> excludedPlayers = [] )
+{
+	foreach ( entity player in GetPlayerArray() )
+	{
+		if ( Distance( player.GetOrigin(), ent.GetOrigin() ) > range )
+			continue
+
+		if ( excludedPlayers.contains( player ) )
+			continue
+
+		EmitSoundOnEntityOnlyToPlayer( ent, player, sound )
+	}
+}
+
 function AtlasVsTitanShortSoundEvent( entity attacker, entity target, executionTable )
 {
 	wait 0.7
@@ -456,7 +471,7 @@ function AtlasVsTitanSoundEvent( entity attacker, entity target, executionTable 
 	}
 
 	wait 0.5
-	// non_attacker view: attacker preparing throw
+	// non-attacker view: attacker preparing throw
 	if ( IsAlive( attacker ) )
 	{
 		if ( attacker.IsPlayer() )
@@ -474,14 +489,19 @@ function AtlasVsTitanSoundEvent( entity attacker, entity target, executionTable 
 	}
 
 	wait 1.35
-	// non_attacker view: target being throw out
-	if ( IsAlive( attacker ) && IsAlive( target ) )
+	// others view: target being throw out
+	if ( IsAlive( attacker ) )
 	{
-		// was emitting sound on attacker, but we want target to hear it...
-		if ( attacker.IsPlayer() )
-			EmitSoundOnEntityExceptToPlayer( target, attacker, "tone_execution_part_03" )
-		else
-			EmitSoundOnEntity( target, "tone_execution_part_03" )
+		// we don't want either target nor attacker hearing the sound
+		// so maybe we should emit the sound to all other players in sound range?
+		// using a utility function
+		EmitSoundOnEntityForPlayersInRange( attacker, "tone_execution_part_03", 1024, [attacker, target] )
+	}
+	// target view: target being throw out
+	
+	if ( IsAlive( target ) )
+	{
+		EmitSoundOnEntityOnlyToPlayer( target, target, "tone_execution_part_03" )
 	}
 
 	wait 0.25
@@ -890,7 +910,8 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	entity targetTitan
 	if ( targetIsPlayer )
 	{
-		e.oldPlayerSettings <- target.s.storedPlayerSettings
+		// we won't change class, no need to reset settings
+		//e.oldPlayerSettings <- target.s.storedPlayerSettings
 		//target.s.storedPlayerSettings = "pilot_titan_cockpit" // Makes player have titan cockpit temporarily. Turned off to avoid having extra checks all over in script
 		targetTitan = CreateAutoTitanForPlayer_ForTitanBecomesPilot( target ) //TargetTitan is the NPC Titan that is created temporarily during execution
 		DispatchSpawn( targetTitan )
@@ -939,11 +960,17 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 		target.s.silentDeath <- true
 		e.target <- target
 
-		// vanilla missing
+		// vanilla missing: target should always be invulnerable and notarget at this point
 		target.SetInvulnerable()
 		target.SetNoTarget( true )
-	}
 
+		// modified: because we're using this guy as a fake body, needs to hide their name stuffs
+		HideName( target )
+
+		// if target is a npc, they must be fake bodies. never do npc killed event for player
+		// this only changes MeleePinkMist() and MeleeThrowIntoWallSplat(). MeleeKilledRagdoll() for the titan will work as normal
+		e.attacker = target // make them suicide!
+	}
 
 	//AddAnimEvent( targetTitan, "rider_rodeo_over", ForceTitanRodeoToEnd  )
 	// manually call rodeo stop
@@ -1073,8 +1100,13 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 						target.Server_TurnOffhandWeaponsDisabledOff()
 					}
 					
-					if ( IsAlive( expect entity( e.target ) ) )
+					// modified: only do pinkmist if not thrown...
+					if ( !e.thrown && IsAlive( expect entity( e.target ) ) )
+					{
+						// debug
+						//print( "Doing meleePinkMist!" )
 						MeleePinkMist( e )
+					}
 
 					target.e.syncedMeleeAttacker = null
 				}
@@ -1137,7 +1169,7 @@ void function DelayedCleanupSyncedMeleeForThrownTarget( entity target, entity re
 	}
 
 	// target stuffs cleanup
-	target.SetOwner( null ) // defensive cleanup
+	//target.SetOwner( null ) // defensive cleanup. should already be handled by MeleeWallSplatKillTarget()
 
 	if ( !target.IsNPC() )
 	{
@@ -1212,23 +1244,21 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 				if ( IsValid( attacker ) )
 					attacker.Anim_Stop()
 
+				// show target now only happens for stryder syncedmelee
+				// atlas one is handled by MeleeWallSplatKillTarget(), attacker sequence handled by MonitorMeleeThrowAnimation()
 				if ( !e.thrown && IsAlive( target ) )
 				{
 					target.Anim_Stop()
 
-					// show target now only happens for stryder syncedmelee
-					// atlas one is handled by MeleeWallSplatKillTarget()
-					if ( e.attackerAnimation3p == "stry_melee_sync_frontkill" )
-					{
-						target.SetOwner( null )
-						target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // needs to show target
-					}
+					target.SetOwner( null )
+					target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // needs to show target
 
 					if ( target.IsPlayer() )
 					{
 						ClearPlayerAnimViewEntity( target )
 						target.GetFirstPersonProxy().Anim_Stop()
-						target.SetPlayerSettings( e.oldPlayerSettings )
+						// we won't change class, no need to reset settings
+						//target.SetPlayerSettings( e.oldPlayerSettings )
 					}
 
 				}
@@ -1357,6 +1387,8 @@ void function MeleePinkMist( table e )
 //function MeleeThrowIntoWallSplat( entity attacker, entity target, e )
 function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 {
+	expect table( e ) // for MeleePinkMist can use
+
 	OnThreadEnd(
 		function () : ( attacker, target, e )
 		{
@@ -1399,6 +1431,8 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 	float endTime = Time() + expect float( duration ) - 2.8 // besure to minus 2.8s wait above
 	//print( "duration: " + string( duration ) )
 	bool hitsWall = false // only do sound if actually hits a wall
+	float throwStartTime = Time()
+	float hitWallTime
 	//for ( ;; )
 	while ( Time() < endTime )
 	{
@@ -1425,8 +1459,10 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 		TraceResults result = TraceLine( org, org + forward * 200 )
 		if ( result.fraction < 1.0 )
 		{
-			wait result.fraction * 0.06
 			hitsWall = true // mark as we hit a wall!
+			hitWallTime = Time() // get hit time before delay
+
+			wait result.fraction * 0.06
 			break
 		}
 
@@ -1441,12 +1477,23 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 	}
 	*/
 
-	Assert( IsAlive( target ) )
+	//Assert( IsAlive( target ) )
 
-	target.ClearInvulnerable()
-	// target should be ignored while being executed
-	// breaks vanilla behavior but whatever
-	target.SetNoTarget( false )
+	// if code hits here, we can consider that our throwing killed the target
+	e.thrownKilled = true
+
+	// modified: if target hits wall too early, shouldn't leave their ragdoll
+	// otherwise in attacker view there'll be two ragdolls together( one for target, one for viewbody. VisibilityFlag can't help with it )
+	if ( e.gib || ( hitsWall && hitWallTime - throwStartTime < 0.7 ) )
+	{
+		//print( "hit wall too early!" )
+		// insure visibility before gibs target
+		target.SetOwner( null )
+		target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+		// gib them
+		MeleePinkMist( e )
+		return
+	}
 
 	// modified: only do sound if target actually hits a wall
 	// call it earlier than becomeragdoll because a npc gets ragdolled is considered as dead
@@ -1468,58 +1515,34 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 		}
 	}
 
-	// if victim is a npc, should kill them here because ragdolling a npc means destroy them
-	// nevermind, just ragdoll them and never kill, because they're just fake bodies
-	//if ( target.IsNPC() )
-	//	MeleeWallSplatKillTarget( attacker, target, e )
-
-	// don't want to show ragdoll if throw didn't hit a wall
-	if ( !hitsWall )
+	// kill target
+	target.ClearInvulnerable()
+	// target should be ignored while being executed
+	// breaks vanilla behavior but whatever
+	target.SetNoTarget( false )
+	
+	//print( "meleeWallSplat target killed, attacker: " + string( attacker ) )
+	// ragdoll version
+	local ragdollVelocity = Vector(0,0,0)
+	if ( !hitsWall ) // didn't hit wall! needs to inherit animation velocity
+		ragdollVelocity = forward * 1000 + Vector(0,0,500)
+	if ( target.IsNPC() )
 	{
-		if ( target.IsPlayer() ) // kill player
-			MeleePinkMist( expect table( e ) )
-		else // destroy npc fakebody
-			target.Destroy()
+		//print( "target.kv.VisibilityFlags: " + string( target.kv.VisibilityFlags ) )
+		target.BecomeRagdoll( ragdollVelocity, false ) // gets destroyed
 		return
 	}
-
-	// this will destroy npc target and ends the thread
-	//print( "hitsWall: " + string( hitsWall ) )
-	if ( !e.gib )
-	{
-		target.BecomeRagdoll( Vector(0,0,0), false )
-
-		WaitFrame() // player ragdoll take hold!
-	}
-
-	// kill player
-	if ( target.IsPlayer() )
-		MeleeWallSplatKillTarget( attacker, target, e )
-}
-
-function MeleeWallSplatKillTarget( entity attacker, entity target, e )
-{
-	// if code hits here, we can consider that our throwing killed the target
-	e.thrownKilled = true
-
-	//print( "meleeWallSplat target killed, attacker: " + string( attacker ) )
-	if ( e.gib )
-	{
-		local force = Vector(0,0,0)
-		if ( IsAlive( attacker ) )
-		{
-			local vec = target.GetOrigin() - attacker.GetOrigin()
-			vec.Norm()
-			force = vec
-		}
-		target.Die( attacker, attacker, { scriptType = DF_GIB | DF_KILLSHOT, force = force, damageSourceId = eDamageSourceId.titan_execution } )
-	}
 	else
-	{
-		target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
-	}
+		target.BecomeRagdoll( ragdollVelocity, false )
+	
+	WaitFrame() // player ragdoll take hold!
 
-	// isure visibility after target dies
+	entity killCreditAttacker = target
+	if ( IsValid( e.attacker ) )
+		killCreditAttacker = expect entity( e.attacker )
+	target.Die( killCreditAttacker, killCreditAttacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
+
+	// insure visibility after target becomes ragdoll
 	target.SetOwner( null )
 	target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 }
