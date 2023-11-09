@@ -85,21 +85,8 @@ void function Spawn_Init()
 	AddCallback_GameStateEnter( eGameState.Prematch, ResetSpawnzones )
 	AddSpawnCallbackEditorClass( "trigger_multiple", "trigger_mp_spawn_zone", AddSpawnZoneTrigger )
 
-	// modified: add spawn_on_friendly support. vanilla seems spawn right onto a safe&moving friendly player
-	AddCallback_OnClientConnected( TrackFriendlySpawnLifeLong )
 	// modified: prevent spawning in friendly's deadly area
 	AddCallback_OnPlayerKilled( AddNoSpawnAreaForBeingKilled )
-	// modified: spawn point is not enough for most ffa maps, try to add more of them. temp removed now since we're including tdm spawns for ffa
-	//AddCallback_EntitiesDidLoad( FFAExtraSpawnPoints )
-}
-
-// modified: add spawn_on_friendly support
-void function TrackFriendlySpawnLifeLong( entity player )
-{
-	if ( IsFFAGame() ) // we don't track for ffa
-		return
-	
-	TrackPlayerFriendlyPilotSpawn( player )
 }
 
 // modified: prevent spawning in friendly's deadly area
