@@ -54,6 +54,8 @@ void function ClassicMP_DefaultDropshipIntro_Setup()
 	InitIntroDropshipSequenceData()
 	AddCallback_OnClientConnected( DropshipIntro_OnClientConnected )	
 	AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
+	// modified to use signal for controlling air mobility
+	RegisterSignal( "DropshipIntroTouchGround" )
 }
 
 void function InitValidDropshipSpawns()
@@ -357,8 +359,11 @@ void function SpawnPlayerIntoDropship( entity player )
 	
 	// respawn player and holster their weapons so they aren't out
 	DecideRespawnPlayer( player )
-	HolsterViewModelAndDisableWeapons( player ) // disabling viewmodel goes first
-	//HolsterAndDisableWeapons(player)
+	// wrapped disableWeapons() function can sometimes make player's offhand being locked forever
+	// temp stopped using them
+	//HolsterViewModelAndDisableWeapons( player ) // disabling viewmodel goes first
+	player.DisableWeaponViewModel()
+	player.Server_TurnOffhandWeaponsDisabledOn()
 	
 	// hide hud and fade screen out from black
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
@@ -415,19 +420,27 @@ void function PlayerJumpsFromDropship( entity player )
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
 
-	int moveLockEffect = StatusEffect_AddEndless( player, eStatusEffect.move_slow, 1.0 ) // 1.0 will lock player's movement
+	table results = {
+		addedMovementCallback = false
+	}
 
 	OnThreadEnd
 	( 
-		function() : ( player, moveLockEffect )
+		function() : ( player, results )
 		{
 			if ( IsValid( player ) )
 			{
-				// defensive fix, restore movements
-				StatusEffect_Stop( player, moveLockEffect )
+				// defensive fix, restore air mobility
+				player.kv.airSpeed = player.GetPlayerSettingsField( "airSpeed" )
+				player.kv.airAcceleration = GetCurrentPlaylistVarInt( "custom_air_accel_pilot", int( player.GetPlayerSettingsField( "airAcceleration" ) ) )
+				// remove callback if it has been set
+				if ( results.addedMovementCallback )
+					RemovePlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, SingalOnPlayerTouchGround )
+
 				// show weapon viewmodel and hud
-				DeployViewModelAndEnableWeapons( player )
-				//DeployAndEnableWeapons(player)
+				//DeployViewModelAndEnableWeapons( player )
+				player.EnableWeaponViewModel()
+				player.Server_TurnOffhandWeaponsDisabledOff()
 				RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
 				if ( player.ContextAction_IsBusy() )
 					player.ContextAction_ClearBusy() // clean up busy state set by SpawnPlayerIntoDropship()
@@ -455,33 +468,34 @@ void function PlayerJumpsFromDropship( entity player )
 	wait 0.1 // assume players will never actually hit ground before this
 	player.ConsumeDoubleJump() // disable double jump
 
-	while ( !player.IsOnGround() && !player.IsWallRunning() && !player.IsWallHanging() ) // todo this needs tweaking
-	{
-		if ( IsPlayerNearGround( player ) ) // we remove the movelock when player getting close to ground, so they won't feel dizzy upon first move
-			StatusEffect_Stop( player, moveLockEffect )
+	// disable air control until player lands
+	player.kv.airSpeed = 0
+	player.kv.airAcceleration = 0
 
-		WaitFrame()
-	}
+	AddPlayerMovementEventCallback( player, ePlayerMovementEvents.TOUCH_GROUND, SignalOnPlayerTouchGround )
+	results.addedMovementCallback = true // we clean up callbacks in OnThreadEnd()
+
+	// wait for the signal we set in SignalOnPlayerTouchGround()
+	// in any case we touched ground earlier than we set AddPlayerMovementEventCallback()...
+	// this function can prevent player not getting their air control back
+	waitthread WaitForPlayerTouchGround( player )
 
 	TryGameModeAnnouncement( player )
 }
 
-bool function IsPlayerNearGround( entity player, float checkHeight = 128 )
+void function SignalOnPlayerTouchGround( entity player )
 {
-	array<entity> ignoreEnts
-	// always ignore all npcs and players, try to hit onto ground
-	ignoreEnts.extend( GetPlayerArray() )
-	ignoreEnts.extend( GetNPCArray() )
+	player.Signal( "DropshipIntroTouchGround" )
+	// debug
+	//print( "player.GetVelocity(): " + string( player.GetVelocity() ) )
+}
 
-	vector traceStart = player.GetOrigin()
-	vector traceEnd = traceStart - < 0, 0, checkHeight >
+void function WaitForPlayerTouchGround( entity player )
+{
+	// "OnDeath" and "OnDestroy" inherits from PlayerJumpsFromDropship()
+	player.EndSignal( "DropshipIntroTouchGround" ) // main functional signal
 
-	TraceResults downTrace = TraceLine( traceStart, traceEnd, ignoreEnts, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
-	entity hitEnt = downTrace.hitEnt
-	if ( !IsValid( hitEnt ) ) // we cannot trace any entity
-		return false
-	if ( !hitEnt.IsWorld() ) // we're not traced onto ground
-		return false
-
-	return true
+	// failsafe looping case
+	while ( !player.IsOnGround() && !player.IsWallRunning() && !player.IsWallHanging() )
+		WaitFrame()
 }
