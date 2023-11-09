@@ -59,7 +59,6 @@ struct
 
 	// modified callbacks
 	array< void functionref( entity, entity ) > onPlayerGrappledCallbacks
-	array< bool functionref( entity, entity, var, DamageChatterStruct ) > shouldPlayDamageChatterCallbacks
 
 	// modified settings override
 	table< string, table<string, int> > damageSourceIdOverride_WeaponMod
@@ -456,52 +455,10 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 	#if SERVER && MP
 		Stats_OnPlayerDidDamage( ent, damageInfo )
 		PIN_DamageDone( attacker, ent, DamageInfo_GetDamage( damageInfo ) )
-
-		// chatter for MP
-		#if BATTLECHATTER_ENABLED
-			// damaged pilot dialogues
-			if( attackerIsPlayer && !attackerIsTitan && entIsPlayer && attacker != ent )
-			{
-				const float NEAR_DAMAGE_CHATTER_DIST = 1500 // damage from too far shouldn't trigger damage chatter
-				bool isKillShot = ( ent.GetHealth() + ent.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) ) <= 0
-				bool inChatterRange = Distance( attacker.GetOrigin(), ent.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
-				bool playDamageBC = !isKillShot && inChatterRange // make instant kills won't play a chatter
-				
-				// include into struct for other files to use
-				DamageChatterStruct chatterResult
-				chatterResult.isKillShot = isKillShot
-				chatterResult.inChatterRange = inChatterRange
-				// run callbacks to decide whether we play damage chatter
-				// added via AddCallback_ShouldPlayDamageChatter()
-				foreach ( callbackFunc in file.shouldPlayDamageChatterCallbacks )
-				{
-					if ( !callbackFunc( ent, attacker, damageInfo, chatterResult ) ) // if we ever failed a check, return false
-					{
-						playDamageBC = false
-						break
-					}
-				}
-				//
-				//print( "playDamageBC: " + string( playDamageBC ) )
-				if( playDamageBC )
-				{
-					if( GetGameState() >= eGameState.Playing ) // don't play on intro or somewhere
-						PlayBattleChatterLine( attacker, "bc_fNearEnemyDmg" )
-				}
-			}
-		#endif
 	#endif
 
 	attacker.Signal( "DamagedPlayerOrNPC" )
 }
-
-// modified to make damage chatter less hardcoded
-void function AddCallback_ShouldPlayDamageChatter( bool functionref( entity, entity, var, DamageChatterStruct ) callbackFunc )
-{
-	if ( !file.shouldPlayDamageChatterCallbacks.contains( callbackFunc ) )
-		file.shouldPlayDamageChatterCallbacks.append( callbackFunc )
-}
-//
 
 void function EarnMeterDamageConversion( var damageInfo, entity attacker, entity ent, float savedDamage, TitanDamage titanDamage )
 {
