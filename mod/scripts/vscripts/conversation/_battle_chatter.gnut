@@ -1,0 +1,249 @@
+global function BattleChatter_Init
+global function PlayBattleChatterLine
+global function TryPlayWeaponBattleChatterLine
+
+// funny modified settings!
+global function SetBattleChatterEnabled
+global function SetBattleChatterEnableToSelf
+global function SetBattleChatterEnableToAll
+
+// modified callbacks
+global struct DamageChatterStruct
+{
+	bool isKillShot
+	bool inChatterRange
+}
+global function AddCallback_ShouldPlayDamageChatter
+
+// modified settings struct
+struct
+{
+	bool battleChatterEnabled = true
+	bool chatterEnableToSelf = false // this will toggle chatter to it's sender can hear( in vanilla you can't hear your own chatters )
+	bool chatterEnableToAll = false // this will toggle chatter to all players can hear
+
+	// in-file variables
+	// modified callback to decide whether we player the chatter or not
+	array< bool functionref( entity, entity, var, DamageChatterStruct ) > shouldPlayDamageChatterCallbacks
+} file
+
+void function BattleChatter_Init()
+{
+	// this should be AddCallback_PlayerClassChanged()
+	//AddCallback_OnPlayerGetsNewPilotLoadout( UpdatePlayerVoiceIndex )
+	AddCallback_PlayerClassChanged( UpdatePlayerVoiceIndex )
+	// mp damage and kill player chatter
+	AddPostDamageCallback( "player", OnPlayerPostDamage )
+	AddDeathCallback( "player", OnPlayerKilled )
+}
+
+
+// funny modified settings!
+void function SetBattleChatterEnabled( bool enabled )
+{
+	file.battleChatterEnabled = enabled
+}
+
+void function SetBattleChatterEnableToSelf( bool enabled )
+{
+	file.chatterEnableToSelf = enabled
+}
+
+void function SetBattleChatterEnableToAll( bool enabled )
+{
+	file.chatterEnableToAll = enabled
+}
+
+void function PlayBattleChatterLine( entity player, string conversationType )
+{
+	// northstar modified check
+	if ( !file.battleChatterEnabled )
+		return
+		
+	int conversationIndex = GetConversationIndex( conversationType )
+
+	array<entity> chatterTargets
+	
+	if ( file.chatterEnableToAll )
+		chatterTargets = GetPlayerArray() // all players can hear the chatter!
+	else
+		chatterTargets = GetPlayerArrayOfTeam( player.GetTeam() )
+
+	foreach( entity otherPlayer in chatterTargets )
+	{
+		bool shouldPlayChatter = false
+		if ( file.chatterEnableToSelf )
+		{
+			if ( ShouldPlayBattleChatter( conversationType, otherPlayer, player ) ) // in order to make player himself can hear his battlechatter
+				shouldPlayChatter = true
+		}
+		else 
+		{
+			if ( ShouldPlayBattleChatter( conversationType, otherPlayer, player ) && player != otherPlayer )
+				shouldPlayChatter = true
+		}
+
+		if ( shouldPlayChatter )
+			Remote_CallFunction_Replay( otherPlayer, "ServerCallback_PlayBattleChatter", conversationIndex, player.GetEncodedEHandle() )
+	}
+
+	/* // vanilla chatter think
+	foreach( entity otherPlayer in GetPlayerArrayOfTeam( player.GetTeam() ) )
+	{
+		//if ( ShouldPlayBattleChatter( conversationType, otherPlayer, player ) && player != otherPlayer )
+			Remote_CallFunction_Replay( otherPlayer, "ServerCallback_PlayBattleChatter", conversationIndex, player.GetEncodedEHandle() )
+	}
+	*/
+}
+
+void function TryPlayWeaponBattleChatterLine( entity player, entity weapon )
+{
+	var chatterEvent = weapon.GetWeaponInfoFileKeyField( "battle_chatter_event" )
+	if ( chatterEvent == null )
+		return
+		
+	expect string( chatterEvent )
+	PlayBattleChatterLine( player, chatterEvent )
+}
+
+// this should be added to AddCallback_PlayerClassChanged()
+void function UpdatePlayerVoiceIndex( entity player )
+{
+	if ( !IsPilot( player ) ) // only happens on pilot players
+		return
+	
+	if ( IsPlayerFemale( player ) )
+	{
+		if ( player.IsMechanical() )
+			player.SetPlayerNetInt( "battleChatterVoiceIndex", SelectRandomAndroidFemaleBattleChatterVoice() )
+		else
+			player.SetPlayerNetInt( "battleChatterVoiceIndex", SelectRandomFemaleBattleChatterVoice() )
+	}
+	else
+	{
+		if ( player.IsMechanical() )
+			player.SetPlayerNetInt( "battleChatterVoiceIndex", SelectRandomAndroidMaleBattleChatterVoice() )
+		else
+			player.SetPlayerNetInt( "battleChatterVoiceIndex", SelectRandomMaleBattleChatterVoice() )
+	}
+}
+
+// mp damage and kill player chatter
+// damaged pilot dialogues
+void function OnPlayerPostDamage( entity victim, var damageInfo )
+{
+	// general check
+	if ( !DamageIsValidForPlayingChatter( victim, damageInfo ) )
+		return
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo ) // already validated through DamageIsValidForPlayingChatter()
+	int damage = int( DamageInfo_GetDamage( damageInfo ) ) // here's already postdamage, safe to cast to int
+
+	const float NEAR_DAMAGE_CHATTER_DIST = 1500 // damage from too far shouldn't trigger damage chatter
+	bool isKillShot = ( victim.GetHealth() + victim.GetShieldHealth() - damage ) <= 0 // shield health is added because we've fixed pilot shield usage
+	bool inChatterRange = Distance( attacker.GetOrigin(), victim.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
+	bool playDamageBC = !isKillShot && inChatterRange // make instant kills won't play a chatter
+	
+	// include into struct for other files to use
+	DamageChatterStruct chatterResult
+	chatterResult.isKillShot = isKillShot
+	chatterResult.inChatterRange = inChatterRange
+
+	// run callbacks to decide whether we play damage chatter
+	// added via AddCallback_ShouldPlayDamageChatter()
+	foreach ( callbackFunc in file.shouldPlayDamageChatterCallbacks )
+	{
+		if ( !callbackFunc( victim, attacker, damageInfo, chatterResult ) ) // if we ever failed a check, return false
+		{
+			playDamageBC = false
+			break
+		}
+	}
+	//
+
+	//print( "playDamageBC: " + string( playDamageBC ) )
+	if( playDamageBC )
+	{
+		PlayBattleChatterLine( attacker, "bc_fNearEnemyDmg" )
+	}
+}
+
+// killing pilot dialogues
+void function OnPlayerKilled( entity victim, var damageInfo )
+{
+	// general check
+	if ( !DamageIsValidForPlayingChatter( victim, damageInfo ) )
+		return
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo ) // already validated through DamageIsValidForPlayingChatter()
+	TryPilotKillChatter( attacker )
+}
+
+// vanilla actually don't delay these stuffs, but I want make it feel better like apex chatters
+void function TryPilotKillChatter( entity attacker )
+{
+	thread TryPilotKillChatter_Threaded( attacker )
+}
+
+void function TryPilotKillChatter_Threaded( entity attacker )
+{
+	attacker.EndSignal( "OnDestroy" )
+	attacker.EndSignal( "OnDeath" )
+	wait RandomFloatRange( 0.3, 0.5 )
+	
+	// attacker reporting kill
+	if( GetGameState() < eGameState.Playing ) // re-exam after delay, don't play during intro or somewhere
+		return
+	PlayBattleChatterLine( attacker, "bc_fKilledEnemy" )
+	wait RandomFloatRange( 0.8, 1.1 )
+
+	// friendly congrats
+	if( GetGameState() < eGameState.Playing ) // re-exam after delay, don't play during intro or somewhere
+		return
+    array<entity> nearbyFriendly = GetPlayerArrayOfTeam_Alive( attacker.GetTeam() )
+	if( nearbyFriendly.contains( attacker ) )
+		nearbyFriendly.removebyvalue( attacker )
+	if( nearbyFriendly.len() < 1 )
+        return
+    entity closestFriendly = GetClosest( nearbyFriendly, attacker.GetOrigin(), 500 )
+    if( IsValid( closestFriendly ) )
+        PlayBattleChatterLine( closestFriendly, "bc_fCongratsKill" )
+}
+
+bool function DamageIsValidForPlayingChatter( entity victim, var damageInfo )
+{
+	// gamestate check
+	if ( GetGameState() >= eGameState.Playing ) // don't play during intro or somewhere
+		return false
+
+	// victim validation check
+	if ( !IsValid( victim ) )
+		return false
+	if ( !victim.IsPlayer() )
+		return false
+	if ( victim.IsTitan() )
+		return false
+	
+	// attacker validation check
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return false
+	if ( !attacker.IsPlayer() )
+		return false
+	if ( attacker.IsTitan() )
+		return false
+
+	// self damage
+	if ( attacker == victim )
+		return false
+
+	// all checks passed
+	return true
+}
+
+// modified callback to decide whether we player the chatter or not
+void function AddCallback_ShouldPlayDamageChatter( bool functionref( entity, entity, var, DamageChatterStruct ) callbackFunc )
+{
+	if ( !file.shouldPlayDamageChatterCallbacks.contains( callbackFunc ) )
+		file.shouldPlayDamageChatterCallbacks.append( callbackFunc )
+}
