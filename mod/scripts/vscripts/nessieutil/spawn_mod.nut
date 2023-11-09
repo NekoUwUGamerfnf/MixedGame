@@ -1202,7 +1202,7 @@ void function FastballPlayer2( entity player )
 
 	// respawn the player
 	player.SetOrigin( buddy.GetOrigin() )
-	DoRespawnPlayer( player, null )
+	DecideRespawnPlayer( player )
 	player.kv.VisibilityFlags = 0 // better than .Hide(), hides weapons and such
 	player.SetInvulnerable() // in deadly ground we die without this lol
 	player.HolsterWeapon()
