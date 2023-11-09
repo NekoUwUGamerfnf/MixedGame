@@ -1297,7 +1297,7 @@ void function MatchCleanUpPreSetUp()
 		// disable player's movements
 		player.FreezeControlsOnServer()
 		if ( IsAlive( player ) )
-			player.SetInvulnerable() // player no longer dies from here( unless they fall off cliff )
+			MatchEndCleanUpInvulnerableEntity( player ) // player no longer dies from here( unless they fall off cliff )
 		// shared from _base_gametype_mp.gnut, stop any kill replay playing
 		StopKillReplayForPlayer( player )
 		// respawn disallowed
@@ -1372,7 +1372,7 @@ void function CleanUpEntitiesForMatchEnd()
 		ClearTitanAvailable( player )
 		PROTO_CleanupTrackedProjectiles( player )
 		if ( IsAlive( player ) )
-			player.SetInvulnerable() // player no longer dies from here( unless they fall off cliff )
+			MatchEndCleanUpInvulnerableEntity( player ) // player no longer dies from here( unless they fall off cliff )
 	}
 
 	// freeze all npcs instead of killing them
@@ -1393,6 +1393,13 @@ void function CleanUpEntitiesForMatchEnd()
 		callback()
 }
 
+void function MatchEndCleanUpInvulnerableEntity( entity ent )
+{
+	ent.SetInvulnerable()
+	ent.SetNoTarget( true )
+	ent.SetNoTargetSmartAmmo( true )
+}
+
 void function FreezeAllNPCsForMatchEnd()
 {
 	while ( true )
@@ -1404,7 +1411,7 @@ void function FreezeAllNPCsForMatchEnd()
 			if ( !npc.IsFrozen() )
 				npc.Freeze()
 			if ( !npc.IsInvulnerable() )
-				npc.SetInvulnerable() // npc no longer dies from here
+				MatchEndCleanUpInvulnerableEntity( npc ) // npc no longer dies from here
 		}
 
 		WaitFrame()
