@@ -10,6 +10,9 @@ global function RespawnAsPilot
 global function RespawnAsTitan
 global function TryGameModeAnnouncement
 
+// modified callback: allowing change something before player actually respawns
+global function AddCallback_OnPlayerDecideRespawn
+
 global function SetKillcamsEnabled
 global function KillcamsEnabled
 global function SetPlayerDeathsHidden
@@ -72,6 +75,9 @@ struct
 	
 	entity intermissionCamera
 	array<entity> specCams
+
+	// modified callback: allowing change something before player actually respawns
+	array<void functionref( entity player, entity spawnPoint )> playerDecideRespawnCallbacks
 
 	entity functionref( entity player, entity basePoint ) recalculateRespawnAsTitanStartPointCallback
 	
@@ -705,7 +711,7 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	*/
 
 	// BecomeRagdoll() seems weird with short deathCam
-	// now setting these in DoRespawnPlayer() to prevent crash
+	// now setting these in DecideRespawnPlayer() to prevent crash
 	//player.SetPlayerSettings( "spectator" ) // prevent a crash with going from titan => pilot on respawn
 	//player.StopPhysics() // need to set this after SetPlayerSettings
 	// vanilla seems never change player to spectator on death...
@@ -983,18 +989,60 @@ void function StopKillReplayForPlayer( entity player )
 	player.Signal( "KillCamOver" )
 }
 
-void function DecideRespawnPlayer( entity player )
+// modified to add spawnpointOverride
+//void function DecideRespawnPlayer( entity player )
+void function DecideRespawnPlayer( entity player, entity spawnpointOverride = null )
 {
 	// this isn't even used atm, could likely be removed if some vanilla code didn't rely on it
-}
+	// REWORK: this is a wrapped function, should be used to replace all player.RespawnPlayer() calls
+	if ( !IsValid( player ) ) 
+		return
+	if ( IsAlive( player ) ) // player already alive! bad usage happened
+		return
 
-void function RespawnAsPilot( entity player, entity spawnpointOverride = null )
-{
+	// prevent a crash with going from titan => pilot on respawn
+	// normally this is handled by killreplay or intermission cam
+	// but we want to support modified death cam that allows player to completely skip kill replay
+	if ( player.GetPlayerSettings() != "spectator" )
+	{
+		if ( !player.IsTitan() )
+		{
+			// non-titan case, changing to spectator
+			string setFile = player.GetPlayerSettings()
+			PlayerClassChangeToSpectator( player )
+			player.SetPlayerSettings( setFile )
+		}
+		else // dying as titan, shouldn't reset player settings immedialely
+			PlayerClassChangeToSpectator( player )
+	}
+
+	// if we don't clear spec delay before respawn, player will receive a bad visual effect in the rest of game
+	Spectator_StopPlayerSpectating( player )
+	
+	// HACK for modified death cam: 
+	// dissolving will delay 2s to hide player, but player may respawn earlier than 2s, making them being hide after respawn!
+	// have to manully clear dissolving effect for player before player.RespawnPlayer() is called
+	// this should be enough. also made a defensive fix in sh_death_package.gnut, EnsureDissolveEffectIsClearedForPlayer()
+	player.DissolveStop()
+
 	entity spawnpoint = FindSpawnPoint( player, false, ( ShouldStartSpawn( player ) || Flag( "ForceStartSpawn" ) ) && !IsFFAGame() )
+	// modified to add spawnpointOverride
 	if ( spawnpointOverride != null )
 		spawnpoint = spawnpointOverride
+
+	// modified callback: allowing change something before player actually respawns
+	// Added via AddCallback_OnPlayerDecideRespawn
+	foreach ( callbackFunc in file.playerDecideRespawnCallbacks )
+		callbackFunc( player, spawnpoint )
 	
+	// all pre-setups done, it's now safe to respawn player
 	DoRespawnPlayer( player, spawnpoint )
+}
+
+// modified to add spawnpointOverride
+void function RespawnAsPilot( entity player, entity spawnpointOverride = null )
+{
+	DecideRespawnPlayer( player, spawnpointOverride )
 }
 
 // manualPosition is unused... just keep here to avoid conflict with other Northstar scripts
@@ -1124,7 +1172,7 @@ void function RespawnAsTitan( entity player, bool manualPosition = false, entity
 	if( IsAlive( player ) )
 		return
 
-	player.RespawnPlayer( null ) // spawn player as pilot so they get their pilot loadout on embark
+	DecideRespawnPlayer( player ) // spawn player as pilot so they get their pilot loadout on embark
 	player.SetOrigin( titan.GetOrigin() )
 	
 	// don't make player titan when entity batteryContainer is not valid.
@@ -1420,28 +1468,41 @@ void function CodeCallback_PlayerHasBeenConnectedForDuration( entity player, flo
 	}
 }
 
+// modified callbacks
+void function AddCallback_OnPlayerDecideRespawn( void functionref( entity player, entity spawnpoint ) callbackFunc )
+{
+	if ( !file.playerDecideRespawnCallbacks.contains( callbackFunc ) )
+		file.playerDecideRespawnCallbacks.append( callbackFunc )
+}
+
 // vanilla missing AddCallbacks
 void function AddCallback_OnWeaponAttack( void functionref( entity player, entity weapon, string weaponName, int ammoUsed ) callbackFunc )
 {
-	file.onWeaponAttackCallbacks.append( callbackFunc )
+	// NOTE: this callback isn't called at all!
+	if ( !file.onWeaponAttackCallbacks.contains( callbackFunc ) )
+		file.onWeaponAttackCallbacks.append( callbackFunc )
 }
 
 void function AddCallback_OnPlayerMatchmakingChanged( void functionref( entity player ) callbackFunc )
 {
-	file.onPlayerMatchmakingChangedCallbacks.append( callbackFunc )
+	if ( !file.onPlayerMatchmakingChangedCallbacks.contains( callbackFunc ) )
+		file.onPlayerMatchmakingChangedCallbacks.append( callbackFunc )
 }
 
 void function AddCallback_OnWeaponTouch( void functionref( entity player, entity weapon, int ammoRecieved ) callbackFunc )
 {
-	file.onWeaponTouchCallbacks.append( callbackFunc )
+	if ( !file.onWeaponTouchCallbacks.contains( callbackFunc ) )
+		file.onWeaponTouchCallbacks.append( callbackFunc )
 }
 
 void function AddCallback_WeaponDropped( void functionref( entity weapon ) callbackFunc )
 {
-	file.weaponDroppedCallbacks.append( callbackFunc )
+	if ( !file.weaponDroppedCallbacks.contains( callbackFunc ) )
+		file.weaponDroppedCallbacks.append( callbackFunc )
 }
 
 void function AddCallback_PlayerHasBeenConnectedForDuration( void functionref( entity player, float durationInSeconds ) callbackFunc )
 {
-	file.playerHasBeenConnectedForDurationCallbacks.append( callbackFunc )
+	if ( !file.playerHasBeenConnectedForDurationCallbacks.contains( callbackFunc ) )
+		file.playerHasBeenConnectedForDurationCallbacks.append( callbackFunc )
 }
