@@ -7,6 +7,14 @@ global function SetBattleChatterEnabled
 global function SetBattleChatterEnableToSelf
 global function SetBattleChatterEnableToAll
 
+// modified callbacks
+global struct DamageChatterStruct
+{
+	bool isKillShot
+	bool inChatterRange
+}
+global function AddCallback_ShouldPlayDamageChatter
+
 // modified settings struct
 struct
 {
@@ -122,18 +130,18 @@ void function UpdatePlayerVoiceIndex( entity player )
 
 // mp damage and kill player chatter
 // damaged pilot dialogues
-void function OnPlayerPostDamage( entity vicitm, var damageInfo )
+void function OnPlayerPostDamage( entity victim, var damageInfo )
 {
 	// general check
-	if ( !DamageIsValidForPlayingChatter( victim. damageInfo ) )
+	if ( !DamageIsValidForPlayingChatter( victim, damageInfo ) )
 		return
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo ) // already validated through DamageIsValidForPlayingChatter()
 	int damage = int( DamageInfo_GetDamage( damageInfo ) ) // here's already postdamage, safe to cast to int
 
 	const float NEAR_DAMAGE_CHATTER_DIST = 1500 // damage from too far shouldn't trigger damage chatter
-	bool isKillShot = ( vicitm.GetHealth() + vicitm.GetShieldHealth() - damage ) <= 0 // shield health is added because we've fixed pilot shield usage
-	bool inChatterRange = Distance( attacker.GetOrigin(), vicitm.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
+	bool isKillShot = ( victim.GetHealth() + victim.GetShieldHealth() - damage ) <= 0 // shield health is added because we've fixed pilot shield usage
+	bool inChatterRange = Distance( attacker.GetOrigin(), victim.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
 	bool playDamageBC = !isKillShot && inChatterRange // make instant kills won't play a chatter
 	
 	// include into struct for other files to use
@@ -145,7 +153,7 @@ void function OnPlayerPostDamage( entity vicitm, var damageInfo )
 	// added via AddCallback_ShouldPlayDamageChatter()
 	foreach ( callbackFunc in file.shouldPlayDamageChatterCallbacks )
 	{
-		if ( !callbackFunc( ent, attacker, damageInfo, chatterResult ) ) // if we ever failed a check, return false
+		if ( !callbackFunc( victim, attacker, damageInfo, chatterResult ) ) // if we ever failed a check, return false
 		{
 			playDamageBC = false
 			break
@@ -164,9 +172,10 @@ void function OnPlayerPostDamage( entity vicitm, var damageInfo )
 void function OnPlayerKilled( entity victim, var damageInfo )
 {
 	// general check
-	if ( !DamageIsValidForPlayingChatter( victim. damageInfo ) )
+	if ( !DamageIsValidForPlayingChatter( victim, damageInfo ) )
 		return
 
+	entity attacker = DamageInfo_GetAttacker( damageInfo ) // already validated through DamageIsValidForPlayingChatter()
 	TryPilotKillChatter( attacker )
 }
 
