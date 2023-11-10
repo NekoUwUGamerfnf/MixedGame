@@ -351,6 +351,6 @@ float function CalculateCurrentWeaponCooldownFromStoredTime( entity player, enti
 
 	float severity = elapsedTime / cooldownTime
 
-	print( "calculated severity: " + string( clamp( severity + data.severity, 0, 1 ) ) )
+	//print( "calculated severity: " + string( clamp( severity + data.severity, 0, 1 ) ) )
 	return clamp( severity + data.severity, 0, 1 )
 }

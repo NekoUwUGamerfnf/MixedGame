@@ -148,8 +148,9 @@ void function PIN_GameStart()
 	
 	// In vanilla the level.nv.switchSides only inited when gamemode is actually using switch sides, or the function IsSwitchSidesBased() from _utility_shared.nut will always return a "true"!
 	//SetServerVar( "switchedSides", 0 ) // handled by SetSwitchSidesBased()
-	SetServerVar( "winningTeam", -1 )
-		
+	// In vanilla level.nv.winningTeam should be leave as null so GetWinningTeam() will return team-score-based result
+	//SetServerVar( "winningTeam", null ) // this should be null when not used...
+	
 	AddCallback_GameStateEnter( eGameState.WaitingForCustomStart, GameStateEnter_WaitingForCustomStart )
 	AddCallback_GameStateEnter( eGameState.WaitingForPlayers, GameStateEnter_WaitingForPlayers )
 	AddCallback_OnClientConnected( WaitingForPlayers_ClientConnected )
