@@ -26,7 +26,7 @@ global function SetRecalculateRespawnAsTitanStartPointCallback
 
 // I want my game to have this
 global function PlayerWatchesKillReplayWrapper // this function should share with _gamestate_mp.nut
-global function PlayerClassChangeToSpectator // shared with other files such as _base_gametype.gnut and _spectator.gnut
+global function PlayerClassChangeToSpectator // shared with other files such _spectator.gnut
 global function SetPlayerCameraToIntermissionCam // shared
 global function GetReplayTimeSinceAttackerSpawned // shared with _gamestate_mp.nut
 global function StopKillReplayForPlayer // shared with _gamestate_mp.nut
@@ -77,7 +77,7 @@ struct
 	array<entity> specCams
 
 	// modified callback: allowing change something before player actually respawns
-	array<void functionref( entity player, entity spawnPoint )> playerDecideRespawnCallbacks
+	array<void functionref( entity player )> playerDecideRespawnCallbacks
 
 	entity functionref( entity player, entity basePoint ) recalculateRespawnAsTitanStartPointCallback
 	
@@ -552,15 +552,13 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	if ( player.IsTitan() )
 		SoulDies( player.GetTitanSoul(), damageInfo ) // cleanup some titan stuff, no idea where else to put this
 	
-	// this is not accurate, as we'll get respawn availability after death cam delay
-	// doesn't seem featured in vanilla, but the death sound is surly better than normal one
-	// do it in OnPlayerKilled callbacks if needed
-	// now moved to below "ServerCallback_YouDied"
-	//if ( !RespawnsEnabled() )
-	//	SetPlayerEliminated( player ) // do a different death sound
-	
 	// re-exam for last death: hide respawn prompt during death cam
 	ClearRespawnAvailable( player )
+	// fix: get respawn avaibility before death cam delay
+	// set earlier than "ServerCallback_YouDied" to change death sound
+	bool respawnsEnableBeforeDeathCam = RespawnsEnabled()
+	if ( !respawnsEnableBeforeDeathCam )
+		SetPlayerEliminated( player ) // Change "Respawn" prompt to "Skip Replay", also changes death sound
 
 	OnThreadEnd( function() : ( player )
 	{
@@ -686,11 +684,6 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 						  && ShouldDoReplay( player, attacker, replayLength, methodOfDeath )
 						  && inflictorEHandle != -1 // a proper inflictor is always needed. by default they'll be attacker themselves
 						  && attackerIndex != -1
-
-	// fix: get respawn avaibility before death cam delay
-	bool respawnsEnableBeforeDeathCam = RespawnsEnabled()
-	if ( !respawnsEnableBeforeDeathCam )
-		SetPlayerEliminated( player ) // Change "Respawn" prompt to "Skip Replay", also changes death sound
 	
 	if ( shouldDoReplay )
 	{
@@ -1057,14 +1050,18 @@ void function DecideRespawnPlayer( entity player, entity spawnpointOverride = nu
 	// prevent a crash with going from titan => pilot on respawn
 	// normally this is handled by killreplay or intermission cam
 	// but we want to support modified death cam that allows player to completely skip kill replay
+	// EDIT: compare to r5s3 code, this behavior is good be handled here, not always in replay or intermission cam
 	if ( player.GetPlayerSettings() != "spectator" )
 	{
 		if ( !player.IsTitan() )
 		{
 			// non-titan case, changing to spectator
+			// reverted: do nothing for non-titan respawn. this will mess up player's weapon flyout after replay
+			/*
 			string setFile = player.GetPlayerSettings()
 			PlayerClassChangeToSpectator( player )
 			player.SetPlayerSettings( setFile )
+			*/
 		}
 		else // dying as titan, shouldn't reset player settings immedialely
 			PlayerClassChangeToSpectator( player )
@@ -1087,7 +1084,7 @@ void function DecideRespawnPlayer( entity player, entity spawnpointOverride = nu
 	// modified callback: allowing change something before player actually respawns
 	// Added via AddCallback_OnPlayerDecideRespawn
 	foreach ( callbackFunc in file.playerDecideRespawnCallbacks )
-		callbackFunc( player, spawnpoint )
+		callbackFunc( player )
 	
 	// all pre-setups done, it's now safe to respawn player
 	DoRespawnPlayer( player, spawnpoint )
@@ -1141,6 +1138,7 @@ void function RespawnAsTitan( entity player, bool manualPosition = false, entity
 
 	// titan cleanup
 	ClearTitanAvailable( player ) // clear titan availability once it's created, to avoid we failed transfering into titan and softlock our earnmeter
+	PlayerEarnMeter_Reset( player ) // pet titan has spawned but player haven't, needs to reset earnmeter
 
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) // hide hud
 	// do titanfall scoreevent
@@ -1523,7 +1521,7 @@ void function CodeCallback_PlayerHasBeenConnectedForDuration( entity player, flo
 }
 
 // modified callbacks
-void function AddCallback_OnPlayerDecideRespawn( void functionref( entity player, entity spawnpoint ) callbackFunc )
+void function AddCallback_OnPlayerDecideRespawn( void functionref( entity player ) callbackFunc )
 {
 	if ( !file.playerDecideRespawnCallbacks.contains( callbackFunc ) )
 		file.playerDecideRespawnCallbacks.append( callbackFunc )
