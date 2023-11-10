@@ -356,7 +356,7 @@ void function GameStateEnter_Playing_Threaded()
 			if ( file.timeoutWinnerDecisionFunc != null )
 				winningTeam = file.timeoutWinnerDecisionFunc()
 			else
-				winningTeam = GetWinningTeamWithFFASupport()
+				winningTeam = GetWinningTeamWithFFASupport() // networkvar "winningTeam" may not assigned at this point. we use team score for comparing
 
 			if ( winningTeam < TEAM_UNASSIGNED ) // no valid winner
 				winningTeam = TEAM_UNASSIGNED
@@ -403,7 +403,7 @@ void function GameStateEnter_WinnerDetermined()
 void function GameStateEnter_WinnerDetermined_Threaded()
 {
 	// do win announcement
-	int winningTeam = GetWinningTeamWithFFASupport()
+	int winningTeam = GetWinningTeam() // networkvar "winningTeam" should be assigned at this point, don't use GetWinningTeamWithFFASupport() because round based game score hasn't been updated yet
 
 	// match ending think
 	bool isMatchEnd = true
@@ -573,7 +573,7 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		int roundsPlayed = expect int ( GetServerVar( "roundsPlayed" ) )
 		SetServerVar( "roundsPlayed", roundsPlayed + 1 )
 		
-		int winningTeam = GetWinningTeamWithFFASupport()
+		int winningTeam = GetWinningTeam() // networkvar "winningTeam" should be assigned at this point, use it
 		
 		int highestScore = GameRules_GetTeamScore( winningTeam )
 		int roundScoreLimit = GameMode_GetRoundScoreLimit( GAMETYPE )
@@ -607,6 +607,9 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		else
 			SetGameState( eGameState.Postmatch )
 	}
+
+	// winner determined event done. clear out winningTeam so GetWinningTeam() will use team score for comparing
+	SetServerVar( "winningTeam", null )
 }
 
 void function PlayerWatchesRoundWinningKillReplay( entity player, float extraDelay = 0.0 )
@@ -1969,7 +1972,7 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 		if( IsRoundBased() )
 		{
 			mltScore = GameRules_GetTeamScore2( TEAM_MILITIA )
-			imcScore = GameRules_GetTeamScore2( TEAM_MILITIA )
+			imcScore = GameRules_GetTeamScore2( TEAM_IMC )
 		}
 
 		if( mltScore < imcScore )
@@ -1989,8 +1992,15 @@ void function PlayScoreEventFactionDialogue( string winningLarge, string losingL
 
 		int winningTeamScore = GameRules_GetTeamScore( winningTeam )
 		int losingTeamScore = GameRules_GetTeamScore( losingTeam )
-		if( scoreTied && GetServerVar( "winningTeam" ) <= TEAM_UNASSIGNED )
+		if( IsRoundBased() )
 		{
+			winningTeamScore = GameRules_GetTeamScore2( winningTeam )
+			losingTeamScore = GameRules_GetTeamScore2( losingTeam )
+		}
+
+		if( scoreTied && ( GetServerVar( "winningTeam" ) == null || GetServerVar( "winningTeam" ) <= TEAM_UNASSIGNED ) )
+		{
+			//print( "score tied!" )
 			if( tied != "" )
 			{
 				PlayFactionDialogueToTeam( "scoring_" + tied, TEAM_IMC )
