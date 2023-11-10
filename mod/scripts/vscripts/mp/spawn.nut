@@ -199,7 +199,7 @@ string function CreateNoSpawnArea( int blockSpecificTeam, int blockEnemiesOfTeam
 	noSpawnArea.id = UniqueString( "noSpawnArea" )
 
 	// northstar didn't append current created noSpawnArea to file.noSpawnAreas
-	// didn't tested yet, guess DeleteNoSpawnArea() will never work
+	// didn't tested yet, guess if we don't add this, noSpawnAreas will never work
 	file.noSpawnAreas[ noSpawnArea.id ] <- noSpawnArea
 	//
 
