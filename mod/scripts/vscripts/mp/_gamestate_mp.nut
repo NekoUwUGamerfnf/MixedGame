@@ -449,10 +449,6 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	// add score for match end
 	// shared from _score.nut
 	ScoreEvent_MatchComplete( winningTeam, isMatchEnd )
-
-	bool killcamsWereEnabled = KillcamsEnabled()
-	if ( killcamsWereEnabled ) // dont want killcams to interrupt stuff
-		SetKillcamsEnabled( false )
 	
 	WaitFrame() // wait a frame so other scripts can setup killreplay stuff
 
@@ -516,6 +512,10 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	//print( "doReplay: " + string( doReplay ) )
 	if ( doReplay )
 	{
+		bool killcamsWereEnabled = KillcamsEnabled()
+		if ( killcamsWereEnabled ) // dont want killcams to interrupt replay stuff. current replay stopped by RoundCleanUpPreSetUp()
+			SetKillcamsEnabled( false )
+
 		// pre setup for round end cleaning
 		RoundCleanUpPreSetUp()
 		
@@ -542,6 +542,9 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 		wait ROUND_CLEANUP_WAIT
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
 
+		if ( killcamsWereEnabled ) // reset last
+			SetKillcamsEnabled( true )
+
 		wait ROUND_TRANSITION_DELAY
 	}
 	else if ( IsRoundBased() && !isMatchEnd ) // no replay roundBased, match not ending yet
@@ -563,9 +566,6 @@ void function GameStateEnter_WinnerDetermined_Threaded()
 	{
 		wait ROUND_WINNING_KILL_REPLAY_LENGTH_OF_REPLAY // TEMP
 	}
-
-	if ( killcamsWereEnabled ) // reset last
-		SetKillcamsEnabled( true )
 	
 	if ( IsRoundBased() )
 	{
@@ -672,9 +672,6 @@ void function GameStateEnter_SwitchingSides_Threaded()
 	file.hasSwitchedSides = true
 	SetServerVar( "switchedSides", 1 )
 
-	bool killcamsWereEnabled = KillcamsEnabled()
-	if ( killcamsWereEnabled ) // dont want killcams to interrupt stuff
-		SetKillcamsEnabled( false )
 	bool respawnsWereEnabled = RespawnsEnabled()
 	if ( respawnsWereEnabled ) // don't want respawning to intterupt stuff
 		SetRespawnsEnabled( false )
@@ -775,6 +772,10 @@ void function GameStateEnter_SwitchingSides_Threaded()
 
 	if ( doReplay )
 	{
+		bool killcamsWereEnabled = KillcamsEnabled()
+		if ( killcamsWereEnabled ) // dont want killcams to interrupt replay stuff. current replay stopped by RoundCleanUpPreSetUp()
+			SetKillcamsEnabled( false )
+
 		// pre setup for round end cleaning
 		RoundCleanUpPreSetUp()
 		
@@ -797,6 +798,9 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		// prepare to cleanup
 		wait SWITCH_SIDE_CLEANUP_WAIT
 		CleanUpEntitiesForRoundEnd() // fade should be done by this point, so cleanup stuff now when people won't see
+	
+		if ( killcamsWereEnabled ) // reset last
+			SetKillcamsEnabled( true )
 	}
 	else
 	{
@@ -841,10 +845,7 @@ void function GameStateEnter_SwitchingSides_Threaded()
 		}
 	}
 
-	// reset stuffs here
-	if ( killcamsWereEnabled )
-		SetKillcamsEnabled( true )
-	if ( respawnsWereEnabled )
+	if ( respawnsWereEnabled ) // reset last
 		SetRespawnsEnabled( true )
 
 	if ( file.usePickLoadoutScreen ) // here we just doing round transition, no need to enable pickloadout for intro stuffs, only for titan menu
