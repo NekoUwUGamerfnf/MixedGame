@@ -7,20 +7,24 @@ global function MeleeThread_TitanVsTitan // globalize it!
 const TITANARMMODEL = $"models/weapons/arms/atlaspov.mdl"
 const TEAM_JUMPJET_DBL = $"P_team_jump_jet_DBL"
 
-// modified
+// modified settings
 global function MeleeSyncedTitan_ExecutionNotInvulnerable
-// modified to have more execution options
-global function MeleeSyncedTitan_SetSoulDoClassicExecution
 global function MeleeSyncedTitan_DisableVanguardKitExecution
 
+// modified to have classic execution options
+global function MeleeSyncedTitan_SetSoulDoClassicExecution
+global function MeleeSyncedTitan_SetSoulClassicExecutionType // atlas(buddy), stryder, ogre
+global function MeleeSyncedTitan_SetSoulDoRandomExecution // pick any valid execution from current chassis, or pick any tf1 style execution
+
+// needs modified sh_melee_synced_titan.gnut to do callbacks
 global function MeleeSyncedTitan_SetSoulUseExecutionCallback
 global function MeleeSyncedTitan_SetSoulShouldReplaceLoadoutOnExecution
 
-global function MeleeSyncedTitan_SetSoulCanBeExecuted // modified for checks in AttemptScriptedExecution()( wrapped into TitanMelee_CanScriptedExecution() )
-global function MeleeSyncedTitan_SoulCanBeExecuted
+global function MeleeSyncedTitan_SetSoulCanBeExecuted
+global function MeleeSyncedTitan_SoulCanBeExecuted // shared with checks in AttemptScriptedExecution()( wrapped into TitanMelee_CanScriptedExecution() )
 
 global function MeleeSyncedTitan_SetSoulExecutionTargetRequiredHealthFrac
-global function MeleeSyncedTitan_GetSoulExecutionTargetRequiredHealthFrac
+global function MeleeSyncedTitan_GetSoulExecutionTargetRequiredHealthFrac // shared with checks in ShouldPlayerExecuteTarget()
 //
 
 enum eTitanExecutionType
@@ -48,9 +52,11 @@ struct
 
 	// modified
 	bool titanExecutionNotInvulnerable = false
+	bool disableVanguardKit = false
 	// modified to have more execution options
 	table<entity, bool> soulDoClassicExecution
-	bool disableVanguardKit = false
+	table<entity, string> soulClassicExecutionType
+	table<entity, bool> soulDoRandomExecution
 	table<entity, bool> soulUseExecutionCallback
 	table<entity, bool> soulShouldReplaceLoadout
 
@@ -356,8 +362,12 @@ void functionref( SyncedMelee action, entity attacker, entity target ) function 
 	}
 
 	//string attackerType = GetSoulTitanSubClass( soul ) // moved up
+	// using modified classic execution type, because all titans have animations for each tf1 execution
+	string classicExecutionType = GetSoulClassicExecutionType( soul )
 
-	switch ( attackerType )
+	// using modified classic execution type, because all titans have animations for tf1 each execution
+	//switch ( attackerType )
+	switch ( classicExecutionType )
 	{
 		case "stryder":
 			return MeleeThread_StyderVsTitan
@@ -492,13 +502,12 @@ function AtlasVsTitanSoundEvent( entity attacker, entity target, executionTable 
 		EmitSoundOnEntityForPlayersInRange( attacker, "tone_execution_part_03", 1024, [attacker, target] )
 	}
 	// target view: target being throw out
-	
 	if ( IsAlive( target ) )
 	{
 		EmitSoundOnEntityOnlyToPlayer( target, target, "tone_execution_part_03" )
 	}
 
-	wait 0.25
+	wait 0.2 // was 0.25, needs testing. EDIT: 0.2 is better
 	// attacker view: target being throw out
 	if ( IsAlive( attacker ) )
 	{
@@ -1755,6 +1764,11 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 				// no need to use this anymore
 				//if ( IsValid( target ) && !IsAlive( target ) ) // target killed!
 				//	target.BecomeRagdoll( < 0, 0, 0 >, false )
+
+				// EDIT: we still need to manually ragdoll npcs because they can play death animation after full sequence done
+				// that will seem pretty weird
+				if ( IsValid( target ) && !IsAlive( target ) && target.IsNPC() ) // npc target killed!
+					thread RagdollNPCTargetAfterAnimDone( target )
 			}
 		}
 	)
@@ -1778,6 +1792,17 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 
 	thread FirstPersonSequence( targetSequence, target, ref )
 	waitthread FirstPersonSequence( attackerSequence, attacker, ref )
+}
+
+// temp fix for npc being executed by ogre
+void function RagdollNPCTargetAfterAnimDone( entity target )
+{
+	if ( !target.IsNPC() )
+		return
+	target.EndSignal( "OnDestroy" )
+
+	WaittillAnimDone( target ) // this will wait for their titan gib to be done, then we're safe to ragdoll them
+	target.BecomeRagdoll( < 0, 0, 0 >, false )
 }
 
 //Very similar to the above function for now, eventually won't have the 1st person component at all.
@@ -1872,13 +1897,47 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		data = file.executionData_3p[ executionRef ] // update execution data
 	}
 
+	// re-exam execution ref after all modifications done
+	// shared from sh_melee_synced_titan.gnut
+	bool notUsingBestExecution = false
+	string bestExecutionRef = MeleeSyncedTitan_GetBestExecutionRefForTitan( attacker, executionRef )
+	if ( bestExecutionRef != executionRef ) // we don't have good enough execution!
+	{
+		notUsingBestExecution = true // we'll need to update loadout because it's not best one
+		// update it to use best one
+		// think: is it really necessary to update?
+		// should we consider it as bad coding if we're not using proper executions?
+		executionRef = bestExecutionRef
+		data = file.executionData_3p[ executionRef ]
+	}
+
+	// pick random execution for current chassis
+	// shared from sh_melee_synced-titan.gnut
+	bool pickedRandomExecution = false
+	if ( GetSoulDoRandomExecution( attacker.GetTitanSoul() ) )
+	{
+		string randomExecutionRef = MeleeSyncedTitan_GetRandomExecutionRefForTitan( attacker )
+		if ( randomExecutionRef != executionRef ) // we've got a random execution ref!
+		{
+			pickedRandomExecution = true // we'll need to update loadout because we're using random execution
+			// update it to use random one
+			executionRef = randomExecutionRef
+			data = file.executionData_3p[ randomExecutionRef ]
+		}
+	}
+
 	//print( "executionRef is: " + executionRef )
-	// modified: callbacks in sh_melee_synced_titan.gnut
+	// modified: callbacks in sh_melee_synced_titan.gnut, callback for certain executionRef
 	if ( GetSoulUseExecutionCallback( attacker.GetTitanSoul() ) )
 		MeleeSyncedTitan_RunCallbacksForRef( executionRef, attacker, target )
+	
 	// modified: loadout replace think in sh_melee_synced_titan.gnut
 	// force attacker to use certain execution's weapon, to avoid visual issues
-	if ( GetSoulReplaceLoadoutOnExecution( attacker.GetTitanSoul() ) )
+	// this should also happen when player using random executiion or have their execution replaced with best choice
+	bool doLoadoutReplace = GetSoulReplaceLoadoutOnExecution( attacker.GetTitanSoul() )
+							|| notUsingBestExecution
+							|| pickedRandomExecution
+	if ( doLoadoutReplace )
 		MeleeSyncedTitan_RunLoadoutReplaceCallbackForRef( executionRef, attacker )
 
 	string victimType = GetSoulTitanSubClass( target.GetTitanSoul() )
@@ -2593,6 +2652,11 @@ void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
 	file.titanExecutionNotInvulnerable = notInvulnerable
 }
 
+void function MeleeSyncedTitan_DisableVanguardKitExecution( bool disable )
+{
+	file.disableVanguardKit = disable
+}
+
 void function MeleeSyncedTitan_SetSoulDoClassicExecution( entity titanSoul, bool doClassic )
 {
 	if ( !( titanSoul in file.soulDoClassicExecution ) )
@@ -2607,9 +2671,44 @@ bool function GetSoulDoClassicExecution( entity titanSoul )
 	return file.soulDoClassicExecution[ titanSoul ]
 }
 
-void function MeleeSyncedTitan_DisableVanguardKitExecution( bool disable )
+void function MeleeSyncedTitan_SetSoulDoRandomExecution( entity titanSoul, bool doRandom )
 {
-	file.disableVanguardKit = disable
+	if ( !( titanSoul in file.soulDoRandomExecution ) )
+		file.soulDoRandomExecution[ titanSoul ] <- false // default value
+	file.soulDoRandomExecution[ titanSoul ] = doRandom
+}
+
+bool function GetSoulDoRandomExecution( entity titanSoul )
+{
+	if ( !( titanSoul in file.soulDoRandomExecution ) )
+		return false // default value
+	return file.soulDoRandomExecution[ titanSoul ]
+}
+
+void function MeleeSyncedTitan_SetSoulClassicExecutionType( entity titanSoul, string executionType )
+{
+	if ( !( titanSoul in file.soulClassicExecutionType ) )
+		file.soulClassicExecutionType[ titanSoul ] <- GetSoulTitanSubClass( titanSoul ) // default value
+	file.soulClassicExecutionType[ titanSoul ] = executionType
+}
+
+string function GetSoulClassicExecutionType( entity titanSoul )
+{
+	// hardcode "random" type
+	if ( GetSoulDoRandomExecution( titanSoul ) )
+	{
+		array<string> validExecutionTypes = ["atlas", "stryder"]
+		// atlas and stryder pov model don't have "ogpov_melee_armrip_attacker" animation
+		// should only add them for ogre titans
+		if ( GetSoulTitanSubClass( titanSoul ) == "ogre" )
+			validExecutionTypes.append( "ogre" )
+		return validExecutionTypes[ RandomInt( validExecutionTypes.len() ) ]
+	}
+
+	if ( !( titanSoul in file.soulClassicExecutionType ) )
+		return GetSoulTitanSubClass( titanSoul ) // default value, using titan chassis
+
+	return file.soulClassicExecutionType[ titanSoul ]
 }
 
 void function MeleeSyncedTitan_SetSoulUseExecutionCallback( entity titanSoul, bool useCallback )
