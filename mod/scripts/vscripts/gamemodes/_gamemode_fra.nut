@@ -4,7 +4,6 @@ global function GamemodeFRA_AddAdditionalInitCallback
 void function GamemodeFRA_AddAdditionalInitCallback()
 {
 	AddCallback_OnCustomGamemodesInit( GamemodeFRA_AddAdditionalInit )
-	FlagSet( "IgnoreStartSpawn" ) // northstar missing, ffa gamemodes should always set this
 }
 
 void function GamemodeFRA_AddAdditionalInit()
@@ -18,6 +17,8 @@ void function GamemodeFRA_Init()
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryPickup", 0.0, 0.34 )
 	EarnMeterMP_SetPassiveMeterGainEnabled( false )
 	PilotBattery_SetMaxCount( 3 )
+
+	FlagSet( "IgnoreStartSpawn" ) // northstar missing, ffa gamemodes should always set this
 
 	AddCallback_OnPlayerKilled( FRARemoveEarnMeter )
 }
