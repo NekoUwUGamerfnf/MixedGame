@@ -4,10 +4,23 @@ global function MeleeSyncedTitan_Init
 
 global function MeleeThread_TitanVsTitan // globalize it!
 
+// modified utility
+// we want other files can get all executions we registered
+global function MeleeSyncedTitan_GetAllValidExecutionRefs
+global function MeleeSyncedTitan_RefHasLinkedExecutions
+global function MeleeSyncedTitan_GetLinkedExecutionsFromRef
+
 const TITANARMMODEL = $"models/weapons/arms/atlaspov.mdl"
 const TEAM_JUMPJET_DBL = $"P_team_jump_jet_DBL"
 
+// modified shared utility
+global function MeleeSyncedTitan_GetDefaultExecutionRefForTitanVsTitan3p // wrapped monarch and fake-bt stuffs inside
+global function MeleeSyncedTitan_TitanHasPilot
+global function SetCallback_OnGetTitan3pExecutionRef // modified callback that allows changing the method we get execution ref
+
 // modified settings
+global function MeleeSyncedTitan_SetBatteryRewardTitanPassives // make execution_vanguard_kit's hardcode become a setting, can add any execution ref that rewards battery
+global function MeleeSyncedTitan_ShouldApplyBatteryAfterExecution
 global function MeleeSyncedTitan_ExecutionNotInvulnerable
 global function MeleeSyncedTitan_DisableVanguardKitExecution
 
@@ -15,6 +28,11 @@ global function MeleeSyncedTitan_DisableVanguardKitExecution
 global function MeleeSyncedTitan_SetSoulDoClassicExecution
 global function MeleeSyncedTitan_SetSoulClassicExecutionType // atlas(buddy), stryder, ogre
 global function MeleeSyncedTitan_SetSoulDoRandomExecution // pick any valid execution from current chassis, or pick any tf1 style execution
+
+// shared utility for callbacks can use
+global function MeleeSyncedTitan_GetSoulDoClassicExecution
+global function MeleeSyncedTitan_GetSoulClassicExecutionType
+global function MeleeSyncedTitan_GetSoulDoRandomExecution
 
 // needs modified sh_melee_synced_titan.gnut to do callbacks
 global function MeleeSyncedTitan_SetSoulUseExecutionCallback
@@ -49,10 +67,17 @@ struct TitanExcutionData
 struct
 {
 	table<string, TitanExcutionData> executionData_3p
+	// vanilla missing!!!! we want other files can get all executions we registered
+	array<string> validExecutionRefs
 
-	// modified
+	// modified callbacks
+	string functionref( entity attacker, entity target, string forcedRef = "" ) onGetTitan3pExecutionRefCallback
+
+	// modified settings
+	array<int> titanExecutionRewardsBatteryPassives
 	bool titanExecutionNotInvulnerable = false
-	bool disableVanguardKit = false
+	bool disableVanguardKitExecution = false
+
 	// modified to have more execution options
 	table<entity, bool> soulDoClassicExecution
 	table<entity, string> soulClassicExecutionType
@@ -80,6 +105,15 @@ function MeleeSyncedTitan_Init()
 	PrecacheParticleSystem( TEAM_JUMPJET_DBL )
 
 	Init3pExecutions()
+
+	// modified settings default value
+	// vanilla hardcode turns to settings
+	MeleeSyncedTitan_SetBatteryRewardTitanPassives( 
+		[
+			ePassives.PAS_VANGUARD_COREMETER,		// default: monarch energy thief
+		] 
+	)
+	SetCallback_OnGetTitan3pExecutionRef( DefaultCallback_OnGetTitan3pExecutionRef )
 }
 
 void function Init3pExecutions()
@@ -91,8 +125,37 @@ void function Init3pExecutions()
 		TitanExcutionData data = Create_3p_ExecutionData( dataTable, row )
 		string ref = GetDataTableString( dataTable, row, GetDataTableColumnByName( dataTable, "ref" ) )
 		file.executionData_3p[ref] <- data
+
+		// vanilla missing!!!! we want other files can get all executions we registered
+		if ( !file.validExecutionRefs.contains( ref ) )
+			file.validExecutionRefs.append( ref )
 	}
 }
+
+// vanilla missing!!!! we want other files can get all executions we registered
+array<string> function MeleeSyncedTitan_GetAllValidExecutionRefs()
+{
+	return file.validExecutionRefs
+}
+
+bool function MeleeSyncedTitan_RefHasLinkedExecutions( string ref )
+{
+	if ( !MeleeSyncedTitan_GetAllValidExecutionRefs().contains( ref ) ) // invalid ref?
+		return false
+	
+	TitanExcutionData data = file.executionData_3p[ ref ]
+	return ( data.linkedExecutions.len() > 0 )
+}
+
+array<string> function MeleeSyncedTitan_GetLinkedExecutionsFromRef( string ref )
+{
+	if ( !MeleeSyncedTitan_RefHasLinkedExecutions( ref ) )
+		return []
+
+	TitanExcutionData data = file.executionData_3p[ ref ]
+	return clone data.linkedExecutions // never touch anything inside our data, use a clone
+}
+//
 
 TitanExcutionData function Create_3p_ExecutionData( var dataTable, int row )
 {
@@ -141,6 +204,19 @@ TitanExcutionData function Create_3p_ExecutionData( var dataTable, int row )
 	data.sound_3p = sound_3p
 	data.thirdPersonCameraAttachments = camAttachments
 	data.linkedExecutions = linkedExecutionArray
+
+	// modified for buddy target titan
+	if ( targetAnimation3p_md.len() > 3 ) // avoid crush when encountering random refs
+	{
+		data.attackerAnimation3pPilot[ "buddy" ] <- targetAnimation3pPilot_md
+		string btTargetAnim = "bt_" + targetAnimation3p_md.slice( 3, targetAnimation3p_md.len() )
+		data.targetAnimation3p[ "buddy" ] <- btTargetAnim
+		data.targetAnimation3pPilot[ "buddy" ] <- targetAnimation3pPilot_md
+
+		// debug
+		//print( "btTargetAnim: " + btTargetAnim )
+	}
+
 	return data
 }
 
@@ -327,49 +403,33 @@ void functionref( SyncedMelee action, entity attacker, entity target ) function 
 	entity soul = attacker.GetTitanSoul()
 	// modified here... could get some tf1 execution
 	bool useClassicExecution = GetCurrentPlaylistVarInt( "classic_execution_enabled", 0 ) == 1
-	if ( GetSoulDoClassicExecution( soul ) )
+	if ( MeleeSyncedTitan_GetSoulDoClassicExecution( soul ) )
 		useClassicExecution = true
 
-	string attackerType = GetSoulTitanSubClass( soul )
-
-	//entity soul = attacker.GetTitanSoul() // moved up
 	#if SP
 	TitanLoadoutDef loadout = GetTitanLoadoutForCurrentMap()
 	#else
 	TitanLoadoutDef loadout = soul.soul.titanLoadout // GetActiveTitanLoadout( attacker )
 	#endif
-	string executionRef = loadout.titanExecution
-	// modified to nerf monarch
-	if ( !file.disableVanguardKit )
-	{
-		if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_COREMETER ) && attackerType == "atlas" ) // idk why respawn have to hardcode this
-			executionRef = "execution_vanguard_kit"
-	}
 
+	string executionRef = MeleeSyncedTitan_GetDefaultExecutionRefForTitanVsTitan3p( attacker, target )
 	//if ( executionRef in file.executionData_3p )
-	if ( executionRef in file.executionData_3p && !useClassicExecution ) // classic execution check!
+	if ( executionRef in file.executionData_3p && !useClassicExecution ) // only do 3p execution if we have an ref registered
 		return TitanVsTitan_3p
+
 
 	// below must be tf1 execution, remove cinematic
 	ForceRemoveExecutionCinematic( attacker )
 	ForceRemoveExecutionCinematic( target )
 
-	if ( target.IsNPC() )
+	// auto-titan case classic execution
+	if ( !MeleeSyncedTitan_TitanHasPilot( target ) )
 	{
-		entity bossPlayer = target.GetBossPlayer()
-		// adding check: TitanHasNpcPilot()
-		//if ( IsValid( bossPlayer ) || !IsVDUTitan( target ) )
-		#if NPC_TITAN_PILOT_PROTOTYPE
-			if ( !IsValid( bossPlayer ) && !TitanHasNpcPilot( target ) )
-		#else // vanilla behavior
-			if ( IsValid( bossPlayer ) || !IsVDUTitan( target ) )
-		#endif
-				return MeleeThread_AtlasVsTitanShort
+		return MeleeThread_AtlasVsTitanShort
 	}
 
-	//string attackerType = GetSoulTitanSubClass( soul ) // moved up
 	// using modified classic execution type, because all titans have animations for each tf1 execution
-	string classicExecutionType = GetSoulClassicExecutionType( soul )
+	string classicExecutionType = MeleeSyncedTitan_GetSoulClassicExecutionType( soul )
 
 	// using modified classic execution type, because all titans have animations for tf1 each execution
 	//switch ( attackerType )
@@ -387,6 +447,117 @@ void functionref( SyncedMelee action, entity attacker, entity target ) function 
 	}
 
 	return null
+}
+
+// modified: wrap any execution ref changes into this function
+string function MeleeSyncedTitan_GetDefaultExecutionRefForTitanVsTitan3p( entity attacker, entity target, string forcedRef = "" )
+{
+	// if we have callback, run it
+	if ( file.onGetTitan3pExecutionRefCallback != null )
+		return file.onGetTitan3pExecutionRefCallback( attacker, target, forcedRef )
+
+	return ""
+}
+
+// default function
+string function DefaultCallback_OnGetTitan3pExecutionRef( entity attacker, entity target, string forcedRef = "" )
+{
+	entity attackerSoul = attacker.GetTitanSoul()
+	entity targetSoul = target.GetTitanSoul()
+
+	// default execution ref: from loadout
+	string executionRef = attackerSoul.soul.titanLoadout.titanExecution
+	if ( forcedRef != "" )
+		executionRef = forcedRef
+
+	// for invalid ref case, let's just do classic executions
+	if ( !MeleeSyncedTitan_GetAllValidExecutionRefs().contains( executionRef ) )
+		return ""
+
+	// start checking!
+	string attackerType = GetSoulTitanSubClass( attackerSoul )
+	string targetType = GetSoulTitanSubClass( targetSoul )
+	bool attackerTitanHasPilot = MeleeSyncedTitan_TitanHasPilot( attacker )
+	bool targetTitanHasPilot = MeleeSyncedTitan_TitanHasPilot( target )
+
+	// monarch kit execution
+	if ( !file.disableVanguardKitExecution ) // modified settings to nerf monarch
+	{
+		if ( attackerType == "atlas" ) // anti crash: only atlas titans have such animation
+		{
+			if ( SoulHasPassive( attackerSoul, ePassives.PAS_VANGUARD_COREMETER ) )
+				executionRef = "execution_vanguard_kit"
+			
+			// modified: extra check for npc monarch executions -- spawn with no passive and ref "execution_random_6", uses random execution!
+			// removed because we're now using passives for rewarding battery, this can't handle anymore
+			/*
+			#if NPC_TITAN_PILOT_PROTOTYPE
+				if ( !SoulHasPassive( attackerSoul, ePassives.PAS_VANGUARD_COREMETER ) )
+				{
+					if ( targetTitanHasPilot && executionRef == "execution_random_6" )
+					{
+						if ( CoinFlip() ) 
+							executionRef = "execution_vanguard_kit"
+					}
+				}
+			#endif
+			*/
+		}
+	}
+	//
+
+	// modified: add a condition for bt can use random executions
+	if ( executionRef == "execution_bt" ) // if we're using unnamed bt execution
+	{
+		// select a random one
+		array<string> btExecutions = ["execution_bt_flip"] // always enabled
+		
+		if ( targetTitanHasPilot ) // try to use pilotrip only if target has a seated pilot model
+			btExecutions.append( "execution_bt_pilotrip" )
+		if ( attacker.GetMainWeapons().len() > 0 ) // try to use kickshoot only if attacker has at least one main weapon
+			btExecutions.append( "execution_bt_kickshoot" )
+		executionRef = btExecutions[ RandomInt( btExecutions.len() ) ]
+	}
+	//
+
+	// re-exam execution ref after all modifications done
+	// shared from sh_melee_synced_titan.gnut
+	string bestExecutionRef = MeleeSyncedTitan_GetBestExecutionRefForTitanVsTitan( attacker, target, executionRef )
+	if ( bestExecutionRef != executionRef ) // we don't have good enough execution!
+		executionRef = bestExecutionRef
+
+	// pick random execution for current chassis if we've enabled settings
+	// shared from sh_melee_synced-titan.gnut
+	if ( MeleeSyncedTitan_GetSoulDoRandomExecution( attacker.GetTitanSoul() ) )
+	{
+		string randomExecutionRef = MeleeSyncedTitan_GetRandomExecutionRefForTitanVsTitan( attacker, target )
+		if ( randomExecutionRef != executionRef ) // we've got a random execution ref!
+			executionRef = randomExecutionRef
+	}
+	
+	// debug
+	//print( "Titan: " + string( attacker ) + " got execution " + executionRef )
+	return executionRef
+}
+
+// modified function for sharing checks
+bool function MeleeSyncedTitan_TitanHasPilot( entity titan )
+{
+	bool titanHasPilot = titan.IsPlayer()
+	#if HAS_BOSS_AI
+		titanHasPilot = titanHasPilot || ( IsBossTitan( titan ) )
+	#elseif NPC_TITAN_PILOT_PROTOTYPE // modified condition
+		titanHasPilot = titanHasPilot || TitanHasNpcPilot( titan )
+	#endif
+
+	return titanHasPilot
+}
+
+// modified callback: allow change ref through callbacks
+// default ref checks only gets running if we're not setting any callback
+void function SetCallback_OnGetTitan3pExecutionRef( string functionref( entity attacker, entity target, string forcedRef = "" ) callbackFunc )
+{
+	file.onGetTitan3pExecutionRefCallback = callbackFunc
 }
 
 // modified: forced cleanup or sound fixes
@@ -1841,109 +2012,35 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 #else
 	TitanLoadoutDef loadout = attackerSoul.soul.titanLoadout // GetActiveTitanLoadout( attacker )
 	string executionRef = loadout.titanExecution
+	
+	// linked executions
+	array<string> linkedExecutions = MeleeSyncedTitan_GetLinkedExecutionsFromRef( executionRef ) // wrapped into this function!
+	if ( linkedExecutions.len() > 0 )
+		executionRef = linkedExecutions.getrandom() // this array is already a clone, can modify it directly
+	
 	TitanExcutionData data = file.executionData_3p[ executionRef ]
-	if ( data.linkedExecutions.len() > 0 )
-	{
-		array<string> clonedLinkedExecutions = clone data.linkedExecutions
-		for ( int i = clonedLinkedExecutions.len() - 1; i >= 0; i-- )
-		{
-			if ( GetItemRequiresPrime( clonedLinkedExecutions[ i ] ) == true && !HasPrimeToMatchExecutionType( attacker, GetItemType( clonedLinkedExecutions[ i ] ) ) )
-				clonedLinkedExecutions.remove( i )
-		}
-		executionRef = clonedLinkedExecutions.getrandom()
-		data = file.executionData_3p[ executionRef ]
-	}
 #endif
 
 	bool shouldApplyBatteryAfterRodeo = false
 	string attackerType = GetSoulTitanSubClass( attackerSoul )
-	// modified to nerf monarch
-	if ( !file.disableVanguardKit )
+
+	// get execution ref from default value
+	string defaultExecution = MeleeSyncedTitan_GetDefaultExecutionRefForTitanVsTitan3p( attacker, target, executionRef )
+	bool notUsingDefaultExecution = false
+	if ( executionRef != defaultExecution )
 	{
-		if ( SoulHasPassive( attackerSoul, ePassives.PAS_VANGUARD_COREMETER ) )
-		{
-			if ( attackerType == "atlas" ) // anti crash
-			{
-				executionRef = "execution_vanguard_kit"
-				data = file.executionData_3p[ executionRef ]
-			}
-			shouldApplyBatteryAfterRodeo = true // even if we're not atlas model, apply batteries if we have the passive
-		}
-	}
-
-	// extra check for npc monarch executions -- spawn with no passive and ref "execution_random_6", uses random execution!
-	#if NPC_TITAN_PILOT_PROTOTYPE
-		if ( !SoulHasPassive( attackerSoul, ePassives.PAS_VANGUARD_COREMETER ) )
-		{
-			if ( TitanHasNpcPilot( attacker ) && executionRef == "execution_random_6" ) // also check if pilot valid
-			{
-				if ( CoinFlip() ) 
-				{
-					if ( attackerType == "atlas" ) // anti crash
-					{
-						executionRef = "execution_vanguard_kit"
-						data = file.executionData_3p[ executionRef ]
-					}
-					shouldApplyBatteryAfterRodeo = true
-				}
-			}
-		}
-	#endif
-
-	// apply battery check for monarch that spawn with "execution_vanguard_kit"
-	if ( !shouldApplyBatteryAfterRodeo && executionRef == "execution_vanguard_kit" )
-		shouldApplyBatteryAfterRodeo = true
-
-	// move up here to handle npc BT random executions case
-	bool titanHasPilot = target.IsPlayer()
-	#if HAS_BOSS_AI
-		titanHasPilot = titanHasPilot || ( IsBossTitan( target ) )
-	#elseif NPC_TITAN_PILOT_PROTOTYPE // modified condition
-		titanHasPilot = titanHasPilot || TitanHasNpcPilot( target )
-	#endif
-
-	// add a condition for bt can use random executions
-	if ( executionRef == "execution_bt" ) // if we're using unnamed bt execution
-	{
-		// select a random one
-		array<string> btExecutions = ["execution_bt_flip"] // always enabled
-		
-		if ( titanHasPilot ) // try to use pilotrip only if target has a seated pilot model
-			btExecutions.append( "execution_bt_pilotrip" )
-		if ( attacker.GetMainWeapons().len() > 0 ) // try to use kickshoot only if attacker has at least one main weapon
-			btExecutions.append( "execution_bt_kickshoot" )
-		executionRef = btExecutions[ RandomInt( btExecutions.len() ) ]
-		data = file.executionData_3p[ executionRef ] // update execution data
-	}
-
-	// re-exam execution ref after all modifications done
-	// shared from sh_melee_synced_titan.gnut
-	bool notUsingBestExecution = false
-	string bestExecutionRef = MeleeSyncedTitan_GetBestExecutionRefForTitan( attacker, executionRef )
-	if ( bestExecutionRef != executionRef ) // we don't have good enough execution!
-	{
-		notUsingBestExecution = true // we'll need to update loadout because it's not best one
+		//print( "attacker: " + string( attacker ) + " changing execution ref for titan termination" )
+		notUsingDefaultExecution = true // we'll need to update loadout because it's not best one
 		// update it to use best one
-		// think: is it really necessary to update?
-		// should we consider it as bad coding if we're not using proper executions?
-		executionRef = bestExecutionRef
+		executionRef = defaultExecution
 		data = file.executionData_3p[ executionRef ]
 	}
+	//
 
-	// pick random execution for current chassis
-	// shared from sh_melee_synced-titan.gnut
-	bool pickedRandomExecution = false
-	if ( GetSoulDoRandomExecution( attacker.GetTitanSoul() ) )
-	{
-		string randomExecutionRef = MeleeSyncedTitan_GetRandomExecutionRefForTitan( attacker )
-		if ( randomExecutionRef != executionRef ) // we've got a random execution ref!
-		{
-			pickedRandomExecution = true // we'll need to update loadout because we're using random execution
-			// update it to use random one
-			executionRef = randomExecutionRef
-			data = file.executionData_3p[ randomExecutionRef ]
-		}
-	}
+	// modified: using passives for checking executions that rewards battery
+	// instead of hardcoding "execution_vanguard_kit"
+	if ( MeleeSyncedTitan_ShouldApplyBatteryAfterExecution( attacker ) )
+		shouldApplyBatteryAfterRodeo = true
 
 	//print( "executionRef is: " + executionRef )
 	// modified: callbacks in sh_melee_synced_titan.gnut, callback for certain executionRef
@@ -1952,12 +2049,14 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	
 	// modified: loadout replace think in sh_melee_synced_titan.gnut
 	// force attacker to use certain execution's weapon, to avoid visual issues
-	// this should also happen when player using random executiion or have their execution replaced with best choice
+	// this should also happen when player using random execution or have their execution replaced with best choice
 	bool doLoadoutReplace = GetSoulReplaceLoadoutOnExecution( attacker.GetTitanSoul() )
-							|| notUsingBestExecution
-							|| pickedRandomExecution
+							|| notUsingDefaultExecution
 	if ( doLoadoutReplace )
+	{
+		//print( "attacker: " + string( attacker ) + " doing loadout replace for termination" )
 		MeleeSyncedTitan_RunLoadoutReplaceCallbackForRef( executionRef, attacker )
+	}
 
 	string victimType = GetSoulTitanSubClass( target.GetTitanSoul() )
 
@@ -2038,7 +2137,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	entity attackerViewBody
 	FirstPersonSequenceStruct attackerBodySequence
 
-	// has been moved up
+	// reworked to use wrapped function
 	/*
 	bool titanHasPilot = target.IsPlayer()
 	#if HAS_BOSS_AI
@@ -2047,6 +2146,9 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		titanHasPilot = titanHasPilot || TitanHasNpcPilot( target )
 	#endif
 	*/
+	// also added attackerTitanHasPilot for npc execution case
+	bool attackerTitanHasPilot = MeleeSyncedTitan_TitanHasPilot( attacker )
+	bool targetTitanHasPilot = MeleeSyncedTitan_TitanHasPilot( target )
 
 	if ( attacker.IsPlayer() )
 	{
@@ -2058,7 +2160,9 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		Remote_CallFunction_Replay( target, "SCB_StopTitanCockpitSounds" )
 	}
 
-	if ( data.targetAnimation3pPilot[ victimType ] != "" && titanHasPilot )
+	// adding attackerHasPilot checks
+	//if ( data.targetAnimation3pPilot[ victimType ] != "" && titanHasPilot )
+	if ( data.targetAnimation3pPilot[ victimType ] != "" && targetTitanHasPilot )
 	{
 		if ( target.IsNPC() )
 			targetViewBody = CreateNpcTitanPilotModel( target )
@@ -2077,8 +2181,9 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	}
 
 	// modified for npc executions!
+	// adding attackerHasPilot checks
 	//if ( data.attackerAnimation3pPilot[ victimType ] != "" && attacker.IsPlayer() )
-	if ( data.attackerAnimation3pPilot[ victimType ] != "" && titanHasPilot )
+	if ( data.attackerAnimation3pPilot[ victimType ] != "" && attackerTitanHasPilot )
 	{
 		if ( attacker.IsNPC() ) // saved for npc executions
 			attackerViewBody = CreateNpcTitanPilotModel( attacker )
@@ -2774,6 +2879,27 @@ bool function TitanHasWeaponEntity( entity titan, entity weapon )
 #endif
 
 //
+void function MeleeSyncedTitan_SetBatteryRewardTitanPassives( array<int> passives )
+{
+	file.titanExecutionRewardsBatteryPassives = passives
+}
+
+bool function MeleeSyncedTitan_ShouldApplyBatteryAfterExecution( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	// passive check
+	foreach ( int passive in file.titanExecutionRewardsBatteryPassives )
+	{
+		if ( SoulHasPassive( soul, passive ) )
+			return true // return true if we every had a passive that rewards battery
+	}
+
+	return false
+}
+
 void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
 {
 	file.titanExecutionNotInvulnerable = notInvulnerable
@@ -2781,7 +2907,7 @@ void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
 
 void function MeleeSyncedTitan_DisableVanguardKitExecution( bool disable )
 {
-	file.disableVanguardKit = disable
+	file.disableVanguardKitExecution = disable
 }
 
 void function MeleeSyncedTitan_SetSoulDoClassicExecution( entity titanSoul, bool doClassic )
@@ -2791,7 +2917,7 @@ void function MeleeSyncedTitan_SetSoulDoClassicExecution( entity titanSoul, bool
 	file.soulDoClassicExecution[ titanSoul ] = doClassic
 }
 
-bool function GetSoulDoClassicExecution( entity titanSoul )
+bool function MeleeSyncedTitan_GetSoulDoClassicExecution( entity titanSoul )
 {
 	if ( !( titanSoul in file.soulDoClassicExecution ) )
 		return false // default value
@@ -2805,7 +2931,7 @@ void function MeleeSyncedTitan_SetSoulDoRandomExecution( entity titanSoul, bool 
 	file.soulDoRandomExecution[ titanSoul ] = doRandom
 }
 
-bool function GetSoulDoRandomExecution( entity titanSoul )
+bool function MeleeSyncedTitan_GetSoulDoRandomExecution( entity titanSoul )
 {
 	if ( !( titanSoul in file.soulDoRandomExecution ) )
 		return false // default value
@@ -2819,10 +2945,10 @@ void function MeleeSyncedTitan_SetSoulClassicExecutionType( entity titanSoul, st
 	file.soulClassicExecutionType[ titanSoul ] = executionType
 }
 
-string function GetSoulClassicExecutionType( entity titanSoul )
+string function MeleeSyncedTitan_GetSoulClassicExecutionType( entity titanSoul )
 {
 	// hardcode "random" type
-	if ( GetSoulDoRandomExecution( titanSoul ) )
+	if ( MeleeSyncedTitan_GetSoulDoRandomExecution( titanSoul ) )
 	{
 		array<string> validExecutionTypes = ["atlas", "stryder"]
 		// atlas and stryder pov model don't have "ogpov_melee_armrip_attacker" animation
