@@ -16,7 +16,9 @@ void function FFA_Init()
 	AddCallback_OnPlayerKilled( HandleFFAScoreEventValue )
 	AddCallback_OnNPCKilled( HandleFFAScoreEventValue )
 
-	SetUpFFAScoreEvents() // northstar missing
+	// northstar missing
+	FlagSet( "IgnoreStartSpawn" ) // ffa gamemodes should always set this
+	SetUpFFAScoreEvents()
 
 	// modified for northstar
 	AddCallback_OnClientConnected( OnClientConnected )
