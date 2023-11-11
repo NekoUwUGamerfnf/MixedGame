@@ -114,7 +114,7 @@ struct
 
 	// respawn already have a FW_TowerData struct! this table is only for score events
 	table< entity, HarvesterDamageStruct > playerDamageHarvester // team, table< player, time >
-    
+
 	// this is for saving territory's connecting time, try not to make faction dialogues play together
 	table< int, float > teamTerrLastConnectTime // team, time
 
@@ -418,7 +418,7 @@ void function HandleFWPlayerKilledScoreEvent( entity victim, entity attacker )
 	// this function only handles player's kills
 	if( !attacker.IsPlayer() )
 		return
-    
+
 	// suicide don't get scores
 	if( attacker == victim )
 		return
@@ -443,7 +443,7 @@ void function HandleFWPlayerKilledScoreEvent( entity victim, entity attacker )
 	}
 
 	if( victim in file.playerDamageHarvester ) // victim has damaged the harvester this life
-	{    
+	{
 		float damageTime = file.playerDamageHarvester[ victim ].recentDamageTime
 
 		// is victim recently damaged havester?
@@ -1208,7 +1208,7 @@ Point function FW_ReCalculateTitanReplacementPoint( Point basePoint, entity play
 
 	if ( !IsValid( teamHarvester ) ) // team's havester has been destroyed!
         return basePoint // return given value
-		
+
 	if( Distance2D( basePoint.origin, teamHarvester.GetOrigin() ) <= FW_SPAWNPOINT_SEARCH_RADIUS ) // close enough!
 		return basePoint // this origin is good enough
 
@@ -1226,7 +1226,7 @@ bool function FW_RequestTitanAllowed( entity player, array< string > args )
 		PlayFactionDialogueToPlayer( "tw_territoryNag", player ) // notify player
 		TryPlayTitanfallNegativeSoundToPlayer( player )
 		int objectiveID = 101 // which means "#FW_OBJECTIVE_TITANFALL"
-		Remote_CallFunction_NonReplay( player, "ServerCallback_FW_SetObjective", objectiveID ) 
+		Remote_CallFunction_NonReplay( player, "ServerCallback_FW_SetObjective", objectiveID )
 		return false
 	}
 	return true
@@ -1242,7 +1242,7 @@ bool function TryPlayTitanfallNegativeSoundToPlayer( entity player )
 	// use a sound to notify player they can't titanfall here
 	EmitSoundOnEntityOnlyToPlayer( player, player, "titan_dryfire" )
 	player.s.lastNegativeSound = Time()
-	
+
 	return true
 }
 
@@ -1843,7 +1843,7 @@ void function FW_createHarvester()
 	fw_harvesterImc = SpawnHarvester( file.harvesterImc_info.GetOrigin(), file.harvesterImc_info.GetAngles(), GetCurrentPlaylistVarInt( "fw_harvester_health", FW_DEFAULT_HARVESTER_HEALTH ), GetCurrentPlaylistVarInt( "fw_harvester_shield", FW_DEFAULT_HARVESTER_SHIELD ), TEAM_IMC )
 	FW_SetupHarvesterForTeam( fw_harvesterImc.harvester, TEAM_IMC )
 	file.harvesters.append(fw_harvesterImc)
-	
+
 	// scores starts from 100, TeamScore means harvester health; TeamScore2 means shield bar
 	GameRules_SetTeamScore( TEAM_IMC, 100 )
 	GameRules_SetTeamScore2( TEAM_IMC, 100 )
@@ -1946,7 +1946,7 @@ void function OnHarvesterFinalDamaged( entity harvester, var damageInfo )
 
 	int friendlyTeam = harvester.GetTeam()
 	int enemyTeam = GetOtherTeam( friendlyTeam )
-		
+
 	HarvesterStruct harvesterstruct // current harveter's struct
 	if( friendlyTeam == TEAM_MILITIA )
 		harvesterstruct = fw_harvesterMlt
@@ -1996,7 +1996,7 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 
 	if ( !damageSourceID && !damageAmount && !attacker ) // actually not dealing any damage?
 		return
-	
+
 	// prevent player from sniping the harvester cross-map
 	if ( attacker.IsPlayer() && !FW_IsPlayerInEnemyTerritory( attacker ) )
 	{
@@ -2317,7 +2317,7 @@ void function FWPlayerObjectiveState_Threaded()
 				titanSoul = petTitan.GetTitanSoul()
 
 			if ( IsValid( GetBatteryOnBack( player ) ) )
-				player.SetPlayerNetInt( "gameInfoStatusText", APPLY_BATTERY_TEXT_INDEX ) 
+				player.SetPlayerNetInt( "gameInfoStatusText", APPLY_BATTERY_TEXT_INDEX )
 			else if ( IsTitanAvailable( player ) )
 			{
 				if( !player.s.notifiedTitanfall ) // first notification, also do a objective announcement
@@ -2326,7 +2326,7 @@ void function FWPlayerObjectiveState_Threaded()
 					player.s.notifiedTitanfall = true
 				}
 				else
-					player.SetPlayerNetInt( "gameInfoStatusText", CALL_IN_TITAN_TEXT_INDEX ) 
+					player.SetPlayerNetInt( "gameInfoStatusText", CALL_IN_TITAN_TEXT_INDEX )
 			}
 			else if ( IsValid( petTitan ) )
 				player.SetPlayerNetInt( "gameInfoStatusText", EMBARK_TITAN_TEXT_INDEX )
@@ -2388,7 +2388,7 @@ void function FW_InitBatteryPort( entity batteryPort )
 	batteryPort.s.relatedTurret <- null             // entity, for saving batteryPort's nearest turret
 
 	entity turret = GetNearestMegaTurret( batteryPort ) // consider this is the port's related turret
-	
+
 	bool isBaseTurret = expect bool( turret.s.baseTurret )
 	SetTeam( batteryPort, turret.GetTeam() )
 	batteryPort.s.relatedTurret = turret
@@ -2399,12 +2399,12 @@ void function FW_InitBatteryPort( entity batteryPort )
 		batteryPort.s.hackAvaliable = false
 		batteryPort.SetUsableByGroup( "friendlies pilot" ) // only show hint to friendlies
 	} // it can never be hacked!
-	
+
 	turret.s.relatedBatteryPort = batteryPort // do it here
 }
 
 function FW_IsBatteryPortUsable( batteryPortvar, playervar ) //actually bool function( entity, entity )
-{	
+{
 	entity batteryPort = expect entity( batteryPortvar )
 	entity player = expect entity( playervar )
 	entity turret = expect entity( batteryPort.s.relatedTurret )
@@ -2454,7 +2454,7 @@ function FW_UseBattery( batteryPortvar, playervar ) //actually void function( en
     if( turretReplaced || teamChanged ) // replaced/hacked turret will spawn with 50% health
         newHealth = int ( turret.GetMaxHealth() * GetCurrentPlaylistVarFloat( "fw_turret_hacked_health", TURRET_HACKED_HEALTH_PERCENTAGE ) )
     // restore turret shield
-    int newShield = int ( min( turret.GetShieldHealthMax(), turret.GetShieldHealth() + ( turret.GetShieldHealth() * GetCurrentPlaylistVarFloat( "fw_turret_fixed_shield", TURRET_FIXED_SHIELD_PERCENTAGE ) ) ) )
+    int newShield = int ( min( turret.GetShieldHealthMax(), turret.GetShieldHealth() + ( turret.GetShieldHealthMax() * GetCurrentPlaylistVarFloat( "fw_turret_fixed_shield", TURRET_FIXED_SHIELD_PERCENTAGE ) ) ) )
     if( turretReplaced || teamChanged ) // replaced/hacked turret will spawn with 50% shield
         newShield = int ( turret.GetShieldHealthMax() * GetCurrentPlaylistVarFloat( "fw_turret_hacked_shield", TURRET_HACKED_SHIELD_PERCENTAGE ) )
     // only do team score event if turret's shields down, encourage players to hack more turrets
