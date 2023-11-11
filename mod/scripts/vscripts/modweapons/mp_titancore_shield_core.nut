@@ -75,9 +75,10 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 		EmitSoundOnEntity( owner, "Titan_Legion_Smart_Core_Activated_3P" )
 
 	entity soul = owner.GetTitanSoul()
-	table storedShield = {}
-	storedShield.startingShield <- soul.GetShieldHealth()
-	storedShield.startingShield <- soul.GetShieldHealthMax()
+	table storedShield = {
+		storedShield.startingShield <- soul.GetShieldHealth()
+		storedShield.startingMaxShield <- soul.GetShieldHealthMax()
+	}
 
 	if ( owner.IsPlayer() )
 	{
