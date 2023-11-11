@@ -76,8 +76,8 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 
 	entity soul = owner.GetTitanSoul()
 	table storedShield = {
-		storedShield.startingShield <- soul.GetShieldHealth()
-		storedShield.startingMaxShield <- soul.GetShieldHealthMax()
+		startingShield = soul.GetShieldHealth(),
+		startingMaxShield = soul.GetShieldHealthMax(),
 	}
 
 	if ( owner.IsPlayer() )
