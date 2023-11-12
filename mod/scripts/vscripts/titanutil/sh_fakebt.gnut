@@ -5,6 +5,7 @@ global function BTReplace_Init
 global function BTReplace_Enabled_Init
 global function BTReplace_SetEnabled
 
+global function BTReplace_TitanIsFakeBT
 // we can execute BT now, because we've fully supported all execution case
 // adding a setting that makes our toggle bt behavior
 global function FakeBT_SetUnableToBeExecuted
@@ -21,7 +22,11 @@ struct
 
 void function BTReplace_Init() 
 {
-	// precach
+	// no need to init anything in lobby
+	if ( IsLobby() )
+		return
+	
+	// precache
 	PrecacheParticleSystem( $"P_BT_eye_SM" )
 	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
 
@@ -30,6 +35,7 @@ void function BTReplace_Init()
 		AddSpawnCallback( "npc_titan", OnTitanSpawned )
 		AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
 		AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
+		AddSyncedMeleeServerCallback( GetSyncedMeleeChooser( "titan", "titan" ), OnFakeBTExecuted )
 	#else // CLIENT
 		AddCreateCallback( "npc_titan", FakeBTClientSideSetup )
 	#endif // SERVER
@@ -45,6 +51,16 @@ void function BTReplace_Enabled_Init()
 void function BTReplace_SetEnabled( bool enable )
 {
 	file.btReplaceEnable = enable
+}
+
+bool function BTReplace_TitanIsFakeBT( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if( !IsValid( soul ) )
+		return false
+	if ( !( soul in file.soulIsFakeBT ) )
+		return false
+	return file.soulIsFakeBT[ soul ]
 }
 
 void function FakeBT_SetUnableToBeExecuted( bool unable )
@@ -84,6 +100,49 @@ void function OnTitanBecomesPilot( entity player, entity titan )
 	//SetAutoTitanTitle( titan )
 }
 
+void function OnFakeBTExecuted( SyncedMeleeChooser actions, SyncedMelee action, entity attacker, entity victim )
+{
+	// extreme workaround here: we update bt's model and subclass back to monarch on being executed...
+	// hack for classic executions: bt have proper animation for being executed by that
+	entity attackerSoul = attacker.GetTitanSoul()
+	if ( IsValid( attackerSoul ) && !MeleeSyncedTitan_GetSoulDoClassicExecution( attackerSoul ) )
+	{
+		entity victimSoul = victim.GetTitanSoul()
+		if ( IsValid( victimSoul ) && BTReplace_TitanIsFakeBT( victim ) )
+		{
+			TitanSoul_ClearSoulTitanSubClassOverride( victimSoul )
+			TitanSoul_ClearSoulPlayerSettingsOverride( victimSoul ) // this also influences subclass, needs clean up
+			victim.SetModel( $"models/titans/medium/titan_medium_vanguard.mdl" )
+			victim.SetSkin( TITAN_SKIN_INDEX_CAMO )
+			victim.SetCamo( 15 ) // stoic fern. not very accurate but titan should be doomed at this point, this is alright
+			DoomTitan_Instant( victim )
+		}
+	}
+}
+
+// copied from sh_death_package DoomedTitan(), removed random delay
+void function DoomTitan_Instant( entity titan )
+{
+	if ( !HasHitData( titan ) )
+		return
+
+	local entKVs = titan.CreateTableFromModelKeyValues()
+	local hitData = entKVs["hit_data"]
+
+	foreach ( bodyGroupName, bodyGroupData in hitData )
+	{
+		bool hasBlank = ("blank" in bodyGroupData)
+
+		int bodyGroupIndex = titan.FindBodyGroup( bodyGroupName )
+		int stateCount = titan.GetBodyGroupModelCount( bodyGroupIndex )
+
+		if ( hasBlank )
+			stateCount -= 1
+
+		titan.SetBodygroup( bodyGroupIndex, stateCount - 1 )
+	}
+}
+
 //Apply loadout
 void function SetBTLoadout( entity titan )
 {
@@ -95,7 +154,7 @@ void function SetBTLoadout( entity titan )
 	
 	if ( !IsValid( soul ) || !IsValid( player ) ) //Anti Crash 2
 		return
-	if ( soul in file.soulIsFakeBT ) // titan is already a BT?
+	if ( BTReplace_TitanIsFakeBT( titan ) ) // titan is already a fake BT?
 		return
 
 	// replace "frontier monarch" with fake bt
@@ -266,7 +325,7 @@ void function SetBTOffhands( entity player )
 	entity soul = player.GetTitanSoul()
 	if( !IsValid( soul ) )
 		return
-	if ( !( soul in file.soulIsFakeBT ) ) // soul is not being setup as bt
+	if ( !BTReplace_TitanIsFakeBT( player ) ) // soul is not being setup as bt
 		return
 		
 	entity mainweapon = player.GetActiveWeapon()
@@ -380,7 +439,7 @@ void function UpdateBTOffhands( entity player )
 	entity soul = player.GetTitanSoul()
 	if( !IsValid( soul ) )
 		return
-	if ( !( soul in file.soulIsFakeBT ) ) // soul is not being setup as bt
+	if ( !BTReplace_TitanIsFakeBT( player ) ) // soul is not being setup as bt
 		return
 
 	player.EndSignal( "DisembarkingTitan" )
@@ -415,7 +474,7 @@ void function EjectingVoiceline( entity player )
 	entity soul = player.GetTitanSoul()
 	if( !IsValid( soul ) )
 		return
-	if ( !( soul in file.soulIsFakeBT ) ) // soul is not being setup as bt
+	if ( !BTReplace_TitanIsFakeBT( player ) ) // soul is not being setup as bt
 		return
 
 	soul.Signal( "PendingEjectingVoiceline" ) // end last thread
@@ -444,7 +503,7 @@ void function SetPlayerTitanTitle( entity player )
 	entity soul = player.GetTitanSoul()
 	if( !IsValid( soul ) )
 		return
-	if ( !( soul in file.soulIsFakeBT ) ) // soul is not being setup as bt
+	if ( !BTReplace_TitanIsFakeBT( player ) ) // soul is not being setup as bt
 		return
 
 	player.SetTitle( "SB-7274" )
@@ -488,6 +547,6 @@ void function FakeBTSettingsOverrideSetup( entity titan )
 	{
 		SetTitanSoulCharacterNameOverride( soul, "bt" )
 		TitanSoul_SetSoulTitanSubClassOverride( soul, "buddy" ) // maybe a dangerous change
-		TitanSoul_SetSoulPlayerSettingsOverride( soul, "titan_buddy" )
+		TitanSoul_SetSoulPlayerSettingsOverride( soul, "titan_buddy" ) // this also influences player's titan subclass
 	}
 }
