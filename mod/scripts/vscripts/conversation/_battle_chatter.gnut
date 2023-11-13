@@ -18,6 +18,9 @@ global struct DamageChatterStruct
 }
 global function AddCallback_ShouldPlayDamageChatter
 
+// modifiable consts
+const float NEAR_DAMAGE_CHATTER_DIST = 2500 // damage from too far shouldn't trigger damage chatter
+
 // modified settings struct
 struct
 {
@@ -26,6 +29,7 @@ struct
 	bool chatterEnableToAll = false // this will toggle chatter to all players can hear
 
 	// in-file variables
+	table<entity, bool> playerPendingEnemyKilledChatter // used for not playing too many chatter on multi kill
 	// modified callback to decide whether we player the chatter or not
 	array< bool functionref( entity, entity, var, DamageChatterStruct ) > shouldPlayDamageChatterCallbacks
 } file
@@ -35,9 +39,14 @@ void function BattleChatter_Init()
 	// this should be AddCallback_PlayerClassChanged()
 	//AddCallback_OnPlayerGetsNewPilotLoadout( UpdatePlayerVoiceIndex )
 	AddCallback_PlayerClassChanged( UpdatePlayerVoiceIndex )
+
 	// mp damage and kill player chatter
-	AddPostDamageCallback( "player", OnPlayerPostDamage )
-	AddDeathCallback( "player", OnPlayerKilled )
+	AddCallback_OnClientConnected( OnClientConnected )
+	AddPostDamageCallback( "player", OnPlayerOrNPCPostDamage )
+	AddDeathCallback( "player", OnPlayerOrNPCKilled )
+	// titan victim can be used to trigger dialogue, only needs to filter infantries
+	AddPostDamageCallback( "npc_titan", OnPlayerOrNPCPostDamage )
+	//AddDeathCallback( "npc_titan", OnPlayerOrNPCKilled ) // no target killed dialogue for npc titans
 }
 
 
@@ -132,8 +141,13 @@ void function UpdatePlayerVoiceIndex( entity player )
 }
 
 // mp damage and kill player chatter
+void function OnClientConnected( entity player )
+{
+	file.playerPendingEnemyKilledChatter[ player ] <- false
+}
+
 // damaged pilot dialogues
-void function OnPlayerPostDamage( entity victim, var damageInfo )
+void function OnPlayerOrNPCPostDamage( entity victim, var damageInfo )
 {
 	// general check
 	if ( !DamageIsValidForPlayingChatter( victim, damageInfo ) )
@@ -142,8 +156,8 @@ void function OnPlayerPostDamage( entity victim, var damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo ) // already validated through DamageIsValidForPlayingChatter()
 	int damage = int( DamageInfo_GetDamage( damageInfo ) ) // here's already postdamage, safe to cast to int
 
-	const float NEAR_DAMAGE_CHATTER_DIST = 2500 // damage from too far shouldn't trigger damage chatter
-	bool isKillShot = ( victim.GetHealth() + victim.GetShieldHealth() - damage ) <= 0 // shield health is added because we've fixed pilot shield usage
+	int victimHealth = victim.GetHealth() + victim.GetShieldHealth() // shield health is added because we've fixed pilot shield usage
+	bool isKillShot = ( victimHealth - damage ) <= 0 
 	bool inChatterRange = Distance( attacker.GetOrigin(), victim.GetOrigin() ) <= NEAR_DAMAGE_CHATTER_DIST
 	bool playDamageBC = !isKillShot && inChatterRange // make instant kills won't play a chatter
 	
@@ -172,10 +186,13 @@ void function OnPlayerPostDamage( entity victim, var damageInfo )
 }
 
 // killing pilot dialogues
-void function OnPlayerKilled( entity victim, var damageInfo )
+void function OnPlayerOrNPCKilled( entity victim, var damageInfo )
 {
 	// general check
 	if ( !DamageIsValidForPlayingChatter( victim, damageInfo ) )
+		return
+
+	if ( victim.IsTitan() ) // titan killed dialogue already emitted by faction leaders
 		return
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo ) // already validated through DamageIsValidForPlayingChatter()
@@ -190,15 +207,30 @@ void function TryPilotKillChatter( entity attacker )
 
 void function TryPilotKillChatter_Threaded( entity attacker )
 {
+	// never run multiple instances together
+	if ( file.playerPendingEnemyKilledChatter[ player ] )
+		return
+	
 	attacker.EndSignal( "OnDestroy" )
 	attacker.EndSignal( "OnDeath" )
-	wait RandomFloatRange( 0.3, 0.5 )
+
+	file.playerPendingEnemyKilledChatter[ player ] = true // mark as we're pending a enemy killed chatter
+	OnThreadEnd
+	(
+		function(): ( player )
+		{
+			if ( IsValid( player ) )
+				file.playerPendingEnemyKilledChatter[ player ] = false // clean up
+		}
+	)
+
+	wait RandomFloatRange( 0.3, 0.5 ) // wait for kill sound finish playing
 	
 	// attacker reporting kill
 	if( GetGameState() < eGameState.Playing ) // re-exam after delay, don't play during intro or somewhere
 		return
 	PlayBattleChatterLine( attacker, "bc_fKilledEnemy" )
-	wait RandomFloatRange( 0.8, 1.1 )
+	wait RandomFloatRange( 0.8, 1.1 ) // wait for attacker dialogue done
 
 	// friendly congrats
 	if( GetGameState() < eGameState.Playing ) // re-exam after delay, don't play during intro or somewhere
@@ -211,6 +243,7 @@ void function TryPilotKillChatter_Threaded( entity attacker )
     entity closestFriendly = GetClosest( nearbyFriendly, attacker.GetOrigin(), 500 )
     if( IsValid( closestFriendly ) )
         PlayBattleChatterLine( closestFriendly, "bc_fCongratsKill" )
+	wait RandomFloatRange( 0.8, 1.1 ) // delay playerPendingEnemyKilledChatter cleanup
 }
 
 bool function DamageIsValidForPlayingChatter( entity victim, var damageInfo )
@@ -222,10 +255,12 @@ bool function DamageIsValidForPlayingChatter( entity victim, var damageInfo )
 	// victim validation check
 	if ( !IsValid( victim ) )
 		return false
-	if ( !victim.IsPlayer() )
+	// titan victim can be used to trigger dialogue, only needs to filter infantries
+	//if ( !victim.IsPlayer() )
+	if ( !victim.IsPlayer() && !victim.IsTitan() )
 		return false
-	if ( victim.IsTitan() )
-		return false
+	//if ( victim.IsTitan() )
+	//	return false
 	
 	// attacker validation check
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
