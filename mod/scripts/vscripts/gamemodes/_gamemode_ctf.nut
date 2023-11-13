@@ -73,6 +73,14 @@ void function CTFScoreEventSetUp()
 	ScoreEvent_SetEarnMeterValues( "FlagCapture", 0.15, 0.15 )
 	ScoreEvent_SetEarnMeterValues( "FlagCaptureAssist", 0.1, 0.1, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "FlagReturn", 0.1, 0.1 )
+
+	// display type
+	// default case is adding a eEventDisplayType.CENTER, required for client to show earnvalue on screen
+	ScoreEvent_SetEventDisplayTypes( "FlagCarrierKill", GetScoreEvent( "FlagCarrierKill" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FlagTaken", GetScoreEvent( "FlagTaken" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FlagCapture", GetScoreEvent( "FlagCapture" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FlagCaptureAssist", GetScoreEvent( "FlagCaptureAssist" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FlagReturn", GetScoreEvent( "FlagReturn" ).displayType | eEventDisplayType.CENTER )
 }
 
 void function RateSpawnpoints_CTF( int checkClass, array<entity> spawnpoints, int team, entity player ) 

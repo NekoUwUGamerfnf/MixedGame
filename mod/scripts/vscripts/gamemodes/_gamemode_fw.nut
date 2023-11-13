@@ -408,6 +408,34 @@ void function SetUpFWScoreEvents()
 	ScoreEvent_SetEarnMeterValues( "FortWarTeamTurretControlBonus_Four", 0.0, 0.10, 0.5 ) // give less meter if controlled most turrets
 	ScoreEvent_SetEarnMeterValues( "FortWarTeamTurretControlBonus_Five", 0.0, 0.05, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "FortWarTeamTurretControlBonus_Six", 0.0, 0.05, 0.5 )
+
+
+	// display type
+	// default case is adding a eEventDisplayType.CENTER, required for client to show earnvalue on screen
+	ScoreEvent_SetEventDisplayTypes( "KillHeavyTurret", GetScoreEvent( "KillHeavyTurret" ).displayType | eEventDisplayType.CENTER )
+	
+	ScoreEvent_SetEventDisplayTypes( "FortWarAssault", GetScoreEvent( "FortWarAssault" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarDefense", GetScoreEvent( "FortWarDefense" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarPerimeterDefense", GetScoreEvent( "FortWarPerimeterDefense" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarSiege", GetScoreEvent( "FortWarSiege" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarSnipe", GetScoreEvent( "FortWarSnipe" ).displayType | eEventDisplayType.CENTER )
+	
+	ScoreEvent_SetEventDisplayTypes( "FortWarBaseConstruction", GetScoreEvent( "FortWarBaseConstruction" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarForwardConstruction", GetScoreEvent( "FortWarForwardConstruction" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarInvasiveConstruction", GetScoreEvent( "FortWarInvasiveConstruction" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarResourceDenial", GetScoreEvent( "FortWarResourceDenial" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarSecuringGatheredResources", GetScoreEvent( "FortWarSecuringGatheredResources" ).displayType | eEventDisplayType.CENTER )
+
+	ScoreEvent_SetEventDisplayTypes( "FortWarTowerDamage", GetScoreEvent( "FortWarTowerDamage" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarTowerDefense", GetScoreEvent( "FortWarTowerDefense" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarShieldDestroyed", GetScoreEvent( "FortWarShieldDestroyed" ).displayType | eEventDisplayType.CENTER )
+
+	ScoreEvent_SetEventDisplayTypes( "FortWarTeamTurretControlBonus_One", GetScoreEvent( "FortWarTeamTurretControlBonus_One" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarTeamTurretControlBonus_Two", GetScoreEvent( "FortWarTeamTurretControlBonus_Two" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarTeamTurretControlBonus_Three", GetScoreEvent( "FortWarTeamTurretControlBonus_Three" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarTeamTurretControlBonus_Four", GetScoreEvent( "FortWarTeamTurretControlBonus_Four" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarTeamTurretControlBonus_Five", GetScoreEvent( "FortWarTeamTurretControlBonus_Five" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FortWarTeamTurretControlBonus_Six", GetScoreEvent( "FortWarTeamTurretControlBonus_Six" ).displayType | eEventDisplayType.CENTER )
 }
 
 // consider this means victim recently damaged harvester

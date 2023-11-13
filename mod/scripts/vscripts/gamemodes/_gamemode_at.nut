@@ -423,7 +423,18 @@ void function AT_ScoreEventsValueSetUp()
 	ScoreEvent_SetEarnMeterValues( "AttritionStalkerKilled", 0.05, 0.050001, 0.4 ) // if set to "0.05, 0.05", will display as "9%"
 	ScoreEvent_SetEarnMeterValues( "AttritionSuperSpectreKilled", 0.15, 0.15, 0.67 )
 
-	// HACK
+
+	// display type
+	// default case is adding a eEventDisplayType.CENTER, required for client to show earnvalue on screen
+	ScoreEvent_SetEventDisplayTypes( "AttritionTitanKilled", GetScoreEvent( "AttritionTitanKilled" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "AttritionPilotKilled", GetScoreEvent( "AttritionPilotKilled" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "AttritionBossKilled", GetScoreEvent( "AttritionBossKilled" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "AttritionGruntKilled", GetScoreEvent( "AttritionGruntKilled" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "AttritionSpectreKilled", GetScoreEvent( "AttritionSpectreKilled" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "AttritionStalkerKilled", GetScoreEvent( "AttritionStalkerKilled" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "AttritionSuperSpectreKilled", GetScoreEvent( "AttritionSuperSpectreKilled" ).displayType | eEventDisplayType.CENTER )
+
+	// HACK, recover vanilla bad behaviors
 	foreach ( string eventName in AT_ENABLE_SCOREEVENTS )
 		ScoreEvent_Enable( GetScoreEvent( eventName ) )
 

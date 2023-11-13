@@ -66,6 +66,20 @@ void function CapturePointScoreEventSetUp()
 	ScoreEvent_SetEarnMeterValues( "HardpointPerimeterDefense",0.05, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "HardpointSiege", 0.05, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "HardpointSnipe", 0.05, 0.05 )
+
+
+	// display type
+	// default case is adding a eEventDisplayType.CENTER, required for client to show earnvalue on screen
+	ScoreEvent_SetEventDisplayTypes( "ControlPointCapture", GetScoreEvent( "ControlPointCapture" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "ControlPointHold", GetScoreEvent( "ControlPointHold" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "ControlPointAmped", GetScoreEvent( "ControlPointAmped" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "ControlPointAmpedHold", GetScoreEvent( "ControlPointAmpedHold" ).displayType | eEventDisplayType.CENTER )
+	
+	ScoreEvent_SetEventDisplayTypes( "HardpointAssault", GetScoreEvent( "HardpointAssault" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "HardpointDefense", GetScoreEvent( "HardpointDefense" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "HardpointPerimeterDefense", GetScoreEvent( "HardpointPerimeterDefense" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "HardpointSiege", GetScoreEvent( "HardpointSiege" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "HardpointSnipe", GetScoreEvent( "HardpointSnipe" ).displayType | eEventDisplayType.CENTER )
 }
 
 void function GamemodeCP_OnPlayerKilled(entity victim, entity attacker, var damageInfo)
