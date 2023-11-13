@@ -1163,9 +1163,30 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 		PlayFX( TITAN_NUCLEAR_CORE_FX_3P, origin + Vector( 0, 0, -100 ), Vector(0,RandomInt(360),0) )
 	}
 
+	// modified settings override: nuke damage
+	entity titan = expect entity( e.titan )
+	entity soul
+	if ( IsValid( titan ) && titan.IsTitan() )
+		soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) && SoulHasNukeDamageOverride( soul ) ) // nuke damage effect override
+	{
+		TitanNukeDamage nukeStruct = GetSoulNukeDamageOverride( soul )
+		explosions = nukeStruct.count
+		time = nukeStruct.duration
+		waitPerExplosion = time / explosions
+	}
+	//
+
+	// vanilla hardcode turns to settings: we do this extra explosion when explosion count higher than 10
 	// one extra explosion that does damage to physics entities at smaller radius
-	if ( !IsNPC )
+	//if ( !IsNPC )
+	//	explosions += 1
+	bool doPhysicsEntityDamage = false
+	if ( explosions >= 10 )
+	{
 		explosions += 1
+		doPhysicsEntityDamage = true
+	}
 
 	local outerRadius
 
@@ -1188,20 +1209,6 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 		}
 	)
 
-	// modified settings override: nuke damage
-	entity titan = expect entity( e.titan )
-	entity soul
-	if ( IsValid( titan ) && titan.IsTitan() )
-		soul = titan.GetTitanSoul()
-	if ( IsValid( soul ) && SoulHasNukeDamageOverride( soul ) ) // nuke damage effect override
-	{
-		TitanNukeDamage nukeStruct = GetSoulNukeDamageOverride( soul )
-		explosions = nukeStruct.count
-		time = nukeStruct.duration
-		waitPerExplosion = time / explosions
-	}
-	//
-
 	for ( int i = 0; i < explosions; i++ )
 	{
 		local normalDamage 		= baseNormalDamage
@@ -1209,7 +1216,9 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 		local innerRadius 		= baseInnerRadius
 		local outerRadius 		= baseOuterRadius
 
-		if ( i == 0 && !IsNPC )
+		// vanilla hardcode turns to settings: we do this extra explosion when explosion count higher than 10
+		//if ( i == 0 && !IsNPC )
+		if ( i == 0 && doPhysicsEntityDamage )
 		{
 			normalDamage = 75
 			heavyArmorDamage = 0
@@ -1229,14 +1238,30 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 		if ( IsValid( soul ) && SoulHasNukeDamageOverride( soul ) ) // nuke damage effect override
 		{
 			TitanNukeDamage nukeStruct = GetSoulNukeDamageOverride( soul )
+			// extra explosion that damages physics entity in smaller radius
+			if ( i == 0 && doPhysicsEntityDamage )
+			{
+				normalDamage = nukeStruct.damage
+				heavyArmorDamage = 0
+				innerRadius = nukeStruct.innerRadius
+				outerRadius = maxint( innerRadius, nukeStruct.outerRadius * 0.8 ) // should never be lower than inner radius
+			}
+			else // following explosions
+			{
+				normalDamage = nukeStruct.damage
+				heavyArmorDamage = nukeStruct.damageHeavyArmor
+				innerRadius = nukeStruct.innerRadius
+				outerRadius = nukeStruct.outerRadius
+			}
+			// we use RadiusDamage because it contains more modifiable stuffs
 			RadiusDamage( 
 				origin,								// origin
 				explosionOwner,						// owner
 				inflictor,							// inflictor
-				nukeStruct.damage,					// normal damage
-				nukeStruct.damageHeavyArmor,		// heavy armor damage
-				nukeStruct.innerRadius,				// inner radius
-				nukeStruct.outerRadius,				// outer radius
+				normalDamage,						// normal damage
+				heavyArmorDamage,					// heavy armor damage
+				innerRadius,						// inner radius
+				outerRadius,						// outer radius
 				nukeStruct.explosionFlags,			// flags
 				0,									// distanceFromAttacker
 				nukeStruct.explosionForce,			// explosionForce
