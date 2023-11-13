@@ -52,13 +52,27 @@ const float FAKE_COOP_ENEMY_TEAM_NPC_PERCENT_MAX = 2.5 // 12-7 squads, 10 prowle
 const float FAKE_COOP_PLAYER_PILOT_SCORE_MULTIPLIER = 2.0 // gets applied on npc killing player team pilot
 const float FAKE_COOP_PLAYER_TITAN_SCORE_MULTIPLIER = 3.0 // gets applied on npc killing player team titan
 
+// struct used by function Escalate()
+struct AITdmEscalatorstruct
+{
+	int scoreRequired
+	void functionref( int team ) spawnSettingsFunc
+	array<int> usedByTeams
+}
+
 struct
 {
 	// Due to team based escalation everything is an array
-	array< int > levels = [] //[ LEVEL_SPECTRES, LEVEL_SPECTRES ] // modified, since we added playlistvar should leave this init inside functions
-	array< array< string > > podEntities = [ [ "npc_soldier" ], [ "npc_soldier" ] ]
+
+	// reworked to use structs
+	//array< int > levels = [] //[ LEVEL_SPECTRES, LEVEL_SPECTRES ] // modified, since we added playlistvar should leave this init inside functions
+	array<AITdmEscalatorstruct> levelEscalators
+
+	// spawn contents
+	array< array< string > > podEntities = [ [ "npc_soldier" ], [ "npc_soldier" ] ] // also handling spectres and stalkers
 	
-	array< bool > marvins = [ false, false ]
+	array< bool > marvins = [ false, false ] // bind with spectres
+
 	array< bool > prowlers = [ false, false ] // bind with stalkers
 
 	array< bool > reapers = [ false, false ]
@@ -143,6 +157,12 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 	EarnMeterMP_SetPassiveGainProgessEnable( true ) // enable earnmeter gain progressing like vanilla
 
 
+	// init npc spawn settings
+	InitModdedSpawnSettings()
+}
+
+void function InitModdedSpawnSettings()
+{
 	// update settings from playlistvar, with default values implemented
 	file.squadCount = GetCurrentPlaylistVarInt( "modaitdm_squad_count", SQUADS_PER_TEAM )
 	file.squadCountHighLevel = GetCurrentPlaylistVarInt( "modaitdm_squad_count", SQUADS_PER_TEAM_HIGH_LEVEL )
@@ -155,7 +175,8 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 	file.levelStalkers = GetCurrentPlaylistVarInt( "modaitdm_stalker_spawn_score", LEVEL_STALKERS )
 	file.levelReapers = GetCurrentPlaylistVarInt( "modaitdm_reaper_spawn_score", LEVEL_REAPERS )
 	file.levelTitans = GetCurrentPlaylistVarInt( "modaitdm_titan_spawn_score", LEVEL_TITANS )
-	file.levels = [ file.levelSpectres, file.levelSpectres ] // init levels
+	// reworked to use Escalator_Init()
+	//file.levels = [ file.levelSpectres, file.levelSpectres ] // init levels
 
 	// fake coop
 	// everything is based on GetPlayerArray()[0]( listen server host, or the first joined player )
@@ -174,7 +195,91 @@ void function Modded_Gamemode_AITdm_Extended_Init()
 		// start updating all player's team
 		UpdateCOOPPlayerTeam()
 	}
+
+	// all values init done, start init escatator
+	Escalator_Init()
 }
+
+// init the structs used in function Escalate()
+void function Escalator_Init()
+{
+	// spectres and marvins
+	AITdmEscalatorstruct spectreSpawn
+	spectreSpawn.scoreRequired = file.levelSpectres
+	spectreSpawn.spawnSettingsFunc = SpawnLevel_Spectre
+	file.levelEscalators.append( spectreSpawn )
+
+	// stalkers and prowlers
+	AITdmEscalatorstruct stalkerSpawn
+	stalkerSpawn.scoreRequired = file.levelStalkers
+	stalkerSpawn.spawnSettingsFunc = SpawnLevel_Stalker
+	file.levelEscalators.append( stalkerSpawn )
+
+	// reapers and gunships
+	AITdmEscalatorstruct reaperSpawn
+	reaperSpawn.scoreRequired = file.levelReapers
+	reaperSpawn.spawnSettingsFunc = SpawnLevel_Reaper
+	file.levelEscalators.append( reaperSpawn )
+
+	// titans and pilots
+	AITdmEscalatorstruct titanSpawn
+	titanSpawn.scoreRequired = file.levelTitans
+	titanSpawn.spawnSettingsFunc = SpawnLevel_Titan
+	file.levelEscalators.append( titanSpawn )
+}
+
+void function SpawnLevel_Spectre( int team )
+{
+	int index = team == TEAM_MILITIA ? 1 : 0
+	// This does the "Enemy x incoming" text
+	string defcon = team == TEAM_MILITIA ? "IMCdefcon" : "MILdefcon"
+
+	// level spawn content
+	file.podEntities[ index ].append( "npc_spectre" ) // add spectres into droppod and dropship
+	file.marvins[ index ] = true // enable marvin spawn
+	SetGlobalNetInt( defcon, 2 ) // Enemy Spectres Incoming
+}
+
+void function SpawnLevel_Stalker( int team )
+{
+	int index = team == TEAM_MILITIA ? 1 : 0
+	// This does the "Enemy x incoming" text
+	string defcon = team == TEAM_MILITIA ? "IMCdefcon" : "MILdefcon"
+
+	// level spawn content
+	//file.marvins[ index ] = false // never remove marvin spawns ;)
+	file.podEntities[ index ].append( "npc_stalker" ) // add stalkers into droppod and dropship
+	file.prowlers[ index ] = true // enable prowler spawn
+	SetGlobalNetInt( defcon, 3 ) // Enemy Stalkers Incoming
+}
+
+void function SpawnLevel_Reaper( int team )
+{
+	int index = team == TEAM_MILITIA ? 1 : 0
+	// This does the "Enemy x incoming" text
+	string defcon = team == TEAM_MILITIA ? "IMCdefcon" : "MILdefcon"
+
+	// level spawn content
+	file.reapers[ index ] = true // enable reaper spawn
+	file.gunships[ index ] = true // enable gunship spawn
+	SetGlobalNetInt( defcon, 4 ) // Enemy Reapers Incoming
+
+	// start cleanup ticks spawned by reapers( might also clean up specialist grunt ticks )
+	CleanUpOverloadedTicks()
+}
+
+void function SpawnLevel_Titan( int team )
+{
+	int index = team == TEAM_MILITIA ? 1 : 0
+	// This does the "Enemy x incoming" text
+	string defcon = team == TEAM_MILITIA ? "IMCdefcon" : "MILdefcon"
+
+	// level spawn content
+	file.titans[ index ] = true // enable titan spawn
+	file.pilots[ index ] = true // enable npc pilot spawn
+	SetGlobalNetInt( defcon, 6 ) // this will show nothing
+}
+//
 
 void function AITdmExtend_Highlight( entity ent )
 {
@@ -431,8 +536,8 @@ void function GunshipConfig( entity soldier )
 	// friendly highlight
 	AITdmExtend_FriendlyHighlight( soldier )
 
-	soldier.SetMaxHealth( 7500 )
-	soldier.SetHealth( 7500 )
+	soldier.SetMaxHealth( 5850 ) // was 7500, but we've made them less likely to be targeted...
+	soldier.SetHealth( 5850 ) // was 7500, but we've made them less likely to be targeted...
 
 	//soldier.SetNoTarget( true ) // don't want other npcs targeting them
 	soldier.SetNPCPriorityOverride( 10 ) // they're flying around, don't want other npcs targeting them very often
@@ -556,7 +661,7 @@ void function SetUpAITdmExtendedScoreEvent()
 	// ai(extended)
 	ScoreEvent_SetEarnMeterValues( "KillProwler", 0.03, 0.020001, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillDrone", 0.01, 0.01 )
-	ScoreEvent_SetEarnMeterValues( "FlyerKill", 0.15, 0.10, 0.5 ) // this is actually used for gunship kill
+	ScoreEvent_SetEarnMeterValues( "FlyerKill", 0.10, 0.10, 0.5 ) // this is actually used for gunship kill
 
 	// display type
 	// default case is adding a eEventDisplayType.CENTER, required for client to show earnvalue on screen
@@ -612,7 +717,6 @@ void function OnPrematchStart()
 void function OnPlaying()
 {
 	// cleaning up
-	CleanUpOverloadedTicks()
 	TryCleanupBoredNPCGameLong()
 }
 
@@ -1376,87 +1480,18 @@ void function SpawnerNPCs( int team )
 void function Escalate( int team )
 {
 	int score = GameRules_GetTeamScore( team )
-	int index = team == TEAM_MILITIA ? 1 : 0
-	// This does the "Enemy x incoming" text
-	string defcon = team == TEAM_MILITIA ? "IMCdefcon" : "MILdefcon"
-
-	if ( score < file.levels[ index ] )
-		return
-
-	switch ( file.levels[ index ] )
+	
+	foreach ( AITdmEscalatorstruct escalator in file.levelEscalators )
 	{
-		case file.levelSpectres:
-			// change levels
-			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
-			if ( file.levelSpectres == file.levelStalkers )
-				file.levelStalkers += 1
-			if ( file.levelStalkers < file.levelSpectres )
-				file.levelStalkers = file.levelSpectres + 1
-			file.levels[ index ] = file.levelStalkers
-
-			// level spawn content
-			file.marvins[ index ] = true
-			file.podEntities[ index ].append( "npc_spectre" )
-			SetGlobalNetInt( defcon, 2 ) // Enemy Spectres Incoming
-			return
-
-		case file.levelStalkers:
-			// change levels
-			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
-			if ( file.levelStalkers == file.levelReapers )
-				file.levelReapers += 1
-			if ( file.levelReapers < file.levelStalkers )
-				file.levelReapers = file.levelStalkers + 1
-			file.levels[ index ] = file.levelReapers
-
-			// level spawn content
-			//file.marvins[ index ] = false // never remove marvin spawns ;)
-			file.prowlers[ index ] = true
-			file.podEntities[ index ].append( "npc_stalker" )
-			SetGlobalNetInt( defcon, 3 ) // Enemy Stalkers Incoming
-			return
-
-		case file.levelReapers:
-			// gunship level removed
-			//file.levels[ index ] = LEVEL_GUNSHIPS
-
-			// change levels
-			// in case we accidentally assigned wrong value for levels...( same value, or lower value )
-			if ( file.levelReapers == file.levelTitans )
-				file.levelTitans += 1
-			if ( file.levelTitans < file.levelReapers )
-				file.levelTitans = file.levelReapers + 1
-			file.levels[ index ] = file.levelTitans
-
-			// level spawn content
-			file.reapers[ index ] = true
-			file.gunships[ index ] = true // adding here because we've removed gunship level removed
-			SetGlobalNetInt( defcon, 4 ) // Enemy Reapers Incoming
-			return
-
-		// has been merged to reaper spawns
-		/*
-        case LEVEL_GUNSHIPS:
-			file.levels[ index ] = LEVEL_TITANS
-			file.gunships[ index ] = true
-			SetGlobalNetInt( defcon, 5 )
-			return
-		*/
-
-		// MAX level
-		case file.levelTitans:
-			file.levels[ index ] = -1 // was 9999, but it makes no sense, already the max level
-			//file.prowlers[ index ] = false // we've added prowler damage against titans, no need to remove them
-			
-			// level spawn content
-			file.titans[ index ] = true
-			file.pilots[ index ] = true
-			SetGlobalNetInt( defcon, 6 ) // this will show nothing
-			return
+		if ( escalator.usedByTeams.contains( team ) ) // never run the same escalator for one team
+			continue
+		if ( score >= escalator.scoreRequired )
+		{
+			if ( escalator.spawnSettingsFunc != null )
+				escalator.spawnSettingsFunc( team )
+			escalator.usedByTeams.append( team )
+		}
 	}
-
-	// why we have to run into unreachable?
-	//unreachable // hopefully
 }
 
 //------------------------------------------------------
@@ -1519,6 +1554,7 @@ void function CleanUpOverloadedTicks()
 void function CleanUpOverloadedTicks_Threaded()
 {
 	int maxTicks = file.reaperCount * 2 * 4 + 2 // clean up ticks spawned by reapers
+	//maxTicks += int( file.squadCountHighLevel * 1.5 ) // add some space for specialist grunt spawned ticks
 
 	while ( true )
 	{
