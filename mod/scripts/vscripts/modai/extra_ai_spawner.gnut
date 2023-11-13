@@ -266,6 +266,9 @@ struct
 
 void function ExtraAISpawner_Init()
 {
+	if ( IsLobby() ) // prevent unable to enter lobby
+		return
+
 	// intilize
 	InitCarePackageDefaultSettings()
 	InitDefaultNPCWeapons()
@@ -298,16 +301,13 @@ void function ExtraAISpawner_Init()
 	// this should be in _ai_pilots.gnut
 	//RegisterSignal( "ForceStartMove" ) // the signal as been deleted
 	
-	if( GetMapName() != "mp_lobby" ) // prevent unable to enter lobby
-	{
-		AddCallback_OnNpcPilotBecomesTitan( OnNpcPilotBecomesTitan )
-		AddCallback_OnNpcTitanBecomesPilot( OnNpcTitanBecomesPilot )
-	}
+	AddCallback_OnNpcPilotBecomesTitan( OnNpcPilotBecomesTitan )
+	AddCallback_OnNpcTitanBecomesPilot( OnNpcTitanBecomesPilot )
+	
+	AddCallback_OnNPCKilled( OnNPCKilled )
 
 	// if npc titan has a pilot inside, reset it's melee damageSourceId
 	AddDamageCallbackSourceID( eDamageSourceId.auto_titan_melee, ApplyNormalMeleeIdToNPCTitan )
-	// npc pilot score event, better be added by gamemodes
-	//AddDeathCallback( "npc_pilot_elite", KilledNPCPilotScoreEvent )
 
 	// npc damages
 	AddDamageFinalCallback( "npc_pilot_elite", NPCPilotDamageAdjustments ) // don't let stepping on or some titan weapon easily kill them
@@ -802,18 +802,78 @@ void function NPCArchonLoadout( entity titan )
 }
 #endif // EXTRA_SPAWNER_HAS_ARCHON
 
-// npc pilot score event, better be added by gamemodes
-/*
-void function KilledNPCPilotScoreEvent( entity pilot, var damageInfo )
+void function OnNPCKilled( entity victim, entity attacker, var damageInfo )
 {
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if( !IsValid( attacker ) )
+	// we only handle npcs spawn from this file!
+	if ( !( victim in file.npcSpawnFromExtraSpawner ) )
 		return
-	if( !attacker.IsPlayer() )
-		return
-	AddPlayerScore( attacker, "EliminatePilot", pilot )
+
+	// manually do some score event
+	if ( ShouldCreateScoreEventForNPCKilled( victim. attacker ) )
+	{
+		string scoreEvent = ExtraSpawner_GetNPCScoreEvent( victim )
+		if ( scoreEvent != "" )
+			AddPlayerScore( attacker, scoreEvent, victim )
+	}
+
+	// npc pilot killed battle chatter
+	if ( victim.GetClassName() == "npc_pilot_elite" )
+	{
+		TryNPCPilotKilledChatter( attacker )
+	}
 }
-*/
+
+// keep the same check as _base_gametype.gnut, PlayerOrNPCKilled() does!
+bool function ShouldCreateScoreEventForNPCKilled( entity victim, entity attacker )
+{
+	if ( !victim.IsNPC() )
+		return false
+	
+	if ( !attacker.IsPlayer() )
+		return false
+
+	//if ( ent.GetTeam() != attacker.GetTeam() )
+	// adding friendlyfire support!
+	if ( ( ent.GetTeam() != attacker.GetTeam() || FriendlyFire_IsEnabled() )
+		 && ( ent != attacker && ent.GetBossPlayer() != attacker ) )
+		return true
+
+	return false
+}
+
+// for npcs those are not handled by OnNPCKilled(), do a extra score event( such as gunship and npc pilot )
+string function ExtraSpawner_GetNPCScoreEvent( entity ent )
+{
+	string scoreEvent = ""
+
+	string className = ent.GetClassName()
+
+	if ( className == "npc_pilot_elite" )
+		scoreEvent = "EliminatePilot"
+
+	if ( className == "npc_gunship" )
+		scoreEvent = "FlyerKill" // vanilla don't have "Killed Gunship" events, guess this is good enough
+
+	// Player ejecting triggers this without the extra check
+	if ( ent.IsTitan() )
+	{
+		if ( TitanHasNpcPilot( ent ) ) // pilot was killed without ejecting
+			scoreEvent = "EliminatePilot"
+	}
+
+	return scoreEvent
+}
+
+bool function TryNPCPilotKilledChatter( entity attacker )
+{
+	if ( attacker.IsPlayer() && !attacker.IsTitan() )
+	{
+		TryPilotKillChatter( attacker ) // shared from _battle_chatter.gnut
+		return true
+	}
+
+	return false
+}
 
 void function InitDefaultBossTitanList()
 {
