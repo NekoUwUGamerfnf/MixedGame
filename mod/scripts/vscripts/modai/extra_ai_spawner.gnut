@@ -4022,7 +4022,7 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	float podLaunchTime = expect float( GetDropPodAnimDuration() )
 	wait podLaunchTime - 2.5 // wait for pod launch complete( wait 0.5s more )
 
-	// activate pod, releasing the pilot, don't clear it's invulerability
+	// activate pod, releasing the pilot, don't clear it's invulerability because it's handled by PilotSpawnProtection()
 	ExtraSpawner_RestoreSensingForNPC( pilot, false, true, true )
 	ActivateFireteamDropPod( pod, [ pilot ] )
 
@@ -4126,15 +4126,19 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot, void functionref( entity
 void function PilotSpawnProtection( entity pilot, entity titan, float duration )
 {
 	pilot.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" ) // pilot's titan has been robbed?
 
-	pilot.SetInvulnerable()
-	pilot.SetNoTarget( true )
+	// invulnerability handled by ExtraSpawner_DisableSensingForNPC()
+	// don't set again. SetInvulnerable() can stack up, we'll have to clear it twice
+	//pilot.SetInvulnerable()
+	//pilot.SetNoTarget( true )
 	OnThreadEnd(
 		function(): ( pilot )
 		{
 			if( IsAlive( pilot ) )
 			{
+				//print( "Clearing out pilot spawn protection!" )
 				pilot.ClearInvulnerable()
 				pilot.SetNoTarget( false )
 			}
@@ -4158,12 +4162,13 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 {
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
 
 	OnThreadEnd(
-		function():( titan, pilot )
+		function(): ( titan, pilot )
 		{
-			if( IsAlive( pilot ) )
+			if ( IsAlive( pilot ) ) // pilot didn't made it to embark. start combating
 			{
 				if( IsAlive( titan ) )
 				{
@@ -4174,21 +4179,22 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 					NpcPilotStopRunsToEmbark( pilot )
 					if( titan.ContextAction_IsBusy() ) // embarking?
 						return
-					// don't start titan handler. titan will follow the pilot
-					ExtraSpawner_StopDefaultHandler( titan )
-					if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
-						thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
-					pilot.SetNPCMoveSpeedScale( 1.25 ) // reset move speed
-					pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
 
 					thread StandUnboardedTitan( titan )
 				}
+
+				// don't start titan handler. titan will follow the pilot
+				ExtraSpawner_StopDefaultHandler( titan )
+				if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
+					thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
+				pilot.SetNPCMoveSpeedScale( 1.25 ) // reset move speed
+				pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
 			}
 			else
 			{
-				if( IsAlive( titan ) ) // this titan have no owner!!
+				if( IsAlive( titan ) ) // this titan have no owner alive!!
 				{
-					if( titan.GetTitanSoul().soul.seatedNpcPilot.isValid )
+					if( titan.GetTitanSoul().soul.seatedNpcPilot.isValid ) // check embark
 						return
 					thread StandUnboardedTitan( titan )
 				}
