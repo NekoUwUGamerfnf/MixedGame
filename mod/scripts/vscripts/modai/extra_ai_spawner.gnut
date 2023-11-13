@@ -1712,7 +1712,33 @@ array<entity> function FindNPCAssaultHeavyArmorTargets_FailSafeToAllTargets( arr
 	return validTargets
 }
 
-// can't stop squad handler
+// npc titan specific: prefer assault to other titans
+array<entity> function FindNPCTitanAssaultTargets( array<entity> targetsToSearch )
+{
+	array<entity> validTargets
+
+	bool foundTitanTarget = false
+	foreach ( entity ent in targetsToSearch )
+	{
+		if ( !IsValidNPCAssaultTarget( ent ) )
+			continue
+
+		if ( ent.IsTitan() )
+		{
+			validTargets.append( ent )
+			foundTitanTarget = true
+		}
+	}
+
+	// can't find any titan target! prefer finding heavy armor targets
+	if ( !foundTitanTarget )
+		return FindNPCAssaultHeavyArmorTargets_FailSafeToAllTargets( targetsToSearch )
+
+	return validTargets
+}
+
+
+// can't stop squad handler. maybe we need to store squad stuffs into a table
 void function ExtraSpawner_StopDefaultHandler( entity npc )
 {
 	npc.Signal( "StopDefaultHandler" )
@@ -2912,6 +2938,10 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 
 		// we're trying to warpfall an existing titan
 		// we don't want to show the titan nor destroying it... so we try to hide it
+
+		// mark as hotdropping so other functions can get different result. cleaned up by NPCTitanHotdrops()
+		titan.e.isHotDropping = true
+
 		if ( !titan.IsFrozen() )
 			titan.Freeze()
 		titan.NotSolid()
@@ -4678,9 +4708,9 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		// try to find from alive player targets
 		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
 
-		// we mostly search for heavy armor targets
-		// if there're no valid targets, we use all targets instead
-		points = FindNPCAssaultHeavyArmorTargets_FailSafeToAllTargets( pointsToSearch )
+		// we mostly search for other titans
+		// if there're no valid targets, we prefer using heavy armor targets
+		points = FindNPCTitanAssaultTargets( pointsToSearch )
 
 		ArrayRemoveDead( points ) // remove dead entities
 		if ( points.len() == 0 ) // no points valid!
