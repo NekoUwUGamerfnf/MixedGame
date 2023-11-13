@@ -12,6 +12,12 @@ global function ScoreEvent_MatchComplete
 global function ScoreEvent_VictoryKill
 
 global function ScoreEvent_SetEarnMeterValues
+// northstar missing
+// this seems to be how vanilla overwrite display type
+// because if we add eEventDisplayType.CENTER by default
+// we'll have to handle events like "Titanfall" and "DoomTitan" manually, which is pretty bad
+global function ScoreEvent_SetEventDisplayTypes
+
 global function ScoreEvent_SetupEarnMeterValuesForMixedModes
 global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 
@@ -97,8 +103,9 @@ void function InitPlayerForScoreEvents( entity player )
 }
 
 // idk why forth arg is a string, maybe it should be a var type?
+// pointValueOverride takes no effect in tf2, but _codecallbacks.gnut uses it... sucks
 //void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string noideawhatthisis = "", int pointValueOverride = -1 )
-void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1, float earnMeterPercentage = -1 )
+void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1, float earnmeterScale = 1.0 )
 {
 	// modified: adding score event override
 	if ( scoreEventName in file.scoreEventNameOverride )
@@ -119,6 +126,7 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	if ( associatedEnt != null )
 		associatedHandle = associatedEnt.GetEncodedEHandle()
 	
+	// pointValueOverride takes no effect in tf2, but _codecallbacks.gnut uses it... sucks
 	if ( pointValueOverride != -1 )
 		event.pointValue = pointValueOverride
 	
@@ -129,11 +137,8 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	float ownValue = event.earnMeterOwnValue * ownScale
 
 	// fix score event value override
-	if ( earnMeterPercentage != -1 )
-	{
-		earnValue *= earnMeterPercentage
-		ownValue *= earnMeterPercentage
-	}
+	earnValue *= earnmeterScale
+	ownValue *= earnmeterScale
 
 	// debug
 	//print( "not calculated earnValue: " + string( earnValue ) )
@@ -186,6 +191,7 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	//print( "calculated earnValue: " + string( earnValue ) )
 	//print( "calculated ownValue: " + string( ownValue ) )
 	
+	// modified: displayTypeOverride
 	if ( displayTypeOverride != null ) // has overrides?
 	{
 		// anti-crash for calling in GameModeRulesEarnMeterOnDamage_Default()
@@ -194,8 +200,6 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 		else
 			event.displayType = int( displayTypeOverride )
 	}
-	else // default, add a eEventDisplayType.CENTER, required for client to show earnvalue on screen
-		event.displayType = event.displayType | eEventDisplayType.CENTER
 	
 	// messed up "ownValue" and "earnValue"
 	//Remote_CallFunction_NonReplay( targetPlayer, "ServerCallback_ScoreEvent", event.eventId, event.pointValue, event.displayType, associatedHandle, ownValue, earnValue )
@@ -355,11 +359,10 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 void function ScoreEvent_TitanDoomed( entity titan, entity attacker, var damageInfo )
 {
 	// will this handle npc titans with no owners well? i have literally no idea
-	// these two shouldn't add eEventDisplayType.CENTER, override with eEventDisplayType.MEDAL
-	if ( titan.IsNPC() )
-		AddPlayerScore( attacker, "DoomAutoTitan", titan, eEventDisplayType.MEDAL )
+	if ( titan.IsPlayer() )
+		AddPlayerScore( attacker, "DoomTitan", titan )
 	else
-		AddPlayerScore( attacker, "DoomTitan", titan, eEventDisplayType.MEDAL )
+		AddPlayerScore( attacker, "DoomAutoTitan", titan )
 }
 
 // needs this to handle npc doom titan
@@ -540,7 +543,7 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
-		AddPlayerScore( attacker, "Headshot", victim, null, -1, 0.0 ) // no value earn from npc headshots
+		AddPlayerScore( attacker, "Headshot", victim, null, -1, 0.0 ) // no extra value earn from npc headshots
 
 	// mayhem and onslaught, doesn't add any score but vanilla has this event
 	// mayhem killstreak broke
@@ -607,6 +610,14 @@ void function ScoreEvent_SetEarnMeterValues( string eventName, float earned, flo
 	event.coreMeterScalar = coreScale
 }
 
+// welp I think is is pretty bad, we should store these things in file.table, never touch struct themselves?
+// but it works fine so guess it's alright?
+void function ScoreEvent_SetEventDisplayTypes( string eventName, int displayTypes )
+{
+	ScoreEvent event = GetScoreEvent( eventName )
+	event.displayType = displayTypes
+}
+
 void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in this case means modes with both pilots and titans
 {
 	if ( IsLobby() ) // setup score events in lobby can cause crash
@@ -616,8 +627,10 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "KillPilot", 0.10, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "EliminatePilot", 0.10, 0.05 )
 	ScoreEvent_SetEarnMeterValues( "PilotAssist", 0.03, 0.020001, 0.0 ) // if set to "0.03, 0.02", will display as "4%"
-	// titan kill
+	// titan doom
 	ScoreEvent_SetEarnMeterValues( "DoomTitan", 0.0, 0.0 )
+	ScoreEvent_SetEarnMeterValues( "DoomAutoTitan", 0.0, 0.0 )
+	// titan kill
 	// don't know why auto titan kills appear to be no value in vanilla
 	// even when the titan have an owner player
 	ScoreEvent_SetEarnMeterValues( "KillTitan", 0.20, 0.10, 0.0 )
@@ -625,7 +638,8 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "EliminateTitan", 0.20, 0.10, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "EliminateAutoTitan", 0.0, 0.0 )
 	ScoreEvent_SetEarnMeterValues( "TitanKillTitan", 0.0, 0.0 )
-	// but titan assist do have earn values...
+	// but titan assist do have earn values... 
+	// maybe because they're not splitted into AutoTitan or PlayerTitan variant
 	ScoreEvent_SetEarnMeterValues( "TitanAssist", 0.10, 0.10 )
 	// rodeo
 	ScoreEvent_SetEarnMeterValues( "PilotBatteryStolen", 0.0, 0.35, 0.0 )
@@ -645,6 +659,35 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.03, 0.020001, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.10, 0.10, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.05 )
+
+
+	// display type
+	// default case is adding a eEventDisplayType.CENTER, required for client to show earnvalue on screen
+	ScoreEvent_SetEventDisplayTypes( "KillPilot", GetScoreEvent( "KillPilot" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "EliminatePilot", GetScoreEvent( "EliminatePilot" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "PilotAssist", GetScoreEvent( "PilotAssist" ).displayType | eEventDisplayType.CENTER )
+	// doom a titan shouldn't be displayed at center of screen
+
+	ScoreEvent_SetEventDisplayTypes( "KillTitan", GetScoreEvent( "KillTitan" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "KillAutoTitan", GetScoreEvent( "KillAutoTitan" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "EliminateTitan", GetScoreEvent( "EliminateTitan" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "EliminateAutoTitan", GetScoreEvent( "EliminateAutoTitan" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "TitanKillTitan", GetScoreEvent( "TitanKillTitan" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "TitanAssist", GetScoreEvent( "TitanAssist" ).displayType | eEventDisplayType.CENTER )
+	
+	ScoreEvent_SetEventDisplayTypes( "PilotBatteryStolen", GetScoreEvent( "PilotBatteryStolen" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "PilotBatteryApplied", GetScoreEvent( "PilotBatteryApplied" ).displayType | eEventDisplayType.CENTER )
+	
+	ScoreEvent_SetEventDisplayTypes( "Headshot", GetScoreEvent( "Headshot" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "FirstStrike", GetScoreEvent( "FirstStrike" ).displayType | eEventDisplayType.CENTER )
+	
+	ScoreEvent_SetEventDisplayTypes( "KillGrunt", GetScoreEvent( "KillGrunt" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "KillSpectre", GetScoreEvent( "KillSpectre" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "LeechSpectre", GetScoreEvent( "LeechSpectre" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "KillHackedSpectre", GetScoreEvent( "KillHackedSpectre" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "KillStalker", GetScoreEvent( "KillStalker" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "KillSuperSpectre", GetScoreEvent( "KillSuperSpectre" ).displayType | eEventDisplayType.CENTER )
+	ScoreEvent_SetEventDisplayTypes( "KillLightTurret", GetScoreEvent( "KillLightTurret" ).displayType | eEventDisplayType.CENTER )
 }
 
 void function ScoreEvent_SetupEarnMeterValuesForTitanModes()
@@ -709,7 +752,6 @@ void function ScoreEvent_SetMVPCompareFunc( IntFromEntityCompare func )
 }
 
 // wrap assist checks into this function
-// adding displayTypeOverride requested by issues/46
 void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string eventName, var displayTypeOverride = null )
 {
 	// add error handle
