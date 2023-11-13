@@ -103,11 +103,9 @@ void function InitPlayerForScoreEvents( entity player )
 }
 
 // idk why forth arg is a string, maybe it should be a var type?
-// pointValueOverride takes no effect in tf2
-// but if we change it to "earnmeterScale", will it affect UpdateAccumulatedDamageAfterDelay() in _codecallbacks.gnut?
-// guess it will, if we assign values override for "DamageTitan"
+// pointValueOverride takes no effect in tf2, but _codecallbacks.gnut uses it... sucks
 //void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string noideawhatthisis = "", int pointValueOverride = -1 )
-void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, float earnmeterScale = 1.0 )
+void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1, float earnmeterScale = 1.0 )
 {
 	// modified: adding score event override
 	if ( scoreEventName in file.scoreEventNameOverride )
@@ -128,9 +126,9 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	if ( associatedEnt != null )
 		associatedHandle = associatedEnt.GetEncodedEHandle()
 	
-	// pointValueOverride takes no effect in tf2
-	//if ( pointValueOverride != -1 )
-	//	event.pointValue = pointValueOverride
+	// pointValueOverride takes no effect in tf2, but _codecallbacks.gnut uses it... sucks
+	if ( pointValueOverride != -1 )
+		event.pointValue = pointValueOverride
 	
 	float earnScale = targetPlayer.IsTitan() ? 0.0 : 1.0 // titan shouldn't get any earn value
 	float ownScale = targetPlayer.IsTitan() ? event.coreMeterScalar : 1.0
@@ -549,7 +547,7 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
-		AddPlayerScore( attacker, "Headshot", victim, null, 0.0 ) // no value earn from npc headshots
+		AddPlayerScore( attacker, "Headshot", victim, null, -1, 0.0 ) // no extra value earn from npc headshots
 
 	// mayhem and onslaught, doesn't add any score but vanilla has this event
 	// mayhem killstreak broke
