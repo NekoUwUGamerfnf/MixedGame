@@ -98,11 +98,6 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	//print( "current monarch weapon is: " + string( weapon ) )
 	if( !IsValid( weapon ) )
 		return
-	
-	// modded weapon
-	// archon's laser, only do damage
-	if ( weapon.HasMod( "archon_laser" ) )
-		return
 
 	// we added friendly fire, do a new check now!
 	bool hasEnergyTransfer = weapon.HasMod( "energy_transfer" ) || weapon.HasMod( "energy_field_energy_transfer" )
