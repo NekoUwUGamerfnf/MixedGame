@@ -1207,10 +1207,12 @@ void function CleanupBoredNPCThread( entity guy )
 
 	if ( guy.GetClassName() == "npc_marvin" ) // never clean up marvins
 		return
+	guy.EndSignal( "OnDeath" ) // dead guy ends thread
 	guy.EndSignal( "OnDestroy" )
+
 	// cover spawning time from dropship/pod + before we start cleaning up
 	WaitFrame()
-	while ( IsValid( guy.GetParent() ) )
+	while ( IsValid( guy.GetParent() ) || guy.e.isHotDropping )
 		WaitFrame()
 
 	wait NPC_CLEANUP_INITIAL_WAIT_TIME // initial wait
@@ -1300,44 +1302,77 @@ void function CleanupBoredNPCThread( entity guy )
 	}
 
 	print( "cleaning up bored npc: " + guy + " from team " + guy.GetTeam() )
+	
 	HideName( guy ) // prevent their title or health bar from showing
 	TakeAllWeapons( guy ) // so they won't have a weapon floating
 	guy.SetNoTarget( true ) // disable npc targeting
 	guy.SetNoTargetSmartAmmo( true ) // disable smart ammo targeting
 	guy.EnableNPCFlag( NPC_IGNORE_ALL ) // disable any sensing
 	guy.NotSolid() // disable collision
+
 	// titan being dissolved
 	if ( guy.IsTitan() )
 	{
-		entity soul = guy.GetTitanSoul()
-		if( IsValid( soul ) )
-		{
-			// end any rodeo on it
-			ForceTitanRodeoToEnd( guy )
-			DisableTitanRodeo( guy )
-			// try to hide a cleaning up titan's batteryContainer
-			entity batteryContainer = soul.soul.batteryContainer
-			if ( IsValid( batteryContainer ) )
-				batteryContainer.Hide()
-		}
+		TitanBoredToCleanUp( guy )
 	}
 	// reaper being dissolved
 	if ( guy.GetClassName() == "npc_super_spectre" )
 	{
-		if ( guy.ai.activeMinionEntArrayID > 0 )
+		ReaperBoredToCleanUp( guy )
+	}
+
+	guy.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 ) // dissolve them to have better visual
+
+	// prowler being dissolved
+	// prowler being fully dissolved can crush the game?????
+	// like changing hullType for them... too bad!
+	// we try to destroy them while they not getting fully dissolved
+	if ( guy.GetClassName() == "npc_prowler" )
+	{
+		thread DelayedDestroyProwler( guy )
+	}
+}
+
+void function TitanBoredToCleanUp( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if( IsValid( soul ) )
+	{
+		// end any rodeo on it
+		ForceTitanRodeoToEnd( titan )
+		DisableTitanRodeo( titan )
+		// try to hide a cleaning up titan's batteryContainer
+		entity batteryContainer = soul.soul.batteryContainer
+		if ( IsValid( batteryContainer ) )
+			batteryContainer.Hide()
+	}
+}
+
+void function ReaperBoredToCleanUp( entity reaper )
+{
+	// detonate all frag drones they owned
+	if ( reaper.ai.activeMinionEntArrayID > 0 )
+	{
+		foreach ( entity ent in GetScriptManagedEntArray( reaper.ai.activeMinionEntArrayID ) )
 		{
-			// detonate all frag drones they owned
-			foreach ( entity ent in GetScriptManagedEntArray( guy.ai.activeMinionEntArrayID ) )
+			if ( IsValid( ent ) ) 
 			{
-				if ( IsValid( ent ) ) 
-				{
-					if ( ent.IsNPC() && ent.ai.fragDroneArmed ) // minion may doing a deploy animation, which handled by WaitForFragDroneDeployThenDetonate()
-						ent.Signal( "SuicideSpectreExploding" )
-					else if ( ent.GetClassName() == "grenade" ) // minion still a grenade
-						ent.Destroy()
-				}
+				if ( ent.IsNPC() && ent.ai.fragDroneArmed ) // minion may doing a deploy animation, which handled by WaitForFragDroneDeployThenDetonate()
+					ent.Signal( "SuicideSpectreExploding" )
+				else if ( ent.GetClassName() == "grenade" ) // minion still a grenade
+					ent.Destroy()
 			}
 		}
 	}
-	guy.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 ) // dissolve them to have better visual
+}
+
+void function DelayedDestroyProwler( entity prowler )
+{
+	// needs to be thread off
+	// try to destroy them while they not getting fully dissolved
+	prowler.EndSignal( "OnDestroy" )
+
+	wait 1.0
+	prowler.DissolveStop() // prevent it crushes server
+	prowler.Destroy()
 }
