@@ -80,11 +80,14 @@ bool function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
 	damageType = damageType | ~DF_DISSOLVE // remove any dissolving that could happen to player
 	DamageInfo_SetCustomDamageType( damageInfo, damageType )
 
-	thread DelayedDissolveDeadEntity( deadEnt )
+	// removed delayed dissolve here
+	//thread DelayedDissolveDeadEntity( deadEnt )
+	DissolveEntityWrapped( deadEnt )
 
 	return true // dissolving succeeded
 }
 
+/*
 void function DelayedDissolveDeadEntity( entity deadEnt )
 {
 	WaitFrame() // wait for next frame so we don't mess up ragdolls( seems can't fix )
@@ -93,15 +96,21 @@ void function DelayedDissolveDeadEntity( entity deadEnt )
 	if ( !IsValid( deadEnt ) || IsAlive( deadEnt ) )
 		return
 
+	DissolveEntityWrapped( deadEnt )
+}
+*/
+
+void function DissolveEntityWrapped( entity ent )
+{
 	// we never do dissolve during other gamestates, otherwise we may hide the entity forever
 	// player dissolving cleanup handled by EnsureWargamesDeathEffectIsClearedForPlayer()
 	if ( GamePlayingOrSuddenDeath() || GetGameState() == eGameState.Epilogue )
 	{
-		deadEnt.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 500 )
-		EmitSoundAtPosition( TEAM_UNASSIGNED, deadEnt.GetOrigin(), "Object_Dissolve" )
+		ent.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 500 )
+		EmitSoundAtPosition( TEAM_UNASSIGNED, ent.GetOrigin(), "Object_Dissolve" )
 		
-		if ( deadEnt.IsPlayer() )
-			thread EnsureWargamesDeathEffectIsClearedForPlayer( deadEnt )
+		if ( ent.IsPlayer() )
+			thread EnsureWargamesDeathEffectIsClearedForPlayer( ent )
 	}
 }
 
