@@ -107,6 +107,10 @@ void function ClassicMP_OnIntroFinished()
 
 float function ClassicMP_GetIntroLength() 
 {
+	// northstar missing: same check as _gamestate_mp.gnut
+	if ( !GetClassicMPMode() && !ClassicMP_ShouldTryIntroAndEpilogueWithoutClassicMP() )
+		return 0.0 // no length for that
+
 	if ( file.customIntroSetupFunc != null )
 		return file.customIntroLength
 
