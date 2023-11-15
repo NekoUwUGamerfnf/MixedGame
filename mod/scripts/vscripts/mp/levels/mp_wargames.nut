@@ -169,6 +169,8 @@ void function MarvinSpawnerThink( entity spawner )
 		DispatchSpawn( marvin )
 		HideName( marvin )
 
+		thread MarvinJobThink( marvin )
+
 		WaitSignal( marvin, "OnDeath", "OnDestroy" )
 		wait MARVIN_RESPAWN_DELAY
 	}
