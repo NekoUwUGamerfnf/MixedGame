@@ -148,7 +148,10 @@ void function SuperSpectreNukes( entity npc, entity attacker )
 	npc.EndSignal( "OnDestroy" )
 	vector origin = npc.GetWorldSpaceCenter()
 	EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_nukedestruct_explo_3p" )
-	PlayFX( $"P_sup_spectre_death_nuke", origin, npc.GetAngles() )
+	// modified here: all these fx should never hibernate on client-side...
+	//PlayFX( $"P_sup_spectre_death_nuke", origin, npc.GetAngles() )
+	entity nukeFX = PlayFX( $"P_sup_spectre_death_nuke", origin, npc.GetAngles() )
+	nukeFX.DisableHibernation()
 
 	// modified: can get more infomation from reaper itself, pass it to SuperSpectreNukeDamage()
 	//thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker )
@@ -839,6 +842,8 @@ function SuperSpectre_WarpFall( entity ai )
 
 	local e = {}
 	e.warpfx <- PlayFX( TURBO_WARP_FX, warpPos + < 0, 0, -104 >, mover.GetAngles() )
+	// modified here: all these fx should never hibernate on client-side...
+	e.warpfx.DisableHibernation()
 	e.smokeFx <- null
 
 	OnThreadEnd(
@@ -867,6 +872,8 @@ function SuperSpectre_WarpFall( entity ai )
 	ai.Show()
 
 	e.smokeFx = PlayFXOnEntity( TURBO_WARP_COMPANY, ai, "", <0.0, 0.0, 152.0> )
+	// modified here: all these fx should never hibernate on client-side...
+	e.smokeFx.DisableHibernation()
 
 	local time = 0.2
 	mover.MoveTo( origin, time, 0, 0 )
@@ -876,7 +883,9 @@ function SuperSpectre_WarpFall( entity ai )
 	ai.ClearInvulnerable()
 
 	e.smokeFx.Destroy()
-	PlayFX( $"droppod_impact", origin )
+	// modified here: use the same FX play method as droppod's landing
+	//PlayFX( $"droppod_impact", origin )
+	PlayImpactFXTable( origin, ai, HOTDROP_IMPACT_FX_TABLE )
 
 	Explosion_DamageDefSimple(
 		damagedef_reaper_fall,
