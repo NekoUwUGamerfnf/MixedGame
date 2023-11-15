@@ -431,8 +431,11 @@ void function PlayerWatchesWargamesIntro( entity player )
 	podIdleSequence.attachment = "REF"
 	thread FirstPersonSequence( podIdleSequence, player, playerPod )
 	
-	ScreenFadeFromBlack( player, max( 0.0, ( file.introStartTime + 0.5 ) - Time() ), max( 0.0, ( file.introStartTime + 0.5 ) - Time() ) )
-	
+	// reworked here: for matching other intro spawn, always do same screen fade
+	//ScreenFadeFromBlack( player, max( 0.0, ( file.introStartTime + 0.5 ) - Time() ), max( 0.0, ( file.introStartTime + 0.5 ) - Time() ) )
+	//ScreenFadeFromBlack( player, max( 0.0, ( file.introStartTime + 3.0 ) - Time() ), max( 0.0, ( file.introStartTime + 1.0 ) - Time() ) )
+	ScreenFadeFromBlack( player, 3.0, 1.0 )
+
 	// also get eye positions for fx here
 	if ( file.imcPodFXEyePos == < 0, 0, 0 > && factionTeam == TEAM_IMC )
 		file.imcPodFXEyePos = player.EyePosition()
