@@ -386,10 +386,17 @@ void function PlayerWatchesWargamesIntro( entity player )
 	
 	int factionTeam = ConvertPlayerFactionToIMCOrMilitiaTeam( player )
 	entity playerPod
+	// default team is IMC
+	/*
 	if ( factionTeam == TEAM_IMC )
 		playerPod = file.imcPod
 	else
 		playerPod = file.militiaPod
+	*/
+	if ( factionTeam == TEAM_MILITIA )
+		playerPod = file.militiaPod
+	else
+		playerPod = file.imcPod
 	
 	// setup player
 	int podAttachId = playerPod.LookupAttachment( "REF" )
