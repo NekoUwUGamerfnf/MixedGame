@@ -436,11 +436,7 @@ void function PlayerWatchesWargamesIntro( entity player )
 		file.militiaPodFXEyePos = player.EyePosition()
 	
 	// 7 seconds of nothing before we start the pod sequence
-	// imc pod is bit weird, needs to wait .5s more
-	if ( playerPod = file.militiaPod )
-		wait ( file.introStartTime + 7.0 ) - Time()
-	else
-		wait ( file.introStartTime + 7.5 ) - Time()
+	wait ( file.introStartTime + 7.0 ) - Time()
 	
 	FirstPersonSequenceStruct podCloseSequence
 	podCloseSequence.firstPersonAnim = "ptpov_trainingpod_doors_close"
