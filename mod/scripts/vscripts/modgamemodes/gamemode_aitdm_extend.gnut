@@ -972,10 +972,14 @@ string function GetSpecialistGruntLeader()
 	return leaderSet
 }
 
-int function GetSpecialistLeaderHealth( int team, string otherSpawnWith )
+// reworked here: we scale up health depending on current spawn level, not depend on the ones they spawn with
+//int function GetSpecialistLeaderHealth( int team, string otherSpawnWith )
+int function GetSpecialistLeaderHealth( int team )
 {
 	int index = team == TEAM_MILITIA ? 0 : 1
-	return 200 + ( 60 * file.podEntities[ index ].find( otherSpawnWith ) )
+	// reworked here: we scale up health depending on current spawn level, not depend on the ones they spawn with
+	//return 200 + ( 60 * file.podEntities[ index ].find( otherSpawnWith ) )
+	return 200 + ( 60 * ( file.podEntities[ index ].len() - 1 ) )
 }
 
 bool function ShouldSpawnBossTitan()
@@ -1060,7 +1064,7 @@ bool function ReachedPlayerCheckAmount()
 
 void function SpawnIntroBatch( int team )
 {
-	array<entity> dropPodNodes = GetEntArrayByClass_Expensive( "info_spawnpoint_droppod_start" )
+	array<entity> dropPodNodes = GetDroppodStartPoints()
 	array<entity> dropShipNodes = GetValidIntroDropShipSpawn( dropPodNodes )  
 	
 	array<entity> podNodes
@@ -1137,11 +1141,13 @@ void function SpawnIntroBatch( int team )
 				index = RandomInt( podNodes.len() )
 			
 			node = podNodes[ index ]
+			UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 			if ( ShouldSpawnSpecialistSquad( introSpawnClass ) )
 			{
 				array< entity > points = GetZiplineDropshipSpawns()
 				string leaderSet = GetSpecialistGruntLeader()
-				int leaderHealth = GetSpecialistLeaderHealth( team, introSpawnClass )
+				//int leaderHealth = GetSpecialistLeaderHealth( team, introSpawnClass )
+				int leaderHealth = GetSpecialistLeaderHealth( team )
 				thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, leaderSet, leaderHealth )
 			}
 			else
@@ -1156,11 +1162,13 @@ void function SpawnIntroBatch( int team )
 				startIndex = i // save where we started
 			
 			node = shipNodes[ i - startIndex ]
+			UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 			if ( ShouldSpawnSpecialistSquad( introSpawnClass ) )
 			{
 				array< entity > points = GetZiplineDropshipSpawns()
 				string leaderSet = GetSpecialistGruntLeader()
-				int leaderHealth = GetSpecialistLeaderHealth( team, introSpawnClass )
+				//int leaderHealth = GetSpecialistLeaderHealth( team, introSpawnClass )
+				int leaderHealth = GetSpecialistLeaderHealth( team )
 				thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, introSpawnClass, 4, leaderSet, leaderHealth )
 			}
 			else
@@ -1236,35 +1244,44 @@ void function SpawnerSquads( int team )
 				
 				array<entity> dropshipPoints = GetZiplineDropshipSpawns()
 				array<entity> droppodPoints = SpawnPoints_GetDropPod()
+				// add startpoints for fun!
+				dropshipPoints.extend( GetValidIntroDropShipSpawn( GetDroppodStartPoints() ) )
+				droppodPoints.extend( GetDroppodStartPoints() )
 				string ent = file.podEntities[ index ][ RandomInt( file.podEntities[ index ].len() ) ]
 
 				if ( ShouldSpawnSpecialistSquad( ent ) )
 				{
 					string leaderSet = GetSpecialistGruntLeader()
 					// add health depending on what npc it spawning with
-					int leaderHealth = GetSpecialistLeaderHealth( team, ent )
+					//int leaderHealth = GetSpecialistLeaderHealth( team, ent )
+					// add health depending on current team's spawn level
+					int leaderHealth = GetSpecialistLeaderHealth( team )
 					//print( "RUNNING ExtraSpawner_SpawnSpecialistGruntDropPod()" )
 					//print( "leaderHealth is: " + string( leaderHealth ) )
 					if ( ShouldSpawnDropship() )
 					{
-						entity node = dropshipPoints[ GetSpawnPointIndex( dropshipPoints, team ) ]
+						entity node = FindBestSpawnForNPCDrop( dropshipPoints, team, 15 )
+						UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 						thread ExtraSpawner_SpawnSpecialistGruntDropShip( node.GetOrigin(), node.GetAngles(), team, "npc_soldier", 4, leaderSet, leaderHealth )
 						continue
 					}
 					
-					entity node = droppodPoints[ GetSpawnPointIndex( droppodPoints, team ) ]
+					entity node = FindBestSpawnForNPCDrop( droppodPoints, team, 8 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					thread ExtraSpawner_SpawnSpecialistGruntDropPod( node.GetOrigin(), node.GetAngles(), team, ent, leaderSet, leaderHealth )
 				}
 				else
 				{
 					if ( ShouldSpawnDropship() )
 					{
-						entity node = dropshipPoints[ GetSpawnPointIndex( dropshipPoints, team ) ]
+						entity node = FindBestSpawnForNPCDrop( dropshipPoints, team, 15 )
+						UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 						thread ExtraSpawner_SpawnDropShip( node.GetOrigin(), node.GetAngles(), team, ent, SQUAD_SIZE )
 						continue
 					}
 
-					entity node = droppodPoints[ GetSpawnPointIndex( droppodPoints, team ) ]
+					entity node = FindBestSpawnForNPCDrop( droppodPoints, team, 8 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					thread ExtraSpawner_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, ent )
 				}
 			}
@@ -1285,7 +1302,8 @@ void function SpawnerSquads( int team )
 						wait 2.0 // delay before next spawn
 					
 					array< entity > points = SpawnPoints_GetDropPod()
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					entity node = FindBestSpawnForNPCDrop( points, team, 8 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					//print( "RUNNING ExtraSpawner_SpawnProwlerSquadDropPod()" )
 					thread ExtraSpawner_SpawnProwlerSquadDropPod( node.GetOrigin(), node.GetAngles(), team )
 				}
@@ -1326,7 +1344,8 @@ void function SpawnerHeavyArmor( int team )
 						wait 2.0 // delay before next spawn
 
 					array<entity> points = SpawnPoints_GetTitan()
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					entity node = FindBestSpawnForNPCDrop( points, team, 8 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					//thread AiGameModes_SpawnReaper( node.GetOrigin(), node.GetAngles(), team, "npc_super_spectre_aitdm", ReaperHandler )
 					// crazy reaper
 					string reaperSettings = "npc_super_spectre_aitdm"
@@ -1353,7 +1372,8 @@ void function SpawnerHeavyArmor( int team )
 						wait 2.0 // delay before next spawn
 					
 					array< entity > points = SpawnPoints_GetTitan()
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					entity node = FindBestSpawnForNPCDrop( points, team, 12 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					thread ExtraSpawner_SpawnGunShip( node.GetOrigin(), node.GetAngles(), team )
 				}
 
@@ -1373,7 +1393,8 @@ void function SpawnerHeavyArmor( int team )
 						wait 2.0 // delay before next spawn
 					
 					array< entity > points = SpawnPoints_GetTitan()
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					entity node = FindBestSpawnForNPCDrop( points, team, 10 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					thread ExtraSpawner_SpawnTitan( node.GetOrigin(), node.GetAngles(), team, true )
 				}
 
@@ -1395,7 +1416,9 @@ void function SpawnerHeavyArmor( int team )
 					array< entity > points
 					points.extend( SpawnPoints_GetTitanStart( TEAM_IMC ) )
 					points.extend( SpawnPoints_GetTitanStart( TEAM_MILITIA ) )
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					points.extend( SpawnPoints_GetTitan() ) // new added because we've made a spawnpoint search function
+					entity node = FindBestSpawnForNPCDrop( points, team, 15 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					//entity titan = AiGameModes_SpawnTitanRandom( node.GetOrigin(), node.GetAngles(), team )
 					if ( ShouldSpawnBossTitan() ) 
 					{
@@ -1438,7 +1461,9 @@ void function SpawnerNPCs( int team )
 						wait 2.0 // delay before next spawn
 					
 					array< entity > points = SpawnPoints_GetDropPod()
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					points.extend( GetDroppodStartPoints() ) // add startpoints for fun!
+					entity node = FindBestSpawnForNPCDrop( points, team, 8 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					//thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, spawnEnt )
 					thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, spawnEnt, spawnAmount )
 				}
@@ -1461,7 +1486,9 @@ void function SpawnerNPCs( int team )
 						wait 2.0 // delay before next spawn
 
 					array< entity > points = SpawnPoints_GetDropPod()
-					entity node = points[ GetSpawnPointIndex( points, team ) ]
+					points.extend( GetDroppodStartPoints() ) // add startpoints for fun!
+					entity node = FindBestSpawnForNPCDrop( points, team, 8 )
+					UpdateNPCSpawnLastUsedTime( node ) // setup used time for spawn
 					//thread AiGameModes_SpawnDropPod( node.GetOrigin(), node.GetAngles(), team, spawnEnt )
 					thread ExtraSpawner_SpawnNPCInDropPod( node.GetOrigin(), node.GetAngles(), team, spawnEnt, spawnAmount )
 				}
@@ -1492,25 +1519,93 @@ void function Escalate( int team )
 
 //------------------------------------------------------
 
-int function GetSpawnPointIndex( array< entity > points, int team )
+entity function FindBestSpawnForNPCDrop( array<entity> spawnPoints, int team, float timeSinceLastUsedCheck = 10 )
 {
+	array<entity> validSpawnPoints
+
 	// modified: make a new function so ai gamemodes don't have to re-decide for each spawn
 	//entity zone = DecideSpawnZone_Generic( points, team )
 	entity zone = GetCurrentSpawnZoneForTeam( team )
 
 	if ( IsValid( zone ) )
 	{
-		// 20 Tries to get a random point close to the zone
-		for ( int i = 0; i < 20; i++ )
+		foreach ( entity spawn in spawnPoints )
 		{
-			int index = RandomInt( points.len() )
+			// spawn from too far shouldn't count!
+			if ( Distance2D( spawn.GetOrigin(), zone.GetOrigin() ) > 4000 )
+				continue
+			
+			// init like spawn.nut, so player can also get that
+			if ( InitNPCSpawnpoint( spawn ) )
+			{
+				// not inited spawn must be valid. add it to array
+				validSpawnPoints.append( spawn )
+				continue // we continue to next point if we mark current one as valid
+			}
 
-			if ( Distance2D( points[ index ].GetOrigin(), zone.GetOrigin() ) < 6000 )
-				return index
+			// only search for those are not used recently
+			if ( Time() - spawn.s.lastUsedTime > timeSinceLastUsedCheck )
+			{
+				validSpawnPoints.append( spawn )
+				continue
+			}
+		}
+	}
+	
+	// no spawn zone valid or we can't find any valid point in zone...
+	// let's just find from all given points!!
+	if ( validSpawnPoints.len() == 0 )
+	{
+		foreach ( entity spawn in spawnPoints )
+		{
+			// init like spawn.nut, so player can also get that
+			if ( InitNPCSpawnpoint( spawn ) )
+			{
+				// not inited spawn must be valid. add it to array
+				validSpawnPoints.append( spawn )
+				continue // we continue to next point if we mark current one as valid
+			}
+
+			if ( Time() - spawn.s.lastUsedTime > timeSinceLastUsedCheck )
+			{
+				validSpawnPoints.append( spawn )
+				continue
+			}
 		}
 	}
 
-	return RandomInt( points.len() )
+	// wait what... we can't find any valid point, maybe too many entities spawning together
+	// let's use all points instead...
+	if ( validSpawnPoints.len() == 0 )
+	{
+		validSpawnPoints = spawnPoints
+	}
+
+	return validSpawnPoints[ RandomInt( validSpawnPoints.len() ) ]
+}
+
+// return true if "lastUsedTime" not in point.s
+bool function InitNPCSpawnpoint( entity point )
+{
+	if ( !( "lastUsedTime" in point.s ) )
+	{
+		point.s.lastUsedTime <- -999
+		return true
+	}
+
+	return false
+}
+
+void function UpdateNPCSpawnLastUsedTime( entity point )
+{
+	InitNPCSpawnpoint( point )
+
+	point.s.lastUsedTime = Time()
+}
+
+array<entity> function GetDroppodStartPoints()
+{
+	return GetEntArrayByClass_Expensive( "info_spawnpoint_droppod_start" )
 }
 
 //------------------------------------------------------
