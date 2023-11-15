@@ -157,7 +157,7 @@ void function MarvinSpawnerThink( entity spawner )
 	spawner.Signal( "MarvinSpawnerThink" )
 	spawner.EndSignal( "MarvinSpawnerThink" ) // prevent it from looping over many times
 	// intro spawn
-	while ( true )
+	while ( GamePlayingOrSuddenDeath() )
 	{
 		entity marvin = CreateMarvin( TEAM_UNASSIGNED, spawner.GetOrigin(), spawner.GetAngles() )
 		marvin.kv.health = 1
