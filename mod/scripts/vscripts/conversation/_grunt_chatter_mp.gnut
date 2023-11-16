@@ -6,16 +6,15 @@ void function GruntChatter_MP_Init()
 	Assert( IsMultiplayer(), "MP Grunt chatter is restricted to Multiplayer only." )
 
 	// fix for grunt squad dialogue!
-	// based off spectre chatters, which is good enough for MP
+	// based off spectre chatters in _ai_spectre.gnut, which is good enough for MP
 	AddCallback_OnPlayerKilled( GruntChatter_OnPlayerKilled )
 	AddCallback_OnNPCKilled( GruntChatter_OnNPCKilled )
 }
 
 void function PlayGruntChatterMPLine( entity grunt, string conversationType )
 {
-	if ( !IsGrunt( grunt ) ) // nessie fix!
-		return
-	if ( grunt.IsMechanical() ) // mechanical grunt never speak
+	// defensive fix
+	if ( !IsValidGruntChatterSpeaker( grunt ) )
 		return
 
 	#if !GRUNT_CHATTER_MP_ENABLED
@@ -27,11 +26,24 @@ void function PlayGruntChatterMPLine( entity grunt, string conversationType )
 			Remote_CallFunction_Replay( player, "ServerCallback_PlayGruntChatterMP", GetConversationIndex( conversationType ), grunt.GetEncodedEHandle() )
 }
 
-// fix for grunt dialogues!
-// based off spectre chatters, which is good enough for MP
+// nessie fix! modified checks for fun
+bool function IsValidGruntChatterSpeaker( entity guy )
+{
+	if ( !IsAlive( guy ) )
+		return false
+	if ( !IsGrunt( guy ) ) 
+		return false
+	if ( guy.IsMechanical() ) // mechanical grunt never speak
+		return false
+
+	return true
+}
+
+// fix for grunt squad dialogue!
+// based off spectre chatters in _ai_spectre.gnut, which is good enough for MP
 void function GruntChatter_OnPlayerKilled( entity playerKilled, entity attacker, var damageInfo )
 {
-	if ( !IsGrunt( attacker ) )
+	if ( !IsValidGruntChatterSpeaker( attacker ) )
 		return
 
 	if ( playerKilled.IsTitan() )
@@ -42,19 +54,35 @@ void function GruntChatter_OnPlayerKilled( entity playerKilled, entity attacker,
 
 void function GruntChatter_OnNPCKilled( entity npcKilled, entity attacker, var damageInfo )
 {
-	if ( IsGrunt( npcKilled ) )
+	// checks reworked here
+	// want to handle spectre specialist squad!
+	//if ( IsGrunt( npcKilled ) )
+	if ( IsGrunt( npcKilled ) || IsSpectre( npcKilled ) )
 	{
 		string deadGuySquadName = expect string( npcKilled.kv.squadname )
 		if ( deadGuySquadName == "" )
 			return
 
-		array<entity> squad = GetNPCArrayBySquad( deadGuySquadName )
+		// this can run into error for some reason... do a try-catch
+		//array<entity> squad = GetNPCArrayBySquad( deadGuySquadName )
+		array<entity> squad
+		try
+		{
+			squad = GetNPCArrayBySquad( deadGuySquadName )
+		}
+		catch ( ex )
+		{
+			//print( ex )
+			return // we do nothing if crush is about to happen
+		}
 
 		entity speakingSquadMate = null
 
 		foreach( squadMate in squad )
 		{
-			if ( IsGrunt( squadMate ) )
+			// checks reworked here
+			//if ( IsGrunt( squadMate ) )
+			if ( IsValidGruntChatterSpeaker( squadMate ) )
 			{
 				speakingSquadMate = squadMate
 				break
@@ -70,7 +98,9 @@ void function GruntChatter_OnNPCKilled( entity npcKilled, entity attacker, var d
 	}
 	else
 	{
-		if ( !IsGrunt( attacker ) )
+		// checks reworked here
+		//if ( IsGrunt( attacker ) )
+		if ( !IsValidGruntChatterSpeaker( attacker ) )
 			return
 
 		if ( npcKilled.IsTitan() )
@@ -82,7 +112,7 @@ void function PlayGruntChatterAfterDelay( entity grunt, string chatterLine, floa
 {
 	wait delay
 
-	if ( !IsAlive( grunt ) ) //Really this is just an optimization thing, if the spectre is dead no point in running the same check for every player nearby in ShouldPlaySpectreChatterMPLine
+	if ( !IsAlive( grunt ) ) //Really this is just an optimization thing, if the grunt is dead no point in running the same check for every player nearby in ShouldPlayGruntChatterMPLine
 		return
 
 	PlayGruntChatterMPLine( grunt, chatterLine )
