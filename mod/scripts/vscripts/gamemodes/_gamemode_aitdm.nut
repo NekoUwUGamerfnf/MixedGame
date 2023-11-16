@@ -705,7 +705,9 @@ void function AITdm_OnNPCLeeched( entity npc, entity player )
 	// not a good idea. score could be handled by GetBossPlayer()
 	// setting an owner will make entity have no collision with their owner
 	//npc.SetOwner( player )
-	npc.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
+	// wait what???? in vanilla you CAN kill your leeched npcs
+	// that's quiet more funnier than you can hack them multiple times
+	//npc.ai.preventOwnerDamage = true // this is required so we don't kill our spectres
 
 	// adding score
 	// they can be re-hacked and we need to prevent gain score multiple times
