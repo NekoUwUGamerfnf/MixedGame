@@ -269,6 +269,8 @@ struct MeleeThread_TitanVsTitanDataStruct
 	bool setAttackerDemigod = false
 	// save for npc executions. don't want them to have weird rotation after animation
 	vector attackerStartingAngles
+	// store battery style execution here, so we can handle classic executions without having to hardcode everything
+	bool executionGivesBattery = false
 }
 
 bool function MeleeThread_TitanVsTitan( SyncedMelee action, entity attacker, entity target )
@@ -351,6 +353,15 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 					angles.z = dataStruct.attackerStartingAngles.z
 					attacker.SetAngles( angles )
 				}
+
+				// modified here: we handle battery style execution here
+				// so we don't have to hardcode everything into classic execution case
+				#if TITAN_EXECUTION_GIVES_BATTERY
+					Rodeo_GiveExecutingTitanABattery( attacker )
+				#else
+					if ( dataStruct.executionGivesBattery )
+						Rodeo_GiveExecutingTitanABattery( attacker )
+				#endif
 			}
 		}
 	)
@@ -399,6 +410,10 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 
 	// save for npc executions. don't want them to have weird rotation after animation
 	dataStruct.attackerStartingAngles = attacker.GetAngles()
+	//
+
+	// we add battery for attacker when this thread ends, so it can handle classic execution case
+	dataStruct.executionGivesBattery = MeleeSyncedTitan_ShouldApplyBatteryAfterExecution( attacker )
 	//
 
 	waitthread func( action, attacker, target )
@@ -2044,7 +2059,8 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	TitanExcutionData data = file.executionData_3p[ executionRef ]
 #endif
 
-	bool shouldApplyBatteryAfterRodeo = false
+	// moving these checks to MeleeThread_TitanVsTitan_Internal(), so it can handle classic execution case
+	//bool shouldApplyBatteryAfterRodeo = false
 	string attackerType = GetSoulTitanSubClass( attackerSoul )
 
 	// get execution ref from default value
@@ -2062,8 +2078,9 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 	// modified: using passives for checking executions that rewards battery
 	// instead of hardcoding "execution_vanguard_kit"
-	if ( MeleeSyncedTitan_ShouldApplyBatteryAfterExecution( attacker ) )
-		shouldApplyBatteryAfterRodeo = true
+	// moving these checks to MeleeThread_TitanVsTitan_Internal(), so it can handle classic execution case
+	//if ( MeleeSyncedTitan_ShouldApplyBatteryAfterExecution( attacker ) )
+	//	shouldApplyBatteryAfterRodeo = true
 
 	//print( "executionRef is: " + executionRef )
 	// modified: callbacks in sh_melee_synced_titan.gnut, callback for certain executionRef
@@ -2239,7 +2256,8 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 	entity soul = target.GetTitanSoul()
 	soul.SetInvalidHealthBarEnt( true )
-
+	
+	// this isn't very accrate, won't pass the value modified below OnThreadEnd() scope is placed
 	bool isAttackerRef = false
 	if ( GetConVarBool( "melee_titan_execution_attacker_can_be_ref" ) )
 	{
@@ -2247,7 +2265,11 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	}
 
 	OnThreadEnd(
-		function() : ( attacker, target, e, attackerViewBody, targetViewBody, shouldApplyBatteryAfterRodeo, isAttackerRef )
+		// moving shouldApplyBatteryAfterRodeo checks to MeleeThread_TitanVsTitan_Internal()
+		// so it can handle classic execution case
+		// and it's now using structs for saving a non-entity variable, more accurate
+		//function() : ( attacker, target, e, attackerViewBody, targetViewBody, shouldApplyBatteryAfterRodeo, isAttackerRef )
+		function() : ( attacker, target, e, attackerViewBody, targetViewBody, isAttackerRef )
 		{
 			if ( IsValid( attacker ) )
 			{
@@ -2301,12 +2323,16 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 						// changed for npc executions
 						if( attacker.IsPlayer() )
 							Remote_CallFunction_Replay( attacker, "SCB_PlayTitanCockpitSounds" )
+
+						// moving these checks to MeleeThread_TitanVsTitan_Internal(), so it can handle classic execution case
+						/*
 						#if TITAN_EXECUTION_GIVES_BATTERY
 							Rodeo_GiveExecutingTitanABattery( attacker )
 						#else
 							if ( shouldApplyBatteryAfterRodeo )
 								Rodeo_GiveExecutingTitanABattery( attacker )
 						#endif
+						*/
 					}
 
 					if ( IsSingleplayer() )
