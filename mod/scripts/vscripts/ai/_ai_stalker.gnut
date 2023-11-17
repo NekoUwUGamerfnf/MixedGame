@@ -540,6 +540,7 @@ bool function TryDismemberStalker( entity npc, var damageInfo, entity attacker, 
 				{
 					string meleeSetFile = HACK_STALKER_MELEE_SETFILE[ aiSettings ]
 					// Changing the setting file includes changing the behavior file to	"behavior_stalker_crawling"
+					// standing stalkers sometimes pretty silly about melee... don't know what to do with that
 					SetAISettingsWrapper( npc, meleeSetFile )
 				}
 			}
@@ -592,7 +593,7 @@ bool function TryDismemberStalker( entity npc, var damageInfo, entity attacker, 
 			justAFleshWound = false // this isn't a flesh wound, really hurts!
 		}
 
-		// for any case, if both of their arms lost, disable ability to do uncharged melee
+		// for any case, if both of their arms lost, disable ability to do uncharged melee( charged melee already disabled when losing right arm )
 		npc.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK1, false )
 	}
 
@@ -861,6 +862,11 @@ void function EnableStalkerCrawlingBehavior( entity npc )
 	npc.SetCanBeGroundExecuted( true )
 	npc.ClearMoveAnim()
 
+	// modified: we've added dismembering right arm
+	// stalkers shouldn't able to melee after losing it because crawling melee animation depending on right arm
+	if ( IsStalkerLimbBlownOff( npc, "right_arm" ) )
+		npc.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK1, false ) // charged melee already disabled when losing arm, now we disable uncharged one
+
 	// modified: use settings for handling, no longer hardcoded
 	//npc.SetHealth( npc.GetMaxHealth() * 0.5 )
 	float healthPercentCrawl = AiStalker_GetHealthPercentOnTransitioningToCrawl( npc )
@@ -870,6 +876,9 @@ void function EnableStalkerCrawlingBehavior( entity npc )
 	npc.SetAimAssistForcePullPitchEnabled( true )
 
 	thread SelfTerminateAfterDelay( npc )
+
+	// modified: if a crawling stalker can't melee at all, we should try to overload them
+	thread SelfOverloadIfCantMelee( npc )
 }
 
 void function SelfTerminateAfterDelay( entity npc )
@@ -895,30 +904,36 @@ void function SelfTerminateAfterDelay( entity npc )
 			}
 		}
 
-		// here goes a modiifed condition: we've added dismembering right arm
+		// vanilla checks
+		bool stalkerDeathTimeReached = Time() > deathTime
+
+		// here goes a modified condition: we've added dismembering right arm
 		// means that we can now dismember all of stalker's arms
 		// in that case they shouldn't able to crawl
 		// if that ever happen, just make stalkers die because they can't do anything
 		// also needs to wait for crawling transition to end
+		// doing in this think is because 1s wait can add some randomness, looks good
+		bool stalkerCantCrawl = IsStalkerAllArmsBlownOff( npc ) 
+								&& !npc.ai.transitioningToCrawl
+
+		// doing modified checks
 		//if ( Time() > deathTime )
-		if ( ( Time() > deathTime ) || ( IsStalkerAllArmsBlownOff( npc ) && !npc.ai.transitioningToCrawl ) )
+		if ( stalkerDeathTimeReached || stalkerCantCrawl )
 		{
 			// we've added lots of settings here
 			//npc.Die()
 
-			// attacker
-			entity damageAttacker = npc // default case is self-explode
-			entity lastAttacker = GetLastAttacker( npc )
-			// settings check
-			if ( IsValid( lastAttacker ) && AiStalker_UseLastAttackerToSelfTerminate( npc ) )
-				damageAttacker = lastAttacker
+			entity damageAttacker = GetSelfTerminateAttacker( npc )
 			
 			// modified settings: stalker can always overload on death
 			if ( AiStalker_ShouldOverloadOnDeath( npc ) )
-				thread StalkerGearOverloads( npc, damageAttacker )
+			{
+				if ( !StalkerMeltingDown( npc ) ) // if stalker already melting down we do nothing. to keep vanilla behavior we shouldn't put this check outside
+					thread StalkerGearOverloads( npc, damageAttacker )
+			}
 			else if ( IsStalkerAllArmsBlownOff( npc ) ) // all arms blown off, should ragdoll immediately. don't let any part of death animation go through
 				npc.Die( damageAttacker, npc, { scriptType = DF_RAGDOLL, damageSourceId = damagedef_suicide } )
-			else // normal death
+			else // normal death, vanilla behavior
 				npc.Die( damageAttacker, npc, { damageSourceId = damagedef_suicide } ) // inflictor should always be npc themselves, to keep identical with StalkerGearOverloads()
 			
 			return
@@ -926,6 +941,44 @@ void function SelfTerminateAfterDelay( entity npc )
 
 		wait 1.0
 	}
+}
+
+void function SelfOverloadIfCantMelee( entity npc )
+{
+	npc.EndSignal( "OnDestroy" )
+	npc.EndSignal( "OnDeath" )
+	while ( true )
+	{
+		// we do nothing if stalker already overloads
+		if ( StalkerMeltingDown( npc ) )
+			return
+
+		// if stalker has lost their right arm they're unable to melee
+		// to prevent that, do overload if enemy is close enough
+		entity enemy = npc.GetEnemy()
+		bool doOverloadWhenClose = IsStalkerLimbBlownOff( npc, "right_arm" ) 
+								   && AiStalker_ShouldOverloadOnDeath( npc ) // only stalkers who setup this can overload
+								   && IsAlive( enemy )
+								   && Distance( npc.GetOrigin(), enemy.GetOrigin() ) < 150 // hardcoded! inner radius of small exp is 100, large exp is 200
+	
+		if ( doOverloadWhenClose )
+		{
+			thread StalkerGearOverloads( npc, GetSelfTerminateAttacker( npc ) )
+		}
+
+		WaitFrame() // faster think than SelfTerminateAfterDelay()
+	}
+}
+
+entity function GetSelfTerminateAttacker( entity npc )
+{
+	entity damageAttacker = npc // default case is self-explode
+	entity lastAttacker = GetLastAttacker( npc )
+	// settings check
+	if ( IsValid( lastAttacker ) && AiStalker_UseLastAttackerToSelfTerminate( npc ) )
+		damageAttacker = lastAttacker
+
+	return damageAttacker
 }
 
 void function FallAndBecomeCrawlingStalker( entity npc )
