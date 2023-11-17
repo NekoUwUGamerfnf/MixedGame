@@ -493,7 +493,8 @@ bool function TryDismemberStalker( entity npc, var damageInfo, entity attacker, 
 		// modified hitgroup: RIGHTARM
 		// this isn't featured in vanilla possibly because stalker depend on this arm to shoot
 		// but I want to add it for fun
-		// note that stalker will become nearly unharmful after taking out their right arm
+		// note that a standing stalker will become nearly unharmful after taking out their right arm
+		// now using a HACKY way to fix: change to crawling settings so they can start chasing enemies
 		case HITGROUP_RIGHTARM:
 			if ( StalkerLimbBlownOff( 
 					npc, 
@@ -515,12 +516,15 @@ bool function TryDismemberStalker( entity npc, var damageInfo, entity attacker, 
 				// remove all weapons
 				TakeAllWeapons( npc )
 
-				// same setup as dismembering left arm
-				npc.SetActivityModifier( ACT_MODIFIER_ONEHANDED, true )
-				npc.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false )
-
-				// many ability depending on their right arm, they're now less useful than crawling( can't even melee )
-				npc.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK1 | bits_CAP_INNATE_MELEE_ATTACK2 | bits_CAP_MOVE_SHOOT | bits_CAP_WEAPON_RANGE_ATTACK1 | bits_CAP_AIM_GUN, false )
+				// many ability depending on their right arm, they can only do un-charged melee now
+				npc.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK | bits_CAP_INNATE_MELEE_ATTACK2 | bits_CAP_WEAPON_RANGE_ATTACK1 | bits_CAP_AIM_GUN, false )
+			
+				// HERE'S HACKY: change to crawling settings makes them able to chase their target( lowered chaseStopDist )
+				// breaks some behavior( like bad replay camera offset and weird stair walking )
+				// but whatever, modifying only server-side is too hard to handle everything
+				string crawlingSettings = string ( npc.Dev_GetAISettingByKeyField( "crawlingSettingsWrapper" ) )
+				// Changing the setting file includes changing the behavior file to	"behavior_stalker_crawling"
+				SetAISettingsWrapper( npc, crawlingSettings )
 			}
 			
 			break
@@ -557,12 +561,22 @@ bool function TryDismemberStalker( entity npc, var damageInfo, entity attacker, 
 
 	// here goes a modiifed condition: we've added dismembering right arm
 	// means that we can now dismember all of stalker's arms
-	// if that ever happen, make crawling stalker stop moving
-	if ( IsCrawling( npc ) && IsStalkerAllArmsBlownOff( npc ) )
+	if ( IsStalkerAllArmsBlownOff( npc ) )
 	{
-		//print( "Stalker can't even crawl!" )
-		npc.SetNPCMoveSpeedScale( 0.1 ) // stops moving. set to 0.0 won't change anything
-		justAFleshWound = false // this isn't a flesh wound, really hurts!
+		// make crawling stalker stop moving
+		// this can't handle stalker that starts crawling from current function call 
+		// because FallAndBecomeCrawlingStalker() will delay at least 1 frame before setting stalker to crawling
+		// but SelfTerminateAfterDelay() will automatically kill stalkers those're still in falling animation
+		// should working fine
+		if ( IsCrawling( npc ) ) 
+		{
+			//print( "Stalker can't even crawl!" )
+			npc.SetNPCMoveSpeedScale( 0.1 ) // stops moving. set to 0.0 won't change anything
+			justAFleshWound = false // this isn't a flesh wound, really hurts!
+		}
+
+		// for any case, if both of their arms lost, disable ability to do uncharged melee
+		npc.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK1, false )
 	}
 
 	return justAFleshWound
@@ -885,8 +899,11 @@ void function SelfTerminateAfterDelay( entity npc )
 			// modified settings: stalker can always overload on death
 			if ( AiStalker_ShouldOverloadOnDeath( npc ) )
 				thread StalkerGearOverloads( npc, damageAttacker )
+			else if ( IsStalkerAllArmsBlownOff( npc ) ) // all arms blown off, should ragdoll immediately. don't let any part of death animation go through
+				npc.Die( damageAttacker, npc, { scriptType = DF_RAGDOLL, damageSourceId = damagedef_suicide } )
 			else // normal death
-				npc.Die( damageAttacker, npc ) // inflictor should always be npc themselves, to keep identical with StalkerGearOverloads()
+				npc.Die( damageAttacker, npc, { damageSourceId = damagedef_suicide } ) // inflictor should always be npc themselves, to keep identical with StalkerGearOverloads()
+			
 			return
 		}
 
