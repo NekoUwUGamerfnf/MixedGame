@@ -1,16 +1,16 @@
+//
+// Base npc script shared between all npc types (regular, suicide, etc.)
+//
+
 untyped
 global function AiStalker_Init
 global function GetDeathForce
 global function StalkerGearOverloads
 global function StalkerMeltingDown
-global function FDStalkerThink
-
 global function IsStalkerLimbBlownOff
 
-const float STALKER_DAMAGE_REQUIRED_TO_HEADSHOT = 0.3
-//
-// Base npc script shared between all npc types (regular, suicide, etc.)
-//
+// FD stalker shouldn't be in this file, it's hardcoded as hell
+global function FDStalkerThink
 
 /*
 	// nessie TODO:
@@ -22,17 +22,88 @@ const float STALKER_DAMAGE_REQUIRED_TO_HEADSHOT = 0.3
 		  the sprinting and overload think needs able to be called by any function
 */
 
+// modified settings
+global function AiStalker_SetDismemberHitGroupRequiredDamage // negative value means we never dismember
+//global function AiStalker_SetDamageRequiredToHeadshot // maybe can be merged into AiStalker_SetDismemberHitGroupRequiredDamage()? use HITGROUP_HEAD
+global function AiStalker_SetGearOverloadOnHitRequiredHealthPercent
+global function AiStalker_SetUpGearOverloadOnDeath // should we make them not overloading on stepping on? idk maybe make that a setting to
+
+global function AiStalker_SetGearOverloadDuration
+global function AiStalker_SetCrawlLifeTime
+
+global function AiStalker_SetStaggerRequiredHealthPercent
+global function AiStalker_SetHealthPercentOnTransitionToCrawl // negative value( like -1 ) means we don't change health on stalker starts crawl
+
+// these are vanilla consts
+const float STALKER_DAMAGE_REQUIRED_TO_HEADSHOT = 0.3
 const STALKER_REACTOR_CRITIMPACT_SOUND_1P_VS_3P = "ai_stalker_bulletimpact_nukecrit_1p_vs_3p"
 const STALKER_REACTOR_CRITIMPACT_SOUND_3P_VS_3P = "ai_stalker_bulletimpact_nukecrit_3p_vs_3p"
 const STALKER_REACTOR_CRITICAL_SOUND = "ai_stalker_nukedestruct_warmup_3p"
 const STALKER_REACTOR_CRITICAL_FX = $"P_spectre_suicide_warn"
+
+// modified consts to get rid of vanilla meaningless variables
+const float STALKER_GEAR_OVERLOAD_DURATION = 2.1
+
+global const float STALKER_DISMEMBER_DAMAGE_DISABLED = -1.0 // negative value means we never dismember
+
+// fun fact: vanilla didn't use limbHealthPercentOfMax in function StalkerLimbBlownOff() AT ALL
+// which means in vanilla all of stalker's bodyGroup( except for right arm ) gets dismembered in ONE SHOT
+// keeping vanilla value as 0.0 so they always get dismembered
+const float STALKER_DAMAGE_REQUIRED_TO_DISMEMBER_LEFT_ARM = 0.0 // losing left arm disables their ability to do syncedMelee against other npcs
+const float STALKER_DAMAGE_REQUIRED_TO_DISMEMBER_RIGHT_ARM = STALKER_DISMEMBER_DAMAGE_DISABLED // vanilla don't have dismembering right arm feature, might because it's the arm they used for holding weapons
+const float STALKER_DAMAGE_REQUIRED_TO_DISMEMBER_LEFT_LEG = 0.0 // losing a leg makes them crawling
+const float STALKER_DAMAGE_REQUIRED_TO_DISMEMBER_RIGHT_LEG = 0.0 // losing a leg makes them crawling
+
+const float STALKER_CRAWL_LIFE_SUPPORT_DURATION = 8 // gets added to death time if stalker has LOS of enemy
+const float STALKER_CRAWL_MAX_TIME_BEFORE_DEATH = 16 // max death time a crawling stalker can have
+
+const float STALKER_DAMAGE_REQUIRED_TO_STAGGER = 0.5
+
+global const float STALKER_MAINTAIN_HEALTH_ON_TRANSITION_TO_CRAWL = -1.0 // negative value( like -1 ) means we don't change health on stalker starts crawl
+const float STALKER_HEALTH_ON_TRANSITION_TO_CRAWL = 0.5
+
+// modified settings default value
+const float STALKER_HEALTH_PERCENT_REQUIRED_TO_OVERLOAD_ON_HIT = 1.0 // in vanilla stalker can be overloaded in any gear hit
+const bool STALKER_OVERLOAD_ON_DEATH = false
+const bool STALKER_SHOULD_OVERLOAD_ON_HEADSHOT_DEATH = false
+const bool STALKER_ONLY_OVERLOAD_ON_KILLED_BY_TITAN = false
+const bool STALKER_USE_LAST_ATTACKER_TO_SELF_TERMINATE = false // in vanilla stalker just dies
+
+// structs for storing modified settings
+// modified settings: can set stalkers to always overload on death
+struct StalkerDeathOverloadSettings
+{
+	bool alwaysOverloadOnDeath
+	bool noOverloadOnHeadshot
+	bool onlyOverloadOnKilledByTitans
+}
+
+struct StalkerCrawlLifeTimeSettings // vanilla behavior turns to settings
+{
+	float lifeSupportDuration
+	float maxDeathTime
+	bool useLastAttackerToSelfTerminate // modified settings: rewards last attacker the kill if stlaker self terminates
+}
+
+struct
+{
+	table< entity, table<int, float> > stalkerDismemberHitGroupRequiredDamage
+	table<entity, float> stalkerGearOverloadOnHitRequiredHealthPercent
+	table<entity, StalkerDeathOverloadSettings> stalkerGearOverloadOnDeathSettingsTable
+	table<entity, float> stalkerGearOverloadDuration
+	table<entity, StalkerCrawlLifeTimeSettings> stalkerCrawlLifeTimeSettingsTable
+	table<entity, float> stalkerStaggerRequiredHealthPercent
+	table<entity, float> stalkerHealthPercentOnTransitionToCrawl
+} file
+//
+
 
 void function AiStalker_Init()
 {
 	PrecacheImpactEffectTable( "exp_stalker_powersupply" )
 	PrecacheImpactEffectTable( "exp_small_stalker_powersupply" )
 	PrecacheParticleSystem( STALKER_REACTOR_CRITICAL_FX )
-	AddDamageCallback( "npc_stalker", StalkerOnDamaged )
+	AddDamageCallback( "npc_stalker", StalkerOnDamaged ) // why isn't this final damage or post damage?
 	AddDeathCallback( "npc_stalker", StalkerOnDeath )
 	AddSpawnCallback( "npc_stalker", StalkerOnSpawned )
 }
@@ -44,7 +115,7 @@ void function StalkerOnSpawned( entity npc )
 
 void function StalkerOnSpawned_Think( entity npc )
 {
-	npc.SetCanBeMeleeExecuted( false )
+	npc.SetCanBeMeleeExecuted( false ) // this is for player syncedMelee only
 
 	for ( int hitGroup = 0; hitGroup < HITGROUP_COUNT; hitGroup++ )
 	{
@@ -66,7 +137,7 @@ void function StalkerOnDeath( entity npc, var damageInfo )
 
 	#if MP
 	int sourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
-	if ( sourceId == eDamageSourceId.damagedef_titan_step )
+	if ( sourceId == eDamageSourceId.damagedef_titan_step ) // so this is also hardcoded... not funny, really
 	{
 		Explosion_DamageDefSimple(
 			damagedef_stalker_powersupply_explosion_large_at,
@@ -143,7 +214,9 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
-	if ( PlayerHitGear( npc, damageInfo, hitGroup ) )
+	// modified here: use a better check for handling modified overload cases
+	//if ( PlayerHitGear( npc, damageInfo, hitGroup ) )
+	if ( DamageShouldOverloadStalker( npc, damageInfo ) )
 	{
 		// don't die from damage
 		float damage = DamageInfo_GetDamage( damageInfo )
@@ -163,7 +236,9 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 
 	if ( canBeStaggered && !IsCrawling( npc ) && !npc.ai.transitioningToCrawl )
 	{
-		if ( npc.GetHealth().tofloat() / npc.GetMaxHealth().tofloat() <= 0.5 )
+		// modified: use settings for triggering stagger
+		//if ( npc.GetHealth().tofloat() / npc.GetMaxHealth().tofloat() <= 0.5 )
+		if ( npc.GetHealth().tofloat() / npc.GetMaxHealth().tofloat() <= AiStalker_GetStaggerRequiredHealthPercent( npc ) )
 		{
 			thread AttemptStandToStaggerAnimation( npc )
 			npc.SetActivityModifier( ACT_MODIFIER_STAGGER, true )
@@ -172,6 +247,8 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 
 	// this is seriously hardcoded, shoud add a setting like "AiStalker_EnableSprintOnDamaged"
 	// or just move into FDStalkerThink
+	if ( GameRules_GetGameMode() == FD )
+		thread StalkerSprint( npc, damageInfo )
 	/*
 		// temp:
 			thread StalkerSprintOnDamageThink( stalker )
@@ -194,11 +271,31 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 				}
 			}
 	*/
-	if ( GameRules_GetGameMode() == FD )
-		thread StalkerSprint( npc, damageInfo )
 }
 
 // this should be renamed as StalkerTrySprintOnDamaged(), move the sprinting codes into StalkerSprint()
+void function StalkerSprint( entity npc, var damageInfo )
+{
+	npc.EndSignal("OnDeath")
+	npc.EndSignal("OnDestroy")
+	float damage = DamageInfo_GetDamage( damageInfo )
+
+	if (!IsCrawling(npc)&&( npc.GetHealth() - damage < 50 || npc.GetHealth() <= 80))
+	{
+		// the sprinting really should be a function instead of runnig the same code everywhere
+		entity weapon = npc.GetActiveWeapon()
+		if (IsValid(weapon))
+			npc.TakeActiveWeapon() // when stalkers fall over on harvester they will randomly shoot their guns, we don't want that.
+		npc.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+		npc.SetCapabilityFlag( bits_CAP_MOVE_SHOOT | bits_CAP_WEAPON_RANGE_ATTACK1 | bits_CAP_AIM_GUN, false )
+		npc.SetNPCFlag( NPC_IGNORE_ALL, true )
+		npc.SetNPCFlag( NPC_DISABLE_SENSING, true )
+		npc.SetNoTarget( true )
+		npc.ClearMoveAnim()
+		npc.SetMoveAnim("sp_spectre_sprint_F")
+		npc.s.isSprinting = true
+	}
+}
 /*
 	// temp:
 		void function StalkerSprint( entity stalker )
@@ -240,29 +337,8 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 			return true
 		}
 */
-void function StalkerSprint( entity npc, var damageInfo )
-{
-	npc.EndSignal("OnDeath")
-	npc.EndSignal("OnDestroy")
-	float damage = DamageInfo_GetDamage( damageInfo )
 
-	if (!IsCrawling(npc)&&( npc.GetHealth() - damage < 50 || npc.GetHealth() <= 80))
-	{
-		// the sprinting really should be a function instead of runnig the same code everywhere
-		entity weapon = npc.GetActiveWeapon()
-		if (IsValid(weapon))
-			npc.TakeActiveWeapon() // when stalkers fall over on harvester they will randomly shoot their guns, we don't want that.
-		npc.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
-		npc.SetCapabilityFlag( bits_CAP_MOVE_SHOOT | bits_CAP_WEAPON_RANGE_ATTACK1 | bits_CAP_AIM_GUN, false )
-		npc.SetNPCFlag( NPC_IGNORE_ALL, true )
-		npc.SetNPCFlag( NPC_DISABLE_SENSING, true )
-		npc.SetNoTarget( true )
-		npc.ClearMoveAnim()
-		npc.SetMoveAnim("sp_spectre_sprint_F")
-		npc.s.isSprinting = true
-	}
-}
-
+// this is hardcoded as hell
 void function FDStalkerThink( entity npc, entity generator )
 {
 	npc.EndSignal( "OnDeath" )
@@ -327,6 +403,7 @@ void function FDStalkerGetsStunned( entity npc , entity generator )
 	npc.SetNoTarget( true ) // stop keeping track of any player and instead go for the harvester
 	npc.s.isSprinting = true
 }
+// FD hardcoded stuffs end
 
 bool function TryDismemberStalker( entity npc, var damageInfo, entity attacker, int hitGroup )
 {
@@ -367,7 +444,17 @@ bool function TryDismemberStalker( entity npc, var damageInfo, entity attacker, 
 			break
 
 		case HITGROUP_LEFTARM:
-			if ( StalkerLimbBlownOff( npc, damageInfo, hitGroup, 0.085, "left_arm", [ "left_arm", "l_hand" ], "Spectre.Arm.Explode" ) )
+			// modified here: use settings damage for dismembering a stalker, no longer hardcoded
+			//if ( StalkerLimbBlownOff( npc, damageInfo, hitGroup, 0.085, "left_arm", [ "left_arm", "l_hand" ], "Spectre.Arm.Explode" ) )
+			if ( StalkerLimbBlownOff( 
+					npc, 
+					damageInfo, 
+					hitGroup, 
+					AiStalker_GetDamageRequiredToDismemberHitGroup( npc, HITGROUP_LEFTARM ), 
+					"left_arm", 
+					[ "left_arm", "l_hand" ], 
+					"Spectre.Arm.Explode" 
+				) )
 			{
 				npc.SetActivityModifier( ACT_MODIFIER_ONEHANDED, true )
 
@@ -376,23 +463,127 @@ bool function TryDismemberStalker( entity npc, var damageInfo, entity attacker, 
 			}
 			break
 
+		// modified hitgroup: RIGHTARM
+		// this isn't featured in vanilla possibly because stalker depend on this arm to shoot
+		// but I want to add it for fun
+		case HITGROUP_RIGHTARM:
+			if ( StalkerLimbBlownOff( 
+					npc, 
+					damageInfo, 
+					hitGroup, 
+					AiStalker_GetDamageRequiredToDismemberHitGroup( npc, HITGROUP_LEFTARM ), 
+					"right_arm", 
+					[ "right_arm", "r_hand" ], 
+					"Spectre.Arm.Explode" 
+				) )
+			{
+				// drop down weapon
+				entity weapon = npc.DropWeapon()
+				if ( IsValid( weapon ) )
+					weapon.SetVelocity( npc.GetVelocity() )
+				// remove all weapons
+				TakeAllWeapons( npc )
+
+				// same setup as dismembering left arm
+				npc.SetActivityModifier( ACT_MODIFIER_ONEHANDED, true )
+				npc.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false )
+			}
+			
+			break
+		//
+
 		case HITGROUP_LEFTLEG:
-			justAFleshWound = TryLegBlownOff( npc, damageInfo, hitGroup, 0.17, "left_leg", [ "left_leg", "foot_L_sole" ], "Spectre.Leg.Explode" )
+			// modified here: use settings damage for dismembering a stalker, no longer hardcoded
+			//justAFleshWound = TryLegBlownOff( npc, damageInfo, hitGroup, 0.17, "left_leg", [ "left_leg", "foot_L_sole" ], "Spectre.Leg.Explode" )
+			justAFleshWound = TryLegBlownOff( 
+								  npc, 
+								  damageInfo, 
+								  hitGroup, 
+								  AiStalker_GetDamageRequiredToDismemberHitGroup( npc, HITGROUP_LEFTLEG ), 
+								  "left_leg", 
+								  [ "left_leg", "foot_L_sole" ], 
+								  "Spectre.Leg.Explode" 
+							  )
 			break
 
 		case HITGROUP_RIGHTLEG:
-			justAFleshWound = TryLegBlownOff( npc, damageInfo, hitGroup, 0.17, "right_leg", [ "right_leg", "foot_R_sole" ], "Spectre.Leg.Explode" )
+			// modified here: use settings damage for dismembering a stalker, no longer hardcoded
+			//justAFleshWound = TryLegBlownOff( npc, damageInfo, hitGroup, 0.17, "right_leg", [ "right_leg", "foot_R_sole" ], "Spectre.Leg.Explode" )
+			justAFleshWound = TryLegBlownOff( 
+								  npc, 
+								  damageInfo, 
+								  hitGroup, 
+								  AiStalker_GetDamageRequiredToDismemberHitGroup( npc, HITGROUP_RIGHTLEG ), 
+								  "right_leg", 
+								  [ "right_leg", "foot_R_sole" ], 
+								  "Spectre.Leg.Explode" 
+							  )
 			break
 	}
 
 	return justAFleshWound
 }
 
+// now using this for handle more stuffs, modified!
+bool function DamageShouldOverloadStalker( entity npc, var damageInfo )
+{
+	// same hitGroup check as StalkerOnDamaged_Internal()
+	int hitGroup = GetHitGroupFromDamageInfo( npc, damageInfo )
+	if ( hitGroup < HITGROUP_GENERIC )
+		hitGroup = HITGROUP_GENERIC
+	
+	float health = npc.GetHealth().tofloat()
+	float damage = DamageInfo_GetDamage( damageInfo )
+	// modified check: killshot to overload
+	bool isKillShot = health - damage <= 1.0 // hitting stalker to 1HP means we can overload them. prevent accidentally kill them
+	if ( isKillShot )
+	{
+		if ( AiStalker_ShouldOverloadOnDeath( npc ) )
+		{
+			entity attacker = DamageInfo_GetAttacker( damageInfo )
+			// titans check
+			bool attackerIsTitan = IsValid( attacker ) && attacker.IsTitan()
+			bool canOverloadOnDeath = !AiStalker_OnlyOverloadOnKilledByTitan( npc )
+			if ( attackerIsTitan )
+				canOverloadOnDeath = true // titans always do overload
+
+			if ( canOverloadOnDeath )
+			{
+				// headshot check
+				if ( AiStalker_ShouldOverloadOnHeadshotDeath( npc ) )
+				{
+					if ( !IsValidHeadShot( damageInfo, npc ) )
+						return true
+				}
+				else // no more restriction, just overload on kill
+					return true
+			}
+			}
+		}
+	}
+
+	// vanilla check: PlayerHitGear()
+	if ( PlayerHitGear( npc, damageInfo, hitGroup ) )
+	{
+		// modified check: hit gear to overload required health percent
+		float healthFracLeft = ( health - damage ) / npc.GetMaxHealth().tofloat() // we may one-shot the stalker, needs to minus current hit's damage
+		bool canOverloadByHit = healthFracLeft < AiStalker_GetHealthPercentRequiredToOverloadOnHitGear( npc )
+		if ( canOverloadByHit )
+			return true
+	}
+
+	// default case is never overload
+	return false
+}
+
+// this function really isn't good enough, should be "DamageShouldOverloadStalker"
 bool function PlayerHitGear( entity npc, var damageInfo, int hitGroup )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
-	if ( !attacker.IsPlayer() )
+	// modified: we've add npc location based damage in sh_damage_utility.gnut, npcs can do special hit group checks
+	//if ( !attacker.IsPlayer() )
+	if ( !attacker.IsPlayer() && !DamageUtility_IsNPCLocationBasedDamageEnabled() )
 		return false
 
 	if ( hitGroup != HITGROUP_GEAR )
@@ -500,7 +691,9 @@ void function StalkerGearOverloads( entity npc, entity attacker = null )
 
 	wait 1.0
 
-	float duration = 2.1
+	// modified to use a setting
+	//float duration = 2.1
+	float duration = AiStalker_GetGearOverloadDuration(  )
 	float endTime = Time() + duration
 	float startTime = Time()
 
@@ -586,7 +779,11 @@ void function EnableStalkerCrawlingBehavior( entity npc )
 	npc.SetCanBeGroundExecuted( true )
 	npc.ClearMoveAnim()
 
-	npc.SetHealth( npc.GetMaxHealth() * 0.5 )
+	// modified: use settings for handling, no longer hardcoded
+	//npc.SetHealth( npc.GetMaxHealth() * 0.5 )
+	float healthPercentCrawl = npc.GetMaxHealth() * AiStalker_GetHealthPercentOnTransitioningToCrawl( npc )
+	if ( healthPercentCrawl > 0 ) // we don't update health if this settings has been set to negative value
+		npc.SetHealth( npc.GetMaxHealth() * max( 1.0, healthPercentCrawl ) )
 
 	npc.SetAimAssistForcePullPitchEnabled( true )
 
@@ -595,9 +792,14 @@ void function EnableStalkerCrawlingBehavior( entity npc )
 
 void function SelfTerminateAfterDelay( entity npc )
 {
-	const float lifeSupportDuration = 8
-	float deathTime = Time() + (lifeSupportDuration * 2)
+	// modified to turn these into settings
+	//const float lifeSupportDuration = 8
+	//float deathTime = Time() + (lifeSupportDuration * 2)
+	float lifeSupportDuration = AiStalker_GetCrawlLifeSupportDuration( npc ) // we only cache them here, no need to update
+	float maxDeathTime = AiStalker_GetCrawlMaxDeathTime( npc )
+	float deathTime = Time() + maxDeathTime
 
+	npc.EndSignal( "OnDestroy" ) // vanilla definitely missing this
 	npc.EndSignal( "OnDeath" )
 	for ( ;; )
 	{
@@ -613,7 +815,21 @@ void function SelfTerminateAfterDelay( entity npc )
 
 		if ( Time() > deathTime )
 		{
-			npc.Die()
+			// we've added lots of settings here
+			//npc.Die()
+
+			// attacker settings
+			entity damageAttacker = GetLastAttacker( npc )
+			if ( IsValid( attacker ) && AiStalker_UseLastAttackerToSelfTerminate( npc ) )
+				damageAttacker = attacker
+			else
+				damageAttacker = npc // if we're not setting things up, just make them self-explode
+			
+			// modified settings: stalker can always overload on death
+			if ( AiStalker_ShouldOverloadOnDeath( npc ) )
+				thread StalkerGearOverloads( npc, damageAttacker )
+			else // normal death
+				npc.Die( damageAttacker, npc ) // inflictor should always be npc themselves, to keep identical with StalkerGearOverloads()
 			return
 		}
 
@@ -704,10 +920,11 @@ bool function IsStalkerLimbBlownOff( entity npc, string limbName )
 	return false
 }
 
+// limbHealthPercentOfMax isn't used at all!!! stalker will always get dismembered in ONE SHOT
 bool function StalkerLimbBlownOff( entity npc, var damageInfo, int hitGroup, float limbHealthPercentOfMax, string limbName, array<string> fxTags, string sound )
 {
 	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
-	switch ( damageSourceId )
+	switch ( damageSourceId ) //SERIOUSLY?
 	{
 		case eDamageSourceId.mp_weapon_grenade_emp:
 		case eDamageSourceId.mp_weapon_proximity_mine:
@@ -720,6 +937,15 @@ bool function StalkerLimbBlownOff( entity npc, var damageInfo, int hitGroup, flo
 
 	if ( IsStalkerLimbBlownOff( npc, limbName ) )
 		return false
+
+	// modified: add usage of limbHealthPercentOfMax
+	if ( limbHealthPercentOfMax ) // negative value means we never try to dismember
+	{
+		float hitGroupDamageTaken = npc.ai.stalkerHitgroupDamageAccumulated[ hitGroup ]
+		if ( hitGroupDamageTaken < limbHealthPercentOfMax )
+			return false
+	}
+	//
 
 	EmitSoundOnEntity( npc, sound )
 
@@ -742,13 +968,17 @@ void function StalkerHeadShot( entity npc, var damageInfo, int hitGroup )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !IsAlive( attacker ) )
 		return
-	if ( !attacker.IsPlayer() )
+	// modified: we've add npc location based damage in sh_damage_utility.gnut, npcs can do special hit group checks
+	//if ( !attacker.IsPlayer() )
+	if ( !attacker.IsPlayer() && !DamageUtility_IsNPCLocationBasedDamageEnabled() )
 		return
 
 	if ( DamageInfo_GetDamage( damageInfo ) < npc.GetHealth() )
 	{
 		// force lethal if we have done more than this much damage
-		if ( npc.ai.stalkerHitgroupDamageAccumulated[ hitGroup ] < npc.GetMaxHealth() * STALKER_DAMAGE_REQUIRED_TO_HEADSHOT )
+		// modified to use a setting for headshot required damage
+		//if ( npc.ai.stalkerHitgroupDamageAccumulated[ hitGroup ] < npc.GetMaxHealth() * STALKER_DAMAGE_REQUIRED_TO_HEADSHOT )
+		if ( npc.ai.stalkerHitgroupDamageAccumulated[ hitGroup ] < npc.GetMaxHealth() * AiStalker_GetDamageRequiredToDismemberHitGroup( npc, HITGROUP_HEAD ) )
 			return
 	}
 
@@ -778,4 +1008,182 @@ vector function GetDeathForce()
 	vector angles = <RandomFloatRange(-45,-75),RandomFloat(360),0>
 	vector forward = AnglesToForward( angles )
 	return forward * RandomFloatRange( 0.25, 0.75 )
+}
+
+
+// modified settings
+void function AiStalker_SetDismemberHitGroupRequiredDamage( entity stalker, int hitGroup, float requiredDamage )
+{
+	if ( !( stalker in file.stalkerDismemberHitGroupRequiredDamage ) )
+		file.stalkerDismemberHitGroupRequiredDamage[ stalker ] <- {} // init
+
+	if ( !( hitGroup in file.stalkerDismemberHitGroupRequiredDamage[ stalker ] ) )
+		file.stalkerDismemberHitGroupRequiredDamage[ stalker ][ hitGroup ] <- STALKER_DISMEMBER_DAMAGE_DISABLED // init
+
+	file.stalkerDismemberHitGroupRequiredDamage[ stalker ][ hitGroup ] = requiredDamage
+}
+
+float function AiStalker_GetDamageRequiredToDismemberHitGroup( entity stalker, int hitGroup )
+{
+	if ( !( stalker in file.stalkerDismemberHitGroupRequiredDamage ) )
+		return GetDefaultDamageRequiredToDismemberHitGroup( stalker, hitGroup ) // default return value
+
+	if ( !( hitGroup in file.stalkerDismemberHitGroupRequiredDamage[ stalker ] ) )
+		return GetDefaultDamageRequiredToDismemberHitGroup( stalker, hitGroup ) // default return value
+
+	return file.stalkerDismemberHitGroupRequiredDamage[ stalker ][ hitGroup ]
+}
+
+// here's vanilla settings value, hardcoded
+float function GetDefaultDamageRequiredToDismemberHitGroup( entity stalker, int hitGroup )
+{
+	switch ( hitGroup )
+	{
+		case HITGROUP_HEAD:
+			return STALKER_DAMAGE_REQUIRED_TO_HEADSHOT
+		case HITGROUP_LEFTARM:
+			return STALKER_DAMAGE_REQUIRED_TO_DISMEMBER_LEFT_ARM
+		case HITGROUP_RIGHTARM:
+			return STALKER_DAMAGE_REQUIRED_TO_DISMEMBER_RIGHT_ARM
+		case HITGROUP_LEFTLEG:
+			return STALKER_DAMAGE_REQUIRED_TO_DISMEMBER_LEFT_LEG
+		case HITGROUP_RIGHTLEG:
+			return STALKER_DAMAGE_REQUIRED_TO_DISMEMBER_RIGHT_LEG
+	}
+
+	return STALKER_DISMEMBER_DAMAGE_DISABLED // negative value means we never dismember
+}
+
+void function AiStalker_SetGearOverloadOnHitRequiredHealthPercent( entity stalker, float healthPercent )
+{
+	if ( !( stalker in file.stalkerGearOverloadOnHitRequiredHealthPercent ) )
+		file.stalkerGearOverloadOnHitRequiredHealthPercent[ stalker ] <- STALKER_HEALTH_PERCENT_REQUIRED_TO_OVERLOAD_ON_HIT // init
+
+	file.stalkerGearOverloadOnHitRequiredHealthPercent[ stalker ] = healthPercent
+}
+
+void function AiStalker_GetHealthPercentRequiredToOverloadOnHitGear( entity stalker )
+{
+	if ( !( stalker in file.stalkerGearOverloadOnHitRequiredHealthPercent ) )
+		return STALKER_HEALTH_PERCENT_REQUIRED_TO_OVERLOAD_ON_HIT // default return value
+
+	return file.stalkerGearOverloadOnHitRequiredHealthPercent[ stalker ]
+}
+
+void function AiStalker_SetUpGearOverloadOnDeath( entity stalker, bool alwaysOverloadOnDeath, bool noOverloadOnHeadshot = true, bool onlyOverloadOnKilledByTitans = false )
+{
+	StalkerDeathOverloadSettings deathSettings
+	if ( !( stalker in file.stalkerGearOverloadOnDeathSettingsTable ) )
+		file.stalkerGearOverloadOnDeathSettingsTable[ stalker ] <- deathSettings // init
+
+	file.stalkerGearOverloadOnDeathSettingsTable[ stalker ].alwaysOverloadOnDeath = alwaysOverloadOnDeath
+	file.stalkerGearOverloadOnDeathSettingsTable[ stalker ].noOverloadOnHeadshot = noOverloadOnHeadshot
+	file.stalkerGearOverloadOnDeathSettingsTable[ stalker ].onlyOverloadOnKilledByTitans = onlyOverloadOnKilledByTitans
+}
+
+bool function AiStalker_ShouldOverloadOnDeath( entity stalker )
+{
+	if ( !( stalker in file.stalkerGearOverloadOnDeathSettingsTable ) )
+		return STALKER_OVERLOAD_ON_DEATH // default return value
+
+	return file.stalkerGearOverloadOnDeathSettingsTable[ stalker ].alwaysOverloadOnDeath
+}
+
+bool function AiStalker_ShouldOverloadOnHeadshotDeath( entity stalker )
+{
+	if ( !( stalker in file.stalkerGearOverloadOnDeathSettingsTable ) )
+		return STALKER_SHOULD_OVERLOAD_ON_HEADSHOT_DEATH // default return value
+
+	return !file.stalkerGearOverloadOnDeathSettingsTable[ stalker ].noOverloadOnHeadshot // the meaning is reversed!
+}
+
+bool function AiStalker_OnlyOverloadOnKilledByTitan( entity stalker )
+{
+	if ( !( stalker in file.stalkerGearOverloadOnDeathSettingsTable ) )
+		return STALKER_ONLY_OVERLOAD_ON_KILLED_BY_TITAN // default return value
+
+	return file.stalkerGearOverloadOnDeathSettingsTable[ stalker ].onlyOverloadOnKilledByTitans
+}
+
+void function AiStalker_SetGearOverloadDuration( entity stalker, float duration )
+{
+	if ( !( stalker in file.stalkerGearOverloadDuration ) )
+		file.stalkerGearOverloadDuration[ stalker ] <- STALKER_GEAR_OVERLOAD_DURATION // init
+
+	file.stalkerGearOverloadDuration[ stalker ] = duration
+}
+
+float function AiStalker_GetGearOverloadDuration( entity stalker )
+{
+	if ( !( stalker in file.stalkerGearOverloadDuration ) )
+		return STALKER_GEAR_OVERLOAD_DURATION // default return value
+
+	return file.stalkerGearOverloadDuration[ stalker ]
+}
+
+void function AiStalker_SetCrawlLifeTime( entity stalker, float lifeSupportDuration, float maxDeathTime, bool useLastAttackerToSelfTerminate = false )
+{
+	StalkerCrawlLifeTimeSettings crawlSettings
+	if ( !( stalker in file.stalkerCrawlLifeTimeSettingsTable ) )
+		file.stalkerCrawlLifeTimeSettingsTable[ stalker ] <- deathSettings // init
+
+	file.stalkerCrawlLifeTimeSettingsTable[ stalker ].lifeSupportDuration = lifeSupportDuration
+	file.stalkerCrawlLifeTimeSettingsTable[ stalker ].maxDeathTime = maxDeathTime
+	file.stalkerCrawlLifeTimeSettingsTable[ stalker ].useLastAttackerToSelfTerminate = useLastAttackerToSelfTerminate
+}
+
+bool function AiStalker_GetCrawlLifeSupportDuration( entity stalker )
+{
+	if ( !( stalker in file.stalkerCrawlLifeTimeSettingsTable ) )
+		return STALKER_CRAWL_LIFE_SUPPORT_DURATION // default return value
+
+	return file.stalkerCrawlLifeTimeSettingsTable[ stalker ].lifeSupportDuration
+}
+
+bool function AiStalker_GetCrawlMaxDeathTime( entity stalker )
+{
+	if ( !( stalker in file.stalkerCrawlLifeTimeSettingsTable ) )
+		return STALKER_CRAWL_MAX_TIME_BEFORE_DEATH // default return value
+
+	return file.stalkerCrawlLifeTimeSettingsTable[ stalker ].maxDeathTime
+}
+
+bool function AiStalker_UseLastAttackerToSelfTerminate( entity stalker )
+{
+	if ( !( stalker in file.stalkerCrawlLifeTimeSettingsTable ) )
+		return STALKER_USE_LAST_ATTACKER_TO_SELF_TERMINATE // default return value
+
+	return file.stalkerCrawlLifeTimeSettingsTable[ stalker ].useLastAttackerToSelfTerminate
+}
+
+void function AiStalker_SetStaggerRequiredHealthPercent( entity stalker, float healthPercent )
+{
+	if ( !( stalker in file.stalkerStaggerRequiredHealthPercent ) )
+		file.stalkerStaggerRequiredHealthPercent = STALKER_DAMAGE_REQUIRED_TO_STAGGER // init
+
+	file.stalkerStaggerRequiredHealthPercent[ stalker ] = healthPercent
+}
+
+float function AiStalker_GetStaggerRequiredHealthPercent( entity stalker )
+{
+	if ( !( stalker in file.stalkerStaggerRequiredHealthPercent ) )
+		return STALKER_DAMAGE_REQUIRED_TO_STAGGER // default return value
+
+	return file.stalkerStaggerRequiredHealthPercent[ stalker ]
+}
+
+void function AiStalker_SetHealthPercentOnTransitionToCrawl( entity stalker, float healthPercent )
+{
+	if ( !( stalker in file.stalkerHealthPercentOnTransitionToCrawl ) )
+		file.stalkerHealthPercentOnTransitionToCrawl = STALKER_HEALTH_ON_TRANSITION_TO_CRAWL // init
+
+	file.stalkerHealthPercentOnTransitionToCrawl[ stalker ] = healthPercent
+}
+
+float function AiStalker_GetHealthPercentOnTransitioningToCrawl( entity stalker )
+{
+	if ( !( stalker in file.stalkerHealthPercentOnTransitionToCrawl ) )
+		return STALKER_HEALTH_ON_TRANSITION_TO_CRAWL // default return value
+
+	return file.stalkerHealthPercentOnTransitionToCrawl[ stalker ]
 }
