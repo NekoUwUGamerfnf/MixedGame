@@ -2,30 +2,43 @@ untyped
 
 global function ExtraAISpawner_Init
 
-global function ExtraSpawner_SpawnDropShip
+// generic spawn
+global function ExtraSpawner_SpawnDropShip // this has featured spectre and stalker spawns, though stalkers can't be set to crouch state on finishing zipline drop
 global function ExtraSpawner_SpawnDropPod
 
-// normal spawn
+// non-infantry npc spawn
 global function ExtraSpawner_SpawnNPCInDropPod
+// specialist squads
 global function ExtraSpawner_SpawnSpecialistGruntDropShip
 global function ExtraSpawner_SpawnSpecialistGruntDropPod
+// prowler squad: 2 cqb prowler with 3 small prowlers
 global function ExtraSpawner_SpawnProwlerSquadDropPod
+// stronger stalker: harder to be dismembered, no faster headshot kills, no more one-critical-hit overload, always overload on death if not getting headshot
+global function ExtraSpawner_SpawnOverloadedStalkerDropShip // may seem bad because stalkers can't be set to crouch state on finishing zipline drop
+global function ExtraSpawner_SpawnOverloadedStalkerDropPod
+global function ExtraSpawner_SetUpOverloadedStalker
+
 // titan spawn
 global function ExtraSpawner_SpawnTitan
 global function ExtraSpawner_SpawnTitanBT
 global function ExtraSpawner_SpawnBossTitan
+// utility
 global function ExtraSpawner_NPCTitanDrops
 global function ExtraSpawner_SetNPCPilotEmbarkedTitanNuke
-// unused spawn
-global function ExtraSpawner_SpawnGunShip
-// modded titan func
+// modded titan registering func
 global function ExtraSpawner_RegisterToTitanSpawnList
 global function ExtraSpawner_RegisterToBossTitanSpawnList
 
+// scripted spawn
+global function ExtraSpawner_SpawnGunShip
+
+// pilot-related spawn
 global function ExtraSpawner_SpawnPilotElite
 global function ExtraSpawner_SpawnPilotCanEmbark
 global function ExtraSpawner_SpawnTitanWithPilot
+
 // these settings should be done in prematch, don't do it right after levelLoad
+// npc weapons setting func
 global function ExtraSpawner_SetNPCWeapons
 global function ExtraSpawner_SetNPCSecondaryWeapons // needs AI behavior that included SelectSchedule_SwitchWeapon to work
 global function ExtraSpawner_SetNPCAntiTitanWeapons
@@ -42,6 +55,7 @@ global function ExtraSpawner_SetUpNPCPilot
 global function ExtraSpawner_SpawnCarePackageToGetWeapons
 global function ExtraSpawner_SpawnCarePackageToRefillAmmo
 // these settings should be done in prematch, don't do it right after levelLoad
+// care package weapons setting func
 global function ExtraSpawner_SetCarePackageWeapons
 global function ExtraSpawner_SetCarePackageWeaponMods
 global function ExtraSpawner_SetCarePackageWeaponModsMultiple
@@ -53,6 +67,7 @@ global function RemoveEntityCallback_OnUseCarePackage
 
 // tick reaper funcs
 global function ExtraSpawner_SpawnReaperCanLaunchTicks
+global function ExtraSpawner_SetUpTickLauncherReaper
 global function ExtraSpawner_ReaperTickLaunchThink
 
 // npc handlers
@@ -65,7 +80,7 @@ global function ExtraSpawner_ReaperHandler
 global function ExtraSpawner_SetSquadHandlerFunc
 global function ExtraSpawner_SetNPCHandlerFunc
 // disabling default handlers
-global function ExtraSpawner_StopDefaultHandler // can't stop squad handler
+global function ExtraSpawner_StopDefaultHandler // can't stop squad handler. maybe we need to store squad in a table like dropships?
 
 // these are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
@@ -213,7 +228,7 @@ struct NPCVanguardLoadout
 	string setFile
 	string behaviorSelector
 	void functionref( entity ) loadoutFunction // leave this empty means we'll use OverwriteLoadoutWithDefaultsForSetFile() to get loadouts
-	array<int> lockedAbilities // make some ability won't change on giving default loadout( melee is always unchanged, this doesn't affect loadoutFunction )
+	array<int> lockedAbilities // make some ability won't change on giving default loadout( this doesn't affect loadoutFunction )
 }
 
 struct NPCVanguardPilot
@@ -221,7 +236,7 @@ struct NPCVanguardPilot
 	string titanTitle
 	string pilotTitle // can't use localized string!
 	asset pilotModel
-	bool neverEjects = false
+	bool neverEjects = false // if this pilot model isn't suitable for npc combat, we can make them never eject at all
 }
 
 struct
@@ -346,6 +361,7 @@ void function ExtraAISpawner_Init()
 		ExtraSpawner_SetNPCSecondaryWeapons( "npc_pilot_elite", ["mp_weapon_autopistol", "mp_weapon_semipistol"] )
 		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
 		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
+		AddClientCommandCallback( "overloadedstalkers", CC_SpawnOverloadedStalkers )
 	#endif // EXTRA_SPAWNER_DEBUG
 }
 
@@ -359,19 +375,24 @@ void function OnClientConnected( entity player )
 
 void function OnStalkerSpawned( entity stalker )
 {
-	int team = stalker.GetTeam()
-	if ( team == TEAM_IMC && stalker in file.npcSpawnFromExtraSpawner )
+	// only handle stalkers spawned from this file
+	if ( stalker in file.npcSpawnFromExtraSpawner )
 	{
-		stalker.SetValueForModelKey( $"models/Robots/stalker/robot_stalker.mdl" )
-		// the problem is we can't handle dropship condition, may break their animation
-		// maybe just modify aisettings file?
-		// EDIT: no, it's all good. DispatchSpawn() is where this callback called, animation is done after that
-		stalker.SetModel( $"models/Robots/stalker/robot_stalker.mdl" )
+		int team = stalker.GetTeam()
+		if ( team == TEAM_IMC )
+		{
+			stalker.SetValueForModelKey( $"models/Robots/stalker/robot_stalker.mdl" )
+			// the problem is we can't handle dropship condition, may break their animation
+			// maybe just modify aisettings file?
+			// EDIT: no, it's all good. DispatchSpawn() is where this callback called, animation is done after that
+			stalker.SetModel( $"models/Robots/stalker/robot_stalker.mdl" )
+		}
 	}
 }
 
 void function OnGunshipSpawned( entity gunship )
 {
+	// only handle gunships spawned from this file
 	if ( gunship in file.npcSpawnFromExtraSpawner )
 	{
 		asset gunshipModel = $""
@@ -467,13 +488,13 @@ void function InitDefaultNPCWeapons()
 		"mp_weapon_rspn101_og", 
 		"mp_weapon_r97", 
 		"mp_weapon_car",
-		//"mp_weapon_alternator_smg",
+		//"mp_weapon_alternator_smg", // pistol animation, works bad on pilots
 		"mp_weapon_vinson",
 		//"mp_weapon_epg",
 		//"mp_weapon_smr",
 		//"mp_weapon_defender",
 		//"mp_weapon_mgl",
-		//"mp_weapon_rocket_launcher"
+		//"mp_weapon_rocket_launcher",
 	]
 	array<string> pilotAntiTitanWeapons = 
 	[ 
@@ -481,7 +502,7 @@ void function InitDefaultNPCWeapons()
 		"mp_weapon_rocket_launcher",
 		"mp_weapon_mgl",
 		"mp_weapon_arc_launcher", // modded, they can now be used by npcs
-		"mp_weapon_defender"
+		"mp_weapon_defender",
 	]
 
 	// grunt weapons
@@ -490,7 +511,7 @@ void function InitDefaultNPCWeapons()
 		"mp_weapon_r97", 
 		"mp_weapon_rspn101", 
 		"mp_weapon_lmg", 
-		"mp_weapon_dmr"
+		"mp_weapon_dmr",
 	]
 
 	// spectre weapons
@@ -498,7 +519,7 @@ void function InitDefaultNPCWeapons()
 	[
 		"mp_weapon_mastiff", 
 		"mp_weapon_doubletake", 
-		"mp_weapon_hemlok_smg"
+		"mp_weapon_hemlok_smg",
 	]
 
 	// stalker weapons
@@ -506,7 +527,8 @@ void function InitDefaultNPCWeapons()
 	[
 		"mp_weapon_mastiff", 
 		"mp_weapon_hemlok_smg",
-		"mp_weapon_lstar"
+		//"mp_weapon_lstar", // vanilla don't have this
+		"mp_weapon_doubletake", 
 	]
 
 	// pilot
@@ -2054,6 +2076,19 @@ bool function CC_SpawnGruntDroppod( entity player, array<string> args )
 
 	thread ExtraSpawner_SpawnSpecialistGruntDropPod( pos, rot, GetPlayerAISpawnTeam( player, args ), "npc_soldier", "npc_soldier_sidearm" )
 
+	return true
+}
+
+bool function CC_SpawnOverloadedStalkers( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+	
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
+
+	thread ExtraSpawner_SpawnOverloadedStalkerDropPod( pos, rot, GetPlayerAISpawnTeam( player, args ) )
 	return true
 }
 
@@ -3700,6 +3735,7 @@ void function WaitForShieldCaptainDrop( entity npc )
 	thread ActivatePersonalShield( npc )
 }
 
+// prowler squad: 2 cqb prowler with 3 small prowlers
 void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int team, void functionref( array<entity> guys ) squadHandler = null )
 {
 	entity pod = CreateDropPod( pos, <0,0,0> )
@@ -3747,6 +3783,114 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 		thread squadHandler( guys )
 	else if ( file.squadHandlerFunc != null ) // default handler
 		thread file.squadHandlerFunc( guys )
+}
+
+// stronger stalker: harder to be dismembered, no faster headshot kills, no more one-critical-hit overload, always overload on death if not getting headshot
+void function ExtraSpawner_SpawnOverloadedStalkerDropShip( vector pos, vector rot, int team, string content, int count, void functionref( array<entity> guys ) squadHandler = null )
+{  
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+
+	entity functionref( int team, vector origin, vector angles ) spawnFunc = CreateOverloadedStalker
+
+	CallinData drop
+	drop.origin			= pos
+	drop.yaw			= rot.y
+	drop.dist			= 768
+	drop.team			= team
+	drop.squadname		= squadName
+	SetDropTableSpawnFuncs( drop, spawnFunc, count )
+	SetCallinStyle( drop, eDropStyle.ZIPLINE_NPC )
+  
+	thread RunDropshipDropoff( drop )
+	
+	WaitSignal( drop, "OnDropoff" )
+	
+	array<entity> guys = GetNPCArrayBySquad( squadName )
+	
+	foreach ( guy in guys )
+	{
+		ExtraSpawner_ApplyNPCWeapons( guy )
+	}
+	
+	if ( squadHandler != null )
+		thread squadHandler( guys )
+	else if ( file.squadHandlerFunc != null ) // default handler
+		thread file.squadHandlerFunc( guys )
+}
+
+entity function CreateOverloadedStalker( int team, vector origin, vector angles )
+{
+	entity npc = CreateStalker( team, origin, angles )
+	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+	ExtraSpawner_SetUpOverloadedStalker( npc ) // setup stronger behavior
+
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+
+	return npc
+}
+
+void function ExtraSpawner_SpawnOverloadedStalkerDropPod( vector pos, vector rot, int team, void functionref( array<entity> guys ) squadHandler = null, int droppodFlags = 0 )
+{
+	entity pod = CreateDropPod( pos, <0,0,0> )
+	InitFireteamDropPod( pod, droppodFlags )
+	
+	// wait for launch
+	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
+
+	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	array<entity> guys
+	for ( int i = 0; i < SQUAD_SIZE; i++ )
+	{
+		entity npc = CreateNPC( "npc_stalker", team, pos, <0,0,0> )
+		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
+
+		file.npcSpawnFromExtraSpawner[ npc ] <- true
+		DispatchSpawn( npc )
+		ExtraSpawner_SetUpOverloadedStalker( npc ) // setup stronger behavior
+
+		SetSquad( npc, squadName )
+		
+		ExtraSpawner_ApplyNPCWeapons( npc )
+		
+		npc.SetParent( pod, "ATTACH", true )
+		guys.append( npc )
+	}
+
+	ActivateFireteamDropPod( pod, guys )
+
+	if ( squadHandler != null )
+		thread squadHandler( guys )
+	else if ( file.squadHandlerFunc != null ) // default handler
+		thread file.squadHandlerFunc( guys )
+}
+
+void function ExtraSpawner_SetUpOverloadedStalker( entity stalker )
+{
+	// setup hitgroup
+	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_HEAD, 0.7 ) // stalkers don't take extra damage from headshot, but dies if head taken enough damage
+	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_LEFTARM, 0.35 ) // isn't a necessary bodygroup, disabling their synced melee ability after lost
+	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_RIGHTARM, 0.8 ) // modified body dismemberment. this removes their weapon and melee, makes them almost unharmful
+	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_LEFTLEG, 0.6 ) // starts crawling on losing a leg
+	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_RIGHTLEG, 0.6 ) // starts crawling on losing a leg
+
+	// setup gear overload
+	AiStalker_SetGearOverloadOnHitRequiredHealthPercent( stalker, 0.25 ) // only able to be overloaded at very low health
+	AiStalker_SetUpGearOverloadOnDeath(
+		stalker,
+		true,		// alwaysOverloadOnDeath
+		true,		// noOverloadOnHeadshot
+		true		// onlyOverloadOnKilledByTitans
+	)
+
+	// setup damaged behavior
+	AiStalker_SetStaggerRequiredHealthPercent( stalker, STALKER_STAGGER_DAMAGE_DISABLED ) // never stagger upon taking damage
+	AiStalker_SetHealthPercentOnTransitionToCrawl( stalker, STALKER_MAINTAIN_HEALTH_ON_TRANSITION_TO_CRAWL ) // maintain current health on start crawling
+	AiStalker_SetCrawlLifeTime( 
+		stalker, 
+		8.0,		// lifeSupportDuration
+		16.0,		// maxDeathTime
+		true		// useLastAttackerToSelfTerminate
+	)
 }
 
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
@@ -5125,26 +5269,45 @@ function CarePackage_RefillAmmo( pod , player )
 
 void function RestorePlayerAmmo( entity player )
 {
+	player.SetSuitGrapplePower( 100.0 ) // restore grapple power
+
+	// main weapons
 	foreach( entity mainWeapon in player.GetMainWeapons() )
 	{
-		player.SetSuitGrapplePower( 100.0 ) // restore grapple power
 		// this will restore anti-titan's ammo
-		try // should do a try-catch for safely adding other classes
+		try // should do a try-catch for safely adding other classes. no charge-based weapon compatiblity
 		{
 			// use weapon.GetWeaponSettingInt( eWeaponVar.ammo_stockpile_max ) to get max ammo
-			// current restore 3 mags
-			//mainWeapon.SetWeaponPrimaryAmmoCount( mainWeapon.GetWeaponPrimaryAmmoCount() + mainWeapon.GetWeaponPrimaryClipCountMax() * 3 )
+			// restore 3 mags version
+			int maxAmmo = mainWeapon.GetWeaponSettingInt( eWeaponVar.ammo_stockpile_max )
+			/*
+			int currentAmmo = mainWeapon.GetWeaponPrimaryAmmoCount()
+			int clipAmmo = mainWeapon.GetWeaponPrimaryClipCountMax()
+			const float clipsToRestore = 3
+			mainWeapon.SetWeaponPrimaryAmmoCount( minint( currentAmmo + ( clipAmmo * clipsToRestore ), maxAmmo ) )
+			*/
+
 			// updated, restore all ammo
-			mainWeapon.SetWeaponPrimaryAmmoCount( 9999 )
+			//mainWeapon.SetWeaponPrimaryAmmoCount( 9999 )
+			mainWeapon.SetWeaponPrimaryAmmoCount( maxAmmo )
 		}
 		catch(ex){}
-		try{ mainWeapon.SetWeaponPrimaryClipCount( mainWeapon.GetWeaponPrimaryClipCountMax() ) }
+
+		// restore current weapon's clip
+		// removed, working weird on large clip weapons and reloading weapons
+		/*
+		try
+		{ 
+			mainWeapon.SetWeaponPrimaryClipCount( mainWeapon.GetWeaponPrimaryClipCountMax() ) 
+		}
 		catch(ex1){}
+		*/
 	}
+	// offhand weapons
 	foreach( entity offhand in player.GetOffhandWeapons() )
 	{
 		// this will restore ordnances
-		try // should do a try-catch for safely adding other classes
+		try // should do a try-catch for safely adding other classes. no charge-based weapon compatiblity
 		{
 			offhand.SetWeaponPrimaryClipCount( offhand.GetWeaponPrimaryClipCountMax() )
 		}
@@ -5210,9 +5373,27 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SetDefaultMPEnemyHighlight( reaper )
 
 	// modified _ai_superspectre.gnut, extremely powerful reaper
+	ExtraSpawner_SetUpTickLauncherReaper( reaper )
+
+	// reaper handler
+	if ( GetNPCHandlerForClass( "npc_super_spectre" ) != null )
+		thread GetNPCHandlerForClass( "npc_super_spectre" )( reaper )
+
+	reaper.WaitSignal( "WarpfallComplete" )
+	ShowName( reaper ) // show name again after drop
+
+	// non-fd mode don't support stational point, write my own one
+	//thread ReaperMinionLauncherThink( reaper, tickSettings ) 
+	thread ExtraSpawner_ReaperTickLaunchThink( reaper, tickSettings )
+}
+
+void function ExtraSpawner_SetUpTickLauncherReaper( entity reaper )
+{
+	// modified _ai_superspectre.gnut, extremely powerful reaper
 	SuperSpectre_AddNukeDeath( reaper ) // force this reaper to nuke on death without having to change aisettings
+	
 	//SuperSpectre_SetDropBatteryOnDeath( reaper, true ) // now supports mp. since they're very powerful, give some reward?
-	SuperSpectre_SetNukeDeathThreshold( reaper, 9999 ) // they'll always try to nuke
+	SuperSpectre_SetNukeDeathThreshold( reaper, 8000 ) // they'll always try to nuke unless taken a damage higher than this value( only NPC nuke can do this )
 	SuperSpectre_SetForcedKilledByTitans( reaper, false ) // they won't be disarmed by titans, always try to nuke
 	SuperSpectre_SetSelfAsNukeAttacker( reaper, true ) // the nuke's attacker will always be the reaper
 	SuperSpectre_SetNukeExplosionDamageEffect( 
@@ -5229,17 +5410,6 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	)
 	SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath( reaper, true ) // clean up their ticks using a modified way
 	//SuperSpectre_SetSpawnerTickMaxCount( reaper, 8 ) // spawn 8 ticks per reaper
-
-	// reaper handler
-	if ( GetNPCHandlerForClass( "npc_super_spectre" ) != null )
-		thread GetNPCHandlerForClass( "npc_super_spectre" )( reaper )
-
-	reaper.WaitSignal( "WarpfallComplete" )
-	ShowName( reaper ) // show name again after drop
-
-	// non-fd mode don't support stational point, write my own one
-	//thread ReaperMinionLauncherThink( reaper, tickSettings ) 
-	thread ExtraSpawner_ReaperTickLaunchThink( reaper, tickSettings )
 }
 
 void function ExtraSpawner_ReaperTickLaunchThink( entity reaper, string tickType )
