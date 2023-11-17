@@ -361,6 +361,7 @@ void function ExtraAISpawner_Init()
 		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
 		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
 		AddClientCommandCallback( "npcweapon_bodygrouptest", CC_DoNPCWeaponBodyGroupTestSpawn )
+		AddClientCommandCallback( "overloadedstalkers", CC_SpawnOverloadedStalkers )
 	#endif // EXTRA_SPAWNER_DEBUG
 }
 
@@ -487,13 +488,13 @@ void function InitDefaultNPCWeapons()
 		"mp_weapon_rspn101_og", 
 		"mp_weapon_r97", 
 		"mp_weapon_car",
-		//"mp_weapon_alternator_smg",
+		//"mp_weapon_alternator_smg", // pistol animation, works bad on pilots
 		"mp_weapon_vinson",
 		//"mp_weapon_epg",
 		//"mp_weapon_smr",
 		//"mp_weapon_defender",
 		//"mp_weapon_mgl",
-		//"mp_weapon_rocket_launcher"
+		//"mp_weapon_rocket_launcher",
 	]
 	array<string> pilotAntiTitanWeapons = 
 	[ 
@@ -501,7 +502,7 @@ void function InitDefaultNPCWeapons()
 		"mp_weapon_rocket_launcher",
 		"mp_weapon_mgl",
 		"mp_weapon_arc_launcher", // modded, they can now be used by npcs
-		"mp_weapon_defender"
+		"mp_weapon_defender",
 	]
 
 	// grunt weapons
@@ -510,7 +511,7 @@ void function InitDefaultNPCWeapons()
 		"mp_weapon_r97", 
 		"mp_weapon_rspn101", 
 		"mp_weapon_lmg", 
-		"mp_weapon_dmr"
+		"mp_weapon_dmr",
 	]
 
 	// spectre weapons
@@ -518,7 +519,7 @@ void function InitDefaultNPCWeapons()
 	[
 		"mp_weapon_mastiff", 
 		"mp_weapon_doubletake", 
-		"mp_weapon_hemlok_smg"
+		"mp_weapon_hemlok_smg",
 	]
 
 	// stalker weapons
@@ -526,7 +527,8 @@ void function InitDefaultNPCWeapons()
 	[
 		"mp_weapon_mastiff", 
 		"mp_weapon_hemlok_smg",
-		"mp_weapon_lstar"
+		//"mp_weapon_lstar", // vanilla don't have this
+		"mp_weapon_doubletake", 
 	]
 
 	// pilot
@@ -2182,6 +2184,45 @@ bool function CC_SpawnFakeMLTSpectre( entity player, array<string> args )
 	return true
 }
 
+void function PrintColdWarNPCPrimaryAttack( entity npc )
+{
+	npc.EndSignal( "OnDeath" )
+	npc.EndSignal( "OnDestroy" )
+
+	int lastAmmo
+	while ( true )
+	{
+		int currentAmmo
+		entity activeWeapon = npc.GetActiveWeapon()
+		if ( IsValid( activeWeapon ) )
+			currentAmmo = activeWeapon.GetWeaponPrimaryClipCount()
+
+		if ( lastAmmo != currentAmmo )
+			print( "currentAmmo: " + string( currentAmmo ) )
+		lastAmmo = currentAmmo
+		WaitFrame()
+	}
+}
+
+void function PrintPrimaryAttackSignal( entity npc )
+{
+	npc.EndSignal( "OnDeath" )
+	npc.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		table result = WaitSignal( npc, "OnPrimaryAttack" )
+		print( "=========================================" )
+		print( "OnPrimaryAttack signal print" )
+		foreach ( key, value in result )
+		{
+			print( "key: " + string( key ) )
+			print( "value: " + string( value ) )
+		}
+		print( "=========================================" )
+	}
+}
+
 bool function CC_SpawnGruntDroppod( entity player, array<string> args )
 {
 	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
@@ -2238,43 +2279,17 @@ void function DEBUG_UpdateNPCWeaponBodyGroup( entity grunt )
 	}
 }
 
-void function PrintColdWarNPCPrimaryAttack( entity npc )
+bool function CC_SpawnOverloadedStalkers( entity player, array<string> args )
 {
-	npc.EndSignal( "OnDeath" )
-	npc.EndSignal( "OnDestroy" )
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+	
+	vector pos = GetPlayerCrosshairOrigin( player )
+	vector playerAngs = player.EyeAngles()
+	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 
-	int lastAmmo
-	while ( true )
-	{
-		int currentAmmo
-		entity activeWeapon = npc.GetActiveWeapon()
-		if ( IsValid( activeWeapon ) )
-			currentAmmo = activeWeapon.GetWeaponPrimaryClipCount()
-
-		if ( lastAmmo != currentAmmo )
-			print( "currentAmmo: " + string( currentAmmo ) )
-		lastAmmo = currentAmmo
-		WaitFrame()
-	}
-}
-
-void function PrintPrimaryAttackSignal( entity npc )
-{
-	npc.EndSignal( "OnDeath" )
-	npc.EndSignal( "OnDestroy" )
-
-	while ( true )
-	{
-		table result = WaitSignal( npc, "OnPrimaryAttack" )
-		print( "=========================================" )
-		print( "OnPrimaryAttack signal print" )
-		foreach ( key, value in result )
-		{
-			print( "key: " + string( key ) )
-			print( "value: " + string( value ) )
-		}
-		print( "=========================================" )
-	}
+	thread ExtraSpawner_SpawnOverloadedStalkerDropPod( pos, rot, GetPlayerAISpawnTeam( player, args ) )
+	return true
 }
 
 // utility
@@ -3935,7 +3950,7 @@ entity function CreateOverloadedStalker( int team, vector origin, vector angles 
 	return npc
 }
 
-void function ExtraSpawner_SpawnOverloadedStalkerDropPod( vector pos, vector rot, int team, void functionref( array<entity> guys ) squadHandler = null )
+void function ExtraSpawner_SpawnOverloadedStalkerDropPod( vector pos, vector rot, int team, void functionref( array<entity> guys ) squadHandler = null, int droppodFlags = 0 )
 {
 	entity pod = CreateDropPod( pos, <0,0,0> )
 	InitFireteamDropPod( pod, droppodFlags )
@@ -3973,9 +3988,9 @@ void function ExtraSpawner_SpawnOverloadedStalkerDropPod( vector pos, vector rot
 void function ExtraSpawner_SetUpOverloadedStalker( entity stalker )
 {
 	// setup hitgroup
-	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_HEAD, 0.8 ) // less likely to be headshot to death
-	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_LEFTARM, 0.35 ) // isn't a necessary bodygroup
-	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_RIGHTARM, 0.7 ) // modified body dismemberment. this removes their weapon
+	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_HEAD, 0.7 ) // stalkers don't take extra damage from headshot, but dies if head taken enough damage
+	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_LEFTARM, 0.35 ) // isn't a necessary bodygroup, disabling their synced melee ability after lost
+	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_RIGHTARM, 0.8 ) // modified body dismemberment. this removes their weapon and melee, makes them almost unharmful
 	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_LEFTLEG, 0.6 ) // starts crawling on losing a leg
 	AiStalker_SetDismemberHitGroupRequiredDamage( stalker, HITGROUP_RIGHTLEG, 0.6 ) // starts crawling on losing a leg
 
@@ -3989,8 +4004,14 @@ void function ExtraSpawner_SetUpOverloadedStalker( entity stalker )
 	)
 
 	// setup damaged behavior
-	AiStalker_SetStaggerRequiredHealthPercent( stalker, 0.4 ) // only stagger on low health
+	AiStalker_SetStaggerRequiredHealthPercent( stalker, STALKER_STAGGER_DAMAGE_DISABLED ) // never stagger upon taking damage
 	AiStalker_SetHealthPercentOnTransitionToCrawl( stalker, STALKER_MAINTAIN_HEALTH_ON_TRANSITION_TO_CRAWL ) // maintain current health on start crawling
+	AiStalker_SetCrawlLifeTime( 
+		stalker, 
+		8.0,		// lifeSupportDuration
+		16.0,		// maxDeathTime
+		true		// useLastAttackerToSelfTerminate
+	)
 }
 
 void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
