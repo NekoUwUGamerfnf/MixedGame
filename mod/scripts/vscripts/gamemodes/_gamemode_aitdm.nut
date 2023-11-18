@@ -277,7 +277,6 @@ void function SpawnIntroBatch_Threaded( int team )
 	
 	// mp_rise has weird droppod_start nodes, this gets around it
 	// To be more specific the teams aren't setup and some nodes are scattered in narnia
-	/*
 	if( GetMapName() == "mp_rise" )
 	{
 		entity spawnPoint
@@ -311,14 +310,6 @@ void function SpawnIntroBatch_Threaded( int team )
 			if ( node.GetTeam() == team )
 				podNodes.append( node )
 		}
-	}
-	*/
-
-	// Sort per team
-	foreach ( node in dropPodNodes )
-	{
-		if ( node.GetTeam() == team )
-			podNodes.append( node )
 	}
 
 	shipNodes = GetValidIntroDropShipSpawn( podNodes )
