@@ -213,15 +213,17 @@ bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var 
 	// Basic checks
 	if ( !IsValid( attacker ) )
 		return false
+	
+	// gamestate, attacker class and selfdamage checks
 	if ( victim == attacker || !( attacker.IsPlayer() || attacker.IsTitan() ) || GetGameState() != eGameState.Playing )
+		return false
+	// NPC titans without an owner player will not count towards any team's score
+	if ( attacker.IsNPC() && attacker.IsTitan() && !IsValid( GetPetTitanOwner( attacker ) ) )
 		return false
 	
 	// Hacked spectre and pet titan filter
+	// ( though hacked spectres already handled by npc.s.givenAttritionScore )
 	if ( victim.GetOwner() == attacker || victim.GetBossPlayer() == attacker )
-		return false
-	
-	// NPC titans without an owner player will not count towards any team's score
-	if ( attacker.IsNPC() && attacker.IsTitan() && !IsValid( GetPetTitanOwner( attacker ) ) )
 		return false
 
 	// all checks passed
@@ -231,6 +233,8 @@ bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var 
 bool function VictimIsValidForAITdmScore( entity victim )
 {
 	// if victim is a non-titan npc that owned by players, don't add score
+	// vanilla doesn't seem to have this check, and we've added npc.s.givenAttritionScore for hacked spectres
+	/*
 	if ( victim.IsNPC() && !victim.IsTitan() )
 	{
 		entity bossPlayer = victim.GetBossPlayer()
@@ -246,6 +250,10 @@ bool function VictimIsValidForAITdmScore( entity victim )
 				return false
 		}
 	}
+	*/
+	// check whether this npc has given score or not
+	if ( "givenAttritionScore" in victim.s )
+		return false
 
 	// all checks passed
 	return true
