@@ -96,6 +96,9 @@ struct StalkerCrawlLifeTimeSettings // vanilla behavior turns to settings
 
 struct
 {
+	// modified variable for handling stalker killshot
+	table<entity, bool> stalkerOverloadedFromThisDamage
+
 	table< entity, table<int, float> > stalkerDismemberHitGroupRequiredDamage
 	table<entity, float> stalkerGearOverloadOnHitRequiredHealthPercent
 	table<entity, StalkerDeathOverloadSettings> stalkerGearOverloadOnDeathSettingsTable
@@ -118,7 +121,7 @@ void function AiStalker_Init()
 
 	// modified for pre-death overload
 	// AddDamageCallback() can't handle modified damage like plasma railgun and scorch thermites
-	AddDamageFinalCallback( "npc_stalker", StalkerOnPostDamaged )
+	AddDamageFinalCallback( "npc_stalker", StalkerOnFinalDamaged )
 }
 
 void function StalkerOnSpawned( entity npc )
@@ -135,6 +138,9 @@ void function StalkerOnSpawned_Think( entity npc )
 		npc.ai.stalkerHitgroupDamageAccumulated[ hitGroup ] <- 0
 		npc.ai.stalkerHitgroupLastHitTime[ hitGroup ] <- 0
 	}
+
+	// modified variable for handling stalker killshot
+	file.stalkerOverloadedFromThisDamage[ npc ] <- false
 
 	if ( npc.Dev_GetAISettingByKeyField( "ScriptSpawnAsCrawler" ) == 1 )
 	{
@@ -211,6 +217,9 @@ void function StalkerOnDamaged( entity npc, var damageInfo )
 
 void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 {
+	// modified: clean up variable every time stalker takes damage
+	file.stalkerOverloadedFromThisDamage[ npc ] = false
+
 	if ( !IsAlive( npc ) )
 		return
 
@@ -257,6 +266,15 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 		// if we reached here it must means this stalker won't die from damage
 		if ( AiStalker_ShouldOverloadOnDeath( npc ) )
 		{
+			// only setup this for modded stalkers...
+			// vanilla stalker can still be killed when being shot at weakpoint with plasma railgun
+			// what it seems like: 
+			// stalker took basic damage from railgun, triggering overload, damage is reduced to not killing them
+			// railgun increases damage taken, which called later than this function and damage maybe enough to kill them
+
+			// to not break vanilla behavior, only setup variables in this modded scope...
+			file.stalkerOverloadedFromThisDamage[ npc ] = true
+
 			// hardcoded for stepping, so they can still deal burst explosion damage and then go to overload
 			// this will cause self damage to stalker, so it's better to handle it here, after StalkerMeltingDown() can return true
 			if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.damagedef_titan_step )
@@ -325,8 +343,19 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 
 // modified condition here, basically for pre-death overload
 // AddDamageCallback() can't handle modified damage like plasma railgun and scorch thermites
-void function StalkerOnPostDamaged( entity npc, var damageInfo )
+void function StalkerOnFinalDamaged( entity npc, var damageInfo )
 {
+	if ( !IsAlive( npc ) )
+		return
+	
+	// modified condition here: if stalker already overloaded in StalkerOnDamaged_Internal()
+	// we reduce the damage down to 0 so nothing can kill them
+	if ( file.stalkerOverloadedFromThisDamage[ npc ] )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 )
+		return
+	}
+
 	// use a better check for handling modified overload cases
 	if ( DamageShouldOverloadStalker( npc, damageInfo ) )
 	{
