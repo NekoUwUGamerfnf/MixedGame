@@ -37,7 +37,7 @@ const array<string> AT_DISABLE_SCOREEVENTS =
 const int AT_AI_TEAM = TEAM_BOTH               		// Allow AI to attack and be attacked by both player teams
 const float AT_FIRST_WAVE_START_DELAY = 10.0     	// First wave has an extra delay before begining
 const float AT_WAVE_TRANSITION_DELAY = 5.0       	// Time between each wave and banks opening/closing
-const float AT_WAVE_START_DELAY = 2.0 				// Extra wait before we start a wave
+const float AT_WAVE_START_DELAY = 0.0 				// Extra wait before we start a wave
 const float AT_WAVE_END_ANNOUNCEMENT_DELAY = 1.0 	// Extra wait before announcing wave cleaned
 const float AT_BANK_OPENING_DELAY = 4.0
 
