@@ -169,6 +169,9 @@ void function PIN_GameStart()
 	RegisterSignal( "CleanUpEntitiesForRoundEnd" )
 	// new adding
 	RegisterSignal( "CleanUpEntitiesForMatchEnd" )
+
+	// northstar missing default callback
+	SetCallback_TryUseProjectileReplay( DefaultCallback_TryUseProjectileReplay )
 }
 
 void function SetGameState( int newState )
@@ -1505,10 +1508,7 @@ void function SetRoundWinningHighlightReplayPlayer( entity player )
 // we will use attacker if it failsafe
 void function SetRoundWinningKillReplayInflictor( entity inflictor, entity attacker = null )
 {
-	if ( IsValid( inflictor ) // have to do IsValid() check for inflictors
-		 && inflictor.IsProjectile() 
-		 && inflictor.GetProjectileWeaponSettingBool( eWeaponVar.projectile_killreplay_enabled ) // vanilla weapon settings check
-		)
+	if ( IsValid( inflictor ) ) // have to do IsValid() check for inflictors because we're not always passing an valid entity
 		file.roundWinningKillReplayInflictorEHandle = inflictor.GetEncodedEHandle()
 	else if ( IsValid( attacker ) )
 		file.roundWinningKillReplayInflictorEHandle = attacker.GetEncodedEHandle()
@@ -1518,6 +1518,20 @@ void function SetRoundWinningKillReplayInflictor( entity inflictor, entity attac
 void function SetCallback_TryUseProjectileReplay( bool functionref( entity victim, entity attacker, var damageInfo, bool isRoundEnd ) callbackFunc )
 {
 	file.shouldTryUseProjectileReplayCallback = callbackFunc
+}
+
+// northstar missing default callback
+// only use replay for projectiles those have "projectile_killreplay_enabled" "1"
+bool function DefaultCallback_TryUseProjectileReplay( entity victim, entity attacker, var damageInfo, bool isRoundEnd )
+{
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if ( IsValid( inflictor ) )
+	{
+		if ( inflictor.IsProjectile() && inflictor.GetProjectileWeaponSettingBool( eWeaponVar.projectile_killreplay_enabled ) )
+			return true
+	}
+
+	return false
 }
 
 bool function ShouldTryUseProjectileReplay( entity victim, entity attacker, var damageInfo, bool isRoundEnd )
