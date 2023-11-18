@@ -131,7 +131,11 @@ void function AddTeamScoreForPlayerKilled( entity victim, entity attacker, var d
 	if ( victim == attacker || !victim.IsPlayer() || !attacker.IsPlayer() && GetGameState() == eGameState.Playing )
 		return
 
-	AddTeamScore( GetOtherTeam( victim.GetTeam() ), 1 )
+	// Friendly killed credit for fun
+	if ( victim.GetTeam() == attacker.GetTeam() && FriendlyFire_ShouldAddScoreOnFriendlyKill() )
+		AddTeamScore( victim.GetTeam(), 1 )
+	else // vanilla behavior
+		AddTeamScore( GetOtherTeam( victim.GetTeam() ), 1 )
 }
 
 int function CheckScoreForDraw()

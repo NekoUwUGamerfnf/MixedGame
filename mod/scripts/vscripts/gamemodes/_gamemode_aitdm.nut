@@ -213,6 +213,11 @@ bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var 
 	// Basic checks
 	if ( !IsValid( attacker ) )
 		return false
+
+	// Team filter -- don't want Friendly Fire able to influence score
+	// make it a setting
+	if ( victim.GetTeam() == attacker.GetTeam() || FriendlyFire_ShouldAddScoreOnFriendlyKill() )
+		return false
 	
 	// gamestate, attacker class and selfdamage checks
 	if ( victim == attacker || !( attacker.IsPlayer() || attacker.IsTitan() ) || GetGameState() != eGameState.Playing )

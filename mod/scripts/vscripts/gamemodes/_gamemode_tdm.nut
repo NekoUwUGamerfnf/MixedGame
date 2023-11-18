@@ -38,7 +38,10 @@ void function GiveScoreForPlayerKill( entity victim, entity attacker, var damage
 		 && attacker.IsPlayer() 
 		 && GetGameState() == eGameState.Playing )
 	{
-		AddTeamScore( attacker.GetTeam(), 1 )
+		// Team filter -- don't want Friendly Fire able to influence score
+		// make it a setting
+		if ( victim.GetTeam() == attacker.GetTeam() || FriendlyFire_ShouldAddScoreOnFriendlyKill() )
+			AddTeamScore( attacker.GetTeam(), 1 )
 		
 		if ( GetGameState() == eGameState.WinnerDetermined ) // win match with AddTeamScore()
 			ScoreEvent_VictoryKill( attacker )
