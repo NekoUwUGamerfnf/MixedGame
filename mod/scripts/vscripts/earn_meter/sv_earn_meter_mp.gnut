@@ -1,11 +1,12 @@
 untyped
 global function Sv_EarnMeterMP_Init
 global function EarnMeterMP_SetTitanLoadout
-global function EarnMeterMP_SetPassiveMeterGainEnabled
 global function EarnMeterMP_SetBoostByRef
 
 // modified settings...
+global function EarnMeterMP_SetPassiveMeterGainEnabled
 global function EarnMeterMP_SetPassiveGainProgessEnable
+global function EarnMeterMP_SetPassiveGainIntervalScale
 
 // when client display a 99% frac, server actually has "0.989999"
 // needs to add a small amount to avoid earnmeter displays as 99% but player can't earn goal
@@ -42,6 +43,7 @@ struct
 	table<int, float> teamPassiveMeterGainInterval // gets updated based on player's calculation
 	table<entity, float> playerPassiveMeterGainInterval
 	bool passiveGainProgressEnabled = false // vanilla seems only enable this in few gamemodes( mostly titan allowed modes )
+	float passiveGainIntervalScale = 1.0 // can be used for gamemodes like FD to have a constant gain interval
 } file
 
 void function Sv_EarnMeterMP_Init()
@@ -77,9 +79,19 @@ void function EarnMeterMP_SetPassiveMeterGainEnabled( bool enabled )
 	file.passiveMeterGainEnabled = enabled
 }
 
+bool function EarnMeterMP_IsPassiveMeterGainEnabled()
+{
+	return file.passiveMeterGainEnabled
+}
+
 void function EarnMeterMP_SetPassiveGainProgessEnable( bool enabled )
 {
 	file.passiveGainProgressEnabled = enabled
+}
+
+void function EarnMeterMP_SetPassiveGainIntervalScale( float scale )
+{
+	file.passiveGainIntervalScale = scale
 }
 //
 
@@ -225,7 +237,7 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 	while ( true )
 	{
 		if( GetGameState() < eGameState.Playing ) // Prematch
-			file.playerLastPassiveGainTime[ player ] = Time() // reset gain timer
+			EarnMeterMP_ResetPlayerPassiveGainTimer( player ) // reset gain timer
 		
 		int desiredEarnMeterMode
 		entity petTitan = player.GetPetTitan()
@@ -233,7 +245,7 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 
 		if ( player.IsTitan() )
 		{
-			file.playerLastPassiveGainTime[ player ] = Time() // staying in titan should reset earnmeter gain timer
+			EarnMeterMP_ResetPlayerPassiveGainTimer( player ) // staying in titan should reset earnmeter gain timer
 			
 			if ( IsValid( soul ) ) // stupid anti-crash, possibly no need
 			{
@@ -247,7 +259,7 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 		//else if ( IsValid( player.GetPetTitan() ) )
 		else if ( IsValid( petTitan ) )
 		{
-			file.playerLastPassiveGainTime[ player ] = Time() // having a pet titan should reset earnmeter gain timer
+			EarnMeterMP_ResetPlayerPassiveGainTimer( player ) // having a pet titan should reset earnmeter gain timer
 			desiredEarnMeterMode = eEarnMeterMode.PET
 		}
 		else
@@ -330,10 +342,10 @@ void function EarnMeterMP_PlayerLifeThink( entity player )
 			}
 			*/
 
-			if ( file.passiveMeterGainEnabled && Time() - file.playerLastPassiveGainTime[ player ] >= file.playerPassiveMeterGainInterval[ player ] )
+			// passively meter gain
+			if ( EarnMeterMP_PlayerCanReceivePassiveMeterGain( player ) )
 			{
-				PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_GAIN_FRAC )
-				file.playerLastPassiveGainTime[ player ] = Time() // update last passive gain time
+				EarnMeterMP_GivePlayerPassiveGainMeter( player )
 			}
 		}
 
@@ -366,6 +378,41 @@ bool function ShouldDoTitanSoonAnnouncement( entity player )
 		return true
 
 	return false
+}
+
+// earnmeter passive gain utilities
+void function EarnMeterMP_ResetPlayerPassiveGainTimer( entity player )
+{
+	file.playerLastPassiveGainTime[ player ] = Time()
+}
+
+bool function EarnMeterMP_PlayerCanReceivePassiveMeterGain( entity player )
+{
+	if ( !EarnMeterMP_IsPassiveMeterGainEnabled() )
+		return false
+
+	float timeSinceLastGain = Time() - EarnMeterMP_GetPlayerLastPassiveGainTime( player )
+	float gainInterval = EarnMeterMP_GetPlayerPassiveGainInterval( player )
+	if ( timeSinceLastGain < gainInterval )
+		return false
+
+	return PlayerEarnMeter_GetMode( player ) != eEarnMeterMode.DISABLED
+}
+
+float function EarnMeterMP_GetPlayerLastPassiveGainTime( entity player )
+{
+	return file.playerLastPassiveGainTime[ player ]
+}
+
+float function EarnMeterMP_GetPlayerPassiveGainInterval( entity player )
+{
+	return file.playerPassiveMeterGainInterval[ player ] * file.passiveGainIntervalScale
+}
+
+void function EarnMeterMP_GivePlayerPassiveGainMeter( entity player )
+{
+	PlayerEarnMeter_AddOwnedFrac( player, EARNMETER_GAIN_FRAC )
+	EarnMeterMP_ResetPlayerPassiveGainTimer( player ) // reset timer after successful gain
 }
 
 void function EarnMeterMP_BoostEarned( entity player )
