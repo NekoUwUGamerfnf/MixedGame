@@ -230,9 +230,13 @@ string function GetSpawnpointGamemodeOverride()
 	if ( file.spawnpointGamemodeOverride != "" )
 		return file.spawnpointGamemodeOverride
 	else
-		return GAMETYPE
+	{
+		// returning only a GAMETYPE is just TOO BAD
+		//return GAMETYPE
+		return GetGameModeSpawnpointName() // modified shared function from _base_gametype.gnut
+	}
 	
-	unreachable
+	unreachable // why?
 }
 
 void function InitRatings( entity player, int team )
