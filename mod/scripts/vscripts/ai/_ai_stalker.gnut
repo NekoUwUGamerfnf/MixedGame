@@ -112,9 +112,13 @@ void function AiStalker_Init()
 	PrecacheImpactEffectTable( "exp_stalker_powersupply" )
 	PrecacheImpactEffectTable( "exp_small_stalker_powersupply" )
 	PrecacheParticleSystem( STALKER_REACTOR_CRITICAL_FX )
-	AddDamageCallback( "npc_stalker", StalkerOnDamaged ) // why isn't this final damage or post damage?
+	AddDamageCallback( "npc_stalker", StalkerOnDamaged ) // why this isn't final damage or post damage?
 	AddDeathCallback( "npc_stalker", StalkerOnDeath )
 	AddSpawnCallback( "npc_stalker", StalkerOnSpawned )
+
+	// modified for pre-death overload
+	// AddDamageCallback() can't handle modified damage like plasma railgun and scorch thermites
+	AddPostDamageCallback( "npc_stalker", StalkerOnPostDamaged )
 }
 
 void function StalkerOnSpawned( entity npc )
@@ -317,6 +321,29 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 				}
 			}
 	*/
+}
+
+// modified condition here, basically for pre-death overload
+// AddDamageCallback() can't handle modified damage like plasma railgun and scorch thermites
+void function StalkerOnPostDamaged( entity npc, var damageInfo )
+{
+	// use a better check for handling modified overload cases
+	if ( DamageShouldOverloadStalker( npc, damageInfo ) )
+	{
+		// melting down checks so we don't do it over and over
+		if ( !StalkerMeltingDown( npc ) )
+		{
+			// don't die from damage
+			float damage = DamageInfo_GetDamage( damageInfo )
+			damage = npc.GetHealth() - 1.0
+			DamageInfo_SetDamage( damageInfo, damage )
+
+			entity attacker = DamageInfo_GetAttacker( damageInfo )
+			thread StalkerGearOverloads( npc, attacker )
+		}
+
+		return
+	}
 }
 
 // this should be renamed as StalkerTrySprintOnDamaged(), move the sprinting codes into StalkerSprint()
