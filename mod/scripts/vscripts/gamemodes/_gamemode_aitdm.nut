@@ -71,7 +71,8 @@ void function GamemodeAITdm_Init()
 		Modded_Gamemode_AITdm_Extended_Init()
 	else // vanilla attrition
 	{
-		SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
+		// you can't be serious. gamemode_tdm spawns are for AITdm
+		//SetSpawnpointGamemodeOverride( ATTRITION ) // use bounty hunt spawns as vanilla game has no spawns explicitly defined for aitdm
 
 		AddCallback_GameStateEnter( eGameState.Prematch, OnPrematchStart )
 		AddCallback_GameStateEnter( eGameState.Playing, OnPlaying )
@@ -291,6 +292,7 @@ void function SpawnIntroBatch_Threaded( int team )
 	
 	// mp_rise has weird droppod_start nodes, this gets around it
 	// To be more specific the teams aren't setup and some nodes are scattered in narnia
+	/*
 	if( GetMapName() == "mp_rise" )
 	{
 		entity spawnPoint
@@ -324,6 +326,14 @@ void function SpawnIntroBatch_Threaded( int team )
 			if ( node.GetTeam() == team )
 				podNodes.append( node )
 		}
+	}
+	*/
+
+	// Sort per team
+	foreach ( node in dropPodNodes )
+	{
+		if ( node.GetTeam() == team )
+			podNodes.append( node )
 	}
 
 	shipNodes = GetValidIntroDropShipSpawn( podNodes )
