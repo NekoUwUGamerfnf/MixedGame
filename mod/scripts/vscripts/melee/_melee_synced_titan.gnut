@@ -1112,12 +1112,16 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	    attackerViewBody = CreateNpcTitanPilotModel( target )
 	}
 
-	attackerViewBody.SetOrigin( ref.GetOrigin() )
-	e.attackerViewBody = attackerViewBody
-	attackerViewBody.SetOwner( attacker )
-	attackerViewBody.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
-	attackerViewBody.SetRagdollImpactFX( RAGDOLL_IMPACT_TABLE_IDX )
-	attackerViewBody.SetContinueAnimatingAfterRagdoll( true )
+	// modified here: only create atackerViewBody for player attackers
+	if ( attacker.IsPlayer() )
+	{
+		attackerViewBody.SetOrigin( ref.GetOrigin() )
+		e.attackerViewBody = attackerViewBody
+		attackerViewBody.SetOwner( attacker )
+		attackerViewBody.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
+		attackerViewBody.SetRagdollImpactFX( RAGDOLL_IMPACT_TABLE_IDX )
+		attackerViewBody.SetContinueAnimatingAfterRagdoll( true )
+	}
 
 	FirstPersonSequenceStruct attackerBodySequence
 	attackerBodySequence.attachment = "ref"
@@ -1510,7 +1514,10 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 		attackerBodySequence.firstPersonAnimIdle = ""
 	}
 
-	thread FirstPersonSequence( attackerBodySequence, attackerViewBody, ref )
+	// due to modifications in TitanRipsPilot, attackerViewBody can now be invalid when attacker is npc
+	if ( IsValid( attackerViewBody ) )
+		thread FirstPersonSequence( attackerBodySequence, attackerViewBody, ref )
+	
 	if ( !target.IsPlayer() )
 	{
 		// don't do first person anims if we're not a player
@@ -1589,15 +1596,12 @@ void function MeleePinkMist( table e )
 	if ( IsValid( e.attacker ) ) // target dying
 	{
 		// non-attacker sound event fix
-		if ( IsValid( e.attackerViewBody ) )
+		if ( !e.thrown ) // only do sound fix if we're not throwing target. because if throw sequence going too long it will also trigger this function as a failsafe case, which seems bad to fix sound
 		{
-			if ( !e.thrown ) // only do sound fix if we're not throwing target. because if throw sequence going too long it will also trigger this function as a failsafe case, which seems bad to fix sound
-			{
-				if ( e.attacker.IsPlayer() )
-					EmitSoundAtPositionExceptToPlayer( target.GetTeam(), e.attackerViewBody.GetOrigin(), e.attacker, "monarch_battery_execution_bone_crush" )
-				else
-					EmitSoundAtPosition( target.GetTeam(), e.attackerViewBody.GetOrigin(), "monarch_battery_execution_bone_crush" )
-			}
+			if ( IsValid( e.attacker ) && e.attacker.IsPlayer() )
+				EmitSoundAtPositionExceptToPlayer( target.GetTeam(), target.GetOrigin(), e.attacker, "monarch_battery_execution_bone_crush" )
+			else
+				EmitSoundAtPosition( target.GetTeam(), target.GetOrigin(), "monarch_battery_execution_bone_crush" )
 		}
 
 		target.Die( e.attacker, e.attacker, { damageSourceId = eDamageSourceId.titan_execution, scriptType = DF_GIB } )
