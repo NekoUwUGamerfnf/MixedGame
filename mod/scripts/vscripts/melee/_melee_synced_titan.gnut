@@ -1179,18 +1179,31 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 		// npc pilot variant
 		#if NPC_TITAN_PILOT_PROTOTYPE
 			// here's a fake pilot. score is handled by the titan because script will still think there's a npc pilot inside of it
-			target = CreateNPC( "npc_pilot_elite", targetTitan.GetTeam(), targetTitan.GetOrigin(), < 0,0,0 > )
-			DispatchSpawn( target )
-			TakeAllWeapons( target )
+			// reworked to make them no longer fake, we've handled score events properly
+			//target = CreateNPC( "npc_pilot_elite", targetTitan.GetTeam(), targetTitan.GetOrigin(), < 0,0,0 > )
+			//DispatchSpawn( target )
+			//TakeAllWeapons( target )
+			target = NpcTitanBecomesPilot( target )
 		#else // vnilla behavior: target is now a random dude
-			target = CreateSoldier( target.GetTeam(), Vector(0,0,0), Vector(0,0,0) )
+			target = CreateSoldier( target.GetTeam(), Vector(0,0,0), Vector(0,0,0) ) // they can still speak though
 			DispatchSpawn( target )
+
+			target.SetModel( GetNpcTitanPilotModel( targetTitan ) )
+
+			// modified: mark as silentDeath so they don't scream( mostly for grunts )
+			target.s.silentDeath <- true
+
+			// if target is a npc, they must be fake bodies. never do npc killed event for player
+			// this only changes MeleePinkMist() and MeleeThrowIntoWallSplat(). MeleeKilledRagdoll() for the titan will work as normal
+			e.attacker = target // make them suicide!
 		#endif // NPC_TITAN_PILOT_PROTOTYPE
 
-		target.SetModel( GetNpcTitanPilotModel( targetTitan ) )
+		// because we're using disembarked npc titan, this should only be in vanilla behavior
+		//target.SetModel( GetNpcTitanPilotModel( targetTitan ) )
 
-		// modified: mark as silentDeath
-		target.s.silentDeath <- true
+		// because we're using disembarked npc titan, this should only be in vanilla behavior as a fix
+		// modified: mark as silentDeath so they don't scream( mostly for grunts )
+		//target.s.silentDeath <- true
 		e.target <- target
 
 		// vanilla missing: target should always be invulnerable and notarget at this point
@@ -1200,9 +1213,10 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 		// modified: because we're using this guy as a fake body, needs to hide their name stuffs
 		HideName( target )
 
+		// because we're using disembarked npc titan, this should only be in vanilla behavior as a fix
 		// if target is a npc, they must be fake bodies. never do npc killed event for player
 		// this only changes MeleePinkMist() and MeleeThrowIntoWallSplat(). MeleeKilledRagdoll() for the titan will work as normal
-		e.attacker = target // make them suicide!
+		//e.attacker = target // make them suicide!
 	}
 
 	//AddAnimEvent( targetTitan, "rider_rodeo_over", ForceTitanRodeoToEnd  )
@@ -1218,9 +1232,14 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	// setOwner is bad. the proper way is we hide target and spawn a target viewbody
 	// we can't make only two players can't see targetViewBody... now revert back to SetOwner()
 	// but we don't do NpcTitanBecomesPilot() so the pilot isn't there for players to kill, score can be handled by checking TitanHasNpcPilot() on titans
-	target.SetOwner( attacker )
-	target.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) //owner cant see
-	
+	// EDIT: now we're using NpcTitanBecomesPilot() because score event checks has been reworked! can be handled properly
+	// now with one modification: only set owner for player attackers
+	if ( attacker.IsPlayer() )
+	{
+		target.SetOwner( attacker )
+		target.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) //owner cant see
+	}
+
 	e.targetTitan <- targetTitan
 
 	if ( GetBugReproNum() == 129802 )
@@ -1761,6 +1780,11 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 		ragdollVelocity = forward * 1000 + Vector(0,0,500)
 	if ( target.IsNPC() )
 	{
+		// npc pilot case
+		// here we should kill them before ragdolling because they're not fake bodies
+		#if NPC_TITAN_PILOT_PROTOTYPE
+			MeleeThrowIntoWallSplatKillTarget( target, e )
+		#endif
 		//print( "target.kv.VisibilityFlags: " + string( target.kv.VisibilityFlags ) )
 		target.BecomeRagdoll( ragdollVelocity, false ) // gets destroyed
 		return
@@ -1768,16 +1792,21 @@ function MeleeThrowIntoWallSplat( entity attacker, entity target, e, duration )
 	else
 		target.BecomeRagdoll( ragdollVelocity, false )
 	
-	WaitFrame() // player ragdoll take hold!
+	WaitFrame() // player ragdoll take hold! for victim themselves can see their ragdoll
 
-	entity killCreditAttacker = target
-	if ( IsValid( e.attacker ) )
-		killCreditAttacker = expect entity( e.attacker )
-	target.Die( killCreditAttacker, killCreditAttacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
+	MeleeThrowIntoWallSplatKillTarget( target, e )
 
 	// insure visibility after target becomes ragdoll
 	target.SetOwner( null )
 	target.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+}
+
+function MeleeThrowIntoWallSplatKillTarget( entity target, e )
+{
+	entity killCreditAttacker = target // by default they suicide so other killed callbacks can go through
+	if ( IsValid( e.attacker ) )
+		killCreditAttacker = expect entity( e.attacker )
+	target.Die( killCreditAttacker, killCreditAttacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
 }
 
 // modified think

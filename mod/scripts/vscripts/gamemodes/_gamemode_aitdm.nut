@@ -228,7 +228,9 @@ bool function AttackerIsValidForAITdmScore( entity victim, entity attacker, var 
 	
 	// Hacked spectre and pet titan filter
 	// ( though hacked spectres already handled by npc.s.givenAttritionScore )
-	if ( victim.GetOwner() == attacker || victim.GetBossPlayer() == attacker )
+	// owner should be related with visibility stuffs( like synced melee ), not adding to this check
+	//if ( victim.GetOwner() == attacker || victim.GetBossPlayer() == attacker )
+	if ( victim.GetBossPlayer() == attacker )
 		return false
 
 	// all checks passed
