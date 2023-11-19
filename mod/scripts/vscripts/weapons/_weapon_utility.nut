@@ -4099,7 +4099,7 @@ void function Thermite_DamagePlayerOrNPCSounds( entity ent )
 
 	// fix for thermite sound
 	// add random interval for next sound. this sound can't stack but too many sound caused by scorch thermite will make other sounds complain
-	file.entNextThermiteSoundAllowedTime[ ent ] = Time() + RandomFloatRange( 0.35, 0.50 )
+	file.entNextThermiteSoundAllowedTime[ ent ] = Time() + RandomFloatRange( 0.30, 0.40 )
 	//
 }
 #endif
