@@ -331,7 +331,13 @@ void function ReaperNukeSequenceFailSafe( entity npc )
 // bit more like death animation, they also can be delayed until reaper has nothing to do
 void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 {
+	// starting sequence and setup
+	EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
 	PlayDeathAnimByActivity( npc ) // play the anim before think starts
+
+	// for fun
+	entity nukeBodyFX = PlayFXOnEntity( $"P_sup_spectre_warn_body", npc, "exp_torso_core_fx" )
+	nukeBodyFX.DisableHibernation()
 
 	npc.EndSignal( "OnDestroy" )
 	npc.EndSignal( "OnDeath" )
@@ -341,14 +347,19 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 	float startTime = Time() // for debugging
 	float endTime = Time() + failsafeTime
 
-	bool playedSound = false
+	bool playedSound = true // we did sound above, here we mark it as true
 	while ( Time() < endTime )
 	{
+		// this must means reaper isn't actually playing animation, they got some schedule to do...
 		if ( !npc.Anim_IsActive() )
 		{
 			//print( "reaper still don't have anim active!" )
 			//print( "elapsed time: " + string( Time() - startTime ) )
 			PlayDeathAnimByActivity( npc ) // keep it trying...
+
+			// clean up sound, we do it again later
+			StopSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
+			playedSound = false
 		}
 
 		// animation succesfully function
