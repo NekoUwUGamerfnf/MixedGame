@@ -93,6 +93,10 @@ const array<asset> GUNSHIP_VALID_MODELS =
 	$"models/vehicle/hornet/hornet_fighter.mdl",
 ]
 
+// vanilla never store any damage histroy for npcs, here I do it for fun
+// note that this is used as default value, actual value can be modified through ExtraSpawner_SetNPCDamageHistoryLifeTime()
+const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may need to scale down damage histroy saving time
+
 // debug
 const bool EXTRA_SPAWNER_DEBUG = false
 #if EXTRA_SPAWNER_DEBUG
@@ -280,6 +284,8 @@ struct
 	table<entity, float> npcDialogueNextAllowedTimeOnPlayer
 	// gunship forced model for replacement ship spawn
 	table<entity, asset> gunshipForcedSpawnModel
+	// vanilla never store any damage histroy for npcs, here I do it for fun
+	float npcDamageHistoryLifeTime = NPC_HEALTH_HISTORY_FALLOFF_END
 } file
 
 void function ExtraAISpawner_Init()
@@ -365,6 +371,46 @@ void function ExtraAISpawner_Init()
 	#endif // EXTRA_SPAWNER_DEBUG
 }
 
+// GENERIC SPAWN SETTINGS
+void function ExtraSpawner_SetUpSpawnedNPC( entity npc )
+{
+	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( npc ) ) // has setup once?
+		return
+	
+	file.npcSpawnFromExtraSpawner[ npc ] <- true
+	AddEntityCallback_OnPostDamaged( npc, StoreNecessaryDamageHistoryForNPC )
+}
+
+// vanilla never store any damage histroy for npcs, here I only store some necessary ones for fun
+void function StoreNecessaryDamageHistoryForNPC( entity npc, var damageInfo )
+{
+	// npc titan is handled by themselves( very short though, player has 12s but npc titan only has 4s )
+	// but why does dropships also do so?
+	if ( npc.IsTitan() || npc.GetClassName() == "npc_dropship" )
+		return
+	
+	// store some necessary damage history for npc
+	DamageHistoryStruct damageHistory
+	damageHistory.attacker = DamageInfo_GetAttacker( damageInfo )
+	damageHistory.damage = DamageInfo_GetDamage( damageInfo )
+	damageHistory.time = Time()
+
+	// remove old damage history, timer is scaled down
+	UpdateDamageHistory( npc, file.npcDamageHistoryLifeTime, Time() )
+
+	npc.e.recentDamageHistory.insert( 0, damageHistory )
+}
+
+void function ExtraSpawner_SetNPCDamageHistoryLifeTime( float lifeTime )
+{
+	file.npcDamageHistoryLifeTime = lifeTime
+}
+
+bool function ExtraSpawner_IsNPCSpawnedFromExtraSpawner( entity npc )
+{
+	return npc in file.npcSpawnFromExtraSpawner
+}
+
 void function OnClientConnected( entity player )
 {
 	// scripted npc dialogue
@@ -376,39 +422,39 @@ void function OnClientConnected( entity player )
 void function OnStalkerSpawned( entity stalker )
 {
 	// only handle stalkers spawned from this file
-	if ( stalker in file.npcSpawnFromExtraSpawner )
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( stalker ) )
+		return
+	
+	int team = stalker.GetTeam()
+	if ( team == TEAM_IMC )
 	{
-		int team = stalker.GetTeam()
-		if ( team == TEAM_IMC )
-		{
-			stalker.SetValueForModelKey( $"models/Robots/stalker/robot_stalker.mdl" )
-			// the problem is we can't handle dropship condition, may break their animation
-			// maybe just modify aisettings file?
-			// EDIT: no, it's all good. DispatchSpawn() is where this callback called, animation is done after that
-			stalker.SetModel( $"models/Robots/stalker/robot_stalker.mdl" )
-		}
+		stalker.SetValueForModelKey( $"models/Robots/stalker/robot_stalker.mdl" )
+		// the problem is we can't handle dropship condition, may break their animation
+		// maybe just modify aisettings file?
+		// EDIT: no, it's all good. DispatchSpawn() is where this callback called, animation is done after that
+		stalker.SetModel( $"models/Robots/stalker/robot_stalker.mdl" )
 	}
 }
 
 void function OnGunshipSpawned( entity gunship )
 {
 	// only handle gunships spawned from this file
-	if ( gunship in file.npcSpawnFromExtraSpawner )
-	{
-		asset gunshipModel = $""
-		// gunship may have a specific model picked
-		// because if they played an intro, we'll need to spawn a new gunship and they should keep the same model
-		// we'll use that
-		if ( gunship in file.gunshipForcedSpawnModel )
-			gunshipModel = file.gunshipForcedSpawnModel[ gunship ]
-		else // otherwise we just pick a random one
-			gunshipModel = GUNSHIP_VALID_MODELS[ RandomInt( GUNSHIP_VALID_MODELS.len() ) ]
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( gunship ) )
+		return
+	
+	asset gunshipModel = $""
+	// gunship may have a specific model picked
+	// because if they played an intro, we'll need to spawn a new gunship and they should keep the same model
+	// we'll use that
+	if ( gunship in file.gunshipForcedSpawnModel )
+		gunshipModel = file.gunshipForcedSpawnModel[ gunship ]
+	else // otherwise we just pick a random one
+		gunshipModel = GUNSHIP_VALID_MODELS[ RandomInt( GUNSHIP_VALID_MODELS.len() ) ]
 
-		if ( gunshipModel != $"" )
-		{
-			gunship.SetValueForModelKey( gunshipModel )
-			gunship.SetModel( gunshipModel )
-		}
+	if ( gunshipModel != $"" )
+	{
+		gunship.SetValueForModelKey( gunshipModel )
+		gunship.SetModel( gunshipModel )
 	}
 }
 
@@ -913,7 +959,7 @@ void function OnNPCKilled( entity victim, entity attacker, var damageInfo )
 	//	print( "NPC PILOT KILLED! by: " + string( attacker ) )
 
 	// we only handle npcs spawn from this file!
-	if ( !( victim in file.npcSpawnFromExtraSpawner ) )
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( victim ) )
 		return
 
 	// manually do some score event
@@ -986,12 +1032,15 @@ bool function TryNPCPilotKilledChatter( entity attacker )
 
 bool function ExtraSpawner_IsValidExecutionTarget( entity attacker, entity target )
 {
+	// only handle those who spawn from this file
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( target ) )
+		return
+
 	// npc target with core active can have bad animation while being executed
 	// usually happens for salvo core, but laser core seems working well? why?
 	// this cannot be solved by adding target.Anim_Stop() in _melee_synced_titan.gnut
 	// i don't know if it's a good idea to make them unable to be executed, just handle here
-	
-	if ( target.IsTitan() && ( target in file.npcSpawnFromExtraSpawner ) ) // only handle those who spawn from this file
+	if ( target.IsTitan() ) 
 	{
 		entity soul = target.GetTitanSoul()
 		if ( IsValid( soul ) && TitanHasNpcPilot( target ) )
@@ -2040,8 +2089,8 @@ bool function CC_SpawnAssassinPilot( entity player, array<string> args )
 	pilot.SetValueForModelKey( modelAsset )
 	pilot.SetModel( modelAsset )//
 
-	file.npcSpawnFromExtraSpawner[ pilot ] <- true
-	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
+	ExtraSpawner_SetUpSpawnedNPC( pilot ) // generic setup for any npc in this file
+	DispatchSpawn( pilot ) // don't do delayed dispatchSpawn()
 	pilot.SetModel( modelAsset )
 	ExtraSpawner_SetUpNPCPilot( pilot )
 
@@ -2060,8 +2109,8 @@ bool function CC_SpawnSpecialistGrunt( entity player, array<string> args )
 	SetSpawnOption_AISettings( grunt, "npc_soldier_drone_summoner" )
 	SetSpawnOption_Weapon( grunt, "mp_weapon_pulse_lmg" )
 
-	file.npcSpawnFromExtraSpawner[ grunt ] <- true
-	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
+	ExtraSpawner_SetUpSpawnedNPC( grunt ) // generic setup for any npc in this file
+	DispatchSpawn( grunt ) // don't do delayed dispatchSpawn()
 
 	grunt.SetModel( $"models/robots/spectre/imc_spectre.mdl" )
 
@@ -2149,8 +2198,8 @@ bool function CC_SpawnTestPistolGrunt( entity player, array<string> args )
 	//SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_pistol" )
 	SetSpawnOption_Weapon( grunt, "mp_weapon_shotgun_doublebarrel_tfo" )
 
-	file.npcSpawnFromExtraSpawner[ grunt ] <- true
-	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
+	ExtraSpawner_SetUpSpawnedNPC( grunt ) // generic setup for any npc in this file
+	DispatchSpawn( grunt ) // don't do delayed dispatchSpawn()
 
 	//grunt.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
 	grunt.GetMainWeapons()[0].AddMod( "projectile_shotgun_npc" )
@@ -2175,7 +2224,7 @@ bool function CC_SpawnFakeMLTSpectre( entity player, array<string> args )
 	spectre.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT ) // can stalker sprint?
 	spectre.DisableNPCFlag( NPC_CROUCH_COMBAT ) // pistol activity don't have crouch animations, disable crouch combat
 
-	file.npcSpawnFromExtraSpawner[ spectre ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( spectre ) // generic setup for any npc in this file
 	DispatchSpawn( spectre )
 
 	spectre.SetShieldHealthMax( 5000 )
@@ -2256,8 +2305,8 @@ bool function CC_DoNPCWeaponBodyGroupTestSpawn( entity player, array<string> arg
 	entity grunt = CreateNPC( "npc_soldier", GetPlayerAISpawnTeam( player, args ), pos, rot )
 	SetSpawnOption_Weapon( grunt, "mp_weapon_rspn101_og" )
 
-	file.npcSpawnFromExtraSpawner[ grunt ] <- true
-	DispatchSpawn( grunt ) // don't delayed dispatchSpawn()
+	ExtraSpawner_SetUpSpawnedNPC( grunt ) // generic setup for any npc in this file
+	DispatchSpawn( grunt ) // don't do delayed dispatchSpawn()
 
 	//grunt.SetModel( $"models/robots/spectre/imc_spectre.mdl" )
 	entity weapon = grunt.GetActiveWeapon()
@@ -2943,7 +2992,7 @@ entity function CreateSoldier_GrenadeSetup( int team, vector origin, vector angl
 	entity npc = CreateSoldier( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
-	file.npcSpawnFromExtraSpawner[ npc ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 
 	return npc
 }
@@ -2953,7 +3002,7 @@ entity function CreateSpectre_GrenadeSetup( int team, vector origin, vector angl
 	entity npc = CreateSpectre( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
-	file.npcSpawnFromExtraSpawner[ npc ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 
 	return npc
 }
@@ -2963,7 +3012,7 @@ entity function CreateStalker_GrenadeSetup( int team, vector origin, vector angl
 	entity npc = CreateStalker( team, origin, angles )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
-	file.npcSpawnFromExtraSpawner[ npc ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 
 	return npc
 }
@@ -2984,7 +3033,7 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 		entity npc = CreateNPC( content, team, pos, <0,0,0> )
 		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
-		file.npcSpawnFromExtraSpawner[ npc ] <- true
+		ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 		DispatchSpawn( npc )
 
 		SetSquad( npc, squadName )
@@ -3160,7 +3209,7 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
-	file.npcSpawnFromExtraSpawner[ titan ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( titan ) // generic setup for any npc in this file
 	DispatchSpawn( titan )
 
 	// set up embarked behavior
@@ -3249,7 +3298,7 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 		titan.Hide()
 	}
 
-	file.npcSpawnFromExtraSpawner[ titan ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( titan ) // generic setup for any npc in this file
 	DispatchSpawn( titan )
 
 	if ( skinIndex > -1 )
@@ -3477,7 +3526,7 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
     titan.ai.titanSpawnLoadout.setFile = "titan_buddy"
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
 
-	file.npcSpawnFromExtraSpawner[ titan ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( titan ) // generic setup for any npc in this file
 	DispatchSpawn( titan )
 
 	// require a unique squad to spawn AIClass titan_buddy
@@ -3537,7 +3586,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 	{
 		entity spawnNpc = CreateNPC( content, team, pos, rot )
 
-		file.npcSpawnFromExtraSpawner[ spawnNpc ] <- true
+		ExtraSpawner_SetUpSpawnedNPC( spawnNpc ) // generic setup for any npc in this file
 		DispatchSpawn( spawnNpc ) // never delay dispatchSpawn()
 
 		SetSquad( spawnNpc, squadName )
@@ -3658,7 +3707,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 			npc = CreateNPC( content, team, pos, <0,0,0> )
 			ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
-			file.npcSpawnFromExtraSpawner[ npc ] <- true
+			ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 			DispatchSpawn( npc )
 		}
 
@@ -3689,7 +3738,7 @@ entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int t
 {
 	entity npc = CreateSpecialistGrunt_NonSetup( team, pos, rot, aiSet )
 
-	file.npcSpawnFromExtraSpawner[ npc ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 	DispatchSpawn( npc )
 
 	SetUpSpecialistGrunt( npc, aiSet )
@@ -3888,7 +3937,7 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 		if ( i >= 2 ) // small prowlers
 			npc.kv.modelscale = prowlerScale
 
-		file.npcSpawnFromExtraSpawner[ npc ] <- true
+		ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 		DispatchSpawn( npc )
 
 		if ( i < 2 ) // normal prowlers
@@ -3960,7 +4009,7 @@ entity function CreateOverloadedStalker( int team, vector origin, vector angles 
 	ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 	ExtraSpawner_SetUpOverloadedStalker( npc ) // setup stronger behavior
 
-	file.npcSpawnFromExtraSpawner[ npc ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 
 	return npc
 }
@@ -3980,7 +4029,7 @@ void function ExtraSpawner_SpawnOverloadedStalkerDropPod( vector pos, vector rot
 		entity npc = CreateNPC( "npc_stalker", team, pos, <0,0,0> )
 		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 
-		file.npcSpawnFromExtraSpawner[ npc ] <- true
+		ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 		DispatchSpawn( npc )
 		ExtraSpawner_SetUpOverloadedStalker( npc ) // setup stronger behavior
 
@@ -4060,7 +4109,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	//SetSpawnOption_AISettings( animGunship, "npc_gunship_scripted" )
 	HideName( animGunship ) // this gunship will be deleted soon, never show it's name
 	
-	file.npcSpawnFromExtraSpawner[ animGunship ] <- true // adding this mark so we can update gunship's model on their spawn
+	ExtraSpawner_SetUpSpawnedNPC( animGunship ) // generic setup for any npc in this file. adding this mark so we can update gunship's model on their spawn
 	file.gunshipForcedSpawnModel[ animGunship ] <- gunshipModel // assign forced model
 	DispatchSpawn( animGunship )
 
@@ -4104,7 +4153,7 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	gunship.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // turrets inherit weapon proficiency from gunship
 	gunship.kv.AccuracyMultiplier = 1.5 // higher accuracy because they're flying around. turrets inherit it's accuracy
 
-	file.npcSpawnFromExtraSpawner[ gunship ] <- true // adding this mark so we can update gunship's model on their spawn
+	ExtraSpawner_SetUpSpawnedNPC( gunship ) // generic setup for any npc in this file. adding this mark so we can update gunship's model on their spawn
 	file.gunshipForcedSpawnModel[ gunship ] <- gunshipModel // assign forced model
 	DispatchSpawn( gunship )
 
@@ -4455,7 +4504,7 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team, 
 	entity pilot = CreateNPC( "npc_pilot_elite", team, pos, rot )//CreateNPC( "npc_soldier", team, pos, rot )
 	ExtraSpawner_ApplyNPCGrenadeWeapon( pilot ) // grenade have to be given before DispatchSpawn()
 
-	file.npcSpawnFromExtraSpawner[ pilot ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( pilot ) // generic setup for any npc in this file
 	DispatchSpawn( pilot ) // don't delayed dispatchSpawn()
 
 	// give weapons
@@ -4677,7 +4726,7 @@ function OnNpcPilotBecomesTitan( pilot, titan )
 	expect entity( titan )
 
 	// only handle titans spawn from this file
-	if ( !( titan in file.npcSpawnFromExtraSpawner ) )
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( titan ) )
 		return
 
 	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
@@ -4813,11 +4862,11 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 	expect entity( titan )
 
 	// only handle titans spawn from this file
-	if ( !( titan in file.npcSpawnFromExtraSpawner ) )
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( titan ) )
 		return
 
 	// if titan is spawned by extraSpawner, pilot should also be marked
-	file.npcSpawnFromExtraSpawner[ pilot ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( pilot ) // generic setup for any npc in this file
 	ExtraSpawner_SetUpNPCPilot( pilot ) // also included handler call
 
 	if ( IsValid( titan ) )
@@ -4964,7 +5013,7 @@ void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
 	if( !TitanHasNpcPilot( attacker ) )
 		return
 	// only handle npcs from this file
-	if ( !( attacker in file.npcSpawnFromExtraSpawner ) )
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) )
 		return
 	
 	// may no need to handle ronin sword, since ronin sometimes try to step on enemies
@@ -4979,7 +5028,7 @@ void function ApplyNormalMeleeIdToNPCTitan( entity victim, var damageInfo )
 // adjust damages for npc pilots!
 void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 {
-	if ( !( pilot in file.npcSpawnFromExtraSpawner ) ) // pilot spawning from other files!
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( pilot ) ) // pilot spawning from other files!
 		return
 	
 	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) ) // force kill damage( trigger_hurt, executions ) shouldn't be handled
@@ -5037,11 +5086,6 @@ void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 
 	// debug
 	//print( "npc pilot modified damage: " + string( DamageInfo_GetDamage( damageInfo ) ) )
-	// store some necessary damage history for npc pilots
-	DamageHistoryStruct damageHistory
-	damageHistory.damage = DamageInfo_GetDamage( damageInfo )
-	damageHistory.time = Time()
-	pilot.e.recentDamageHistory.insert( 0, damageHistory )
 }
 
 void function NPCPilotDamageModifier( entity victim, var damageInfo )
@@ -5051,7 +5095,7 @@ void function NPCPilotDamageModifier( entity victim, var damageInfo )
         return
 	if( !attacker.IsNPC() )
 		return
-	if ( !( attacker in file.npcSpawnFromExtraSpawner ) ) // pilot spawning from other files!
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( victim ) ) // pilot spawning from other files!
 		return
 	
 	// not a heavy armor target, hit by bullet
@@ -5069,7 +5113,7 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
         return
 	if( !attacker.IsNPC() )
 		return
-	if ( !( attacker in file.npcSpawnFromExtraSpawner ) ) // prowler spawning from other files!
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) ) // prowler spawning from other files!
 		return
 	
 	float damageScale = 1.0
@@ -5503,7 +5547,7 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	HideName( reaper ) // prevent flash a name onto it
 	reaper.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // prevent it's model light shows up
 
-	file.npcSpawnFromExtraSpawner[ reaper ] <- true
+	ExtraSpawner_SetUpSpawnedNPC( reaper ) // generic setup for any npc in this file
 	DispatchSpawn( reaper )
 	reaper.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // restore visibility after warpfall starts in spawncallbacks
 
