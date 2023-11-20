@@ -745,7 +745,7 @@ void function OnPlayerConnected( entity player )
 
 //------------------------------------------------------
 
-int function AITdmExtend_GetScoreValue( entity ent )
+int function AITdmExtend_GetScoreValue( entity ent, bool isDoomedShot = false )
 {
 	int scoreToAdd = 0
 
@@ -811,7 +811,7 @@ int function AITdmExtend_GetScoreValue( entity ent )
 				titanScore = int( TITAN_SCORE_AMOUNT * file.teamTitanScoreMultiplier )
 		}
 
-		if ( TitanHasNpcPilot( ent ) ) // pilot was killed without ejecting
+		if ( TitanHasNpcPilot( ent ) && !isDoomedShot ) // pilot was killed without ejecting
 			scoreToAdd = titanScore + PILOT_SCORE_AMOUNT
 		else if ( ent.IsPlayer() ) // fix for player score!
 			scoreToAdd = titanScore + playerScore
@@ -819,7 +819,10 @@ int function AITdmExtend_GetScoreValue( entity ent )
 			scoreToAdd = titanScore
 
 		// modified function in _titan_health.gnut, recovering ttf1 behavior: we add score on doom but not on death for health loss titans
-		if ( !TitanHealth_GetSoulInfiniteDoomedState( ent.GetTitanSoul() ) )
+		bool removeTitanScore = !TitanHealth_GetSoulInfiniteDoomedState( ent.GetTitanSoul() )
+		if ( isDoomedShot ) // doomed shot: reversed check. we don't add score on infinite doom titans
+			removeTitanScore = TitanHealth_GetSoulInfiniteDoomedState( ent.GetTitanSoul() )
+		if ( removeTitanScore )
 			scoreToAdd -= titanScore // remove titan score on kill for doomed health loss titans
 	}
 
@@ -833,9 +836,19 @@ void function HandleScoreForPlayerOrNPCKill( entity victim, entity attacker, var
 		return
 	
 	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
+	{
+		// attacker maybe invalid, but we still needs to add some score
+		if ( !IsValid( attacker ) )
+		{
+			int scoreToAdd = AITdmExtend_GetScoreValue( victim )
+			if ( scoreToAdd > 0 )
+				AddTeamScore( GetOtherTeam( victim.GetTeam() ), score )
+		}
 		return
+	}
 
-	// if it's a npc with bossplayer/owner...
+	// if it's a npc with bossplayer...
+	// mostly never gets hit because it's already handled by PlayerOrNPCKilled() in _base_gametype.gnut
 	if ( attacker.IsNPC() )
 	{
 		// reassign attacker
@@ -923,8 +936,9 @@ entity function GetAITdmAttackOwner( entity ent )
 		return ent
 	if ( IsValid( ent.GetBossPlayer() ) )
 		attacker = ent.GetBossPlayer()
-	if ( IsValid( ent.GetOwner() ) )
-		attacker = ent.GetOwner()
+	// owner is for visibility stuffs, never check it
+	//if ( IsValid( ent.GetOwner() ) )
+	//	attacker = ent.GetOwner()
 	// attacker still not valid?
 	if ( !IsValid( attacker ) )
 		return ent // use npc or something itself
@@ -955,17 +969,28 @@ void function HandleTitanDoomedScore( entity victim, var damageInfo, bool firstD
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	if ( !AttackerIsValidForAITdmScore( victim, attacker, damageInfo ) )
+	{
+		// attacker maybe invalid, but we still needs to add some score
+		if ( !IsValid( attacker ) )
+		{
+			int scoreToAdd = AITdmExtend_GetScoreValue( victim, true )
+			if ( scoreToAdd > 0 )
+				AddTeamScore( GetOtherTeam( victim.GetTeam() ), scoreToAdd )
+		}
 		return
+	}
 
-	// if it's a npc with bossplayer/owner...
+	// if it's a npc with bossplayer...
+	// mostly never gets hit because it's already handled by PlayerOrNPCKilled() in _base_gametype.gnut
 	if ( attacker.IsNPC() )
 	{
 		// reassign attacker
 		attacker = GetAITdmAttackOwner( attacker )
 	}
 
-	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
-		AddAITdmTeamScore( attacker, TITAN_SCORE_AMOUNT )
+	int scoreToAdd = AITdmExtend_GetScoreValue( victim, true )
+	if ( scoreToAdd > 0 )
+		AddAITdmTeamScore( attacker, scoreToAdd )
 }
 
 //------------------------------------------------------

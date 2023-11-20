@@ -702,7 +702,9 @@ void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string ev
 		if ( attackerInfo.attacker == victim )
 			return
 		// checks for player owned entities( such as titan, spectre or soul )
-		if ( attackerInfo.attacker == victim.GetOwner() || attackerInfo.attacker == victim.GetBossPlayer() )
+		// owner checks has been removed because it only handles visibility stuffs, not related with ownership
+		//if ( attackerInfo.attacker == victim.GetOwner() || attackerInfo.attacker == victim.GetBossPlayer() )
+		if ( attackerInfo.attacker == victim.GetBossPlayer() )
 			continue
 		// if we're getting damage history from soul, should ignore their titan's self damage and owner's damage
 		if ( IsSoul( victim ) )
