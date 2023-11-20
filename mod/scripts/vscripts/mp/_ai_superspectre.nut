@@ -24,8 +24,11 @@ global function SuperSpectre_SetDropBatteryOnDeath
 global function SuperSpectre_SetNukeExplosionDamageEffect
 global function SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath // ticks will go explode if their owner reaper nuke or gibbed
 global function SuperSpectre_SetSpawnerTickMaxCount // decides how many ticks this reaper can own
-global function SuperSpectre_SetDoNukeBeforeDeath // reapers will do nuke before they actually dies, similar to stalker overload. this makes score reward goes later, but their highlight and title stuffs won't be removed until nuke sequence ends
+global function SuperSpectre_SetDoNukeBeforeDeath // reapers will do nuke before their actual death, similar to stalker overload. this makes score reward goes later, but their highlight and title stuffs won't be removed until nuke sequence ends
 //
+
+// shared utility
+global function SuperSpectre_IsReaperDoingNukeSequence // returns true if this reaper is doing nuke sequence while still alive( modified version of nuke )
 
 //==============================================================
 // AI Super Spectre
@@ -83,7 +86,7 @@ struct
 	table<entity, ReaperNukeDamage> reaperNukeDamageOverrides
 	table<entity, bool> reaperMinionExplodeOwnerDeath
 	table<entity, int> reaperMinionMaxCount
-	// new nuke think to make it more like stalkers: do nuke before actually dies
+	// new nuke think to make it more like stalkers: do nuke before actual death
 	table<entity, bool> reaperDoNukeBeforeDeath
 	//
 } file
@@ -139,7 +142,7 @@ void function SuperSpectre_OnDamage( entity npc, var damageInfo )
 	file.reaperStartedNukeFromThisDamage[ npc ] = false
 
 	// if reaper is doing nuke sequence, always set damage to 0
-	if ( file.reaperDoingNukeSequence[ npc ] )
+	if ( SuperSpectre_IsReaperDoingNukeSequence( npc ) )
 	{
 		DamageInfo_SetDamage( damageInfo, 0 )
 		return
@@ -229,7 +232,7 @@ void function StartReaperNukeSequenceFromDamageInfo( entity npc, var damageInfo 
 void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null )
 {
 	// nuke sequence checks so we don't do it over and over
-	if ( file.reaperDoingNukeSequence[ npc ] )
+	if ( SuperSpectre_IsReaperDoingNukeSequence( npc ) )
 		return
 	
 	// do pre-setup
@@ -256,8 +259,8 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
 
 	// needs to do animations manually because nuke sequence is actually reaper's death activity
-	//PlayDeathAnimByActivity( npc )
-	PlayRandomReaperDeathAnim( npc )
+	PlayDeathAnimByActivity( npc )
+	//PlayRandomReaperDeathAnim( npc )
 
 	// wait for nuke anim to signal
 	WaitSignal( npc, "OnDeath", "death_explosion" )
@@ -286,7 +289,6 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	thread SuperSpectreNukes( npc, attacker )
 }
 
-// don't really working well
 void function PlayDeathAnimByActivity( entity npc )
 {
 	npc.Anim_Stop()
@@ -294,9 +296,8 @@ void function PlayDeathAnimByActivity( entity npc )
 	npc.UseSequenceBounds( true )
 }
 
+// hardcoded anims version
 // needs to do animations manually because nuke sequence is actually reaper's death activity
-// doing activity animation for ACT_DIESIMPLE won't work well, like respawn's deprecated SuperSpectreThink()
-// guess we'll have to script it
 const array<string> REAPER_NUKE_ANIMS =
 [
 	"sspec_death_f",
@@ -726,9 +727,14 @@ void function SuperSpectre_LaunchFragDrone_Think( entity npc, int activeMinions_
 	}
 }
 
-// !!!!! this has been modified
+// !!!!! this has been modified to add tickType parameter
 void function ReaperMinionLauncherThink( entity reaper, string tickType = "npc_frag_drone_fd" )
 {
+	// modified: defensive fix for sometimes reaper already entered nuke and we're calling this function
+	if ( SuperSpectre_IsReaperDoingNukeSequence( reaper ) )
+		return
+	//
+	
 	if ( GetBugReproNum() != 221936 )
 		reaper.kv.squadname = ""
 
@@ -743,7 +749,7 @@ void function ReaperMinionLauncherThink( entity reaper, string tickType = "npc_f
 	)
 
 	reaper.EndSignal( "OnDeath" )
-	reaper.EndSignal( "StartedNukeSequence" ) // modified: this should do nothing if reaper has started nuke sequence
+	reaper.EndSignal( "StartedNukeSequence" ) // modified signal: end this thread if reaper has started nuke sequence while still alive
 	reaper.AssaultSetFightRadius( 96 )
 	reaper.AssaultSetGoalRadius( reaper.GetMinGoalRadius() )
 
@@ -771,6 +777,11 @@ void function ReaperMinionLauncherThink( entity reaper, string tickType = "npc_f
 
 void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSettings = "" )
 {
+	// modified: defensive fix for sometimes reaper already entered nuke and we're calling this function
+	if ( SuperSpectre_IsReaperDoingNukeSequence( reaper ) )
+		return
+	//
+
 	if ( reaper.ai.activeMinionEntArrayID < 0 )
 		reaper.ai.activeMinionEntArrayID = CreateScriptManagedEntArray()
 
@@ -815,7 +826,7 @@ void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSetti
 
 
 	reaper.EndSignal( "OnDeath" )
-	reaper.EndSignal( "StartedNukeSequence" ) // modified: this should do nothing if reaper has started nuke sequence
+	reaper.EndSignal( "StartedNukeSequence" ) // modified signal: end this thread if reaper has started nuke sequence while still alive
 
 	while ( !reaper.IsInterruptable() )
 		WaitFrame()
@@ -1309,5 +1320,10 @@ bool function ShouldReaperDoNukeBeforeDeath( entity ent )
 	if ( !( ent in file.reaperDoNukeBeforeDeath ) )
 		return false // default value
 	return file.reaperDoNukeBeforeDeath[ ent ]
+}
+
+bool function SuperSpectre_IsReaperDoingNukeSequence( entity ent )
+{
+	return file.reaperDoingNukeSequence[ ent ]
 }
 //
