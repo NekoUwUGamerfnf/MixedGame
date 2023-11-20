@@ -24,6 +24,7 @@ global function SuperSpectre_SetDropBatteryOnDeath
 global function SuperSpectre_SetNukeExplosionDamageEffect
 global function SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath // ticks will go explode if their owner reaper nuke or gibbed
 global function SuperSpectre_SetSpawnerTickMaxCount // decides how many ticks this reaper can own
+global function SuperSpectre_SetDoNukeBeforeDeath // reapers will do nuke before they actually dies, similar to stalker overload. this makes score reward goes later, but their highlight and title stuffs won't be removed until nuke sequence ends
 //
 
 //==============================================================
@@ -67,6 +68,11 @@ struct
 {
 	int activeMinions_GlobalArrayIdx = -1
 
+	// in-file table
+	table<entity, bool> reaperStartedNukeFromThisDamage
+	table<entity, bool> reaperKilledFromSelfNukeExplosion
+	table<entity, bool> reaperDoingNukeSequence
+
 	// modified...
 	// so you can add nuke reapers without have to change their aisettings
 	array<entity> forceNukeReapers
@@ -77,6 +83,8 @@ struct
 	table<entity, ReaperNukeDamage> reaperNukeDamageOverrides
 	table<entity, bool> reaperMinionExplodeOwnerDeath
 	table<entity, int> reaperMinionMaxCount
+	// new nuke think to make it more like stalkers: do nuke before actually dies
+	table<entity, bool> reaperDoNukeBeforeDeath
 	//
 } file
 
@@ -108,16 +116,177 @@ function AiSuperspectre_Init()
 	//AddPostDamageCallback( "npc_super_spectre", SuperSpectre_PostDamage )
 
 	file.activeMinions_GlobalArrayIdx = CreateScriptManagedEntArray()
+
+	// modified signals
+	RegisterSignal( "StartedNukeSequence" )
+	// modified callback to init in-file tables
+	AddSpawnCallback( "npc_super_spectre", SuperSpectreOnSpawn )
+	// modified callback to handle nuke before death
+	AddDamageFinalCallback( "npc_super_spectre", SuperSpectre_FinalDamage )
+}
+
+// modified callback to init in-file tables
+void function SuperSpectreOnSpawn( entity npc )
+{
+	file.reaperStartedNukeFromThisDamage[ npc ] <- false
+	file.reaperKilledFromSelfNukeExplosion[ npc ] <- false
+	file.reaperDoingNukeSequence[ npc ] <- false
 }
 
 void function SuperSpectre_OnDamage( entity npc, var damageInfo )
 {
+	// always cleanup last damages state
+	file.reaperStartedNukeFromThisDamage[ npc ] = false
+
+	// if reaper is doing nuke sequence, always set damage to 0
+	if ( file.reaperDoingNukeSequence[ npc ] )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 )
+		return
+	}
+
 	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	if ( damageSourceId == eDamageSourceId.suicideSpectreAoE )
 	{
 		// super spectre takes reduced damage from suicide spectres
 		DamageInfo_ScaleDamage( damageInfo, 0.666 )
 	}
+
+	// modified to handle nuke before death
+	if ( DamageShouldStartReaperNuke( npc, damageInfo ) )
+	{
+		// mark as we've setup nuke from this damage, so SuperSpectre_FinalDamage() can handle modified damages
+		file.reaperStartedNukeFromThisDamage[ npc ] = true
+		// don't die from damage
+		StartReaperNukeSequenceFromDamageInfo( npc, damageInfo )
+		return
+	}
+}
+
+// modified function to handle nuke before death
+bool function DamageShouldStartReaperNuke( entity npc, var damageInfo )
+{
+	// general check
+	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo ) )
+		return false
+
+	// nuke before death check
+	if ( ShouldReaperDoNukeBeforeDeath( npc ) )
+	{
+		if ( IsAlive( npc ) ) // dead reapers can nuke in DoSuperSpectreDeath(), needs to prevent doing together with that
+		{
+			float health = npc.GetHealth().tofloat()
+			float damage = DamageInfo_GetDamage( damageInfo )
+			// modified check: killshot to overload
+			bool isKillShot = health - damage <= 1.0 // hitting reaper to 1HP means we can nuke them. prevent accidentally kill them
+			if ( isKillShot )
+				return true // return true if this damage is about to kill our reaper
+		}
+	}
+
+	// default case is we never do nuke
+	return false
+}
+
+// modified callback to handle nuke before death
+void function SuperSpectre_FinalDamage( entity npc, var damageInfo )
+{
+	if ( !IsAlive( npc ) )
+		return
+	
+	// if reaper already started nuke in SuperSpectre_OnDamage()
+	// we reduce the damage so nothing can kill them
+	if ( file.reaperStartedNukeFromThisDamage[ npc ] )
+	{
+		// don't die from damage
+		float damage = DamageInfo_GetDamage( damageInfo )
+		damage = npc.GetHealth() - 1.0
+		DamageInfo_SetDamage( damageInfo, damage )
+		
+		return
+	}
+
+	// use a better check for handling modified overload cases
+	if ( DamageShouldStartReaperNuke( npc, damageInfo ) )
+	{
+		StartReaperNukeSequenceFromDamageInfo( npc, damageInfo )
+		return
+	}
+}
+
+// wrapped function
+void function StartReaperNukeSequenceFromDamageInfo( entity npc, var damageInfo )
+{
+	// don't die from damage
+	float damage = DamageInfo_GetDamage( damageInfo )
+	damage = npc.GetHealth() - 1.0
+	DamageInfo_SetDamage( damageInfo, damage )
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	thread SuperSpectre_StartNukeSequence( npc, attacker )
+}
+
+void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null )
+{
+	// nuke sequence checks so we don't do it over and over
+	if ( file.reaperDoingNukeSequence[ npc ] )
+		return
+	
+	// do pre-setup
+	npc.ai.killShotSound = false
+	file.reaperDoingNukeSequence[ npc ] = true
+	npc.SetNoTarget( true )
+	npc.SetNoTargetSmartAmmo( true )
+
+	npc.Signal( "StartedNukeSequence" ) // stop other thinks that may play animation
+	npc.EndSignal( "OnDestroy" )
+
+	// needs to do animations manually because nuke sequence is actually reaper's death activity
+	PlayDeathAnimByActivity( npc )
+
+	// minion management
+	if ( ShouldDetonateMinionsOnDeath( npc ) )
+		SuperSpectre_DetonateAllOwnedTicks( npc )
+
+	entity nukeFXInfoTarget = CreateEntity( "info_target" )
+	nukeFXInfoTarget.kv.spawnflags = SF_INFOTARGET_ALWAYS_TRANSMIT_TO_CLIENT
+	DispatchSpawn( nukeFXInfoTarget )
+
+	nukeFXInfoTarget.SetParent( npc, "HIJACK" )
+
+	EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
+
+	AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
+
+	// wait for nuke anim to signal
+	WaitSignal( npc, "OnDeath", "death_explosion" )
+
+	if ( IsValid( nukeFXInfoTarget ) )
+	{
+		StopSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
+		nukeFXInfoTarget.Destroy()
+	}
+
+	if ( ShouldUseSelfAsNukeAttacker( npc ) ) // force use reaper itself as attacker
+		attacker = npc
+	
+	// drop battery handled by DoSuperSpectreDeath(), we need to mark the reaper as killed by nuke sequence
+	file.reaperKilledFromSelfNukeExplosion[ npc ] = true
+
+	// kill the reaper
+	npc.Die( attacker, npc, { damageSourceId = damagedef_reaper_nuke } )
+	npc.SetNoTarget( false )
+	npc.SetNoTargetSmartAmmo( false )
+
+	// start nuke
+	thread SuperSpectreNukes( npc, attacker )
+}
+
+void function PlayDeathAnimByActivity( entity npc )
+{
+	npc.Anim_Stop()
+	npc.Anim_ScriptedPlayActivityByName( "ACT_DIESIMPLE", true, 0.1 )
+	//npc.UseSequenceBounds( true )
 }
 
 void function SuperSpectre_PostDamage( entity npc, var damageInfo )
@@ -145,6 +314,13 @@ void function SuperSpectreDeath( entity npc, var damageInfo )
 
 void function SuperSpectreNukes( entity npc, entity attacker )
 {
+	// modified here: we at least need a attacker, because it's MP
+	// by default it will be npc themselves
+	#if MP
+		if ( !IsValid( attacker ) )
+			attacker = npc
+	#endif
+
 	npc.EndSignal( "OnDestroy" )
 	vector origin = npc.GetWorldSpaceCenter()
 	EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_nukedestruct_explo_3p" )
@@ -190,35 +366,23 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 	//print( "ShouldDetonateMinionsOnDeath(): " + string( ShouldDetonateMinionsOnDeath( npc ) ) )
 	if ( ShouldDetonateMinionsOnDeath( npc ) )
 	{
-		if ( npc.ai.activeMinionEntArrayID > 0 )
-		{
-			foreach ( entity ent in GetScriptManagedEntArray( npc.ai.activeMinionEntArrayID ) )
-			{
-				if ( IsValid( ent ) && ent.IsNPC() ) // they may doing a deploy animation or is still a nade, which handled by WaitForFragDroneDeployThenDetonate()
-				{
-					if ( ent.ai.fragDroneArmed )
-					{
-						//print( "Signaling SuicideSpectreExploding on " + string( minion ) )
-						ent.Signal( "SuicideSpectreExploding" )
-					}
-					else
-						thread WaitForFragDroneArmThenDetonate( ent )
-				}
-			}
-		}
+		SuperSpectre_DetonateAllOwnedTicks( npc )
 	}
 
-	// modified nuke threshold
-	//if ( !ShouldNukeOnDeath( npc ) || !npc.IsOnGround() || !npc.IsInterruptable() || DamageInfo_GetDamage( damageInfo ) > SUPER_SPECTRE_NUKE_DEATH_THRESHOLD || ( IsValid( attacker ) && attacker.IsTitan() ) )
-	int damageThreshold = GetNukeDeathThreshold( npc )
-	bool forceKilledByTitan = IsForcedKilledByTitans( npc )
-	if ( !ShouldNukeOnDeath( npc ) || 
-		 !npc.IsOnGround() || 
-		 !npc.IsInterruptable() || 
-		 DamageInfo_GetDamage( damageInfo ) > damageThreshold ||
-		 ( IsValid( attacker ) && attacker.IsTitan() && forceKilledByTitan ) )
+	// modified to handle nuke before death: if reaper killed by self nuke, we don't do any think below
+	if ( file.reaperKilledFromSelfNukeExplosion[ npc ] )
 	{
-		// just boom
+		// only do battery think
+		if ( giveBattery )
+			SpawnTitanBatteryOnDeath( npc, null )
+		return // don't do any following thinks
+	}
+
+	// modified nuke threshold and force kill think, wrapped into function
+	//if ( !ShouldNukeOnDeath( npc ) || !npc.IsOnGround() || !npc.IsInterruptable() || DamageInfo_GetDamage( damageInfo ) > SUPER_SPECTRE_NUKE_DEATH_THRESHOLD || ( IsValid( attacker ) && attacker.IsTitan() ) )
+	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo ) ) // check if we can start nuke sequence
+	{
+		// failing checks, just boom
 		vector origin = npc.GetWorldSpaceCenter()
 		EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_explo_3p" )
 		npc.Gib( DamageInfo_GetDamageForce( damageInfo ) )
@@ -285,6 +449,36 @@ entity function CreateExplosionInflictor( vector origin )
 	return inflictor
 }
 
+// modified nuke threshold and force kill think, wrapped into function
+bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = null )
+{
+	// these are checks that only valid when passing a damageInfo inside
+	bool damageThresholdChecksFailed = false
+	bool forceKilledByTitanChecksFailed = false
+	if ( damageInfo != null )
+	{
+		int damage = int( DamageInfo_GetDamage( damageInfo ) )
+		entity attacker = DamageInfo_GetAttacker( damageInfo )
+		int damageThreshold = GetNukeDeathThreshold( npc )
+		bool forceKilledByTitan = IsForcedKilledByTitans( npc )
+
+		damageThresholdChecksFailed = damage > damageThreshold
+		forceKilledByTitanChecksFailed = IsValid( attacker ) && attacker.IsTitan() && forceKilledByTitan
+	}
+
+	// failing checks:
+	if( !ShouldNukeOnDeath( npc ) 
+		|| !npc.IsOnGround() 
+		|| !npc.IsInterruptable() 
+		|| damageThresholdChecksFailed
+		|| forceKilledByTitanChecksFailed
+		)
+		return false
+	
+	// all checks passed
+	return true
+}
+
 // modified: can get more infomation from reaper itself, pass it to SuperSpectreNukeDamage()
 //void function SuperSpectreNukeDamage( int team, vector origin, entity attacker )
 void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, entity reaper = null )
@@ -303,15 +497,17 @@ void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, 
 	int explosions 				= 8
 	float duration 				= 1.0 // won't use if no damage overrides
 	//float time 					= 1.0
-	bool hasDamageOverride		= false
 
 	// nuke damage overrides
+	bool hasDamageOverride = false
+	// should cache everything here because reaper's gonna be destroyed soon
+	ReaperNukeDamage nukeStruct
 	if ( IsValid( reaper ) )
 	{
 		if ( ReaperHasNukeDamageOverride( reaper ) )
 		{
 			hasDamageOverride = true
-			ReaperNukeDamage nukeStruct = GetReaperNukeDamageOverride( reaper )
+			nukeStruct = GetReaperNukeDamageOverride( reaper )
 			explosions = nukeStruct.count
 			duration = nukeStruct.duration
 		}
@@ -325,9 +521,8 @@ void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, 
 		else
 			explosionOwner = GetTeamEnt( team )
 
-		if ( ReaperHasNukeDamageOverride( reaper ) ) // nuke damage effect override
+		if ( hasDamageOverride ) // nuke damage effect override
 		{
-			ReaperNukeDamage nukeStruct = GetReaperNukeDamageOverride( reaper )
 			RadiusDamage( 
 				origin,								// origin
 				explosionOwner,						// owner
@@ -528,6 +723,7 @@ void function ReaperMinionLauncherThink( entity reaper, string tickType = "npc_f
 	)
 
 	reaper.EndSignal( "OnDeath" )
+	reaper.EndSignal( "StartedNukeSequence" ) // modified: this should do nothing if reaper has started nuke sequence
 	reaper.AssaultSetFightRadius( 96 )
 	reaper.AssaultSetGoalRadius( reaper.GetMinGoalRadius() )
 
@@ -599,6 +795,7 @@ void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSetti
 
 
 	reaper.EndSignal( "OnDeath" )
+	reaper.EndSignal( "StartedNukeSequence" ) // modified: this should do nothing if reaper has started nuke sequence
 
 	while ( !reaper.IsInterruptable() )
 		WaitFrame()
@@ -987,6 +1184,13 @@ void function SuperSpectre_SetSpawnerTickMaxCount( entity ent, int maxCount )
 	file.reaperMinionMaxCount[ ent ] = maxCount
 }
 
+void function SuperSpectre_SetDoNukeBeforeDeath( entity ent, bool doNukeBeforeDeath )
+{
+	if ( !( ent in file.reaperDoNukeBeforeDeath ) )
+		file.reaperDoNukeBeforeDeath[ ent ] <- false // default value
+	file.reaperDoNukeBeforeDeath[ ent ] = doNukeBeforeDeath
+}
+
 // get modified settings
 int function GetNukeDeathThreshold( entity ent )
 {
@@ -1038,6 +1242,26 @@ bool function ShouldDetonateMinionsOnDeath( entity ent )
 	return file.reaperMinionExplodeOwnerDeath[ ent ]
 }
 
+void function SuperSpectre_DetonateAllOwnedTicks( entity npc )
+{
+	if ( npc.ai.activeMinionEntArrayID > 0 )
+	{
+		foreach ( entity ent in GetScriptManagedEntArray( npc.ai.activeMinionEntArrayID ) )
+		{
+			if ( IsValid( ent ) && ent.IsNPC() ) // they may doing a deploy animation or is still a nade, which handled by WaitForFragDroneDeployThenDetonate()
+			{
+				if ( ent.ai.fragDroneArmed )
+				{
+					//print( "Signaling SuicideSpectreExploding on " + string( minion ) )
+					ent.Signal( "SuicideSpectreExploding" )
+				}
+				else
+					thread WaitForFragDroneArmThenDetonate( ent )
+			}
+		}
+	}
+}
+
 void function WaitForFragDroneDeployThenDetonate( entity drone )
 {
 	drone.EndSignal( "OnDestroy" )
@@ -1058,5 +1282,12 @@ int function GetReaperMaxMinionSpawn( entity ent )
 	if ( !( ent in file.reaperMinionMaxCount ) )
 		return MAX_TICKS // default value
 	return file.reaperMinionMaxCount[ ent ]
+}
+
+bool function ShouldReaperDoNukeBeforeDeath( entity ent )
+{
+	if ( !( ent in file.reaperDoNukeBeforeDeath ) )
+		return false // default value
+	return file.reaperDoNukeBeforeDeath[ ent ]
 }
 //
