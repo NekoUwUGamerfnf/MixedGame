@@ -246,6 +246,7 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	file.reaperDoingNukeSequence[ npc ] = true
 	npc.SetNoTarget( true )
 	npc.SetNoTargetSmartAmmo( true )
+	npc.EnableNPCFlag( NPC_IGNORE_ALL )
 
 	npc.Signal( "StartedNukeSequence" ) // stop other thinks that may play animation
 	npc.EndSignal( "OnDestroy" )
@@ -260,14 +261,16 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 
 	nukeFXInfoTarget.SetParent( npc, "HIJACK" )
 
-	EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
+	// sound is now handled by ReaperNukeSequenceThink()
+	//EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
+	thread ReaperNukeSequenceThink( npc )
 
 	AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
 
 	// needs to do animations manually because nuke sequence is actually reaper's death activity
-	//PlayDeathAnimByActivity( npc )
-	PlayRandomReaperDeathAnim( npc )
-	thread ReaperNukeSequenceFailSafe( npc ) // failsafe handler: detonate reaper after certain delay
+	// this version is unstable, reaper can delay their death animation. now handled by ReaperNukeSequenceThink()
+	//PlayRandomReaperDeathAnim( npc )
+	//thread ReaperNukeSequenceFailSafe( npc ) // failsafe handler: keep trying to play animation, detonate reaper after certain delay
 
 	// wait for nuke anim to signal
 	WaitSignal( npc, "OnDeath", "death_explosion", "NukeSequenceFailSafe" )
@@ -287,27 +290,71 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	// drop battery handled by DoSuperSpectreDeath(), we need to mark the reaper as killed by nuke sequence
 	file.reaperKilledFromSelfNukeExplosion[ npc ] = true
 
+	// start nuke
+	waitthread SuperSpectreNukes( npc, attacker ) // wait for reaper being gib, so we don't overlap death animation
+
 	// kill the reaper
 	npc.Die( attacker, npc, { damageSourceId = damagedef_reaper_nuke } )
-	npc.SetNoTarget( false )
-	npc.SetNoTargetSmartAmmo( false )
-
-	// start nuke
-	thread SuperSpectreNukes( npc, attacker )
 }
 
 // failsafe handler: the reaper didn't make it to explode
 void function ReaperNukeSequenceFailSafe( entity npc )
 {
+	npc.EndSignal( "OnDestroy" )
+	npc.EndSignal( "OnDeath" )
 	// calculation: "sspec_death_f" and "sspec_death_b" both lasts 7.23333s. 
 	// they have AE_RAGDOLL at 200th frame, the 89th frame signals "death_explosion"
-	// ( 89/200 ) * 7.233 ≈ 3.21, so we wait 3.5s as failsafe
-	wait 3.5
-	if ( IsAlive( npc ) ) // if reaper still not dying after so long, signal to manually detonate them
+	// ( 89/200 ) * 7.233 ≈ 3.21, so we wait 3.3s as failsafe
+	wait 0.1
+	// here's for fun: if reaper don't have a animation active
+	// it must means it's animation gets intterupted by something
+	// we manually do a effect( can't handle beam effects because there're too many of them, like SP ticks )
+	if ( !npc.Anim_IsActive() )
 	{
-		print( "Reaper nuke sequence failsafe!" )
-		npc.Signal( "NukeSequenceFailSafe" )
+		entity nukeBodyFX = PlayFXOnEntity( $"P_sup_spectre_warn_body", npc, "exp_torso_core_fx" )
+		nukeBodyFX.DisableHibernation()
 	}
+	wait 3.2
+
+	// if reaper still not dying after so long, signal to manually detonate them
+	//print( "Reaper nuke sequence failsafe!" )
+	npc.Signal( "NukeSequenceFailSafe" )
+}
+
+// new HACKY stuff here: keep trying to play animation until it starts
+// bit more like death animation, they also can be delayed until reaper has nothing to do
+void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
+{
+	PlayDeathAnimByActivity( npc ) // play the anim before think starts
+
+	npc.EndSignal( "OnDestroy" )
+	npc.EndSignal( "OnDeath" )
+
+	float failsafeTime = 5.0 // bit longer failsafe timer to make it more like death animations
+	float endTime = Time() + failsafeTime
+
+	bool playedSound = false
+	while ( Time() < endTime )
+	{
+		if ( !npc.Anim_IsActive() )
+			PlayDeathAnimByActivity( npc ) // keep it trying...
+
+		// animation succesfully function
+		if ( npc.Anim_IsActive() )
+		{
+			if ( !playedSound ) // only do sound once no matter what's happening
+			{
+				EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
+				playedSound = false
+			}
+		}
+
+		WaitFrame()
+	}
+
+	// if reaper still not dying after so long, signal to manually detonate them
+	//print( "Reaper nuke sequence failsafe!" )
+	npc.Signal( "NukeSequenceFailSafe" )
 }
 
 // this can't intterupt reaper's attack anim...
@@ -315,7 +362,8 @@ void function PlayDeathAnimByActivity( entity npc )
 {
 	npc.Anim_Stop()
 	npc.Anim_ScriptedPlayActivityByName( "ACT_DIESIMPLE", true, 0.1 )
-	npc.UseSequenceBounds( true )
+	//npc.UseSequenceBounds( true )
+	npc.Anim_DisableSequenceTransition() // ignore blending, stops current attack anim stuffs immediately
 }
 
 // hardcoded anims version
