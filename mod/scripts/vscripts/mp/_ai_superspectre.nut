@@ -291,10 +291,16 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	file.reaperKilledFromSelfNukeExplosion[ npc ] = true
 
 	// start nuke
-	waitthread SuperSpectreNukes( npc, attacker ) // wait for reaper being gib, so we don't overlap death animation
+	// wait for gib is bad!!! a gibbed npc getting killed will instantly destroy them
+	//waitthread SuperSpectreNukes( npc, attacker ) // wait for reaper being gib, so we don't overlap death animation
+	SuperSpectreNukes( npc, attacker, false ) // modified to add parameter that allows us to not gib the reaper
+
+	// wait for effect grow
+	WaitFrame()
 
 	// kill the reaper
 	npc.Die( attacker, npc, { damageSourceId = damagedef_reaper_nuke } )
+	npc.Gib( <0,0,100> ) // manually gib reaper cause SuperSpectreNukes() is not doing that
 }
 
 // failsafe handler: the reaper didn't make it to explode
@@ -329,6 +335,7 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 
 	npc.EndSignal( "OnDestroy" )
 	npc.EndSignal( "OnDeath" )
+	npc.EndSignal( "death_explosion" )
 
 	float failsafeTime = 5.0 // bit longer failsafe timer to make it more like death animations
 	float endTime = Time() + failsafeTime
@@ -337,15 +344,21 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 	while ( Time() < endTime )
 	{
 		if ( !npc.Anim_IsActive() )
+		{
+			//print( "reaper still don't have anim active!" )
+			//print( "elapsed time: " + string( Time() - startTime ) )
 			PlayDeathAnimByActivity( npc ) // keep it trying...
+		}
 
 		// animation succesfully function
 		if ( npc.Anim_IsActive() )
 		{
-			if ( !playedSound ) // only do sound once no matter what's happening
+			if ( !playedSound && IsValid( nukeFXInfoTarget ) ) // only do sound once no matter what's happening
 			{
+				//print( "reaper finally got anim active!" )
+				//print( "elapsed time: " + string( Time() - startTime ) )
 				EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
-				playedSound = false
+				playedSound = true
 			}
 		}
 
@@ -431,7 +444,8 @@ void function SuperSpectreDeath( entity npc, var damageInfo )
 	thread DoSuperSpectreDeath( npc, damageInfo )
 }
 
-void function SuperSpectreNukes( entity npc, entity attacker )
+// modified to add gibReaper parameter
+void function SuperSpectreNukes( entity npc, entity attacker, bool gibReaper = true )
 {
 	// modified here: we at least need a attacker, because it's MP
 	// by default it will be npc themselves
@@ -440,7 +454,9 @@ void function SuperSpectreNukes( entity npc, entity attacker )
 			attacker = npc
 	#endif
 
-	npc.EndSignal( "OnDestroy" )
+	// modified to make gib can be toggle
+	if ( gibReaper )
+		npc.EndSignal( "OnDestroy" )
 	vector origin = npc.GetWorldSpaceCenter()
 	EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_nukedestruct_explo_3p" )
 	// modified here: all these fx should never hibernate on client-side...
@@ -453,8 +469,12 @@ void function SuperSpectreNukes( entity npc, entity attacker )
 	// modified: can get more infomation from reaper itself, pass it to SuperSpectreNukeDamage()
 	//thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker )
 	thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker, npc )
-	WaitFrame() // so effect has time to grow and cover the swap to gibs
-	npc.Gib( <0,0,100> )
+	// modified to make gib can be toggle
+	if ( gibReaper )
+	{
+		WaitFrame() // so effect has time to grow and cover the swap to gibs
+		npc.Gib( <0,0,100> )
+	}
 }
 
 // to prevent it play again after watching replay
