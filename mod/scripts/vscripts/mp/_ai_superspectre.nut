@@ -241,9 +241,6 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	npc.Signal( "StartedNukeSequence" ) // stop other thinks that may play animation
 	npc.EndSignal( "OnDestroy" )
 
-	// needs to do animations manually because nuke sequence is actually reaper's death activity
-	PlayDeathAnimByActivity( npc )
-
 	// minion management
 	if ( ShouldDetonateMinionsOnDeath( npc ) )
 		SuperSpectre_DetonateAllOwnedTicks( npc )
@@ -257,6 +254,10 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
 
 	AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
+
+	// needs to do animations manually because nuke sequence is actually reaper's death activity
+	//PlayDeathAnimByActivity( npc )
+	PlayRandomReaperDeathAnim( npc )
 
 	// wait for nuke anim to signal
 	WaitSignal( npc, "OnDeath", "death_explosion" )
@@ -285,11 +286,27 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	thread SuperSpectreNukes( npc, attacker )
 }
 
+// don't really working well
 void function PlayDeathAnimByActivity( entity npc )
 {
 	npc.Anim_Stop()
 	npc.Anim_ScriptedPlayActivityByName( "ACT_DIESIMPLE", true, 0.1 )
-	//npc.UseSequenceBounds( true )
+	npc.UseSequenceBounds( true )
+}
+
+// needs to do animations manually because nuke sequence is actually reaper's death activity
+// doing activity animation for ACT_DIESIMPLE won't work well, like respawn's deprecated SuperSpectreThink()
+// guess we'll have to script it
+const array<string> REAPER_NUKE_ANIMS =
+[
+	"sspec_death_f",
+	"sspec_death_b",
+]
+
+void function PlayRandomReaperDeathAnim( entity npc )
+{
+	npc.Anim_Stop()
+	thread PlayAnim( npc, REAPER_NUKE_ANIMS[ RandomInt( REAPER_NUKE_ANIMS.len() ) ] )
 }
 
 void function SuperSpectre_PostDamage( entity npc, var damageInfo )
