@@ -263,7 +263,7 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 
 	// sound is now handled by ReaperNukeSequenceThink()
 	//EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
-	thread ReaperNukeSequenceThink( npc )
+	thread ReaperNukeSequenceThink( npc, nukeFXInfoTarget )
 
 	AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
 
