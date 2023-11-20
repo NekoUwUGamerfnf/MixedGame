@@ -352,6 +352,10 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 		}
 
 		// animation succesfully function
+		// welp, seems script will recognize anim as active even after reaper failed to do so
+		// anim will restart after ~1.3s by code above, should be working fine
+		// but... sound fix doesn't seem very useful because of this
+		// it's always played right after reaper starts nuke, just like we place it in SuperSpectre_StartNukeSequence()
 		if ( npc.Anim_IsActive() )
 		{
 			if ( !playedSound && IsValid( nukeFXInfoTarget ) ) // only do sound once no matter what's happening
