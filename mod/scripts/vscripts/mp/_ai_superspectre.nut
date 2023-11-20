@@ -122,6 +122,7 @@ function AiSuperspectre_Init()
 
 	// modified signals
 	RegisterSignal( "StartedNukeSequence" )
+	RegisterSignal( "NukeSequenceFailSafe" )
 	// modified callback to init in-file tables
 	AddSpawnCallback( "npc_super_spectre", SuperSpectreOnSpawn )
 	// modified callback to handle nuke before death
@@ -261,9 +262,10 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	// needs to do animations manually because nuke sequence is actually reaper's death activity
 	PlayDeathAnimByActivity( npc )
 	//PlayRandomReaperDeathAnim( npc )
+	thread ReaperNukeSequenceFailSafe( npc ) // failsafe handler: detonate reaper after certain delay
 
 	// wait for nuke anim to signal
-	WaitSignal( npc, "OnDeath", "death_explosion" )
+	WaitSignal( npc, "OnDeath", "death_explosion", "NukeSequenceFailSafe" )
 
 	if ( IsValid( nukeFXInfoTarget ) )
 	{
@@ -287,6 +289,20 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 
 	// start nuke
 	thread SuperSpectreNukes( npc, attacker )
+}
+
+// failsafe handler: the reaper didn't make it to explode
+void function ReaperNukeSequenceFailSafe( entity npc )
+{
+	// calculation: "sspec_death_f" and "sspec_death_b" both lasts 7.23333s. 
+	// they have AE_RAGDOLL at 200th frame, the 89th frame signals "death_explosion"
+	// ( 89/200 ) * 7.233 ≈ 3.21, so we wait 3.5s as failsafe
+	wait 3.5
+	if ( IsAlive( npc ) ) // if reaper still not dying after so long, signal to manually detonate them
+	{
+		print( "Reaper nuke sequence failsafe!" )
+		npc.Signal( "NukeSequenceFailSafe" )
+	}
 }
 
 void function PlayDeathAnimByActivity( entity npc )
