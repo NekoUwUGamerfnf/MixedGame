@@ -118,6 +118,11 @@ void function BaseGametype_Init_MPSP()
 
 	RegisterSignal( "PlayerRespawnStarted" )
 	RegisterSignal( "KillCamOver" )
+
+	// modified to handle titan obit
+	// was using AddCallback_OnPlayerKilled() and AddCallback_OnNPCKilled(), but these two won't get called if attacker invalid
+	AddDeathCallback( "player", CheckForAutoTitanDeath )
+	AddDeathCallback( "npc_titan", CheckForAutoTitanDeath )
 }
 
 void function SetIntermissionCamera( entity camera )
@@ -397,6 +402,7 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 		callback( player )
 		
 	Remote_CallFunction_NonReplay( player, "ServerCallback_YouRespawned" )
+	ClearRecentDamageHistory( player ) // might be northstar missing, clean up damage history
 	ClearLastAttacker( player ) // so dying to anything doesn't credit the same attacker after respawning
 }
 
@@ -801,6 +807,70 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		ClearRespawnAvailable( player )
 		thread PlayerBecomesSpectator( player )
 	}
+}
+
+// this can also handle npc killing another npc condition
+void function CheckForAutoTitanDeath( entity victim, var damageInfo )
+{
+	if ( !IsValid( victim ) || !victim.IsTitan() )
+		return
+
+	// modified function in _titan_health.gnut, recovering ttf1 behavior: we do obit on doom but not on death for health loss titans
+	if ( !TitanHealth_GetSoulInfiniteDoomedState( victim.GetTitanSoul() ) )
+		return
+
+	// modified function in _codecallbacks_common.gnut
+	if ( EntityKilledEvent_IsDisabledForEntity( victim ) )
+		return
+
+	// obit
+	NotifyClientsOfTitanDeath( victim, damageInfo )
+}
+
+// titan killed remotecall think
+void function NotifyClientsOfTitanDeath( entity victim, var damageInfo )
+{
+	if ( !IsValid( victim ) || !victim.IsTitan() )
+		return
+
+	// below are mostly same as SendEntityKilledEvent(), removed headshot checks
+	// titan is bit special, they mostly uses attacker who doomed them for handling damage
+	// or they can eject using last attacker who damaged them, not always using current damage's attacker
+	// (vanilla seems to behave like this, because I observed that in vanilla a titan killed by their own damage will display their last attacker or doomed shot attacker)
+	//entity attacker = DamageInfo_GetAttacker( damageInfo )
+	entity attacker = GetAttackerOrLastAttacker( victim, damageInfo )
+	// trigger_hurt is no longer networked, so the "attacker" fails to display obituaries
+	if ( attacker )
+	{
+		string attackerClassname = attacker.GetClassName()
+
+		if ( attackerClassname == "trigger_hurt" || attackerClassname == "trigger_multiple" )
+			attacker = GetEntByIndex( 0 ) // worldspawn
+	}
+
+	int attackerEHandle = victim.GetEncodedEHandle() // by default we just use victim's EHandle
+	// ServerCallback_OnTitanKilled() is not using "GetHeavyWeightEntityFromEncodedEHandle()"
+	// which means we can't pass a non-heavy weighted entity into it
+	// non-heavy weighted entity including projectile stuffs
+	// all movers, props, npcs and players are heavy weighted
+
+	// crash happens after I made ball lightning use projectile as the inflictor of it's zap damage( in vanilla they uses movers )
+	// after owner being destroyed, the projectile will be passed as attacker!
+	// could also happen when electric smoke grenade change to use projectile as inflictor
+	// EDIT: projectile is way too hardcoded, let's just only use player or npc as attacker
+	//if ( IsValid( attacker ) && !attacker.IsProjectile() )
+	if ( IsValid( attacker ) && ( attacker.IsPlayer() || attacker.IsNPC() ) )
+		attackerEHandle = attacker.GetEncodedEHandle()
+
+	int victimEHandle = victim.GetEncodedEHandle()
+	int scriptDamageType = DamageInfo_GetCustomDamageType( damageInfo )
+	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+
+	if ( scriptDamageType & DF_VORTEX_REFIRE )
+		damageSourceId = eDamageSourceId.mp_titanweapon_vortex_shield
+
+	foreach ( player in GetPlayerArray() )
+		Remote_CallFunction_NonReplay( player, "ServerCallback_OnTitanKilled", attackerEHandle, victimEHandle, scriptDamageType, damageSourceId )
 }
 
 // modified here!!!

@@ -29,13 +29,11 @@ struct
 	bool functionref( entity, entity, var ) isProtectedFromFriendlyFire
 	table< entity, OutOfBoundsDataStruct > outOfBoundsTable
 
-	// modified! make friendly fire less hardcoded
-	table<entity, bool> entitiesDoFFDamage // can handle players, npcs, weapons and projectiles
-	table<entity, bool> entitiesTakeFFDamage // mostly handle players
-	array<int> allowFFDamageSourceIds
-
-	// modified! make damage feedback less hardcoded
-	array< void functionref( entity, var, PlayerDamageFeedbackStruct ) > playerDamageFeedbackCallbacks
+	// add some modded settings here... about last attacker
+	// we find from attackers in victim's damage history until we get a newest valid one
+	// so we can handle self-destruct npcs and other npc kills better
+	bool gameCanUseNPCAsLastAttacker = false // highly recommend enable together with GameMode_SetUseLastValidAttacker() because npcs can very easily being destroyed
+	bool gameUseLastValidAttacker = false
 } file
 
 function BaseGametype_Init()
@@ -662,8 +660,22 @@ void function PlayerDealtTitanDamage( entity attacker, entity victim, float save
 function UpdateAttackerInfo( entity ent, entity attacker, damage )
 {
 	entity attackerPlayer = GetPlayerFromEntity( attacker )
-	if ( !attackerPlayer )
-		return
+
+	// so here goes some modifications...
+	// we want npcs able to be added as last attacker
+	if ( !attackerPlayer ) 
+	{
+		if ( file.gameCanUseNPCAsLastAttacker )
+		{
+			if ( IsValid( attacker ) && attacker.IsNPC() )
+				attackerPlayer = attacker
+			
+			if ( !IsValid( attackerPlayer ) ) // only return if we still can't get an attacker
+				return
+		}
+		else // vanilla behavior: if attackerPlayer invalid, just return
+			return
+	} 
 
 	// cannot be your own last attacker
 	if ( attackerPlayer == ent )
@@ -674,7 +686,7 @@ function UpdateAttackerInfo( entity ent, entity attacker, damage )
 
 	if ( !("attackerInfo" in ent.s) )
 		ent.s.attackerInfo <- {}
-	else if ( ent.GetHealth() == ent.GetMaxHealth() )
+	else if ( ent.GetHealth() == ent.GetMaxHealth() ) // player health regen case
 		ent.s.attackerInfo.clear()
 
 	if ( !(attackerPlayer.weakref() in ent.s.attackerInfo ) )
@@ -748,13 +760,45 @@ entity function GetLastAttacker( entity ent )
 	{
 		entity soul = ent.GetTitanSoul()
 		if ( soul.lastAttackInfo && "attacker" in soul.lastAttackInfo && IsValid( soul.lastAttackInfo.attacker ) )
-			return expect entity( soul.lastAttackInfo.attacker )
+		{
+			// vanilla behavior, removed
+			//return expect entity( soul.lastAttackInfo.attacker )
+
+			// here goes some modified cases: we find from all attackers if last attacker is invalid
+			entity attacker = expect entity( soul.lastAttackInfo.attacker )
+			if ( file.gameUseLastValidAttacker && !IsValid( attacker ) )
+				attacker = FindLastValidAttackerForEnt( soul )
+
+			return attacker
+		}
 	}
 
 	if ( !IsValid( ent.e.lastAttacker ) )
-		return null
+	{
+		// here goes some modified cases: we find from all attackers if last attacker is invalid
+		if ( file.gameUseLastValidAttacker )
+			return FindLastValidAttackerForEnt( ent )
+		else // vanilla behavior: return nothing
+			return null
+	}
 
 	return ent.e.lastAttacker
+}
+
+// modified utility function
+entity function FindLastValidAttackerForEnt( entity ent )
+{
+	for ( int i = 0; i < ent.e.recentDamageHistory.len() - 1; i++ )
+	{
+		DamageHistoryStruct damageHistory = ent.e.recentDamageHistory[ i ]
+
+		entity historyAttacker = attackerInfo.attacker
+		if ( IsValid( historyAttacker ) ) // we've found a valid attacker!
+			return historyAttacker
+	}
+
+	// can't find anything even after iterate
+	return null
 }
 
 bool function PlayerOrNPCKilled( entity ent, var damageInfo )
@@ -2340,3 +2384,15 @@ void function OnOOBTriggerLeave( entity trigger, entity ent )
 	EntityLeaveOutOfBoundsTrig( trigger, ent, null, 0 )
 }
 #endif
+
+
+// modified settings
+void function GameMode_SetCanUseNPCAsLastAttacker( bool enable )
+{
+	file.gameCanUseNPCAsLastAttacker = enable
+}
+
+void function GameMode_SetUseLastValidAttacker( bool enable )
+{
+	file.gameUseLastValidAttacker = enable
+}
