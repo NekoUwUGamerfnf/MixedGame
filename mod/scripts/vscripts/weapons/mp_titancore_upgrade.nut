@@ -300,7 +300,7 @@ var function OnWeaponPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryAtta
 		soul.SetTitanSoulNetInt( "upgradeCount", currentUpgradeCount + 1 )
 		// anti-crash
 		int statesIndex = owner.FindBodyGroup( "states" )
-		if ( statesIndex > 0 )
+		if ( statesIndex > -1 )
 			owner.SetBodygroup( statesIndex, 1 )
 	#endif
 
