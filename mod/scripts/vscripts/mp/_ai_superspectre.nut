@@ -335,22 +335,41 @@ void function PlayRandomReaperDeathAnim( entity npc )
 void function SuperSpectre_PostDamage( entity npc, var damageInfo )
 {
 	// adding back this vanilla removed feature and make it a setting
+	// with some modifications: lowerbody switch at 66% health, upperbody switch at 33% health, like cl_super_spectre.nut's healthFX ratio
+	/*
+	float switchRatio = 0.33
+	float ratio = HealthRatio( npc )
+	if ( ratio < switchRatio )
+		return
+	float newRatio = ( npc.GetHealth() - DamageInfo_GetDamage( damageInfo ) ) / npc.GetMaxHealth()
+	if ( newRatio >= switchRatio )
+		return
+
+	// destroy body groups
+	int bodygroup
+	bodygroup = npc.FindBodyGroup( "lowerbody" )
+	npc.SetBodygroup( bodygroup, 1 )
+	bodygroup = npc.FindBodyGroup( "upperbody" )
+	npc.SetBodygroup( bodygroup, 1 )
+	*/
+
+	// this is actually doomed bodygroup like titans
 	if ( ShouldReaperDoDamagedBodyGroupUpdate( npc ) )
 	{
-		float switchRatio = 0.33
 		float ratio = HealthRatio( npc )
-		if ( ratio < switchRatio )
-			return
 		float newRatio = ( npc.GetHealth() - DamageInfo_GetDamage( damageInfo ) ) / npc.GetMaxHealth()
-		if ( newRatio >= switchRatio )
-			return
-
-		// destroy body groups
-		int bodygroup
-		bodygroup = npc.FindBodyGroup( "lowerbody" )
-		npc.SetBodygroup( bodygroup, 1 )
-		bodygroup = npc.FindBodyGroup( "upperbody" )
-		npc.SetBodygroup( bodygroup, 1 )
+		if ( ratio > 0.66 && newRatio < 0.66 ) // lower body switch
+		{
+			bodygroup = npc.FindBodyGroup( "lowerbody" )
+			if ( bodygroup > 0 )
+				npc.SetBodygroup( bodygroup, 1 )
+		}
+		else if ( ratio > 0.33 && newRatio < 0.33 )
+		{
+			bodygroup = npc.FindBodyGroup( "upperbody" )
+			if ( bodygroup > 0 )
+				npc.SetBodygroup( bodygroup, 1 )
+		}
 	}
 }
 
