@@ -343,8 +343,10 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 	npc.EndSignal( "OnDeath" )
 	npc.EndSignal( "death_explosion" )
 
-	float failsafeTime = 5.0 // bit longer failsafe timer to make it more like death animations
-	float startTime = Time() // for debugging
+	// removed because we're adding initial time for nuke anim
+	//float failsafeTime = 5.0 // bit longer failsafe timer to make it more like death animations
+	float failsafeTime = 3.3
+	float startTime = Time()
 	float endTime = Time() + failsafeTime
 
 	bool playedSound = true // we did sound above, here we mark it as true
@@ -356,10 +358,12 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 			//print( "reaper still don't have anim active!" )
 			//print( "elapsed time: " + string( Time() - startTime ) )
 			PlayDeathAnimByActivity( npc ) // keep it trying...
+			npc.Anim_SetInitialTime( Time() - startTime ) // jump to the time nuke should start
 
 			// clean up sound, we do it again later
-			StopSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
-			playedSound = false
+			// removed because we're adding initial time for nuke anim
+			//StopSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
+			//playedSound = false
 		}
 
 		// animation succesfully function
@@ -367,6 +371,8 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 		// anim will restart after ~1.3s by code above, should be working fine
 		// but... sound fix doesn't seem very useful because of this
 		// it's always played right after reaper starts nuke, just like we place it in SuperSpectre_StartNukeSequence()
+		// removed because we're adding initial time for nuke anim
+		/*
 		if ( npc.Anim_IsActive() )
 		{
 			if ( !playedSound && IsValid( nukeFXInfoTarget ) ) // only do sound once no matter what's happening
@@ -377,6 +383,7 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 				playedSound = true
 			}
 		}
+		*/
 
 		WaitFrame()
 	}
