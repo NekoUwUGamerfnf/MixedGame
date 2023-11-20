@@ -267,7 +267,10 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 		nukeFXInfoTarget.Destroy()
 	}
 
-	if ( ShouldUseSelfAsNukeAttacker( npc ) ) // force use reaper itself as attacker
+	// attacker checks
+	// if attacker has been destroyed, or we force uses reaper itself as attacker
+	// we should update attacker
+	if ( !IsValid( attacker ) || ShouldUseSelfAsNukeAttacker( npc ) )
 		attacker = npc
 	
 	// drop battery handled by DoSuperSpectreDeath(), we need to mark the reaper as killed by nuke sequence
