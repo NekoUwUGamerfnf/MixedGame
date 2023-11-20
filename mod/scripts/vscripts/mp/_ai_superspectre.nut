@@ -149,15 +149,25 @@ void function SuperSpectreNukes( entity npc, entity attacker )
 	vector origin = npc.GetWorldSpaceCenter()
 	EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_nukedestruct_explo_3p" )
 	// modified here: all these fx should never hibernate on client-side...
+	// needs clean up, to prevent it play again after watching replay or when player getting close
 	//PlayFX( $"P_sup_spectre_death_nuke", origin, npc.GetAngles() )
 	entity nukeFX = PlayFX( $"P_sup_spectre_death_nuke", origin, npc.GetAngles() )
 	nukeFX.DisableHibernation()
+	thread DelayedCleanUpNukeFX( npc, nukeFX )
 
 	// modified: can get more infomation from reaper itself, pass it to SuperSpectreNukeDamage()
 	//thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker )
 	thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker, npc )
 	WaitFrame() // so effect has time to grow and cover the swap to gibs
 	npc.Gib( <0,0,100> )
+}
+
+// to prevent it play again after watching replay
+void function DelayedCleanUpNukeFX( entity npc, entity nukeFX )
+{
+	nukeFX.EndSignal( "OnDestroy" )
+	npc.WaitSignal( "OnDestroy" )
+	EffectStop( nukeFX )
 }
 
 void function DoSuperSpectreDeath( entity npc, var damageInfo )
