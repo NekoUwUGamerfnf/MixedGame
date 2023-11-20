@@ -265,8 +265,8 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
 
 	// needs to do animations manually because nuke sequence is actually reaper's death activity
-	PlayDeathAnimByActivity( npc )
-	//PlayRandomReaperDeathAnim( npc )
+	//PlayDeathAnimByActivity( npc )
+	PlayRandomReaperDeathAnim( npc )
 	thread ReaperNukeSequenceFailSafe( npc ) // failsafe handler: detonate reaper after certain delay
 
 	// wait for nuke anim to signal
@@ -310,6 +310,7 @@ void function ReaperNukeSequenceFailSafe( entity npc )
 	}
 }
 
+// this can't intterupt reaper's attack anim...
 void function PlayDeathAnimByActivity( entity npc )
 {
 	npc.Anim_Stop()
@@ -329,6 +330,7 @@ void function PlayRandomReaperDeathAnim( entity npc )
 {
 	npc.Anim_Stop()
 	thread PlayAnim( npc, REAPER_NUKE_ANIMS[ RandomInt( REAPER_NUKE_ANIMS.len() ) ] )
+	npc.Anim_DisableSequenceTransition() // ignore blending, stops current attack anim stuffs immediately
 }
 // modified stuffs ends
 
