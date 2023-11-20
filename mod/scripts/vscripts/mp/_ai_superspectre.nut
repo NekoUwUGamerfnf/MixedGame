@@ -338,6 +338,7 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 	npc.EndSignal( "death_explosion" )
 
 	float failsafeTime = 5.0 // bit longer failsafe timer to make it more like death animations
+	float startTime = Time() // for debugging
 	float endTime = Time() + failsafeTime
 
 	bool playedSound = false
