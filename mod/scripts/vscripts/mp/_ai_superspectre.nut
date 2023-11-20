@@ -117,6 +117,8 @@ function AiSuperspectre_Init()
 
 	file.activeMinions_GlobalArrayIdx = CreateScriptManagedEntArray()
 
+	// modified signals
+	RegisterSignal( "StartedNukeSequence" )
 	// modified callback to init in-file tables
 	AddSpawnCallback( "npc_super_spectre", SuperSpectreOnSpawn )
 	// modified callback to handle nuke before death
@@ -128,6 +130,7 @@ void function SuperSpectreOnSpawn( entity npc )
 {
 	file.reaperStartedNukeFromThisDamage[ npc ] <- false
 	file.reaperKilledFromSelfNukeExplosion[ npc ] <- false
+	file.reaperDoingNukeSequence[ npc ] <- false
 }
 
 void function SuperSpectre_OnDamage( entity npc, var damageInfo )
@@ -152,6 +155,8 @@ void function SuperSpectre_OnDamage( entity npc, var damageInfo )
 	// modified to handle nuke before death
 	if ( DamageShouldStartReaperNuke( npc, damageInfo ) )
 	{
+		// mark as we've setup nuke from this damage, so SuperSpectre_FinalDamage() can handle modified damages
+		file.reaperStartedNukeFromThisDamage[ npc ] = true
 		// don't die from damage
 		StartReaperNukeSequenceFromDamageInfo( npc, damageInfo )
 		return
@@ -230,6 +235,10 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	// do pre-setup
 	npc.ai.killShotSound = false
 	file.reaperDoingNukeSequence[ npc ] = true
+	npc.SetNoTarget( true )
+	npc.SetNoTargetSmartAmmo( true )
+
+	npc.Signal( "StartedNukeSequence" ) // stop other thinks that may play animation
 	npc.EndSignal( "OnDestroy" )
 
 	// needs to do animations manually because nuke sequence is actually reaper's death activity
@@ -263,7 +272,11 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	
 	// drop battery handled by DoSuperSpectreDeath(), we need to mark the reaper as killed by nuke sequence
 	file.reaperKilledFromSelfNukeExplosion[ npc ] = true
+
+	// kill the reaper
 	npc.Die( attacker, npc, { damageSourceId = damagedef_reaper_nuke } )
+	npc.SetNoTarget( false )
+	npc.SetNoTargetSmartAmmo( false )
 
 	// start nuke
 	thread SuperSpectreNukes( npc, attacker )
@@ -271,8 +284,9 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 
 void function PlayDeathAnimByActivity( entity npc )
 {
+	npc.Anim_Stop()
 	npc.Anim_ScriptedPlayActivityByName( "ACT_DIESIMPLE", true, 0.1 )
-	npc.UseSequenceBounds( true )
+	//npc.UseSequenceBounds( true )
 }
 
 void function SuperSpectre_PostDamage( entity npc, var damageInfo )
@@ -443,9 +457,12 @@ bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = nul
 	bool forceKilledByTitanChecksFailed = false
 	if ( damageInfo != null )
 	{
+		int damage = int( DamageInfo_GetDamage( damageInfo ) )
+		entity attacker = DamageInfo_GetAttacker( damageInfo )
 		int damageThreshold = GetNukeDeathThreshold( npc )
 		bool forceKilledByTitan = IsForcedKilledByTitans( npc )
-		damageThresholdChecksFailed = DamageInfo_GetDamage( damageInfo ) > damageThreshold
+
+		damageThresholdChecksFailed = damage > damageThreshold
 		forceKilledByTitanChecksFailed = IsValid( attacker ) && attacker.IsTitan() && forceKilledByTitan
 	}
 
@@ -706,6 +723,7 @@ void function ReaperMinionLauncherThink( entity reaper, string tickType = "npc_f
 	)
 
 	reaper.EndSignal( "OnDeath" )
+	reaper.EndSignal( "StartedNukeSequence" ) // modified: this should do nothing if reaper has started nuke sequence
 	reaper.AssaultSetFightRadius( 96 )
 	reaper.AssaultSetGoalRadius( reaper.GetMinGoalRadius() )
 
@@ -777,6 +795,7 @@ void function Reaper_LaunchFragDrone_Think( entity reaper, string fragDroneSetti
 
 
 	reaper.EndSignal( "OnDeath" )
+	reaper.EndSignal( "StartedNukeSequence" ) // modified: this should do nothing if reaper has started nuke sequence
 
 	while ( !reaper.IsInterruptable() )
 		WaitFrame()
@@ -1170,16 +1189,6 @@ void function SuperSpectre_SetDoNukeBeforeDeath( entity ent, bool doNukeBeforeDe
 	if ( !( ent in file.reaperDoNukeBeforeDeath ) )
 		file.reaperDoNukeBeforeDeath[ ent ] <- false // default value
 	file.reaperDoNukeBeforeDeath[ ent ] = doNukeBeforeDeath
-}
-
-bool function SetReaperStartedNukeFromDamage( entity ent )
-{
-
-}
-
-void function ClearReaperStartedNukeFromDamage(  )
-{
-
 }
 
 // get modified settings
