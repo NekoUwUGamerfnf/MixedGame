@@ -82,7 +82,12 @@ global function ExtraSpawner_SetNPCHandlerFunc
 // disabling default handlers
 global function ExtraSpawner_StopDefaultHandler // can't stop squad handler. maybe we need to store squad in a table like dropships?
 
-// these are no need to change
+
+// settings func
+global function ExtraSpawner_SetNPCDamageHistoryLifeTime
+
+
+// these consts are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
 // hornet model is easier to be hit than straton
@@ -378,27 +383,35 @@ void function ExtraSpawner_SetUpSpawnedNPC( entity npc )
 		return
 	
 	file.npcSpawnFromExtraSpawner[ npc ] <- true
-	AddEntityCallback_OnPostDamaged( npc, StoreNecessaryDamageHistoryForNPC )
+	AddEntityCallback_OnPostDamaged( npc, StoreDamageHistoryForNPC )
 }
 
-// vanilla never store any damage histroy for npcs, here I only store some necessary ones for fun
-void function StoreNecessaryDamageHistoryForNPC( entity npc, var damageInfo )
+// vanilla never store any damage histroy for npcs, here I do it for fun
+// basically same setup as one in PlayerTookDamage()
+void function StoreDamageHistoryForNPC( entity npc, var damageInfo )
 {
-	// npc titan is handled by themselves( very short though, player has 12s but npc titan only has 4s )
+	// npc titan is handled by themselves( very short lifetime though, player has 12s but npc titan only has 4s )
 	// but why does dropships also do so?
 	if ( npc.IsTitan() || npc.GetClassName() == "npc_dropship" )
 		return
 	
-	// store some necessary damage history for npc
-	DamageHistoryStruct damageHistory
-	damageHistory.attacker = DamageInfo_GetAttacker( damageInfo )
-	damageHistory.damage = DamageInfo_GetDamage( damageInfo )
-	damageHistory.time = Time()
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	vector attackerOrigin = Vector( 0, 0, 0 )
+	if ( IsValid( attacker ) )
+		attackerOrigin = attacker.GetOrigin()
+	
+	// killshot for npcs is already added by other scripts when postdamage
+	//float damageAmount = DamageInfo_GetDamage( damageInfo )
+	//bool isKillShot = (damageAmount >= npc.GetHealth())
+	int damageType = DamageInfo_GetCustomDamageType( damageInfo )
+	//if ( isKillShot )
+	//	damageType = (damageType | DF_KILLSHOT)
 
-	// remove old damage history, timer is scaled down
-	UpdateDamageHistory( npc, file.npcDamageHistoryLifeTime, Time() )
+	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 
-	npc.e.recentDamageHistory.insert( 0, damageHistory )
+	array<string> weaponMods = GetWeaponModsFromDamageInfo( damageInfo )
+
+	StoreDamageHistoryAndUpdate( npc, file.npcDamageHistoryLifeTime, DamageInfo_GetDamage( damageInfo ), attackerOrigin, damageType, damageSourceId, attacker, weaponMods )
 }
 
 void function ExtraSpawner_SetNPCDamageHistoryLifeTime( float lifeTime )
@@ -983,7 +996,7 @@ bool function ExtraSpawner_IsValidExecutionTarget( entity attacker, entity targe
 {
 	// only handle those who spawn from this file
 	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( target ) )
-		return
+		return true // let other callbacks go through
 
 	// npc target with core active can have bad animation while being executed
 	// usually happens for salvo core, but laser core seems working well? why?
