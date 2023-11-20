@@ -109,6 +109,7 @@ function MeleeSyncedTitanShared_Init()
 
 		// modified here, we add more execution settings
 		RegisterSignal( "ReplaceExecutionAttackerLoadout" )
+		RegisterSignal( "UpdateCockpitRUI" )
 		MeleeSyncedTitan_InitSpecificExecutionRefSettings()
 		MeleeSyncedTitan_InitDefaultRefCallbacks()
 	#endif
@@ -1114,21 +1115,25 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 						catch (ex) {}
 					}
 					*/
+					bool updatedPrimary = false
 					entity replacedWeapon = savedLoadout.replacedPrimaryEnt
 					if ( IsValid( replacedWeapon ) ) // do have replacement weapon?
 					{
-						if ( IsValid( replacedWeapon ) )
-							replacedWeapon.Destroy() // so we can take off exact primary weapon
+						updatedPrimary = true // we'll later update titan hud visibility
+						replacedWeapon.Destroy() // so we can take off exact primary weapon
 						// if replacement weapon is valid it must means we have changed active weapon
 						guy.SetActiveWeaponBySlot( 0 ) // change back to primary weapon!
 					}
 					
 					// offhand weapons
+					bool updatedOffhand = false
 					for ( int i = 0; i < OFFHAND_COUNT; i++ )
 					{
 						entity previousOffhand = savedLoadout.savedOffhandWeaponEnts[ i ]
 						if ( IsValid( previousOffhand ) )
 						{
+							if ( i != OFFHAND_MELEE )
+								updatedOffhand = true // we'll later update titan hud visibility
 							guy.TakeOffhandWeapon( i )
 							guy.GiveExistingOffhandWeapon( previousOffhand, i )
 							RemoveInvalidModsForWeapon( previousOffhand ) // remove mods that shouldn't be retained through execution
@@ -1137,6 +1142,13 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 
 					// restoring succeeded! delete from table
 					delete file.titanExecutionSavedLoadout[ guy ]
+
+					// try to update titan cockpit visibility stuffs
+					// so we won't have issue showing weapon specific huds( like ion energy bar, tone lock-on icon, core icon etc. )
+					if ( updatedPrimary || updatedOffhand )
+					{
+						thread UpdateCockpitRUIVisbility( guy )
+					}
 				}
 
 				// npc loadout restoring
@@ -1201,6 +1213,23 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 	//guy.EndSignal( "NewFirstPersonSequence" ) // this gets called later in execution FirstPersonSequence(), which will stop current thread!
 	guy.EndSignal( "ScriptAnimStop" )
 	guy.WaitSignal( "SyncedMeleeComplete" ) // attacker's signal
+}
+
+// hud visibility update: refresh 
+void function UpdateCockpitRUIVisbility( entity player )
+{
+	if ( !player.IsPlayer() )
+		return
+
+	player.Signal( "UpdateCockpitRUI" )
+    player.EndSignal( "UpdateCockpitRUI" )
+    player.EndSignal( "OnDestroy" )
+    if ( !HasCinematicFlag( player, CE_FLAG_TITAN_3P_CAM ) )
+        AddCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
+
+    wait PLAYER_RUI_UPDATE_DURATION
+    if ( HasCinematicFlag( player, CE_FLAG_TITAN_3P_CAM ) )
+        RemoveCinematicFlag( player, CE_FLAG_TITAN_3P_CAM )
 }
 
 // utility!
