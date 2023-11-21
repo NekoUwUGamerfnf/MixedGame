@@ -98,7 +98,11 @@ global function DevPrintAllStatusEffectsOnEnt
 	// below for modified weapons setup their unique OnDamage effects
 	global function PROTO_Flak_Rifle_DamagedPlayerOrNPC
 	global function TripleThreatGrenade_DamagedPlayerOrNPC
-	global function VanguardEnergySiphon_DamagedPlayerOrNPC
+	// now moving everything about monarch into mp_titanweapon_stun_laser.nut because we've globalized Electricity_DamagedPlayerOrNPC()
+	//global function VanguardEnergySiphon_DamagedPlayerOrNPC
+
+	// global settings: emp affects shield
+	global function WeaponUtility_SetEMPAffectsShieldDamageScale // note that we also have a modified parameter in EMPGrenade_AffectsShield(), this scale multiply with that given value
 #endif //SERVER
 #if CLIENT
 	global function GlobalClientEventHandler
@@ -116,13 +120,18 @@ global const PROJECTILE_NOT_LAG_COMPENSATED = false
 
 const float EMP_SEVERITY_SLOWTURN = 0.35
 const float EMP_SEVERITY_SLOWMOVE = 0.50
-const float LASER_STUN_SEVERITY_SLOWTURN = 0.20
-const float LASER_STUN_SEVERITY_SLOWMOVE = 0.30
+// modified settings
+global const float EMP_AFFECTS_SHIELD_SCALE = 0.50
+
+// now moving everything about monarch into mp_titanweapon_stun_laser.nut because we've globalized Electricity_DamagedPlayerOrNPC()
+//const float LASER_STUN_SEVERITY_SLOWTURN = 0.20
+//const float LASER_STUN_SEVERITY_SLOWMOVE = 0.30
 
 const asset FX_EMP_BODY_HUMAN			= $"P_emp_body_human"
 const asset FX_EMP_BODY_TITAN			= $"P_emp_body_titan"
-const asset FX_VANGUARD_ENERGY_BODY_HUMAN		= $"P_monarchBeam_body_human"
-const asset FX_VANGUARD_ENERGY_BODY_TITAN		= $"P_monarchBeam_body_titan"
+// now moving everything about monarch into mp_titanweapon_stun_laser.nut because we've globalized Electricity_DamagedPlayerOrNPC()
+//const asset FX_VANGUARD_ENERGY_BODY_HUMAN		= $"P_monarchBeam_body_human"
+//const asset FX_VANGUARD_ENERGY_BODY_TITAN		= $"P_monarchBeam_body_titan"
 const SOUND_EMP_REBOOT_SPARKS = "marvin_weld"
 const FX_EMP_REBOOT_SPARKS = $"weld_spark_01_sparksfly"
 const EMP_GRENADE_BEAM_EFFECT	= $"wpn_arc_cannon_beam"
@@ -174,6 +183,9 @@ struct
 	// for fun: we handle parented entity gets destroyed
 	// already have ent.e.attachedEnts in entityStruct, using a bit diffirent name
 	table< entity, array<entity> > entStickyAttachedEnts
+
+	// modified settings
+	float empAffectsShieldDamageScale = 1.0  // note that we also have a modified parameter in EMPGrenade_AffectsShield(), this scale multiply with that given value
 } file
 
 global int HOLO_PILOT_TRAIL_FX
@@ -219,8 +231,9 @@ function WeaponUtility_Init()
 	PrecacheParticleSystem( EMP_GRENADE_BEAM_EFFECT )
 	PrecacheParticleSystem( FX_EMP_BODY_TITAN )
 	PrecacheParticleSystem( FX_EMP_BODY_HUMAN )
-	PrecacheParticleSystem( FX_VANGUARD_ENERGY_BODY_HUMAN )
-	PrecacheParticleSystem( FX_VANGUARD_ENERGY_BODY_TITAN )
+	// now moving everything about monarch into mp_titanweapon_stun_laser.nut because we've globalized Electricity_DamagedPlayerOrNPC()
+	//PrecacheParticleSystem( FX_VANGUARD_ENERGY_BODY_HUMAN )
+	//PrecacheParticleSystem( FX_VANGUARD_ENERGY_BODY_TITAN )
 	PrecacheParticleSystem( FX_EMP_REBOOT_SPARKS )
 
 	PrecacheImpactEffectTable( CLUSTER_ROCKET_FX_TABLE )
@@ -3178,22 +3191,22 @@ void function EMP_DamagedPlayerOrNPC( entity ent, var damageInfo )
 	Electricity_DamagedPlayerOrNPC( ent, damageInfo, FX_EMP_BODY_HUMAN, FX_EMP_BODY_TITAN, EMP_SEVERITY_SLOWTURN, EMP_SEVERITY_SLOWMOVE )
 }
 
+// now moving everything about monarch into mp_titanweapon_stun_laser.nut because we've globalized Electricity_DamagedPlayerOrNPC()
+/*
 void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInfo )
 {
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	//if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() )
-	// we added friendly fire, do a new check now!
-	if( !IsValid( attacker ) ) 
+	if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() )
 		return
-	// other checks left for function calls this to modify
 
-	Electricity_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE )
+	Elecriticy_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE )
 }
+*/
 
 // this function has been renamed. respawn used a wrong name for it( Elecricity_DamagedPlayerOrNPC )
 // parameter has been modified: adding modifiable duration and strength
 //void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset humanFx, asset titanFx, float slowTurn, float slowMove )
-void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset humanFx, asset titanFx, float slowTurn, float slowMove, float minDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, float maxDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX, float maxFadeoutDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE, float minEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN, float maxEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX )
+void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset humanFx, asset titanFx, float slowTurn, float slowMove, float minDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, float maxDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX, float maxFadeoutDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE, float minEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN, float maxEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX, float affectsShieldScale = EMP_AFFECTS_SHIELD_SCALE )
 {
 	if ( !IsValid( ent ) )
 		return
@@ -3300,11 +3313,11 @@ void function Electricity_DamagedPlayerOrNPC( entity ent, var damageInfo, asset 
 	{
 		// modified: adding duration and strength parameter
 		//thread EMPGrenade_EffectsPlayer( ent, damageInfo )
-		thread EMPGrenade_EffectsPlayer( ent, damageInfo, minDuration, maxDuration, maxFadeoutDuration, minEffectStrength, maxEffectStrength )
+		thread EMPGrenade_EffectsPlayer( ent, damageInfo, minDuration, maxDuration, maxFadeoutDuration, minEffectStrength, maxEffectStrength, affectsShieldScale )
 	}
 	else if ( ent.IsTitan() )
 	{
-		EMPGrenade_AffectsShield( ent, damageInfo )
+		EMPGrenade_AffectsShield( ent, damageInfo, affectsShieldScale )
 		#if MP
 		// nessie note: why is "2.5", "1.0" hardcoded here???
 		// it's not even using existing const???
@@ -3574,10 +3587,15 @@ function EMP_FX( asset effect, entity ent, string tag, float duration )
 	}
 }
 
-function EMPGrenade_AffectsShield( entity titan, damageInfo )
+// modified to add more parameter
+//function EMPGrenade_AffectsShield( entity titan, damageInfo )
+void function EMPGrenade_AffectsShield( entity titan, var damageInfo, float shieldDamageScale = EMP_AFFECTS_SHIELD_SCALE )
 {
 	int shieldHealth = titan.GetTitanSoul().GetShieldHealth()
-	int shieldDamage = int( titan.GetTitanSoul().GetShieldHealthMax() * 0.5 )
+	// modified to add more parameter and global settings handle
+	//int shieldDamage = int( titan.GetTitanSoul().GetShieldHealthMax() * 0.5 )
+	float affectsShieldFrac = shieldDamageScale * file.empAffectsShieldDamageScale
+	int shieldDamage = int( titan.GetTitanSoul().GetShieldHealthMax() * affectsShieldFrac )
 
 	titan.GetTitanSoul().SetShieldHealth( maxint( 0, shieldHealth - shieldDamage ) )
 
@@ -3588,6 +3606,12 @@ function EMPGrenade_AffectsShield( entity titan, damageInfo )
 		if ( attacker && attacker.IsPlayer() )
 			EmitSoundOnEntityOnlyToPlayer( attacker, attacker, "titan_energyshield_down" )
 	}
+}
+
+// global settings: emp affects shield
+void function WeaponUtility_SetEMPAffectsShieldDamageScale( float scale )
+{
+	file.empAffectsShieldDamageScale = scale
 }
 
 // parameter has been modified: adding modifiable duration
@@ -3623,7 +3647,7 @@ void function EMPGrenade_AffectsAccuracy( entity npcTitan, float duration = EMP_
 
 // parameter has been modified: adding modifiable duration and strength
 //function EMPGrenade_EffectsPlayer( entity player, damageInfo )
-void function EMPGrenade_EffectsPlayer( entity player, var damageInfo, float minDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, float maxDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX, float maxFadeoutDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE, float minEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN, float maxEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX )
+void function EMPGrenade_EffectsPlayer( entity player, var damageInfo, float minDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, float maxDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX, float maxFadeoutDuration = EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE, float minEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN, float maxEffectStrength = EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX, float affectsShieldScale = EMP_AFFECTS_SHIELD_SCALE )
 {
 	player.Signal( "OnEMPPilotHit" )
 	player.EndSignal( "OnEMPPilotHit" )
@@ -3658,7 +3682,7 @@ void function EMPGrenade_EffectsPlayer( entity player, var damageInfo, float min
 		// Hit player should do EMP screen effects locally
 		Remote_CallFunction_Replay( player, "ServerCallback_TitanCockpitEMP", duration )
 
-		EMPGrenade_AffectsShield( player, damageInfo )
+		EMPGrenade_AffectsShield( player, damageInfo, affectsShieldScale )
 
 		Remote_CallFunction_Replay( player, "ServerCallback_TitanEMP", strength, duration, fadeoutDuration )
 	}

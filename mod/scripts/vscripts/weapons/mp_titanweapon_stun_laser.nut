@@ -13,6 +13,13 @@ const FX_EMP_BODY_TITAN			= $"P_emp_body_titan"
 const FX_SHIELD_GAIN_SCREEN		= $"P_xo_shield_up"
 const SHIELD_BODY_FX			= $"P_xo_armor_body_CP"
 
+// moving here from _weapon_utility.nut, because we've globalized Electricity_DamagedPlayerOrNPC()
+const float LASER_STUN_SEVERITY_SLOWTURN = 0.20
+const float LASER_STUN_SEVERITY_SLOWMOVE = 0.30
+const asset FX_VANGUARD_ENERGY_BODY_HUMAN		= $"P_monarchBeam_body_human"
+const asset FX_VANGUARD_ENERGY_BODY_TITAN		= $"P_monarchBeam_body_titan"
+//
+
 struct
 {
 	void functionref(entity,entity,int) stunHealCallback
@@ -23,6 +30,11 @@ void function MpTitanWeaponStunLaser_Init()
 
 	PrecacheParticleSystem( FX_SHIELD_GAIN_SCREEN )
 	PrecacheParticleSystem( SHIELD_BODY_FX )
+
+	// moving here from _weapon_utility.nut, because we've globalized Electricity_DamagedPlayerOrNPC()
+	PrecacheParticleSystem( FX_VANGUARD_ENERGY_BODY_HUMAN )
+	PrecacheParticleSystem( FX_VANGUARD_ENERGY_BODY_TITAN )
+	//
 
 	#if SERVER
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_stun_laser, StunLaser_DamagedTarget )
@@ -86,15 +98,7 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 		return
 	}
 
-	entity weapon // can't use DamageInfo_GetWeapon( damageInfo ) since it can't handle radius damage caused by energy field!
-	foreach ( entity offhand in attacker.GetOffhandWeapons() )
-	{
-		if ( offhand.GetWeaponClassName() == "mp_titanweapon_stun_laser" ) // this is hardcoded!!!
-		{
-			weapon = offhand
-			break
-		}
-	}
+	entity weapon = GetStunLaserWeapon( attacker ) // can't use DamageInfo_GetWeapon( damageInfo ) since it can't handle radius damage caused by energy field!
 	//print( "current monarch weapon is: " + string( weapon ) )
 	if( !IsValid( weapon ) )
 		return
@@ -180,6 +184,35 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 		if ( attacker.IsPlayer() )
 			MessageToPlayer( attacker, eEventNotifications.VANGUARD_ShieldGain, attacker )
 	}
+}
+
+// moving here from _weapon_utility.nut, because we've globalized Electricity_DamagedPlayerOrNPC()
+void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	// we added friendly fire, do a new check now!
+	// removed, other checks left for function calls this to modify( like StunLaser_DamagedTarget() )
+	//if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() )
+	if( !IsValid( attacker ) ) 
+		return
+
+	Electricity_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE )
+}
+//
+
+// modified function
+entity function GetStunLaserWeapon( entity ent )
+{
+	foreach ( entity offhand in attacker.GetOffhandWeapons() )
+	{
+		if ( offhand.GetWeaponClassName() == "mp_titanweapon_stun_laser" ) // this is hardcoded!!!
+		{
+			return offhand
+		}
+	}
+
+	// can't find anything
+	return null
 }
 
 void function AddStunLaserHealCallback( void functionref(entity,entity,int) func )
