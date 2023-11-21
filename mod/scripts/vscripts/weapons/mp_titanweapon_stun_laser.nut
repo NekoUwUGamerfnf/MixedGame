@@ -202,7 +202,7 @@ void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInf
 	if ( IsValid( weapon ) )
 		hasNerfedShieldDamage = weapon.HasMod( "rebalanced_weapon" )
 
-	const float LASER_STUN_AFFECTS_SHIELD_SCALE_NERFED = 0.38
+	const float LASER_STUN_AFFECTS_SHIELD_SCALE_NERFED = 0.33
 	float shieldDamage = EMP_AFFECTS_SHIELD_SCALE // modified const from _weapon_utility.nut
 	if ( hasNerfedShieldDamage )
 		shieldDamage = LASER_STUN_AFFECTS_SHIELD_SCALE_NERFED
@@ -211,10 +211,10 @@ void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInf
 }
 //
 
-// modified function
+// modified utility function
 entity function GetStunLaserWeapon( entity ent )
 {
-	foreach ( entity offhand in attacker.GetOffhandWeapons() )
+	foreach ( entity offhand in ent.GetOffhandWeapons() )
 	{
 		if ( offhand.GetWeaponClassName() == "mp_titanweapon_stun_laser" ) // this is hardcoded!!!
 		{
