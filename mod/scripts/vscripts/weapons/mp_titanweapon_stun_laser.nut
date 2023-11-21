@@ -195,8 +195,19 @@ void function VanguardEnergySiphon_DamagedPlayerOrNPC( entity ent, var damageInf
 	//if ( IsValid( attacker ) && attacker.GetTeam() == ent.GetTeam() )
 	if( !IsValid( attacker ) ) 
 		return
+	
+	// nerfed shield damage check
+	bool hasNerfedShieldDamage = false
+	entity weapon = GetStunLaserWeapon( attacker ) // can't use DamageInfo_GetWeapon( damageInfo ) since it can't handle radius damage caused by energy field!
+	if ( IsValid( weapon ) )
+		hasNerfedShieldDamage = weapon.HasMod( "rebalanced_weapon" )
 
-	Electricity_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE )
+	const float LASER_STUN_AFFECTS_SHIELD_SCALE_NERFED = 0.38
+	float shieldDamage = EMP_AFFECTS_SHIELD_SCALE // modified const from _weapon_utility.nut
+	if ( hasNerfedShieldDamage )
+		shieldDamage = LASER_STUN_AFFECTS_SHIELD_SCALE_NERFED
+
+	Electricity_DamagedPlayerOrNPC( ent, damageInfo, FX_VANGUARD_ENERGY_BODY_HUMAN, FX_VANGUARD_ENERGY_BODY_TITAN, LASER_STUN_SEVERITY_SLOWTURN, LASER_STUN_SEVERITY_SLOWMOVE, EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MIN, EMP_GRENADE_PILOT_SCREEN_EFFECTS_DURATION_MAX, EMP_GRENADE_PILOT_SCREEN_EFFECTS_FADE, EMP_GRENADE_PILOT_SCREEN_EFFECTS_MIN, EMP_GRENADE_PILOT_SCREEN_EFFECTS_MAX, shieldDamage )
 }
 //
 
