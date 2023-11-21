@@ -170,6 +170,10 @@ struct
 
 	// add fix for thermite sound
 	table<entity, float> entNextThermiteSoundAllowedTime
+
+	// for fun: we handle parented entity gets destroyed
+	// already have ent.e.attachedEnts in entityStruct, using a bit diffirent name
+	table< entity, array<entity> > entStickyAttachedEnts
 } file
 
 global int HOLO_PILOT_TRAIL_FX
@@ -739,8 +743,16 @@ bool function PlantStickyEntityOnWorldThatBouncesOffWalls( entity ent, table col
 	//if ( hitEnt && ( hitEnt.IsWorld() || hitEnt.HasPusherRootParent() ) )
 	if ( hitEnt )
 	{
-		if( hitEnt.GetClassName() == "script_mover" ) // better not stick to movers
+		// fix for map props: we allow any valid entity in level.stickyClasses
+		// just like PlantStickyEntity() checks( which wrapped into function EntityCanHaveStickyEnts() )
+		//if ( !hitEnt.IsWorld() && (!hitEnt.IsTitan() || !allowEntityStick) )
+		if ( ( !hitEnt.IsWorld() && !hitEnt.HasPusherRootParent() ) // vanilla check
+			 && !( entClassname in level.stickyClasses ) // new adding check
+			)
 			return false
+		// this modified check is kinda hardcoded, removed
+		//if( hitEnt.GetClassName() == "script_mover" ) // better not stick to movers
+		//	return false
 		if( hitEnt.IsPlayer() || hitEnt.IsNPC() )
 			return false
 		float dot = expect vector( collisionParams.normal ).Dot( Vector( 0, 0, 1 ) )
@@ -867,10 +879,13 @@ bool function PlantStickyGrenade( entity ent, vector pos, vector normal, entity 
 		entClassname = hitEnt.GetClassName()
 	else
 		entClassname = hitEnt.GetSignifierName() // Can return null
+	
+	// fix for map props: we allow any valid entity in level.stickyClasses
+	// just like PlantStickyEntity() checks( which wrapped into function EntityCanHaveStickyEnts() )
 	//if ( !hitEnt.IsWorld() && (!hitEnt.IsTitan() || !allowEntityStick) )
-	if ( !hitEnt.IsWorld() && 
-		 (!hitEnt.IsTitan() || !allowEntityStick) &&
-		 !( entClassname in level.stickyClasses ) // new adding check
+	if ( !hitEnt.IsWorld() 
+		 && (!hitEnt.IsTitan() || !allowEntityStick) 
+		 && !( entClassname in level.stickyClasses ) // new adding check
 		)
 		return false
 
@@ -940,11 +955,14 @@ bool function PlantSuperStickyGrenade( entity ent, vector pos, vector normal, en
 		entClassname = hitEnt.GetClassName()
 	else
 		entClassname = hitEnt.GetSignifierName() // Can return null
+
+	// fix for map props: we allow any valid entity in level.stickyClasses
+	// just like PlantStickyEntity() checks( which wrapped into function EntityCanHaveStickyEnts() )
 	//if ( !hitEnt.IsWorld() && !hitEnt.IsPlayer() && !hitEnt.IsNPC() )
-	if ( !hitEnt.IsWorld() && 
-		 !hitEnt.IsPlayer() && 
-		 !hitEnt.IsNPC() &&
-		 !( entClassname in level.stickyClasses ) // new adding check
+	if ( !hitEnt.IsWorld() 
+		 && !hitEnt.IsPlayer() 
+		 && !hitEnt.IsNPC() 
+		 && !( entClassname in level.stickyClasses ) // new adding check
 		)
 		return false
 
@@ -989,15 +1007,66 @@ void function HandleDisappearingParent( entity ent, entity parentEnt )
 	parentEnt.EndSignal( "OnDeath" )
 	ent.EndSignal( "OnDestroy" )
 
+	// wants to add something fun here: we handle parented entity gets destroyed
+	parentEnt.EndSignal( "OnDestroy" ) // needs to track parent ent destroy
+	// already have ent.e.attachedEnts in entityStruct, using a bit diffirent name
+	if ( !( parentEnt in file.entStickyAttachedEnts ) )
+		file.entStickyAttachedEnts[ parentEnt ] <- []
+
+	ArrayRemoveInvalid( file.entStickyAttachedEnts[ parentEnt ] )
+	// if no sticky ent attached yet, it must means we've removed destroyCallback in OnThreadEnd()
+	if ( file.entStickyAttachedEnts[ parentEnt ].len() == 0 )
+	{
+		print( "adding destroyed callback for " + string( parentEnt ) )
+		AddEntityDestroyedCallback( parentEnt, OnStickyAttachedParentDestroy )
+	}
+	
+	file.entStickyAttachedEnts[ parentEnt ].append( ent )
+
 	OnThreadEnd(
 	function() : ( ent )
 		{
-			ent.ClearParent()
+			// vanilla missing this validation check
+			// ( did that means a entity with childs getting destroyed won't signal their childs' destroy? )
+			if ( IsValid( ent ) )
+				ent.ClearParent()
+			
+			if ( IsValid( parentEnt ) )
+			{
+				ArrayRemoveInvalid( file.entStickyAttachedEnts[ parentEnt ] )
+				// if no sticky ent attached, we could remove destroy callbacks
+				print( string( parentEnt ) + " has " + string( file.entStickyAttachedEnts[ parentEnt ].len() ) + " sticky attached ents left" )
+				if ( file.entStickyAttachedEnts[ parentEnt ].len() == 0 )
+				{
+					print( string( parentEnt ) + " has removed all their sticky parented ents!" )
+					RemoveEntityDestroyedCallback( parentEnt, OnStickyAttachedParentDestroy ) // modified function in _base_gametype.gnut: removing entity destroyed callback
+				}
+			}
 		}
 	)
 
 	parentEnt.WaitSignal( "StartPhaseShift" )
 }
+
+// for handling parent destroy, for fun
+function OnStickyAttachedParentDestroy( parentEnt )
+{
+	expect entity( parentEnt )
+
+	if ( parentEnt in file.entStickyAttachedEnts )
+	{
+		ArrayRemoveInvalid( file.entStickyAttachedEnts[ parentEnt ] )
+		print( "parentEnt: " + string( parentEnt ) )
+		foreach ( stickyEnt in file.entStickyAttachedEnts[ parentEnt ] )
+		{
+			print( "sticky attached ent: " + string( stickyEnt ) )
+			if ( IsValid( stickyEnt ) && stickyEnt.GetParent() == parentEnt )
+				stickyEnt.ClearParent()
+			file.entStickyAttachedEnts[ parentEnt ].removebyvalue( stickyEnt )
+		}
+	}
+}
+
 #else
 void function HandleDisappearingParent( entity ent, entity parentEnt )
 {
