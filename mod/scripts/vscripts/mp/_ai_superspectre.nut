@@ -144,8 +144,9 @@ void function SuperSpectreOnSpawn( entity npc )
 
 void function SuperSpectre_OnDamage( entity npc, var damageInfo )
 {
-	// always cleanup last damages state
-	file.reaperStartedNukeFromThisDamage[ npc ] = false
+	// always cleanup last damaged state
+	// this check is actually no where used because we're now always handle damage in finalDamageCallback
+	//file.reaperStartedNukeFromThisDamage[ npc ] = false
 
 	// if reaper is doing nuke sequence, always set damage to 0
 	if ( SuperSpectre_IsReaperDoingNukeSequence( npc ) )
@@ -162,6 +163,11 @@ void function SuperSpectre_OnDamage( entity npc, var damageInfo )
 	}
 
 	// modified to handle nuke before death
+	// can't be handled here!!!
+	// plasma cannon increases it's damage so it can be handled here
+	// but laser core actually decreases it's damage against heavy armor unit, possibly they have extremely high damage
+	// this check makes reaper begin nuke on getting hit by laser core, no matter how many health left
+	/*
 	if ( DamageShouldStartReaperNuke( npc, damageInfo ) )
 	{
 		// mark as we've setup nuke from this damage, so SuperSpectre_FinalDamage() can handle modified damages
@@ -170,6 +176,7 @@ void function SuperSpectre_OnDamage( entity npc, var damageInfo )
 		StartReaperNukeSequenceFromDamageInfo( npc, damageInfo )
 		return
 	}
+	*/
 }
 
 // modified function to handle nuke before death
@@ -205,6 +212,8 @@ void function SuperSpectre_FinalDamage( entity npc, var damageInfo )
 	
 	// if reaper already started nuke in SuperSpectre_OnDamage()
 	// we reduce the damage so nothing can kill them
+	// removed because we're now leaving only finalDamageCallback
+	/*
 	if ( file.reaperStartedNukeFromThisDamage[ npc ] )
 	{
 		// don't die from damage
@@ -214,6 +223,7 @@ void function SuperSpectre_FinalDamage( entity npc, var damageInfo )
 		
 		return
 	}
+	*/
 
 	// use a better check for handling modified overload cases
 	if ( DamageShouldStartReaperNuke( npc, damageInfo ) )
