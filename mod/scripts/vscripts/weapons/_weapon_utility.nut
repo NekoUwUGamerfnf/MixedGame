@@ -747,7 +747,7 @@ bool function PlantStickyEntityOnWorldThatBouncesOffWalls( entity ent, table col
 		// just like PlantStickyEntity() checks( which wrapped into function EntityCanHaveStickyEnts() )
 		//if ( !hitEnt.IsWorld() && (!hitEnt.IsTitan() || !allowEntityStick) )
 		if ( ( !hitEnt.IsWorld() && !hitEnt.HasPusherRootParent() ) // vanilla check
-			 && !( entClassname in level.stickyClasses ) // new adding check
+			 && !( hitEnt.GetClassName() in level.stickyClasses ) // new adding check
 			)
 			return false
 		// this modified check is kinda hardcoded, removed
@@ -1017,14 +1017,16 @@ void function HandleDisappearingParent( entity ent, entity parentEnt )
 	// if no sticky ent attached yet, it must means we've removed destroyCallback in OnThreadEnd()
 	if ( file.entStickyAttachedEnts[ parentEnt ].len() == 0 )
 	{
-		print( "adding destroyed callback for " + string( parentEnt ) )
+		//print( "adding destroyed callback for " + string( parentEnt ) )
 		AddEntityDestroyedCallback( parentEnt, OnStickyAttachedParentDestroy )
 	}
 	
 	file.entStickyAttachedEnts[ parentEnt ].append( ent )
 
 	OnThreadEnd(
-	function() : ( ent )
+	// modified to handle parentEnt
+	//function() : ( ent )
+		function(): ( ent, parentEnt )
 		{
 			// vanilla missing this validation check
 			// ( did that means a entity with childs getting destroyed won't signal their childs' destroy? )
@@ -1035,10 +1037,10 @@ void function HandleDisappearingParent( entity ent, entity parentEnt )
 			{
 				ArrayRemoveInvalid( file.entStickyAttachedEnts[ parentEnt ] )
 				// if no sticky ent attached, we could remove destroy callbacks
-				print( string( parentEnt ) + " has " + string( file.entStickyAttachedEnts[ parentEnt ].len() ) + " sticky attached ents left" )
+				//print( string( parentEnt ) + " has " + string( file.entStickyAttachedEnts[ parentEnt ].len() ) + " sticky attached ents left" )
 				if ( file.entStickyAttachedEnts[ parentEnt ].len() == 0 )
 				{
-					print( string( parentEnt ) + " has removed all their sticky parented ents!" )
+					//print( string( parentEnt ) + " has removed all their sticky parented ents!" )
 					RemoveEntityDestroyedCallback( parentEnt, OnStickyAttachedParentDestroy ) // modified function in _base_gametype.gnut: removing entity destroyed callback
 				}
 			}
@@ -1056,10 +1058,10 @@ function OnStickyAttachedParentDestroy( parentEnt )
 	if ( parentEnt in file.entStickyAttachedEnts )
 	{
 		ArrayRemoveInvalid( file.entStickyAttachedEnts[ parentEnt ] )
-		print( "parentEnt: " + string( parentEnt ) )
+		//print( "parentEnt: " + string( parentEnt ) )
 		foreach ( stickyEnt in file.entStickyAttachedEnts[ parentEnt ] )
 		{
-			print( "sticky attached ent: " + string( stickyEnt ) )
+			//print( "sticky attached ent: " + string( stickyEnt ) )
 			if ( IsValid( stickyEnt ) && stickyEnt.GetParent() == parentEnt )
 				stickyEnt.ClearParent()
 			file.entStickyAttachedEnts[ parentEnt ].removebyvalue( stickyEnt )
