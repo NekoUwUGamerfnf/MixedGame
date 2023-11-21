@@ -3004,6 +3004,15 @@ void function AddCallback_OnUseEntity( entity ent, callbackFunc )
 	ent.s.onUseEntityCallbacks.append( callbackFunc )
 }
 
+// MODIFIED FUNCTION, vanilla missing
+void function RemoveCallback_OnUseEntity( entity ent, callbackFunc )
+{
+	local funcPos = ent.s.onUseEntityCallbacks.find( callbackFunc )
+	if ( funcPos > -1 ) // ensure we can find the func, assert doesn't do anything to prevent crash
+		ent.s.onUseEntityCallbacks.fastremove( expect int( funcPos ) )
+}
+//
+
 void function SetWaveSpawnType( int spawnType )
 {
 	shGlobal.waveSpawnType = spawnType
