@@ -30,6 +30,9 @@ global function MeleeSyncedTitan_GetRandomExecutionRefForTitanVsTitan
 // currently used for titan_replace.gnut
 global function MeleeSyncedTitan_AddModToRemoveOnLoadoutReplace
 
+// for we refresh hud visibility after player's certain weapon getting replaced
+global function MeleeSyncedTitan_AddWeaponRequiresHudVisibilityUpdate
+
 struct ExecutionSavedLoadout
 {
 	// can't just store a primary weapon entity, as TakeWeapon_NoDelete() will leave a weapon model in titan's hand
@@ -95,6 +98,8 @@ struct
 	table< string, array<string> > chassisValidExecutionRefs_Attacker
 	table< string, array<string> > chassisValidExecutionRefs_Victim
 	table< string, array<string> > titanCharacterSpecificExecutionRefs
+
+	array<string> weaponsRequireHudVisibilityUpdate
 } file
 #endif
 
@@ -232,12 +237,18 @@ void function MeleeSyncedTitan_InitDefaultRefCallbacks()
 	MeleeSyncedTitan_AddExecutionRefLoadoutReplaceCallback( "execution_ion_prime", Execution_Ion_Prime )
 	MeleeSyncedTitan_SetExecutionRefShouldDoLoadoutReplaceCallback( "execution_ion_prime", ExecutionIonPrime_ShouldReplaceLoadout )
 
+	// weapons that requires hud visibility to be updated after getting replaced
+	MeleeSyncedTitan_AddWeaponRequiresHudVisibilityUpdate( "mp_titanweapon_particle_accelerator" )
+
 	// TONE
 	MeleeSyncedTitan_AddExecutionRefLoadoutReplaceCallback( "execution_tone", Execution_Tone )
 	MeleeSyncedTitan_SetExecutionRefShouldDoLoadoutReplaceCallback( "execution_tone", ExecutionTone_ShouldReplaceLoadout )
 	
 	MeleeSyncedTitan_AddExecutionRefLoadoutReplaceCallback( "execution_tone_prime", Execution_Tone_Prime )
 	MeleeSyncedTitan_SetExecutionRefShouldDoLoadoutReplaceCallback( "execution_tone_prime", ExecutionTonePrime_ShouldReplaceLoadout )
+
+	// weapons that requires hud visibility to be updated after getting replaced
+	MeleeSyncedTitan_AddWeaponRequiresHudVisibilityUpdate( "mp_titanweapon_tracker_rockets" )
 
 	// RONIN
 	MeleeSyncedTitan_AddExecutionRefLoadoutReplaceCallback( "execution_ronin", Execution_Ronin )
@@ -246,7 +257,7 @@ void function MeleeSyncedTitan_InitDefaultRefCallbacks()
 	MeleeSyncedTitan_AddExecutionRefLoadoutReplaceCallback( "execution_ronin_prime", Execution_Ronin_Prime )
 	MeleeSyncedTitan_SetExecutionRefShouldDoLoadoutReplaceCallback( "execution_ronin_prime", ExecutionRoninPrime_ShouldReplaceLoadout )
 
-	// core abilty weapon mod
+	// core abilty weapon mod to be removed on npc loadout replace
 	MeleeSyncedTitan_AddModToRemoveOnLoadoutReplace( "super_charged" )
 	
 	// NORTHSTAR
@@ -260,7 +271,7 @@ void function MeleeSyncedTitan_InitDefaultRefCallbacks()
 	MeleeSyncedTitan_AddExecutionRefLoadoutReplaceCallback( "execution_legion_prime", Execution_Legion_Prime )
 	MeleeSyncedTitan_SetExecutionRefShouldDoLoadoutReplaceCallback( "execution_legion_prime", ExecutionLegionPrime_ShouldReplaceLoadout )
 
-	// core abilty weapon mod
+	// core abilty weapon mod to be removed on npc loadout replace
 	MeleeSyncedTitan_AddModToRemoveOnLoadoutReplace( "Smart_Core" )
 
 	// SCORCH
@@ -1099,14 +1110,26 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 						catch (ex) {}
 					}
 					*/
-					bool updatedPrimary = false
+
+					// store all replaced weapons
+					array<string> weaponsGotReplaced
+
 					entity replacedWeapon = savedLoadout.replacedPrimaryEnt
 					if ( IsValid( replacedWeapon ) ) // do have replacement weapon?
 					{
-						updatedPrimary = true // we'll later update titan hud visibility
-						replacedWeapon.Destroy() // so we can take off exact primary weapon
 						// if replacement weapon is valid it must means we have changed active weapon
+						replacedWeapon.Destroy() // so we can take off exact primary weapon
 						guy.SetActiveWeaponBySlot( 0 ) // change back to primary weapon!
+						// primary weapon is no need to update mods because they're always in titan's hand
+
+						// store primary weapon's name
+						array<string> mainWeapons = guy.GetMainWeapons()
+						if ( mainWeapons.len() > 0 )
+						{
+							entity primaryWeapon = mainWeapons[0]
+							if ( IsValid( primaryWeapon ) )
+								weaponsGotReplaced.append( primaryWeapon.GetWeaponClassName() )
+						}
 					}
 					
 					// offhand weapons
@@ -1116,8 +1139,10 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 						entity previousOffhand = savedLoadout.savedOffhandWeaponEnts[ i ]
 						if ( IsValid( previousOffhand ) )
 						{
-							if ( i != OFFHAND_MELEE )
-								updatedOffhand = true // we'll later update titan hud visibility
+							// if previousOffhand valid it means we've replaced them
+							weaponsGotReplaced.append( primaryWeapon.GetWeaponClassName() ) // store offhand weapon's name
+							
+							// restore weapon
 							guy.TakeOffhandWeapon( i )
 							guy.GiveExistingOffhandWeapon( previousOffhand, i )
 							RemoveInvalidModsForWeapon( previousOffhand ) // remove mods that shouldn't be retained through execution
@@ -1128,11 +1153,9 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 					delete file.titanExecutionSavedLoadout[ guy ]
 
 					// try to update titan cockpit visibility stuffs
-					// so we won't have issue showing weapon specific huds( like ion energy bar, tone lock-on icon, core icon etc. )
-					if ( updatedPrimary || updatedOffhand )
-					{
+					// so we won't have issue showing weapon specific huds( like ion energy bar or tone lock-on icon )
+					if ( TitanRequiresHudVisibilityUpdate( guy, weaponsGotReplaced ) )
 						thread UpdateCockpitRUIVisbility( guy )
-					}
 				}
 
 				// npc loadout restoring
@@ -1152,36 +1175,42 @@ void function ReplaceExecutionAttackerLoadout_Threaded( entity guy, string prima
 						newWeapon.SetCamo( savedLoadout.primaryCamo )
 						try { newWeapon.SetWeaponPrimaryClipCount( savedLoadout.primaryAmmo ) } // some weapon don't have clip so try-catch it
 						catch (ex) {}
+						RemoveInvalidModsForWeapon( newWeapon ) // remove mods that shouldn't be retained after loadout replace
 					}
 					// defensive
 					if ( savedLoadout.special != "" ) // do saved defensive
 					{
 						guy.TakeOffhandWeapon( OFFHAND_SPECIAL )
 						guy.GiveOffhandWeapon( savedLoadout.special, OFFHAND_SPECIAL, savedLoadout.specialMods )
+						RemoveInvalidModsForWeapon( guy.GetOffhandWeapon( OFFHAND_SPECIAL ) ) // remove mods that shouldn't be retained after loadout replace
 					}
 					// utility
 					if ( savedLoadout.antiRodeo != "" ) // do saved utility
 					{
 						guy.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
 						guy.GiveOffhandWeapon( savedLoadout.antiRodeo, OFFHAND_ANTIRODEO, savedLoadout.antiRodeoMods )
+						RemoveInvalidModsForWeapon( guy.GetOffhandWeapon( OFFHAND_ANTIRODEO ) ) // remove mods that shouldn't be retained after loadout replace
 					}
 					// ordnance
 					if ( savedLoadout.ordnance != "" ) // do saved ordnance
 					{
 						guy.TakeOffhandWeapon( OFFHAND_ORDNANCE )
 						guy.GiveOffhandWeapon( savedLoadout.ordnance, OFFHAND_ORDNANCE, savedLoadout.ordnanceMods )
+						RemoveInvalidModsForWeapon( guy.GetOffhandWeapon( OFFHAND_ORDNANCE ) ) // remove mods that shouldn't be retained after loadout replace
 					}
 					// melee
 					if ( savedLoadout.melee != "" ) // do saved ordnance
 					{
 						guy.TakeOffhandWeapon( OFFHAND_MELEE )
 						guy.GiveOffhandWeapon( savedLoadout.melee, OFFHAND_MELEE, savedLoadout.meleeMods )
+						RemoveInvalidModsForWeapon( guy.GetOffhandWeapon( OFFHAND_MELEE ) ) // remove mods that shouldn't be retained after loadout replace
 					}
 					// core
 					if ( savedLoadout.equipment != "" ) // do saved ordnance
 					{
 						guy.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
 						guy.GiveOffhandWeapon( savedLoadout.equipment, OFFHAND_EQUIPMENT, savedLoadout.equipmentMods )
+						RemoveInvalidModsForWeapon( guy.GetOffhandWeapon( OFFHAND_EQUIPMENT ) ) // remove mods that shouldn't be retained after loadout replace
 					}
 
 					// restoring succeeded! delete from table
@@ -1303,6 +1332,9 @@ void function MeleeSyncedTitan_AddModToRemoveOnLoadoutReplace( string mod )
 
 void function RemoveInvalidModsForWeapon( entity weapon )
 {
+	if ( !IsValid( weapon ) ) // anti-crash for whatever
+		return
+	
 	array<string> mods = weapon.GetMods()
     array<string> replaceArray
     foreach( string mod in mods )
@@ -1314,6 +1346,23 @@ void function RemoveInvalidModsForWeapon( entity weapon )
     }
 
 	weapon.SetMods( replaceArray )
+}
+
+void function MeleeSyncedTitan_AddWeaponRequiresHudVisibilityUpdate( string weaponName )
+{
+	if ( !file.weaponsRequireHudVisibilityUpdate.contains( weaponName ) )
+		file.weaponsRequireHudVisibilityUpdate.append( weaponName )
+}
+
+bool function TitanRequiresHudVisibilityUpdate( entity titan, array<string> weaponsGotReplaced )
+{
+	foreach ( weaponName in weaponsGotReplaced )
+	{
+		if ( file.weaponsRequireHudVisibilityUpdate.contains( weaponName ) )
+			return true
+	}
+	
+	return false
 }
 
 void function MeleeSyncedTitan_RegisterChassisValidExecutionRef_Attacker( string chassis, string executionRef )
