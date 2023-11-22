@@ -310,6 +310,8 @@ struct
 	table<entity, float> gunshipJetBurstSoundAllowedTime
 	// vanilla never store any damage histroy for npcs, here I do it for fun
 	float npcDamageHistoryLifeTime = NPC_HEALTH_HISTORY_FALLOFF_END
+	// for fake minimap icon system
+	table<entity, entity> npcOwnedFakeMapIconEnt
 } file
 
 void function ExtraAISpawner_Init()
@@ -381,7 +383,7 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
 		AddClientCommandCallback( "tickreaper", CC_SpawnReaperCanLaunchTicks )
 		AddClientCommandCallback( "gunship", CC_SpawnGunShip )
-		AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot )
+		//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot ) // shouldn't be used because we've removed npc_pilot_elite_assassin stuffs
 		AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
 		AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
 		AddClientCommandCallback( "bosstitan", CC_SpawnBossTitan )
@@ -2119,6 +2121,8 @@ bool function CC_SpawnGunShip( entity player, array<string> args )
     return true
 }
 
+// shouldn't be used because we've removed npc_pilot_elite_assassin stuffs
+/*
 bool function CC_SpawnAssassinPilot( entity player, array<string> args )
 {
 	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
@@ -2142,6 +2146,7 @@ bool function CC_SpawnAssassinPilot( entity player, array<string> args )
 
 	return true
 }
+*/
 
 bool function CC_SpawnSpecialistGrunt( entity player, array<string> args )
 {
@@ -2799,20 +2804,73 @@ void function TrackDialogueSpeakerDeath( entity guy, string dialogue, float debo
 	results.waitTilDialogueEnd = true // mark as we ended dialogue properly
 }
 
-// npc minimap and spawn checks
+// this array is hardcoded, it contains all npcs that can show themselves on map
+// if we handled a npc that can't create it's minimap icon, we create a fake icon using other npcs
+const array<string> MAP_ICON_VAILD_NPC_CLASS =
+[
+	"npc_titan",
+	"npc_soldier",
+	"npc_spectre",
+	"npc_stalker",
+	"npc_super_spectre",
+	"npc_drone_rocket",
+	"npc_frag_drone",
+	"npc_drone",
+	"npc_dropship",
+	"npc_turret_sentry",
+	"npc_drone",
+]
+
+// there's something special for not harmful npcs... like marvin
+// we don't create fake npc for them even when they don't have map icon
+const array<string> MAP_ICON_DISABLED_NPC_CLASS =
+[
+	"npc_marvin",
+]
+
+// npc minimap setup
 void function AddMinimapForNPC( entity guy )
 {
 	if ( !IsAlive( guy ) )
 		return
 	
 	// map
-	guy.Minimap_AlwaysShow( TEAM_IMC, null )
-	guy.Minimap_AlwaysShow( TEAM_MILITIA, null )
-	foreach ( entity player in GetPlayerArray() )
-		guy.Minimap_AlwaysShow( 0, player )
-	guy.Minimap_SetHeightTracking( true )
+	SetUpGenericNPCMiniMapIcon( guy )
+	SetUpGamemodeSpecificMiniMapIcon( guy )
+	
+	// fake map icon check
+	// we also enable map icon for them
+	entity mapIconEnt = GetNPCFakeMinimapIconEnt( guy )
+	if ( IsValid( mapIconEnt ) )
+		SetUpGenericNPCMiniMapIcon( mapIconEnt )
+}
 
-	if ( GAMETYPE == AI_TDM ) // eMinimapObject_npc.AI_TDM_AI only works for attrition!
+// setup for modded npcs
+void function AddMinimapForNPC_FailsafeToCreateFakeMapIcon( entity guy )
+{
+	string className = guy.GetClassName()
+	if ( MAP_ICON_VAILD_NPC_CLASS.contains( className ) )
+		AddMinimapForNPC( guy )
+	else if ( !MAP_ICON_DISABLED_NPC_CLASS.contains( className ) ) // ents in this array never gets setup
+	{
+		// using a hacky way: add a tracked npc as fake npc
+		CreateNPCAsFakeMapIconForNPC( guy, "npc_soldier" )
+	}
+}
+
+void function SetUpGenericNPCMiniMapIcon( entity mapIcon )
+{
+	// map
+	mapIcon.Minimap_AlwaysShow( TEAM_IMC, null )
+	mapIcon.Minimap_AlwaysShow( TEAM_MILITIA, null )
+	foreach ( entity player in GetPlayerArray() )
+		mapIcon.Minimap_AlwaysShow( 0, player )
+	mapIcon.Minimap_SetHeightTracking( true )
+}
+
+void function SetUpGamemodeSpecificMiniMapIcon( entity guy )
+{
+	if ( GAMETYPE == AI_TDM ) // eMinimapObject_npc.AI_TDM_AI only works for attrition! though not very necessary
 	{
 		// can be found in cl_gamemode_aitdm.nut
 		const array<string> AITDM_VALID_MINIMAP_NPCS =
@@ -2833,11 +2891,22 @@ void function RemoveMinimapForNPC( entity guy )
 		return
 	
 	// map
-	guy.Minimap_Hide( TEAM_IMC, null )
-	guy.Minimap_Hide( TEAM_MILITIA, null )
+	DisableNPCMiniMapIcon( guy )
+
+	// fake map icon check
+	// we also remove map icon for them
+	entity mapIconEnt = GetNPCFakeMinimapIconEnt( guy )
+	if ( IsValid( mapIconEnt ) )
+		DisableNPCMiniMapIcon( mapIconEnt )
+}
+
+void function DisableNPCMiniMapIcon( entity mapIcon )
+{
+	mapIcon.Minimap_Hide( TEAM_IMC, null )
+	mapIcon.Minimap_Hide( TEAM_MILITIA, null )
 	foreach ( entity player in GetPlayerArray() )
-		guy.Minimap_Hide( 0, player )
-	guy.Minimap_SetHeightTracking( false )
+		mapIcon.Minimap_Hide( 0, player )
+	mapIcon.Minimap_SetHeightTracking( false )
 }
 
 // so you can set up a titan without have to make a npc pilot embarking it
@@ -3132,6 +3201,9 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 	foreach ( guy in guys )
 	{
 		// add map
+		// if we can't handle this npc's map, generate fake map icon ent for them
+		// welp this can't be handled properly, there're something like prowlers always rotates their attachments
+		//AddMinimapForNPC_FailsafeToCreateFakeMapIcon( guy )
 		AddMinimapForNPC( guy )
 
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
@@ -4176,13 +4248,19 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	file.gunshipForcedSpawnModel[ animGunship ] <- gunshipModel // assign forced model
 	DispatchSpawn( animGunship )
 
+	// do some funny stuff: fake icon
+	entity animGunshipIcon = CreatePropScriptAsFakeMapIconForNPC( animGunship, "REF", eMinimapObject_prop_script.FW_BUILDSITE_SHIELDED )
+
 	// setup visual
 	SetDefaultMPEnemyHighlight( animGunship )
 	AddMinimapForNPC( animGunship ) // only dropships can show on map though, gunships are not trakced by client
 
 	// dont let AI titan get enemies while flying. Don't do trigger checks, become invulnerable
 	ExtraSpawner_DisableSensingForNPC( animGunship, true )
-	animGunship.NotSolid()
+	// handled by DelayedDestroyAnimGunship()
+	//animGunship.NotSolid()
+	if ( IsValid( animGunshipIcon ) )
+		animGunshipIcon.Destroy()
 
 	// fly in
 	thread PlayAnim( animGunship, "st_AngelCity_IMC_Win_ComeIn" ) // flying anim
@@ -4223,7 +4301,9 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	// visual effect
 	gunship.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( gunship )
-	AddMinimapForNPC( gunship ) // only dropships can show on map though, gunships are not trakced by client
+	// we've added fake icon system
+	//AddMinimapForNPC( gunship ) // only dropships can show on map though, gunships are not trakced by client
+	CreatePropScriptAsFakeMapIconForNPC( gunship, "REF", eMinimapObject_prop_script.FW_BUILDSITE_SHIELDED )
 
 	// attach turrets to them for attacking!
 	TakeAllWeapons( gunship )
@@ -5240,7 +5320,10 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 
 	pilot.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 	// show on enemy radar, unfortunatelly cl_minimap won't track npc_pilot_elite
-	AddMinimapForNPC( pilot )
+	//AddMinimapForNPC( pilot )
+	// using a hacky way: add a tracked npc as fake npc
+	// welp that won't work, their attachments always rotating
+	//CreateNPCAsFakeMapIconForNPC( pilot, "npc_soldier" )
 
 	wait 3 // initial wait before pilots disembark from droppod or drop from ejecting
 	
@@ -5741,9 +5824,12 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 	int team = reaper.GetTeam()
 	array<entity> points
 
-	// show on enmey radar
-	AddMinimapForNPC( reaper )
-	
+	// show on enemy radar
+	//AddMinimapForNPC( reaper )
+	// welp here's one for fun: use prop script icon and bind it with reaper, hide reaper's basic map icon
+	entity mapIcon = CreatePropScriptAsFakeMapIconForNPC( reaper, "ORIGIN", eMinimapObject_prop_script.FW_BUILDSITE )
+	//mapIcon.Minimap_SetObjectScale( 0.5 ) // don't work though
+
 	// wait for warpfall
 	reaper.WaitSignal( "WarpfallComplete" )
 	reaper.AssaultSetGoalRadius( 500 ) // goal radius
@@ -5787,4 +5873,117 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		// never do it. too many assault point can make them move really silly
 		wait RandomFloatRange( 10.0, 20.0 )
 	}
+}
+
+// welp this works pretty bad, because spawned npc still have collision with current npc
+// to avoid that... try to set this npc to very high into sky, handled by parameter "offset"
+// welp that doesn't work well either, attachments are always rotating
+entity function CreateNPCAsFakeMapIconForNPC( entity npc, string fakeIconNPCClass, string attachment = "ORIGIN", vector offset = < 0, 0, 2500 > )
+{
+	entity mapIconNPC = CreateEntity( fakeIconNPCClass )
+	mapIconNPC.Freeze() // don't let it do anything
+
+	DispatchSpawn( mapIconNPC )
+
+	// handle invulnerablility and freeze inside function
+	// this also disables trigger checks and make npc take less CPU load
+	ExtraSpawner_DisableSensingForNPC( mapIconNPC, true, false, true )
+	// manually handle hide
+	mapIconNPC.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // this can hide model light fx
+	mapIconNPC.Hide()
+	HideName( mapIconNPC )
+
+	mapIconNPC.SetOwner( npc ) // disable collision against owner, but not good enough
+	mapIconNPC.SetParent( npc, attachment )
+	mapIconNPC.SetOrigin( offset ) // so nobody can see them
+	mapIconNPC.NotSolid()
+	mapIconNPC.kv.CollisionGroup = 0
+	mapIconNPC.StopPhysics()
+
+	SetNPCFakeMinimapIconEnt( npc, mapIconNPC ) // make them related, so Add/RemoveMinimapForNPC() can handle both
+
+	// map
+	SetUpGenericNPCMiniMapIcon( mapIconNPC )
+	mapIconNPC.Minimap_SetClampToEdge( false ) // npc icon shouldn't clamp
+	//mapIconNPC.Minimap_SetHeightTracking( false ) // disable height tracking because they're always underground
+
+	thread TrackNPCLifeTimeForMapIconNPC( mapIconNPC, npc )
+
+	return mapIconNPC
+}
+
+void function TrackNPCLifeTimeForMapIconNPC( entity mapIconNPC, entity npc )
+{
+	mapIconNPC.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		if ( !IsValid( npc ) ) // by default npc will cleanup it's parent on destroy
+			break
+		
+		// keep updating team
+		if ( mapIconNPC.GetTeam() != npc.GetTeam() )
+			SetTeam( mapIconNPC, npc.GetTeam() )
+		
+		// debug
+		//GetPlayerArray()[0].SetOrigin( mapIconNPC.GetOrigin() )
+		
+		WaitFrame()
+	}
+	mapIconNPC.Destroy()
+}
+
+entity function CreatePropScriptAsFakeMapIconForNPC( entity npc, string attachment = "REF", int minimapStateId = eMinimapObject_prop_script.DEFAULT )
+{
+	entity mapIcon = CreatePropScript( $"models/dev/empty_model.mdl" )
+	mapIcon.NotSolid()
+	mapIcon.kv.fadedist = 10000 // try not to fade
+	mapIcon.DisableHibernation()
+	mapIcon.SetOwner( npc ) // sometimes ownership is required
+	mapIcon.SetParent( npc, attachment )
+
+	SetNPCFakeMinimapIconEnt( npc, mapIcon ) // make them related, so Add/RemoveMinimapForNPC() can handle both
+
+	// map
+	SetUpGenericNPCMiniMapIcon( mapIcon )
+	mapIcon.Minimap_SetCustomState( minimapStateId )
+	mapIcon.Minimap_SetClampToEdge( false ) // npc icon shouldn't clamp
+
+	thread TrackNPCLifeTimeForMapIconProp( mapIcon, npc )
+
+	return mapIcon
+}
+
+void function TrackNPCLifeTimeForMapIconProp( entity mapIcon, entity npc )
+{
+	mapIcon.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		if ( !IsValid( npc ) ) // by default npc will cleanup it's parent on destroy
+			break
+		
+		// keep updating team
+		if ( mapIcon.GetTeam() != npc.GetTeam() )
+			SetTeam( mapIcon, npc.GetTeam() )
+		
+		WaitFrame()
+	}
+	mapIcon.Destroy()
+}
+
+entity function GetNPCFakeMinimapIconEnt( entity npc )
+{
+	if ( !( npc in file.npcOwnedFakeMapIconEnt ) )
+		return null
+
+	return file.npcOwnedFakeMapIconEnt[ npc ]
+}
+
+void function SetNPCFakeMinimapIconEnt( entity npc, entity mapIcon )
+{
+	if ( !( npc in file.npcOwnedFakeMapIconEnt ) )
+		file.npcOwnedFakeMapIconEnt[ npc ] <- null // init
+
+	file.npcOwnedFakeMapIconEnt[ npc ] = mapIcon
 }
