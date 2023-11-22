@@ -464,7 +464,7 @@ void function SuperSpectre_PostDamage( entity npc, var damageInfo )
 	{
 		float ratio = HealthRatio( npc )
 		float newRatio = ( npc.GetHealth() - DamageInfo_GetDamage( damageInfo ) ) / npc.GetMaxHealth()
-		if ( ratio > 0.66 && newRatio <= 0.66 ) // lower body switch
+		if ( ratio >= 0.66 && newRatio < 0.66 ) // lower body switch
 		{
 			//print( "Reaper lower body broke!!!" )
 			int bodygroup = npc.FindBodyGroup( "lowerbody" )
@@ -472,7 +472,7 @@ void function SuperSpectre_PostDamage( entity npc, var damageInfo )
 			if ( bodygroup > -1 )
 				npc.SetBodygroup( bodygroup, 1 )
 		}
-		else if ( ratio > 0.33 && newRatio <= 0.33 ) // upper body switch
+		else if ( ratio >= 0.33 && newRatio < 0.33 ) // upper body switch
 		{
 			//print( "Reaper upper body broke!!!" )
 			int bodygroup = npc.FindBodyGroup( "upperbody" )
