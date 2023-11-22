@@ -364,7 +364,8 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 	// recalculated failsafe timer: reaper's death anim running at 30fps, the 89th frame signals "death_explosion"
 	// 89/30 ≈ 2.96666, we wait 3.1s as failsafe
 	//float failsafeTime = 3.3
-	float startTime = Time() + 3.1
+	float failsafeTime = 3.1
+	float startTime = Time()
 	float endTime = Time() + failsafeTime
 
 	bool playedSound = true // we did sound above, here we mark it as true
