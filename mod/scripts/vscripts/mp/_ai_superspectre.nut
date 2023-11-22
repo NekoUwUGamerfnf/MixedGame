@@ -256,7 +256,12 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	file.reaperDoingNukeSequence[ npc ] = true
 	npc.SetNoTarget( true )
 	npc.SetNoTargetSmartAmmo( true )
+	// disable targeting
 	npc.EnableNPCFlag( NPC_IGNORE_ALL )
+	npc.DisableBehavior( "Follow" )
+	npc.DisableBehavior( "Assault" )
+	if ( IsValid( npc.GetEnemy() ) )
+		npc.ClearEnemy()
 
 	npc.Signal( "StartedNukeSequence" ) // stop other thinks that may play animation
 	npc.EndSignal( "OnDestroy" )
@@ -310,7 +315,7 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 
 	// kill the reaper
 	npc.Die( attacker, npc, { damageSourceId = damagedef_reaper_nuke } )
-	npc.Gib( <0,0,100> ) // manually gib reaper cause SuperSpectreNukes() is not doing that
+	npc.Gib( <0,0,100> ) // manually gib reaper because SuperSpectreNukes() is not doing that
 }
 
 // failsafe handler: the reaper didn't make it to explode
@@ -325,6 +330,7 @@ void function ReaperNukeSequenceFailSafe( entity npc )
 	// here's for fun: if reaper don't have a animation active
 	// it must means it's animation gets intterupted by something
 	// we manually do a effect( can't handle beam effects because there're too many of them, like SP ticks )
+	// NOTE: this can't handle because after anim start the reaper will be recognized as AnimActive, but actually they can still gets stuck
 	if ( !npc.Anim_IsActive() )
 	{
 		entity nukeBodyFX = PlayFXOnEntity( $"P_sup_spectre_warn_body", npc, "exp_torso_core_fx" )
@@ -355,8 +361,10 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 
 	// removed because we're adding initial time for nuke anim
 	//float failsafeTime = 5.0 // bit longer failsafe timer to make it more like death animations
-	float failsafeTime = 3.3
-	float startTime = Time()
+	// recalculated failsafe timer: reaper's death anim running at 30fps, the 89th frame signals "death_explosion"
+	// 89/30 ≈ 2.96666, we wait 3.1s as failsafe
+	//float failsafeTime = 3.3
+	float startTime = Time() + 3.1
 	float endTime = Time() + failsafeTime
 
 	bool playedSound = true // we did sound above, here we mark it as true
@@ -641,7 +649,7 @@ bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = nul
 	// failing checks:
 	if( !ShouldNukeOnDeath( npc ) 
 		|| !npc.IsOnGround() 
-		|| !npc.IsInterruptable() 
+		|| !npc.IsInterruptable() // it's weird that if reaper is in attack or flinch activity, it won't be recognized as "not interruptable", unlike stalkers...
 		|| damageThresholdChecksFailed
 		|| forceKilledByTitanChecksFailed
 		)
