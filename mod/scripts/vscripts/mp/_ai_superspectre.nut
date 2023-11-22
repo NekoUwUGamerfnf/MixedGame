@@ -262,6 +262,7 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	npc.DisableBehavior( "Assault" )
 	if ( IsValid( npc.GetEnemy() ) )
 		npc.ClearEnemy()
+	npc.ClearAllEnemyMemory()
 
 	npc.Signal( "StartedNukeSequence" ) // stop other thinks that may play animation
 	npc.EndSignal( "OnDestroy" )
