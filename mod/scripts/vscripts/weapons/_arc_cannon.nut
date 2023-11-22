@@ -48,6 +48,9 @@ global const ARC_CANNON_BOLT_WIDTH_NPC				= 8			// Bolt width when used by NPC
 global const ARC_CANNON_BEAM_COLOR					= "150 190 255"
 global const ARC_CANNON_BEAM_LIFETIME				= 0.75
 
+// modified: Sound settings
+const ARC_CANNON_CHARGED_FIRING_SOUND_FRAC 		= 0.65 // if charge frac is higher than this, we do an extra firing sound
+
 // Player Effects
 global const ARC_CANNON_TITAN_SCREEN_SFX 		= "Null_Remove_SoundHook"
 global const ARC_CANNON_PILOT_SCREEN_SFX 		= "Null_Remove_SoundHook"
@@ -279,9 +282,11 @@ function FireArcCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 	// Northstar missing: fix sound!!!
 	weapon.EmitWeaponSound_1p3p( "weapon_electric_smoke_electrocute_titan_1p", "weapon_electric_smoke_electrocute_titan_3p")
 	weapon.EmitWeaponSound_1p3p( "weapon_batterygun_firestart_1p", "weapon_batterygun_fire_energydrained_3p")
-	if ( owner.IsNPC() || ( charge >= GetArcCannonChargeFraction( weapon ) * 0.7 ) ) // npc firing or player firing with high charge frac, do a extra sound
-		weapon.EmitWeaponSound_1p3p( "MegaTurret_Laser_Fire_3P", "MegaTurret_Laser_Fire_3P")
-	if ( owner.IsNPC() ) // for npcs, stop charge effect upon firing
+
+	// npc firing or player firing with high charge frac, do a extra sound
+	if ( owner.IsNPC() || ( charge >= GetArcCannonChargeFraction( weapon ) * ARC_CANNON_CHARGED_FIRING_SOUND_FRAC ) )
+		weapon.EmitWeaponSound_1p3p( "MegaTurret_Laser_Fire_3P", "MegaTurret_Laser_Fire_3P" )
+	if ( owner.IsNPC() ) // for npcs, stop charge effect upon firing because we've reworked charge effect method
 		weapon.StopWeaponEffect( $"wpn_arc_cannon_charge_fp", $"wpn_arc_cannon_charge" )
 
 	local attachmentName = "muzzle_flash"
