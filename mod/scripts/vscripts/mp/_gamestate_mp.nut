@@ -223,7 +223,8 @@ void function GameStateEnter_WaitingForPlayers()
 
 void function WaitForPlayers()
 {
-	svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // ensure we don't update gamestate if manually transferred into other gamestate
+	// this endsignal breaks behavior, change to be handled below
+	//svGlobal.levelEnt.EndSignal( "GameStateChanged" ) // ensure we don't update gamestate if manually transferred into other gamestate
 
 	// note: atm if someone disconnects as this happens the game will just wait forever
 	float endTime = Time() + file.waitingForPlayersMaxDuration
@@ -234,6 +235,9 @@ void function WaitForPlayers()
 	print( "done waiting!" )
 	
 	wait 1.0 // bit nicer
+	// ensure we don't update gamestate if manually transferred into other gamestate
+	if ( GetGameState() >= eGameState.PickLoadout )
+		return
 	if ( file.pickLoadoutEnable || file.usePickLoadoutScreen )
 		SetGameState( eGameState.PickLoadout ) // warpjump or wargames intro sound will be played on client if we're in eGameState.PickLoadout
 	else
