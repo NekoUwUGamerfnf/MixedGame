@@ -650,7 +650,8 @@ entity function CreateTeamSpawnZoneEntity( entity spawnzone, int team )
 	SetTeam( minimapObj, team )	
 	//minimapObj.Minimap_SetObjectScale( Distance2D( < 0, 0, 0 >, spawnzone.GetBoundingMaxs() ) / 20000.0 )
 	minimapObj.Minimap_SetObjectScale( 0.05 ) // proper map icon. though vanilla doesn't seem like this
-	//minimapObj.Minimap_SetAlignUpright( true ) // vanilla doesn't seem like you can see enemy's spawnpoint across map
+	minimapObj.Minimap_SetAlignUpright( true )
+	minimapObj.Minimap_SetClampToEdge( false ) // vanilla doesn't seem like you can see enemy's spawnpoint across map
 	minimapObj.Minimap_AlwaysShow( TEAM_IMC, null )
 	minimapObj.Minimap_AlwaysShow( TEAM_MILITIA, null )
 	minimapObj.Minimap_SetHeightTracking( true )
