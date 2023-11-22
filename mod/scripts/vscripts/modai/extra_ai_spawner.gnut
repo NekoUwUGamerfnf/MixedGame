@@ -67,7 +67,7 @@ global function RemoveEntityCallback_OnUseCarePackage
 
 // tick reaper funcs
 global function ExtraSpawner_SpawnReaperCanLaunchTicks
-global function ExtraSpawner_SetUpTickLauncherReaper
+global function ExtraSpawner_SetUpNukeDeathReaper
 global function ExtraSpawner_ReaperTickLaunchThink
 
 // npc handlers
@@ -5616,11 +5616,20 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SetSpawnOption_AISettings( reaper, reaperSettings )
 	
 	HideName( reaper ) // prevent flash a name onto it
+	//local collisionGroup = reaper.kv.CollisionGroup
+	local visibilityFlags = reaper.kv.VisibilityFlags
+	//reaper.kv.CollisionGroup = 0 // to prevent crosshair detecting it and turns to red/blue( don't really work though )
+	//reaper.NotSolid()
 	reaper.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // prevent it's model light shows up
 
 	ExtraSpawner_SetUpSpawnedNPC( reaper ) // generic setup for any npc in this file
 	DispatchSpawn( reaper )
-	reaper.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE // restore visibility after warpfall starts in spawncallbacks
+	//reaper.kv.CollisionGroup = collisionGroup // restore collision
+	//reaper.Solid() // restore crosshair color on aiming at
+	reaper.kv.VisibilityFlags = visibilityFlags // restore visibility after warpfall starts in spawncallbacks
+
+	// fake a spawntime to delay replay tracking, hide it's spawn
+	reaper.ai.spawnTime = Time() + 0.5
 
 	// reaper highlight
 	// sp_enemy_pilot kinda bad, visible through viewmodel
@@ -5631,12 +5640,17 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	reaper.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( reaper )
 
-	// modified _ai_superspectre.gnut, extremely powerful reaper
-	ExtraSpawner_SetUpTickLauncherReaper( reaper )
+	// use modified functions in _ai_superspectre.gnut, extremely powerful reaper: they do nuke on death
+	ExtraSpawner_SetUpNukeDeathReaper( reaper )
 
 	// reaper handler
 	if ( GetNPCHandlerForClass( "npc_super_spectre" ) != null )
 		thread GetNPCHandlerForClass( "npc_super_spectre" )( reaper )
+	
+	// some FD reaper behavior
+	reaper.SetAllowSpecialJump( true ) // don't know what this can do, just adding here
+	// don't work for reapers. special icon is setup by client-side ClGamemodeFD_Init(), can't use serverside to do that
+	//reaper.Minimap_SetObjectScale( 2.0 ) // bigger than normal infantry minimap icon
 
 	reaper.WaitSignal( "WarpfallComplete" )
 	ShowName( reaper ) // show name again after drop
@@ -5646,15 +5660,17 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	thread ExtraSpawner_ReaperTickLaunchThink( reaper, tickSettings )
 }
 
-void function ExtraSpawner_SetUpTickLauncherReaper( entity reaper )
+void function ExtraSpawner_SetUpNukeDeathReaper( entity reaper )
 {
-	// modified _ai_superspectre.gnut, extremely powerful reaper
+	// use modified functions in _ai_superspectre.gnut, extremely powerful reaper: they do nuke on death
 	SuperSpectre_AddNukeDeath( reaper ) // force this reaper to nuke on death without having to change aisettings
-	
+	SuperSpectre_SetDoNukeBeforeDeath( reaper, true ) // do nuke before actual death, so their highlight and title stuffs won't be removed
+
 	//SuperSpectre_SetDropBatteryOnDeath( reaper, true ) // now supports mp. since they're very powerful, give some reward?
 	SuperSpectre_SetNukeDeathThreshold( reaper, 8000 ) // they'll always try to nuke unless taken a damage higher than this value( only NPC nuke can do this )
 	SuperSpectre_SetForcedKilledByTitans( reaper, false ) // they won't be disarmed by titans, always try to nuke
 	SuperSpectre_SetSelfAsNukeAttacker( reaper, true ) // the nuke's attacker will always be the reaper
+	
 	SuperSpectre_SetNukeExplosionDamageEffect( 
 		reaper, 		// current reaper
 		5, 				// explosion count
@@ -5667,9 +5683,12 @@ void function ExtraSpawner_SetUpTickLauncherReaper( entity reaper )
 		50000,			// explosion force
 		DF_RAGDOLL | DF_EXPLOSION			// script damage flags
 	)
+
+	// tick spawn
 	SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath( reaper, true ) // clean up their ticks using a modified way
 	//SuperSpectre_SetSpawnerTickMaxCount( reaper, 8 ) // spawn 8 ticks per reaper
-	SuperSpectre_SetDoNukeBeforeDeath( reaper, true ) // do nuke before actual death, so their highlight and title stuffs won't be removed
+
+	// visual misc
 	SuperSpectre_SetDoBodyGroupUpdateOnDamage( reaper, true ) // vanilla removed feature turns to settings: update bodygroup to doomed state( like MP titans ) if taking enough damage
 }
 
