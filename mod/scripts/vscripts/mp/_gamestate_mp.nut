@@ -223,6 +223,8 @@ void function GameStateEnter_WaitingForPlayers()
 
 void function WaitForPlayers()
 {
+	svGlobal.EndSignal( "GameStateChanged" ) // ensure we don't update gamestate if manually transferred into other gamestate
+
 	// note: atm if someone disconnects as this happens the game will just wait forever
 	float endTime = Time() + file.waitingForPlayersMaxDuration
 	
