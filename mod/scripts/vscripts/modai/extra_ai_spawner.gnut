@@ -120,7 +120,7 @@ const float GUNSHIP_JET_BURST_SOUND_COOLDOWN = 3.5 // don't want sound to be pla
 const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may need to scale down damage histroy saving time
 
 // debug
-const bool EXTRA_SPAWNER_DEBUG = false
+const bool EXTRA_SPAWNER_DEBUG = true
 #if EXTRA_SPAWNER_DEBUG
 global function PrintPrimaryAttackSignal
 #endif // EXTRA_SPAWNER_DEBUG
@@ -312,6 +312,8 @@ struct
 	float npcDamageHistoryLifeTime = NPC_HEALTH_HISTORY_FALLOFF_END
 	// for fake minimap icon system
 	table<entity, entity> npcOwnedFakeMapIconEnt
+	// shared minimap think with minion, attached ents ETC.
+	table<entity, bool> entEnabledMinimapIcon
 } file
 
 void function ExtraAISpawner_Init()
@@ -375,6 +377,10 @@ void function ExtraAISpawner_Init()
 	// this is hardcoded because hornet model is easier to be hit than straton
 	// using team-based model is bad, better pick a random one
 	AddSpawnCallback( "npc_gunship", OnGunshipSpawned )
+
+	// add script minimap icon management for ticks
+	// this callback is from modified _ai_superspectre.nut
+	AddCallback_OnReaperLaunchedFragDroneSpawned( OnLaunchedFragDroneSpawned )
 
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
@@ -491,6 +497,21 @@ void function OnGunshipSpawned( entity gunship )
 		gunship.SetValueForModelKey( gunshipModel )
 		gunship.SetModel( gunshipModel )
 	}
+}
+
+void function OnLaunchedFragDroneSpawned( entity reaper, entity fragDrone )
+{
+	if ( !IsValid( reaper ) ) // reaper can be destroyed before frag drone can arm
+		return
+	
+	// ensure this reaper is spawned by extra spawner!
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( reaper ) )
+		return
+	
+	// start setup
+	ExtraSpawner_SetUpSpawnedNPC( fragDrone ) // mark this tick as spawned by extra spawner
+	if ( EntHasMinimapIconEnabled( reaper ) )
+		AddMinimapForNPC( fragDrone ) // add minimap icon tracking if they have a owner reaper
 }
 
 void function ProwlerPrecache()
@@ -2867,6 +2888,23 @@ void function SetUpGenericNPCMiniMapIcon( entity mapIcon )
 	foreach ( entity player in GetPlayerArray() )
 		mapIcon.Minimap_AlwaysShow( 0, player )
 	mapIcon.Minimap_SetHeightTracking( true )
+
+	// in-file checks
+	entity mapIconOwner = GetFakeMinimapIconOwner( mapIcon )
+	if ( IsValid( mapIconOwner ) ) // consider this is a fake mapicon, we track their owner instead
+		mapIcon = mapIconOwner
+	
+	if ( !( mapIcon in file.entEnabledMinimapIcon ) )
+		file.entEnabledMinimapIcon[ mapIcon ] <- false // init
+	file.entEnabledMinimapIcon[ mapIcon ] = true // mark as we've enabled map icon for this entity
+}
+
+bool function EntHasMinimapIconEnabled( entity mapIcon )
+{
+	if ( !( mapIcon in file.entEnabledMinimapIcon ) )
+		return false
+	
+	return file.entEnabledMinimapIcon[ mapIcon ]
 }
 
 void function SetUpGamemodeSpecificMiniMapIcon( entity guy )
@@ -2908,6 +2946,14 @@ void function DisableNPCMiniMapIcon( entity mapIcon )
 	foreach ( entity player in GetPlayerArray() )
 		mapIcon.Minimap_Hide( 0, player )
 	mapIcon.Minimap_SetHeightTracking( false )
+
+	// in-file checks
+	entity mapIconOwner = GetFakeMinimapIconOwner( mapIcon )
+	if ( IsValid( mapIconOwner ) ) // consider this is a fake mapicon, we track their owner instead
+		mapIcon = mapIconOwner
+	
+	if ( mapIcon in file.entEnabledMinimapIcon )
+		file.entEnabledMinimapIcon[ mapIcon ] = false // mark as we've disabled map icon for this entity
 }
 
 // so you can set up a titan without have to make a npc pilot embarking it
@@ -5880,24 +5926,25 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 // to avoid that... try to set this npc to very high into sky, handled by parameter "offset"
 // welp that doesn't work well either, attachments are always rotating
 // temp find a solution is that we rotate npc to make them upside down, and add very little offset
-entity function CreateNPCAsFakeMapIconForNPC( entity npc, string fakeIconNPCClass, string attachment = "ORIGIN", vector offset = < 0, 0, 10 > )
+entity function CreateNPCAsFakeMapIconForNPC( entity npc, string fakeIconNPCClass, string attachment = "ORIGIN", vector angles = < 0, 0, 180 >, vector offset = < 0, 0, -30 > )
 {
 	entity mapIconNPC = CreateEntity( fakeIconNPCClass )
 	mapIconNPC.Freeze() // don't let it do anything
 
 	DispatchSpawn( mapIconNPC )
+	TakeAllWeapons( mapIconNPC )
 
 	// handle invulnerablility and freeze inside function
 	// this also disables trigger checks and make npc take less CPU load
 	ExtraSpawner_DisableSensingForNPC( mapIconNPC, true, false, true )
 	// manually handle hide
-	//mapIconNPC.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // this can hide model light fx
-	//mapIconNPC.Hide()
+	mapIconNPC.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // this can hide model light fx
+	mapIconNPC.Hide()
 	HideName( mapIconNPC )
 
 	mapIconNPC.SetOwner( npc ) // disable collision against owner, but not good enough
 	mapIconNPC.SetParent( npc, attachment )
-	mapIcon.SetAngles( < 0, -180, 0 > ) // face to ground
+	mapIconNPC.SetAngles( angles ) // face to ground
 	mapIconNPC.SetOrigin( offset ) // so nobody can see them
 	mapIconNPC.NotSolid()
 	mapIconNPC.kv.CollisionGroup = 0
@@ -5989,4 +6036,22 @@ void function SetNPCFakeMinimapIconEnt( entity npc, entity mapIcon )
 		file.npcOwnedFakeMapIconEnt[ npc ] <- null // init
 
 	file.npcOwnedFakeMapIconEnt[ npc ] = mapIcon
+}
+
+entity function GetFakeMinimapIconOwner( entity mapIcon )
+{
+	bool mapIconRegistered = false
+	foreach ( npc, otherMapIcon in file.npcOwnedFakeMapIconEnt )
+	{
+		if ( otherMapIcon == mapIcon )
+		{
+			mapIconRegistered = true
+			break
+		}
+	}
+	// if we can't find this mapIcon entity from table, just return null
+	if ( !mapIconRegistered )
+		return null
+	
+	return mapIcon.GetOwner()
 }
