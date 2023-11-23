@@ -78,7 +78,7 @@ struct
 
 
 	// modified callbacks
-	array<void functionref( entity reaper, entity fragDrone )> onReaperLaunchedFragDroneSpawnedCallbacks
+	array<void functionref( entity reaper, entity nade, entity fragDrone, string droneSettings )> onReaperLaunchedFragDroneSpawnedCallbacks
 
 	// in-file table
 	//table<entity, bool> reaperStartedNukeFromThisDamage // this check is actually no where used because we're now always handle damage in finalDamageCallback
@@ -1145,9 +1145,9 @@ void function LaunchSpawnerProjectile( entity npc, vector targetOrigin, int acti
 	vector angularVelocity = < 200, 0, 0 >
 	entity nade = weapon.FireWeaponGrenade( launchPos, vel, angularVelocity, armTime, damageTypes.dissolve, damageTypes.explosive, PROJECTILE_NOT_PREDICTED, true, true )
 
-	// modified for better models, hardcoded for now
-	if ( droneSettings != "npc_frag_drone" ) // not sp ticks?
-		nade.SetModel( $"models/weapons/sentry_frag/sentry_frag_proj.mdl" ) // should use sentry frag drone model
+	// modified callbacks, for we can get ticks owner reaper on their spawn
+	foreach ( callbackFunc in file.onReaperLaunchedFragDroneSpawnedCallbacks )
+		callbackFunc( npc, nade, null, droneSettings )
 	//
 
 	AddToScriptManagedEntArray( activeMinions_EntArrayID, nade )
@@ -1185,7 +1185,7 @@ void function LaunchSpawnerProjectile( entity npc, vector targetOrigin, int acti
 
 			// modified callbacks, for we can get ticks owner reaper on their spawn
 			foreach ( callbackFunc in file.onReaperLaunchedFragDroneSpawnedCallbacks )
-				callbackFunc( npc, drone )
+				callbackFunc( npc, nade, drone, droneSettings )
 			//
 
 			// modified minion management. if reaper died and we should detonate it's minion...
@@ -1513,7 +1513,7 @@ bool function ShouldReaperDoDamagedBodyGroupUpdate( entity ent )
 	return file.reaperDoBodyGroupUpdateOnDamage[ ent ]
 }
 
-void function AddCallback_OnReaperLaunchedFragDroneSpawned( void functionref( entity reaper, entity fragDrone ) callbackFunc )
+void function AddCallback_OnReaperLaunchedFragDroneSpawned( void functionref( entity reaper, entity nade, entity fragDrone, string droneSettings ) callbackFunc )
 {
 	if ( !file.onReaperLaunchedFragDroneSpawnedCallbacks.contains( callbackFunc ) )
 		file.onReaperLaunchedFragDroneSpawnedCallbacks.append( callbackFunc )
