@@ -326,6 +326,9 @@ struct
 	table<entity, int> npcPilotMaxDPSTaken
 	table<entity, float> prowlerMeleeDamageScale
 	table<entity, float> prowlerMeleeDamageScaleHeavyArmor
+	// for updating tick's projectile model, minimap icon stuffs
+	table<entity, bool> fragDroneProjectileUpdatedModel
+	array<string> reaperSquadFromExtraSpawner
 } file
 
 void function ExtraAISpawner_Init()
@@ -393,6 +396,7 @@ void function ExtraAISpawner_Init()
 	// add script minimap icon management for ticks
 	// this callback is from modified _ai_superspectre.nut
 	AddCallback_OnReaperLaunchedFragDroneSpawned( OnLaunchedFragDroneSpawned )
+	AddCallback_EntityChangedTeam( "npc_super_spectre", OnReaperChangeTeam )
 
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
@@ -514,19 +518,75 @@ void function OnGunshipSpawned( entity gunship )
 	}
 }
 
-void function OnLaunchedFragDroneSpawned( entity reaper, entity fragDrone )
+void function OnLaunchedFragDroneSpawned( entity reaper, entity nade, entity fragDrone, string droneSettings )
 {
 	if ( !IsValid( reaper ) ) // reaper can be destroyed before frag drone can arm
 		return
+
+	bool ownerReaperSpawnedByExtraSpawer = false
+	// drone can still be projectile 
+	if ( IsValid( nade ) )
+	{
+		entity ownerReaper = nade.GetOwner()
+		
+		// ensure this reaper is spawned by extra spawner!
+		if ( IsValid( ownerReaper ) && ExtraSpawner_IsNPCSpawnedFromExtraSpawner( ownerReaper ) )
+		{
+			if ( !( nade in file.fragDroneProjectileUpdatedModel ) )
+			{
+				// modified for better models, hardcoded for now
+				if ( droneSettings != "npc_frag_drone" ) // not sp ticks?
+					nade.SetModel( $"models/weapons/sentry_frag/sentry_frag_proj.mdl" ) // should use sentry frag drone model
+				file.fragDroneProjectileUpdatedModel[ nade ] <- true // add mark so we don't update model on next call
+			}
+		}
+	}
 	
-	// ensure this reaper is spawned by extra spawner!
+	if ( IsValid( fragDrone ) )
+	{
+		// for ticks themselves, use squad to identify whether they're spawned by extra spawner or not
+		string squad = expect string( fragDrone.kv.squadname )
+		if ( file.reaperSquadFromExtraSpawner.contains( squad ) ) // do spawned by extra spawner!
+		{
+			// find owner reaper
+			entity ownerReaper
+			foreach ( reaper in GetNPCArrayByClass( "npc_super_spectre" ) )
+			{
+				if ( reaper.kv.squadname == squad )
+				{
+					ownerReaper = reaper
+					break
+				}
+			}
+			// start setup
+			ExtraSpawner_SetUpSpawnedNPC( fragDrone ) // mark this tick as spawned by extra spawner
+			if ( !IsValid( ownerReaper ) || EntHasMinimapIconEnabled( ownerReaper ) )
+				AddMinimapForNPC( fragDrone ) // add minimap icon tracking if their owner reaper has icon, or owner reaper has been destroyed
+		}
+	}
+}
+
+void function OnReaperChangeTeam( entity reaper )
+{
 	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( reaper ) )
 		return
-	
-	// start setup
-	ExtraSpawner_SetUpSpawnedNPC( fragDrone ) // mark this tick as spawned by extra spawner
-	if ( EntHasMinimapIconEnabled( reaper ) )
-		AddMinimapForNPC( fragDrone ) // add minimap icon tracking if they have a owner reaper
+
+	if ( npc.ai.activeMinionEntArrayID > 0 )
+	{
+		foreach ( entity ent in GetScriptManagedEntArray( npc.ai.activeMinionEntArrayID ) )
+		{
+			// should kill all their owned ticks on changing team
+			// otherwise reaper can have ticks from different team in their squad
+			// which can crash the server
+			if ( IsValid( ent ) ) 
+			{
+				if ( ent.IsNPC() && ent.ai.fragDroneArmed )
+					ent.Signal( "SuicideSpectreExploding" )
+				else // minion still a grenade, or not armed ready yet... just destroy
+					ent.Destroy()
+			}
+		}
+	}
 }
 
 void function ProwlerPrecache()
@@ -2655,6 +2715,12 @@ const array<string> MAP_ICON_DISABLED_NPC_CLASS =
 	"npc_marvin",
 ]
 
+// npcs within this table will add different offset for their fake map icon
+const table<string, vector> NPC_FAKE_MAP_ICON_OFFSET =
+{
+	["npc_prowler"]		= < 0, 0, 100 > // prowlers has special hull type, needs change offset
+}
+
 // npc minimap setup
 void function AddMinimapForNPC( entity guy )
 {
@@ -2681,7 +2747,10 @@ void function AddMinimapForNPC_FailsafeToCreateFakeMapIcon( entity guy )
 	else if ( !MAP_ICON_DISABLED_NPC_CLASS.contains( className ) ) // ents in this array never gets setup
 	{
 		// using a hacky way: add a tracked npc as fake npc
-		CreateNPCAsFakeMapIconForNPC( guy, "npc_soldier" )
+		if ( className in NPC_FAKE_MAP_ICON_OFFSET )
+			CreateNPCAsFakeMapIconForNPC( guy, "npc_soldier", "ORIGIN", < 0, 0, 180 >, NPC_FAKE_MAP_ICON_OFFSET[ className ] )
+		else
+			CreateNPCAsFakeMapIconForNPC( guy, "npc_soldier" )
 	}
 }
 
@@ -5711,6 +5780,10 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	// setup spawn
 	SetSpawnOption_Warpfall( reaper )
 	SetSpawnOption_AISettings( reaper, reaperSettings )
+	// make squad so we can identify their tick's spawn source
+	string squad = MakeSquadName( team, UniqueString( "drone_spawn_reaper" ) )
+	file.reaperSquadFromExtraSpawner.append( squad ) // ticks can get squad message
+	SetSpawnOption_SquadName( reaper, squad )
 	
 	HideName( reaper ) // prevent flash a name onto it
 	//local collisionGroup = reaper.kv.CollisionGroup
