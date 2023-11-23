@@ -525,20 +525,16 @@ void function OnLaunchedFragDroneSpawned( entity reaper, entity nade, entity fra
 
 	bool ownerReaperSpawnedByExtraSpawer = false
 	// drone can still be projectile 
-	if ( IsValid( nade ) )
+	if ( IsValid( nade ) && !( nade in file.fragDroneProjectileUpdatedModel ) )
 	{
-		entity ownerReaper = nade.GetOwner()
-		
+		entity ownerReaper = nade.GetOwner() // nades have ownership
 		// ensure this reaper is spawned by extra spawner!
 		if ( IsValid( ownerReaper ) && ExtraSpawner_IsNPCSpawnedFromExtraSpawner( ownerReaper ) )
 		{
-			if ( !( nade in file.fragDroneProjectileUpdatedModel ) )
-			{
-				// modified for better models, hardcoded for now
-				if ( droneSettings != "npc_frag_drone" ) // not sp ticks?
-					nade.SetModel( $"models/weapons/sentry_frag/sentry_frag_proj.mdl" ) // should use sentry frag drone model
-				file.fragDroneProjectileUpdatedModel[ nade ] <- true // add mark so we don't update model on next call
-			}
+			// modified for better models, hardcoded for now
+			if ( droneSettings != "npc_frag_drone" ) // not sp ticks?
+				nade.SetModel( $"models/weapons/sentry_frag/sentry_frag_proj.mdl" ) // should use sentry frag drone model
+			file.fragDroneProjectileUpdatedModel[ nade ] <- true // add mark so we don't update model again on next call
 		}
 	}
 	
@@ -548,6 +544,8 @@ void function OnLaunchedFragDroneSpawned( entity reaper, entity nade, entity fra
 		string squad = expect string( fragDrone.kv.squadname )
 		if ( file.reaperSquadFromExtraSpawner.contains( squad ) ) // do spawned by extra spawner!
 		{
+			//print( "tick: " + string( fragDrone ) )
+			//print( "have squad from extra spawner!" )
 			// find owner reaper
 			entity ownerReaper
 			foreach ( reaper in GetNPCArrayByClass( "npc_super_spectre" ) )
@@ -558,6 +556,7 @@ void function OnLaunchedFragDroneSpawned( entity reaper, entity nade, entity fra
 					break
 				}
 			}
+			//print( "ownerReaper: " + string( reaper ) )
 			// start setup
 			ExtraSpawner_SetUpSpawnedNPC( fragDrone ) // mark this tick as spawned by extra spawner
 			if ( !IsValid( ownerReaper ) || EntHasMinimapIconEnabled( ownerReaper ) )
@@ -568,12 +567,13 @@ void function OnLaunchedFragDroneSpawned( entity reaper, entity nade, entity fra
 
 void function OnReaperChangeTeam( entity reaper )
 {
+	// maybe we should handle all reapers, but in this file all the stuffs are handled only for extra spawner npcs
 	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( reaper ) )
 		return
 
-	if ( npc.ai.activeMinionEntArrayID > 0 )
+	if ( reaper.ai.activeMinionEntArrayID > 0 )
 	{
-		foreach ( entity ent in GetScriptManagedEntArray( npc.ai.activeMinionEntArrayID ) )
+		foreach ( entity ent in GetScriptManagedEntArray( reaper.ai.activeMinionEntArrayID ) )
 		{
 			// should kill all their owned ticks on changing team
 			// otherwise reaper can have ticks from different team in their squad
@@ -583,7 +583,12 @@ void function OnReaperChangeTeam( entity reaper )
 				if ( ent.IsNPC() && ent.ai.fragDroneArmed )
 					ent.Signal( "SuicideSpectreExploding" )
 				else // minion still a grenade, or not armed ready yet... just destroy
-					ent.Destroy()
+				{
+					if ( ent.IsProjectile() )
+						ent.Destroy()
+					else if ( ent.IsNPC() && !ent.ai.fragDroneArmed )
+						ent.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+				}
 			}
 		}
 	}
@@ -3010,6 +3015,8 @@ void function SetUpGamemodeSpecificMiniMapIcon( entity guy )
 
 void function RemoveMinimapForNPC( entity guy )
 {
+	//print( "RUNNING RemoveMinimapForNPC() for " + string( guy ) )
+
 	if ( !IsAlive( guy ) )
 		return
 	
@@ -3477,12 +3484,12 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 	if ( loadoutFunction != null ) // modded titan!!
 		loadoutFunction( titan )
 
-	thread ExtraSpawner_NPCTitanDrops( titan, standUp )
-
 	if ( titanHandler != null )
 		thread titanHandler( titan )
 	else if ( GetNPCHandlerForClass( "npc_titan" ) != null )
 		thread GetNPCHandlerForClass( "npc_titan" )( titan )
+	
+	thread ExtraSpawner_NPCTitanDrops( titan, standUp )
 
 	return titan
 }
@@ -3592,10 +3599,6 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	if ( loadoutFunction != null ) // modded titan!!
 		loadoutFunction( titan )
 
-	// titan spawn with intro don't have to hotdrop
-	if ( titanType != TITAN_MERC )
-		thread ExtraSpawner_NPCTitanDrops( titan )
-
 	// we'll do intro, show again after DispatchSpawn(). ShowName() is handled in intro
 	if ( titanType == TITAN_MERC )
 		titan.Show()
@@ -3603,6 +3606,10 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	// titan handler
 	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
 		thread GetNPCHandlerForClass( "npc_titan" )( titan )
+	
+	// titan spawn with intro don't have to hotdrop
+	if ( titanType != TITAN_MERC )
+		thread ExtraSpawner_NPCTitanDrops( titan )
 
 	return titan
 }
@@ -3798,8 +3805,6 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
 	SetSquad( titan, squadName )
 
-	thread ExtraSpawner_NPCTitanDrops( titan )
-
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix mod
@@ -3812,6 +3817,7 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	else if ( GetNPCHandlerForClass( "npc_titan" ) != null )
 		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 
+	thread ExtraSpawner_NPCTitanDrops( titan )
 
 	return titan
 }
@@ -5208,6 +5214,8 @@ void function NPCPilotEjectingAnimation( entity pilot )
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
 	
+	if ( !pilot.ContextAction_IsBusy() )
+		pilot.ContextAction_SetBusy()
 	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
 	pilot.SetNPCPriorityOverride( 10 ) // npc titans aim bad at mid-air targets. don't let them do so
 
@@ -5217,6 +5225,8 @@ void function NPCPilotEjectingAnimation( entity pilot )
 		{
 			if ( IsValid( pilot ) )
 			{
+				if ( pilot.ContextAction_IsBusy() )
+					pilot.ContextAction_ClearBusy()
 				pilot.Anim_Stop()
 				if ( IsAlive( pilot ) )
 					pilot.ClearNPCPriorityOverride()
