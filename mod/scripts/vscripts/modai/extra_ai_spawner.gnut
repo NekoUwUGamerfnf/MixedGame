@@ -85,7 +85,9 @@ global function ExtraSpawner_StopDefaultHandler // can't stop squad handler. may
 
 // settings func
 global function ExtraSpawner_SetNPCDamageHistoryLifeTime
-
+global function ExtraSpawner_SetNPCPilotBulletDamageScale
+global function ExtraSpawner_SetNPCPilotMaxDPSTaken
+global function ExtraSpawner_SetProwlerMeleeDamageScale
 
 // these consts are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
@@ -132,8 +134,12 @@ global function PrintPrimaryAttackSignal
 // npc pilot health
 const int NPC_PILOT_MAX_HEALTH = 750
 const int NPC_PILOT_MAX_HEALTH_BOSS = 1000
+
 // damage dealt by pilot multiplyer
-const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.0
+// this is now served as default value, can be modified by other files through ExtraSpawner_SetNPCPilotBulletDamageScale()
+// we may enable npc headshots and in that case, needs to reduce pilot damage dealt
+const float NPC_PILOT_BULLET_DAMAGE_MULTIPLIER = 2.0
+
 // pilot specific damage adjustments
 // hardcode version
 /*
@@ -142,17 +148,21 @@ const int NPC_TITAN_MELEE_DAMAGE_NPC_PILOT = 300
 const int TITAN_SOWRD_DAMAGE_NPC_PILOT = 250
 const int TITAN_STEPPING_ON_DAMAGE_NPC_PILOT = 250
 */
+
 // graph capped version
 // WIP
+
 // DPS versions
 const int NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND = 300 // pilots will only take 300 dmg per second
 
 // damage dealt by prowler multiplyer
 // base damage for MP: claw: 80, pounce: 100
-const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.5
+// this is now served as default value, can be modified by other files through ExtraSpawner_SetProwlerMeleeDamageScale()
+const float PROWLER_MELEE_DAMAGE_MULTIPLIER = 0.5
 // damage dealt by prowler to heavy armor units multiplyer
 // base damage for MP: claw: 60-80, pounce: 100
-const float NPC_PROWLER_DAMAGE_MULTIPLIER_HEAVYARMOR = 6.0
+// this is now served as default value, can be modified by other files through ExtraSpawner_SetProwlerMeleeDamageScale()
+const float PROWLER_MELEE_DAMAGE_MULTIPLIER_HEAVYARMOR = 6.0
 
 // care package
 const float CARE_PACKAGE_MESSAGE_INTERVAL = 3.0 // prevent care package spamming message
@@ -314,6 +324,11 @@ struct
 	table<entity, entity> npcOwnedFakeMapIconEnt
 	// shared minimap think with minion, attached ents ETC.
 	table<entity, bool> entEnabledMinimapIcon
+	// npc damage multiplier
+	table<entity, float> npcPilotBulletDamageScale
+	table<entity, int> npcPilotMaxDPSTaken
+	table<entity, float> prowlerMeleeDamageScale
+	table<entity, float> prowlerMeleeDamageScaleHeavyArmor
 } file
 
 void function ExtraAISpawner_Init()
@@ -5278,19 +5293,37 @@ void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 	// we'll store it manually
 	// get DPS( excluded current damage because we store it later )
 	int dpsTaken = int( GetTotalDamageTakenInTime( pilot, 1.0 ) )
+	int maxDPSTaken = GetNPCPilotMaxDPSTaken( pilot )
 	// debug
 	//print( "dpsTaken: " + string( dpsTaken ) )
-	if ( dpsTaken >= NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND )
+	if ( dpsTaken >= maxDPSTaken )
 		DamageInfo_SetDamage( damageInfo, 0 )
 	else
 	{
-		int maxDamage = NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND - dpsTaken
+		int maxDamage = maxDPSTaken - dpsTaken
 		int currentDamage = int( DamageInfo_GetDamage( damageInfo ) )
 		DamageInfo_SetDamage( damageInfo, min( currentDamage, maxDamage ) )
 	}
 
 	// debug
 	//print( "npc pilot modified damage: " + string( DamageInfo_GetDamage( damageInfo ) ) )
+}
+
+// settings func
+void function ExtraSpawner_SetNPCPilotMaxDPSTaken( entity pilot, int maxDPS )
+{
+	if ( !( pilot in file.npcPilotMaxDPSTaken ) )
+		file.npcPilotMaxDPSTaken[ pilot ] <- NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND
+
+	file.npcPilotMaxDPSTaken[ pilot ] = maxDPS
+}
+
+int function GetNPCPilotMaxDPSTaken( entity pilot )
+{
+	if ( !( pilot in file.npcPilotMaxDPSTaken ) )
+		return NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND
+
+	return file.npcPilotMaxDPSTaken[ pilot ]
 }
 
 void function NPCPilotDamageModifier( entity victim, var damageInfo )
@@ -5307,8 +5340,25 @@ void function NPCPilotDamageModifier( entity victim, var damageInfo )
 	// make npc pilots powerful?
 	if ( victim.GetArmorType() != ARMOR_TYPE_HEAVY && DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET )
 	{
-		DamageInfo_ScaleDamage( damageInfo, NPC_PILOT_DAMAGE_MULTIPLIER )
+		DamageInfo_ScaleDamage( damageInfo, GetNPCPilotBulletDamageScale( pilot ) )
 	}
+}
+
+// settings func
+void function ExtraSpawner_SetNPCPilotBulletDamageScale( entity pilot, float scale )
+{
+	if ( !( pilot in file.npcPilotDamageScale ) )
+		file.npcPilotDamageScale[ pilot ] <- NPC_PILOT_BULLET_DAMAGE_MULTIPLIER
+
+	file.npcPilotDamageScale[ pilot ] = scale
+}
+
+int function GetNPCPilotBulletDamageScale( entity pilot )
+{
+	if ( !( pilot in file.npcPilotMaxDPSTaken ) )
+		return NPC_PILOT_BULLET_DAMAGE_MULTIPLIER
+
+	return file.npcPilotMaxDPSTaken[ pilot ]
 }
 
 void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
@@ -5341,9 +5391,9 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 		heavyArmorTarget = true
 
 	if ( heavyArmorTarget )
-		damageScale *= NPC_PROWLER_DAMAGE_MULTIPLIER_HEAVYARMOR
+		damageScale *= GetProwlerMeleeDamageScale( prowler, true )
 	else if ( nerfDamage )
-		damageScale *= NPC_PROWLER_DAMAGE_MULTIPLIER
+		damageScale *= GetProwlerMeleeDamageScale( prowler )
 	
 	if ( victim in file.isProwlerSquadmate ) // prowler squad specific
 	{
@@ -5353,6 +5403,37 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 	}
 
 	DamageInfo_ScaleDamage( damageInfo, damageScale )
+}
+
+void function ExtraSpawner_SetProwlerMeleeDamageScale( entity prowler, float damageScale, float damageHeavyArmorScale = -1 )
+{
+	if ( !( prowler in file.prowlerMeleeDamageScale ) )
+		file.prowlerMeleeDamageScale[ prowler ] <- PROWLER_MELEE_DAMAGE_MULTIPLIER
+	file.prowlerMeleeDamageScale[ prowler ] = damageScale
+
+	// default is we don't modify heavy armor damage
+	if ( damageHeavyArmorScale > -1 )
+	{
+		if ( !( prowler in file.prowlerMeleeDamageScaleHeavyArmor ) )
+			file.prowlerMeleeDamageScaleHeavyArmor[ prowler ] <- PROWLER_MELEE_DAMAGE_MULTIPLIER_HEAVYARMOR
+		file.prowlerMeleeDamageScaleHeavyArmor[ prowler ] = damageHeavyArmorScale
+	}
+}
+
+void function GetProwlerMeleeDamageScale( entity prowler, bool isHeavyArmorTarget = false )
+{
+	if ( isHeavyArmorTarget )
+	{
+		if ( !( prowler in file.prowlerMeleeDamageScaleHeavyArmor ) )
+			return PROWLER_MELEE_DAMAGE_MULTIPLIER_HEAVYARMOR
+
+		return file.prowlerMeleeDamageScaleHeavyArmor[ prowler ]
+	}
+
+	if ( !( prowler in file.prowlerMeleeDamageScale ) )
+		return PROWLER_MELEE_DAMAGE_MULTIPLIER
+
+	return file.prowlerMeleeDamageScale[ prowler ]
 }
 
 void function ExtraSpawner_PilotHandler( entity pilot )
