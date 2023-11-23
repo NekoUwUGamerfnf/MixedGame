@@ -30,6 +30,7 @@ global function SuperSpectre_SetDoBodyGroupUpdateOnDamage // adding back this va
 
 // shared utility
 global function SuperSpectre_IsReaperDoingNukeSequence // returns true if this reaper is doing nuke sequence while still alive( modified version of nuke )
+global function AddCallback_OnReaperLaunchedFragDroneSpawned // so you're able to know ticks owner reaper, and modify their behavior
 
 //==============================================================
 // AI Super Spectre
@@ -75,8 +76,12 @@ struct
 {
 	int activeMinions_GlobalArrayIdx = -1
 
+
+	// modified callbacks
+	array<void functionref( entity reaper, entity fragDrone )> onReaperLaunchedFragDroneSpawnedCallbacks
+
 	// in-file table
-	table<entity, bool> reaperStartedNukeFromThisDamage
+	//table<entity, bool> reaperStartedNukeFromThisDamage // this check is actually no where used because we're now always handle damage in finalDamageCallback
 	table<entity, bool> reaperKilledFromSelfNukeExplosion
 	table<entity, bool> reaperDoingNukeSequence
 
@@ -137,7 +142,7 @@ function AiSuperspectre_Init()
 // modified callback to init in-file tables
 void function SuperSpectreOnSpawn( entity npc )
 {
-	file.reaperStartedNukeFromThisDamage[ npc ] <- false
+	//file.reaperStartedNukeFromThisDamage[ npc ] <- false // this check is actually no where used because we're now always handle damage in finalDamageCallback
 	file.reaperKilledFromSelfNukeExplosion[ npc ] <- false
 	file.reaperDoingNukeSequence[ npc ] <- false
 }
@@ -1178,6 +1183,11 @@ void function LaunchSpawnerProjectile( entity npc, vector targetOrigin, int acti
 			drone.kv.spawnflags = SF_NPC_ALLOW_SPAWN_SOLID // clamped to navmesh no need to check solid
 			DispatchSpawn( drone )
 
+			// modified callbacks, for we can get ticks owner reaper on their spawn
+			foreach ( callbackFunc in file.onReaperLaunchedFragDroneSpawnedCallbacks )
+				callbackFunc( npc, drone )
+			//
+
 			// modified minion management. if reaper died and we should detonate it's minion...
 			if ( !IsAlive( npc ) && results.detonateMinion )
 				thread WaitForFragDroneDeployThenDetonate( drone )
@@ -1501,5 +1511,11 @@ bool function ShouldReaperDoDamagedBodyGroupUpdate( entity ent )
 	if ( !( ent in file.reaperDoBodyGroupUpdateOnDamage ) )
 		return false // default value
 	return file.reaperDoBodyGroupUpdateOnDamage[ ent ]
+}
+
+void function AddCallback_OnReaperLaunchedFragDroneSpawned( void functionref( entity reaper, entity fragDrone ) callbackFunc )
+{
+	if ( !file.onReaperLaunchedFragDroneSpawnedCallbacks.contains( callbackFunc ) )
+		file.onReaperLaunchedFragDroneSpawnedCallbacks.append( callbackFunc )
 }
 //
