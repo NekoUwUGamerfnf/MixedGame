@@ -85,7 +85,9 @@ global function ExtraSpawner_StopDefaultHandler // can't stop squad handler. may
 
 // settings func
 global function ExtraSpawner_SetNPCDamageHistoryLifeTime
-
+global function ExtraSpawner_SetNPCPilotBulletDamageScale
+global function ExtraSpawner_SetNPCPilotMaxDPSTaken
+global function ExtraSpawner_SetProwlerMeleeDamageScale
 
 // these consts are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
@@ -129,8 +131,12 @@ const bool EXTRA_SPAWNER_DEBUG = false
 // npc pilot health
 const int NPC_PILOT_MAX_HEALTH = 750
 const int NPC_PILOT_MAX_HEALTH_BOSS = 1000
+
 // damage dealt by pilot multiplyer
-const float NPC_PILOT_DAMAGE_MULTIPLIER = 2.0
+// this is now served as default value, can be modified by other files through ExtraSpawner_SetNPCPilotBulletDamageScale()
+// we may enable npc headshots and in that case, needs to reduce pilot damage dealt
+const float NPC_PILOT_BULLET_DAMAGE_MULTIPLIER = 2.0
+
 // pilot specific damage adjustments
 // hardcode version
 /*
@@ -139,17 +145,21 @@ const int NPC_TITAN_MELEE_DAMAGE_NPC_PILOT = 300
 const int TITAN_SOWRD_DAMAGE_NPC_PILOT = 250
 const int TITAN_STEPPING_ON_DAMAGE_NPC_PILOT = 250
 */
+
 // graph capped version
 // WIP
+
 // DPS versions
 const int NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND = 300 // pilots will only take 300 dmg per second
 
 // damage dealt by prowler multiplyer
 // base damage for MP: claw: 80, pounce: 100
-const float NPC_PROWLER_DAMAGE_MULTIPLIER = 0.5
+// this is now served as default value, can be modified by other files through ExtraSpawner_SetProwlerMeleeDamageScale()
+const float PROWLER_MELEE_DAMAGE_MULTIPLIER = 0.5
 // damage dealt by prowler to heavy armor units multiplyer
 // base damage for MP: claw: 60-80, pounce: 100
-const float NPC_PROWLER_DAMAGE_MULTIPLIER_HEAVYARMOR = 6.0
+// this is now served as default value, can be modified by other files through ExtraSpawner_SetProwlerMeleeDamageScale()
+const float PROWLER_MELEE_DAMAGE_MULTIPLIER_HEAVYARMOR = 6.0
 
 // care package
 const float CARE_PACKAGE_MESSAGE_INTERVAL = 3.0 // prevent care package spamming message
@@ -309,6 +319,13 @@ struct
 	float npcDamageHistoryLifeTime = NPC_HEALTH_HISTORY_FALLOFF_END
 	// for fake minimap icon system
 	table<entity, entity> npcOwnedFakeMapIconEnt
+	// shared minimap think with minion, attached ents ETC.
+	table<entity, bool> entEnabledMinimapIcon
+	// npc damage multiplier
+	table<entity, float> npcPilotBulletDamageScale
+	table<entity, int> npcPilotMaxDPSTaken
+	table<entity, float> prowlerMeleeDamageScale
+	table<entity, float> prowlerMeleeDamageScaleHeavyArmor
 } file
 
 void function ExtraAISpawner_Init()
@@ -373,7 +390,11 @@ void function ExtraAISpawner_Init()
 	// using team-based model is bad, better pick a random one
 	AddSpawnCallback( "npc_gunship", OnGunshipSpawned )
 
-	// debug
+	// add script minimap icon management for ticks
+	// this callback is from modified _ai_superspectre.nut
+	AddCallback_OnReaperLaunchedFragDroneSpawned( OnLaunchedFragDroneSpawned )
+
+	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
 		MeleeSyncedNPC_AllowNPCTitanExecutions( true )
 		MeleeSyncedNPC_AllowNPCPilotExecutions( true )
@@ -491,6 +512,21 @@ void function OnGunshipSpawned( entity gunship )
 		gunship.SetValueForModelKey( gunshipModel )
 		gunship.SetModel( gunshipModel )
 	}
+}
+
+void function OnLaunchedFragDroneSpawned( entity reaper, entity fragDrone )
+{
+	if ( !IsValid( reaper ) ) // reaper can be destroyed before frag drone can arm
+		return
+	
+	// ensure this reaper is spawned by extra spawner!
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( reaper ) )
+		return
+	
+	// start setup
+	ExtraSpawner_SetUpSpawnedNPC( fragDrone ) // mark this tick as spawned by extra spawner
+	if ( EntHasMinimapIconEnabled( reaper ) )
+		AddMinimapForNPC( fragDrone ) // add minimap icon tracking if they have a owner reaper
 }
 
 void function ProwlerPrecache()
@@ -2595,6 +2631,7 @@ void function TrackDialogueSpeakerDeath( entity guy, string dialogue, float debo
 }
 
 // this array is hardcoded, it contains all npcs that can show themselves on map
+// from cl_minimap.nut
 // if we handled a npc that can't create it's minimap icon, we create a fake icon using other npcs
 const array<string> MAP_ICON_VAILD_NPC_CLASS =
 [
@@ -2656,6 +2693,23 @@ void function SetUpGenericNPCMiniMapIcon( entity mapIcon )
 	foreach ( entity player in GetPlayerArray() )
 		mapIcon.Minimap_AlwaysShow( 0, player )
 	mapIcon.Minimap_SetHeightTracking( true )
+
+	// in-file checks
+	entity mapIconOwner = GetFakeMinimapIconOwner( mapIcon )
+	if ( IsValid( mapIconOwner ) ) // consider this is a fake mapicon, we track their owner instead
+		mapIcon = mapIconOwner
+	
+	if ( !( mapIcon in file.entEnabledMinimapIcon ) )
+		file.entEnabledMinimapIcon[ mapIcon ] <- false // init
+	file.entEnabledMinimapIcon[ mapIcon ] = true // mark as we've enabled map icon for this entity
+}
+
+bool function EntHasMinimapIconEnabled( entity mapIcon )
+{
+	if ( !( mapIcon in file.entEnabledMinimapIcon ) )
+		return false
+	
+	return file.entEnabledMinimapIcon[ mapIcon ]
 }
 
 void function SetUpGamemodeSpecificMiniMapIcon( entity guy )
@@ -2697,6 +2751,14 @@ void function DisableNPCMiniMapIcon( entity mapIcon )
 	foreach ( entity player in GetPlayerArray() )
 		mapIcon.Minimap_Hide( 0, player )
 	mapIcon.Minimap_SetHeightTracking( false )
+
+	// in-file checks
+	entity mapIconOwner = GetFakeMinimapIconOwner( mapIcon )
+	if ( IsValid( mapIconOwner ) ) // consider this is a fake mapicon, we track their owner instead
+		mapIcon = mapIconOwner
+	
+	if ( mapIcon in file.entEnabledMinimapIcon )
+		file.entEnabledMinimapIcon[ mapIcon ] = false // mark as we've disabled map icon for this entity
 }
 
 // so you can set up a titan without have to make a npc pilot embarking it
@@ -2991,10 +3053,11 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 	foreach ( guy in guys )
 	{
 		// add map
+		//AddMinimapForNPC( guy )
 		// if we can't handle this npc's map, generate fake map icon ent for them
 		// welp this can't be handled properly, there're something like prowlers always rotates their attachments
-		//AddMinimapForNPC_FailsafeToCreateFakeMapIcon( guy )
-		AddMinimapForNPC( guy )
+		// reworked to add less offset, rotate map icon npc to upside-down
+		AddMinimapForNPC_FailsafeToCreateFakeMapIcon( guy )
 
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		if ( hasHeavyArmorWeapon ) // squads won't flee if they got heavy armor weapon
@@ -5110,19 +5173,37 @@ void function NPCPilotDamageAdjustments( entity pilot, var damageInfo )
 	// we'll store it manually
 	// get DPS( excluded current damage because we store it later )
 	int dpsTaken = int( GetTotalDamageTakenInTime( pilot, 1.0 ) )
+	int maxDPSTaken = GetNPCPilotMaxDPSTaken( pilot )
 	// debug
 	//print( "dpsTaken: " + string( dpsTaken ) )
-	if ( dpsTaken >= NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND )
+	if ( dpsTaken >= maxDPSTaken )
 		DamageInfo_SetDamage( damageInfo, 0 )
 	else
 	{
-		int maxDamage = NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND - dpsTaken
+		int maxDamage = maxDPSTaken - dpsTaken
 		int currentDamage = int( DamageInfo_GetDamage( damageInfo ) )
 		DamageInfo_SetDamage( damageInfo, min( currentDamage, maxDamage ) )
 	}
 
 	// debug
 	//print( "npc pilot modified damage: " + string( DamageInfo_GetDamage( damageInfo ) ) )
+}
+
+// settings func
+void function ExtraSpawner_SetNPCPilotMaxDPSTaken( entity pilot, int maxDPS )
+{
+	if ( !( pilot in file.npcPilotMaxDPSTaken ) )
+		file.npcPilotMaxDPSTaken[ pilot ] <- NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND
+
+	file.npcPilotMaxDPSTaken[ pilot ] = maxDPS
+}
+
+int function GetNPCPilotMaxDPSTaken( entity pilot )
+{
+	if ( !( pilot in file.npcPilotMaxDPSTaken ) )
+		return NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND
+
+	return file.npcPilotMaxDPSTaken[ pilot ]
 }
 
 void function NPCPilotDamageModifier( entity victim, var damageInfo )
@@ -5139,8 +5220,25 @@ void function NPCPilotDamageModifier( entity victim, var damageInfo )
 	// make npc pilots powerful?
 	if ( victim.GetArmorType() != ARMOR_TYPE_HEAVY && DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET )
 	{
-		DamageInfo_ScaleDamage( damageInfo, NPC_PILOT_DAMAGE_MULTIPLIER )
+		DamageInfo_ScaleDamage( damageInfo, GetNPCPilotBulletDamageScale( pilot ) )
 	}
+}
+
+// settings func
+void function ExtraSpawner_SetNPCPilotBulletDamageScale( entity pilot, float scale )
+{
+	if ( !( pilot in file.npcPilotDamageScale ) )
+		file.npcPilotDamageScale[ pilot ] <- NPC_PILOT_BULLET_DAMAGE_MULTIPLIER
+
+	file.npcPilotDamageScale[ pilot ] = scale
+}
+
+int function GetNPCPilotBulletDamageScale( entity pilot )
+{
+	if ( !( pilot in file.npcPilotMaxDPSTaken ) )
+		return NPC_PILOT_BULLET_DAMAGE_MULTIPLIER
+
+	return file.npcPilotMaxDPSTaken[ pilot ]
 }
 
 void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
@@ -5173,9 +5271,9 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 		heavyArmorTarget = true
 
 	if ( heavyArmorTarget )
-		damageScale *= NPC_PROWLER_DAMAGE_MULTIPLIER_HEAVYARMOR
+		damageScale *= GetProwlerMeleeDamageScale( prowler, true )
 	else if ( nerfDamage )
-		damageScale *= NPC_PROWLER_DAMAGE_MULTIPLIER
+		damageScale *= GetProwlerMeleeDamageScale( prowler )
 	
 	if ( victim in file.isProwlerSquadmate ) // prowler squad specific
 	{
@@ -5185,6 +5283,37 @@ void function ProwlerMeleeDamageModifier( entity victim, var damageInfo )
 	}
 
 	DamageInfo_ScaleDamage( damageInfo, damageScale )
+}
+
+void function ExtraSpawner_SetProwlerMeleeDamageScale( entity prowler, float damageScale, float damageHeavyArmorScale = -1 )
+{
+	if ( !( prowler in file.prowlerMeleeDamageScale ) )
+		file.prowlerMeleeDamageScale[ prowler ] <- PROWLER_MELEE_DAMAGE_MULTIPLIER
+	file.prowlerMeleeDamageScale[ prowler ] = damageScale
+
+	// default is we don't modify heavy armor damage
+	if ( damageHeavyArmorScale > -1 )
+	{
+		if ( !( prowler in file.prowlerMeleeDamageScaleHeavyArmor ) )
+			file.prowlerMeleeDamageScaleHeavyArmor[ prowler ] <- PROWLER_MELEE_DAMAGE_MULTIPLIER_HEAVYARMOR
+		file.prowlerMeleeDamageScaleHeavyArmor[ prowler ] = damageHeavyArmorScale
+	}
+}
+
+void function GetProwlerMeleeDamageScale( entity prowler, bool isHeavyArmorTarget = false )
+{
+	if ( isHeavyArmorTarget )
+	{
+		if ( !( prowler in file.prowlerMeleeDamageScaleHeavyArmor ) )
+			return PROWLER_MELEE_DAMAGE_MULTIPLIER_HEAVYARMOR
+
+		return file.prowlerMeleeDamageScaleHeavyArmor[ prowler ]
+	}
+
+	if ( !( prowler in file.prowlerMeleeDamageScale ) )
+		return PROWLER_MELEE_DAMAGE_MULTIPLIER
+
+	return file.prowlerMeleeDamageScale[ prowler ]
 }
 
 void function ExtraSpawner_PilotHandler( entity pilot )
@@ -5202,8 +5331,7 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 	// show on enemy radar, unfortunatelly cl_minimap won't track npc_pilot_elite
 	//AddMinimapForNPC( pilot )
 	// using a hacky way: add a tracked npc as fake npc
-	// welp that won't work, their attachments always rotating
-	//CreateNPCAsFakeMapIconForNPC( pilot, "npc_soldier" )
+	CreateNPCAsFakeMapIconForNPC( pilot, "npc_soldier" )
 
 	wait 3 // initial wait before pilots disembark from droppod or drop from ejecting
 	
@@ -5758,12 +5886,14 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 // welp this works pretty bad, because spawned npc still have collision with current npc
 // to avoid that... try to set this npc to very high into sky, handled by parameter "offset"
 // welp that doesn't work well either, attachments are always rotating
-entity function CreateNPCAsFakeMapIconForNPC( entity npc, string fakeIconNPCClass, string attachment = "ORIGIN", vector offset = < 0, 0, 2500 > )
+// temp find a solution is that we rotate npc to make them upside down, and add very little offset
+entity function CreateNPCAsFakeMapIconForNPC( entity npc, string fakeIconNPCClass, string attachment = "ORIGIN", vector angles = < 0, 0, 180 >, vector offset = < 0, 0, -30 > )
 {
 	entity mapIconNPC = CreateEntity( fakeIconNPCClass )
 	mapIconNPC.Freeze() // don't let it do anything
 
 	DispatchSpawn( mapIconNPC )
+	TakeAllWeapons( mapIconNPC )
 
 	// handle invulnerablility and freeze inside function
 	// this also disables trigger checks and make npc take less CPU load
@@ -5775,6 +5905,7 @@ entity function CreateNPCAsFakeMapIconForNPC( entity npc, string fakeIconNPCClas
 
 	mapIconNPC.SetOwner( npc ) // disable collision against owner, but not good enough
 	mapIconNPC.SetParent( npc, attachment )
+	mapIconNPC.SetAngles( angles ) // face to ground
 	mapIconNPC.SetOrigin( offset ) // so nobody can see them
 	mapIconNPC.NotSolid()
 	mapIconNPC.kv.CollisionGroup = 0
@@ -5866,4 +5997,22 @@ void function SetNPCFakeMinimapIconEnt( entity npc, entity mapIcon )
 		file.npcOwnedFakeMapIconEnt[ npc ] <- null // init
 
 	file.npcOwnedFakeMapIconEnt[ npc ] = mapIcon
+}
+
+entity function GetFakeMinimapIconOwner( entity mapIcon )
+{
+	bool mapIconRegistered = false
+	foreach ( npc, otherMapIcon in file.npcOwnedFakeMapIconEnt )
+	{
+		if ( otherMapIcon == mapIcon )
+		{
+			mapIconRegistered = true
+			break
+		}
+	}
+	// if we can't find this mapIcon entity from table, just return null
+	if ( !mapIconRegistered )
+		return null
+	
+	return mapIcon.GetOwner()
 }
