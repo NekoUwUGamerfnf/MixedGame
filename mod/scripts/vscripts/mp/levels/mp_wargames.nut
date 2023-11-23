@@ -81,13 +81,15 @@ bool function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
 	DamageInfo_SetCustomDamageType( damageInfo, damageType )
 
 	// removed delayed dissolve here
-	//thread DelayedDissolveDeadEntity( deadEnt )
-	DissolveEntityWrapped( deadEnt )
+	// add it back for players. client-side prediction needs hold like ragdolls
+	if ( deadEnt.IsPlayer() )
+		thread DelayedDissolveDeadEntity( deadEnt )
+	else
+		DissolveEntityWrapped( deadEnt )
 
 	return true // dissolving succeeded
 }
 
-/*
 void function DelayedDissolveDeadEntity( entity deadEnt )
 {
 	WaitFrame() // wait for next frame so we don't mess up ragdolls( seems can't fix )
@@ -98,7 +100,6 @@ void function DelayedDissolveDeadEntity( entity deadEnt )
 
 	DissolveEntityWrapped( deadEnt )
 }
-*/
 
 void function DissolveEntityWrapped( entity ent )
 {
@@ -153,17 +154,24 @@ void function MarvinSpawnerThink( entity spawner )
 	spawner.Signal( "MarvinSpawnerThink" )
 	spawner.EndSignal( "MarvinSpawnerThink" ) // prevent it from looping over many times
 	// intro spawn
-	while ( GamePlayingOrSuddenDeath() )
+	while ( true )
 	{
 		entity marvin = CreateMarvin( TEAM_UNASSIGNED, spawner.GetOrigin(), spawner.GetAngles() )
 		marvin.kv.health = 1
 		marvin.kv.max_health = 1
-		marvin.kv.spawnflags = 516
+		//marvin.kv.spawnflags = 516
 		marvin.kv.contents = (int(marvin.kv.contents) | CONTENTS_NOGRAPPLE)
 		marvin.ai.killShotSound = false
 		AddEntityCallback_OnDamaged( marvin, OnWargamesMarvinDamaged )
 		DispatchSpawn( marvin )
+
+		// setup marvin
 		HideName( marvin )
+		marvin.SetNoTarget( true )
+		marvin.SetNoTargetSmartAmmo( true )
+		marvin.SetAimAssistAllowed( false )
+		marvin.EnableNPCFlag( NPC_IGNORE_ALL )
+		//marvin.SetEfficientMode( true )
 
 		thread MarvinJobThink( marvin )
 
