@@ -4,6 +4,11 @@ global function OnWeaponAttemptOffhandSwitch_weapon_frag_drone
 global function OnWeaponTossReleaseAnimEvent_weapon_frag_drone
 global function MpWeaponFragDrone_Init
 
+// modified callbacks
+#if SERVER
+global function OnWeaponNPCTossGrenade_weapon_frag_drone
+#endif
+
 void function MpWeaponFragDrone_Init()
 {
 	RegisterSignal( "OnFragDroneCollision" )
@@ -47,6 +52,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_frag_drone( entity weapon, Weap
 }
 
 // modified callback
+#if SERVER
 void function OnWeaponNPCTossGrenade_weapon_frag_drone( entity weapon, entity nade )
 {
 	// generic setup
@@ -57,6 +63,7 @@ void function OnWeaponNPCTossGrenade_weapon_frag_drone( entity weapon, entity na
 	if ( IsValid( owner ) && owner.IsNPC() )
 		nade.s.savedSquadName <- owner.kv.squadname
 }
+#endif
 
 void function OnProjectileExplode_weapon_frag_drone( entity projectile )
 {
