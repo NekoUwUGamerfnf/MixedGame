@@ -89,6 +89,11 @@ global function ExtraSpawner_SetNPCPilotBulletDamageScale
 global function ExtraSpawner_SetNPCPilotMaxDPSTaken
 global function ExtraSpawner_SetProwlerMeleeDamageScale
 
+// shared utility
+global function ExtraSpawner_IsNPCSpawnedFromExtraSpawner
+global function ExtraSpawner_IsSquadFromExtraSpawner
+
+
 // these consts are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
 
@@ -305,7 +310,7 @@ struct
 	array<entity> carePackageUsedPlayers = []
 	table< entity, array<void functionref( entity ent, entity package )> > entityCarePackageUsedCallbacks
 	table< entity, float > playerLastCarePackageNotifiedTime // prevent care package spamming message
-	// for marking the npc as spawning from this file
+	// for marking the npc as spawn from this file
 	table<entity, bool> npcSpawnFromExtraSpawner
 	// for marking the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
@@ -328,7 +333,8 @@ struct
 	table<entity, float> prowlerMeleeDamageScaleHeavyArmor
 	// for updating tick's projectile model, minimap icon stuffs
 	table<entity, bool> fragDroneProjectileUpdatedModel
-	array<string> reaperSquadFromExtraSpawner
+	// for marking this npc squad as spawn from this file
+	array<string> npcSquadFromExtraSpawner
 } file
 
 void function ExtraAISpawner_Init()
@@ -394,6 +400,9 @@ void function ExtraAISpawner_Init()
 	// this is hardcoded because hornet model is easier to be hit than straton
 	// using team-based model is bad, better pick a random one
 	AddSpawnCallback( "npc_gunship", OnGunshipSpawned )
+	// show on minimap if it's spawned by this file
+	AddSpawnCallback( "npc_dropship", OnDropshipSpawned )
+	AddSpawnCallback( "npc_drone", OnDroneSpawned )
 
 	// add script minimap icon management for ticks
 	// this callback is from modified _ai_superspectre.nut
@@ -435,6 +444,25 @@ void function ExtraSpawner_SetUpSpawnedNPC( entity npc )
 	AddEntityCallback_OnPostDamaged( npc, StoreDamageHistoryForNPC )
 }
 
+bool function ExtraSpawner_IsNPCSpawnedFromExtraSpawner( entity npc )
+{
+	return npc in file.npcSpawnFromExtraSpawner
+}
+
+// wrapped function that mark the squad as extra spawner spawned
+string function ExtraSpawner_MakeMarkedSquadName( int team, string squadMsg )
+{
+	string squad = MakeSquadName( team, squadMsg )
+	file.npcSquadFromExtraSpawner.append( squad )
+
+	return squad
+}
+
+bool function ExtraSpawner_IsSquadFromExtraSpawner( string squadname )
+{
+	return file.npcSquadFromExtraSpawner.contain( squadname )
+}
+
 // vanilla never store any damage histroy for npcs, here I do it for fun
 // basically same setup as one in PlayerTookDamage()
 void function StoreDamageHistoryForNPC( entity npc, var damageInfo )
@@ -466,11 +494,6 @@ void function StoreDamageHistoryForNPC( entity npc, var damageInfo )
 void function ExtraSpawner_SetNPCDamageHistoryLifeTime( float lifeTime )
 {
 	file.npcDamageHistoryLifeTime = lifeTime
-}
-
-bool function ExtraSpawner_IsNPCSpawnedFromExtraSpawner( entity npc )
-{
-	return npc in file.npcSpawnFromExtraSpawner
 }
 
 void function OnClientConnected( entity player )
@@ -520,6 +543,29 @@ void function OnGunshipSpawned( entity gunship )
 	}
 }
 
+void function OnDropshipSpawned( entity dropship )
+{
+	string squad = expect string( dropship.kv.squadname )
+	// only handle dropships spawned from this file
+	// marked by squads or entity itself
+	if ( !ExtraSpawner_IsSquadFromExtraSpawner( squad ) && !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( dropship ) )
+		return
+	
+	AddMinimapForNPC( dropship ) // show on enemy minimap
+}
+
+void function OnDroneSpawned( entity drone )
+{
+	string squad = expect string( drone.kv.squadname )
+	// only handle drones spawned from this file
+	// marked by squads or entity itself
+	// NOTE: squad setup needs modified _ai_drone.gnut
+	if ( !ExtraSpawner_IsSquadFromExtraSpawner( squad ) && !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( drone ) )
+		return
+	
+	AddMinimapForNPC( drone ) // show on enemy minimap
+}
+
 void function OnLaunchedFragDroneSpawned( entity reaper, entity nade, entity fragDrone, string droneSettings )
 {
 	if ( !IsValid( reaper ) ) // reaper can be destroyed before frag drone can arm
@@ -544,7 +590,7 @@ void function OnLaunchedFragDroneSpawned( entity reaper, entity nade, entity fra
 	{
 		// for ticks themselves, use squad to identify whether they're spawned by extra spawner or not
 		string squad = expect string( fragDrone.kv.squadname )
-		if ( file.reaperSquadFromExtraSpawner.contains( squad ) ) // do spawned by extra spawner!
+		if ( ExtraSpawner_IsSquadFromExtraSpawner( squad ) ) // do spawned by extra spawner!
 		{
 			//print( "tick: " + string( fragDrone ) )
 			//print( "have squad from extra spawner!" )
@@ -1606,8 +1652,8 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 	// require a unique squad to spawn AIClass titan_buddy
 	// because all titan_buddy will be assigned to the same "bt" squad
 	// if we spawn an enemy buddy titan we'll crash
-	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
-	SetSquad( titan, squadName )
+	string squad = ExtraSpawner_MakeMarkedSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
+	SetSquad( titan, squad )
 
 	// pick a random pilot setting!
 	NPCVanguardPilot pickedPilot = file.npcVanguardPilots[ RandomInt( file.npcVanguardPilots.len() ) ]
@@ -2979,7 +3025,7 @@ void function ApplySoulSettingsForNpcPilotEmbarking( entity titan )
 // copied from _ai_gamemodes, make them compatible with more settings
 void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, string content, int count, void functionref( array<entity> guys ) squadHandler = null )
 {  
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "dropship_squad" ) )
 
 	entity functionref( int team, vector origin, vector angles ) spawnFunc = GetDropshipSpawnFunc( content )
 	if ( spawnFunc == null )
@@ -2993,7 +3039,7 @@ void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, stri
 	drop.yaw			= rot.y
 	drop.dist			= 768
 	drop.team			= team
-	drop.squadname		= squadName
+	drop.squadname		= squad
 	SetDropTableSpawnFuncs( drop, spawnFunc, count )
 	SetCallinStyle( drop, eDropStyle.ZIPLINE_NPC )
   
@@ -3001,7 +3047,7 @@ void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, stri
 	
 	WaitSignal( drop, "OnDropoff" )
 	
-	array<entity> guys = GetNPCArrayBySquad( squadName )
+	array<entity> guys = GetNPCArrayBySquad( squad )
 	
 	foreach ( guy in guys )
 	{
@@ -3071,7 +3117,7 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 	// wait for launch
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "droppod_squad" ) )
 	array<entity> guys
 	for ( int i = 0; i < SQUAD_SIZE; i++ )
 	{
@@ -3081,7 +3127,7 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 		ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
 		DispatchSpawn( npc )
 
-		SetSquad( npc, squadName )
+		SetSquad( npc, squad )
 		
 		ExtraSpawner_ApplyNPCWeapons( npc )
 		
@@ -3639,8 +3685,8 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	// require a unique squad to spawn AIClass titan_buddy
 	// because all titan_buddy will be assigned to the same "bt" squad
 	// if we spawn an enemy buddy titan we'll crash
-	string squadName = MakeSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
-	SetSquad( titan, squadName )
+	string squad = ExtraSpawner_MakeMarkedSquadName( titan.GetTeam(), UniqueString( "buddy" ) )
+	SetSquad( titan, squad )
 
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
@@ -3685,7 +3731,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 	
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "droppod_squad" ) )
 	array<entity> guys
 	for ( int i = 0; i < amount; i++ )
 	{
@@ -3694,7 +3740,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 		ExtraSpawner_SetUpSpawnedNPC( spawnNpc ) // generic setup for any npc in this file
 		DispatchSpawn( spawnNpc ) // never delay dispatchSpawn()
 
-		SetSquad( spawnNpc, squadName )
+		SetSquad( spawnNpc, squad )
 
 		spawnNpc.SetParent( pod, "ATTACH", true )
 		guys.append( spawnNpc )
@@ -3716,7 +3762,7 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 
 void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot, int team, string content, int count, string leaderAiSet = "npc_soldier_drone_summoner", int leaderHealth = 350, void functionref( array<entity> guys ) squadHandler = null )
 {  
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "dropship_squad" ) )
 
 	entity functionref( int team, vector origin, vector angles ) spawnFunc = GetDropshipSpawnFunc( content )
 	if ( spawnFunc == null )
@@ -3730,7 +3776,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 	drop.yaw			= rot.y
 	drop.dist			= 768
 	drop.team			= team
-	drop.squadname		= squadName
+	drop.squadname		= squad
 	// setup spawnFucs
 	drop.npcSpawnFuncs.append( 
 		entity function( int team, vector origin, vector angles ) : ( leaderAiSet )
@@ -3748,7 +3794,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 	
 	WaitSignal( drop, "OnDropoff" )
 	
-	array<entity> guys = GetNPCArrayBySquad( squadName )
+	array<entity> guys = GetNPCArrayBySquad( squad )
 	
 	foreach ( int i, guy in guys )
 	{
@@ -3799,7 +3845,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "droppod_squad" ) )
 	array<entity> guys
 	for ( int i = 0; i < SQUAD_SIZE; i++ )
 	{
@@ -3816,7 +3862,7 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 			DispatchSpawn( npc )
 		}
 
-		SetSquad( npc, squadName )
+		SetSquad( npc, squad )
 		// hardcoded here, setup grunt weapon specific
 		bool sniperGrunt = isLeader && leaderAiSet == "npc_soldier_sidearm"
 		bool guardGrunt = isLeader && leaderAiSet == "npc_soldier_pve_eliteguard"
@@ -4069,7 +4115,7 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "droppod_squad" ) )
 	array<entity> guys
 	for ( int i = 0; i < 5 ;i++ )
 	{
@@ -4091,7 +4137,7 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 			npc.SetHealth( npc.GetMaxHealth() )
 		}
 
-		SetSquad( npc, squadName )
+		SetSquad( npc, squad )
 		
 		npc.SetParent( pod, "ATTACH", true )
 		guys.append( npc )
@@ -4114,7 +4160,7 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 // stronger stalker: harder to be dismembered, no faster headshot kills, no more one-critical-hit overload, always overload on death if not getting headshot
 void function ExtraSpawner_SpawnOverloadedStalkerDropShip( vector pos, vector rot, int team, int count, void functionref( array<entity> guys ) squadHandler = null )
 {  
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "dropship_squad" ) )
 
 	entity functionref( int team, vector origin, vector angles ) spawnFunc = CreateOverloadedStalker
 
@@ -4123,7 +4169,7 @@ void function ExtraSpawner_SpawnOverloadedStalkerDropShip( vector pos, vector ro
 	drop.yaw			= rot.y
 	drop.dist			= 768
 	drop.team			= team
-	drop.squadname		= squadName
+	drop.squadname		= squad
 	SetDropTableSpawnFuncs( drop, spawnFunc, count )
 	SetCallinStyle( drop, eDropStyle.ZIPLINE_NPC )
   
@@ -4131,7 +4177,7 @@ void function ExtraSpawner_SpawnOverloadedStalkerDropShip( vector pos, vector ro
 	
 	WaitSignal( drop, "OnDropoff" )
 	
-	array<entity> guys = GetNPCArrayBySquad( squadName )
+	array<entity> guys = GetNPCArrayBySquad( squad )
 	
 	foreach ( guy in guys )
 	{
@@ -4163,7 +4209,7 @@ void function ExtraSpawner_SpawnOverloadedStalkerDropPod( vector pos, vector rot
 	// wait for launch
 	waitthread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
-	string squadName = MakeSquadName( team, UniqueString( "" ) )
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "droppod_squad" ) )
 	array<entity> guys
 	for ( int i = 0; i < SQUAD_SIZE; i++ )
 	{
@@ -4174,7 +4220,7 @@ void function ExtraSpawner_SpawnOverloadedStalkerDropPod( vector pos, vector rot
 		DispatchSpawn( npc )
 		ExtraSpawner_SetUpOverloadedStalker( npc ) // setup stronger behavior
 
-		SetSquad( npc, squadName )
+		SetSquad( npc, squad )
 		
 		ExtraSpawner_ApplyNPCWeapons( npc )
 		
@@ -5800,8 +5846,7 @@ void function ExtraSpawner_SpawnReaperCanLaunchTicks( vector pos, vector rot, in
 	SetSpawnOption_Warpfall( reaper )
 	SetSpawnOption_AISettings( reaper, reaperSettings )
 	// make squad so we can identify their tick's spawn source
-	string squad = MakeSquadName( team, UniqueString( "drone_spawn_reaper" ) )
-	file.reaperSquadFromExtraSpawner.append( squad ) // ticks can get squad message
+	string squad = ExtraSpawner_MakeMarkedSquadName( team, UniqueString( "drone_spawn_reaper" ) )
 	SetSpawnOption_SquadName( reaper, squad )
 	
 	HideName( reaper ) // prevent flash a name onto it
