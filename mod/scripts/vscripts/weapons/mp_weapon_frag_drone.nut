@@ -8,6 +8,9 @@ global function MpWeaponFragDrone_Init
 // modified callbacks
 global function OnWeaponTossPrep_weapon_frag_drone
 global function OnWeaponPrimaryAttack_weapon_frag_drone
+#if SERVER
+global function OnWeaponNPCTossGrenade_weapon_frag_drone
+#endif
 
 // modified: drone_spawner_anm
 const array<string> VALID_DRONE_TYPES = 
@@ -104,6 +107,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_frag_drone( entity weapon, Weap
 }
 
 // modified callback
+#if SERVER
 void function OnWeaponNPCTossGrenade_weapon_frag_drone( entity weapon, entity nade )
 {
 	// generic setup
@@ -114,15 +118,16 @@ void function OnWeaponNPCTossGrenade_weapon_frag_drone( entity weapon, entity na
 	if ( IsValid( owner ) && owner.IsNPC() )
 		nade.s.savedSquadName <- owner.kv.squadname
 }
+#endif
 
 void function OnProjectileExplode_weapon_frag_drone( entity projectile )
 {
 	#if SERVER
-			vector origin = projectile.GetOrigin()
-			entity owner = projectile.GetThrower()
+		vector origin = projectile.GetOrigin()
+		entity owner = projectile.GetThrower()
 
-			if ( !IsValid( owner ) )
-				return
+		if ( !IsValid( owner ) )
+			return
 
 		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 
