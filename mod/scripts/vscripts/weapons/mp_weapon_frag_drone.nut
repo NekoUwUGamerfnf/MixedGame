@@ -4,6 +4,11 @@ global function OnWeaponAttemptOffhandSwitch_weapon_frag_drone
 global function OnWeaponTossReleaseAnimEvent_weapon_frag_drone
 global function MpWeaponFragDrone_Init
 
+// modified callbacks
+#if SERVER
+global function OnWeaponNPCTossGrenade_weapon_frag_drone
+#endif
+
 void function MpWeaponFragDrone_Init()
 {
 	RegisterSignal( "OnFragDroneCollision" )
@@ -46,63 +51,92 @@ var function OnWeaponTossReleaseAnimEvent_weapon_frag_drone( entity weapon, Weap
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
 
+// modified callback
+#if SERVER
+void function OnWeaponNPCTossGrenade_weapon_frag_drone( entity weapon, entity nade )
+{
+	// generic setup
+	Grenade_OnPlayerNPCTossGrenade_Common( weapon, nade )
+
+	// here goes some vanilla missing behavior: we save squad here and apply it on tick spawn
+	entity owner = nade.GetThrower()
+	if ( IsValid( owner ) && owner.IsNPC() )
+		nade.s.savedSquadName <- owner.kv.squadname
+}
+#endif
 
 void function OnProjectileExplode_weapon_frag_drone( entity projectile )
 {
 	#if SERVER
-			vector origin = projectile.GetOrigin()
-			entity owner = projectile.GetThrower()
+		vector origin = projectile.GetOrigin()
+		entity owner = projectile.GetThrower()
 
-			if ( !IsValid( owner ) )
-				return
+		if ( !IsValid( owner ) )
+			return
 
-			int team = owner.GetTeam()
+		int team = owner.GetTeam()
 
-			entity drone = CreateFragDroneCan( team, origin, < 0, projectile.GetAngles().y, 0 > )
-			SetSpawnOption_AISettings( drone, "npc_frag_drone_throwable" )
-			DispatchSpawn( drone )
+		entity drone = CreateFragDroneCan( team, origin, < 0, projectile.GetAngles().y, 0 > )
+		SetSpawnOption_AISettings( drone, "npc_frag_drone_throwable" )
+	
+		// here goes modified behavior: we add squad if it's spawned by npc
+		// welp there's actually delayed very much, may needs to setup on throw
+		if ( owner.IsNPC() )
+		{
+			string squad = ""
+			// setup squad on throw version
+			if ( "savedSquadName" in projectile.s )
+				squad = expect string( projectile.s.savedSquadName )
+			else // failsafe, or we're not setting up squad but called this OnProjectileCollision calllback
+				squad = expect string( npc.kv.squadname )
 
-			vector ornull clampedPos = NavMesh_ClampPointForAIWithExtents( origin, drone, < 20, 20, 36 > )
-			if ( clampedPos != null )
-			{
-				expect vector( clampedPos )
-				drone.SetOrigin( clampedPos )
-			}
-			else
-			{
-				// fix for northstar: if we can't find better pos, at least set a owner before tick explodes
-				//projectile.GrenadeExplode( Vector( 0, 0, 0 ) )
-				//drone.Signal( "SuicideSpectreExploding" )
-				thread DroneDeployFailedExplode( drone, owner )
-				return
-			}
+			if ( squad != "" )
+				SetSpawnOption_SquadName( drone, squad )
+		}
 
-			int followBehavior = GetDefaultNPCFollowBehavior( drone )
-			if ( owner.IsPlayer() )
-			{
-				drone.SetBossPlayer( owner )
-				UpdateEnemyMemoryWithinRadius( drone, 1000 )
-			}
-			else if ( owner.IsNPC() )
-			{
-				entity enemy = owner.GetEnemy()
-				if ( IsAlive( enemy ) )
-					drone.SetEnemy( enemy )
-			}
+		DispatchSpawn( drone )
 
-			if ( IsSingleplayer() && IsAlive( owner ) )
-			{
-				drone.InitFollowBehavior( owner, followBehavior )
-				drone.EnableBehavior( "Follow" )
-			}
-			else
-			{
-				drone.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_NEW_ENEMY_FROM_SOUND )
-			}
+		vector ornull clampedPos = NavMesh_ClampPointForAIWithExtents( origin, drone, < 20, 20, 36 > )
+		if ( clampedPos != null )
+		{
+			expect vector( clampedPos )
+			drone.SetOrigin( clampedPos )
+		}
+		else
+		{
+			// fix for northstar: if we can't find better pos, at least set a owner before tick explodes
+			//projectile.GrenadeExplode( Vector( 0, 0, 0 ) )
+			//drone.Signal( "SuicideSpectreExploding" )
+			thread DroneDeployFailedExplode( drone, owner )
+			return
+		}
 
-			thread FragDroneDeplyAnimation( drone, 0.0, 0.1 )
-			thread WaitForEnemyNotification( drone )
-			thread FragDroneLifetime( drone )
+		int followBehavior = GetDefaultNPCFollowBehavior( drone )
+		if ( owner.IsPlayer() )
+		{
+			drone.SetBossPlayer( owner )
+			UpdateEnemyMemoryWithinRadius( drone, 1000 )
+		}
+		else if ( owner.IsNPC() )
+		{
+			entity enemy = owner.GetEnemy()
+			if ( IsAlive( enemy ) )
+				drone.SetEnemy( enemy )
+		}
+
+		if ( IsSingleplayer() && IsAlive( owner ) )
+		{
+			drone.InitFollowBehavior( owner, followBehavior )
+			drone.EnableBehavior( "Follow" )
+		}
+		else
+		{
+			drone.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_NEW_ENEMY_FROM_SOUND )
+		}
+
+		thread FragDroneDeplyAnimation( drone, 0.0, 0.1 )
+		thread WaitForEnemyNotification( drone )
+		thread FragDroneLifetime( drone )
 	#endif
 }
 
