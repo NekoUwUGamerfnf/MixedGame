@@ -1,3 +1,4 @@
+untyped // so we can use entity.s
 global function OnProjectileCollision_weapon_frag_drone
 global function OnProjectileExplode_weapon_frag_drone
 global function OnWeaponAttemptOffhandSwitch_weapon_frag_drone
