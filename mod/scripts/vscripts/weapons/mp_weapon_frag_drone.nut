@@ -61,6 +61,11 @@ void function OnWeaponNPCTossGrenade_weapon_frag_drone( entity weapon, entity na
 
 	// here goes some vanilla missing behavior: we save squad here and apply it on tick spawn
 	entity owner = nade.GetThrower()
+	//print( "RUNNING OnWeaponNPCTossGrenade_weapon_frag_drone()" )
+	//print( "weapon: " + string( weapon ) )
+	//print( "nade: " + string( nade ) )
+	//print( "owner: " + string( owner ) )
+	//print( "squadname: " + string( owner.kv.squadname ) )
 	if ( IsValid( owner ) && owner.IsNPC() )
 		nade.s.savedSquadName <- owner.kv.squadname
 }
@@ -82,14 +87,21 @@ void function OnProjectileExplode_weapon_frag_drone( entity projectile )
 	
 		// here goes modified behavior: we add squad if it's spawned by npc
 		// welp there's actually delayed very much, may needs to setup on throw
+		// maybe no need? thinks below never gets hit if projectile's thrower became invalid
 		if ( owner.IsNPC() )
 		{
 			string squad = ""
 			// setup squad on throw version
 			if ( "savedSquadName" in projectile.s )
+			{
 				squad = expect string( projectile.s.savedSquadName )
+				//print( "we got saved squad name for nade " + string( projectile ) + " : " + squad )
+			}
 			else // failsafe, or we're not setting up squad but called this OnProjectileCollision calllback
+			{
 				squad = expect string( owner.kv.squadname )
+				//print( "we can't find saved squad name!! owner " + string( owner ) + " squad is: " + squad )
+			}
 
 			if ( squad != "" )
 				SetSpawnOption_SquadName( drone, squad )
