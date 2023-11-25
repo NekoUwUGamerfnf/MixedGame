@@ -93,6 +93,8 @@ global function ExtraSpawner_SetProwlerMeleeDamageScale
 global function ExtraSpawner_IsNPCSpawnedFromExtraSpawner
 global function ExtraSpawner_IsSquadFromExtraSpawner
 
+// debug
+const bool EXTRA_SPAWNER_DEBUG = false
 
 // these consts are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
@@ -125,9 +127,6 @@ const float GUNSHIP_JET_BURST_SOUND_COOLDOWN = 3.5 // don't want sound to be pla
 // vanilla never store any damage histroy for npcs, here I do it for fun
 // note that this is used as default value, actual value can be modified through ExtraSpawner_SetNPCDamageHistoryLifeTime()
 const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may need to scale down damage histroy saving time
-
-// debug
-const bool EXTRA_SPAWNER_DEBUG = false
 
 // modifiable consts
 
@@ -424,18 +423,20 @@ void function ExtraAISpawner_Init()
 		MeleeSyncedNPC_AllowNPCSpectreExecutions( true )
 		MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs( true ) // pilot models don't have syncedMeleeData initialized, so let them use mp pilot executions
 		
+		ExtraSpawner_SetNPCSecondaryWeapons( "npc_pilot_elite", ["mp_weapon_autopistol", "mp_weapon_semipistol"] )
+		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
+
 		AddClientCommandCallback( "killallspawnernpc", CC_KillAllNPCsFromExtraSpawner )
 		AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
+		AddClientCommandCallback( "titanwithpilot", CC_SpawnTitanWithPilot )
 		AddClientCommandCallback( "tickreaper", CC_SpawnReaperCanLaunchTicks )
 		AddClientCommandCallback( "gunship", CC_SpawnGunShip )
 		//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot ) // shouldn't be used because we've removed npc_pilot_elite_assassin stuffs
-		AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
+		//AddClientCommandCallback( "specialistgrunt", CC_SpawnSpecialistGrunt )
 		AddClientCommandCallback( "pilot", CC_SpawnPilotElite )
 		AddClientCommandCallback( "bosstitan", CC_SpawnBossTitan )
 		AddClientCommandCallback( "bosstitan_intro", CC_SpawnBossTitanWithIntro )
-		AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
-		ExtraSpawner_SetNPCSecondaryWeapons( "npc_pilot_elite", ["mp_weapon_autopistol", "mp_weapon_semipistol"] )
-		ExtraSpawner_SetNPCAntiTitanWeapons( "npc_soldier", ["mp_weapon_defender"] )
+		//AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
 		AddClientCommandCallback( "overloadedstalkers", CC_SpawnOverloadedStalkers )
 	#endif // EXTRA_SPAWNER_DEBUG
@@ -2208,6 +2209,21 @@ bool function CC_SpawnPilotAndTitan( entity player, array<string> args )
 	return true
 }
 
+bool function CC_SpawnTitanWithPilot( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	string spawnName = ""
+	if ( args.len() > 0 )
+		spawnName = args[0]
+	// if spawn name invalid, we will spawn a random titan
+
+    Point dropPoint = GetTitanReplacementPoint( player )
+	thread ExtraSpawner_SpawnTitanWithPilot( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args, 1 ), spawnName )
+	return true
+}
+
 bool function CC_SpawnReaperCanLaunchTicks( entity player, array<string> args )
 {
 	Point dropPoint = GetTitanReplacementPoint( player )
@@ -2339,7 +2355,7 @@ bool function CC_SpawnTestPistolGrunt( entity player, array<string> args )
 
 bool function CC_SpawnGruntDroppod( entity player, array<string> args )
 {
-	vector pos = GetPlayerCrosshairOrigin( player )
+	vector pos = GetPlayerCrosshairOrigin( player ) - < 0, 0, 40 > // needs offset for droppod landing
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 
@@ -2350,7 +2366,7 @@ bool function CC_SpawnGruntDroppod( entity player, array<string> args )
 
 bool function CC_SpawnOverloadedStalkers( entity player, array<string> args )
 {
-	vector pos = GetPlayerCrosshairOrigin( player )
+	vector pos = GetPlayerCrosshairOrigin( player ) - < 0, 0, 40 > // needs offset for droppod landing
 	vector playerAngs = player.EyeAngles()
 	vector rot = < 0, ClampAngle( playerAngs.y - 180 ), 0 >
 
@@ -2904,71 +2920,25 @@ void function DisableNPCMiniMapIcon( entity mapIcon )
 		file.entEnabledMinimapIcon[ mapIcon ] = false // mark as we've disabled map icon for this entity
 }
 
-// so you can set up a titan without have to make a npc pilot embarking it
-// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int team, int pilotHealth = 250, bool pilotInvulnerable = false, asset pilotModel = $"", string pilotTitle = "Pilot" )
+// set up a titan without have to make a npc pilot embarking it
+// can't use localized string as pilotTitle, because pilot disembarking will and reset autotitan's title
+void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int pilotHealth = NPC_PILOT_MAX_HEALTH, int pilotWeaponProficiency = eWeaponProficiency.PERFECT, asset pilotModel = $"", string pilotTitle = "Pilot" )
 {
 	entity titanSoul = titan.GetTitanSoul()
 	if ( !IsValid( titanSoul ) )
 		return
 
-	// mark as having a pilot valid
-	titanSoul.soul.seatedNpcPilot.isValid				= true
-	titanSoul.soul.seatedNpcPilot.team 					= team
+	entity pilot = ExtraSpawner_SpawnPilotElite( titan.GetOrigin(), < 0, 0, 0 >, titan.GetTeam() )
+	// this destroys pilot
+	NpcPilotBecomesTitan( pilot, titan )
 
-	if ( pilotModel == $"" ) // if no model given, we use a random one
-		pilotModel = NPC_PILOT_ALLOWED_MODELS[ RandomInt( NPC_PILOT_ALLOWED_MODELS.len() ) ]
-	titanSoul.soul.seatedNpcPilot.modelAsset 			= pilotModel
-	titanSoul.soul.seatedNpcPilot.title 				= pilotTitle
-
-	titanSoul.soul.seatedNpcPilot.isInvulnerable		= pilotInvulnerable
-
+	// do some override settings
+	if ( pilotModel != $"" ) // if specific model given, we override model with that
+		titanSoul.soul.seatedNpcPilot.modelAsset		= pilotModel
+	if ( pilotTitle != "" )
+		titanSoul.soul.seatedNpcPilot.title				= pilotTitle
+	titanSoul.soul.seatedNpcPilot.proficiency			= pilotWeaponProficiency
 	titanSoul.soul.seatedNpcPilot.health				= pilotHealth
-
-	// set up weapons
-	// because weapon setup has become more compilicated( contains 3 main weapons and their mods )
-	// it's better to spawn a pilot and assign weapon for it, destroy the pilot after weapon assignment done
-	/*
-	array<string> mainWeapons
-	array<string> secondaryWeapons
-	array<string> antiTitanWeapons
-	if ( "npc_pilot_elite" in file.npcMainWeaponsTable )
-		mainWeapons = file.npcMainWeaponsTable[ "npc_pilot_elite" ]
-	if ( "npc_pilot_elite" in file.npcSecondaryWeaponsTable )
-		secondaryWeapons = file.npcSecondaryWeaponsTable[ "npc_pilot_elite" ]
-	if ( "npc_pilot_elite" in file.npcAntiTitanWeaponsTable )
-		antiTitanWeapons = file.npcAntiTitanWeaponsTable[ "npc_pilot_elite" ]
-	// main weapon
-	if ( mainWeapons.len() > 0 )
-	{
-		NPCPilotWeaponStruct mainWeaponStruct
-		mainWeaponStruct.weaponName = mainWeapons[ RandomInt( mainWeapons.len() ) ]
-		titanSoul.soul.seatedNpcPilot.weapons.append( mainWeaponStruct )
-	}
-	// secondary weapon
-	if ( mainWeapons.len() > 0 )
-	{
-		NPCPilotWeaponStruct secondaryWeaponStruct
-		secondaryWeaponStruct.weaponName = secondaryWeapons[ RandomInt( secondaryWeapons.len() ) ]
-		titanSoul.soul.seatedNpcPilot.weapons.append( secondaryWeaponStruct )
-	}
-	// anti-titan
-	if ( antiTitanWeapons.len() > 0 )
-	{
-		NPCPilotWeaponStruct antiTitanWeaponStruct
-		antiTitanWeaponStruct.weaponName = antiTitanWeapons[ RandomInt( antiTitanWeapons.len() ) ]
-		titanSoul.soul.seatedNpcPilot.weapons.append( antiTitanWeaponStruct )
-	}
-	*/
-	entity tempPilot = ExtraSpawner_SpawnPilotElite( < 0, 0, 10000 >, < 0, 0, 0 >, team ) // spawn in air so nobody can see it, and it won't be killed by triggers
-	foreach ( entity weapon in tempPilot.GetMainWeapons() )
-	{
-		NPCPilotWeaponStruct storedWeapon
-		storedWeapon.weaponName = weapon.GetWeaponClassName()
-		storedWeapon.weaponMods = weapon.GetMods()
-		titanSoul.soul.seatedNpcPilot.weapons.append( storedWeapon )
-	}
-	tempPilot.Destroy()
 }
 
 // npc pilot embarking npc titans
@@ -3279,7 +3249,7 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 	}
 }
 
-entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool standUp = true, void functionref( entity titan ) titanHandler = null, string spawnName = "" )
+entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool doHotDrop = false, void functionref( entity titan ) titanHandler = null, string spawnName = "" )
 {
 	array<string> registeredTitans
 	foreach ( string titanName, TitanSpawnStruct titanStruct in file.titanSpawnList )
@@ -3346,7 +3316,8 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 	else if ( GetNPCHandlerForClass( "npc_titan" ) != null )
 		thread GetNPCHandlerForClass( "npc_titan" )( titan )
 	
-	thread ExtraSpawner_NPCTitanDrops( titan, standUp )
+	if ( doHotDrop )
+		thread ExtraSpawner_NPCTitanDrops( titan )
 
 	return titan
 }
@@ -3424,9 +3395,19 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	if ( executionRef != "" )
 		titan.GetTitanSoul().soul.titanLoadout.titanExecution = executionRef
 
+	// set up embarked behavior, we may feature npc pilot disembarking in future?
+	// these settings gets applied by ExtraSpawner_SetUpTitanSeatedPilot()
+	SetTitanSoulEmbarkedSettings( titan, aiSet, behavior, bossTitle )
+
 	// pilot settings!
-	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, NPC_PILOT_MAX_HEALTH_BOSS, false, characterModel, pilotTitle )
+	// apply everything that has been setup in this function to titan
+	ExtraSpawner_SetUpTitanSeatedPilot( 
+		titan, 
+		NPC_PILOT_MAX_HEALTH_BOSS, 
+		eWeaponProficiency.PERFECT, 
+		characterModel, 
+		pilotTitle 
+	)
 
 	// merc boss titan behavior
 	if ( titanType == TITAN_MERC )
@@ -3445,12 +3426,6 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	}
 	else // normal embarked titan behavior
 		ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
-
-	titan.SetTitle( bossTitle ) // update title
-	titan.SetBehaviorSelector( behavior ) // become smarter, since pilot has control of it
-
-	// set up embarked behavior, we may feature npc pilot disembarking in future?
-	SetTitanSoulEmbarkedSettings( titan, setFile, behavior, bossTitle )
 
 	// loadout function should run after all setup done, so we can modify them
 	if ( loadoutFunction != null ) // modded titan!!
@@ -3725,20 +3700,13 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 
 entity function ExtraSpawner_SpawnTitanWithPilot( vector pos, vector rot, int team, string spawnName = "" )
 {
-	entity titan = ExtraSpawner_SpawnTitan( pos, rot, team, true, null, spawnName )
+	entity titan = ExtraSpawner_SpawnTitan( pos, rot, team, false, null, spawnName )
 
-	// titan won't have a soul until they DispatchSpawn()
-	// can't use localized string as pilotTitle, since pilot disembarking will and reset autotitan's title
-	ExtraSpawner_SetUpTitanSeatedPilot( titan, team, NPC_PILOT_MAX_HEALTH, false, $"", "Pilot" )
-	
-	titan.SetTitle( "#NPC_PILOT" )
-	// apply amped behaviors
-	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
-	ApplySoulSettingsForNpcPilotEmbarking( titan ) // become smarter, since pilot has control of it
+	// this enables every behavior a pilot embarked titan can have
+	ExtraSpawner_SetUpTitanSeatedPilot( titan )
 
-	// forced titan handler
-	if ( GetNPCHandlerForClass( "npc_titan" ) != null )
-		thread GetNPCHandlerForClass( "npc_titan" )( titan )
+	// manually do hotdrop after setup done
+	thread ExtraSpawner_NPCTitanDrops( titan )
 
 	return titan
 }
@@ -4769,8 +4737,8 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot, void functionref( entity
 	pilot.DisableNPCFlag( NPC_ALLOW_FLEE | NPC_ALLOW_HAND_SIGNALS ) // disable flee and meaningless hand signals
 
 	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
-	//pilot.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot perfectly
-	pilot.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // bit nerfed
+	pilot.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot perfectly
+	//pilot.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // bit nerfed
 
 	// disabled SelectSchedule_SwitchWeapon in their behavior, since pilot model not included "pete_agent.mdl", no animations for switching to pistols
 	pilot.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon ) 
@@ -4899,6 +4867,10 @@ entity function ExtraSpawner_SpawnTitanForPilot( entity pilot, vector pos, vecto
 
 	// make them be like auto titans
 	ExtraSpawner_SetUpPilotOwnedAutoTitan( titan )
+
+	// manually do hotdrop after settings done
+	// don't stand up, wait for pilot embark it
+	thread ExtraSpawner_NPCTitanDrops( titan, false )
 
 	return titan
 }
