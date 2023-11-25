@@ -30,13 +30,13 @@ global struct ArrayDotResultStruct
 	float dot
 }
 
+// modified structs to make things less hardcoded
 global struct ShieldDamageModifier
 {
 	float permanentDamageFrac = TITAN_SHIELD_PERMAMENT_DAMAGE_FRAC
 	bool normalizeShieldDamage = false
 	float damageScale = 1.0
 }
-
 
 struct
 {
@@ -82,8 +82,13 @@ void function Utility_Init()
 			{
 				feedbackStruct.damageToDisplay += file.shieldDamageToDisplay
 				//print( "feedbackStruct.damageToDisplay: " + string( feedbackStruct.damageToDisplay ) )
-				file.takingShieldDamage = false
 			}
+			// debug
+			//print( "file.shieldDamageToDisplay: " + string( file.shieldDamageToDisplay ) )
+
+			// everytime we call this function, should empty variables
+			file.takingShieldDamage = false
+			file.shieldDamageToDisplay = 0.0
 		}
 	)
 }
@@ -3781,7 +3786,12 @@ float function ShieldModifyDamage( entity ent, var damageInfo )
 	ShieldDamageModifier damageModifier = GetShieldDamageModifier( ent, damageInfo )
 	damage *= damageModifier.damageScale
 
+	// wait respawn are you serious? how do you get titan_soul entity's health frac
+	// could understand is is to make shielded entity never die before shield runs out
 	float healthFrac = GetHealthFrac( victim )
+	// debug
+	//print( "victim: " + string( victim ) )
+	//print( "healthFrac: " + string( healthFrac ) )
 
 	float permanentDamage = (damage * damageModifier.permanentDamageFrac * healthFrac)
 
@@ -3809,6 +3819,7 @@ float function ShieldModifyDamage( entity ent, var damageInfo )
 	}
 
 	// run callbacks to make things less hardcoded
+	// store things in struct so we can modify them
 	// added via AddCallback_OnShieldDamage()
 	RunCallback_OnShieldDamage( ent, damageInfo, damageModifier )
 	//
@@ -3864,9 +3875,11 @@ float function ShieldModifyDamage( entity ent, var damageInfo )
 			if ( IsValid( attacker ) )
 			{
 				// this is only a fix for titans, other npcs will send damage feedback properly by NPCShieldHealthUpdate()
-				if( attacker.IsPlayer() && ent.IsTitan() )
-					attacker.NotifyDidDamage( ent, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), damageType, shieldDamage, DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
+				// now handled by AddCallback_PlayerDamageFeedback()
+				//if( attacker.IsPlayer() && ent.IsTitan() )
+				//	attacker.NotifyDidDamage( ent, DamageInfo_GetHitBox( damageInfo ), DamageInfo_GetDamagePosition( damageInfo ), damageType, shieldDamage, DamageInfo_GetDamageFlags( damageInfo ), DamageInfo_GetHitGroup( damageInfo ), DamageInfo_GetWeapon( damageInfo ), DamageInfo_GetDistFromAttackOrigin( damageInfo ) )
 			}
+			// vanilla behavior fix: only do damage remotecall if victim is titan
 			if ( ent.IsPlayer() && ent.IsTitan() )
 				Remote_CallFunction_Replay( ent, "ServerCallback_TitanTookDamage", shieldDamage, damageOrigin.x, damageOrigin.y, damageOrigin.z, damageType, damageSourceId, attackerEHandle, null, false, 0 )
 		}
@@ -3877,10 +3890,16 @@ float function ShieldModifyDamage( entity ent, var damageInfo )
 
 	float actualShieldDamage = min( shieldHealth, shieldDamage )
 
+	// modified: titan taking shield damage!
+	// for sending proper damage feedback to players
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	bool attackerIsPlayer = IsValid( attacker ) && attacker.IsPlayer()
+
 	if ( actualShieldDamage > 0 )
 	{
 		// for sending proper damage feedback to players
-		file.takingShieldDamage = true
+		if ( attackerIsPlayer )
+			file.takingShieldDamage = true
 		//
 
 		foreach ( func in ent.e.entPostShieldDamageCallbacks )
@@ -3889,13 +3908,20 @@ float function ShieldModifyDamage( entity ent, var damageInfo )
 		}
 	}
 
-	// modified: titan taking shield broke damage!
 	// for sending proper damage feedback to players
-	if ( file.takingShieldDamage )
+	if ( attackerIsPlayer && file.takingShieldDamage )
 		file.shieldDamageToDisplay = actualShieldDamage
-	//
-	//print( "shieldDamage: " + string( shieldDamage ) )
-	//print( "actualShieldDamage: " + string( actualShieldDamage ) )
+	// debug
+	/*
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( IsValid( attacker ) && attacker.IsPlayer() )
+	{
+		print( "shieldHealth: " + string( shieldHealth ) )
+		print( "shieldDamage: " + string( shieldDamage ) )
+		print( "actualShieldDamage: " + string( actualShieldDamage ) )
+		print( "permanentDamage: " + string( permanentDamage ) )
+	}
+	*/
 
 	return actualShieldDamage
 }
@@ -3961,7 +3987,7 @@ void function AddCallback_OnShieldDamage( void functionref( entity, var, ShieldD
 void function RunCallback_OnShieldDamage( entity ent, var damageInfo, ShieldDamageModifier damageModifier )
 {
 	foreach ( void functionref( entity, var, ShieldDamageModifier ) callbackFunc in file.onShieldDamageCallbacks )
-		callbackFunc( ent, damageInfo, damageModifier )
+		callbackFunc( ent, damageInfo, damageModifier, shieldDamageStruct )
 }
 
 void function AddCallback_ShieldDamageModifier( void functionref( entity, var, ShieldDamageModifier ) callbackFunc )
