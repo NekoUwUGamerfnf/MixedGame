@@ -94,7 +94,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			if ( IsValid( owner ) )
 			{
 				StopSoundOnEntity( owner, "Titan_Legion_Smart_Core_ActiveLoop_1P" )
-				
+
 				RemoveEntityCallback_OnDamaged( owner, TrackShieldCoreBeingDamaged )
 				if ( owner.IsPlayer() )
 				{
@@ -137,17 +137,12 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 
 	float startTime = Time()
 	owner.p.lastDamageTime = Time() - regenDelay // reset lastDamageTime, force start player regen
-	while( true )
+	while( Time() < startTime + coreDuration )
 	{
-		if( IsValid( soul ) )
-		{
-			if( Time() >= startTime + coreDuration )
-				break
-			if ( Time() - owner.p.lastDamageTime >= SHIELD_CORE_REGEN_DELAY && !owner.ContextAction_IsActive() )
-				soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + regenRate ) )
-			
-			wait SHIELD_CORE_REGEN_TICKRATE
-		}
+		if ( IsValid( soul ) && Time() - owner.p.lastDamageTime >= SHIELD_CORE_REGEN_DELAY && !owner.ContextAction_IsActive() )
+			soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + regenRate ) )
+
+		wait SHIELD_CORE_REGEN_TICKRATE
 	}
 	#endif
 }
