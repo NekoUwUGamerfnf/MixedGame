@@ -14,16 +14,19 @@ void function MpWeaponThermiteGrenade_Init()
 {
 #if SERVER
     // for "thermite_grenade_dot"
+    RegisterWeaponDamageSource( "mp_weapon_thermite_grenade_dot", "#SP_TITAN_LOADOUT_SUBTITLE_SCORCH" ) // "Thermite"
+
     ThermiteDot_AddProjectileMod( 
-        "thermite_grenade_dot", 
-        eDamageSourceId.mp_weapon_thermite_grenade,
-        THERMITE_GRENADE_DOT_DURATION, 
-        THERMITE_GRENADE_DOT_DAMAGE, 
-        THERMITE_GRENADE_DOT_DAMAGE_HEAVY_ARMOR, 
-        THERMITE_GRENADE_DOT_DAMAGE_FINAL, 
-        THERMITE_GRENADE_DOT_TICK, 
-        THERMITE_GRENADE_DOT_STACK_INTERVAL, 
-        THERMITE_GRENADE_DOT_STACK_MAX
+        "thermite_grenade_dot",                         // weapon mod name
+        eDamageSourceId.mp_weapon_thermite_grenade,     // damageSourceId( for checking )
+        THERMITE_GRENADE_DOT_DURATION,                  // dot duration
+        THERMITE_GRENADE_DOT_DAMAGE,                    // dot damage
+        THERMITE_GRENADE_DOT_DAMAGE_HEAVY_ARMOR,        // dot damage heavyarmor
+        THERMITE_GRENADE_DOT_DAMAGE_FINAL,              // dot damage on ent
+        THERMITE_GRENADE_DOT_TICK,                      // dot damage tickrate
+        THERMITE_GRENADE_DOT_STACK_INTERVAL,            // dot stack inverval
+        THERMITE_GRENADE_DOT_STACK_MAX,                 // dot max stacks
+        eDamageSourceId.mp_weapon_thermite_grenade_dot  // dot damage source override
     )
 #endif
 }
