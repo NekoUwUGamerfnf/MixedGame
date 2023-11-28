@@ -145,7 +145,7 @@ struct
 	table<entity, float> playerBleedoutStartTime
 	// shield notification
 	// from PR#66
-	table<entity, int> playerShieldHealthLeftSinceLastHit
+	table<entity, int> playerShieldHealthLeftSinceLastUpdate
 
 	// apex loadout
 	table< string, bool > useFakeApexLoadout // player's uid so they can retain loadout after re-join
@@ -264,8 +264,6 @@ void function GameModifier_Bleedout_Init()
 
 void function SetBleedoutState()
 {
-
-
     //BleedoutShared_Init( 30, 4,8, 0.4,0.5, true,true )
 }
 
@@ -279,12 +277,16 @@ void function OnClientConnected( entity player )
 	file.playerBleedoutStartTime[ player ] <- -1
 	// shield notification
 	// from PR#66
-	file.playerShieldHealthLeftSinceLastHit[ player ] <- -1
+	file.playerShieldHealthLeftSinceLastUpdate[ player ] <- -1
+	#if SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE
+		thread PlayerShieldHealthUpdate( player ) // keep updating shield value left
+	#endif
 
 	// apex loadout
     file.useFakeApexLoadout[ player.GetUID() ] <- false
-    if( BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT )
+    #if BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT
         AddButtonPressedPlayerInputCallback( player, IN_MELEE, SwitchLoadoutType )
+	#endif
 
 	// shield notifications
     //AddButtonPressedPlayerInputCallback( player, IN_USE, GetShieldLeft )
@@ -610,26 +612,27 @@ void function OnPlayerPostDamaged( entity victim, var damageInfo )
 {
 	// at this point shield health has been updated, we can display values to player
 	// from PR#66
-	if ( !Bleedout_IsPlayerBleeding( victim ) )
-	{
-		if( SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE )
+	#if SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE
+		if ( !Bleedout_IsPlayerBleeding( victim ) )
 		{
 			int shieldHealthMax = victim.GetShieldHealthMax()
 			int currentShieldHealth = victim.GetShieldHealth()
-			int lastShieldHealth = file.playerShieldHealthLeftSinceLastHit[ victim ]
+			int lastShieldHealth = file.playerShieldHealthLeftSinceLastUpdate[ victim ]
+			//print( "currentShieldHealth: " + string( currentShieldHealth ) )
 			
-			if ( currentShieldHealth > 0 )
+			if ( lastShieldHealth > 0 ) // all notifications only happen when we have shield left since last hit
 			{
-				// let the colors more red if player shield is low
-				int msgColorGreen = int( GraphCapped( currentShieldHealth, shieldHealthMax, 0, 255, 0 ) )
-				SendHudMessage( player, PILOT_SHIELD_DAMAGE_MESSAGE +"\n"+ currentShieldHealth +"/"+ shieldHealthMax, -1, -0.4, 255, msgColorGreen, 0, 255, 0, 1.5, 0 )
+				if ( currentShieldHealth > 0 )
+				{
+					// let the colors more red if player shield is low
+					int msgColorGreen = int( GraphCapped( currentShieldHealth, shieldHealthMax, 0, 255, 0 ) )
+					SendHudMessage( victim, PILOT_SHIELD_DAMAGE_MESSAGE +"\n"+ currentShieldHealth +"/"+ shieldHealthMax, -1, -0.4, 255, msgColorGreen, 0, 255, 0, 1.5, 0 )
+				}
+				else if ( currentShieldHealth <= 0 )
+					SendHudMessage( victim, PILOT_SHIELD_BROKE_MESSAGE +"\n0/"+ shieldHealthMax, -1, -0.4, 255, 0, 0, 255, 0, 2.0, 0 )
 			}
-			else if ( currentShieldHealth <= 0 && ( lastShieldHealth != -1 && lastShieldHealth > 0 ) )
-				SendHudMessage( player, PILOT_SHIELD_BROKE_MESSAGE +"\n0/"+ shieldHealthMax, -1, -0.4, 255, 0, 0, 255, 0, 2.0, 0 )
-			
-			file.playerShieldHealthLeftSinceLastHit[ victim ] = currentShieldHealth
 		}
-	}
+	#endif // SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE
 }
 
 int function PlayerShieldReward( entity player, int reward )
@@ -797,6 +800,7 @@ void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHea
 	}
 }
 
+#if BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT
 void function SwitchLoadoutType( entity player )
 {
     if( !Loadouts_CanGivePilotLoadout( player ) )
@@ -817,6 +821,7 @@ void function SwitchLoadoutType( entity player )
         Loadouts_TryGivePilotLoadout( player )
     }
 }
+#endif // BLEEDOUT_MODE_ENABLE_SECOND_LOADOUT
 
 void function GiveFakeApexLoadout( entity player )
 {
@@ -991,6 +996,18 @@ void function PlayerStatusDisplayer( entity player )
 		}
 	}
 }
+
+#if SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE
+void function PlayerShieldHealthUpdate( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		file.playerShieldHealthLeftSinceLastUpdate[ player ] = player.GetShieldHealth()
+		WaitFrame()
+	}
+}
+#endif // SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE
 
 bool function ShouldAddPlayerBatteryHint( entity player )
 {
