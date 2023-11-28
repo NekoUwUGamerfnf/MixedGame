@@ -10,11 +10,20 @@ global function HealthRegen_SetCustomRegenRate
 global function HealthRegen_SetAlwaysFastRegen
 global function HealthRegen_Disabled
 
+// shield damaged effects
+global function HealthRegen_SetPilotShieldDamagedEffectType
+
+global enum ePilotShieldDamagedEffectTypes
+{
+	SEVERITY_DEPEND_ON_SHIELD_LEFT,			// default case: effect hits harder when player reaching low shield. this one is similar to pilot health hud
+	SEVERITY_DEPEND_ON_DAMAGE_RECEIVE,		// #PR66 varaint: if we displayed shield value on screen through other scripts, this can be used to change effect severity to depend on current hit's damage
+}
+
 struct
 {
 	float healthRegenRate
 
-	//modified
+	// modified, in-file variables
 	float customHealthRegenDelayNormal = -1.0
 	float customHealthRegenDelayFast = -1.0
 	float customHealthRegenDelayStim = -1.0
@@ -23,7 +32,9 @@ struct
 	bool alwaysFastRegen = false
 	bool disableHealthRegen = false
 
-	// damage feedback variable
+	int pilotShieldDamagedEffectType = ePilotShieldDamagedEffectTypes.SEVERITY_DEPEND_ON_SHIELD_LEFT
+
+	// damage feedback variables
 	bool isShieldDamage = false
 	float shieldActualDamage = 0.0
 	bool isShieldBrokeDamage = false
@@ -257,6 +268,7 @@ void function HealthRegen_OnClientConnected( entity player )
 
 // from PR#65(https://github.com/DBmaoha/Super.Mixed.Game/pull/65)
 // vanilla missing visual effect consts
+// sound effects
 const string PILOT_SHIELD_DAMAGE_SOUND = "titanshield_light_bulletimpact_3p_vs_1p"
 const string PILOT_SHIELD_DAMAGE_SOUND_BULLET = "titanshieldwall_light_bulletimpact_1p_vs_3p" // sound when getting hit by bullets( sadly "titanshield_heavy_bulletimpact_3p_vs_1p" sounds identical to light impact one )
 const string PILOT_SHIELD_DAMAGE_SOUND_EXPLOSION = "titanshield_explosive_bulletimpact_3p_vs_1p" // sound when getting hit by explosive damage
@@ -266,16 +278,29 @@ const string PILOT_SHIELD_DAMAGE_SOUND_MELEE = "titanshield_meleeimpact_3p_vs_1p
 const float PILOT_SHIELD_DAMAGE_SOUND_INTERVAL_MIN = 0.25 // prevent sound spaming to player
 const float PILOT_SHIELD_DAMAGE_SOUND_INTERVAL_MAX = 0.35
 
-const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN = 0.2
-const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX = 0.6
-const float PILOT_SHIELD_DAMAGE_EFFECT_MAX_FRAC = 0.5 // if shield taking damage more than this fraction, we do maxnium effects
-const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN = 1.0
-const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX = 2.0
-const float PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION = 1.0
+// visual effects
+const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN = 0.1
+const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX = 0.4
+const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN = 0.4
+const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX = 0.8
+const float PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION = 0.5
 
-const float PILOT_SHIELD_BROKE_EFFECT_SEVERITY = 1.0
-const float PILOT_SHIELD_BROKE_EFFECT_DURATION = 1.5 // shorter hold time, so we can better fadeout it
-const float PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION = 1.5
+const float PILOT_SHIELD_BROKE_EFFECT_SEVERITY = 0.6
+const float PILOT_SHIELD_BROKE_EFFECT_DURATION = 1.0
+const float PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION = 0.7
+
+// PR#66(https://github.com/DBmaoha/Super.Mixed.Game/pull/66) visual effects variant
+// use stronger effects, severity is based on player damage receiving
+const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN_DAMAGE = 0.2
+const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX_DAMAGE = 0.6
+const float PILOT_SHIELD_DAMAGE_EFFECT_MAX_DAMAGE_FRAC = 0.5 // if shield taking damage more than this fraction, we do maxnium effects
+const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN_DAMAGE = 1.0
+const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX_DAMAGE = 2.0
+const float PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION_DAMAGE = 1.0
+
+const float PILOT_SHIELD_BROKE_EFFECT_SEVERITY_DAMAGE = 1.0
+const float PILOT_SHIELD_BROKE_EFFECT_DURATION_DAMAGE = 1.5 // shorter hold time, so we can better fadeout it
+const float PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION_DAMAGE = 1.5
 
 
 float function PilotShieldModifyDamage( entity player, var damageInfo )
@@ -325,17 +350,42 @@ float function PilotShieldModifyDamage( entity player, var damageInfo )
 			EmitSoundOnEntityOnlyToPlayer( player, player, "titan_energyshield_down_1P" ) // play 1p crack sound!!
 			EmitSoundOnEntityExceptToPlayer( player, player, "titan_energyshield_down" ) // 3p crack sound to others
 
-			StatusEffect_AddTimed( player, eStatusEffect.emp, PILOT_SHIELD_BROKE_EFFECT_SEVERITY, PILOT_SHIELD_BROKE_EFFECT_DURATION, PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION )
+			float effectSeverity = PILOT_SHIELD_BROKE_EFFECT_SEVERITY
+			float effectDuration = PILOT_SHIELD_BROKE_EFFECT_DURATION
+			float fadeoutDuration = PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION
+			// #PR66 variant: stronger effects
+			if ( file.pilotShieldDamagedEffectType == ePilotShieldDamagedEffectTypes.SEVERITY_DEPEND_ON_DAMAGE_RECEIVE )
+			{
+				effectSeverity = PILOT_SHIELD_BROKE_EFFECT_SEVERITY_DAMAGE
+				effectDuration = PILOT_SHIELD_BROKE_EFFECT_DURATION_DAMAGE
+				fadeoutDuration = PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION_DAMAGE
+			}
+			//print( "effectSeverity: " + string( effectSeverity ) )
+			//print( "effectDuration: " + string( effectDuration ) )
+			//print( "fadeoutDuration: " + string( fadeoutDuration ) )
+			
+			StatusEffect_AddTimed( player, eStatusEffect.emp, effectSeverity, effectDuration, fadeoutDuration )
 		}
 		else // shield taking normal damage
 		{
 			//print( "We got shield damage effect!" )
 
-			// effect severity is based on damage amount, which means when player gets high damage, the effect hits harder to alert them
-			// effect duration is based on player's current shield / max shield health, which means when player having low shield, the effect lasts longer to alert them
-			float effectSeverity = GraphCapped( damage, 0, shieldHealthMax * PILOT_SHIELD_DAMAGE_EFFECT_MAX_FRAC, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX )
+			// effect severity and duration is based on player's current shield / max shield health. which means when player having low shield, the effect lasts longer to alert them
+			// this one is similar to pilot health hud
+			float effectSeverity = GraphCapped( newShieldHealth, shieldHealthMax, 0, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX )
 			float effectDuration = GraphCapped( newShieldHealth, shieldHealthMax, 0, PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN, PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX )
 			float fadeoutDuration = PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION
+			// #PR66 variant: effect severity is based on damage receive. which means when player taking massive damage, the effect hits harder to alert them
+			// this one can have better visual when we display player's shield value on screen with other scripts
+			if ( file.pilotShieldDamagedEffectType == ePilotShieldDamagedEffectTypes.SEVERITY_DEPEND_ON_DAMAGE_RECEIVE )
+			{
+				effectSeverity = GraphCapped( damage, 0, shieldHealthMax * PILOT_SHIELD_DAMAGE_EFFECT_MAX_DAMAGE_FRAC, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN_DAMAGE, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX_DAMAGE )
+				effectDuration = GraphCapped( newShieldHealth, shieldHealthMax, 0, PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN_DAMAGE, PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX_DAMAGE )
+				fadeoutDuration = PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION_DAMAGE
+			}
+			//print( "effectSeverity: " + string( effectSeverity ) )
+			//print( "effectDuration: " + string( effectDuration ) )
+			//print( "fadeoutDuration: " + string( fadeoutDuration ) )
 
 			StatusEffect_AddTimed( player, eStatusEffect.emp, effectSeverity, effectDuration, fadeoutDuration )
 		}
@@ -475,4 +525,9 @@ void function HealthRegen_SetAlwaysFastRegen( bool shouldAlways )
 void function HealthRegen_Disabled( bool disabled )
 {
 	file.disableHealthRegen = disabled
+}
+
+void function HealthRegen_SetPilotShieldDamagedEffectType( int effectType )
+{
+	file.pilotShieldDamagedEffectType = effectType
 }
