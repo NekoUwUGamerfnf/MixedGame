@@ -46,24 +46,28 @@ void function HealthRegen_Init()
 		AddCallback_PlayerClassChanged( HealthRegen_OnPlayerClassChangedMP )
 		RegisterSignal( "PilotHealthRegenThink" )
 		RegisterSignal( "StopHealthRegenThink" ) // modify for having different health regen function for each player
-	
+
 		// modified callback in _base_gametype.gnut
 		// because PlayerDamageFeedbackStruct definition is in _base_gametype.gnut, which gets compiled later than this file
 		// we have to wrap this callback inside
-		AddCallback_PlayerDamageFeedback( 
+		AddCallback_PlayerDamageFeedback(
 			void function( entity victim, var damageInfo, PlayerDamageFeedbackStruct feedbackStruct )
 			{
 				if ( file.isShieldDamage )
 				{
 					feedbackStruct.damageToDisplay = file.shieldActualDamage
-					file.isShieldDamage = false
 				}
 				if ( file.isShieldBrokeDamage ) // for pilot taking a damage that will break shield, display the correct damage amount
 				{
 					//print( "pilot taking shield broke damage!" )
 					feedbackStruct.damageToDisplay = file.shieldBrokeActualDamage
-					file.isShieldBrokeDamage = false
 				}
+
+				// everything should be cleaned up once this function gets called
+				file.isShieldDamage = false
+				file.shieldActualDamage = 0
+				file.isShieldBrokeDamage = false
+				file.shieldBrokeActualDamage = 0
 			}
 		)
 		// modified to handle in-file table
@@ -121,7 +125,7 @@ void function PilotHealthRegenThinkMP( entity player )
 
 	float healthRegenStartDelay = 5.0 //Needs to use GetPlayerSettingsField() instead of hard coding, waiting on Bug 129567
 	//float healthRegenStartDelay = player.GetPlayerSettingsField( "powerRegenRateOp" ) // seconds after we take damager to start regen
-	
+
 	// why do we cache these things here? what if we update passives mid-way??
 	//if ( PlayerHasPassive( player, ePassives.PAS_FAST_HEALTH_REGEN ) )
 	//	healthRegenStartDelay = 2.5
@@ -253,24 +257,31 @@ void function HealthRegen_OnClientConnected( entity player )
 
 // from PR#65(https://github.com/DBmaoha/Super.Mixed.Game/pull/65)
 // vanilla missing visual effect consts
-const string PILOT_SHIELD_DAMAGE_SOUND = "titanshield_light_bulletimpact_1p_vs_3p"
-const string PILOT_SHIELD_DAMAGE_SOUND_BULLET = "titanshieldwall_light_bulletimpact_1p_vs_3p" // getting hit by bullets plays a different sound
+const string PILOT_SHIELD_DAMAGE_SOUND = "titanshield_light_bulletimpact_3p_vs_1p"
+const string PILOT_SHIELD_DAMAGE_SOUND_BULLET = "titanshieldwall_light_bulletimpact_1p_vs_3p" // sound when getting hit by bullets( sadly "titanshield_heavy_bulletimpact_3p_vs_1p" sounds identical to light impact one )
+const string PILOT_SHIELD_DAMAGE_SOUND_EXPLOSION = "titanshield_explosive_bulletimpact_3p_vs_1p" // sound when getting hit by explosive damage
+const string PILOT_SHIELD_DAMAGE_SOUND_ELECTRICAL = "titanshield_energy_bulletimpact_3p_vs_1p" // sound when getting hit by electrical damage
+const string PILOT_SHIELD_DAMAGE_SOUND_MELEE = "titanshield_meleeimpact_3p_vs_1p" // sound when getting hit by melee
+
 const float PILOT_SHIELD_DAMAGE_SOUND_INTERVAL_MIN = 0.25 // prevent sound spaming to player
 const float PILOT_SHIELD_DAMAGE_SOUND_INTERVAL_MAX = 0.35
 
-const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN = 0.1
-const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX = 0.5
-const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN = 0.75
-const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX = 1.0
-const float PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION = 0.5
+const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN = 0.2
+const float PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX = 0.6
+const float PILOT_SHIELD_DAMAGE_EFFECT_MAX_FRAC = 0.5 // if shield taking damage more than this fraction, we do maxnium effects
+const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN = 1.0
+const float PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX = 2.0
+const float PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION = 1.0
 
-const float PILOT_SHIELD_BROKE_EFFECT_SEVERITY = 0.75
-const float PILOT_SHIELD_BROKE_EFFECT_DURATION = 1.5
-const float PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION = 0.75
+const float PILOT_SHIELD_BROKE_EFFECT_SEVERITY = 1.0
+const float PILOT_SHIELD_BROKE_EFFECT_DURATION = 1.5 // shorter hold time, so we can better fadeout it
+const float PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION = 1.5
+
 
 float function PilotShieldModifyDamage( entity player, var damageInfo )
 {
 	float shieldHealth = float( player.GetShieldHealth() )
+	float shieldHealthMax = float( player.GetShieldHealthMax() )
 	float damage = DamageInfo_GetDamage( damageInfo )
 
 	float newShieldHealth = shieldHealth - damage
@@ -281,16 +292,16 @@ float function PilotShieldModifyDamage( entity player, var damageInfo )
 
 	player.SetShieldHealth( maxint( 0, int( newShieldHealth ) ) )
 
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	// no where uses this, moved down
+	//entity attacker = DamageInfo_GetAttacker( damageInfo )
 
 	// shield on-hit sound, from PR#65
 	if ( Time() > file.playerNextShieldDamageSoundAllowedTime[ player ] )
 	{
-		string shieldHitSound = PILOT_SHIELD_DAMAGE_SOUND
-		if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BULLET ) // bullet damage specific sound
-			shieldHitSound = PILOT_SHIELD_DAMAGE_SOUND_BULLET
+		int damageTypes = DamageInfo_GetCustomDamageType( damageInfo )
+		string shieldHitSound = GetPilotShieldDamagedSound( damageTypes )
 		EmitSoundOnEntityOnlyToPlayer( player, player, shieldHitSound )
-	
+
 		// add sound cooldown
 		float nextSoundInterval = RandomFloatRange( PILOT_SHIELD_DAMAGE_SOUND_INTERVAL_MIN, PILOT_SHIELD_DAMAGE_SOUND_INTERVAL_MAX )
 		file.playerNextShieldDamageSoundAllowedTime[ player ] = Time() + nextSoundInterval
@@ -298,49 +309,90 @@ float function PilotShieldModifyDamage( entity player, var damageInfo )
 	//else
 	//	print( "player still in shield damage sound cooldown!" )
 
-	if ( shieldHealth && newShieldHealth <= 0 ) // shield cracked!
+	// visual effect handle
+	// from PR#65
+	if ( shieldHealth > 0 ) // we at least need some shield before triggering following stuffs
 	{
-		// vanilla behavior( actually no where used until I modify it )
-		//EmitSoundOnEntity( player, "titan_energyshield_down" )
+		if ( newShieldHealth <= 0 ) // shield cracked!
+		{
+			//print( "We got shield broke effect!" )
 
-		// from PR#65
-		// add better visual and sound effect
-		EmitSoundOnEntityOnlyToPlayer( player, player, "titan_energyshield_down_1P" ) // play 1p crack sound!!
-		EmitSoundOnEntityExceptToPlayer( player, player, "titan_energyshield_down" ) // 3p crack sound to others
-	
-		StatusEffect_AddTimed( player, eStatusEffect.emp, PILOT_SHIELD_BROKE_EFFECT_SEVERITY, PILOT_SHIELD_BROKE_EFFECT_DURATION, PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION )
+			// vanilla behavior( actually no where used until I modify it )
+			//EmitSoundOnEntity( player, "titan_energyshield_down" )
+
+			// from PR#65
+			// add better visual and sound effect
+			EmitSoundOnEntityOnlyToPlayer( player, player, "titan_energyshield_down_1P" ) // play 1p crack sound!!
+			EmitSoundOnEntityExceptToPlayer( player, player, "titan_energyshield_down" ) // 3p crack sound to others
+
+			StatusEffect_AddTimed( player, eStatusEffect.emp, PILOT_SHIELD_BROKE_EFFECT_SEVERITY, PILOT_SHIELD_BROKE_EFFECT_DURATION, PILOT_SHIELD_BROKE_EFFECT_FADEOUT_DURATION )
+		}
+		else // shield taking normal damage
+		{
+			//print( "We got shield damage effect!" )
+
+			// effect severity is based on damage amount, which means when player gets high damage, the effect hits harder to alert them
+			// effect duration is based on player's current shield / max shield health, which means when player having low shield, the effect lasts longer to alert them
+			float effectSeverity = GraphCapped( damage, 0, shieldHealthMax * PILOT_SHIELD_DAMAGE_EFFECT_MAX_FRAC, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX )
+			float effectDuration = GraphCapped( newShieldHealth, shieldHealthMax, 0, PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN, PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX )
+			float fadeoutDuration = PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION
+
+			StatusEffect_AddTimed( player, eStatusEffect.emp, effectSeverity, effectDuration, fadeoutDuration )
+		}
 	}
+
+	// for changing damage notification
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	bool attackerIsPlayer = IsValid( attacker ) && attacker.IsPlayer()
+
+	// damage handle
 	if ( permanentDamage > 0 ) // shield cracked and player taking health damage
 	{
 		//print( "Shield Modified damage is: " + string( permanentDamage ) )
-		file.isShieldBrokeDamage = true
-		file.shieldBrokeActualDamage = damage
+		// change damage display value if attacker is a player
+		if ( attackerIsPlayer )
+		{
+			file.isShieldBrokeDamage = true
+			file.shieldBrokeActualDamage = damage
+		}
+
 		DamageInfo_SetDamage( damageInfo, permanentDamage )
 
 		//if ( permanentDamage >= player.GetHealth() ) // defensive fix, now handled in _codecallbacks.gnut
 		//	player.SetShieldHealth( 0 )
 	}
-	else // damage is protected
+	else // damage is protected. if this case triggered, it must means damage has been fully protected, no any health damage dealt to player
 	{
 		//print( "Damage protected by pilot shield!" )
-		file.isShieldDamage = true
-		file.shieldActualDamage = damage
-		DamageInfo_SetDamage( damageInfo, 0 )
+		// change damage display value if attacker is a player
+		if ( attackerIsPlayer )
+		{
+			file.isShieldDamage = true
+			file.shieldActualDamage = damage
+		}
 
-		// from PR#65
-		// add better visual and sound effect
-		// effect severity and duration is based on player's current shield / max shield health
-		// which means when player having low shield, the effect hits harder to alert them
-		int currentShield = player.GetShieldHealth()
-		int maxShield = player.GetShieldHealthMax()
-		float effectSeverity = GraphCapped( currentShield, maxShield, 0, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MIN, PILOT_SHIELD_DAMAGE_EFFECT_SEVERITY_MAX )
-		float effectDuration = GraphCapped( currentShield, maxShield, 0, PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MIN, PILOT_SHIELD_DAMAGE_EFFECT_DURATION_MAX )
-		float fadeoutDuration = PILOT_SHIELD_DAMAGE_EFFECT_FADEOUT_DURATION
-
-		StatusEffect_AddTimed( player, eStatusEffect.emp, effectSeverity, effectDuration, fadeoutDuration )
+		DamageInfo_SetDamage( damageInfo, 0 ) // safe to cast damage to 0, because we're now directly modifying damage feedback sending to players
 	}
 
 	return min( shieldHealth, damage )
+}
+
+// modified function
+string function GetPilotShieldDamagedSound( int damageTypes )
+{
+	string shieldHitSound = PILOT_SHIELD_DAMAGE_SOUND // default sound
+
+	if ( damageTypes & DF_BULLET ) // bullet damage specific sound
+		shieldHitSound = PILOT_SHIELD_DAMAGE_SOUND_BULLET
+	if ( damageTypes & DF_EXPLOSION ) // explosion damage specific sound, overrides bullets
+		shieldHitSound = PILOT_SHIELD_DAMAGE_SOUND_EXPLOSION
+	if ( damageTypes & DF_ELECTRICAL ) // electrical damage specific sound, overrides explosion and bullets
+		shieldHitSound = PILOT_SHIELD_DAMAGE_SOUND_ELECTRICAL
+	if ( damageTypes & DF_MELEE ) // melee damage specific sound, has highest priority
+		shieldHitSound = PILOT_SHIELD_DAMAGE_SOUND_MELEE
+
+	//print( "shieldHitSound: " + shieldHitSound )
+	return shieldHitSound
 }
 
 /*
