@@ -94,6 +94,12 @@ const array<int> BLEEDOUT_TRAP_DAMAGE_TYPES =
 	eDamageSourceId.mp_weapon_proximity_mine, // modded weapon
 ]
 const float BLEEDOUT_DOWNED_TRAP_DAMAGE_SCALE = 0.7 // scale trap damage for downed players, as they mostly can't escape from traps
+
+// shield health notification
+// from PR#66( https://github.com/DBmaoha/Super.Mixed.Game/pull/66 )
+const bool SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE = true
+
+
 // things below should be in playlistvar
 /*
 riff_player_bleedout 1
@@ -137,6 +143,9 @@ struct
 	// in-file variables
 	// damage protection
 	table<entity, float> playerBleedoutStartTime
+	// shield notification
+	// from PR#66
+	table<entity, int> playerShieldHealthLeftSinceLastHit
 
 	// apex loadout
 	table< string, bool > useFakeApexLoadout // player's uid so they can retain loadout after re-join
@@ -219,9 +228,10 @@ void function GameModifier_Bleedout_Init()
 
 	// damage protection
 	AddDamageCallback( "player", OnPlayerFinalDamaged )
-
 	// balance handler
 	AddDamageCallback( "player", OnPlayerDamaged )
+	// shield health update
+	AddPostDamageCallback( "player", OnPlayerPostDamaged )
 
     // more score added
 	// use prematch for game modifiers to setup score
@@ -267,6 +277,9 @@ void function OnClientConnected( entity player )
 
 	// damage protection
 	file.playerBleedoutStartTime[ player ] <- -1
+	// shield notification
+	// from PR#66
+	file.playerShieldHealthLeftSinceLastHit[ player ] <- -1
 
 	// apex loadout
     file.useFakeApexLoadout[ player.GetUID() ] <- false
@@ -587,6 +600,35 @@ void function OnPlayerDamaged( entity victim, var damageInfo )
 			DamageInfo_ScaleDamage( damageInfo, BLEEDOUT_DOWNED_DOT_DAMAGE_SCALE )
 		else if ( BLEEDOUT_TRAP_DAMAGE_TYPES.contains( damageSourceID ) )
 			DamageInfo_ScaleDamage( damageInfo, BLEEDOUT_DOWNED_TRAP_DAMAGE_SCALE )
+	}
+}
+
+const string PILOT_SHIELD_DAMAGE_MESSAGE = "护盾受击"
+const string PILOT_SHIELD_BROKE_MESSAGE = "护盾损坏"
+
+void function OnPlayerPostDamaged( entity victim, var damageInfo )
+{
+	// at this point shield health has been updated, we can display values to player
+	// from PR#66
+	if ( !Bleedout_IsPlayerBleeding( victim ) )
+	{
+		if( SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE )
+		{
+			int shieldHealthMax = victim.GetShieldHealthMax()
+			int currentShieldHealth = victim.GetShieldHealth()
+			int lastShieldHealth = file.playerShieldHealthLeftSinceLastHit[ victim ]
+			
+			if ( currentShieldHealth > 0 )
+			{
+				// let the colors more red if player shield is low
+				int msgColorGreen = int( GraphCapped( currentShieldHealth, shieldHealthMax, 0, 255, 0 ) )
+				SendHudMessage( player, PILOT_SHIELD_DAMAGE_MESSAGE +"\n"+ currentShieldHealth +"/"+ shieldHealthMax, -1, -0.4, 255, msgColorGreen, 0, 255, 0, 1.5, 0 )
+			}
+			else if ( currentShieldHealth <= 0 && ( lastShieldHealth != -1 && lastShieldHealth > 0 ) )
+				SendHudMessage( player, PILOT_SHIELD_BROKE_MESSAGE +"\n0/"+ shieldHealthMax, -1, -0.4, 255, 0, 0, 255, 0, 2.0, 0 )
+			
+			file.playerShieldHealthLeftSinceLastHit[ victim ] = currentShieldHealth
+		}
 	}
 }
 
