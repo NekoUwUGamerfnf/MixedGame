@@ -186,8 +186,12 @@ bool function CreateThermiteWallSegment( entity projectile, int projectileCount,
 			duration = mods.contains( "pas_scorch_firewall" ) ? PAS_SCORCH_FIREWALL_DURATION : FLAME_WALL_THERMITE_DURATION
 			
 			// modified: flamewall_grenade
+			// its hardcoded but can't get rid of unless we copy everything into mp_weapon_flamewall_grenade.gnut
 			if( mods.contains( "flamewall_grenade" ) )
+			{
+				damageSource = eDamageSourceId.mp_weapon_flamewall_grenade
 				duration = THERMITE_GRENADE_BURN_TIME
+			}
 		}
 		
 
