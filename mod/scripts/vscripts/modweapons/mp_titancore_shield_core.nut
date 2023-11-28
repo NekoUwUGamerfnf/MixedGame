@@ -139,8 +139,11 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 	owner.p.lastDamageTime = Time() - regenDelay // reset lastDamageTime, force start player regen
 	while( Time() < startTime + coreDuration )
 	{
-		if ( IsValid( soul ) && Time() - owner.p.lastDamageTime >= SHIELD_CORE_REGEN_DELAY && !owner.ContextAction_IsActive() )
-			soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + regenRate ) )
+		if ( IsValid( soul ) && !owner.ContextAction_IsActive() )
+		{
+			if( Time() - owner.p.lastDamageTime >= SHIELD_CORE_REGEN_DELAY )
+				soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + regenRate ) )
+		}
 
 		wait SHIELD_CORE_REGEN_TICKRATE
 	}
