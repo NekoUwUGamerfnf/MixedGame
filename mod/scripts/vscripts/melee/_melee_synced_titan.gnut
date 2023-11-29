@@ -117,6 +117,8 @@ function MeleeSyncedTitan_Init()
 		] 
 	)
 	SetCallback_OnGetTitan3pExecutionRef( DefaultCallback_OnGetTitan3pExecutionRef )
+	// modified here: for we precache some effects that is used in classic executions
+	InitClassicExecutionModelEffects()
 }
 
 void function Init3pExecutions()
@@ -649,17 +651,35 @@ void function EmitSoundOnEntityForPlayersInRange( entity ent, string sound, floa
 	}
 }
 
+// precaching particles that used in model effects thread
+void function InitClassicExecutionModelEffects()
+{
+	PrecacheParticleSystem( $"P_impact_exp_frag_air" )
+	PrecacheParticleSystem( $"xo_health_fire_vent" )
+	PrecacheParticleSystem( $"P_impact_exp_lrg_metal" )
+}
+
 // for displaying effects that not working from .qc files...
 // mostly because respawn give attachments incorrect case
 // wait, effects seem to working fine, but where do tf1's effects go? like cracking open the hatch
 // let's play those on server-side, maybe? is it because tf2 changed some of effects so tf1 effects no longer working well?
-// can't figure out how to fix stuffs, temp disabled
-void function ClassicExecutionParticleEffect( entity ent, asset effect, string attachment, int attachType )
+void function ClassicExecutionParticleEffect( entity ent, asset effect, string attachment, int attachType, int visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE )
 {
 	int attachmentIndex = ent.LookupAttachment( attachment )
 	int particleIndex = GetParticleSystemIndex( effect )
 	
-	StartParticleEffectOnEntity( ent, particleIndex, attachType, attachmentIndex )
+	entity particle = StartParticleEffectOnEntity_ReturnEntity( ent, particleIndex, attachType, attachmentIndex )
+	particle.SetOwner( ent )
+	particle.kv.VisibilityFlags = visibilityFlags
+	thread TrackClassicExecutionParticleLifeTime( ent, particle )
+}
+
+void function TrackClassicExecutionParticleLifeTime( entity ent, entity particle )
+{
+	particle.EndSignal( "OnDestroy" )
+	WaitSignal( target, "OnDeath", "OnDestroy", "OnAnimationDone", "OnAnimationInterrupted" )
+
+	EffectStop( particle )
 }
 
 function AtlasVsTitanShortSoundEvent( entity attacker, entity target, executionTable )
@@ -706,10 +726,12 @@ function AtlasVsTitanShortModelEffects( entity attacker, entity target, executio
 	*/
 
 	// server-side effects
-	// can't figure out how to fix stuffs, temp disabled
 	wait 0.7
-	if ( IsAlive( target ) )
-		ClassicExecutionParticleEffect( target, $"P_impact_exp_frag_air", "PROPGUN", FX_PATTACH_POINT_FOLLOW )
+	// cracking open the hatch
+	//if ( IsAlive( target ) )
+	//	ClassicExecutionParticleEffect( target, $"P_impact_exp_frag_air", "PROPGUN", FX_PATTACH_POINT_FOLLOW )
+	if ( IsAlive( attacker ) )
+		ClassicExecutionParticleEffect( attacker, $"P_impact_exp_frag_air", "exp_R_elbow", FX_PATTACH_POINT_FOLLOW )
 }
 
 function StryderVsTitanSoundEvent( entity attacker, entity target, executionTable )
@@ -753,11 +775,20 @@ function StryderVsTitanModelEffects( entity attacker, entity target, executionTa
 	// no signals for target sequence because tf1 excutions can change target entity( from titan to pilot )
 
 	// attacker animation: "at_melee_sync_frontkill"
+	// reworked: client-side effects seems to working fine, we need server-side only ones
+	/*
 	const attackerAnimFPS = 30
 	// { event AE_CL_CREATE_PARTICLE_EFFECT 21 "xo_damage_exp_1 follow_attachment exp_r_elbow" }
 	wait 21 / attackerAnimFPS
 	if ( IsAlive( attacker ) )
 		ClassicExecutionParticleEffect( attacker, $"xo_damage_exp_1", "exp_R_elbow", FX_PATTACH_POINT_FOLLOW )
+	*/
+
+	// server-side effects
+	wait 0.7
+	// cracking open the hatch
+	if ( IsAlive( attacker ) )
+		ClassicExecutionParticleEffect( attacker, $"P_impact_exp_frag_air", "exp_R_elbow", FX_PATTACH_POINT_FOLLOW )
 }
 
 function AtlasVsTitanSoundEvent( entity attacker, entity target, executionTable )
@@ -846,11 +877,20 @@ function AtlasVsTitanModelEffects( entity attacker, entity target, executionTabl
 	// no signals for target sequence because tf1 excutions can change target entity( from titan to pilot )
 
 	// attacker animation: "at_melee_sync_frontkill"
+	// reworked: client-side effects seems to working fine, we need server-side only ones
+	/*
 	const attackerAnimFPS = 30
 	// { event AE_CL_CREATE_PARTICLE_EFFECT 15 "xo_damage_exp_1 follow_attachment exp_r_elbow" }
 	wait 15 / attackerAnimFPS
 	if ( IsAlive( attacker ) )
 		ClassicExecutionParticleEffect( attacker, $"xo_damage_exp_1", "exp_R_elbow", FX_PATTACH_POINT_FOLLOW )
+	*/
+
+	// server-side effects
+	wait 0.4
+	// cracking open the hatch
+	if ( IsAlive( attacker ) )
+		ClassicExecutionParticleEffect( attacker, $"P_impact_exp_frag_air", "exp_R_elbow", FX_PATTACH_POINT_FOLLOW )
 }
 
 function OgreVsTitanSoundEvent( entity attacker, entity target, executionTable )
@@ -905,6 +945,8 @@ function OgreVsTitanModelEffects( entity attacker, entity target, executionTable
 	target.EndSignal( "OnAnimationInterrupted" )
 
 	// victim animation: "og_melee_armrip_victim"
+	// reworked: client-side effects seems to working fine, we need server-side only ones
+	/*
 	const targetAnimFPS = 30
 	// { event AE_CL_CREATE_PARTICLE_EFFECT 40 "xo_damage_exp_1 follow_attachment pod_r" }
 	wait 40 / targetAnimFPS
@@ -925,6 +967,30 @@ function OgreVsTitanModelEffects( entity attacker, entity target, executionTable
 	wait ( 100 - 94 ) / targetAnimFPS
 	if ( IsAlive( target ) )
 		ClassicExecutionParticleEffect( target, $"xo_damage_exp_1", "POD_L", FX_PATTACH_POINT_FOLLOW )
+	*/
+
+	// server-side effects
+	// start ripping arms, make arms become ignited
+	if ( IsAlive( target ) )
+	{
+		ClassicExecutionParticleEffect( target, $"xo_health_fire_vent", "exp_L_shoulder", FX_PATTACH_POINT_FOLLOW )
+		ClassicExecutionParticleEffect( target, $"xo_health_fire_vent", "exp_R_shoulder", FX_PATTACH_POINT_FOLLOW )
+	}
+
+	wait 0.7
+	// right arm being ripped out
+	if ( IsAlive( target ) )
+		ClassicExecutionParticleEffect( target, $"P_impact_exp_lrg_metal", "exp_R_elbow", FX_PATTACH_POINT_FOLLOW )
+
+	wait 1.4
+	// left arm being ripped out
+	if ( IsAlive( target ) )
+		ClassicExecutionParticleEffect( target, $"P_impact_exp_lrg_metal", "exp_L_elbow", FX_PATTACH_POINT_FOLLOW )	
+
+	wait 0.9
+	// throw arms to face
+	if ( IsAlive( target ) )
+		ClassicExecutionParticleEffect( target, $"P_impact_exp_frag_air", "exp_torso_up", FX_PATTACH_POINT_FOLLOW )	
 }
 // modified functions end
 
@@ -941,6 +1007,8 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 	string targetAnimation3p = "at_melee_sync_frontdeath_autotitan"
 
 	target.Signal( "TitanStopsThinking" ) // in future, need to make titan scripted anims co-exist better and not require gotcha stuff like this -Mackey
+
+	target.EndSignal( "OnDestroy" ) // needs to track target destroy because this type of termination won't do titan transfer
 
 	local e = {}
 	e.attackerViewBody <- null
@@ -1016,8 +1084,7 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 	// manually do some titanfall2 sounds
 	thread AtlasVsTitanShortSoundEvent( attacker, target, e )
 	// manually fix model fx
-	// can't figure out how to fix stuffs, temp disabled
-	//thread AtlasVsTitanShortModelEffects( attacker, target, e )
+	thread AtlasVsTitanShortModelEffects( attacker, target, e )
 
 	local soul = target.GetTitanSoul()
 	soul.SetInvalidHealthBarEnt( true )
@@ -1092,8 +1159,11 @@ void function MeleeThread_AtlasVsTitanShort( SyncedMelee action, entity attacker
 						printt( "PutEntityInSafeSpot failed, putting him back at the start origin" )
 						attacker.SetOrigin( expect vector( e.attackerStartOrg ) )
                     }
-
 				}
+
+				// modified condition
+				if ( !IsValid( target ) ) // target gets destroyed early
+					attacker.Anim_Stop() // stop attacker sequence
 			}
 
 			if ( IsValid( target ) )
@@ -1168,8 +1238,7 @@ void function MeleeThread_StyderVsTitan( SyncedMelee action, entity attacker, en
 	// manually add some sound using titanfall 2's sounds
 	thread StryderVsTitanSoundEvent( attacker, target, e )
 	// manually fix model fx
-	// can't figure out how to fix stuffs, temp disabled
-	//thread StryderVsTitanModelEffects( attacker, target, e )
+	thread StryderVsTitanModelEffects( attacker, target, e )
 	
 	MeleeThread_TitanRipsPilot( e, action, attacker, target )
 }
@@ -1197,8 +1266,7 @@ void function MeleeThread_AtlasVsTitan( SyncedMelee action, entity attacker, ent
 	// manually add some sound using titanfall 2's sounds
 	thread AtlasVsTitanSoundEvent( attacker, target, e )
 	// manually fix model fx
-	// can't figure out how to fix stuffs, temp disabled
-	//thread AtlasVsTitanModelEffects( attacker, target, e )
+	thread AtlasVsTitanModelEffects( attacker, target, e )
 
 	MeleeThread_TitanRipsPilot( e, action, attacker, target )
 }
@@ -1770,9 +1838,13 @@ function TitanSyncedMeleeAnimationsPlay( FirstPersonSequenceStruct attackerBodyS
 	wait timer
 
 	// first the victim cant see his titan, as a pilot, and then he can
-	targetTitan.SetNextThinkNow()
-	targetTitan.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
-	targetTitan.SetNextThinkNow()
+	// vanilla missing validation checks
+	if ( IsValid( targetTitan ) )
+	{
+		targetTitan.SetNextThinkNow()
+		targetTitan.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+		targetTitan.SetNextThinkNow()
+	}
 	wait duration - timer
 }
 
@@ -2051,6 +2123,8 @@ function MeleeAnimThrow( attacker, target, throwDuration )
 ///////////////////////////////////////
 void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, entity target )
 {
+	target.EndSignal( "OnDestroy" ) // needs to track target destroy because this type of termination won't do titan transfer
+	
 	string attackerAnimation1p = "ogpov_melee_armrip_attacker"
 	string attackerAnimation3p = "og_melee_armrip_attacker"
 	string targetAnimation1p = "ogpov_melee_armrip_victim"
@@ -2180,6 +2254,10 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 					PutEntityInSafeSpot( attacker, null, null, expect vector( e.attackerStartOrg ), attacker.GetOrigin() )
 					attacker.SetActiveWeaponBySlot( 0 ) // so ogre titans can have their weapon back, doesn't seem necessary
 				}
+
+				// modified condition
+				if ( !IsValid( target ) ) // target gets destroyed early
+					attacker.Anim_Stop() // stop attacker sequence
 			}
 
 			if ( IsValid( target ) )
@@ -2263,8 +2341,7 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 	// manually do some titanfall2 sounds
 	thread OgreVsTitanSoundEvent( attacker, target, e )
 	// manually fix model fx
-	// can't figure out how to fix stuffs, temp disabled
-	//thread OgreVsTitanModelEffects( attacker, target, e )
+	thread OgreVsTitanModelEffects( attacker, target, e )
 
 	AddAnimEvent( target, "lost_arm", TitanLostArm, e )
 
