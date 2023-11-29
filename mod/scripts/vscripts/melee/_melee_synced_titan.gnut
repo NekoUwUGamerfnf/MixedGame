@@ -1278,7 +1278,7 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 		{
 			// modified here: we've added failsafe timer for melee throw
 			// if throw succeeded we delay the cleanup
-			local targetInFlight = e.thrown && !e.thrownKilled
+			local targetInFlight = IsAlive( target ) && e.thrown && !e.thrownKilled
 
 			if ( IsValid( ref ) )
 			{
@@ -1293,7 +1293,7 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 
 				// modified here: we've added failsafe timer for melee throw
 				// if throw succeeded we should delay cleanup these stuffs
-				if ( !IsAlive( target ) || !targetInFlight ) // target should be killed! if target gets throwed, cleanup handled by DelayedCleanupSyncedMeleeForThrownTarget()
+				if ( !targetInFlight ) // target should be killed! if target gets throwed, cleanup handled by CleanUpSyncedMeleeOnThrownTargetDeathOrAnimDone()
 				{
 					if ( IsValid( target ) )
 					{
@@ -1362,7 +1362,7 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 					//print( "Player still in throw flight after melee thread! delay the cleanup" )
 					// do a special think for throwing case
 					// this also cleans up ref
-					thread DelayedCleanupSyncedMeleeForThrownTarget( target, ref )
+					thread CleanUpSyncedMeleeOnThrownTargetDeathOrAnimDone( target, ref )
 				}
 				else // vanilla behavior
 				{
@@ -1425,10 +1425,10 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 }
 
 // modified
-void function DelayedCleanupSyncedMeleeForThrownTarget( entity target, entity ref )
+void function CleanUpSyncedMeleeOnThrownTargetDeathOrAnimDone( entity target, entity ref )
 {
 	target.EndSignal( "OnDestroy" )
-	target.WaitSignal( "OnDeath" )
+	WaitSignal( target, "OnDeath", "OnAnimationDone", "OnAnimationInterrupted" )
 
 	//print( "player killed by melee throw!" )
 
@@ -1867,7 +1867,7 @@ function MonitorMeleeThrowAnimation( entity attacker, entity target, e, duration
 	// end signals. should only trigger them at the end of function
 	attacker.EndSignal( "OnAnimationDone" )
 	attacker.EndSignal( "OnAnimationInterrupted" )
-	target.EndSignal( "OnDeath" )
+	//target.EndSignal( "OnDeath" ) // stop adding target endsignal on throw, so we can make throw anim duration constant?
 	target.EndSignal( "OnDestroy" )
 
 	wait duration - 0.45 // same timer as TitanSyncedMeleeAnimationsPlay() does
@@ -2094,8 +2094,9 @@ void function MeleeThread_OgreVsTitan( SyncedMelee action, entity attacker, enti
 				// that will seem pretty weird
 				// welp, vanilla 3p titan executions also having this problem, should I keep identical?
 				// guess I'll do so. removing this fix
-				//if ( IsValid( target ) && !IsAlive( target ) && target.IsNPC() ) // npc target killed!
-				//	thread RagdollNPCTargetAfterAnimDone( target )
+				// EDIT2: vanilla monarch execution has been fixed, we add this back
+				if ( IsValid( target ) && !IsAlive( target ) && target.IsNPC() ) // npc target killed!
+					thread RagdollNPCTargetAfterAnimDone( target )
 			}
 		}
 	)
@@ -2363,21 +2364,32 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		isAttackerRef = IsAttackerRef( null, target )
 	}
 
+	// fix npc target animation for executions that has shorter attacker sequence than target's( monarch ones )
+	table results = {
+		attackerSequenceEnds = false
+	}
+
 	OnThreadEnd(
 		// moving shouldApplyBatteryAfterRodeo checks to MeleeThread_TitanVsTitan_Internal()
 		// so it can handle classic execution case
 		// and it's now using structs for saving a non-entity variable, more accurate
+		// also modified to have results table, so we can fix target animation
 		//function() : ( attacker, target, e, attackerViewBody, targetViewBody, shouldApplyBatteryAfterRodeo, isAttackerRef )
-		function() : ( attacker, target, e, attackerViewBody, targetViewBody, isAttackerRef )
+		function() : ( attacker, target, e, attackerViewBody, targetViewBody, isAttackerRef, results )
 		{
 			if ( IsValid( attacker ) )
 			{
+				// wrapped anim event cleanup into function
+				/*
 				if( HasAnimEvent( attacker, "synced_melee_enable_planting" ) )
 					DeleteAnimEvent( attacker, "synced_melee_enable_planting" )
 				if( HasAnimEvent( attacker, "rocket_pod_fire_left" ) )
 					DeleteAnimEvent( attacker, "rocket_pod_fire_left" )
 				if( HasAnimEvent( attacker, "rocket_pod_fire_right" ) )
 					DeleteAnimEvent( attacker, "rocket_pod_fire_right" )
+				*/
+				// modified behavior start
+				CleanUpAttackerAnimEvents( attacker )
 
 				// save for npc executions
 				attacker.ClearParent()
@@ -2451,6 +2463,11 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 			if ( IsValid( target ) )
 			{
+				// this behavior works bad on some executions, as their attacher sequence is shorter than target's
+				// if that case ever happended, we needs to delay anim events cleanup
+				// wrapped anim event cleanup into function
+				// EDIT: this can't help because there's target.Die() in lines below...
+				/*
 				if ( HasAnimEvent( target, "melee_killed_ragdoll" ) )
 					DeleteAnimEvent( target, "melee_killed_ragdoll" )
 				if ( HasAnimEvent( target, "execution_battery_show" ) )
@@ -2458,9 +2475,19 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 				if ( HasAnimEvent( target, "execution_battery_hide" ) )
 					DeleteAnimEvent( target, "execution_battery_hide" )
 
-
+				
 				if ( HasAnimEvent( target, "rider_rodeo_over" ) )
 					DeleteAnimEvent( target, "rider_rodeo_over" )
+				*/
+				// modified behavior start
+				//if ( IsAlive( target ) )
+				//{
+				//	thread CleanUpTargetAnimEventsOnDeathOrAnimDone( target )
+				//}
+				//else
+				//{
+					CleanUpTargetAnimEvents( target )
+				//}
 
 				target.e.syncedMeleeAttacker = null
 
@@ -2484,6 +2511,11 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 				if ( IsAlive( target ) ) //Should have no need to PlayTitanCockpitSounds for target because the target is going to die
 				{
+					// modified: if attacker sequence is shorter than target's, npc victim animation will be messed up
+					// do fixes here
+					if ( results.attackerSequenceEnds && target.IsNPC() )
+						target.e.forceRagdollDeath = true
+					
 					target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
 				}
 				else if ( target.IsPlayer() )
@@ -2501,11 +2533,17 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 			if ( IsValid( attackerViewBody ) )
 			{
+				// anti-crash
 				//DeleteAnimEvent( attackerViewBody, "rodeo_battery_rip" )
+				// wrapped anim event cleanup into function
+				/*
 				if( HasAnimEvent( attackerViewBody, "execution_battery_pilot" ) )
 					DeleteAnimEvent( attackerViewBody, "execution_battery_pilot" )
 				if( HasAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets" ) )
 					DeleteAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets" )
+				*/
+				// modded behavior
+				CleanUpAttackerViewBodyAnimEvents( attackerViewBody )
 				attackerViewBody.Hide()
 				attackerViewBody.Destroy()
 			}
@@ -2543,6 +2581,8 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 	EmitDifferentSoundsOnEntityForPlayerAndWorld( data.sound_1p, data.sound_3p, attacker, attacker )
 
+	// wrap anim event settings into function
+	/*
 	AddAnimEvent( target, "rider_rodeo_over", ForceTitanRodeoToEnd  )
 	AddAnimEvent( target, "melee_killed_ragdoll", PredatorMeleeKilledRagdoll )
 	AddAnimEvent( attacker, "synced_melee_enable_planting", EnablePlantingOnEntity )
@@ -2550,10 +2590,20 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	AddAnimEvent( attacker, "rocket_pod_fire_right", Northstar_Rocket_Pod_Right, target )
 	AddAnimEvent( target, "execution_battery_show", Execution_ShowBattery )
 	AddAnimEvent( target, "execution_battery_hide", Execution_HideBattery )
+	*/
+	// modified behavior start
+	SetUpTargetAnimEvents( target )
+	SetUpAttackerAnimEvents( attacker, target )
+
 	if ( attackerViewBody != null )
 	{
+		// wrap anim event settings into function
+		/*
 		AddAnimEvent( attackerViewBody, "execution_battery_pilot", Execution_GivePilotBattery )
 		AddAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets", Execution_BatteryStealJumpJets )
+		*/
+		// modified behavior start
+		SetUpAttackerViewBodyAnimEvents( attackerViewBody )
 	}
 
 
@@ -2658,6 +2708,9 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		thread FirstPersonSequence( targetSequence, target )
 		waitthread FirstPersonSequence( attackerSequence, attacker, target )
 	}
+
+	// if code hits here, we consider that attacker sequence has fully ends
+	results.attackerSequenceEnds = true
 }
 
 // fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
@@ -2669,6 +2722,84 @@ void function EndThreadOnPlayerRespawn( entity player )
 	player.EndSignal( "PlayerRespawnStarted" )
 }
 //
+
+// wrap anim event settings into function
+// added HasAnimEvent() checks into setup
+void function SetUpTargetAnimEvents( entity target )
+{
+	if ( !HasAnimEvent( target, "rider_rodeo_over" ) )
+		AddAnimEvent( target, "rider_rodeo_over", ForceTitanRodeoToEnd  )
+	if ( !HasAnimEvent( target, "melee_killed_ragdoll" ) )
+		AddAnimEvent( target, "melee_killed_ragdoll", PredatorMeleeKilledRagdoll )
+	// DLC
+	if ( !HasAnimEvent( target, "execution_battery_show" ) )
+		AddAnimEvent( target, "execution_battery_show", Execution_ShowBattery )
+	if ( !HasAnimEvent( target, "execution_battery_hide" ) )
+		AddAnimEvent( target, "execution_battery_hide", Execution_HideBattery )
+}
+
+void function SetUpAttackerAnimEvents( entity attacker, entity target )
+{
+	if ( !HasAnimEvent( attacker, "synced_melee_enable_planting" ) )
+		AddAnimEvent( attacker, "synced_melee_enable_planting", EnablePlantingOnEntity )
+	// DLC
+	if ( !HasAnimEvent( attacker, "rocket_pod_fire_left" ) )
+		AddAnimEvent( attacker, "rocket_pod_fire_left", Northstar_Rocket_Pod_Left, target )
+	if ( !HasAnimEvent( attacker, "rocket_pod_fire_right" ) )
+		AddAnimEvent( attacker, "rocket_pod_fire_right", Northstar_Rocket_Pod_Right, target )
+}
+
+void function SetUpAttackerViewBodyAnimEvents( entity attackerViewBody )
+{
+	// DLC
+	if( !HasAnimEvent( attackerViewBody, "execution_battery_pilot" ) )
+		AddAnimEvent( attackerViewBody, "execution_battery_pilot", Execution_GivePilotBattery )
+	if( !HasAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets" ) )
+		AddAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets", Execution_BatteryStealJumpJets )
+}
+
+void function CleanUpTargetAnimEvents( entity target )
+{
+	if ( HasAnimEvent( target, "melee_killed_ragdoll" ) )
+		DeleteAnimEvent( target, "melee_killed_ragdoll" )
+	if ( HasAnimEvent( target, "rider_rodeo_over" ) )
+		DeleteAnimEvent( target, "rider_rodeo_over" )
+	// DLC
+	if ( HasAnimEvent( target, "execution_battery_show" ) )
+		DeleteAnimEvent( target, "execution_battery_show" )
+	if ( HasAnimEvent( target, "execution_battery_hide" ) )
+		DeleteAnimEvent( target, "execution_battery_hide" )
+}
+
+void function CleanUpAttackerAnimEvents( entity attacker )
+{
+	if( HasAnimEvent( attacker, "synced_melee_enable_planting" ) )
+		DeleteAnimEvent( attacker, "synced_melee_enable_planting" )
+	if( HasAnimEvent( attacker, "rocket_pod_fire_left" ) )
+		DeleteAnimEvent( attacker, "rocket_pod_fire_left" )
+	if( HasAnimEvent( attacker, "rocket_pod_fire_right" ) )
+		DeleteAnimEvent( attacker, "rocket_pod_fire_right" )
+}
+
+void function CleanUpAttackerViewBodyAnimEvents( entity attackerViewBody )
+{
+	if( HasAnimEvent( attackerViewBody, "execution_battery_pilot" ) )
+		DeleteAnimEvent( attackerViewBody, "execution_battery_pilot" )
+	if( HasAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets" ) )
+		DeleteAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets" )
+}
+
+// fix for some executions that has longer attacker sequence than target's( mostly monarch ones )
+// welp this can't help, because target always die at the end of execution, after attacker sequence ends
+// maybe just do fix with RagdollNPCTargetAfterAnimDone()?
+// EDIT: target.e.forceRagdollDeath() is good enough
+void function CleanUpTargetAnimEventsOnDeathOrAnimDone( entity target )
+{
+	target.EndSignal( "OnDestroy" )
+	WaitSignal( target, "OnDeath", "OnAnimationDone", "OnAnimationInterrupted" )
+
+	CleanUpTargetAnimEvents( target )
+}
 
 void function Execution_ShowBattery( entity titan )
 {
@@ -2682,6 +2813,11 @@ void function Execution_ShowBattery( entity titan )
 		return
 
 	batteryContainer.Anim_Play( GetAnimFromAlias( titanType, "hatch_rodeo_up_idle" )  )
+
+	// welp, vanilla monarch battery execution is missing "rider_rodeo_over" event
+	// I'll handle it here so rodeo rider won't notice their battery has grown back
+	// breaks vanilla behavior but that's respawn's issue, not mine
+	ForceTitanRodeoToEnd( titan )
 }
 
 void function Execution_HideBattery( entity titan )
@@ -2782,6 +2918,7 @@ void function ClearParentOnDeathOrDestroy( entity clearParentEntity, entity onDe
 
 void function PredatorMeleeKilledRagdoll( entity titan )
 {
+	//print( "Calling PredatorMeleeKilledRagdoll()" )
 	titan.e.forceRagdollDeath = true
 }
 

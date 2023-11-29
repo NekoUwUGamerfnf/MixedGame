@@ -18,7 +18,7 @@ global function GetDescStringForDamageFlags
 	global function IsBodyGroupBroken
 	global function GetStateCountForBodyGroup
 
-	global function GibTitan
+	global function GibTitan // this function has been modified and no longer necessary to pass a damageInfo inside
 
 	global function DoomTitan
 	global function UndoomTitan_Body
@@ -28,10 +28,13 @@ global function GetDescStringForDamageFlags
 
 	global function PlayTitanDeathFx
 	global function PlayTitanDeathFxUp
+	// here's a modified function: in case we want to add titan explode effect for ragdolled titans
+	global function PlayTitanDeathFx_Ragdoll
+	global function PlayTitanDeathFxUp_Ragdoll
 
 	// modified to globalize!
 	global function ShouldDoHumanSizedGibs
-	global function HumanSizedGibDeath
+	global function HumanSizedGibDeath // function has been modified: can pass a null damageInfo inside, in that case gib velocity will use player's velocity
 	// modified function, respawn messed up flesh target gibbed sound
 	global function HumanSizedGibSound
 
@@ -46,6 +49,9 @@ global function GetDescStringForDamageFlags
 	// vanilla always gib titan on their death
 	// we add a setting that only gib the titan when they're killed by DF_GIB
 	global function DeathPackage_TitanAlwaysGibOnDeath
+	// modified settings: in case we want to add titan explode effect for ragdolled titans
+	global function DeathPackage_EnableTitanDeathFxOnRagdoll
+	global function DeathPackage_IsTitanRagdollDeathFxEnabled // to be shared with _anim.gnut, for fixing effects
 #endif
 
 const NPC_GRUNT_DEATH = "npc_grunt_death"
@@ -80,6 +86,7 @@ struct
 
 	// modified setting
 	bool titanAlwaysGibOnDeath = true // vanilla always gib titan on their death
+	bool titanDeathFxOnRagdoll = true // this is modded behavior, not enabled by default. EDIT: enable by default could be cool?
 } file
 
 global enum damageTypes
@@ -376,6 +383,7 @@ void function HandleDeathPackage( entity ent, var damageInfo )
 	Assert( !ent.e.forceGibDeath || !ent.e.forceRagdollDeath, ent + " had both ent.e.forceRagdollDeath and ent.e.forceGibDeath. Pick one!" )
 
 	bool forceRagdoll = ent.e.forceRagdollDeath
+	//print( "forceRagdoll: " + string( forceRagdoll ) )
 
 	if ( dpFlags & DF_MELEE )
 	{
@@ -402,6 +410,7 @@ void function HandleDeathPackage( entity ent, var damageInfo )
 	{
 		PlayDeathSounds( ent, damageInfo )
 	}
+
 
 	if ( dpFlags <= 0 && !forceRagdoll )
 	{
@@ -472,6 +481,13 @@ void function HandleDeathPackage( entity ent, var damageInfo )
 
 	if ( ((dpFlags & DF_RAGDOLL) && ent.GetArmorType() != ARMOR_TYPE_HEAVY) || forceRagdoll )
 	{
+		// modified condition: in case we want to add titan explode effect for ragdolled titans
+		if ( file.titanDeathFxOnRagdoll && ent.IsTitan() )
+		{
+			//print( "Doing death FX on titan ragdoll" )
+			PlayTitanDeathFx_Ragdoll( ent )
+		}
+
 		vector forceVec = DamageInfo_GetDamageForce( damageInfo )
 		float forceMag = Length( forceVec )
 		forceVec = Normalize( forceVec )
@@ -481,6 +497,7 @@ void function HandleDeathPackage( entity ent, var damageInfo )
 
 		const bool SKIP_ANIMATION = true
 		ent.BecomeRagdoll( forceVec * forceMag, SKIP_ANIMATION )
+
 		return
 	}
 }
@@ -507,9 +524,16 @@ bool function ShouldDoHumanSizedGibs( entity ent, int dpFlags )
 	return doGibs
 }
 
-void function HumanSizedGibDeath( entity ent, int dpFlags, var damageInfo )
+// function has been modified: can pass a null damageInfo inside, in that case gib velocity will use player's velocity
+// dpFlags is no where used
+//void function HumanSizedGibDeath( entity ent, int dpFlags, var damageInfo )
+void function HumanSizedGibDeath( entity ent, int dpFlags = -1, var damageInfo = null )
 {
-	vector forceVec = DamageInfo_GetDamageForce( damageInfo )
+	// modified forceVec: default uses player's velocity, if passing an valid damageInfo, use damageForce instead
+	//vector forceVec = DamageInfo_GetDamageForce( damageInfo )
+	vector forceVec = ent.GetVelocity()
+	if ( damageInfo != null )
+		forceVec = DamageInfo_GetDamageForce( damageInfo )
 	ent.Gib( forceVec )
 
 	// modified
@@ -562,12 +586,15 @@ void function EnsureDissolveEffectIsClearedForPlayer( entity player )
 }
 //
 
-void function GibTitan( entity titan, var damageInfo )
+// this function has been modified and no longer necessary to pass a damageInfo inside
+//void function GibTitan( entity titan, var damageInfo )
+void function GibTitan( entity titan, var damageInfo = null )
 {
 	if ( !HasHitData( titan ) )
 		return
 
-	DamageInfo_SetDeathPackage( damageInfo, "instant" )
+	if ( damageInfo != null )
+		DamageInfo_SetDeathPackage( damageInfo, "instant" )
 
 	local entKVs = titan.CreateTableFromModelKeyValues()
 	local hitData = entKVs["hit_data"]
@@ -759,6 +786,33 @@ function PlayTitanDeathFx_Internal( entity titan, int attachType )
 	if ( !results.startSolid && !results.allSolid && results.hitEnt )
 		PlayImpactFXTable( results.endPos, titan, TITAN_EXPLOSION_GROUNDWASH_FX_TABLE )
 }
+
+// here's a modified function: in case we want to add titan explode effect for ragdolled titans
+void function PlayTitanDeathFx_Ragdoll( entity titan )
+{
+	int attachmentIndex = titan.LookupAttachment( "exp_torso_main" )
+	vector origin = titan.GetAttachmentOrigin( attachmentIndex )
+	vector angles = titan.GetAttachmentAngles( attachmentIndex )
+	StartParticleEffectInWorld( TITAN_EXPLOSION_EFFECT, origin, angles )
+
+	TraceResults results = TraceLine( titan.GetOrigin(), titan.GetOrigin() + Vector( 0, 0, -TITAN_EXPLOSION_GROUNDWASH_HEIGHT ), [ titan ], TRACE_MASK_NPCSOLID_BRUSHONLY | TRACE_MASK_WATER, TRACE_COLLISION_GROUP_NONE )
+	if ( !results.startSolid && !results.allSolid && results.hitEnt )
+		PlayImpactFXTable( results.endPos, titan, TITAN_EXPLOSION_GROUNDWASH_FX_TABLE )
+}
+
+void function PlayTitanDeathFxUp_Ragdoll( entity titan )
+{
+	int attachmentIndex = titan.LookupAttachment( "exp_torso_main" )
+	vector origin = titan.GetAttachmentOrigin( attachmentIndex )
+	vector angles = titan.GetAttachmentAngles( attachmentIndex )
+	angles.x = 0 // no rotation
+	angles.z = 0
+	StartParticleEffectInWorld( TITAN_EXPLOSION_EFFECT, origin, angles )
+
+	TraceResults results = TraceLine( titan.GetOrigin(), titan.GetOrigin() + Vector( 0, 0, -TITAN_EXPLOSION_GROUNDWASH_HEIGHT ), [ titan ], TRACE_MASK_NPCSOLID_BRUSHONLY | TRACE_MASK_WATER, TRACE_COLLISION_GROUP_NONE )
+	if ( !results.startSolid && !results.allSolid && results.hitEnt )
+		PlayImpactFXTable( results.endPos, titan, TITAN_EXPLOSION_GROUNDWASH_FX_TABLE )
+}
 #endif
 
 const table<int, string> damageFlagsToNames =
@@ -861,5 +915,16 @@ void function DeathPackage_RemoveEntityHeadshotFXOverride( entity ent )
 void function DeathPackage_TitanAlwaysGibOnDeath( bool alwaysGib )
 {
 	file.titanAlwaysGibOnDeath = alwaysGib
+}
+
+void function DeathPackage_EnableTitanDeathFxOnRagdoll( bool deathFxOnRagdoll )
+{
+	file.titanDeathFxOnRagdoll = deathFxOnRagdoll
+}
+
+// to be shared with _anim.gnut, for fixing effects
+bool function DeathPackage_IsTitanRagdollDeathFxEnabled()
+{
+	return file.titanDeathFxOnRagdoll
 }
 #endif
