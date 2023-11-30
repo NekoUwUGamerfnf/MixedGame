@@ -118,10 +118,9 @@ void function TrackLaserCoreDuration( entity titan, entity weapon )
 	//wait weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
 	WaitFrame()
 	
-	float coreFrac = soul.GetTitanSoulNetFloat( "coreExpireFrac" )
 	while( IsValid( weapon ) && coreFrac > 0.01 )
 	{
-		coreFrac = soul.GetTitanSoulNetFloat( "coreExpireFrac" )
+		float coreFrac = soul.GetTitanSoulNetFloat( "coreExpireFrac" )
 		weapon.SetSustainedDischargeFractionForced( coreFrac )
 		WaitFrame()
 	}
