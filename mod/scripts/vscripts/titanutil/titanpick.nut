@@ -8,6 +8,8 @@ global function TitanPick_Enabled_Init
 global function TitanPick_EnableWeaponDrops
 global function TitanPick_MonarchUpgradeAfterDrop
 
+global function TitanPick_SetTitanDroppedWeaponLifeTime // manually created weapon drops can bypass this setting
+
 // utilities
 global function TitanPick_SoulSetEnableWeaponDrop
 global function TitanPick_SoulSetEnableWeaponPick
@@ -25,13 +27,16 @@ global function TitanPick_AddChangableClassMod
 global function TitanPick_ShouldTitanDropWeapon
 global function TitanPick_TitanDropWeapon
 
+// for balancing when loadout picked up by different chassis
+global function TitanPick_AddPickedWeaponDamageScale
+global function TitanPick_GetTitanDamageScale
 
-const float TITAN_WEAPON_DROP_LIFETIME          = 60 // after this time the weapon drop will be destroyed
+const float TITAN_WEAPON_DROP_LIFETIME          = 60 // (serve as default value)after this time the weapon drop will be destroyed
 
 // consts that no need to change
 const string TITAN_DROPPED_WEAPON_SCRIPTNAME    = "titanPickWeaponDrop"
-const vector DEFAULT_DROP_ORIGIN                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
-const vector DEFAULT_DROP_ANGLES                = < -9999, -9999, -9999 > // hack, this means drop right under player or titan
+const vector DEFAULT_DROP_ORIGIN                = < -99999, -99999, -99999 > // hack, this means drop right under player or titan
+const vector DEFAULT_DROP_ANGLES                = < -99999, -99999, -99999 > // hack, this means drop right under player or titan
 
 const float PLAYER_PICKUP_COOLDOWN              = 0.5 // for we use this 0.2s to update core icon
 const float PLAYER_RUI_UPDATE_DURATION          = 0.5 // use cinematic flag to update rui
@@ -123,6 +128,7 @@ struct
 {
     bool enableWeaponDrops = false
     bool upgradeAllowedAfterDrop = false // monarch hack: if TitanPick_MonarchUpgradeAfterDrop() turns off, only owner monarch can upgrade their offhands
+    float titanDroppedWeaponLifeTime = TITAN_WEAPON_DROP_LIFETIME
 
     table<entity, float> playerPickupAllowedTime // for updating core icon
 
@@ -143,6 +149,9 @@ struct
     array<string> illegalWeaponMods
     array<int> changablePassives
     array<string> changableClassMods // requires modified titan_base.txt
+
+    // titan chassis-based balancing
+    table< string, table<string, float> > pickedWeaponDropDamageScaling
 } file
 
 void function TitanPick_Init() 
@@ -155,6 +164,11 @@ void function TitanPick_Init()
     // for updating rui
     RegisterSignal( "UpdateCoreIcon" )
     RegisterSignal( "UpdateCockpitRUI" )
+
+    // modified callbacks in _codecallbacks_common.gnut
+    // for handling damage balancing
+    AddFinalDamageByCallback( "player", TitanPick_OnTitanDamageTarget )
+    AddFinalDamageByCallback( "npc_titan", TitanPick_OnTitanDamageTarget )
 }
 
 // main settings
@@ -171,6 +185,11 @@ void function TitanPick_EnableWeaponDrops( bool enable )
 void function TitanPick_MonarchUpgradeAfterDrop( bool enable )
 {
     file.upgradeAllowedAfterDrop = enable
+}
+
+void function TitanPick_SetTitanDroppedWeaponLifeTime( float lifeTime )
+{
+    file.titanDroppedWeaponLifeTime = lifeTime
 }
 
 // init
@@ -236,7 +255,7 @@ bool function TitanPick_ShouldTitanDropWeapon( entity titan )
 }
 
 // this will create a weapon drop based on a titan
-entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFAULT_DROP_ORIGIN, vector dropangle = DEFAULT_DROP_ANGLES, bool droppedByPickup = false, bool snapToGround = true ) 
+entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFAULT_DROP_ORIGIN, vector dropangle = DEFAULT_DROP_ANGLES, bool droppedByPickup = false, bool snapToGround = true, float weaponLifeTime = -1 ) 
 {
     // get charaName from this titan
     entity soul = titan.GetTitanSoul()
@@ -286,7 +305,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
         // get surface angle
         vector surfaceAng = VectorToAngles( downTrace.surfaceNormal )
         //vector titanYaw = < 0, titan.GetAngles().y, 0 >
-        dropangle = surfaceAng + < 90, 0, 0 > //+ titanYaw
+        dropangle = surfaceAng + < 90, 0, 0 > //+ titanYaw // not safe to change yaw because prop has already been rotated
         dropangle.x = ClampAngle( dropangle.x )
         dropangle.z = 90
         /*
@@ -375,7 +394,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
         curDropFuncs.switchOffFunc( titan )
     file.droppedOffhandsTable[ weaponProp ] <- GetTitanOffhandWeaponStruct( titan )
 
-    thread TitanWeaponDropLifeTime( weaponProp )
+    thread MonitorTitanWeaponDropLifeTime( weaponProp, weaponLifeTime )
 
     // destroy current weapon.. may cause mod titan with other smart ammo offhand to get another main weapon on disembarking, cause crash!
     //weapon.Destroy()
@@ -393,16 +412,28 @@ void function GiveSavedMonarchPassives( entity titan )
     foreach ( int passive, bool enabled in corePassives )
     {
         //print( PassiveEnumFromBitfield( passive ) + " has been set to: " + string( enabled ) )
-        soul.passives[ passive ] = enabled // apply passives
-        if ( enabled && titan.IsPlayer() )
-            titan.GivePassive( passive )
+        // this method seems bad, it can't trigger client passive change callbacks( or maybe serverside after we adding feature )
+        //soul.passives[ passive ] = enabled // apply passives
+        //if ( enabled && titan.IsPlayer() )
+        //    titan.GivePassive( passive )
+        // reworked stuffs
+        // titan passive handled by soul entity
+        if ( enabled )
+            GivePassive( soul, passive )
+        else
+            TakePassive( soul, passive )
     }
 }
 
-void function TitanWeaponDropLifeTime( entity weaponProp )
+void function MonitorTitanWeaponDropLifeTime( entity weaponProp, float lifeTimeOverride = -1 )
 {
-    weaponProp.EndSignal( "OnDestroy" )
-    wait TITAN_WEAPON_DROP_LIFETIME // life time
+    weaponProp.EndSignal( "OnDestroy" ) // getting picked up will destroy prop
+
+    float lifeTime = file.titanDroppedWeaponLifeTime
+    if ( lifeTimeOverride > 0 ) // life time override
+        lifeTime = lifeTimeOverride
+    
+    wait lifeTime
     if ( IsValid( weaponProp ) )
     {
         delete file.droppedWeaponPropsTable[ weaponProp ]
@@ -470,9 +501,12 @@ OffhandWeaponData function GetTitanOffhandWeaponStruct( entity titan )
             if ( file.changablePassives.contains( passive ) )
             {
                 titanOffhands.passives[ passive ] <- enabled // add to table
-                soul.passives[ passive ] = false // disable existing passive!
-                if ( titan.IsPlayer() )
-                    titan.RemovePassive( passive )
+                // this method seems bad, it can't trigger client passive change callbacks( or maybe serverside after we adding feature )
+                //soul.passives[ passive ] = false // disable existing passive!
+                //if ( titan.IsPlayer() )
+                //    titan.RemovePassive( passive )
+                // reworked stuffs
+                TakePassive( soul, passive )
             }
         }
 
@@ -522,15 +556,15 @@ function PickupDroppedTitanWeapon( weaponProp, player )
         return
     if( soul in file.soulEnabledTitanPick )
         canPickUp = file.soulEnabledTitanPick[ soul ]
+    
 	if( !canPickUp )
 	{
-		SendHudMessage(player, "当前机体不可更换装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 1)
+		SendHudMessage( player, "當前機體不可更換裝備", -1, 0.3, 255, 255, 0, 255, 0, 3, 0 )
 		return
 	}
-
 	if( IsTitanCoreFiring( player ) )
 	{
-		SendHudMessage( player, "核心启动期间不可更换装备", -1, 0.3, 255, 255, 0, 0, 0, 3, 0 )
+		SendHudMessage( player, "核心啓用期間不可更換裝備", -1, 0.3, 255, 255, 0, 255, 0, 3, 0 )
 		return
 	}
 
@@ -667,9 +701,16 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
         // passives
         foreach ( passive, enabled in savedOffhands.passives )
         {
-            soul.passives[ passive ] = enabled // apply passives
-            if ( enabled && titan.IsPlayer() )
-                titan.GivePassive( passive )
+            // this method seems bad, it can't trigger client passive change callbacks( or maybe serverside after we adding feature )
+            //soul.passives[ passive ] = enabled // apply passives
+            //if ( enabled && titan.IsPlayer() ) // player specific passive give
+            //    titan.GivePassive( passive )
+            // reworked stuffs
+            // titan passive handled by soul entity
+            if ( enabled )
+                GivePassive( soul, passive )
+            else
+                TakePassive( soul, passive )
         }
 
         // classmods
@@ -725,13 +766,19 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
                 // restore special core upgrades
                 if ( hasMaelStrom )
                 {
-                    soul.passives[ ePassives.PAS_VANGUARD_CORE5 ] = true
-                    player.GivePassive( ePassives.PAS_VANGUARD_CORE5 )
+                    // this method seems bad, it can't trigger client passive change callbacks( or maybe serverside after we adding feature )
+                    //soul.passives[ ePassives.PAS_VANGUARD_CORE5 ] = true
+                    //player.GivePassive( ePassives.PAS_VANGUARD_CORE5 )
+                    // reworked stuffs
+                    GivePassive( soul, ePassives.PAS_VANGUARD_CORE5 ) // titan passive handled by soul entity
                 }
                 if ( hasSuperiorChassis )
                 {
-                    soul.passives[ ePassives.PAS_VANGUARD_CORE8 ] = true
-                    player.GivePassive( ePassives.PAS_VANGUARD_CORE8 )
+                    // this method seems bad, it can't trigger client passive change callbacks( or maybe serverside after we adding feature )
+                    //soul.passives[ ePassives.PAS_VANGUARD_CORE8 ] = true
+                    //player.GivePassive( ePassives.PAS_VANGUARD_CORE8 )
+                    // reworked stuffs
+                    GivePassive( soul, ePassives.PAS_VANGUARD_CORE8 ) // titan passive handled by soul entity
                 }
 
                 // use passive's icon instead, for notifying player that they cannot upgrade
@@ -758,9 +805,12 @@ void function TakeAllMonarchCorePassives( entity titan )
         if ( MONARCH_CORE_PASSIVES.contains( passive ) )
         {
             //print( PassiveEnumFromBitfield( passive ) + " has been disabled" )
-            soul.passives[ passive ] = false // disable existing passive!
-            if ( titan.IsPlayer() )
-                titan.RemovePassive( passive )
+            // this method seems bad, it can't trigger client passive change callbacks( or maybe serverside after we adding feature )
+            //soul.passives[ passive ] = false // disable existing passive!
+            //if ( titan.IsPlayer() )
+            //    titan.RemovePassive( passive )
+            // reworked stuffs
+            TakePassive( soul, passive ) // titan passive handled by soul entity
         }
     }
 }
@@ -884,6 +934,7 @@ void function TitanPick_AddChangablePassive( int passives )
     if ( !file.changablePassives.contains( passives ) )
         file.changablePassives.append( passives )
 }
+
 void function TitanPick_AddChangableClassMod( string classMod )
 {
     if ( !file.changableClassMods.contains( classMod ) )
@@ -919,4 +970,62 @@ string function TitanPick_GetTitanWeaponDropCharacterName( entity titan )
     if ( !( titanSoul in file.soulWeaponDropCharcterName ) )
 		return GetTitanCharacterName( titan )
 	return file.soulWeaponDropCharcterName[ titanSoul ]
+}
+
+// damage balancing
+void function TitanPick_AddPickedWeaponDamageScale( string charaName, string chassis, float damageScale )
+{
+    InitLoadoutDamageTable( charaName )
+
+    if ( !( chassis in file.pickedWeaponDropDamageScaling[ charaName ] ) ) // failsafe!! assigned an invalid chassis
+        return
+
+    file.pickedWeaponDropDamageScaling[ charaName ][ chassis ] = damageScale
+}
+
+void function InitLoadoutDamageTable( string charaName )
+{
+    if ( charaName in file.pickedWeaponDropDamageScaling ) // already inited?
+        return
+
+    table<string, float> emptyTable
+    file.pickedWeaponDropDamageScaling[ charaName ] <- emptyTable
+    // init default chassis
+    file.pickedWeaponDropDamageScaling[ charaName ][ "atlas" ] <- 1.0
+    file.pickedWeaponDropDamageScaling[ charaName ][ "stryder" ] <- 1.0
+    file.pickedWeaponDropDamageScaling[ charaName ][ "ogre" ] <- 1.0
+    file.pickedWeaponDropDamageScaling[ charaName ][ "buddy" ] <- 1.0
+}
+
+void function TitanPick_OnTitanDamageTarget( entity victim, var damageInfo )
+{
+    entity attacker = DamageInfo_GetAttacker( damageInfo )
+    if ( IsValid( attacker ) )
+    {
+        float damageScale = TitanPick_GetTitanDamageScale( attacker )
+        // debug
+        //print( "we got damage scale on " + string( attacker ) + " :" + string( damageScale ) )
+        if ( damageScale != 1.0 )
+            DamageInfo_ScaleDamage( damageInfo, damageScale )
+    }
+}
+
+// note: this always return 1.0 after soul being destroyed, don't know how to track that case
+float function TitanPick_GetTitanDamageScale( entity titan )
+{
+    entity soul = titan.GetTitanSoul()
+    if ( !IsValid( soul ) )
+        return 1.0 // soul invalid
+    
+    string curLoadout = TitanPick_GetTitanWeaponDropCharacterName( titan )
+    string chassis = GetSoulTitanSubClass( soul )
+
+    if ( curLoadout in file.pickedWeaponDropDamageScaling )
+    {
+        if ( chassis in file.pickedWeaponDropDamageScaling[ curLoadout ] )
+            return file.pickedWeaponDropDamageScaling[ curLoadout ][ chassis ]
+    }
+    
+    // failsafe
+    return 1.0
 }

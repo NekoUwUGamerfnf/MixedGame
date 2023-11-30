@@ -272,8 +272,18 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 			{
 				callbackFunc( ent, damageInfo )
 				if ( DamageInfo_GetDamage( damageInfo ) == 0 )
-					return
+				{
+					//return // vanilla behavior
+					break // change to break so we can print out some stuffs
+				}
 			}
+
+			// modified printing
+			#if VERBOSE_DAMAGE_PRINTOUTS
+				printt( "    after class damage by callbacks:", DamageInfo_GetDamage( damageInfo ) )
+			#endif
+			if ( DamageInfo_GetDamage( damageInfo ) == 0 )
+				return
 		}
 	}
 
@@ -290,7 +300,7 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 		printt( "    after AddEntityCallback_OnDamaged callbacks:", DamageInfo_GetDamage( damageInfo ) )
 	#endif
 
-	// use AddDamageCallbackSourceID( "classname", function ) to registed functions
+	// use AddDamageCallbackSourceID( damageSourceId, function ) to registed functions
 	int damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 	if ( damageSourceId in shGlobal.damageSourceIdCallbacks )
 	{
@@ -310,6 +320,18 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 		printt( "    after class damage final callbacks:", DamageInfo_GetDamage( damageInfo ) )
 	#endif
 
+	// add some modifications here: 
+	// allow adding damageByCallback to finalDamageCallbacks
+	// functions shared from _codecallbacks_common.gnut
+	// use AddFinalDamageByCallback( "classname", function ) to registed functions
+	RunClassFinalDamageByCallbacks( ent, damageInfo )
+	#if VERBOSE_DAMAGE_PRINTOUTS
+		printt( "    after class final damage by callbacks:", DamageInfo_GetDamage( damageInfo ) )
+	#endif
+	if ( DamageInfo_GetDamage( damageInfo ) == 0 )
+		return
+	//
+
 	// Added via AddEntityCallback_OnFinalDamaged
 	foreach ( callbackFunc in ent.e.entFinalDamageCallbacks )
 	{
@@ -320,6 +342,18 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 	#endif
 	if ( DamageInfo_GetDamage( damageInfo ) == 0 )
 		return
+
+	// add some modifications here: 
+	// allow adding damageCallbackSourceID to finalDamageCallbacks
+	// functions shared from _codecallbacks_common.gnut
+	// use AddFinalDamageCallbackSourceID( damageSourceId, function ) to registed functions
+	RunFinalDamageSourceIDCallbacks( damageSourceId, ent, damageInfo )
+	#if VERBOSE_DAMAGE_PRINTOUTS
+		printt( "    after damageSourceID final callbacks:", DamageInfo_GetDamage( damageInfo ) )
+	#endif
+	if ( DamageInfo_GetDamage( damageInfo ) == 0 )
+		return
+	//
 
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_DOOMED_HEALTH_LOSS )
 		DamageInfo_AddDamageFlags( damageInfo, DAMAGEFLAG_NOPAIN )
@@ -450,6 +484,21 @@ void function CodeCallback_DamagePlayerOrNPC( entity ent, var damageInfo )
 	#endif
 
 	RunClassPostDamageCallbacks( ent, damageInfo )
+
+	// add some modifications here: 
+	// allow adding damageByCallback and damageCallbackSourceID to postDamageCallbacks
+	// functions shared from _codecallbacks_common.gnut
+	// use AddPostDamageByCallback( "classname", function ) to registed functions
+	RunClassPostDamageByCallbacks( ent, damageInfo )
+	#if VERBOSE_DAMAGE_PRINTOUTS
+		printt( "    after class post damage by callbacks:", DamageInfo_GetDamage( damageInfo ) )
+	#endif
+	
+	RunPostDamageSourceIDCallbacks( damageSourceId, ent, damageInfo )
+	#if VERBOSE_DAMAGE_PRINTOUTS
+		printt( "    after damageSourceID post callbacks:", DamageInfo_GetDamage( damageInfo ) )
+	#endif
+	//
 
 	#if SERVER && MP
 		Stats_OnPlayerDidDamage( ent, damageInfo )
@@ -1138,7 +1187,12 @@ int function GetDamageSourceIdOverride( var damageInfo )
 			weaponName = inflictor.ProjectileGetWeaponClassName()
 			mods = Vortex_GetRefiredProjectileMods( inflictor ) // get projectile mods with refire support
 		}
-		else if ( inflictor.IsPlayer() || inflictor.IsNPC() ) // hitscan weapon condition
+		else if ( (inflictor instanceof CWeaponX) ) // shotgun blast condition
+		{
+			weaponName = inflictor.GetWeaponClassName()
+			mods = inflictor.GetMods()
+		}
+		else if ( (inflictor instanceof CBaseCombatCharacter) ) // hitscan weapon condition
 		{
 			entity weapon = inflictor.GetActiveWeapon()
 			if ( IsValid( weapon ) )
@@ -1150,12 +1204,17 @@ int function GetDamageSourceIdOverride( var damageInfo )
 
 		if ( weaponName != "" && mods.len() > 0 )
 		{
+			//print( "got weaponName: " + weaponName )
 			if ( weaponName in file.damageSourceIdOverride_WeaponMod )
 			{
 				foreach ( string modName in mods )
 				{
 					if ( modName in file.damageSourceIdOverride_WeaponMod[ weaponName ] )
+					{
+						//print( "got modName: " + modName )
+						//print( "return value: " + string( file.damageSourceIdOverride_WeaponMod[ weaponName ][ modName ] ) )
 						return file.damageSourceIdOverride_WeaponMod[ weaponName ][ modName ]
+					}
 				}
 			}
 		}

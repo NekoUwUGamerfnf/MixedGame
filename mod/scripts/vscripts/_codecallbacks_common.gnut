@@ -13,6 +13,19 @@ global function RunClassPostDamageCallbacks
 
 global function AddDamageByCallback
 global function AddDamageCallbackSourceID
+// add some modifications here: 
+// allow adding damageByCallback or damageCallbackSourceID to finalDamageCallbacks or postDamageCallbacks
+global function AddFinalDamageByCallback
+global function AddPostDamageByCallback
+global function AddFinalDamageCallbackSourceID
+global function AddPostDamageCallbackSourceID
+// due we don't want to directly modify shGlobal or svGlobal structs, store things in in-file table
+// add function call to be shared with _codecallbacks.gnut
+global function RunClassFinalDamageByCallbacks
+global function RunClassPostDamageByCallbacks
+global function RunFinalDamageSourceIDCallbacks
+global function RunPostDamageSourceIDCallbacks
+//
 global function AddDeathCallback
 global function RemoveDeathCallback
 global function AddSoulDeathCallback
@@ -97,6 +110,15 @@ struct
 	table<string, array< void functionref( entity, var ) > > classPostDamageCallbacks
 	array< void functionref( entity ) > playerInventoryChangedCallbacks
 
+	// add some modifications here: 
+	// allow adding damageByCallback or damageCallbackSourceID to finalDamageCallbacks or postDamageCallbacks
+	// due we don't want to directly modify shGlobal or svGlobal structs, store things in in-file table
+	table< string, array< void functionref( entity, var ) > > classFinalDamageByCallbacks
+	table< string, array< void functionref( entity, var ) > > classPostDamageByCallbacks
+	table< int, array< void functionref( entity, var ) > > finalDamageSourceIdCallbacks
+	table< int, array< void functionref( entity, var ) > > postDamageSourceIdCallbacks
+	//
+
 	// nessie modify
 	array<bool functionref( entity, var )> shouldRunEntityKilledCallbackChecks
 	table<entity, bool> entDisableEntityKilledEvent
@@ -147,12 +169,34 @@ void function CodeCallback_DamageEntity( entity ent, var damageInfo )
 		printt( "    after class damage final callbacks:", DamageInfo_GetDamage( damageInfo ) )
 	#endif
 
+	// add some modifications here: 
+	// allow adding damageByCallback to finalDamageCallbacks
+	// use AddFinalDamageByCallback( "classname", function ) to registed functions
+	RunClassFinalDamageByCallbacks( ent, damageInfo )
+	#if VERBOSE_DAMAGE_PRINTOUTS
+		printt( "    after class final damage by callbacks:", DamageInfo_GetDamage( damageInfo ) )
+	#endif
+	if ( DamageInfo_GetDamage( damageInfo ) == 0 )
+		return
+	//
+
+	// Added via AddEntityCallback_OnFinalDamaged
 	foreach ( callbackFunc in ent.e.entFinalDamageCallbacks )
 		callbackFunc( ent, damageInfo )
-
 	#if VERBOSE_DAMAGE_PRINTOUTS
 		printt( "    after Add EntityCallback_OnFinalDamaged callbacks:", DamageInfo_GetDamage( damageInfo ) )
 	#endif
+
+	// add some modifications here: 
+	// allow adding damageCallbackSourceID to finalDamageCallbacks
+	// use AddFinalDamageCallbackSourceID( damageSourceId, function ) to registed functions
+	RunFinalDamageSourceIDCallbacks( damageSourceId, ent, damageInfo )
+	#if VERBOSE_DAMAGE_PRINTOUTS
+		printt( "    after damageSourceID final callbacks:", DamageInfo_GetDamage( damageInfo ) )
+	#endif
+	if ( DamageInfo_GetDamage( damageInfo ) == 0 )
+		return
+	//
 
 	// make destructible vehicles take more damage from DF_EXPLOSION damage type
 	if ( "isDestructibleVehicle" in ent.s && DamageInfo_GetCustomDamageType( damageInfo ) & DF_EXPLOSION )
@@ -177,6 +221,23 @@ void function CodeCallback_DamageEntity( entity ent, var damageInfo )
 	#if VERBOSE_DAMAGE_PRINTOUTS
 		printt( "CodeCallback_DamageEntity() bottom:", DamageInfo_GetDamage( damageInfo ) )
 	#endif
+
+	// I think vanilla's missing class post damage callbacks for normal entities
+	RunClassPostDamageCallbacks( ent, damageInfo )
+
+	// add some modifications here: 
+	// allow adding damageByCallback and damageCallbackSourceID to postDamageCallbacks
+	// use AddPostDamageByCallback( "classname", function ) to registed functions
+	RunClassPostDamageByCallbacks( ent, damageInfo )
+	#if VERBOSE_DAMAGE_PRINTOUTS
+		printt( "    after class post damage by callbacks:", DamageInfo_GetDamage( damageInfo ) )
+	#endif
+	
+	RunPostDamageSourceIDCallbacks( damageSourceId, ent, damageInfo )
+	#if VERBOSE_DAMAGE_PRINTOUTS
+		printt( "    after damageSourceID post callbacks:", DamageInfo_GetDamage( damageInfo ) )
+	#endif
+	//
 
 	if ( DamageInfo_GetDamage( damageInfo ) == 0 )
 		return
@@ -409,6 +470,87 @@ void function AddDamageCallbackSourceID( int id, void functionref(entity, var) c
 
 	shGlobal.damageSourceIdCallbacks[id].append( callbackFunc )
 }
+
+// add some modifications here: 
+// allow adding damageByCallback or damageCallbackSourceID to finalDamageCallbacks or postDamageCallbacks
+void function AddFinalDamageByCallback( string className, void functionref( entity, var ) callbackFunc )
+{
+	if ( !( className in file.classFinalDamageByCallbacks ) )
+		file.classFinalDamageByCallbacks[className] <- []
+
+	file.classFinalDamageByCallbacks[className].append( callbackFunc )
+}
+void function RunClassFinalDamageByCallbacks( entity ent, var damageInfo )
+{
+	string className = ent.GetClassName()
+	if ( !( className in file.classFinalDamageByCallbacks ) )
+		return
+
+	foreach ( callbackFunc in file.classFinalDamageByCallbacks[className] )
+	{
+		if ( DamageInfo_GetDamage( damageInfo ) == 0 )
+			return
+		callbackFunc( ent, damageInfo )
+	}
+}
+
+void function AddPostDamageByCallback( string className, void functionref( entity, var ) callbackFunc )
+{
+	if ( !( className in file.classPostDamageByCallbacks ) )
+		file.classPostDamageByCallbacks[className] <- []
+
+	file.classPostDamageByCallbacks[className].append( callbackFunc )
+}
+void function RunClassPostDamageByCallbacks( entity ent, var damageInfo )
+{
+	string className = ent.GetClassName()
+	if ( !( className in file.classPostDamageByCallbacks ) )
+		return
+
+	foreach ( callbackFunc in file.classPostDamageByCallbacks[className] )
+	{
+		if ( DamageInfo_GetDamage( damageInfo ) == 0 )
+			return
+		callbackFunc( ent, damageInfo )
+	}
+}
+
+void function AddFinalDamageCallbackSourceID( int id, void functionref(entity, var) callbackFunc )
+{
+	if ( !( id in file.finalDamageSourceIdCallbacks ) )
+		file.finalDamageSourceIdCallbacks[id] <- []
+
+	file.finalDamageSourceIdCallbacks[id].append( callbackFunc )
+}
+void function RunFinalDamageSourceIDCallbacks( int id, entity ent, var damageInfo )
+{
+	if ( !( id in file.finalDamageSourceIdCallbacks ) )
+		return
+
+	foreach ( callbackFunc in file.finalDamageSourceIdCallbacks[id] )
+	{
+		callbackFunc( ent, damageInfo )
+	}
+}
+
+void function AddPostDamageCallbackSourceID( int id, void functionref(entity, var) callbackFunc )
+{
+	if ( !( id in file.postDamageSourceIdCallbacks ) )
+		file.postDamageSourceIdCallbacks[id] <- []
+
+	file.postDamageSourceIdCallbacks[id].append( callbackFunc )
+}
+void function RunPostDamageSourceIDCallbacks( int id, entity ent, var damageInfo )
+{
+	if ( !( id in file.postDamageSourceIdCallbacks ) )
+		return
+
+	foreach ( callbackFunc in file.postDamageSourceIdCallbacks[id] )
+	{
+		callbackFunc( ent, damageInfo )
+	}
+}
+// 
 
 void function AddDeathCallback( string className, void functionref( entity, var ) callbackFunc )
 {
