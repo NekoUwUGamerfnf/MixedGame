@@ -76,32 +76,20 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 		laserCoreBonus = 0.5
 
 	float remainingTime = laserCoreBonus + soul.GetCoreChargeExpireTime() - curTime
-	// I think duration shouldn't be hardcoded here???
-	/*
 	float duration
 	if ( weapon.HasMod( "pas_ion_lasercannon") )
 		duration = 5.0
 	else
 		duration = 3.0
-	*/
-	// modified version, may make normal laser core's duration become shorter but whatever
-	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
-
-	// I think this should be max() to avoid core meter go over 1.0
-	//float coreFrac = min( 1.0, remainingTime / duration )
-	float coreFrac = max( 1.0, remainingTime / duration )
-
+	float coreFrac = min( 1.0, remainingTime / duration )
 	//Defensive fix for this sometimes resulting in a negative value.
 	if ( coreFrac > 0.0 )
 	{
 		soul.SetTitanSoulNetFloat( "coreExpireFrac", coreFrac )
 		soul.SetTitanSoulNetFloatOverTime( "coreExpireFrac", 0.0, remainingTime )
-
-		// I think there should be some handle to avoid core meter go over 1.0
-		//soul.SetCoreChargeExpireTime( remainingTime + curTime )
-		soul.SetCoreChargeExpireTime( min( remainingTime + curTime, duration + curTime ) )
-
-		weapon.SetSustainedDischargeFractionForced( coreFrac )
+		soul.SetCoreChargeExpireTime( remainingTime + curTime )
+		// modified here: this causes core meter to have bad display effect, don't use it
+		//weapon.SetSustainedDischargeFractionForced( coreFrac ) 
 	}
 }
 #endif
