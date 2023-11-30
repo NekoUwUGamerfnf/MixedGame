@@ -76,11 +76,17 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 		laserCoreBonus = 0.5
 
 	float remainingTime = laserCoreBonus + soul.GetCoreChargeExpireTime() - curTime
+	// I feel like this shouldn't be hardcoded here...
+	// change to get weapon settings. may make normal laser core's core regen less powerful, but that's respawn's fault, not mine
+	/*
 	float duration
 	if ( weapon.HasMod( "pas_ion_lasercannon") )
 		duration = 5.0
 	else
 		duration = 3.0
+	*/
+	// modified version
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
 	float coreFrac = min( 1.0, remainingTime / duration )
 	//Defensive fix for this sometimes resulting in a negative value.
 	if ( coreFrac > 0.0 )
@@ -89,7 +95,35 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 		soul.SetTitanSoulNetFloatOverTime( "coreExpireFrac", 0.0, remainingTime )
 		soul.SetCoreChargeExpireTime( remainingTime + curTime )
 		// modified here: this causes core meter to have bad display effect, don't use it
+		// now updating it with TrackLaserCoreDuration()
 		//weapon.SetSustainedDischargeFractionForced( coreFrac ) 
+	}
+}
+
+// modified here: we needs to update laser core's charged frac so it won't have issue displaying on HUD
+void function TrackLaserCoreDuration( entity titan, entity weapon )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	soul.EndSignal( "OnDestroy" )
+	weapon.EndSignal( "OnDestroy" )
+
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "CoreEnd" )
+	
+	// initial wait
+	//wait weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
+	WaitFrame()
+	
+	float coreFrac = soul.GetTitanSoulNetFloat( "coreExpireFrac" )
+	while( IsValid( weapon ) && coreFrac > 0.01 )
+	{
+		coreFrac = soul.GetTitanSoulNetFloat( "coreExpireFrac" )
+		weapon.SetSustainedDischargeFractionForced( coreFrac )
+		WaitFrame()
 	}
 }
 #endif
@@ -252,6 +286,8 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 		EmitSoundOnEntityOnlyToPlayer( player, player, LASER_FIRE_SOUND_1P )
 		EmitSoundOnEntityExceptToPlayer( player, player, "Titan_Core_Laser_FireStart_3P" )
 		EmitSoundOnEntityExceptToPlayer( player, player, "Titan_Core_Laser_FireBeam_3P" )
+		// modified here: we needs to update laser core's charged frac so it won't have issue displaying on HUD
+		thread TrackLaserCoreDuration( player, weapon )
 	}
 	else
 	{
