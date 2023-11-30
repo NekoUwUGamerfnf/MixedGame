@@ -355,7 +355,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     if ( displayName == "" || !IsValid( weaponProp ) )
         return
 
-    weaponProp.SetUsable()
+    //weaponProp.SetUsable()
     weaponProp.SetUsableByGroup( "titan" )
     weaponProp.SetUsePrompts( "按住 %use% 以撿起 " + displayName, "按下 %use% 以撿起 " + displayName )
     weaponProp.SetScriptName( TITAN_DROPPED_WEAPON_SCRIPTNAME )
