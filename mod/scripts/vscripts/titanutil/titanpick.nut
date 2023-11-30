@@ -1000,7 +1000,7 @@ void function InitLoadoutDamageTable( string charaName )
 void function TitanPick_OnTitanDamageTarget( entity victim, var damageInfo )
 {
     entity attacker = DamageInfo_GetAttacker( damageInfo )
-    if ( IsValid( attacker ) )
+    if ( IsValid( attacker ) && attacker.IsTitan() )
     {
         float damageScale = TitanPick_GetTitanDamageScale( attacker )
         // debug
