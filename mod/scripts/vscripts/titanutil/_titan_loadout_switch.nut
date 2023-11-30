@@ -169,9 +169,11 @@ table<int,float> function TitanLoadoutSwitch_GetWeaponCooldowns( entity player )
 			if ( data.slot == slot ) // found one valid data?
 			{
 				// update it
-				data.timeStored = Time()
 				if ( cooldowns[slot] >= 0 ) // negative value means don't update cooldown
+				{
+					data.timeStored = Time()
 					data.severity = cooldowns[slot]
+				}
 				foundData = true
 			}
 		}
