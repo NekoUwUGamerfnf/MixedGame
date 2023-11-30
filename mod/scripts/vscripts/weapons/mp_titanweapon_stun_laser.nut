@@ -103,6 +103,14 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 	if( !IsValid( weapon ) )
 		return
 
+	// hardcoded for archon laser
+	// in any case AddCallback_WeaponMod_DamageSourceIdOverride() failsafe
+	if ( weapon.HasMod( "archon_laser" ) )
+	{
+		DamageInfo_SetDamageSourceIdentifier( damageInfo, eDamageSourceId.mp_titanweapon_energy_laser )
+		return
+	}
+
 	// we added friendly fire, do a new check now!
 	bool hasEnergyTransfer = weapon.HasMod( "energy_transfer" ) || weapon.HasMod( "energy_field_energy_transfer" )
 	bool friendlyFireOn = FriendlyFire_IsEnabled()
