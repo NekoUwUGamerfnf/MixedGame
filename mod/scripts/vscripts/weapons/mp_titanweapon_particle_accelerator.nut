@@ -87,8 +87,14 @@ void function OnWeaponStartZoomIn_titanweapon_particle_accelerator( entity weapo
 void function OnWeaponStartZoomOut_titanweapon_particle_accelerator( entity weapon )
 {
 	array<string> mods = weapon.GetMods()
+	// I think this leads to a bug: after ads with Refraction Lens in FD
+	// ion will premanently receive *0.7 damage penalty
 	mods.fastremovebyvalue( "proto_particle_accelerator" )
 	mods.fastremovebyvalue( "proto_particle_accelerator_pas" )
+	// try to fix this thing... not vanilla behavior but fuck it
+	mods.fastremovebyvalue( "fd_upgraded_proto_particle_accelerator" )
+	mods.fastremovebyvalue( "fd_upgraded_proto_particle_accelerator_pas" )
+
 	weapon.SetMods( mods )
 	//weapon.StopWeaponEffect( $"wpn_arc_cannon_charge_fp", $"wpn_arc_cannon_charge" )
 	weapon.StopWeaponEffect( TPA_ADS_EFFECT_1P, TPA_ADS_EFFECT_3P )
@@ -103,7 +109,9 @@ void function OnWeaponActivate_titanweapon_particle_accelerator( entity weapon )
 	}
 	#if SERVER
 	entity owner = weapon.GetWeaponOwner()
-	owner.SetSharedEnergyRegenDelay( 0.5 )
+	// due we've modified default value in titan_base.set and removed override value in titan_atlas_stickybomb.set
+	// it's now safe to remove this meaningless hardcode, to prevent conflict with modded weapons
+	//owner.SetSharedEnergyRegenDelay( 0.5 )
 	#endif
 }
 
