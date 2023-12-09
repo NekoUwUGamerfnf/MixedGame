@@ -78,15 +78,20 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 	float remainingTime = laserCoreBonus + soul.GetCoreChargeExpireTime() - curTime
 	// I feel like this shouldn't be hardcoded here...
 	// change to get weapon settings. may make normal laser core's core regen less powerful, but that's respawn's fault, not mine
-	/*
+	// now uses setting to toggle it
+	bool doCoreFix = bool( GetCurrentPlaylistVarInt( "laser_core_fix", 0 ) ) || weapon.HasMod( "laser_core_fix" )
 	float duration
-	if ( weapon.HasMod( "pas_ion_lasercannon") )
-		duration = 5.0
-	else
-		duration = 3.0
-	*/
 	// modified version
-	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
+	if ( doCoreFix )
+		duration = weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
+	else // vanilla behavior
+	{
+		if ( weapon.HasMod( "pas_ion_lasercannon") )
+			duration = 5.0
+		else
+			duration = 3.0
+	}
+
 	float coreFrac = min( 1.0, remainingTime / duration )
 	//Defensive fix for this sometimes resulting in a negative value.
 	if ( coreFrac > 0.0 )
@@ -96,7 +101,8 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 		soul.SetCoreChargeExpireTime( remainingTime + curTime )
 		// modified here: this causes core meter to have bad display effect, don't use it
 		// now updating it with TrackLaserCoreDuration()
-		//weapon.SetSustainedDischargeFractionForced( coreFrac ) 
+		if ( !doCoreFix ) // vanilla behavior toggle
+			weapon.SetSustainedDischargeFractionForced( coreFrac ) 
 	}
 }
 
@@ -204,6 +210,9 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 	{
 		player.SetVelocity( <0,0,0> )
 		player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.0 )
+		// vanilla missing: needs these to make them unable to be set into other scripted animations( eg. being executed )
+		if ( !player.ContextAction_IsBusy() )
+			player.ContextAction_SetBusy()
 	}
 #endif // #if SERVER
 
@@ -244,6 +253,7 @@ void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 		player.Server_TurnOffhandWeaponsDisabledOff()
 
 	// check for npc executions to work!
+	// don't want it intterupt execution animations
 	//PrintFunc()
 	//print( "IsTitanCoreFiring( player ): " + string( IsTitanCoreFiring( player ) ) )
 	//print( "!player.Anim_IsActive(): " + string( !player.Anim_IsActive() ) )
@@ -286,7 +296,9 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 		EmitSoundOnEntityExceptToPlayer( player, player, "Titan_Core_Laser_FireStart_3P" )
 		EmitSoundOnEntityExceptToPlayer( player, player, "Titan_Core_Laser_FireBeam_3P" )
 		// modified here: we needs to update laser core's charged frac so it won't have issue displaying on HUD
-		thread TrackLaserCoreDuration( player, weapon )
+		bool doCoreFix = bool( GetCurrentPlaylistVarInt( "laser_core_fix", 0 ) ) || weapon.HasMod( "laser_core_fix" )
+		if ( doCoreFix )
+			thread TrackLaserCoreDuration( player, weapon )
 	}
 	else
 	{
@@ -295,6 +307,7 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 	}
 	
 	// check for npc executions to work!
+	// don't want it intterupt execution animations
 	//PrintFunc()
 	//print( "!player.Anim_IsActive(): " + string( !player.Anim_IsActive() ) )
 	if ( player.IsNPC() && !player.Anim_IsActive() )
@@ -348,17 +361,33 @@ void function OnAbilityEnd_LaserCannon( entity weapon )
 	}
 
 	// check for npc executions to work!
+	// don't want it intterupt execution animations
 	//PrintFunc()
 	if ( player.IsNPC() && IsAlive( player ) )
 	{
 		player.SetVelocity( <0,0,0> )
 		player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.0 )
+		// vanilla missing: clean up context action state we set in OnAbilityCharge_LaserCannon()
+		if ( player.ContextAction_IsBusy() )
+			thread ClearContextActionStateAfterCoreAnimation( player )
 	}
 
 	StopSoundOnEntity( player, "Titan_Core_Laser_FireBeam_3P" )
 	StopSoundOnEntity( player, LASER_FIRE_SOUND_1P )
 	#endif
 }
+
+// modified function
+#if SERVER
+void function ClearContextActionStateAfterCoreAnimation( entity npc )
+{
+	npc.EndSignal( "OnDestroy" )
+
+	WaittillAnimDone( npc )
+	if ( npc.ContextAction_IsBusy() )
+		npc.ContextAction_ClearBusy()
+}
+#endif
 
 #if SERVER
 void function LaserEndingWarningSound( entity weapon, entity player )
