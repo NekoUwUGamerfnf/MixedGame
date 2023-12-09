@@ -384,6 +384,9 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 		player.ClearMeleeDisabled()
 	player.SetTitanDisembarkEnabled( true )
 
+	// HACKED DEATH, before loadout grace period set up
+	if( HackedDeath_IsEnabled() )
+		HackedDeath_PlayerRecoverFrom( player )
 	//player.ClearReplayDelay() // these has been done in CPlayer::RespawnPlayer()
 	//player.ClearViewEntity()
 	
@@ -461,17 +464,31 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	player.p.deathAngles = player.GetAngles()
 
 	player.s.inPostDeath = true
-	player.s.inGracePeriod = true // make sure player always in GracePeriod after respawn
+
+	if( HackedDeath_IsEnabled() ) // prevent players reset their class after hacked death
+		player.s.inGracePeriod = false
+	else
+		player.s.inGracePeriod = true // make sure player always in GracePeriod after respawn
 	player.s.respawnSelectionDone = false
 
 	player.cloakedForever = false
 	player.stimmedForever = false
 
+	// HACKED DEATH: always set player to notarget
+	if( HackedDeath_IsEnabled() )
+	{
+		player.SetNoTarget( true )
+		player.SetNoTargetSmartAmmo( true )
+		player.s.hackedDeath = true
+	}
 	// northstar behavior: clear notarget state
 	// doesn't seem needed. better clean them up on player respawn but not on death
 	/*
-	player.SetNoTarget( false )
-	player.SetNoTargetSmartAmmo( false )
+	else
+	{
+		player.SetNoTarget( false )
+		player.SetNoTargetSmartAmmo( false )
+	}
 	*/
 	player.ClearExtraWeaponMods()
 
@@ -484,7 +501,10 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	//print( "shouldFixWeaponDrop: " + string( shouldFixWeaponDrop ) )
 	//print( "playerDroppedWeaponFromDeathPackage: " + string( playerDroppedWeaponFromDeathPackage ) )
 	if ( shouldFixWeaponDrop && playerDroppedWeaponFromDeathPackage )
-		TakeAllWeapons( player )
+	{
+		if ( !HackedDeath_IsEnabled() ) // hacked death weapon is handled in their script
+			TakeAllWeapons( player )
+	}
 
 	// we're not delayed yet, get damage table from damageInfo, so we can use it in ShouldForceRespawnPlayer_FromDamageTable()
 	table damageTable = GetDamageTableFromInfo( damageInfo )
@@ -614,6 +634,10 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		replayStartDelay = file.replayStartDelayOverride
 	if ( replayStartDelay < 0 ) // defensive fix
 		replayStartDelay = 0
+	// HACKED DEATH: never delay replay
+	if( HackedDeath_IsEnabled() )
+		replayStartDelay = 0
+	//
 
 	// try to start replay
 	float replayLength = CalculateLengthOfKillReplay( player, methodOfDeath )
@@ -675,14 +699,17 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	// if that ever happens, manually drop player's weapon
 	if ( deathCamModified && ( shouldFixWeaponDrop && !playerDroppedWeaponFromDeathPackage ) )
 	{
-		entity activeWeapon = player.GetActiveWeapon()
-		// activeWeapon will become invalid if player is dropping weapon from death animation
-		if ( IsValid( activeWeapon ) )
+		if ( !HackedDeath_IsEnabled() ) // hacked death weapon is handled in their script
 		{
-			//print( "Death cam length modified but player can't make it to drop weapon!" )
-			//print( "Dropping " + string( activeWeapon ) + " manually" )
-			player.DropWeapon( activeWeapon )
-			activeWeapon.SetVelocity( player.GetVelocity() )
+			entity activeWeapon = player.GetActiveWeapon()
+			// activeWeapon will become invalid if player is dropping weapon from death animation
+			if ( IsValid( activeWeapon ) )
+			{
+				//print( "Death cam length modified but player can't make it to drop weapon!" )
+				//print( "Dropping " + string( activeWeapon ) + " manually" )
+				player.DropWeapon( activeWeapon )
+				activeWeapon.SetVelocity( player.GetVelocity() )
+			}
 		}
 	}
 
@@ -723,7 +750,24 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 			thread ForcedRespawnThink( player, waitBeforeRespawn, replayStartDelay )// if not doing replay, set player's camera to intermissionCam
 		}
 
+		// HACKED DEATH
+		if( HackedDeath_IsEnabled() )
+		{
+			if( !ShouldForceRespawnPlayer_FromDamageTable( player, damageTable ) ) // really kill player to enable respawn button
+				HackedDeath_KillPlayer( player )
+			player.UnfreezeControlsOnServer() // unfreeze controls here, make players able to press respawn
+		}
+		//
+
 		player.WaitSignal( "RespawnMe" ) // signaled in in base_gametype: ClientCommand_RespawnPlayer
+
+		// HACKED DEATH: defensive fix for hacked death, kill player if they're not actual dead, so they can respawn
+		if( respawnDelay > 0 && HackedDeath_IsEnabled() && ShouldForceRespawnPlayer_FromDamageTable( player, damageTable ) )
+		{
+			HackedDeath_KillPlayer( player )
+			player.Signal( "RespawnMe" )
+		}
+		//
 
 		// defensive fix: in case we cleared certain player's respawn availability mid-way
 		// but "RespawnMe" is sent at some place
@@ -738,6 +782,11 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 		}
 
 		ClearRespawnAvailable( player ) // need so the respawn icon doesn't show for like a frame on next death
+
+		// HACKED DEATH
+		if ( HackedDeath_IsEnabled() && !shouldDoReplay ) // wait an extra frame if the player not entered replay, otherwise they'll lose their ability icons
+			WaitFrame()
+		//
 
 		if ( ( expect bool( player.GetPersistentVar( "spawnAsTitan" ) ) && IsTitanAvailable( player ) ) || ( Riff_SpawnAsTitan() > 0 && Riff_ShouldSpawnAsTitan( player ) ) )	// spawn as titan
 			thread RespawnAsTitan( player )
@@ -904,14 +953,22 @@ void function ForcedRespawnThink( entity player, float waitBeforeRespawn, float 
 	WaitFrame()
 	//WaitEndFrame() // more accurate, but may seem weird if server modified script_server_fps
 	// modified over here, add support for modified death cam length
-	if ( replayStartDelay > 0 )
-		wait replayStartDelay // this is actually replayStartDelay
+	if ( !HackedDeath_IsEnabled() ) // hacked death ignores this
+	{
+		if ( replayStartDelay > 0 )
+			wait replayStartDelay // this is actually replayStartDelay
+	}
 	if( player.IsWatchingKillReplay() )
 		player.WaitSignal( "KillCamOver" )
 
 	if( waitBeforeRespawn > 0 )
-		wait waitBeforeRespawn
-
+	{
+		// HACKED DEATH
+		if( HackedDeath_IsEnabled() )
+			HackedDeath_KillPlayer( player )
+		else
+			wait waitBeforeRespawn
+	}
 	result.repsawnIsForced = true
 }
 

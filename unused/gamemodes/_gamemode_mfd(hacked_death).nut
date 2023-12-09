@@ -132,6 +132,15 @@ void function MFDThink()
 				MessageToAll( eEventNotifications.MarkedForDeathMarkedDisconnected )
 				break
 			}
+			
+			//if( HackedDeath_IsEnabled() ) // temp fix, should remove after successfully adjust "IsAlive()"
+			//{
+			//	if( expect bool( imcMark.s.hackedDeath ) || expect bool( militiaMark.s.hackedDeath ) )
+			//	{
+			//		WaitFrame()
+			//		continue
+			//	}
+			//}
 				
 			WaitFrame()
 		}
