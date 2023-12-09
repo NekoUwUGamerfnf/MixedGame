@@ -209,10 +209,15 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 	if ( player.IsNPC() && !player.Anim_IsActive() )
 	{
 		player.SetVelocity( <0,0,0> )
-		player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.0 )
-		// vanilla missing: needs these to make them unable to be set into other scripted animations( eg. being executed )
-		if ( !player.ContextAction_IsBusy() )
-			player.ContextAction_SetBusy()
+		// wants to try-carch animations in case we want to use it for other titans
+		try
+		{
+			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.0 )
+			// vanilla missing: needs these to make them unable to be set into other scripted animations( eg. being executed )
+			if ( !player.ContextAction_IsBusy() )
+				player.ContextAction_SetBusy()
+		}
+		catch(ex) {}
 	}
 #endif // #if SERVER
 
@@ -313,7 +318,12 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 	if ( player.IsNPC() && !player.Anim_IsActive() )
 	{
 		player.SetVelocity( <0,0,0> )
-		player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK", true, 0.1 )
+		// wants to try-carch animations in case we want to use it for other titans
+		try
+		{
+			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK", true, 0.1 )
+		}
+		catch(ex) {}
 	}
 
 	// thread LaserEndingWarningSound( weapon, player )
@@ -366,10 +376,16 @@ void function OnAbilityEnd_LaserCannon( entity weapon )
 	if ( player.IsNPC() && IsAlive( player ) )
 	{
 		player.SetVelocity( <0,0,0> )
-		player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.0 )
-		// vanilla missing: clean up context action state we set in OnAbilityCharge_LaserCannon()
-		if ( player.ContextAction_IsBusy() )
-			thread ClearContextActionStateAfterCoreAnimation( player )
+
+		// wants to try-carch animations in case we want to use it for other titans
+		try
+		{
+			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.0 )
+			// vanilla missing: clean up context action state we set in OnAbilityCharge_LaserCannon()
+			if ( player.ContextAction_IsBusy() )
+				thread ClearContextActionStateAfterCoreAnimation( player )
+		}
+		catch(ex) {}
 	}
 
 	StopSoundOnEntity( player, "Titan_Core_Laser_FireBeam_3P" )

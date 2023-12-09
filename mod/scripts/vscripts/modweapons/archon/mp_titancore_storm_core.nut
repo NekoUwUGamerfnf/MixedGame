@@ -59,8 +59,10 @@ bool function OnAbilityCharge_StormCore( entity weapon )
 
 		if ( owner.IsPlayer() )
 			owner.SetTitanDisembarkEnabled( false )
-		else
-			owner.Anim_ScriptedPlay( "at_antirodeo_anim_fast" )
+		// removing this: don't work at all because we already got "special_3p_attack_anim" enabled
+		// adding this will cause buddy titans unable to use storm core
+		//else
+		//	owner.Anim_ScriptedPlay( "at_antirodeo_anim_fast" )
 	#endif
 
 	return true
@@ -119,7 +121,7 @@ var function OnWeaponPrimaryAttack_StormCore( entity weapon, WeaponPrimaryAttack
 		if ( owner.IsNPC() )
 		{
 			vector attackAngles = VectorToAngles( attackParams.dir )
-			attackAngles.x = -20 // move up attack angle a little bit for npcs
+			attackAngles.x = -10 // move up attack angle a little bit for npcs( was -20 )
 			attackAngles.z = 0
 			attackParams.dir = AnglesToForward( attackAngles )
 		}

@@ -34,14 +34,19 @@ void function OnWeaponDeactivate_SalvoCore( entity weapon )
 	if ( titan.IsNPC() && IsAlive( titan ) )
 	{
 		titan.SetVelocity( <0,0,0> )
-		titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.1 )
+
+		// wants to try-carch animations in case we want to use it for other titans
+		try
+		{
+			titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.1 )
+			// vanilla missing: clean up context action state we set in OnAbilityCharge_SalvoCore()
+			if ( titan.ContextAction_IsBusy() )
+				thread ClearContextActionStateAfterCoreAnimation( titan )
+		}
+		catch(ex) {}
 
 		// reset again at end so titan doesn't go to evasive mode
 		titan.ResetHealthChangeRate()
-
-		// vanilla missing: clean up context action state we set in OnAbilityCharge_SalvoCore()
-		if ( titan.ContextAction_IsBusy() )
-			thread ClearContextActionStateAfterCoreAnimation( titan )
 	}
 #endif
 }
@@ -95,10 +100,15 @@ bool function OnAbilityCharge_SalvoCore( entity weapon )
 	if ( titan.IsNPC() )
 	{
 		titan.SetVelocity( <0,0,0> )
-		titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.1 )
-		// vanilla missing: needs these to make them unable to be set into other scripted animations( eg. being executed )
-		if ( !titan.ContextAction_IsBusy() )
-			titan.ContextAction_SetBusy()
+		// wants to try-carch animations in case we want to use it for other titans
+		try
+		{
+			titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.1 )
+			// vanilla missing: needs these to make them unable to be set into other scripted animations( eg. being executed )
+			if ( !titan.ContextAction_IsBusy() )
+				titan.ContextAction_SetBusy()
+		}
+		catch(ex) {}
 	}
 #endif
 	return true
