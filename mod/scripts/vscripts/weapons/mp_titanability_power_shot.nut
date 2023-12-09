@@ -43,7 +43,9 @@ var function OnWeaponPrimaryAttack_power_shot( entity weapon, WeaponPrimaryAttac
 		weaponOwner.SetMeleeDisabled()
 		PlayerUsedOffhand( weaponOwner, weapon )
 		#if SERVER
-		thread MonitorEjectStatus( weaponOwner )
+		// this function has been modified, it should handle weapon destroy and owner death cases
+		//thread MonitorEjectStatus( weaponOwner )
+		thread MonitorPowerShotLifeTime( weaponOwner, weapon )
 		#endif
 	}
 
@@ -73,17 +75,42 @@ var function OnWeaponPrimaryAttack_power_shot( entity weapon, WeaponPrimaryAttac
 }
 
 #if SERVER
-void function MonitorEjectStatus( entity weaponOwner )
+// this function has been modified, it should handle weapon destroy and owner death cases
+//void function MonitorEjectStatus( entity weaponOwner )
+void function MonitorPowerShotLifeTime( entity weaponOwner, entity weapon )
 {
 	weaponOwner.EndSignal( "PowerShotCleanup" )
 
-	weaponOwner.WaitSignal( "TitanEjectionStarted" )
+	// modified here
+	// "OnDestroy" signals
+	weapon.EndSignal( "OnDestroy" )
+	weaponOwner.EndSignal( "OnDestroy" )
 
+	// clean up
+	OnThreadEnd
+	(
+		function(): ( weaponOwner )
+		{
+			if ( IsValid( weaponOwner ) )
+			{
+				weaponOwner.ClearMeleeDisabled()
+				weaponOwner.SetTitanDisembarkEnabled( true )
+			}
+		}
+	)
+
+	// modified here: adding "OnDeath" signal
+	//weaponOwner.WaitSignal( "TitanEjectionStarted" )
+	WaitSignal( weaponOwner, "TitanEjectionStarted", "OnDeath" )
+
+	// move to OnThreadEnd() so it can handle all cases
+	/*
 	if ( IsValid( weaponOwner ) )
 	{
 		weaponOwner.ClearMeleeDisabled()
 		weaponOwner.SetTitanDisembarkEnabled( true )
 	}
+	*/
 }
 #endif
 
@@ -92,8 +119,9 @@ void function PowerShotCleanup( entity owner, entity weapon, array<string> modNa
 	if ( IsValid( owner ) && owner.IsPlayer() )
 	{
 		#if SERVER
-		owner.ClearMeleeDisabled()
-		owner.SetTitanDisembarkEnabled( true )
+		// should be handled by MonitorPowerShotLifeTime()
+		//owner.ClearMeleeDisabled()
+		//owner.SetTitanDisembarkEnabled( true )
 		owner.Signal( "PowerShotCleanup")
 		#endif
 	}

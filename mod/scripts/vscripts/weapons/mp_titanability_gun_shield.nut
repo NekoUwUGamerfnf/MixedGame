@@ -120,10 +120,27 @@ void function GunShieldThink( entity weapon, entity shieldWeapon, entity owner, 
 		thread Sv_CreateGunShield( owner, weapon, shieldWeapon, duration )
 	#endif
 
+	// here goes some tweak: end think if player changes their weapon
+	// never gonna happen for legions, only for modified weapon usage cases
+	/*
 	if ( duration > 0 )
 		wait duration
 	else
 		WaitForever()
+	*/
+	// modified think
+	float endTime = Time() + duration
+	while ( Time() < endTime() )
+	{
+		entity activeWeapon = owner.GetActiveWeapon()
+		if ( activeWeapon != weapon )
+		{
+			print( "titan changed weapon while gun shield active!" )
+			break
+		}
+		
+		WaitFrame()
+	}
 }
 
 bool function CanUseGunShield( entity owner, bool reqZoom = true )

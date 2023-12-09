@@ -35,15 +35,14 @@ void function OnWeaponDeactivate_SalvoCore( entity weapon )
 	{
 		titan.SetVelocity( <0,0,0> )
 
-		// wants to try-carch animations in case we want to use it for other titans
-		try
+		// modified checks for animations, anti-crash
+		if ( TitanShouldPlayAnimationForSalvoCore( titan ) )
 		{
 			titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.1 )
 			// vanilla missing: clean up context action state we set in OnAbilityCharge_SalvoCore()
 			if ( titan.ContextAction_IsBusy() )
 				thread ClearContextActionStateAfterCoreAnimation( titan )
 		}
-		catch(ex) {}
 
 		// reset again at end so titan doesn't go to evasive mode
 		titan.ResetHealthChangeRate()
@@ -53,13 +52,30 @@ void function OnWeaponDeactivate_SalvoCore( entity weapon )
 
 // modified function
 #if SERVER
+// wants to limit animations to atlas-chassis only, in case we want to use it for other titans
+bool function TitanShouldPlayAnimationForSalvoCore( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		string titanType = GetSoulTitanSubClass( soul )
+		if ( titanType == "atlas" )
+			return true
+	}
+
+	return false
+}
+
 void function ClearContextActionStateAfterCoreAnimation( entity npc )
 {
 	npc.EndSignal( "OnDestroy" )
 
 	WaittillAnimDone( npc )
 	if ( npc.ContextAction_IsBusy() )
+	{
 		npc.ContextAction_ClearBusy()
+		print( "Cleaning up context action state for npc firing salvo core" )
+	}
 }
 #endif
 
@@ -100,15 +116,19 @@ bool function OnAbilityCharge_SalvoCore( entity weapon )
 	if ( titan.IsNPC() )
 	{
 		titan.SetVelocity( <0,0,0> )
-		// wants to try-carch animations in case we want to use it for other titans
-		try
+		// modified checks for animations, anti-crash
+		if ( TitanShouldPlayAnimationForSalvoCore( titan ) )
 		{
 			titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.1 )
 			// vanilla missing: needs these to make them unable to be set into other scripted animations( eg. being executed )
 			if ( !titan.ContextAction_IsBusy() )
 				titan.ContextAction_SetBusy()
 		}
-		catch(ex) {}
+		else // other titans using it, could be bad... try to stop their movement for the duration of core
+		{
+			float coreDuration = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time ) + weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
+			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 1.0, coreDuration )
+		}
 	}
 #endif
 	return true
