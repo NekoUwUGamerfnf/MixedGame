@@ -366,12 +366,23 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.s.respawnTime = Time()
 	ClearRecentDamageHistory( player )
 
+	// clean up variables
+	while ( player.IsInvulnerable() ) // invulnerability can stack
+		player.ClearInvulnerable()
+	player.SetNoTarget( false )
+	player.SetNoTargetSmartAmmo( false )
+
 	// clean up death package
-	// vanilla seem to have this behavior, otherwise being executed by legion will make player force ragdoll forever
+	// vanilla seem to have this behavior, otherwise being executed by titan will make player force ragdoll forever
 	player.e.forceGibDeath = false
 	player.e.forceRagdollDeath = false
 	// modified cleanup
 	file.playerActiveWeaponBeforeDeathPackage[ player ] = null
+
+	// clean up titan abilities
+	while ( player.GetMeleeDisabled() ) // melee disable can stack
+		player.ClearMeleeDisabled()
+	player.SetTitanDisembarkEnabled( true )
 
 	// HACKED DEATH, before loadout grace period set up
 	if( HackedDeath_IsEnabled() )
@@ -387,14 +398,6 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	player.Show()
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 
-	// loadout grace period
-	if( IsLoadoutGracePeriodEnabled() )
-		GracePeriodThink( player ) // grace period done here
-	else
-	{
-		player.s.inGracePeriod = false // disable this immediately
-		player.Signal( "GracePeriodDone" )
-	}
 	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this
 	
 	// always don't let them to do another late respawn if they once respawned
@@ -403,67 +406,14 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 
 	foreach ( entity weapon in player.GetMainWeapons() )
 		weapon.SetProScreenOwner( player )
-		
+	
+	// Added via AddCallback_OnPlayerRespawned()
 	foreach ( void functionref( entity ) callback in svGlobal.onPlayerRespawnedCallbacks )
 		callback( player )
 		
 	Remote_CallFunction_NonReplay( player, "ServerCallback_YouRespawned" )
 	ClearRecentDamageHistory( player ) // might be northstar missing, clean up damage history
 	ClearLastAttacker( player ) // so dying to anything doesn't credit the same attacker after respawning
-}
-
-void function GracePeriodThink( entity player )
-{
-	thread GracePeriodThink_Threaded( player )
-}
-
-void function GracePeriodThink_Threaded( entity player )
-{
-	player.EndSignal( "OnDestroy" )
-	player.EndSignal( "OnPrimaryAttack" )
-	player.EndSignal( "OnDeath" )
-	player.EndSignal( "player_embarks_titan" ) // end thread whenever a titan embark sequence is triggered
-
-	OnThreadEnd(
-		function(): ( player )
-		{
-			if( IsValid( player ) )
-			{
-				if( IsAlive( player ) && GetGameState() == eGameState.Playing ) // if player died we don't reset this( mostly because round end )
-				{
-					player.s.inGracePeriod = false
-					player.Signal( "GracePeriodDone" )
-				}
-			}
-		}
-	)
-
-	while ( true )
-	{
-		WaitFrame()
-
-		// we're not in playing state, never disable player's loadout switch
-		if ( GetGameState() < eGameState.Playing )
-			continue // keep waiting...
-
-		// northstarFD adding think: re-calculate respawn timer based on gamestate changes
-		// so player can have full 20s grace period when game starts
-		float respawnTimeReal
-		if ( GetGameState() == eGameState.Playing && Time() - expect float( GetServerVar( "gameStateChangeTime" ) ) <= CLASS_CHANGE_GRACE_PERIOD )
-			respawnTimeReal = expect float( GetServerVar( "gameStateChangeTime" ) )
-		else
-			respawnTimeReal = expect float( player.s.respawnTime )
-
-		// calculate max waiting time
-		float maxWait = respawnTimeReal + CLASS_CHANGE_GRACE_PERIOD
-
-		// debug
-		//print( "currentTime: " + string( Time() ) )
-		//print( "maxWait: " + string( maxWait ) )
-		// time hits max wait?
-		if ( Time() > maxWait )
-			break // stop waiting
-	}
 }
 
 void function CodeCallback_OnPlayerKilled( entity player, var damageInfo )
@@ -524,17 +474,22 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	player.cloakedForever = false
 	player.stimmedForever = false
 
+	// HACKED DEATH: always set player to notarget
 	if( HackedDeath_IsEnabled() )
 	{
 		player.SetNoTarget( true )
 		player.SetNoTargetSmartAmmo( true )
 		player.s.hackedDeath = true
 	}
+	// northstar behavior: clear notarget state
+	// doesn't seem needed. better clean them up on player respawn but not on death
+	/*
 	else
 	{
 		player.SetNoTarget( false )
 		player.SetNoTargetSmartAmmo( false )
 	}
+	*/
 	player.ClearExtraWeaponMods()
 
 	// death package think
