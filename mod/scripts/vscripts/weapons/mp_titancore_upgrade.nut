@@ -10,6 +10,8 @@ global function OnWeaponNpcPrimaryAttack_UpgradeCore
 // modified settings
 // allow modifying shield regen amount when using custom shield amount
 global function UpgradeCore_SetShieldRegenScale
+// allow modifying upgrading method for titan
+//global function UpgradeCore_SetWeaponUpgradePassive
 //
 #endif
 #if CLIENT

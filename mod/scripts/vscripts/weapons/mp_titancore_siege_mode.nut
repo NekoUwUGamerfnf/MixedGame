@@ -98,12 +98,21 @@ void function SmartCoreThink( entity weapon, float coreDuration )
 	entity owner = weapon.GetWeaponOwner()
 	owner.EndSignal( "OnDestroy" )
 	owner.EndSignal( "OnDeath" )
-	owner.EndSignal( "DisembarkingTitan" )
+	// modified for npc usage
+	if ( owner.IsPlayer() )
+		owner.EndSignal( "DisembarkingTitan" )
 	owner.EndSignal( "TitanEjectionStarted" )
 
-	EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_1P" )
-	EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_ActiveLoop_1P" )
-	EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_3P" )
+	// modified for npc usage
+	if ( owner.IsPlayer() )
+	{
+		EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_1P" )
+		EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_ActiveLoop_1P" )
+		EmitSoundOnEntityExceptToPlayer( owner, owner, "Titan_Legion_Smart_Core_Activated_3P" )
+	}
+	else
+		EmitSoundOnEntity( owner, "Titan_Legion_Smart_Core_Activated_3P" )
+	
 	entity soul = owner.GetTitanSoul()
 	GiveSmartCoreMod( owner )
 	int statusEffectSmartCore
