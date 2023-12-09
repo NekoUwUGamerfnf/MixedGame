@@ -357,14 +357,17 @@ void function CodeCallback_OnClientDisconnected( entity player, string reason )
 
 void function CodeCallback_OnPlayerRespawned( entity player )
 {
-	ClearPlayerEliminated( player ) // mark as player not eliminated
-
-	SetHumanRagdollImpactTable( player )
-	
-	player.s.inGracePeriod = true // defensive fix
+	// cleanup stuffs
+	player.s.inGracePeriod = true // defensive fix, make sure player can get loadout on respawn
 	player.s.respawnCount++
 	player.s.respawnTime = Time()
+
+	ClearPlayerEliminated( player ) // mark as player not eliminated
 	ClearRecentDamageHistory( player )
+	// these cleanup has been done in CPlayer::RespawnPlayer()
+	//player.ClearReplayDelay()
+	//player.ClearViewEntity()
+	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this
 
 	// clean up variables
 	while ( player.IsInvulnerable() ) // invulnerability can stack
@@ -383,32 +386,32 @@ void function CodeCallback_OnPlayerRespawned( entity player )
 	while ( player.GetMeleeDisabled() ) // melee disable can stack
 		player.ClearMeleeDisabled()
 	player.SetTitanDisembarkEnabled( true )
-
-	//player.ClearReplayDelay() // these has been done in CPlayer::RespawnPlayer()
-	//player.ClearViewEntity()
 	
-	player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
-	
-	Loadouts_TryGivePilotLoadout( player )
-
 	// insure visibility that might be changed by executions, before calling other respawn callbacks
 	player.Show()
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 
-	//player.SetPredictionEnabled( true ) doesn't seem needed, as native code seems to set this
+
+	// done cleanup, below are setups
+	player.Signal( "OnRespawned" ) // kill any postdeaththreads that could be running
 	
+	SetHumanRagdollImpactTable( player )
+
+	// give loadout
+	Loadouts_TryGivePilotLoadout( player )
+	foreach ( entity weapon in player.GetMainWeapons() )
+		weapon.SetProScreenOwner( player )
+
 	// always don't let them to do another late respawn if they once respawned
 	if( !file.respawnedPlayerUIDs.contains( player.GetUID() ) )
 		file.respawnedPlayerUIDs.append( player.GetUID() )
-
-	foreach ( entity weapon in player.GetMainWeapons() )
-		weapon.SetProScreenOwner( player )
 	
 	// Added via AddCallback_OnPlayerRespawned()
 	foreach ( void functionref( entity ) callback in svGlobal.onPlayerRespawnedCallbacks )
 		callback( player )
 		
 	Remote_CallFunction_NonReplay( player, "ServerCallback_YouRespawned" )
+	
 	ClearRecentDamageHistory( player ) // might be northstar missing, clean up damage history
 	ClearLastAttacker( player ) // so dying to anything doesn't credit the same attacker after respawning
 }
