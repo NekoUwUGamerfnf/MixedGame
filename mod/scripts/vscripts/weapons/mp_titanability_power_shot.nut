@@ -79,7 +79,8 @@ var function OnWeaponPrimaryAttack_power_shot( entity weapon, WeaponPrimaryAttac
 //void function MonitorEjectStatus( entity weaponOwner )
 void function MonitorPowerShotLifeTime( entity weaponOwner, entity weapon )
 {
-	weaponOwner.EndSignal( "PowerShotCleanup" )
+	// due we're now handling everything in OnThreadEnd, this should be at WaitSignal()
+	//weaponOwner.EndSignal( "PowerShotCleanup" )
 
 	// modified here
 	// "OnDestroy" signals
@@ -93,6 +94,7 @@ void function MonitorPowerShotLifeTime( entity weaponOwner, entity weapon )
 		{
 			if ( IsValid( weaponOwner ) )
 			{
+				//print( "Cleaning up variables set by powershot" )
 				weaponOwner.ClearMeleeDisabled()
 				weaponOwner.SetTitanDisembarkEnabled( true )
 			}
@@ -101,7 +103,7 @@ void function MonitorPowerShotLifeTime( entity weaponOwner, entity weapon )
 
 	// modified here: adding "OnDeath" signal
 	//weaponOwner.WaitSignal( "TitanEjectionStarted" )
-	WaitSignal( weaponOwner, "TitanEjectionStarted", "OnDeath" )
+	WaitSignal( weaponOwner, "TitanEjectionStarted", "OnDeath", "PowerShotCleanup" )
 
 	// move to OnThreadEnd() so it can handle all cases
 	/*

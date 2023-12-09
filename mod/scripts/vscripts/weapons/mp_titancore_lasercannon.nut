@@ -225,8 +225,9 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 		}
 		else // other titans using it, could be bad... try to stop their movement for the duration of core
 		{
-			float coreDuration = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time ) + weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
-			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 1.0, coreDuration )
+			float coreChargeTime = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
+			float coreDuration = weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
+			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 1.0, coreDuration + coreChargeTime, coreChargeTime )
 		}
 	}
 #endif // #if SERVER

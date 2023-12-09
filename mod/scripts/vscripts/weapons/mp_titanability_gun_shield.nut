@@ -122,25 +122,25 @@ void function GunShieldThink( entity weapon, entity shieldWeapon, entity owner, 
 
 	// here goes some tweak: end think if player changes their weapon
 	// never gonna happen for legions, only for modified weapon usage cases
-	/*
-	if ( duration > 0 )
-		wait duration
-	else
-		WaitForever()
-	*/
-	// modified think
-	float endTime = Time() + duration
-	while ( Time() < endTime() )
-	{
-		entity activeWeapon = owner.GetActiveWeapon()
-		if ( activeWeapon != weapon )
+	#if CLIENT // vanilla think
+		if ( duration > 0 )
+			wait duration
+		else
+			WaitForever()
+	#elseif SERVER // modified think
+		float endTime = Time() + duration
+		while ( Time() < endTime )
 		{
-			print( "titan changed weapon while gun shield active!" )
-			break
+			entity activeWeapon = owner.GetActiveWeapon()
+			if ( activeWeapon != weapon )
+			{
+				//print( "titan changed weapon while gun shield active!" )
+				break
+			}
+			
+			WaitFrame()
 		}
-		
-		WaitFrame()
-	}
+	#endif // CLIENT
 }
 
 bool function CanUseGunShield( entity owner, bool reqZoom = true )
@@ -231,10 +231,27 @@ void function Sv_CreateGunShield( entity titan, entity weapon, entity shieldWeap
 		}
 	)
 
+	// here goes some tweak: end think if player changes their weapon
+	// never gonna happen for legions, only for modified weapon usage cases
+	/*
 	if ( duration > 0 )
 		wait duration
 	else
 		WaitForever()
+	*/
+	// modified think
+	float endTime = Time() + duration
+	while ( Time() < endTime )
+	{
+		entity activeWeapon = titan.GetActiveWeapon()
+		if ( activeWeapon != weapon )
+		{
+			//print( "titan changed weapon while gun shield active!" )
+			break
+		}
+		
+		WaitFrame()
+	}
 }
 
 entity function CreateGunShieldVortexSphere( entity player, entity vortexWeapon, entity shieldWeapon )

@@ -126,8 +126,9 @@ bool function OnAbilityCharge_SalvoCore( entity weapon )
 		}
 		else // other titans using it, could be bad... try to stop their movement for the duration of core
 		{
-			float coreDuration = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time ) + weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
-			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 1.0, coreDuration )
+			float coreChargeTime = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
+			float coreDuration = weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
+			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 1.0, coreDuration + coreChargeTime, coreChargeTime )
 		}
 	}
 #endif
