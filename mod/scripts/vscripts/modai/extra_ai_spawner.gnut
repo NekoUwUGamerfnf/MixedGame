@@ -25,9 +25,14 @@ global function ExtraSpawner_SpawnBossTitan
 // utility
 global function ExtraSpawner_NPCTitanDrops
 global function ExtraSpawner_SetNPCPilotEmbarkedTitanNuke
+global function ExtraSpawner_EmbarkedNPCTitanRodeoCounter
+global function ExtraSpawner_StopNPCTitanRodeoCounter
+global function ExtraSpawner_ScriptedNPCTitanCoreAbility
+global function ExtraSpawner_StopNPCTitanCoreAbility
 // modded titan registering func
 global function ExtraSpawner_RegisterToTitanSpawnList
 global function ExtraSpawner_RegisterToBossTitanSpawnList
+global function ExtraSpawner_AddScriptedNPCTitanCoreThink
 
 // scripted spawn
 global function ExtraSpawner_SpawnGunShip
@@ -43,7 +48,7 @@ global function ExtraSpawner_SetNPCWeapons
 global function ExtraSpawner_SetNPCSecondaryWeapons // needs AI behavior that included SelectSchedule_SwitchWeapon to work
 global function ExtraSpawner_SetNPCAntiTitanWeapons
 global function ExtraSpawner_SetNPCGrenadeWeapons
-global function ExtraSpawner_SetNPCExtraWeaponMods // mods added by this func will be applies to npcs
+global function ExtraSpawner_SetNPCExtraWeaponMods // mods added by this func will be applied to npcs
 // set up funcs
 global function ExtraSpawner_ApplyNPCWeapons
 global function ExtraSpawner_StartUpdatingNPCWeaponBodyGroup // vanilla missing behavior
@@ -334,6 +339,8 @@ struct
 	table<entity, bool> fragDroneProjectileUpdatedModel
 	// for marking this npc squad as spawn from this file
 	array<string> npcSquadFromExtraSpawner
+	// scripted titan core behavior
+	table<string, void functionref( entity titan, entity coreWeapon )> scriptedNPCTitanCoreThink
 } file
 
 void function ExtraAISpawner_Init()
@@ -347,6 +354,7 @@ void function ExtraAISpawner_Init()
 	InitDefaultTitanList()
 	InitDefaultBossTitanList()
 	InitDefaultNPCHandlerFunctions()
+	InitDefaultScriptedNPCTitanCore()
 	// prowler
 	ProwlerPrecache()
 	// turret
@@ -362,6 +370,7 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "StopDefaultHandler" )
 	// npc pilot think
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
+	RegisterSignal( "ScriptedNPCTitanCoreAbility" )
 	// gunship 
 	RegisterSignal( "GunshipJetBurstEffect" )
 	GunshipPrecache()
@@ -369,6 +378,8 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "StartUpdatingNPCWeaponBodyGroup" )
 	// npc pilot embarking
 	RegisterSignal( "StandUnboardedTitan" )
+	// npc weapon switch
+	RegisterSignal( "ScriptedWeaponSwitch" )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -969,6 +980,7 @@ void function InitDefaultTitanList()
 //
 
 // generic core replace for npc atlas titans: they cannot use upgrade core
+// upgrade core has been scripted, this just exists here for we might use
 const array<string> NPC_ATLAS_TITAN_VALID_CORE =
 [
 	"mp_titancore_laser_cannon",
@@ -983,22 +995,58 @@ void function NPCAtlasTitanCoreReplace( entity titan )
 }
 
 // generic core replace for npc ogre titans: they cannot use smart core
+// smart core has been scripted, this just exists here for we might use
 void function NPCOgreTitanCoreReplace( entity titan )
 {
 	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
 	titan.GiveOffhandWeapon( "mp_titancore_flame_wave", OFFHAND_EQUIPMENT )
 }
 
+// upgrade core setup for npc usage
+// needs modified mp_titancore_upgrade.nut
+// skipping stage 2 upgrades because that stage has nothing useful for npcs to use
+// and add superior chassis for the forth upgrade( pretty difficult for a npc to do so )
+const array<int> NPC_UPGRADE_CORE_STAGE1_PASSIVES =
+[
+	ePassives.PAS_VANGUARD_CORE1, // arc rounds
+	ePassives.PAS_VANGUARD_CORE2, // missile racks
+]
+
+const array<int> NPC_UPGRADE_CORE_STAGE2_PASSIVES =
+[
+	ePassives.PAS_VANGUARD_CORE7, // multi-target missiles
+	ePassives.PAS_VANGUARD_CORE9, // xo-16 battle rifle
+]
+
+// gets applied at forth upgrade
+const array<int> NPC_UPGRADE_CORE_STAGE3_PASSIVES =
+[
+	ePassives.PAS_VANGUARD_CORE8, // superior chassis
+]
+
+void function NPCUpgradeCoreSetUp( entity titan )
+{
+	entity coreWeapon = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+	if ( IsValid( coreWeapon ) )
+	{
+		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 0, NPC_UPGRADE_CORE_STAGE1_PASSIVES.getrandom() ) // first upgrade
+		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 1, NPC_UPGRADE_CORE_STAGE2_PASSIVES.getrandom() ) // second upgrade
+		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 3, NPC_UPGRADE_CORE_STAGE3_PASSIVES.getrandom() ) // forth upgrade
+	}
+}
+
 void function NPCLegionLoadout( entity titan )
 {
 	// npc cannot use smart core, change to flame core
-	NPCOgreTitanCoreReplace( titan )
+	//NPCOgreTitanCoreReplace( titan )
 }
 
 void function NPCMonarchLoadout( entity titan )
 {
 	// npc cannot use upgrade core, change to salvo core or laser core
-	NPCAtlasTitanCoreReplace( titan )
+	//NPCAtlasTitanCoreReplace( titan )
+	// upgrade core has been scripted, we needs to setup
+	NPCUpgradeCoreSetUp( titan )
 }
 
 // adding brute4 support
@@ -1237,7 +1285,7 @@ void function InitDefaultBossTitanList()
 		"Slone",										// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_medium_reaper_f.mdl",		// character model, use mp pilot model: pulse blade female
 		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
-		7,												// skin index, unsure
+		7,												// skin index
 		11												// decal index
 	)
 
@@ -1254,7 +1302,7 @@ void function InitDefaultBossTitanList()
 		"Kane",											// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_medium_stalker_m.mdl",		// character model, use mp pilot model: holopilot male
 		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
-		3,												// skin index, unsure
+		3,												// skin index
 		1												// decal index
 	)
 
@@ -1271,7 +1319,7 @@ void function InitDefaultBossTitanList()
 		"Viper",										// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_medium_reaper_m.mdl",		// character model, use mp pilot model: pulse blade male
 		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
-		5,												// skin index, unsure
+		5,												// skin index
 		10												// decal index
 	)
 
@@ -1305,7 +1353,7 @@ void function InitDefaultBossTitanList()
 		"Richter",										// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_heavy_drex_m.mdl",		// character model, use mp pilot model: cloak male
 		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
-		4,												// skin index, unsure
+		4,												// skin index
 		13												// decal index
 	)
 
@@ -1322,7 +1370,7 @@ void function InitDefaultBossTitanList()
 		"Blisk",										// pilot title. can't use localized string
 		$"models/Humans/heroes/imc_hero_blisk.mdl",		// character model
 		BossLoadout_Blisk, 								// loadout function: change core weapon
-		8,												// skin index, unsure
+		8,												// skin index
 		12												// decal index
 	)
 
@@ -1581,7 +1629,8 @@ void function InitNPCVanguardLoadouts()
 	ionLoadout.setFile = "titan_atlas_stickybomb"
 	ionLoadout.behaviorSelector = "behavior_titan"
 	ionLoadout.loadoutFunction = null
-	ionLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use laser core
+	// add laser core for vanguard because we've tried to fix npc usage
+	//ionLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use laser core
 	file.npcVanguardLoadouts.append( ionLoadout )
 
 	// tone
@@ -1589,7 +1638,8 @@ void function InitNPCVanguardLoadouts()
 	toneLoadout.setFile = "titan_atlas_tracker"
 	toneLoadout.behaviorSelector = "behavior_titan_long_range"
 	toneLoadout.loadoutFunction = null
-	toneLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use salvo core
+	// add salvo core for vanguard because we've tried to fix npc usage
+	//toneLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use salvo core
 	file.npcVanguardLoadouts.append( toneLoadout )
 
 	// ronin
@@ -1621,7 +1671,8 @@ void function InitNPCVanguardLoadouts()
 	NPCVanguardLoadout legionLoadout = clone emptyLoadout
 	legionLoadout.setFile = "titan_ogre_minigun"
 	legionLoadout.behaviorSelector = "behavior_titan_ogre_minigun"
-	legionLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // smart core is not added for npc usage from native code
+	// smart core has been scripted for npc titan to use
+	//legionLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // smart core is not added for npc usage from native code
 	legionLoadout.loadoutFunction = null
 	file.npcVanguardLoadouts.append( legionLoadout )
 
@@ -1630,7 +1681,8 @@ void function InitNPCVanguardLoadouts()
 	scorchLoadout.setFile = "titan_ogre_meteor"
 	scorchLoadout.behaviorSelector = "behavior_titan_ogre_meteor"
 	scorchLoadout.loadoutFunction = null
-	scorchLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use flame core
+	// add flame core for vanguard because we've tried to fix npc usage
+	//scorchLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use flame core
 	file.npcVanguardLoadouts.append( scorchLoadout )
 
 
@@ -1681,6 +1733,11 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 	// if we spawn an enemy buddy titan we'll crash
 	string squad = ExtraSpawner_MakeMarkedSquadName( titan.GetTeam(), UniqueString( "_buddy" ) )
 	SetSquad( titan, squad )
+
+	// make them always alert so they don't holster weapon after warpfall
+	// welp, seems they already got this due to setups in CommonNPCTitanOnSpawned()
+	// don't know why it don't work
+	titan.kv.alwaysalert = 1
 
 	// pick a random pilot setting!
 	NPCVanguardPilot pickedPilot = file.npcVanguardPilots[ RandomInt( file.npcVanguardPilots.len() ) ]
@@ -2630,10 +2687,20 @@ void function ExtraSpawner_ApplyNPCExtraWeaponMods( entity npc )
 // npcs will do this callback on player titan transfer
 void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 {
+	// general checks
+	guy.Signal( "ScriptedWeaponSwitch" ) // end last SwitchWeaponAfterAnimationDone() thread
+	if ( !IsAlive( guy ) )
+		return
+
 	// every npc has this, but we'll save ones who have better proficiency
 	if ( int( guy.kv.WeaponProficiency ) < eWeaponProficiency.VERYGOOD )
 		SetProficiency( guy )
 
+	// frozen npc won't update weapon
+	if ( guy.IsFrozen() )
+		return
+
+	// changing to non-enemy state won't update weapon
 	entity enemy = guy.GetEnemy()
 	if ( !IsAlive( enemy ) )
 		return
@@ -2701,6 +2768,14 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 	if ( weaponToChange == "" )
 		return
 
+	if ( guy.Anim_IsActive() ) // may have animation playing?
+		thread SwitchWeaponAfterAnimationDone( guy, weaponToChange, isHeavyArmorTarget )
+	else
+		ScriptedNPCWeaponSwitch( guy, weaponToChange, isHeavyArmorTarget )
+}
+
+void function ScriptedNPCWeaponSwitch( entity guy, string weaponToChange, bool isHeavyArmorTarget = false )
+{
 	guy.SetActiveWeaponByName( weaponToChange )
 	// debug
 	//print( "weaponToChange: " + weaponToChange )
@@ -2719,6 +2794,18 @@ void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 			dialogueType = "bc_usingChargeRifle"
 		TryGruntDialogue( guy, dialogueType, dialoguePrefix, dialogueRange, gruntVariants, dialogueVariants, debounce )
 	}
+}
+
+void function SwitchWeaponAfterAnimationDone( entity guy, string weaponToChange, bool isHeavyArmorTarget = false )
+{
+	guy.EndSignal( "OnDeath" )
+	guy.EndSignal( "OnDestroy" )
+
+	guy.Signal( "ScriptedWeaponSwitch" )
+	guy.EndSignal( "ScriptedWeaponSwitch" )
+
+	WaittillAnimDone( guy )
+	ScriptedNPCWeaponSwitch( guy, weaponToChange, isHeavyArmorTarget )
 }
 
 // grunt dialogue is mostly a format of prefix + gruntNum + "_" + type + "_0" + dialogueNum
@@ -4682,7 +4769,6 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	ActivateFireteamDropPod( pod, [ pilot ] )
 
 	NpcPilotSetPetTitan( pilot, titan )
-	titan.SetTitle( pilot.GetTitle() + " 's Auto-Titan" )
 	titan.WaitSignal( "TitanHotDropComplete" )
 	
 	// no longer needs thread off because we've reworked it
@@ -5001,16 +5087,24 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	}
 
 	// start specific think, for anti-rodeo countermeasure
-	thread EmbarkedNPCTitanRodeoCounter( titan )
+	ExtraSpawner_EmbarkedNPCTitanRodeoCounter( titan )
+	// start specific think, for handling core abilities that won't be used by npcs in vanilla
+	ExtraSpawner_ScriptedNPCTitanCoreAbility( titan )
 }
 
 // Rodeo counter: force inventory smoke to fire when getting rodeo hit recently
-const string RODEO_COUNTER_SMOKE_WEAPON = "mp_titanability_smoke"
+//const string RODEO_COUNTER_SMOKE_WEAPON = "mp_titanability_smoke"
 const float RODEO_COUNTER_DELAY = 0.5 // titan will wait this amount of time before deploying the smoke
-const float RODEO_COUNTER_COOLDOWN_MIN = 6.0 // next smoke will need at least this amount of time to deploy
-const float RODEO_COUNTER_COOLDOWN_MAX = 10.0
+// removing these now, we get from stuffs we setup in "mp_titanability_electric_smoke.txt"
+//const float RODEO_COUNTER_COOLDOWN_MIN = 6.0 // next smoke will need at least this amount of time to deploy
+//const float RODEO_COUNTER_COOLDOWN_MAX = 10.0
 
-void function EmbarkedNPCTitanRodeoCounter( entity titan )
+void function ExtraSpawner_EmbarkedNPCTitanRodeoCounter( entity titan )
+{
+	thread EmbarkedNPCTitanRodeoCounter_Threaded( titan )
+}
+
+void function EmbarkedNPCTitanRodeoCounter_Threaded( entity titan )
 {
 	//print( "RUNNING EmbarkedNPCTitanRodeoCounter()" )
 	entity soul = titan.GetTitanSoul()
@@ -5034,8 +5128,8 @@ void function EmbarkedNPCTitanRodeoCounter( entity titan )
 		WaitFrame() // always wait a frame each loop
 
 		titan = soul.GetTitan() // update titan
-		if ( !TitanHasNpcPilot( titan ) ) // npc pilot become invalid!
-			return
+		//if ( !TitanHasNpcPilot( titan ) ) // npc pilot become invalid!
+		//	return
 
 		entity rodeoPilot = GetRodeoPilot( titan )
 		float rodeoHitTime = soul.GetLastRodeoHitTime()
@@ -5067,16 +5161,276 @@ void function EmbarkedNPCTitanRodeoCounter( entity titan )
 				{
 					WeaponPrimaryAttackParams emptyParams // smoke don't need attack params
 					OnWeaponNpcPrimaryAttack_titanability_smoke( rewardSmoke, emptyParams )
+					
+					// delay next smoke allowed time
+					float minCooldown = rewardSmoke.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
+					float maxCooldown = rewardSmoke.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
+					smokeDeployAllowedTime = Time() + RandomFloatRange( minCooldown, maxCooldown )
+					
 					// ammo management
 					rewardSmoke.SetWeaponPrimaryAmmoCount( rewardSmoke.GetWeaponPrimaryAmmoCount() - 1 )
 					// when ammo runs out, we take away the weapon
 					if ( rewardSmoke.GetWeaponPrimaryAmmoCount() == 0 )
 						titan.TakeOffhandWeapon( OFFHAND_INVENTORY )
-					smokeDeployAllowedTime = Time() + RandomFloatRange( RODEO_COUNTER_COOLDOWN_MIN, RODEO_COUNTER_COOLDOWN_MAX ) // delay next smoke allowed time
 				}
 			}
 		}
 	}
+}
+
+void function ExtraSpawner_StopNPCTitanRodeoCounter( entity titan )
+{
+	titan.Signal( "EmbarkedNPCTitanRodeoCounter" )
+}
+
+// scripted titan core ability
+void function ExtraSpawner_ScriptedNPCTitanCoreAbility( entity titan )
+{
+	thread ScriptedNPCTitanCoreAbility_Threaded( titan )
+}
+
+void function ScriptedNPCTitanCoreAbility_Threaded( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	titan.Signal( "ScriptedNPCTitanCoreAbility" )
+	titan.EndSignal( "ScriptedNPCTitanCoreAbility" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	soul.EndSignal( "OnDestroy" )
+	// being embarked by player: end npc titan think
+	titan.EndSignal( "player_embarks_titan" )
+
+	while ( true )
+	{
+		entity coreWeapon = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+		if ( IsValid( coreWeapon ) )
+		{
+			string coreWeaponName = coreWeapon.GetWeaponClassName()
+			if ( coreWeaponName in file.scriptedNPCTitanCoreThink )
+			{
+				//print( "RUNNING scripted titan core ability for titan!" )
+				waitthread file.scriptedNPCTitanCoreThink[ coreWeaponName ]( titan, coreWeapon ) // continue looping until core weapon gets destroyed or something
+			}
+		}
+
+		WaitFrame()
+	}
+}
+
+void function ExtraSpawner_StopNPCTitanCoreAbility( entity titan )
+{
+	titan.Signal( "ScriptedNPCTitanCoreAbility" )
+}
+
+void function ExtraSpawner_AddScriptedNPCTitanCoreThink( string coreWeaponName, void functionref( entity titan, entity coreWeapon ) thinkFunc )
+{
+	if ( !( coreWeaponName in file.scriptedNPCTitanCoreThink ) )
+		file.scriptedNPCTitanCoreThink[ coreWeaponName ] <- thinkFunc
+	else
+		file.scriptedNPCTitanCoreThink[ coreWeaponName ] = thinkFunc
+}
+
+void function InitDefaultScriptedNPCTitanCore()
+{
+	ExtraSpawner_AddScriptedNPCTitanCoreThink( "mp_titancore_upgrade", NPCTitanUpgradeCoreThink )
+	ExtraSpawner_AddScriptedNPCTitanCoreThink( "mp_titancore_siege_mode", NPCTitanSmartCoreThink )
+}
+
+// npc upgrade core usage
+const float UPGRADE_CORE_ACTIVATE_REQUIRED_SHIELD_FRAC = 0.4 // if shield is below this fraction, titan activates upgrade core
+const float UPGRADE_CORE_ACTIVATE_MAX_DELAY = 12.0 // titan will activate upgrade core after this delay, no matter how many shield left
+
+void function NPCTitanUpgradeCoreThink( entity titan, entity coreWeapon )
+{
+	// EndSignals() should been set by ScriptedNPCTitanCoreAbility_Threaded()
+
+	coreWeapon.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		// generic wait until core charges
+		WaitTillTitanCoreCharge( titan )
+
+		entity soul = titan.GetTitanSoul()
+		// wait till shield goes down, or core has been charged for certain time
+		float maxWait = Time() + UPGRADE_CORE_ACTIVATE_MAX_DELAY
+		while ( Time() < maxWait )
+		{
+			float shieldFrac = float( soul.GetShieldHealth() ) / float( soul.GetShieldHealthMax() )
+			if ( shieldFrac < UPGRADE_CORE_ACTIVATE_REQUIRED_SHIELD_FRAC )
+				break
+
+			WaitFrame()
+		}
+
+		// run core functions
+		// keep firing until we got one valid
+		WeaponPrimaryAttackParams emptyParams // upgrade core don't need attackParams
+		bool succeeded = false
+		while ( !succeeded )
+		{
+			// wait till titan stops scripted animation
+			while ( titan.Anim_IsActive() )
+				WaitFrame()
+			
+			// needs modified mp_titancore_upgrade.nut, or it will crash
+			succeeded = bool( OnWeaponPrimaryAttack_UpgradeCore( coreWeapon, emptyParams ) )
+			WaitFrame()
+		}
+
+		// core used, drain meter
+		thread DrainNPCTitanCoreMeter( titan )
+
+		// cooldown before next core use
+		WeaponWaitForRandomNPCRest( coreWeapon )
+	}
+}
+
+// npc smart core usage
+const float SMART_CORE_ACTIVATE_REQUIRED_EMENY_COUNT = 3 // if more than this amount of enemy heavy armor units attacking us, we activate core
+const float SMART_CORE_RECENT_DAMAGE_HISTORY = 3.0 // damage histroy withing this time will consider 
+const float SMART_CORE_ACTIVATE_MAX_DELAY = 5.0 // after this delay, titan will activate smart core once they sees an enemy
+
+void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
+{
+	// EndSignals() should been set by ScriptedNPCTitanCoreAbility_Threaded()
+
+	coreWeapon.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		// generic wait until core charges
+		WaitTillTitanCoreCharge( titan )
+
+		entity soul = titan.GetTitanSoul()
+		float maxWait = Time() + SMART_CORE_ACTIVATE_MAX_DELAY
+		while ( Time() < maxWait )
+		{
+			// wait till enemy move out of attacking range
+			entity enemy = titan.GetEnemy()
+			if ( IsValid( enemy ) )
+			{
+				entity activeWeapon = titan.GetActiveWeapon()
+				if ( IsValid( activeWeapon ) )
+				{
+					float bestRange = activeWeapon.GetWeaponSettingFloat( eWeaponVar.damage_near_distance )
+					if ( Distance( titan.GetOrigin(), enemy.GetOrigin() ) > bestRange )
+						break // try to run core ability
+				}
+			}
+
+			// multiple enemy heavy armor units attacking us together
+			entity soul = titan.GetTitanSoul()
+			array<entity> enemiesAttacking
+			foreach( DamageHistoryStruct attackerInfo in soul.e.recentDamageHistory )
+			{
+				entity attacker = attackerInfo.attacker
+				// generic check
+				if ( !IsValid( attacker ) )
+					continue
+				// checks for self damage
+				if ( attacker == titan )
+					return
+				// checks for player owned entities
+				if ( attacker == soul.GetBossPlayer() )
+					continue
+
+				// timer
+				if ( Time() > attackerInfo.time + SMART_CORE_RECENT_DAMAGE_HISTORY )
+					continue
+
+				// armor type
+				if ( !enemiesAttacking.contains( attacker ) && attacker.GetArmorType() == ARMOR_TYPE_HEAVY )
+					enemiesAttacking.append( attacker )
+			}
+
+			//print( "enemiesAttacking: " + string( enemiesAttacking.len() ) )
+			if ( enemiesAttacking.len() >= SMART_CORE_ACTIVATE_REQUIRED_EMENY_COUNT )
+				break
+
+			WaitFrame()
+		}
+
+		// run core functions
+		// keep firing until we got one valid
+		WeaponPrimaryAttackParams emptyParams // smart core don't need attackParams
+		bool succeeded = false
+		while ( !succeeded )
+		{
+			// wait till titan sees an enemy
+			while ( !IsAlive( titan.GetEnemy() ) )
+				WaitFrame()
+
+			// wait till titan stops scripted animation
+			while ( titan.Anim_IsActive() )
+				WaitFrame()
+			
+			// needs modified mp_titancore_siege_mode.nut, or it will crash
+			succeeded = bool( OnWeaponPrimaryAttack_titancore_siege_mode( coreWeapon, emptyParams ) )
+			WaitFrame()
+		}
+
+		// core used, drain meter
+		thread DrainNPCTitanCoreMeter( titan )
+
+		// cooldown before next core use
+		WeaponWaitForRandomNPCRest( coreWeapon )
+	}
+}
+
+void function WaitTillTitanCoreCharge( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	soul.EndSignal( "OnDestroy" )
+
+	// wait till titan core fully expire first
+	while ( IsAlive( titan ) )
+	{
+		if ( !TitanCoreInUse( titan ) )
+			break
+
+		WaitFrame()
+	}
+
+	// wait till titan core charge
+	while ( IsAlive( titan ) )
+	{
+		//print( "SoulTitanCore_GetNextAvailableTime( soul ): " + string( SoulTitanCore_GetNextAvailableTime( soul ) ) )
+		if ( SoulTitanCore_GetNextAvailableTime( soul ) == 1.0 )
+			break
+
+		WaitFrame()
+	}
+}
+
+void function DrainNPCTitanCoreMeter( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	soul.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		//print( "soul.GetCoreChargeExpireTime(): " + string( soul.GetCoreChargeExpireTime() ) )
+		if ( soul.GetCoreChargeExpireTime() <= Time() )
+			break
+		WaitFrame()
+	}
+
+	//print( "npc titan core drains out" )
+	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
+}
+
+void function WeaponWaitForRandomNPCRest( entity weapon )
+{
+	float minCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
+	float maxCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
+	wait RandomFloatRange( minCooldown, maxCooldown )
 }
 
 function OnNpcTitanBecomesPilot( pilot, titan )
@@ -5097,8 +5451,6 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		entity titanSoul = titan.GetTitanSoul()
 		if( !IsValid( titanSoul ) ) // defensive fix for titan.Destroy() situations
 			return
-		if ( pilot.GetTitle() != "" )
-			titan.SetTitle( pilot.GetTitle() + " 's Auto-Titan" ) // update title for disembarking or ejecting
 
 		bool isEjecting = titanSoul.IsEjecting()
 		if( isEjecting )
@@ -5133,6 +5485,10 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 			TitanEject_SetSoulStopMovingWhileNPCEject( soul, false ) // stop ejecting behavior override
 		}
 	}
+
+	// stop scripted behavior
+	ExtraSpawner_StopNPCTitanRodeoCounter( titan )
+	ExtraSpawner_StopNPCTitanCoreAbility( titan )
 }
 
 // if pilot still not touching ground after this amount of time
