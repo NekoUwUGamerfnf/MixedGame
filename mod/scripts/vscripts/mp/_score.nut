@@ -491,7 +491,13 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 		return	
 	
 	// maybe no need to try-catch after changing IsValidNPCTarget() checks
-	AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), victim )
+	// welp we still need, respawn hardcode too many stuffs and always throw "unreachable"
+	try
+	{
+		// to prevent crash happen when killing a modified npc target
+		AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), victim )
+	}
+	catch(ex) {}
 
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
