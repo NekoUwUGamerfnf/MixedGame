@@ -74,7 +74,7 @@ void function ClearContextActionStateAfterCoreAnimation( entity npc )
 	if ( npc.ContextAction_IsBusy() )
 	{
 		npc.ContextAction_ClearBusy()
-		print( "Cleaning up context action state for npc firing salvo core" )
+		//print( "Cleaning up context action state for npc firing salvo core" )
 	}
 }
 #endif
