@@ -18,6 +18,7 @@ struct
 void function MpTitanAbilitySmartCore_Init()
 {
 	PrecacheParticleSystem( SMART_CORE_LASER_SIGHT_FX )
+	
 	#if CLIENT
 		RegisterSignal( "SmartCoreHUD_End" )
 		AddTitanCockpitManagedRUI( SmartCore_CreateHud, SmartCore_DestroyHud, SmartCore_ShouldCreateHud, RUI_DRAW_HUD )
@@ -31,6 +32,7 @@ void function MpTitanAbilitySmartCore_Init()
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_predator_cannon, SmartCore_DamageSourceIdModifier )
 	#endif
 }
+
 var function OnWeaponPrimaryAttack_titancore_siege_mode( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	if ( !SiegeMode_CheckCoreAvailable( weapon ) )
@@ -67,7 +69,9 @@ void function SmartCoreFX( entity weapon, float coreDuration )
 	array<entity> weapons = GetPrimaryWeapons( owner )
 	entity primaryWeapon = weapons[0]
 	primaryWeapon.EndSignal( "OnDestroy" )
+
 	float endTime = Time() + coreDuration
+
 	OnThreadEnd(
 	function() : ( owner, primaryWeapon )
 		{
@@ -130,7 +134,9 @@ void function SmartCoreThink( entity weapon, float coreDuration )
 			if ( IsValid( owner ) )
 			{
 				StopSoundOnEntity( owner, "Titan_Legion_Smart_Core_ActiveLoop_1P" )
-				EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Deactivated_1P" )
+				// modified for npc usage
+				if ( owner.IsPlayer() )
+					EmitSoundOnEntityOnlyToPlayer( owner, owner, "Titan_Legion_Smart_Core_Deactivated_1P" )
 				TakeSmartCoreMod( owner )
 				if ( owner.IsPlayer() )
 				{
