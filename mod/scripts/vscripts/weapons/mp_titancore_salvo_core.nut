@@ -40,8 +40,10 @@ void function OnWeaponDeactivate_SalvoCore( entity weapon )
 		{
 			titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.1 )
 			// vanilla missing: clean up context action state we set in OnAbilityCharge_SalvoCore()
-			if ( titan.ContextAction_IsBusy() )
-				thread ClearContextActionStateAfterCoreAnimation( titan )
+			// alright... shouldn't mark context action state for them, will make them stop finding new enemies
+			// just handle in extra_ai_spawner.gnut
+			//if ( titan.ContextAction_IsBusy() )
+			//	thread ClearContextActionStateAfterCoreAnimation( titan )
 		}
 
 		// reset again at end so titan doesn't go to evasive mode
@@ -121,8 +123,10 @@ bool function OnAbilityCharge_SalvoCore( entity weapon )
 		{
 			titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.1 )
 			// vanilla missing: needs these to make them unable to be set into other scripted animations( eg. being executed )
-			if ( !titan.ContextAction_IsBusy() )
-				titan.ContextAction_SetBusy()
+			// alright... shouldn't mark context action state for them, will make them stop finding new enemies
+			// just handle in extra_ai_spawner.gnut
+			//if ( !titan.ContextAction_IsBusy() )
+			//	titan.ContextAction_SetBusy()
 		}
 		else // other titans using it, could be bad... try to stop their movement for the duration of core
 		{
