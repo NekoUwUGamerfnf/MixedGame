@@ -1,11 +1,5 @@
 global function LaserCannon_Init
 
-// modified callbacks
-global function OnWeaponActivate_LaserCannon
-global function OnWeaponPrimaryAttack_LaserCannon
-global function OnProjectileCollision_LaserCannon
-//
-
 global function OnAbilityStart_LaserCannon
 global function OnAbilityEnd_LaserCannon
 global function OnAbilityCharge_LaserCannon
@@ -76,22 +70,11 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 		laserCoreBonus = 0.5
 
 	float remainingTime = laserCoreBonus + soul.GetCoreChargeExpireTime() - curTime
-	// I feel like this shouldn't be hardcoded here...
-	// change to get weapon settings. may make normal laser core's core regen less powerful, but that's respawn's fault, not mine
-	// now uses setting to toggle it
-	bool doCoreFix = bool( GetCurrentPlaylistVarInt( "laser_core_fix", 0 ) ) || weapon.HasMod( "laser_core_fix" )
 	float duration
-	// modified version
-	if ( doCoreFix )
-		duration = weapon.GetWeaponSettingFloat( eWeaponVar.sustained_discharge_duration )
-	else // vanilla behavior
-	{
-		if ( weapon.HasMod( "pas_ion_lasercannon") )
-			duration = 5.0
-		else
-			duration = 3.0
-	}
-
+	if ( weapon.HasMod( "pas_ion_lasercannon") )
+		duration = 5.0
+	else
+		duration = 3.0
 	float coreFrac = min( 1.0, remainingTime / duration )
 	//Defensive fix for this sometimes resulting in a negative value.
 	if ( coreFrac > 0.0 )
@@ -99,66 +82,13 @@ void function LaserCore_OnPlayedOrNPCKilled( entity victim, entity attacker, var
 		soul.SetTitanSoulNetFloat( "coreExpireFrac", coreFrac )
 		soul.SetTitanSoulNetFloatOverTime( "coreExpireFrac", 0.0, remainingTime )
 		soul.SetCoreChargeExpireTime( remainingTime + curTime )
-		// modified here: this causes core meter to have bad display effect, don't use it
-		// now updating it with TrackLaserCoreDuration()
-		if ( !doCoreFix ) // vanilla behavior toggle
-			weapon.SetSustainedDischargeFractionForced( coreFrac ) 
-	}
-}
-
-// modified here: we needs to update laser core's charged frac so it won't have issue displaying on HUD
-void function TrackLaserCoreDuration( entity titan, entity weapon )
-{
-	entity soul = titan.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return
-	
-	soul.EndSignal( "OnDestroy" )
-	weapon.EndSignal( "OnDestroy" )
-
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" )
-	titan.EndSignal( "CoreEnd" )
-	
-	// initial wait
-	//wait weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
-	WaitFrame()
-	
-	while( IsTitanCoreFiring( titan ) ) // player specific core firing check
-	{
-		float coreFrac = soul.GetTitanSoulNetFloat( "coreExpireFrac" )
 		weapon.SetSustainedDischargeFractionForced( coreFrac )
-		WaitFrame()
 	}
 }
 #endif
 
-// modified callbacks
-void function OnWeaponActivate_LaserCannon( entity weapon )
-{
-
-}
-
-var function OnWeaponPrimaryAttack_LaserCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
-{
-	if ( weapon.HasMod( "tesla_core" ) )
-		return OnAbilityStart_Tesla_Core( weapon, attackParams )
-}
-
-void function OnProjectileCollision_LaserCannon( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
-{
-
-}
-//
-
 bool function OnAbilityCharge_LaserCannon( entity weapon )
 {
-	// modded weapon
-	if ( weapon.HasMod( "tesla_core" ) )
-		return OnCoreCharge_Tesla_Core( weapon )
-	//
-
-	// vanilla behavior
 	OnAbilityCharge_TitanCore( weapon )
 
 #if CLIENT
@@ -239,12 +169,6 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 
 void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 {
-	// modded weapon
-	if ( weapon.HasMod( "tesla_core" ) )
-		return OnCoreChargeEnd_Tesla_Core( weapon )
-	//
-
-	// vanilla behavior
 	#if SERVER
 	OnAbilityChargeEnd_TitanCore( weapon )
 	#endif
@@ -280,11 +204,6 @@ void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 
 bool function OnAbilityStart_LaserCannon( entity weapon )
 {
-	// modded weapon
-	if ( weapon.HasMod( "tesla_core" ) ) // tesla core don't have a sustained laser
-		return true
-
-	// vanilla behavior
 	OnAbilityStart_TitanCore( weapon )
 
 #if SERVER
@@ -311,10 +230,6 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 		EmitSoundOnEntityOnlyToPlayer( player, player, LASER_FIRE_SOUND_1P )
 		EmitSoundOnEntityExceptToPlayer( player, player, "Titan_Core_Laser_FireStart_3P" )
 		EmitSoundOnEntityExceptToPlayer( player, player, "Titan_Core_Laser_FireBeam_3P" )
-		// modified here: we needs to update laser core's charged frac so it won't have issue displaying on HUD
-		bool doCoreFix = bool( GetCurrentPlaylistVarInt( "laser_core_fix", 0 ) ) || weapon.HasMod( "laser_core_fix" )
-		if ( doCoreFix )
-			thread TrackLaserCoreDuration( player, weapon )
 	}
 	else
 	{
@@ -348,12 +263,6 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 
 void function OnAbilityEnd_LaserCannon( entity weapon )
 {
-	// modded weapon
-	if ( weapon.HasMod( "tesla_core" ) ) // tesla core don't have a sustained laser
-		return
-	//
-
-	// vanilla behavior
 	weapon.Signal( "OnSustainedDischargeEnd" )
 	weapon.StopWeaponEffect( FX_LASERCANNON_MUZZLEFLASH, FX_LASERCANNON_MUZZLEFLASH )
 

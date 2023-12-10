@@ -18,21 +18,13 @@ struct
 void function MpTitanAbilitySmartCore_Init()
 {
 	PrecacheParticleSystem( SMART_CORE_LASER_SIGHT_FX )
-	
 	#if CLIENT
 		RegisterSignal( "SmartCoreHUD_End" )
 		AddTitanCockpitManagedRUI( SmartCore_CreateHud, SmartCore_DestroyHud, SmartCore_ShouldCreateHud, RUI_DRAW_HUD )
 		StatusEffect_RegisterEnabledCallback( eStatusEffect.smartCore, SmartCoreEnabled )
 		StatusEffect_RegisterDisabledCallback( eStatusEffect.smartCore, SmartCoreDisabled )
 	#endif
-
-	// modified
-	#if SERVER
-		// maybe funnier? try to fix damageSourceID for predator cannon. hardcoded!
-		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_predator_cannon, SmartCore_DamageSourceIdModifier )
-	#endif
 }
-
 var function OnWeaponPrimaryAttack_titancore_siege_mode( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	if ( !SiegeMode_CheckCoreAvailable( weapon ) )
@@ -69,9 +61,7 @@ void function SmartCoreFX( entity weapon, float coreDuration )
 	array<entity> weapons = GetPrimaryWeapons( owner )
 	entity primaryWeapon = weapons[0]
 	primaryWeapon.EndSignal( "OnDestroy" )
-
 	float endTime = Time() + coreDuration
-
 	OnThreadEnd(
 	function() : ( owner, primaryWeapon )
 		{
@@ -310,42 +300,4 @@ void function SmartCore_RuiThink( entity player )
 		WaitFrame()
 	}
 }
-#endif
-
-// modified
-#if SERVER
-// maybe funnier? try to fix damageSourceID for predator cannon. hardcoded!
-void function SmartCore_DamageSourceIdModifier( entity target, var damageInfo )
-{
-	// applying smartcore damageSourceID
-
-	// damaged by projectile! assume it's long range powershot
-	entity inflictor = DamageInfo_GetInflictor( damageInfo )
-	if ( IsValid( inflictor ) )
-	{
-		if ( inflictor.IsProjectile() )
-		{
-			if ( Vortex_GetRefiredProjectileMods( inflictor ).contains( "LongRangePowerShot" ) ) // don't want to change damageSourceId for vortex refire! no need to change to Vortex_GetRefiredProjectileMods()
-				return // don't try to apply
-		}
-	}
-
-	// close range powershot check
-	bool isCloseRangePowerShot = bool( DamageInfo_GetCustomDamageType( damageInfo ) & DF_KNOCK_BACK ) // close range power shot...
-
-	entity attackerWeapon
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( IsValid( attacker ) )
-		attackerWeapon = attacker.GetActiveWeapon() // predator cannon is hitscan, check active weapon is enough
-
-	if ( IsValid( attackerWeapon ) )
-	{
-		if ( attackerWeapon.HasMod( "Smart_Core" ) )
-		{
-			if ( !isCloseRangePowerShot )
-				DamageInfo_SetDamageSourceIdentifier( damageInfo, eDamageSourceId.mp_titancore_siege_mode )
-		}
-	}
-}
-//
 #endif

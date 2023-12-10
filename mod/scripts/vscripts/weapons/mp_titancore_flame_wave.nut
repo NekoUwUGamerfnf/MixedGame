@@ -6,10 +6,6 @@ global function OnAbilityChargeEnd_FlameWave
 
 global function OnWeaponPrimaryAttack_titancore_flame_wave
 
-// modified callback
-global function OnProjectileCollision_FlameWave
-//
-
 const float PROJECTILE_SEPARATION = 128
 const float FLAME_WALL_MAX_HEIGHT = 110
 const asset FLAME_WAVE_IMPACT_TITAN = $"P_impact_exp_med_metal"
@@ -36,14 +32,6 @@ void function MpTitanWeaponFlameWave_Init()
 
 void function OnWeaponActivate_titancore_flame_wave( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnWeaponActivate_StormCore( weapon )
-	if( weapon.HasMod( "ground_slam" ) )
-		return OnWeaponActivate_titancore_ground_slam( weapon )
-	//
-
-	// vanilla behavior
 	weapon.EmitWeaponSound_1p3p( "flamewave_start_1p", "flamewave_start_3p" )
 	OnAbilityCharge_TitanCore( weapon )
 }
@@ -51,16 +39,8 @@ void function OnWeaponActivate_titancore_flame_wave( entity weapon )
 
 bool function OnAbilityCharge_FlameWave( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnAbilityCharge_StormCore( weapon )
-	if( weapon.HasMod( "ground_slam" ) )
-		return OnAbilityCharge_GoundSlam( weapon )
-	//
-
-	// vanilla behavior
-	entity owner = weapon.GetWeaponOwner()
 	#if SERVER
+		entity owner = weapon.GetWeaponOwner()
 		float chargeTime = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
 		entity soul = owner.GetTitanSoul()
 		if ( soul == null )
@@ -82,42 +62,16 @@ bool function OnAbilityCharge_FlameWave( entity weapon )
 
 void function OnAbilityChargeEnd_FlameWave( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnAbilityChargeEnd_StormCore( weapon )
-	if( weapon.HasMod( "ground_slam" ) )
-		return OnAbilityChargeEnd_GoundSlam( weapon )
-	//
-
-	// vanilla behavior
-	entity owner = weapon.GetWeaponOwner()
 	#if SERVER
+		entity owner = weapon.GetWeaponOwner()
 		if ( owner.IsPlayer() )
-		{
 			owner.SetTitanDisembarkEnabled( true )
-		}
-
-		// shared from special_3p_attack_anim_fix.gnut
-		// fix atlas chassis animation
-		HandleSpecial3pAttackAnim( owner, weapon, 0.8, OnWeaponPrimaryAttack_titancore_flame_wave, true )
-
 		OnAbilityChargeEnd_TitanCore( weapon )
 	#endif // #if SERVER
 }
 
 var function OnWeaponPrimaryAttack_titancore_flame_wave( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	// debug
-	//print( "RUNNING OnWeaponPrimaryAttack_titancore_flame_wave()" )
-
-	// modded weapon
-	if( weapon.HasMod( "archon_storm_core" ) )
-		return OnWeaponPrimaryAttack_StormCore( weapon, attackParams )
-	if( weapon.HasMod( "ground_slam" ) )
-		return OnWeaponPrimaryAttack_titancore_ground_slam( weapon, attackParams )
-	//
-
-	// vanilla behavior
 	OnAbilityStart_TitanCore( weapon )
 
 	#if SERVER
@@ -296,9 +250,7 @@ void function FlameWave_DamagedPlayerOrNPC( entity ent, var damageInfo )
 	}
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	// adding friendlyfire support!
-	//if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
-	if ( !IsValid( attacker ) || ( attacker.GetTeam() == ent.GetTeam() && !FriendlyFire_IsEnabled() ) )
+	if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
 		return
 
 	array<entity> weapons = attacker.GetMainWeapons()
@@ -321,12 +273,3 @@ void function ZeroDamageAndClearInflictorArray( entity ent, var damageInfo )
 			inflictor.e.damagedEntities.fastremovebyvalue( ent )
 }
 #endif
-
-// modified callback
-void function OnProjectileCollision_FlameWave( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
-{
-	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
-	if ( mods.contains( "archon_storm_core" ) )
-		return OnProjectileCollision_StormCore( projectile, pos, normal, hitEnt, hitbox, isCritical )
-}
-//

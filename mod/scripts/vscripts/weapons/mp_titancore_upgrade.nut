@@ -8,8 +8,6 @@ global function OnCoreChargeEnd_UpgradeCore
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_UpgradeCore
 // modified settings
-// allow modifying shield regen amount when using custom shield amount
-global function UpgradeCore_SetShieldRegenScale
 // allow modifying upgrading method for titan
 global function UpgradeCore_SetWeaponUpgradePassive
 
@@ -27,8 +25,6 @@ const FX_SHIELD_GAIN_SCREEN		= $"P_xo_shield_up"
 // modified settings
 struct
 {
-	// allow modifying shield regen amount when using custom shield amount
-	float shieldRegenScale = 1.0 // 1.0 means regen to max shield
 	// allow modifying upgrading method for titan
 	table< entity, table<int, int> > upgradeCorePassivesTable
 	table<entity, int> soulUpgradeCount
@@ -150,10 +146,7 @@ void function UpgradeCoreThink( entity weapon, float coreDuration )
 		EmitSoundOnEntity( owner, "Titan_Monarch_Smart_Core_Activated_3P" )
 	
 	entity soul = owner.GetTitanSoul()
-	//soul.SetShieldHealth( soul.GetShieldHealthMax() )
-	// adding settings that allows shield regen amount to be modified
-	int shieldRegen = int( soul.GetShieldHealthMax() * file.shieldRegenScale )
-    soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + shieldRegen ) )
+	soul.SetShieldHealth( soul.GetShieldHealthMax() )
 
 	OnThreadEnd(
 	function() : ( weapon, owner, soul )
@@ -582,14 +575,5 @@ void function ServerCallback_VanguardUpgradeMessage( int upgradeID )
 			AnnouncementMessageSweep( GetLocalClientPlayer(), Localize( "#GEAR_VANGUARD_CORE9" ), Localize( "#GEAR_VANGUARD_CORE9_UPGRADEDESC" ), <255, 135, 10> )
 			break
 	}
-}
-#endif
-
-// modified settings
-#if SERVER
-// allow modifying shield regen amount when using custom shield amount
-void function UpgradeCore_SetShieldRegenScale( float scale )
-{
-	file.shieldRegenScale = scale
 }
 #endif
