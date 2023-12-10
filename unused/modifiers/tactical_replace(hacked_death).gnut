@@ -1,0 +1,983 @@
+untyped
+
+global function TacticalReplace_Init
+
+global function ApplyModdedLoadoutForPlayer // later use on events
+
+table <string, int> playerLoadoutType = {} // 0 = vanilla loadout, 1 = tactical change, 2 = ordnance change, 3 = both change
+array<string> tediorePlayers = []
+array<string> disabledPlayers = []
+
+array<string> inLoadoutPeriodPlayer = []
+
+void function TacticalReplace_Init()
+{
+	HackedDeath_SetEnabled( true ) // powerful thing, no any screen blur and flash on death
+	
+	SetAltPilotChance( 0.33 ) // 1/3 to replace model
+	AltPilot_SetShouldReplaceModel( true )
+	SetShouldFUCKOFFCLOAK( true )
+
+	Nessie_SetBatterySpawnEnabled( true )
+	SetShieldBatteryRegenAmount( 0, 0 ) // never regen!!!
+	Nessie_SetWorldMaxNessieCount( 32 ) // limit this, battle will have so many entities
+	Rodeo_SetWorldBatteryMaxCount( 32 ) // or it's gonna crash
+	
+	CustomDamageEffect_SetRandomDeathEffectEnabled( true )
+
+	// cool killing effect, choose a random one
+	if( CoinFlip() && ( GetDeathCamLength( null, true ) > GetDeathCamLength( null ) ) ) // adding deathCamModified check
+		CustomDamageEffect_SetRandomDeathEffectEnabled( true )
+	else
+		CustomDamageEffect_SetBrutalDeathEffectEnabled( true ) 
+	CustomDamageEffect_SetDeathSoundEnabled( true ) // in custom_damage_effect.gnut, not that useful...
+
+	Melee_SetSyncedMeleeNoLimit( true )
+	//if( !HackedDeath_IsEnabled() )
+	//	MeleeSyncedNPC_NPCUseNormalSyncedMelee( true ) // funny, but not good for hackedDeath
+
+	SetPlayerDeathsHidden( true )
+	ClassicMP_SetCustomIntro( ClassicMP_DefaultNoIntro_Setup, ClassicMP_DefaultNoIntro_GetLength() )
+	SetWaitingForPlayersMaxDuration( 10.0 ) // so you don't have to wait so freaking long
+
+	// has no compatible with randomizedEvent now, should change things directly in events
+	//AddCallback_PlayerClassChanged( OnPlayerChangeClass )
+	AddCallback_OnPlayerRespawned( OnPlayerRespawn )
+	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+	AddCallback_GameStateEnter( eGameState.Playing, OnGameStart )
+	Riff_ForceTitanAvailability( eTitanAvailability.Never )
+    Riff_ForceBoostAvailability( eBoostAvailability.Disabled )
+
+	/* // funny but too complex, not enabled now
+	// save for voper fight
+	if( GAMETYPE != "tdm" )
+	{
+		SetShouldDisablePassives( true ) // no more power_cell or ordnance_pack
+		Melee_SetSyncedMeleeNoLimit( true ) // modified function in sh_melee.gnut, so player can do synced melee with no limit( even with no melee weapon )
+		HealthRegen_SetAlwaysFastRegen( true ) // always let player fast regen( 5.0s delay -> 2.5s )
+		AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+		AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+		AddCallback_GameStateEnter( eGameState.Prematch, OnGamePrematch )
+		AddCallback_GameStateEnter( eGameState.Playing, OnGameStart )
+
+		// register things for ingame script
+		if( GetGameState() >= eGameState.Prematch )
+		{
+			foreach( entity player in GetPlayerArray() )
+				OnClientConnected( player )
+		}
+		AddCallback_OnClientConnected( OnClientConnected )
+	}
+	*/
+}
+
+void function OnPlayerChangeClass( entity player )
+{
+	thread WaitForPlayerAliveThenApplyStats( player )
+}
+
+void function WaitForPlayerAliveThenApplyStats( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	while( true )
+	{
+		WaitFrame()
+		if( IsAlive( player ) )
+			break
+	}
+	
+	player.SetMaxHealth( 200 )
+	player.SetHealth( 200 )
+	player.SetShieldHealthMax( 50 ) // one-time shield
+	player.SetShieldHealth( 50 )
+
+	ApplyModdedLoadoutForPlayer( player )
+}
+
+void function OnPlayerRespawn( entity player )
+{
+	player.SetMaxHealth( 200 )
+	player.SetHealth( 200 )
+	player.SetShieldHealthMax( 50 ) // one-time shield
+	player.SetShieldHealth( 50 )
+	
+	/* // funny but too complex, not enabled now
+	if( GamePlaying() )
+	{
+		inLoadoutPeriodPlayer.append( player.GetUID() )
+		thread LoadoutPeriodThink( player )
+	}
+	*/
+}
+
+void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
+{
+	ApplyModdedLoadoutForPlayer( player )
+
+	/* // funny but too complex, not enabled now
+	GiftModdedTactical( player )
+	DisableBoostBar( player )
+	*/
+}
+
+void function ApplyModdedLoadoutForPlayer( entity player )
+{
+	GiveModdedMainWeapons( player )
+	GiveModdedOffhandWeapons( player )
+	player.TakeOffhandWeapon( OFFHAND_MELEE )
+	DisableBoostBar( player )
+}
+
+void function DisableBoostBar( entity player )
+{
+	thread DisableBoostBar_Threaded( player )
+}
+
+void function DisableBoostBar_Threaded( entity player )
+{
+	WaitFrame()
+	if( IsValid( player ) )
+		PlayerEarnMeter_SetMode( player, eEarnMeterMode.DISABLED )
+}
+
+void function OnGameStart()
+{
+	foreach( entity player in GetPlayerArray() )
+	{
+		DisableBoostBar( player ) // make sure this will disappear
+		// has no compatible with randomizedEvent now, should change things directly in events
+		// do it again, for some events, disabled now
+		//ApplyModdedLoadoutForPlayer( player )
+	}
+
+	/* // funny but too complex, not enabled now
+	foreach( entity player in GetPlayerArray() )
+	{
+		Loadouts_TryGivePilotLoadout( player )
+		inLoadoutPeriodPlayer.append( player.GetUID() )
+		thread LoadoutPeriodThink( player )
+	}
+	*/
+}
+
+void function GiveModdedMainWeapons( entity player )
+{
+	foreach( entity weapon in player.GetMainWeapons() )
+	{
+		string classname = weapon.GetWeaponClassName()
+		switch( classname )
+		{
+			// tediore/special weapons
+			case "mp_weapon_car":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_stickybomb" )
+				continue
+			case "mp_weapon_r97":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_flesh_magnetic" )
+				continue
+			case "mp_weapon_alternator_smg":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_bounce" )
+				continue
+			case "mp_weapon_hemlok_smg":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_fuse" )
+				continue
+			case "mp_weapon_sniper":
+				// don't add hopups to kraber
+				//weapon.AddMod( "tediore_reload" )
+				//weapon.AddMod( "tediore_deployable_cover" ) 
+				weapon.AddMod( "nerfed_weapon" ) // nerf it
+				continue
+			case "mp_weapon_doubletake":
+				ReplaceModdedWeapon( weapon, "mp_weapon_peacekraber", [] )
+				continue
+			case "mp_weapon_dmr":
+				weapon.AddMod( "nerfed_weapon" ) // nerf it
+				continue
+			case "mp_weapon_esaw":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_phase_explosion" )
+				continue
+			case "mp_weapon_lmg":
+				// to reset it's clip
+				array<string> mods = weapon.GetMods()
+				mods.append( "apex_rampage" )
+				ReplaceModdedWeapon( weapon, "mp_weapon_lmg", mods ) 
+				continue
+			case "mp_weapon_lstar":
+				//weapon.AddMod( "lagging_lstar" ) // shouldn't replace this
+				continue
+			case "mp_weapon_rspn101":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_missile_launch" )
+				continue
+			case "mp_weapon_rspn101_og":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_missile_launch" )
+				continue
+			case "mp_weapon_vinson":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_deployable_stim_field" )
+				continue
+			case "mp_weapon_hemlok":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_missile_burst" )
+				continue
+			case "mp_weapon_g2":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_bolt_launch" )
+				weapon.AddMod( "nerfed_weapon" ) // nerf it
+				continue
+			case "mp_weapon_epg":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_mine" )
+				continue
+			case "mp_weapon_smr":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_mine" )
+				continue
+			case "mp_weapon_softball":
+				MakeSpecialSoftball( weapon )
+				continue
+			case "mp_weapon_shotgun":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_chain_reaction" )
+				weapon.AddMod( "nerfed_weapon" ) // nerf it
+				continue
+			case "mp_weapon_mastiff":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_chain_reaction" )
+				continue
+			case "mp_weapon_wingman_n":
+				// wingman already powerful enough in 200hp, don't do anything to it( knife wasn't very powerful though )
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_pulse_blade_throw" )
+				weapon.AddMod( "nerfed_weapon" ) // nerf it
+				continue
+			case "mp_weapon_shotgun_pistol":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_nessie_throw" )
+				continue
+			// anti-titans
+			case "mp_weapon_defender":
+				weapon.AddMod( "nerfed_weapon" ) // nerf it
+				weapon.AddMod( "at_unlimited_ammo" ) // funny
+				continue
+			case "mp_weapon_rocket_launcher":
+				// to reset it's fire interval, and cannot be extend ammo
+				ReplaceModdedWeapon( weapon, "mp_weapon_rocket_launcher", ["guided_missile", "at_low_stockpile"] )
+				continue
+			case "mp_weapon_mgl":
+				weapon.AddMod( "flesh_magnetic" )
+				weapon.AddMod( "at_unlimited_ammo" ) // funny
+				//weapon.AddMod( "ar_trajectory" ) // funny
+				weapon.AddMod( "grenade_arc_on_ads" ) // new mod, enable arc trajectory on weapon ads
+				continue
+			case "mp_weapon_arc_launcher":
+				// less start ammo, and can't be extend, will remove pas_fast_reload
+				ReplaceModdedWeapon( weapon, "mp_weapon_arc_launcher", ["smoke_launcher", "at_low_stockpile"] )
+				continue
+			default:
+				continue
+		}
+	}
+}
+
+void function ReplaceModdedWeapon( entity weapon, string className, array<string> mods )
+{
+	int skinIndex = weapon.GetSkin()
+	int camoIndex = weapon.GetCamo()
+	entity player = weapon.GetOwner()
+	player.TakeWeaponNow( weapon.GetWeaponClassName() )
+	entity newWeapon = player.GiveWeapon( className, mods ) 
+	if( IsValid( newWeapon ) )
+	{
+		newWeapon.SetSkin( skinIndex )
+		newWeapon.SetCamo( camoIndex )
+	}
+}
+
+void function MakeSpecialSoftball( entity weapon )
+{
+	if( weapon.GetWeaponClassName() != "mp_weapon_softball" )
+		return
+	if( weapon.HasMod( "sonar_softball" ) || weapon.HasMod( "sns" ) || weapon.HasMod( "arcball_softball" ) || weapon.HasMod( "thermite_softball" ) )
+		return // don't know why sometimes it will give multiple times
+
+	switch( RandomInt( 4 ) )
+	{
+		case 0:
+			weapon.AddMod( "sonar_softball" )
+			weapon.AddMod( "sns" ) // modified one, will only increase projectile speed
+			break
+		case 1:
+			weapon.AddMod( "arcball_softball" )
+			break
+		case 2:
+			weapon.AddMod( "thermite_softball" )
+			break
+		case 3:
+			break // vanilla softball
+	}
+}
+
+void function GiveModdedOffhandWeapons( entity player )
+{
+	foreach( entity weapon in player.GetOffhandWeapons() )
+	{
+		string weaponname = weapon.GetWeaponClassName()
+		switch( weaponname )
+		{
+			// tacticals
+			case "mp_ability_grapple":
+				weapon.AddMod( "zipline_gun" ) // zipline gun maybe a little weak? use jetpack as passive
+				player.GiveOffhandWeapon( "mp_titanability_hover", OFFHAND_ANTIRODEO, ["jet_pack", "passive_jet_pack"] )
+				continue
+			case "mp_ability_cloak": // ban cloak
+				player.TakeWeaponNow( "mp_ability_cloak" )
+				player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL, ["zipline_gun"] )
+				player.GiveOffhandWeapon( "mp_titanability_hover", OFFHAND_ANTIRODEO, ["jet_pack", "passive_jet_pack"] )
+				continue
+			case "mp_weapon_deployable_cover":
+				weapon.AddMod( "deployable_dome_shield" )
+				continue
+			case "mp_ability_heal":
+				weapon.AddMod( "jump_pad" )
+				continue
+			case "mp_ability_holopilot":
+				weapon.AddMod( "holoshift" )
+				continue
+			case "mp_ability_shifter":
+				weapon.AddMod( "wraith_portal" )
+				weapon.AddMod( "amped_tacticals" )
+				continue
+			// death_marker not very fun, use vanilla pulse blade
+
+			// ordnances
+			case "mp_weapon_frag_grenade": // fuckoff it
+				weapon.AddMod( "frag_disable_charge" )
+				continue
+			case "mp_weapon_satchel": // fuckoff it
+				weapon.AddMod( "proximity_mine" )
+				continue
+			case "mp_weapon_grenade_gravity":
+				weapon.AddMod( "gravity_lift" )
+				continue
+			case "mp_weapon_grenade_electric_smoke":
+				player.TakeWeaponNow( "mp_weapon_grenade_electric_smoke" )
+				player.GiveOffhandWeapon( "mp_titanability_slow_trap", OFFHAND_ORDNANCE, ["gas_trap"] )
+				continue
+			case "mp_weapon_thermite_grenade":
+				weapon.AddMod( "meteor_grenade" )
+				continue
+			case "mp_weapon_grenade_emp":
+				player.TakeWeaponNow( "mp_weapon_grenade_emp" )
+				player.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ORDNANCE, ["pilot_tether", "fd_trap_charges", "pilot_dual_tether"] )
+				continue
+			default:
+				continue
+		}
+	}
+}
+
+/* // funny but too complex, not enabled now
+void function OnGamePrematch()
+{
+	thread OnGamePrematch_Threaded()
+}
+
+void function OnGamePrematch_Threaded()
+{
+	wait 1
+	foreach( entity player in GetPlayerArray() )
+		SendHudMessage(player, "长按'近战'切换装备类型, 长按'使用'切换主武器类型" , -1, 0.4, 255, 255, 0, 255, 0.15, 15, 1)
+}
+
+void function OnClientConnected( entity player )
+{
+	if( !(player.GetUID() in playerLoadoutType) )
+		playerLoadoutType[player.GetUID()] <- 0
+
+	AddPlayerHeldButtonEventCallback( player, IN_USE, CallbackFuncSwitchMainWeaponType, 0.8 )
+	AddPlayerHeldButtonEventCallback( player, IN_USE_AND_RELOAD, CallbackFuncSwitchMainWeaponType, 1.3 )
+	//AddPlayerHeldButtonEventCallback( player, IN_JUMP, CallbackFuncToggleMessage, 1.2 )
+	AddPlayerHeldButtonEventCallback( player, IN_MELEE, CallbackFuncSwitchLoadoutType, 0.5 )
+}
+
+void function LoadoutPeriodThink( entity player )
+{
+	string uid = player.GetUID()
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "OnPrimaryAttack" )
+
+	OnThreadEnd(
+		function(): ( uid )
+		{
+			inLoadoutPeriodPlayer.removebyvalue( uid )
+		}
+	)
+
+	wait 20
+}
+
+void function CallbackFuncSwitchLoadoutType( entity player )
+{
+	string uid = player.GetUID()
+	if( playerLoadoutType[uid] == 0 )
+	{
+		playerLoadoutType[uid] += 1
+		SendHudMessage(player, "装备类型\nMod战术技能", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 0.15)
+		if( inLoadoutPeriodPlayer.contains( uid ) )
+			Loadouts_TryGivePilotLoadout( player )
+		return
+	}
+	if( playerLoadoutType[uid] == 1 )
+	{
+		playerLoadoutType[uid] += 1
+		SendHudMessage(player, "副手类型\nMod重火力", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 0.15)
+		if( inLoadoutPeriodPlayer.contains( uid ) )
+			Loadouts_TryGivePilotLoadout( player )
+		return
+	}
+	if( playerLoadoutType[uid] == 2 )
+	{
+		playerLoadoutType[uid] += 1
+		SendHudMessage(player, "副手类型\nMod战术技能与Mod重火力", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 0.15)
+		if( inLoadoutPeriodPlayer.contains( uid ) )
+			Loadouts_TryGivePilotLoadout( player )
+		return
+	}
+	if( playerLoadoutType[uid] == 3 )
+	{
+		playerLoadoutType[uid] = 0
+		SendHudMessage(player, "副手类型\n基础装备", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 0.15)
+		if( inLoadoutPeriodPlayer.contains( uid ) )
+			Loadouts_TryGivePilotLoadout( player )
+		return
+	}
+}
+
+void function CallbackFuncSwitchMainWeaponType( entity player )
+{
+	string uid = player.GetUID()
+	if( !tediorePlayers.contains( uid ) )
+	{
+		SendHudMessage(player, "装备套组\n装填投掷 或 Mod武器\n(剩余弹药越多投掷效果越好)", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 0.15)
+		tediorePlayers.append( uid )
+		if( inLoadoutPeriodPlayer.contains( uid ) )
+			Loadouts_TryGivePilotLoadout( player )
+		return
+	}
+	if( tediorePlayers.contains( uid ) )
+	{
+		SendHudMessage(player, "装备套组\n基础武器", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 0.15)
+		tediorePlayers.fastremovebyvalue( uid )
+		if( inLoadoutPeriodPlayer.contains( uid ) )
+			Loadouts_TryGivePilotLoadout( player )
+		return
+	}
+}
+
+void function CallbackFuncToggleMessage( entity player )
+{
+	string uid = player.GetUID()
+	if( !disabledPlayers.contains( uid ) )
+	{
+		SendHudMessage(player, "已关闭复活装备提示\n长按'跳跃'重新打开", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 0.15)
+		disabledPlayers.append( uid )
+		return
+	}
+	if( disabledPlayers.contains( uid ) )
+	{
+		SendHudMessage(player, "已启用复活装备提示\n长按'跳跃'关闭", -1, 0.3, 255, 255, 0, 255, 0.15, 3, 0.15)
+		disabledPlayers.fastremovebyvalue( uid )
+		return
+	}
+}
+
+void function GiftModdedTactical( entity player )
+{
+	if( !GamePlaying() )
+		return
+	if( !IsValid( player ) )
+		return
+	player.kv.gravity = 0.0
+	RearmPlayer( player )
+	array<string> mainweapons = GiveMainWeapons_ReturnArray( player )
+	string weaponString
+	for( int i = 0; i < mainweapons.len(); i++ )
+	{
+		if( mainweapons[i] != "" )
+			weaponString += mainweapons[i] + "\n"
+	}
+	string tactical = GiveTactical_ReturnString( player )
+	string ordnance = GiveOrdnance_ReturnString( player )
+	string antititan = GiveAntiTitan_ReturnString( player )
+	string passive1 = GivePassiveSlot1_ReturnDescription( player )
+	string passive2 = ""//GivePassiveSlot2_ReturnDescription( player )
+	if( IsValid( player.GetOffhandWeapon( OFFHAND_MELEE ) ) )
+		player.TakeWeaponNow( player.GetOffhandWeapon( OFFHAND_MELEE ).GetWeaponClassName() )
+	if( disabledPlayers.contains( player.GetUID() ) )
+		return
+	string output
+	if( weaponString != "" )
+		output += weaponString + "\n"
+	if( tactical != "" )
+		output += tactical + "\n"
+	if( ordnance != "" )
+		output += ordnance + "\n"
+	if( antititan != "" )
+		output += antititan + "\n"
+	if( passive1 != "" )
+		output += passive1 + "\n"
+	if( passive2 != "" )
+		output += passive2 + "\n"
+
+	SendHudMessage(player, "装备替换：\n" + output + "\n长按'近战'切换装备类型\n长按'使用'切换至另一组装备", -1, 0.0, 255, 255, 0, 255, 0.15, 8, 0.15) // \n长按'跳跃'关闭该提示
+}
+
+void function RearmPlayer( entity player )
+{
+	foreach( entity offhandweapon in player.GetOffhandWeapons() )
+	{
+		if ( IsValid( offhandweapon ) )
+		{
+			if( offhandweapon.GetWeaponClassName() == "mp_titanweapon_vortex_shield" &&
+				offhandweapon.GetWeaponClassName() == "mp_titanweapon_vortex_shield_ion" &&
+				offhandweapon.GetWeaponClassName() == "mp_titanability_rearm"
+			)
+				continue
+			switch ( GetWeaponInfoFileKeyField_Global( offhandweapon.GetWeaponClassName(), "cooldown_type" ) )
+			{
+				case "grapple":
+					if( IsValid( player ) )
+						player.SetSuitGrapplePower( 100.0 )
+				continue;
+
+				case "ammo":
+				case "ammo_instant":
+				case "ammo_deployed":
+				case "ammo_timed":
+				case "ammo_per_shot":
+					int maxAmmo = offhandweapon.GetWeaponPrimaryClipCountMax()
+
+					offhandweapon.SetWeaponPrimaryClipCount( maxAmmo )
+				continue;
+
+				case "chargeFrac":
+				case "charged_shot":
+					offhandweapon.SetWeaponChargeFractionForced( 0 )
+				continue;
+
+				default:
+					printt( offhandweapon.GetWeaponClassName() + " needs to be updated to support cooldown_type setting" )
+				continue;
+			}
+		}
+	}
+}
+
+array<string> function GiveMainWeapons_ReturnArray( entity player )
+{
+	string uid = player.GetUID()
+	if( !tediorePlayers.contains( player.GetUID() ) )
+	{
+		array<string> tempArray = ["","",""]
+		return tempArray
+	}
+	array<string> infoArray
+	foreach( entity weapon in player.GetMainWeapons() )
+	{
+		string classname = weapon.GetWeaponClassName()
+		switch( classname )
+		{
+			case "mp_weapon_car":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_stickybomb" )
+				infoArray.append( "CAR --> 粘弹投掷CAR" )
+				break
+			case "mp_weapon_r97":
+				weapon.AddMod( "tediore_reload" )
+				infoArray.append( "R-97 --> 短引信投掷R97" )
+				break
+			case "mp_weapon_alternator_smg":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_bounce" )
+				infoArray.append( "转换者冲锋枪 --> 破片投掷转换者" )
+				break
+			case "mp_weapon_hemlok_smg":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_fuse" )
+				infoArray.append( "电能冲锋枪 --> 即爆投掷电能" )
+				break
+			case "mp_weapon_sniper":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_deployable_cover" )
+				infoArray.append( "克莱博-AP狙击步枪 --> 护盾投掷克莱博" )
+				break
+			case "mp_weapon_dmr":
+				array<string> mods = weapon.GetMods()
+				mods.append( "explosive_sniper" )
+				player.TakeWeaponNow( "mp_weapon_dmr" )
+				player.GiveWeapon( "mp_weapon_sniper", mods )
+				infoArray.append( "长弓精确步枪 --> 爆炸克莱博" )
+				break
+			case "mp_weapon_doubletake":
+				player.TakeWeaponNow( "mp_weapon_doubletake" )
+				player.GiveWeapon( "mp_weapon_peacekraber" )
+				infoArray.append( "D-2双击狙击步枪 --> 和平克莱博" )
+				break
+			case "mp_weapon_esaw":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_phase_explosion" )
+				infoArray.append( "专注轻机枪 --> 相位爆炸投掷专注" )
+				break
+			case "mp_weapon_lmg":
+				weapon.AddMod( "apex_rampage" )
+				infoArray.append( "喷火轻机枪 --> 暴走轻机枪" )
+				break
+			case "mp_weapon_lstar":
+				weapon.AddMod( "lagging_lstar" )
+				infoArray.append( "L-Star能量机枪 --> 卡顿子弹L-Star(右键释放)" )
+				break
+			case "mp_weapon_rspn101":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_missile_launch" )
+				infoArray.append( "R-201卡宾枪 --> 火箭投掷R201" )
+				break
+			case "mp_weapon_rspn101_og":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_missile_launch" )
+				infoArray.append( "R-101卡宾枪 --> 火箭投掷R101" )
+				break
+			case "mp_weapon_vinson":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_deployable_stim_field" )
+				infoArray.append( "V-47平行步枪 --> 加速力场投掷平行" )
+				break
+			case "mp_weapon_hemlok":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_missile_burst" )
+				infoArray.append( "汗洛BF-R --> 火箭弹群汗洛" )
+				break
+			case "mp_weapon_g2":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_bolt_launch" )
+				infoArray.append( "G2A5 --> 飞弹投掷G2" )
+				break
+			case "mp_weapon_epg":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_mine" )
+				infoArray.append( "能源炮-1 --> 地雷投掷能源炮" )
+				break
+			case "mp_weapon_smr":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_mine" )
+				infoArray.append( "响尾蛇飞弹 --> 地雷投掷SMR" )
+				break
+			case "mp_weapon_softball":
+				weapon.AddMod( "stickybomb_launcher" )
+				infoArray.append( "垒球榴弹枪 --> 粘性炸弹发射器(右键引爆)" )
+				break
+			case "mp_weapon_shotgun":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_chain_reaction" )
+				infoArray.append( "EVA-8自动霰弹枪 --> 链爆投掷EVA-8" )
+				break
+			case "mp_weapon_mastiff":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_impact_chain_reaction" )
+				infoArray.append( "敖犬霰弹枪 --> 链爆投掷敖犬" )
+				break
+			case "mp_weapon_wingman_n":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_knife_throw" )
+				infoArray.append( "小帮手精英 --> 飞刀投掷小帮手" )
+				break
+			case "mp_weapon_shotgun_pistol":
+				weapon.AddMod( "tediore_reload" )
+				weapon.AddMod( "tediore_nessie_throw" )
+				infoArray.append( "SA-3莫桑比克 --> 水怪投掷莫桑比克" )
+				break
+			default:
+				infoArray.append( "" )
+				break
+		}
+	}
+	return infoArray
+}
+
+string function GiveTactical_ReturnString( entity player )
+{
+	string uid = player.GetUID()
+	if( !IsValid( player.GetOffhandWeapon( OFFHAND_SPECIAL ) ) )
+		return "未替换，可能网络出现波动"
+	string weaponname = player.GetOffhandWeapon( OFFHAND_SPECIAL ).GetWeaponClassName()
+	//if( !PlayerHasPassive( player, ePassives.PAS_POWER_CELL ) )
+	if( playerLoadoutType[uid] == 0 || playerLoadoutType[uid] == 2 )
+	{
+		switch( weaponname )
+		{
+			case "mp_ability_cloak":
+				player.TakeWeaponNow( weaponname )
+				if( IsPassivesDisabled() )
+				{
+					array<string> settingMods = player.GetPlayerSettingsMods()
+					settingMods.removebyvalue( "pas_power_cell" )
+					player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), settingMods )
+				}
+				player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL )
+				return "隐身 --> 钩爪"
+			case "mp_weapon_deployable_cover":
+				player.TakeWeaponNow( weaponname )
+				player.GiveOffhandWeapon( "mp_titanability_gun_shield", OFFHAND_SPECIAL )
+				return "强化障壁 --> 枪盾"
+			default:
+				return ""
+		}
+		return ""
+	}
+	player.TakeWeaponNow( weaponname )
+	bool shouldReplace = tediorePlayers.contains( player.GetUID() )
+	switch( weaponname )
+	{
+		case "mp_ability_heal":
+			if( shouldReplace )
+			{
+				player.GiveOffhandWeapon( "mp_ability_heal", OFFHAND_SPECIAL, ["wrecking_ball"] )
+				return "兴奋剂 --> 破坏球"
+			}
+			player.GiveOffhandWeapon( "mp_ability_heal", OFFHAND_SPECIAL, ["jump_pad"] )
+			return "兴奋剂 --> 动力跳板"
+		case "mp_ability_grapple":
+			if( shouldReplace )
+			{
+				player.GiveOffhandWeapon( "mp_titanability_hover", OFFHAND_SPECIAL, ["jet_pack"] )
+				return "钩爪 --> 喷气背包(按住奔跑时按下跳跃以使用)"
+			}
+			if( IsPassivesDisabled() )
+			{
+				array<string> settingMods = player.GetPlayerSettingsMods()
+				settingMods.removebyvalue( "pas_power_cell" )
+				player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), settingMods )
+			}
+			player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL, ["zipline_gun"] )
+			return "钩爪 --> 滑索枪(需要对地图边角使用)"
+		case "mp_ability_holopilot":
+			if( shouldReplace )
+			{
+				player.GiveOffhandWeapon( "mp_ability_holopilot", OFFHAND_SPECIAL, ["dead_ringer"] )
+				return "幻影铁驭 --> 死亡之铃"
+			}
+			player.GiveOffhandWeapon( "mp_ability_holopilot", OFFHAND_SPECIAL, ["holoshift"] )
+			return "幻影铁驭 --> 幻影位移"
+		case "mp_ability_shifter":
+			if( shouldReplace )
+			{
+				player.GiveOffhandWeapon( "mp_ability_shifter", OFFHAND_SPECIAL, ["wraith_portal", "amped_tacticals"] )
+				return "相位移动 --> 传送门"
+			}
+			player.GiveOffhandWeapon( "mp_ability_shifter", OFFHAND_SPECIAL, ["phase_rework", "amped_tacticals", "boost_strength_lv1"] )
+			return "相位移动 --> 相位回溯"
+		case "mp_weapon_grenade_sonar":
+			player.GiveOffhandWeapon( "mp_weapon_grenade_sonar", OFFHAND_SPECIAL, ["death_marker"] )
+			return "脉冲刀 --> 死亡标记"
+		case "mp_weapon_deployable_cover":
+			player.GiveOffhandWeapon( "mp_weapon_deployable_cover", OFFHAND_SPECIAL, ["deployable_dome_shield"] )
+			return "强化障壁 --> 圆顶护罩"
+		case "mp_ability_cloak":
+			if( IsPassivesDisabled() )
+			{
+				array<string> settingMods = player.GetPlayerSettingsMods()
+				settingMods.removebyvalue( "pas_power_cell" )
+				player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), settingMods )
+			}
+			player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL, ["zipline_gun"] )
+			return "隐身 --> 滑索枪(需要对地图边角使用)"
+		default:
+			return ""
+	}
+	return ""
+}
+
+string function GiveOrdnance_ReturnString( entity player )
+{
+	string uid = player.GetUID()
+	if( !IsValid( player.GetOffhandWeapon( OFFHAND_ORDNANCE ) ) )
+		return "未替换，可能网络出现波动"
+	string weaponname = player.GetOffhandWeapon( OFFHAND_ORDNANCE ).GetWeaponClassName()
+	//if( !PlayerHasPassive( player, ePassives.PAS_ORDNANCE_PACK ) )
+	if( playerLoadoutType[uid] == 0 || playerLoadoutType[uid] == 1 )
+	{
+		switch( weaponname )
+		{
+			case "mp_weapon_frag_grenade":
+				player.TakeWeaponNow( weaponname )
+				player.GiveOffhandWeapon( "mp_weapon_frag_grenade", OFFHAND_ORDNANCE, ["frag_disable_charge"] )
+				return ""
+			case "mp_weapon_satchel":
+				player.TakeWeaponNow( weaponname )
+				player.GiveOffhandWeapon( "mp_weapon_satchel", OFFHAND_ORDNANCE, ["frag_disable_charge"] )
+				return ""
+			case "mp_weapon_grenade_gravity":
+				player.TakeWeaponNow( weaponname )
+				player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_ORDNANCE, ["anti_gravity_star"] )
+				return "重力星 --> 反重力星"
+			default:
+				return ""
+		}
+		return ""
+	}
+	player.TakeWeaponNow( weaponname )
+	bool shouldReplace = tediorePlayers.contains( player.GetUID() )
+	switch( weaponname )
+	{
+		case "mp_weapon_grenade_electric_smoke":
+		case "mp_titanability_slow_trap":
+			if( shouldReplace )
+			{
+				player.GiveOffhandWeapon( "mp_titanability_slow_trap", OFFHAND_ORDNANCE, ["molotov"] )
+				return "电子烟雾弹 --> 燃烧瓶"
+			}
+			player.GiveOffhandWeapon( "mp_titanability_slow_trap", OFFHAND_ORDNANCE, ["gas_trap"] )
+			return "电子烟雾弹 --> 毒气陷阱"
+		case "mp_weapon_grenade_gravity":
+			player.GiveOffhandWeapon( "mp_weapon_grenade_gravity", OFFHAND_ORDNANCE, ["gravity_lift"] )
+			return "重力星 --> 重力电梯"
+		case "mp_weapon_thermite_grenade":
+			//player.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "thermite_grenade_dot" )
+			if( shouldReplace )
+			{
+				player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE, ["flamewall_grenade"] )
+				return "飞火星 --> 火墙手雷"
+			}
+			player.GiveOffhandWeapon( "mp_weapon_thermite_grenade", OFFHAND_ORDNANCE, ["meteor_grenade"] )
+			return "飞火星 --> 铝热剂飞弹"
+		case "mp_weapon_satchel":
+			player.GiveOffhandWeapon( "mp_weapon_satchel", OFFHAND_ORDNANCE, ["proximity_mine"] )
+			return "炸药包 --> 电弧地雷"
+		case "mp_weapon_frag_grenade":
+		case "mp_titanability_tether_trap":
+		case "mp_weapon_arc_trap":
+			if( GAMETYPE == "mfd" ) //prevent mfd client crash
+				return ""
+			else
+			{
+				player.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ORDNANCE, ["pilot_tether"] )
+				return "破片手雷 --> 铁驭拌线"
+			}
+		case "mp_weapon_grenade_emp":
+			if( shouldReplace )
+			{
+				player.GiveOffhandWeapon( "mp_weapon_arc_trap", OFFHAND_ORDNANCE, ["one_time_arc_trap"] )
+				return "电弧手雷 --> 电弧陷阱"
+			}
+			player.GiveOffhandWeapon( "mp_weapon_grenade_emp", OFFHAND_ORDNANCE, ["impulse_grenade"] )
+			return "电弧手雷 --> 击飞手雷(可对自己使用)"
+		default:
+			return ""
+	}
+	return ""
+}
+
+string function GiveAntiTitan_ReturnString( entity player )
+{
+	entity weapon = GetPlayerAntiTitanWeapon( player )
+	if( !IsValid( weapon ) )
+		return ""
+	string weaponname = weapon.GetWeaponClassName()
+	if( !PlayerHasPassive( player, ePassives.PAS_FAST_HEALTH_REGEN ) )
+		return ""
+
+	array<string> mods = weapon.GetMods()
+	bool shouldReplace = tediorePlayers.contains( player.GetUID() )
+	player.TakeWeaponNow( weaponname )
+	switch( weaponname )
+	{
+		case "mp_weapon_rocket_launcher":
+			if( shouldReplace )
+			{
+				player.GiveWeapon( "mp_weapon_rocket_launcher", ["guided_missile", "modded_archer_ads_laser"] )
+				return "射手飞弹 --> 遥控飞弹(保持瞄准以遥控)"
+			}
+			player.GiveWeapon( "mp_weapon_rocket_launcher", ["no_lock_required"] )
+			return "射手飞弹 --> 火箭发射器"
+		case "mp_weapon_mgl":
+			if( shouldReplace )
+			{
+				player.GiveWeapon( "mp_weapon_mgl", ["tripwire_launcher"] )
+				return "磁能榴弹 --> 拌线部署器"
+			}
+			mods.append( "flesh_magnetic" )
+			player.GiveWeapon( "mp_weapon_mgl", mods )
+			return "磁能榴弹 --> 引力榴弹(吸引向任何单位)"
+		case "mp_weapon_arc_launcher":
+			if( shouldReplace )
+			{
+				player.GiveWeapon( "mp_weapon_arc_launcher", ["smoke_launcher"] )
+				return "雷电炮 --> 烟雾发射器"
+			}
+			mods.append( "at_unlimited_ammo" )
+			player.GiveWeapon( "mp_weapon_arc_launcher", mods )
+			return ""
+		case "mp_weapon_defender":
+			mods.append( "at_unlimited_ammo" )
+			player.GiveWeapon( "mp_weapon_defender", mods )
+			return ""
+		default:
+			return ""
+
+	}
+	return ""
+}
+
+string function GivePassiveSlot1_ReturnDescription( entity player )
+{
+	if( PlayerHasPassive( player, ePassives.PAS_FAST_EMBARK ) )
+	{
+		array<string> settingMods = player.GetPlayerSettingsMods()
+		settingMods.append( "wallclimber" )
+		settingMods.append( "disable_doublejump" )
+		//settingMods.append( "pas_wall_runner" ) //why mp don't have this?
+		player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), settingMods )
+		//player.kv.gravity = 0.7 // set this in settings now
+		return "瞬间登机 --> 广东蟑螂\n不再能二段跳，但获得超强的攀爬能力"
+	}
+
+	return ""
+}
+
+string function GivePassiveSlot2_ReturnDescription( entity player )
+{
+	if( PlayerHasPassive( player, ePassives.PAS_WALLHANG ) )
+	{
+		GivePassive( player, ePassives.PAS_CLOAKED_WALLHANG )
+		return "挂墙 --> 隐身挂墙"
+	}
+	if( PlayerHasPassive( player, ePassives.PAS_AT_HUNTER ) )
+	{
+		GivePassive( player, ePassives.PAS_CLOAKED_WALLRUN )
+		return "泰坦猎人 --> 隐身跑墙"
+	}
+
+	return ""
+}
+
+entity function GetPlayerAntiTitanWeapon( entity player )
+{
+	entity tempweapon
+	foreach( entity weapon in player.GetMainWeapons() )
+	{
+		if( weapon.GetWeaponClassName() == "mp_weapon_defender" ||
+			weapon.GetWeaponClassName() == "mp_weapon_mgl" ||
+			weapon.GetWeaponClassName() == "mp_weapon_rocket_launcher" ||
+			weapon.GetWeaponClassName() == "mp_weapon_arc_launcher"
+		)
+			tempweapon = weapon
+	}
+	return tempweapon
+}
+*/

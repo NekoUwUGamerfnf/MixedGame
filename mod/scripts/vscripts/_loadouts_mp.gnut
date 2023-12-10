@@ -70,6 +70,8 @@ void function SvLoadoutsMP_Init()
 
 	// northstar missing callbacks in _base_gametype_mp.gnut
 	AddCallback_WeaponDropped( LoadoutsMPOnWeaponDrop )
+	// modified to make loadouts all handled in this file
+	AddCallback_OnPlayerRespawned( LoadoutsMPOnPlayerRespawned )
 }
 
 void function SetLoadoutGracePeriodEnabled( bool enabled )
@@ -99,6 +101,72 @@ void function LoadoutsMPOnWeaponDrop( entity weapon )
 
 	if ( !file.weaponDropsEnabled )
 		weapon.Destroy()
+}
+
+void function LoadoutsMPOnPlayerRespawned( entity player )
+{
+	// loadout grace period
+	if( IsLoadoutGracePeriodEnabled() )
+		GracePeriodThink( player ) // grace period done here
+	else
+	{
+		player.s.inGracePeriod = false // disable this immediately
+		player.Signal( "GracePeriodDone" )
+	}
+}
+
+void function GracePeriodThink( entity player )
+{
+	thread GracePeriodThink_Threaded( player )
+}
+
+void function GracePeriodThink_Threaded( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnPrimaryAttack" )
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "player_embarks_titan" ) // end thread whenever a titan embark sequence is triggered
+
+	OnThreadEnd(
+		function(): ( player )
+		{
+			if( IsValid( player ) )
+			{
+				if( IsAlive( player ) && GetGameState() == eGameState.Playing ) // if player died we don't reset this( mostly because round end )
+				{
+					player.s.inGracePeriod = false
+					player.Signal( "GracePeriodDone" )
+				}
+			}
+		}
+	)
+
+	while ( true )
+	{
+		WaitFrame()
+
+		// we're not in playing state, never disable player's loadout switch
+		if ( GetGameState() < eGameState.Playing )
+			continue // keep waiting...
+
+		// northstarFD adding think: re-calculate respawn timer based on gamestate changes
+		// so player can have full 20s grace period when game starts
+		float respawnTimeReal
+		if ( GetGameState() == eGameState.Playing && Time() - expect float( GetServerVar( "gameStateChangeTime" ) ) <= CLASS_CHANGE_GRACE_PERIOD )
+			respawnTimeReal = expect float( GetServerVar( "gameStateChangeTime" ) )
+		else
+			respawnTimeReal = expect float( player.s.respawnTime )
+
+		// calculate max waiting time
+		float maxWait = respawnTimeReal + CLASS_CHANGE_GRACE_PERIOD
+
+		// debug
+		//print( "currentTime: " + string( Time() ) )
+		//print( "maxWait: " + string( maxWait ) )
+		// time hits max wait?
+		if ( Time() > maxWait )
+			break // stop waiting
+	}
 }
 
 // northstarFD new adding callback
