@@ -489,15 +489,9 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 	// validation checks
 	if ( !IsValidNPCTarget( victim ) ) // might be unnecessary, PlayerOrNPCKilled() in base_gametype.gnut already handled this
 		return	
-	if ( victim.GetClassName() == "npc_marvin" ) // marvin hardcode, just like respawn does
-		return
 	
-	try
-	{
-		// have to trycatch this because marvins will crash on kill if we dont
-		AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), victim )
-	}
-	catch ( ex ) {}
+	// maybe no need to try-catch after changing IsValidNPCTarget() checks
+	AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), victim )
 
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
