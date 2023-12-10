@@ -89,15 +89,15 @@ void function InitTitanKilledDialogues() // init vanilla ones
 }
 
 void function InitPlayerForScoreEvents( entity player )
-{	
+{
 	player.s.currentKillstreak <- 0
 	player.s.lastKillTime <- 0.0
 	player.s.currentTimedKillstreak <- 0
 
-	// npc killstreak
-	player.s.lastNPCKillTime <- 0.0
-	player.s.currentMayhemNPCKillstreak <- 0
-	player.s.currentOnslaughtNPCKillstreak <- 0
+	// npc&player mixed killsteaks
+	player.s.lastMixedKillTime <- 0.0
+	player.s.currentMayhemKillstreak <- 0
+	player.s.currentOnslaughtKillstreak <- 0
 }
 
 // idk why forth arg is a string, maybe it should be a var type?
@@ -226,10 +226,10 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	victim.s.currentKillstreak = 0
 	victim.s.lastKillTime = 0.0
 	victim.s.currentTimedKillstreak = 0
-	// npc killstreaks
-	victim.s.lastNPCKillTime = 0.0
-	victim.s.currentMayhemNPCKillstreak = 0
-	victim.s.currentOnslaughtNPCKillstreak = 0
+	// npc&player mixed killstreaks
+	victim.s.lastMixedKillTime = 0.0
+	victim.s.currentMayhemKillstreak = 0
+	victim.s.currentOnslaughtKillstreak = 0
 	
 	victim.p.numberOfDeathsSinceLastKill++ // this is reset on kill
 	victim.p.lastDeathTime = Time()
@@ -309,9 +309,9 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	
 	// untimed killstreaks
 	attacker.s.currentKillstreak++
-	if ( attacker.s.currentKillstreak == 3 )
+	if ( attacker.s.currentKillstreak == KILLINGSPREE_KILL_REQUIREMENT )
 		AddPlayerScore( attacker, "KillingSpree", attacker )
-	else if ( attacker.s.currentKillstreak == 5 )
+	else if ( attacker.s.currentKillstreak == RAMPAGE_KILL_REQUIREMENT )
 		AddPlayerScore( attacker, "Rampage", attacker )
 
 	// increment untimed killstreaks against specific players
@@ -324,26 +324,24 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	if ( attacker.p.playerKillStreaks[ victim ] >= DOMINATING_KILL_REQUIREMENT )
 		AddPlayerScore( attacker, "Dominating", victim )
 	
+	// timed killstreak broke
 	if ( Time() - attacker.s.lastKillTime > CASCADINGKILL_REQUIREMENT_TIME )
-	{
-		attacker.s.currentTimedKillstreak = 0 // reset first before kill
-		attacker.s.lastKillTime = Time()
-	}
+		attacker.s.currentTimedKillstreak = 0 // reset first before adding score
 	
 	// timed killstreaks
-	if ( Time() - attacker.s.lastKillTime <= CASCADINGKILL_REQUIREMENT_TIME )
-	{
-		attacker.s.currentTimedKillstreak++
-		
-		if ( attacker.s.currentTimedKillstreak == DOUBLEKILL_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "DoubleKill", attacker )
-		else if ( attacker.s.currentTimedKillstreak == TRIPLEKILL_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "TripleKill", attacker )
-		else if ( attacker.s.currentTimedKillstreak >= MEGAKILL_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "MegaKill", attacker )
-	}
+	attacker.s.currentTimedKillstreak++
 	
-	attacker.s.lastKillTime = Time()
+	if ( attacker.s.currentTimedKillstreak == DOUBLEKILL_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "DoubleKill", attacker )
+	else if ( attacker.s.currentTimedKillstreak == TRIPLEKILL_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "TripleKill", attacker )
+	else if ( attacker.s.currentTimedKillstreak >= MEGAKILL_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "MegaKill", attacker )
+	
+	attacker.s.lastKillTime = Time() // update last kill time
+
+	// npc&player mixed killsteaks
+	UpdateMixedKillStreaks( attacker )
 
 	// assist. was previously be in _base_gametype_mp.gnut, which is bad. vanilla won't add assist on npc killing a player
 	if ( !victim.IsTitan() ) // titan assist handled by ScoreEvent_TitanKilled()
@@ -351,6 +349,29 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 		// wrap into this function
 		ScoreEvent_PlayerAssist( victim, attacker, "PilotAssist" )
 	}
+}
+
+// npc&player mixed killsteaks
+void function UpdateMixedKillStreaks( entity attacker )
+{
+	// mayhem and onslaught, won't add any value but vanilla have these events
+	// mayhem killstreak broke
+	if ( attacker.s.lastMixedKillTime < Time() - MAYHEM_REQUIREMENT_TIME )
+		attacker.s.currentMayhemKillstreak = 0
+	// onslaught killstreak broke
+	if ( attacker.s.lastMixedKillTime < Time() - ONSLAUGHT_REQUIREMENT_TIME )
+		attacker.s.currentOnslaughtKillstreak = 0
+
+	// mayhem
+	attacker.s.currentMayhemKillstreak++
+	if ( attacker.s.currentMayhemKillstreak == MAYHEM_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "Mayhem" )
+	// onslaught
+	attacker.s.currentOnslaughtKillstreak++
+	if ( attacker.s.currentOnslaughtKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
+		AddPlayerScore( attacker, "Onslaught" )
+	
+	attacker.s.lastMixedKillTime = Time() // update last kill time
 }
 
 // this only gets called when titan's owner is player
@@ -462,6 +483,9 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 
 void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageInfo )
 {
+	if ( !attacker.IsPlayer() )
+		return
+	
 	try
 	{		
 		// have to trycatch this because marvins will crash on kill if we dont
@@ -473,29 +497,8 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
 		AddPlayerScore( attacker, "Headshot", victim, null, -1, 0.0 ) // no extra value earn from npc headshots
 
-	// mayhem and onslaught, doesn't add any score but vanilla has this event
-	// mayhem killstreak broke
-	if ( attacker.s.lastNPCKillTime < Time() - MAYHEM_REQUIREMENT_TIME )
-		attacker.s.currentMayhemNPCKillstreak = 0
-	// onslaught killstreak broke
-	if ( attacker.s.lastNPCKillTime < Time() - ONSLAUGHT_REQUIREMENT_TIME )
-		attacker.s.currentOnslaughtNPCKillstreak = 0
-	
-	// update last killed time
-	attacker.s.lastNPCKillTime = Time()
-
-	// they only count on killing grunts(humansized npcs)
-	if ( IsHumanSized( victim ) )
-	{
-		// mayhem
-		attacker.s.currentMayhemNPCKillstreak++
-		if ( attacker.s.currentMayhemNPCKillstreak == MAYHEM_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "Mayhem" )
-		// onslaught
-		attacker.s.currentOnslaughtNPCKillstreak++
-		if ( attacker.s.currentOnslaughtNPCKillstreak == ONSLAUGHT_REQUIREMENT_KILLS )
-			AddPlayerScore( attacker, "Onslaught" )
-	}
+	// npc&player mixed killsteaks
+	UpdateMixedKillStreaks( attacker )
 }
 
 void function ScoreEvent_MatchComplete( int winningTeam, bool isMatchEnd = true )
