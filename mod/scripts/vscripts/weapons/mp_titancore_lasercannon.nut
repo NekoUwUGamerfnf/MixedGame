@@ -220,8 +220,10 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 		{
 			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.0 )
 			// vanilla missing: needs these to make them unable to be set into other scripted animations( eg. being executed )
-			if ( !player.ContextAction_IsBusy() )
-				player.ContextAction_SetBusy()
+			// alright... shouldn't mark context action state for them, will make them stop finding new enemies
+			// just handle in extra_ai_spawner.gnut
+			//if ( !player.ContextAction_IsBusy() )
+			//	player.ContextAction_SetBusy()
 		}
 		else // other titans using it, could be bad... try to stop their movement for the duration of core
 		{
@@ -390,8 +392,10 @@ void function OnAbilityEnd_LaserCannon( entity weapon )
 		{
 			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.0 )
 			// vanilla missing: clean up context action state we set in OnAbilityCharge_LaserCannon()
-			if ( player.ContextAction_IsBusy() )
-				thread ClearContextActionStateAfterCoreAnimation( player )
+			// alright... shouldn't mark context action state for them, will make them stop finding new enemies
+			// just handle in extra_ai_spawner.gnut
+			//if ( player.ContextAction_IsBusy() )
+			//	thread ClearContextActionStateAfterCoreAnimation( player )
 		}
 	}
 
