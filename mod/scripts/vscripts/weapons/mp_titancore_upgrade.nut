@@ -1,10 +1,5 @@
 global function UpgradeCore_Init
 global function OnWeaponPrimaryAttack_UpgradeCore
-// modified callbacks
-global function OnCoreCharge_UpgradeCore
-global function OnCoreChargeEnd_UpgradeCore
-//
-
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_UpgradeCore
 
@@ -51,12 +46,6 @@ var function OnWeaponNpcPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryA
 
 var function OnWeaponPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	// modded weapon
-	if( weapon.HasMod( "shield_core" ) )
-		return OnAbilityStart_Shield_Core( weapon, attackParams )
-	//
-
-	// vanilla behavior
 	if ( !CheckCoreAvailable( weapon ) )
 		return false
 
@@ -513,24 +502,6 @@ void function Upgrade_XO16BattleRifle( entity titan )
 		Remote_CallFunction_NonReplay( titan, "ServerCallback_VanguardUpgradeMessage", 9 )
 }
 #endif
-
-// modified callbacks
-bool function OnCoreCharge_UpgradeCore( entity weapon )
-{
-	// modded weapon
-	if( weapon.HasMod( "shield_core" ) )
-		return OnCoreCharge_Shield_Core( weapon )
-
-	return true
-}
-
-void function OnCoreChargeEnd_UpgradeCore( entity weapon )
-{
-	// modded weapon
-	if( weapon.HasMod( "shield_core" ) )
-		return OnCoreChargeEnd_Shield_Core( weapon )
-}
-//
 
 #if CLIENT
 void function ServerCallback_VanguardUpgradeMessage( int upgradeID )
