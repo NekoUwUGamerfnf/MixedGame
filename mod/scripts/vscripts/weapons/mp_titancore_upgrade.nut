@@ -7,12 +7,14 @@ global function OnCoreChargeEnd_UpgradeCore
 
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_UpgradeCore
+
 // modified settings
 // allow modifying shield regen amount when using custom shield amount
 global function UpgradeCore_SetShieldRegenScale
 // allow modifying upgrading method for titan
 global function UpgradeCore_SetWeaponUpgradePassive
 
+// vanilla hardcode turns to default value
 const int UPGRADE_CORE_DEFAULT_MAX_LEVEL = 2 // lv0-lv1-lv2( stage1-stage2-stage3 )
 //
 #endif
@@ -182,18 +184,6 @@ void function UpgradeCoreThink( entity weapon, float coreDuration )
 
 
 // modified rework starts here
-void function UpgradeCore_SetWeaponUpgradePassive( entity weapon, int upgradeLevel, int passive )
-{
-	table<int, int> emptyTable
-	if ( !( weapon in file.upgradeCorePassivesTable ) )
-		file.upgradeCorePassivesTable[ weapon ] <- emptyTable
-	
-	if ( !( upgradeLevel in file.upgradeCorePassivesTable[ weapon ] ) )
-		file.upgradeCorePassivesTable[ weapon ][ upgradeLevel ] <- passive
-	else
-		file.upgradeCorePassivesTable[ weapon ][ upgradeLevel ] = passive
-}
-
 // split everything into functions
 void functionref( entity ) function GetUpgradeFunctionFromTitan( entity titan )
 {
@@ -591,5 +581,18 @@ void function ServerCallback_VanguardUpgradeMessage( int upgradeID )
 void function UpgradeCore_SetShieldRegenScale( float scale )
 {
 	file.shieldRegenScale = scale
+}
+
+// allow modifying upgrading method for titan
+void function UpgradeCore_SetWeaponUpgradePassive( entity weapon, int upgradeLevel, int passive )
+{
+	table<int, int> emptyTable
+	if ( !( weapon in file.upgradeCorePassivesTable ) )
+		file.upgradeCorePassivesTable[ weapon ] <- emptyTable
+	
+	if ( !( upgradeLevel in file.upgradeCorePassivesTable[ weapon ] ) )
+		file.upgradeCorePassivesTable[ weapon ][ upgradeLevel ] <- passive
+	else
+		file.upgradeCorePassivesTable[ weapon ][ upgradeLevel ] = passive
 }
 #endif
