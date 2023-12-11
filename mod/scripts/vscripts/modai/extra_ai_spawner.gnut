@@ -5145,7 +5145,7 @@ void function ExtraSpawner_AddScriptedNPCPilotAbilityThink( string abilityWeapon
 // scripted ability thinks
 const float NPC_PILOT_CLOAK_REST_TIME_BETWEEN_USE = 1.5 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_CLOAK_RECENT_DAMAGE_TIME = 1.5 // if pilot taken damage within this time, they won't do cloak
-const float NPC_PILOT_CLOAK_COMBAT_DIST_2D = 1000 // if pilot has an enemy within this range they can see, consider them already combating... don't cloak
+const float NPC_PILOT_CLOAK_COMBAT_DIST_2D = 1000 // if pilot has a pilot enemy within this range they can see, consider them already combating... don't cloak
 const float NPC_PILOT_CLOAK_ACTIVATE_DIST_2D = 2200 // if pilot has an enemy within this range, they'll activate cloak while approaching
 
 void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
@@ -5181,8 +5181,19 @@ void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
 				{
 					// wait till enemy is in safe range, cloak to approach them
 					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
-					if ( !( pilot.CanSee( enemy ) && dist2D < NPC_PILOT_CLOAK_COMBAT_DIST_2D ) && dist2D <= NPC_PILOT_CLOAK_ACTIVATE_DIST_2D )
-						break
+					if ( dist2D <= NPC_PILOT_CLOAK_ACTIVATE_DIST_2D )
+					{
+						if ( enemy.IsTitan() || enemy.IsNPC() ) // cloak once pilot can see their enemy
+						{
+							if ( pilot.CanSee( enemy ) )
+								break
+						}
+						else // cloak only when pilot not in close range, or when they can't see enemy
+						{
+							if ( !pilot.CanSee( enemy ) || dist2D > NPC_PILOT_CLOAK_COMBAT_DIST_2D )
+								break
+						}
+					}
 				}
 			}
 
@@ -5518,14 +5529,13 @@ void function NPCPilotActivatesStim( entity pilot, entity weapon )
 	OnThreadEnd(
 		function() : ( pilot, stimFX )
 		{
-			if ( !IsValid( pilot ) )
-				return
-
+			if ( IsValid( pilot ) )
+			{
+				StopSoundOnEntity( pilot, "pilot_stimpack_loop_3P" )
+				//pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE )
+			}
 			if ( IsValid( stimFX ) )
 				EffectStop( stimFX )
-
-			StopSoundOnEntity( pilot, "pilot_stimpack_loop_3P" )
-			//pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE )
 		}
 	)
 
@@ -5637,21 +5647,28 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	decoy.SetTitle( npc.GetTitle() )
 	decoy.SetModel( npc.GetModelName() )
 	decoy.SetNoTargetSmartAmmo( true ) // smart ammo won't target decoy
+
+	// create fake weapon prop
+	entity weaponProp
 	if ( npc.IsTitan() ) // titans: try to assign first weapon to decoy
 	{
 		TakeAllWeapons( decoy )
 		if ( npc.GetMainWeapons().len() > 0 )
-			decoy.GiveWeapon( npc.GetMainWeapons()[0].GetWeaponClassName() )
+			weaponProp = CreatePropFromWeapon( npc.GetMainWeapons()[0] )
 	}
 	else // try to assign active weapon
 	{
 		entity activeWeapon = npc.GetActiveWeapon()
+		if ( !IsValid( activeWeapon ) ) // npc owner don't have a weapon... make decoy use their own weapon
+			activeWeapon = decoy.GetActiveWeapon()
+		
+		TakeAllWeapons( decoy )
 		if ( IsValid( activeWeapon ) )
-		{
-			TakeAllWeapons( decoy )
-			decoy.GiveWeapon( activeWeapon.GetWeaponClassName() )
-		}
+			weaponProp = CreatePropFromWeapon( activeWeapon )
 	}
+	if ( IsValid( weaponProp ) )
+		weaponProp.SetParent( decoy, "PROPGUN" )
+
 	decoy.SetHologram() // Make this NPC a hologram. It will generate hologram impact effects when hit
 	decoy.SetPassThroughThickness( 0 )
 	decoy.kv.CollisionGroup = 0 // they can still block weapon and hulls though
@@ -5685,6 +5702,11 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	file.npcFakeDecoyEntArray.append( decoy )
 
 	return decoy
+}
+
+entity function CreatePropFromWeapon( entity weapon )
+{
+
 }
 
 void function DelayedShowNPCDecoy( entity decoy )
@@ -5755,13 +5777,24 @@ void function NPCDecoyLifeTime( entity decoy, float timeOut = -1 )
 		{
 			if ( IsValid( decoy ) )
 			{
-				TakeAllWeapons( decoy ) // prevent meeting up attacking event during death animation, and don't want a weapon floating in air during dissolving
+				// prevent meeting up attacking event during death animation, and don't want a weapon floating in air during dissolving
+				// this is just a defensive fix, decoy uses prop as their holding weapon
+				TakeAllWeapons( decoy )
 				StopSoundOnEntity( decoy, "holopilot_loop" )
 				StopSoundOnEntity( decoy, "holopilot_loop_enemy" )
 
 				decoy.NotSolid()
 				decoy.SetInvulnerable()
 				decoy.Dissolve( ENTITY_DISSOLVE_CHAR, Vector( 0, 0, 0 ), 500 )
+				// dissolve any child ent
+				var childEnt = decoy.FirstMoveChild()
+				while ( childEnt != null )
+				{
+					expect entity( childEnt )
+
+					childEnt.Dissolve( ENTITY_DISSOLVE_CHAR, Vector( 0, 0, 0 ), 500 )
+					childEnt = childEnt.NextMovePeer()
+				}
 			}
 		}
 	)
@@ -5846,7 +5879,8 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	//print( "effectSeverity: " + string( effectSeverity ) )
 	StatusEffect_AddTimed( pilot, eStatusEffect.speed_boost, NPC_PILOT_STIM_SPEED_BOOST_SEVERITY, duration, 0.0 )
 
-	pilot.WaitSignal( "StopPhaseShift" ) // wait for current phase to end
+	//pilot.WaitSignal( "StopPhaseShift" ) // wait for current phase to end. this will make thread sometimes can't stop!
+	wait duration // wait for fire duration to end
 }
 
 // phase out of danger when:
