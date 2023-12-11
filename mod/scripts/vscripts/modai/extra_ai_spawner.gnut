@@ -5246,8 +5246,8 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 
 	// use OnThreadEnd() to ensure things have been cleaned up
 	table<string, bool> cleanUpTable
-	cleanUpTable["finalDamageCallback"] <- false
-	cleanUpTable["disableAttackCapability"] <- false
+	cleanUpTable["removeFinalDamageCallback"] <- false
+	cleanUpTable["restoreAttackCapability"] <- false
 	cleanUpTable["restoreEnemyMapIcon"] <- false
 
 	if ( EntHasMinimapIconEnabled( pilot ) )
@@ -5262,9 +5262,9 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 			// don't know why sometimes they won't be remove callback...
 			if ( IsValid( pilot ) )
 			{
-				if ( !cleanUpTable["finalDamageCallback"] )
+				if ( !cleanUpTable["removeFinalDamageCallback"] )
 					RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
-				if ( !cleanUpTable["disableAttackCapability"] )
+				if ( !cleanUpTable["restoreAttackCapability"] )
 					RestoreNPCAttackCapability( pilot )
 				if ( !cleanUpTable["restoreEnemyMapIcon"] )
 					AddMinimapForNPC( pilot )
@@ -5280,7 +5280,7 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	waitthread WaitTillTimeOutOrDamaged( pilot, noFireDuration )
 
 	RestoreNPCAttackCapability( pilot )
-	cleanUpTable["disableAttackCapability"] = true
+	cleanUpTable["restoreAttackCapability"] = true
 
 	float timeLeft = duration - ( Time() - startTime )
 	pilot.EndSignal( "CloakTimeOut" )
@@ -5342,7 +5342,7 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 
 	DisableCloak( pilot, 0.5 ) // disable cloak after firing, same fadeout as player one does
 	RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
-	cleanUpTable["finalDamageCallback"] = true
+	cleanUpTable["removeFinalDamageCallback"] = true
 }
 
 void function OnCloakNPCPilotDamaged( entity pilot, var damageInfo )
@@ -5447,7 +5447,7 @@ void function RestoreNPCAttackCapability( entity guy )
 
 const float NPC_PILOT_STIM_REST_TIME_BETWEEN_USE = 1.0 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2100 // if pilot has enemy within this range, do stim to approach them
-const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 140 * NPC_PILOT_MOVE_SPEED_SCALE // have to be running before activating stim
+const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 130 * NPC_PILOT_MOVE_SPEED_SCALE // have to be running before activating stim
 const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D = 400 + NPC_PILOT_STIM_REQUIRED_VELOCITY // if pilot too close to their enemy, there's no need to use stim for approaching. they'll stop chasing once reached chaseStopDist
 const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR = NPC_PILOT_STIM_CHASE_STOP_DIST_2D * 1.5
 
@@ -5502,7 +5502,7 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 						stopDist = NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR
 					if ( dist2D <= stopDist ) // too close!
 						continue
-					if ( pilot.CanSee( enemy ) && dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
+					if ( pilot.CanSee( enemy ) || dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
 						break
 				}
 			}
@@ -5518,7 +5518,8 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 
 // bit higher speed because npc don't get health regen and wallrun speed boost
 const float NPC_PILOT_MOVE_SPEED_SCALE_STIM = 2.7 // have to hardcode this because we can't get a npc's existing speed scale
-const float NPC_PILOT_STIM_SPEED_BOOST_SEVERITY = 0.65 // will status effects work for npcs? yes they do
+const float NPC_PILOT_STIM_SPEED_BOOST_SEVERITY = 0.45 // will status effects work for npcs? yes they do. no-time-extention version uses 0.65
+const float NPC_PILOT_STIM_USE_TIME_EXTENTION = 1.5 // pilots can't use stim well... extend their use time for some bit
 
 // mostly from sh_stim.gnut, with some tweak to make npcs use it
 void function NPCPilotActivatesStim( entity pilot, entity weapon )
@@ -5532,7 +5533,7 @@ void function NPCPilotActivatesStim( entity pilot, entity weapon )
 	pilot.Signal( "NPCPilotActivatesStim" )
 	pilot.EndSignal( "NPCPilotActivatesStim" )
 
-	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration ) * NPC_PILOT_STIM_USE_TIME_EXTENTION
 
 	// clear last sound so player won't receive too much noise!
 	StopSoundOnEntity( pilot, "pilot_stimpack_loop_3P" )
@@ -5854,8 +5855,9 @@ void function NPCPilotPhaseShiftThink( entity pilot, entity abilityWeapon )
 
 const float NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC = 0.4 // if health about to take this amount of damage, phase out of danger
 // npc pilots can't use shift well, give them some speed boost based on health left
-const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN = 0.35 // was using 0.65
-const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.8 // was using 1.35
+const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN = 0.3 // first version uses 0.65, no-time-extention version uses 0.35
+const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.65 // first version uses 1.35, no-time-extention version uses 0.8
+const float NPC_PILOT_PHASE_USE_TIME_EXTENTION = 1.5 // pilots can't use phase shift well... extend their use time for some bit
 
 void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 {
@@ -5875,7 +5877,8 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 
 	AddEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
 	table<string, bool> cleanUpTable
-	cleanUpTable["finalDamageCallback"] <- false
+	cleanUpTable["removeFinalDamageCallback"] <- false
+	cleanUpTable["restoreAttackCapability"] <- true // default is we're not disabling attack capability, no need to restore in OnThreadEnd()
 
 	OnThreadEnd
 	(
@@ -5884,8 +5887,10 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 			if ( IsValid( pilot ) )
 			{
 				// don't know why sometimes they won't be remove callback... resulting become invulnerable
-				if ( !cleanUpTable["finalDamageCallback"] )
+				if ( !cleanUpTable["removeFinalDamageCallback"] )
 					RemoveEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
+				if ( !cleanUpTable["restoreAttackCapability"] )
+					RestoreNPCAttackCapability( pilot )
 				delete file.npcPilotPhaseHealthThreshold[ pilot ]
 			}
 		}
@@ -5895,11 +5900,15 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	float healthFracLeft = expect float( results.healthFracLeft )
 	if ( healthFracLeft <= 0 )
 		healthFracLeft = 0
-	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration ) * NPC_PILOT_PHASE_USE_TIME_EXTENTION
 	PhaseShift( pilot, 0.0, duration )
-	// now fixed in sh_phase_shift.gnut
-	//if ( IsValid( pilot.GetEnemy() ) ) // vanilla missing npc behavior: needs to clear humansized npc enemy on phase
-	//	pilot.ClearEnemy()
+	// vanilla missing npc behavior: needs to clear humansized npc enemy on phase
+	// and they're still able to attack, needs to clear their attack capability
+	if ( IsValid( pilot.GetEnemy() ) )
+		pilot.ClearEnemy()
+	DisableNPCAttackCapability( pilot, true, true ) // disable both melee and ranged attack
+	cleanUpTable["restoreAttackCapability"] = false // mark as we need to clean up stuffs
+
 	// npc pilots can't use shift well, give them some speed boost to get out of danger
 	float effectSeverity = NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN + ( ( 1.0 - healthFracLeft ) * ( NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX - NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN ) )
 	//print( "effectSeverity: " + string( effectSeverity ) )
@@ -5908,7 +5917,9 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	//pilot.WaitSignal( "StopPhaseShift" ) // wait for current phase to end. this will make thread sometimes can't stop!
 	wait duration // wait for fire duration to end
 	RemoveEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
-	cleanUpTable["finalDamageCallback"] = true
+	cleanUpTable["removeFinalDamageCallback"] = true
+	RestoreNPCAttackCapability( pilot )
+	cleanUpTable["restoreAttackCapability"] = true
 }
 
 // phase out of danger when:
