@@ -715,14 +715,22 @@ void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string ev
 		//if ( attackerInfo.attacker == victim.GetOwner() || attackerInfo.attacker == victim.GetBossPlayer() )
 		if ( attackerInfo.attacker == victim.GetBossPlayer() )
 			continue
+		
 		// if we're getting damage history from soul, should ignore their titan's self damage and owner's damage
 		if ( IsSoul( victim ) )
 		{
-			if ( attackerInfo.attacker == victim.GetTitan() )
+			entity titan = victim.GetTitan()
+			if ( IsValid( titan ) )
 			{
-				// debug
-				//print( "victim is soul but attacker is it's titan! skipping Assist score" )
-				continue
+				// checks for self damage
+				if ( attackerInfo.attacker == titan )
+				{
+					//print( "victim is soul but attacker is it's titan! skipping Assist score" )
+					return
+				}
+				// checks for player owned entities
+				if ( attackerInfo.attacker == titan.GetBossPlayer() )
+					continue
 			}
 		}
 		

@@ -5,6 +5,8 @@ global function ExtraAISpawner_Init
 // generic spawn
 global function ExtraSpawner_SpawnDropShip // this has featured spectre and stalker spawns, though stalkers can't be set to crouch state on finishing zipline drop
 global function ExtraSpawner_SpawnDropPod
+// weapon switch think
+global function ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon
 
 // non-infantry npc spawn
 global function ExtraSpawner_SpawnNPCInDropPod
@@ -41,6 +43,11 @@ global function ExtraSpawner_SpawnGunShip
 global function ExtraSpawner_SpawnPilotElite
 global function ExtraSpawner_SpawnPilotCanEmbark
 global function ExtraSpawner_SpawnTitanWithPilot
+// utility
+global function ExtraSpawner_ScriptedNPCPilotTacticalAbility
+global function ExtraSpawner_StopNPCPilotTacticalAbility
+// registering new ability func
+global function ExtraSpawner_AddScriptedNPCPilotAbilityThink
 
 // these settings should be done in prematch, don't do it right after levelLoad
 // npc weapons setting func
@@ -140,6 +147,9 @@ const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may nee
 // npc pilot health
 const int NPC_PILOT_MAX_HEALTH = 750
 const int NPC_PILOT_MAX_HEALTH_BOSS = 1000
+
+// npc pilot ability
+const float NPC_PILOT_MOVE_SPEED_SCALE = 1.25
 
 // damage dealt by pilot multiplyer
 // this is now served as default value, can be modified by other files through ExtraSpawner_SetNPCPilotBulletDamageScale()
@@ -341,6 +351,13 @@ struct
 	array<string> npcSquadFromExtraSpawner
 	// scripted titan core behavior
 	table<string, void functionref( entity titan, entity coreWeapon )> scriptedNPCTitanCoreThink
+	// scripted npc pilot behavior
+	table<string, void functionref( entity pilot, entity abilityWeapon )> scriptedNPCPilotAbilityThink
+	table<entity, bool> npcPilotInScriptedAnim
+	array<entity> npcFakeDecoyEntArray
+	table<entity, float> npcPilotNextHealthThreshold
+	// npc attacking management
+	table< entity, array<int> > npcDisabledAttackCapabilityFlags
 } file
 
 void function ExtraAISpawner_Init()
@@ -355,6 +372,7 @@ void function ExtraAISpawner_Init()
 	InitDefaultBossTitanList()
 	InitDefaultNPCHandlerFunctions()
 	InitDefaultScriptedNPCTitanCore()
+	InitDefaultScriptedNPCPilotTactical()
 	// prowler
 	ProwlerPrecache()
 	// turret
@@ -368,9 +386,16 @@ void function ExtraAISpawner_Init()
 	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
 	// npc handlers
 	RegisterSignal( "StopDefaultHandler" )
-	// npc pilot think
+	// npc titan think
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
 	RegisterSignal( "ScriptedNPCTitanCoreAbility" )
+	// npc pilot think
+	RegisterSignal( "ScriptedNPCPilotTacticalAbility" )
+	RegisterSignal( "NPCPilotActivatesCloak" )
+	RegisterSignal( "CloakTimeOut" )
+	RegisterSignal( "NPCPilotActivatesStim" )
+	RegisterSignal( "NPCPilotActivatesPhaseShift" )
+	RegisterSignal( "PilotWantsToPhase" )
 	// gunship 
 	RegisterSignal( "GunshipJetBurstEffect" )
 	GunshipPrecache()
@@ -1252,26 +1277,39 @@ const float CORE_EXPIRE_TIME_GRACE_PERIOD = 3.0 // if titan still have anim acti
 
 bool function ExtraSpawner_IsValidExecutionTarget( entity attacker, entity target )
 {
+	// fake decoy ent
+	if ( EntIsNPCFakeDecoy( target ) )
+		return false
+	
 	// only handle those who spawn from this file
-	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( target ) )
-		return true // let other callbacks go through
-
-	// npc target with core active can have bad animation while being executed
-	// usually happens for salvo core, but laser core seems working well? why?
-	// this cannot be solved by adding target.Anim_Stop() in _melee_synced_titan.gnut
-	// i don't know if it's a good idea to make them unable to be executed, just handle here
-	if ( target.IsTitan() ) 
+	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( target ) )
 	{
-		entity soul = target.GetTitanSoul()
-		if ( IsValid( soul ) && TitanHasNpcPilot( target ) )
+		// npc target with core active can have bad animation while being executed
+		// usually happens for salvo core, but laser core seems working well? why?
+		// this cannot be solved by adding target.Anim_Stop() in _melee_synced_titan.gnut
+		// i don't know if it's a good idea to make them unable to be executed, just handle here
+		if ( target.IsTitan() ) 
 		{
-			bool titanCoreInUse = TitanCoreInUse( target )
-			// also handle anim recover time for scripted core abilities
-			float timeSinceCoreExpire = Time() - SoulTitanCore_GetExpireTime( soul )
-			bool titanCoreEndGracePeriod = timeSinceCoreExpire > 0 && timeSinceCoreExpire <= CORE_EXPIRE_TIME_GRACE_PERIOD
-			//print( "titanCoreEndGracePeriod: " + string( titanCoreEndGracePeriod ) )
-			// assume this means titan is using some core ability that scripted their animation
-			if ( ( titanCoreInUse || titanCoreEndGracePeriod ) && target.Anim_IsActive() )
+			entity soul = target.GetTitanSoul()
+			if ( IsValid( soul ) && TitanHasNpcPilot( target ) )
+			{
+				bool titanCoreInUse = TitanCoreInUse( target )
+				// also handle anim recover time for scripted core abilities
+				float timeSinceCoreExpire = Time() - SoulTitanCore_GetExpireTime( soul )
+				bool titanCoreEndGracePeriod = timeSinceCoreExpire > 0 && timeSinceCoreExpire <= CORE_EXPIRE_TIME_GRACE_PERIOD
+				//print( "titanCoreEndGracePeriod: " + string( titanCoreEndGracePeriod ) )
+				// assume this means titan is using some core ability that scripted their animation
+				if ( ( titanCoreInUse || titanCoreEndGracePeriod ) && target.Anim_IsActive() )
+					return false
+			}
+		}
+
+		// npc pilot elite case
+		// don't allow execute them if they're doing any scripted animation
+		if ( target.GetClassName() == "npc_pilot_elite" )
+		{
+			// scripted anim
+			if ( ( target in file.npcPilotInScriptedAnim ) && file.npcPilotInScriptedAnim[ target ] )
 				return false
 		}
 	}
@@ -2170,6 +2208,14 @@ bool function IsValidNPCAssaultTarget( entity ent )
 	// is invulnerable?
 	if ( ent.IsInvulnerable() )
 		return false
+
+	// been cloaked?
+	if ( IsCloaked( ent ) )
+		return false
+
+	// doing phase shift?
+	if ( ent.IsPhaseShifted() )
+		return false
 	
 	// npc
 	if ( ent.IsNPC() )
@@ -2580,7 +2626,7 @@ void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons =
 		ExtraSpawner_ApplyNPCExtraWeaponMods( npc ) // add extra weapon mods
 
 	// also make them use heavy armor weapon
-	npc.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon )
+	npc.SetEnemyChangeCallback( ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon )
 	// start updating weapon bodygroup
 	ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( npc )
 }
@@ -2703,7 +2749,7 @@ void function ExtraSpawner_ApplyNPCExtraWeaponMods( entity npc )
 }
 
 // npcs will do this callback on player titan transfer
-void function OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
+void function ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 {
 	// general checks
 	guy.Signal( "ScriptedWeaponSwitch" ) // end last SwitchWeaponAfterAnimationDone() thread
@@ -2922,20 +2968,20 @@ const table<string, vector> NPC_FAKE_MAP_ICON_OFFSET =
 }
 
 // npc minimap setup
-void function AddMinimapForNPC( entity guy )
+void function AddMinimapForNPC( entity guy, bool friendlyOnly = false )
 {
 	if ( !IsAlive( guy ) )
 		return
 	
 	// map
-	SetUpGenericNPCMiniMapIcon( guy )
+	SetUpGenericNPCMiniMapIcon( guy, friendlyOnly )
 	SetUpGamemodeSpecificMiniMapIcon( guy )
 	
 	// fake map icon check
 	// we also enable map icon for them
 	entity mapIconEnt = GetNPCFakeMinimapIconEnt( guy )
 	if ( IsValid( mapIconEnt ) )
-		SetUpGenericNPCMiniMapIcon( mapIconEnt )
+		SetUpGenericNPCMiniMapIcon( mapIconEnt, friendlyOnly )
 }
 
 // setup for modded npcs
@@ -2954,13 +3000,23 @@ void function AddMinimapForNPC_FailsafeToCreateFakeMapIcon( entity guy )
 	}
 }
 
-void function SetUpGenericNPCMiniMapIcon( entity mapIcon )
+void function SetUpGenericNPCMiniMapIcon( entity mapIcon, bool friendlyOnly = false )
 {
 	// map
-	mapIcon.Minimap_AlwaysShow( TEAM_IMC, null )
-	mapIcon.Minimap_AlwaysShow( TEAM_MILITIA, null )
-	foreach ( entity player in GetPlayerArray() )
-		mapIcon.Minimap_AlwaysShow( 0, player )
+	if ( friendlyOnly ) // show for friendly ONLY
+	{
+		int friendlyTeam = mapIcon.GetTeam()
+		mapIcon.Minimap_AlwaysShow( friendlyTeam, null )
+		foreach ( entity player in GetPlayerArrayOfTeam( friendlyTeam ) )
+			mapIcon.Minimap_AlwaysShow( 0, player )
+	}
+	else
+	{
+		mapIcon.Minimap_AlwaysShow( TEAM_IMC, null )
+		mapIcon.Minimap_AlwaysShow( TEAM_MILITIA, null )
+		foreach ( entity player in GetPlayerArray() )
+			mapIcon.Minimap_AlwaysShow( 0, player )
+	}
 	mapIcon.Minimap_SetHeightTracking( true )
 
 	// in-file checks
@@ -2998,7 +3054,7 @@ void function SetUpGamemodeSpecificMiniMapIcon( entity guy )
 	}
 }
 
-void function RemoveMinimapForNPC( entity guy )
+void function RemoveMinimapForNPC( entity guy, bool enemyOnly = false )
 {
 	//print( "RUNNING RemoveMinimapForNPC() for " + string( guy ) )
 
@@ -3006,21 +3062,32 @@ void function RemoveMinimapForNPC( entity guy )
 		return
 	
 	// map
-	DisableNPCMiniMapIcon( guy )
+	DisableNPCMiniMapIcon( guy, enemyOnly )
 
 	// fake map icon check
 	// we also remove map icon for them
 	entity mapIconEnt = GetNPCFakeMinimapIconEnt( guy )
 	if ( IsValid( mapIconEnt ) )
-		DisableNPCMiniMapIcon( mapIconEnt )
+		DisableNPCMiniMapIcon( mapIconEnt, enemyOnly )
 }
 
-void function DisableNPCMiniMapIcon( entity mapIcon )
+void function DisableNPCMiniMapIcon( entity mapIcon, bool enemyOnly = false )
 {
-	mapIcon.Minimap_Hide( TEAM_IMC, null )
-	mapIcon.Minimap_Hide( TEAM_MILITIA, null )
-	foreach ( entity player in GetPlayerArray() )
-		mapIcon.Minimap_Hide( 0, player )
+	if ( enemyOnly ) // hide from enemy team ONLY
+	{
+		int friendlyTeam = mapIcon.GetTeam()
+		if ( !IsFFAGame() )
+			mapIcon.Minimap_Hide( GetOtherTeam( friendlyTeam ), null )
+		foreach ( entity player in GetPlayerArrayOfEnemies( friendlyTeam ) )
+			mapIcon.Minimap_Hide( 0, player )
+	}
+	else // hide from all team
+	{
+		mapIcon.Minimap_Hide( TEAM_IMC, null )
+		mapIcon.Minimap_Hide( TEAM_MILITIA, null )
+		foreach ( entity player in GetPlayerArray() )
+			mapIcon.Minimap_Hide( 0, player )
+	}
 	mapIcon.Minimap_SetHeightTracking( false )
 
 	// in-file checks
@@ -4844,18 +4911,20 @@ entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team, 
 
 void function ExtraSpawner_SetUpNPCPilot( entity pilot, void functionref( entity pilot ) pilotHandler = null )
 {
+	// in-file variables init
+	file.npcPilotInScriptedAnim[ pilot ] <- false
+
 	pilot.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE ) // hardcoded!
 	pilot.DisableNPCFlag( NPC_ALLOW_FLEE | NPC_ALLOW_HAND_SIGNALS ) // disable flee and meaningless hand signals
 
-	pilot.SetNPCMoveSpeedScale( 1.25 ) // want pilots move faster
+	pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE ) // want pilots move faster
 	pilot.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot perfectly
 	//pilot.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // bit nerfed
 
-	// disabled SelectSchedule_SwitchWeapon in their behavior, since pilot model not included "pete_agent.mdl", no animations for switching to pistols
-	pilot.SetEnemyChangeCallback( OnEnemyChanged_SwitchToHeavyArmorWeapon ) 
-
+	// setup highlight
 	pilot.e.hasDefaultEnemyHighlight = true // mark them as hasDefaultHighlight, so they'll save highlights after phase shift
 	SetDefaultMPEnemyHighlight( pilot )
+	Highlight_SetEnemyHighlight( pilot, "enemy_player" )
 
 	// some pilot model don't have "pete_agent.mdl" included, which means they can't change to their secondary weapon
 	// "behavior_pilot_elite_assassin" has been reworked. it's the same as normal pilot behavior, but with SelectSchedule_SwitchWeapon added
@@ -4874,18 +4943,809 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot, void functionref( entity
 		//pilot.SetBehaviorSelector( "behavior_pilot_elite_assassin" )
 	}
 
+	// disabled SelectSchedule_SwitchWeapon in their behavior, since pilot model not included "pete_agent.mdl", no animations for switching to pistols
+	pilot.SetEnemyChangeCallback( ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon )
+	// start tactical ability think
+	AssignTacticalAbilityForNPCPilot( pilot )
+	ExtraSpawner_ScriptedNPCPilotTacticalAbility( pilot )
+
 	// start updating bodygroup
 	// this will handle npc pilot disembarking/ejecting case
 	ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( pilot )
-
-	// setup highlight
-	Highlight_SetEnemyHighlight( pilot, "enemy_player" )
 
 	// pilots are bit special, start handler in setup func
 	if ( pilotHandler != null )
 		thread pilotHandler( pilot )
 	else if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
 		thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
+}
+
+// assign random tactical ability
+void function AssignTacticalAbilityForNPCPilot( entity pilot )
+{
+	array<string> validAbilities
+	foreach ( weaponName, thinkFunc in file.scriptedNPCPilotAbilityThink )
+		validAbilities.append( weaponName )
+
+	if ( validAbilities.len() > 0 )
+		pilot.GiveOffhandWeapon( validAbilities.getrandom(), OFFHAND_SPECIAL )
+}
+
+// ability settings
+void function ExtraSpawner_ScriptedNPCPilotTacticalAbility( entity pilot )
+{
+	thread ScriptedNPCPilotTacticalAbility_Threaded( pilot )
+}
+
+void function ScriptedNPCPilotTacticalAbility_Threaded( entity pilot )
+{
+	pilot.Signal( "ScriptedNPCPilotTacticalAbility" )
+	pilot.EndSignal( "ScriptedNPCPilotTacticalAbility" )
+	pilot.EndSignal( "OnDeath" )
+	pilot.EndSignal( "OnDestroy" )
+	// attempting embark, don't use abilities
+	// this means we needs to call ExtraSpawner_ScriptedNPCPilotTacticalAbility() again if we tried to use NpcPilotStopRunsToEmbark() or NpcPilotStopEmbarkAttempts()
+	pilot.EndSignal( "NpcPilotRunsToEmbarkTitan" )
+	pilot.EndSignal( "NpcPilotEmbarksTitan" ) 
+
+	while ( true )
+	{
+		entity abilityWeapon = pilot.GetOffhandWeapon( OFFHAND_SPECIAL )
+		if ( IsValid( abilityWeapon ) )
+		{
+			string abilityWeaponName = abilityWeapon.GetWeaponClassName()
+			if ( abilityWeaponName in file.scriptedNPCPilotAbilityThink )
+			{
+				//print( "RUNNING scripted tactical ability for pilot!" )
+				waitthread file.scriptedNPCPilotAbilityThink[ abilityWeaponName ]( pilot, abilityWeapon ) // continue looping until core weapon gets destroyed or something
+			}
+		}
+
+		WaitFrame()
+	}
+}
+
+void function ExtraSpawner_StopNPCPilotTacticalAbility( entity pilot )
+{
+	pilot.Signal( "ScriptedNPCPilotTacticalAbility" )
+}
+
+void function InitDefaultScriptedNPCPilotTactical()
+{
+	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_cloak", NPCPilotCloakThink )
+	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_heal", NPCPilotStimThink )
+	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_holopilot", NPCPilotHoloPilotThink )
+	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_shifter", NPCPilotPhaseShiftThink )
+}
+
+void function ExtraSpawner_AddScriptedNPCPilotAbilityThink( string abilityWeaponName, void functionref( entity pilot, entity abilityWeapon ) thinkFunc )
+{
+	if ( !( abilityWeaponName in file.scriptedNPCPilotAbilityThink ) )
+		file.scriptedNPCPilotAbilityThink[ abilityWeaponName ] <- thinkFunc
+	else
+		file.scriptedNPCPilotAbilityThink[ abilityWeaponName ] = thinkFunc
+}
+
+// scripted ability thinks
+const float NPC_PILOT_CLOAK_REST_TIME_BETWEEN_USE = 1.5 // if pilot has more than one charge for ability, do some rest
+const float NPC_PILOT_CLOAK_RECENT_DAMAGE_TIME = 1.5 // if pilot taken damage within this time, they won't do cloak
+const float NPC_PILOT_CLOAK_COMBAT_DIST_2D = 1000 // if pilot has an enemy within this range they can see, consider them already combating... don't cloak
+const float NPC_PILOT_CLOAK_ACTIVATE_DIST_2D = 2200 // if pilot has an enemy within this range, they'll activate cloak while approaching
+
+void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
+{
+	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
+
+	abilityWeapon.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		// get uses before we set to cooldown
+		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
+		for ( int i = 0; i < useTimes; i++ )
+		{
+			if ( i > 0 ) // not first use?
+				wait NPC_PILOT_CLOAK_REST_TIME_BETWEEN_USE // add bit rest
+
+			// wait until pilot approaching enemy( with enemy in their weapon range and no damage taken recently )
+			bool firstLoop = true
+			while ( true )
+			{
+				if ( !firstLoop )
+					WaitFrame()
+				firstLoop = false
+
+				if ( pilot.Anim_IsActive() ) // doing scripted anim!
+					continue
+
+				if ( Time() - GetNPCLastDamageTime( pilot ) < NPC_PILOT_CLOAK_RECENT_DAMAGE_TIME ) // recent taking damage!
+					continue
+
+				entity enemy = pilot.GetEnemy()
+				if ( IsAlive( enemy ) )
+				{
+					// wait till enemy is in safe range, cloak to approach them
+					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
+					if ( !( pilot.CanSee( enemy ) && dist2D < NPC_PILOT_CLOAK_COMBAT_DIST_2D ) && dist2D <= NPC_PILOT_CLOAK_ACTIVATE_DIST_2D )
+						break
+				}
+			}
+
+			waitthread NPCPilotActivatesCloak( pilot, abilityWeapon )
+		}
+
+		// cooldown between next use
+		WeaponWaitForRandomNPCRest( abilityWeapon )
+	}
+}
+
+float function GetNPCLastDamageTime( entity guy )
+{
+	if ( guy.e.recentDamageHistory.len() > 0 )
+		return guy.e.recentDamageHistory[0].time // return newest damage time
+
+	return 0.0 // no damage taken yet
+}
+
+const float NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC = 0.3 // don't attack at the start of cloak ability
+const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.1 // pilot firing weapon within this frac of cloak duration won't break their cloak
+
+void function NPCPilotActivatesCloak( entity pilot, entity weapon )
+{
+	pilot.EndSignal( "OnDestroy" )
+	pilot.EndSignal( "OnDeath" )
+	pilot.Signal( "NPCPilotActivatesCloak" )
+	pilot.EndSignal( "NPCPilotActivatesCloak" )
+	weapon.EndSignal( "OnDestroy" )
+
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
+	EnableCloak( pilot, duration ) // function in player_cloak.nut has been reworked, can handle npc usage
+
+	// vanilla won't flicker npc on taking damage, do it manually
+	AddEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
+
+	float startTime = Time()
+	float endTime = Time() + duration
+	// first few seconds pilot won't shoot, then they will
+	DisableNPCAttackCapability( pilot, true, false ) // they can still melee
+
+	// use OnThreadEnd() to ensure things have been cleaned up
+	table<string, bool> cleanUpTable
+	cleanUpTable["finalDamageCallback"] <- false
+	cleanUpTable["disableAttackCapability"] <- false
+	cleanUpTable["restoreEnemyMapIcon"] <- false
+
+	if ( EntHasMinimapIconEnabled( pilot ) )
+		RemoveMinimapForNPC( pilot, true ) // remove from enemy minimap
+	else
+		cleanUpTable["restoreEnemyMapIcon"] = true // mark as no need to restore map icon
+
+	OnThreadEnd
+	(
+		function(): ( pilot, cleanUpTable )
+		{
+			if ( !cleanUpTable["finalDamageCallback"] )
+				RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
+			if ( !cleanUpTable["disableAttackCapability"] )
+				RestoreNPCAttackCapability( pilot )
+			if ( !cleanUpTable["restoreEnemyMapIcon"] )
+				AddMinimapForNPC( pilot )
+		}
+	)
+
+	// first few seconds pilot won't shoot, then they will
+	// or they will start shooting once taken damage
+	float noFireDuration = duration * NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC
+	waitthread WaitTillTimeOutOrDamaged( pilot, noFireDuration )
+
+	RestoreNPCAttackCapability( pilot )
+	cleanUpTable["disableAttackCapability"] = true
+
+	float timeLeft = duration - ( Time() - startTime )
+	pilot.EndSignal( "CloakTimeOut" )
+	thread NPCPilotCloakTimer( pilot, timeLeft ) // timeout
+	// wait for pilot firing weapon
+	// welp, it seems like npcs won't fire "OnPrimaryAttack" signal
+	// guess we'll check pilot's primary weapon ammo instead
+	// add "CloakTimeOut" as EndSignal
+	/*
+	while ( Time() < endTime )
+	{
+		var results = WaitSignal( pilot, "CloakTimeOut", "OnPrimaryAttack" )
+		string receivedSignal = expect string( results.signal )
+		//print( "receivedSignal: " + receivedSignal )
+		// for "OnPrimaryAttack", we need to check whether the weapon will break cloak or not
+		if ( receivedSignal == "OnPrimaryAttack" && "activator" in results )
+		{
+			entity signaledWeapon = expect entity( results.activator )
+			if ( WeaponInterruptsCloak( signaledWeapon ) )
+			{
+				DisableCloak( pilot, 0.5 ) // disable cloak after firing, same fadeout as player one does
+				break
+			}
+		}
+		else if ( receivedSignal == "CloakTimeOut" ) // timeout
+			break // just break
+	}
+	*/
+	// ammo check version
+	// no need to handle endTime(), we already got NPCPilotCloakTimer() to handle that
+	float checkStartTime = Time() + ( duration * NPC_PILOT_CLOAK_BROKE_INTERNAL )
+	table<entity, int> pilotWeaponAmmoCount
+	while ( true )
+	{
+		entity activeWeapon = pilot.GetActiveWeapon()
+		if ( IsValid( activeWeapon ) )
+		{
+			try // some weapon don't have ammo clip, mostly not for humansized weapons though
+			{
+				if ( !( activeWeapon in pilotWeaponAmmoCount ) )
+					pilotWeaponAmmoCount[ activeWeapon ] <- activeWeapon.GetWeaponPrimaryClipCount()
+				else
+				{
+					//print( "pilotWeaponAmmoCount[ activeWeapon ]: " + string( pilotWeaponAmmoCount[ activeWeapon ] ) )
+					//print( "activeWeapon.GetWeaponPrimaryClipCount(): " + string( activeWeapon.GetWeaponPrimaryClipCount() ) )
+					if ( Time() > checkStartTime ) // cloak break check start
+					{
+						if ( activeWeapon.GetWeaponPrimaryClipCount() < pilotWeaponAmmoCount[ activeWeapon ] ) // firing weapon!
+							break
+					}
+					pilotWeaponAmmoCount[ activeWeapon ] = activeWeapon.GetWeaponPrimaryClipCount()
+				}
+			}
+			catch(ex) {}
+		}
+
+		WaitFrame()
+	}
+
+	DisableCloak( pilot, 0.5 ) // disable cloak after firing, same fadeout as player one does
+	RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
+	cleanUpTable["finalDamageCallback"] = true
+}
+
+void function WaitTillTimeOutOrDamaged( entity ent, float timeOut )
+{
+	ent.EndSignal( "OnDestroy" )
+	ent.EndSignal( "OnDeath" )
+	ent.EndSignal( "OnDamaged" )
+
+	wait timeOut
+}
+
+// wait till pilot cloak runs out then do signal
+void function NPCPilotCloakTimer( entity pilot, float duration )
+{
+	pilot.EndSignal( "OnDestroy" )
+	pilot.EndSignal( "OnDeath" )
+
+	wait duration
+	pilot.Signal( "CloakTimeOut" )
+}
+
+void function DisableNPCAttackCapability( entity guy, bool disableRangedAttack = true, bool disableMelee = true, bool disableMovement = false )
+{
+	if ( guy in file.npcDisabledAttackCapabilityFlags ) // this means npc has already disabled attack and not getting restored!
+		return // don't do anything
+
+	file.npcDisabledAttackCapabilityFlags[ guy ] <- [] // init
+
+	// ranged attack( gun fire )
+	if ( disableRangedAttack )
+	{
+		if ( guy.GetCapabilityFlag( bits_CAP_MOVE_SHOOT ) )
+		{
+			guy.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+			file.npcDisabledAttackCapabilityFlags[ guy ].append( bits_CAP_MOVE_SHOOT )
+		}
+		if ( guy.GetCapabilityFlag( bits_CAP_AIM_GUN ) )
+		{
+			guy.SetCapabilityFlag( bits_CAP_AIM_GUN, false )
+			file.npcDisabledAttackCapabilityFlags[ guy ].append( bits_CAP_AIM_GUN )
+		}
+		if ( guy.GetCapabilityFlag( bits_CAP_WEAPON_RANGE_ATTACK1 ) )
+		{
+			guy.SetCapabilityFlag( bits_CAP_WEAPON_RANGE_ATTACK1, false )
+			file.npcDisabledAttackCapabilityFlags[ guy ].append( bits_CAP_WEAPON_RANGE_ATTACK1 )
+		}
+	}
+
+	// melee
+	if ( disableMelee )
+	{
+		if ( guy.GetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK1 ) ) // uncharged
+		{
+			guy.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK1, false )
+			file.npcDisabledAttackCapabilityFlags[ guy ].append( bits_CAP_INNATE_MELEE_ATTACK1 )
+		}
+		if ( guy.GetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK2 ) ) // charged
+		{
+			guy.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK2, false )
+			file.npcDisabledAttackCapabilityFlags[ guy ].append( bits_CAP_INNATE_MELEE_ATTACK2 )
+		}
+		if ( guy.GetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK ) )
+		{
+			guy.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false )
+			file.npcDisabledAttackCapabilityFlags[ guy ].append( bits_CAP_SYNCED_MELEE_ATTACK )
+		}
+	}
+
+	// movement
+	if ( disableMovement )
+	{
+		if ( guy.GetCapabilityFlag( bits_CAP_MOVE_TRAVERSE ) )
+		{
+			guy.SetCapabilityFlag( bits_CAP_MOVE_TRAVERSE, false )
+			file.npcDisabledAttackCapabilityFlags[ guy ].append( bits_CAP_MOVE_TRAVERSE )
+		}
+	}
+}
+
+void function RestoreNPCAttackCapability( entity guy )
+{
+	if ( !( guy in file.npcDisabledAttackCapabilityFlags ) ) // this means we haven't disable this npc's attack
+		return // don't do anything
+
+	// restore any capability flag we disabled in DisableNPCAttackCapability()
+	foreach ( int flag in file.npcDisabledAttackCapabilityFlags[ guy ] )
+		guy.SetCapabilityFlag( flag, true )
+
+	delete file.npcDisabledAttackCapabilityFlags[ guy ] // clean up
+}
+
+void function OnCloakNPCPilotDamaged( entity pilot, var damageInfo )
+{
+	if ( DamageInfo_GetDamage( damageInfo ) > 0 )
+		pilot.SetCloakFlicker( 0.5, 0.65 )
+}
+
+const float NPC_PILOT_STIM_REST_TIME_BETWEEN_USE = 1.0 // if pilot has more than one charge for ability, do some rest
+const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2100 // if pilot has enemy within this range, do stim to approach them
+const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D = 500 // if pilot too close to their enemy, there's no need to use stim for approaching. they'll stop chasing once reached chaseStopDist
+const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 120 // have to be running before activating stim
+
+void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
+{
+	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
+
+	abilityWeapon.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		// get uses before we set to cooldown
+		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
+		//print( "useTimes: " + string( useTimes ) )
+		vector lastTickPos
+		for ( int i = 0; i < useTimes; i++ )
+		{
+			if ( i > 0 ) // not first use?
+				wait NPC_PILOT_STIM_REST_TIME_BETWEEN_USE // add bit rest
+
+			bool firstLoop = true
+			while ( true )
+			{
+				lastTickPos = pilot.GetOrigin()
+				if ( !firstLoop )
+					WaitFrame()
+				firstLoop = false
+
+				if ( pilot.Anim_IsActive() ) // doing scripted anim!
+					continue
+
+				// not standing still, or using cover
+				// an npc walking on ground always count as 0 velocity
+				// use dist to calculate instead
+				//print( "pilot.IsOnGround(): " + string( pilot.IsOnGround() ) )
+				//print( "Length( pilot.GetVelocity() ): " + string( Length( pilot.GetVelocity() ) ) )
+				float vel = Length( pilot.GetOrigin() - lastTickPos ) / 0.1
+				//print( "vel: " + string( vel ) )
+				//if ( !pilot.IsOnGround() || Length( pilot.GetVelocity() ) < NPC_PILOT_STIM_REQUIRED_VELOCITY )
+				if ( !pilot.IsOnGround() || vel < NPC_PILOT_STIM_REQUIRED_VELOCITY )
+					continue
+
+				entity enemy = pilot.GetEnemy()
+				if ( IsAlive( enemy ) )
+				{
+					// wait till enemy is in range or pilot sees an enemy
+					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
+					if ( dist2D <= NPC_PILOT_STIM_CHASE_STOP_DIST_2D ) // too close!
+						continue
+					if ( pilot.CanSee( enemy ) && dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
+						break
+				}
+			}
+
+			// start stim think
+			waitthread NPCPilotActivatesStim( pilot, abilityWeapon )
+		}
+
+		// cooldown between next use
+		WeaponWaitForRandomNPCRest( abilityWeapon )
+	}
+}
+
+// bit higher speed because npc don't get health regen and wallrun speed boost
+const float NPC_PILOT_MOVE_SPEED_SCALE_STIM = 2.7 // have to hardcode this because we can't get a npc's existing speed scale
+const float NPC_PILOT_STIM_SPEED_BOOST_SEVERITY = 0.61 // will status effects work for npcs? yes they do
+
+// mostly from sh_stim.gnut, with some tweak to make npcs use it
+void function NPCPilotActivatesStim( entity pilot, entity weapon )
+{
+	pilot.EndSignal( "OnDestroy" )
+	pilot.EndSignal( "OnDeath" )
+	pilot.Signal( "NPCPilotActivatesStim" )
+	pilot.EndSignal( "NPCPilotActivatesStim" )
+	weapon.EndSignal( "OnDestroy" )
+
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
+
+	// clear last sound so player won't receive too much noise!
+	StopSoundOnEntity( pilot, "pilot_stimpack_loop_3P" )
+	EmitSoundOnEntity( pilot, "pilot_stimpack_loop_3P" )
+
+	int attachmentIndex = pilot.LookupAttachment( "CHESTFOCUS" )
+	entity stimFX = StartParticleEffectOnEntity_ReturnEntity( pilot, PILOT_STIM_HLD_FX, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+
+	// will this work for npcs?
+	StatusEffect_AddTimed( pilot, eStatusEffect.speed_boost, NPC_PILOT_STIM_SPEED_BOOST_SEVERITY, duration + 0.5, 0.25 ) // sound is slightly off
+	// if status effect don't work, we'll have to hardcode it
+	//pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE_STIM )
+
+	OnThreadEnd(
+		function() : ( pilot, stimFX )
+		{
+			if ( !IsValid( pilot ) )
+				return
+
+			if ( IsValid( stimFX ) )
+				EffectStop( stimFX )
+
+			StopSoundOnEntity( pilot, "pilot_stimpack_loop_3P" )
+			//pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE )
+		}
+	)
+
+	if ( duration == USE_TIME_INFINITE )
+		WaitForever()
+
+	wait duration - 2.0
+
+	// clear last sound so player won't receive too much noise!
+	StopSoundOnEntity( pilot, "pilot_stimpack_deactivate_3P" )
+	EmitSoundOnEntity( pilot, "pilot_stimpack_deactivate_3P" )
+
+	wait 2.0
+}
+
+
+const float NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE = 3.5 // if pilot has more than one charge for ability, do some rest
+const float NPC_PILOT_HOLOPILOT_COMBAT_DIST_2D = 1500 // if pilot can see an enemy within this range, let them project hologram
+const float NPC_PILOT_HOLOPILOT_MAX_WAIT = 6.5 // if pilot has finished cooldown but no valid enemy within this time, always project hologram
+
+const int NPC_PILOT_DECOY_HEALTH = 50
+const float NPC_PILOT_DECOY_TIMEOUT = DECOY_DURATION
+
+void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
+{
+	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
+
+	abilityWeapon.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		// get uses before we set to cooldown
+		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
+		//print( "useTimes: " + string( useTimes ) )
+		for ( int i = 0; i < useTimes; i++ )
+		{
+			if ( i > 0 ) // not first use?
+				wait NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE // add bit rest
+
+			// with a bit timeout
+			float maxWait = Time() + NPC_PILOT_HOLOPILOT_MAX_WAIT
+			bool firstLoop = true
+			while ( Time() < maxWait )
+			{
+				if ( !firstLoop )
+					WaitFrame()
+				firstLoop = false
+
+				if ( pilot.Anim_IsActive() ) // doing scripted anim!
+					continue
+
+				entity enemy = pilot.GetEnemy()
+				if ( IsAlive( enemy ) )
+				{
+					// wait till enemy is in range or pilot sees an enemy
+					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
+					if ( pilot.CanSee( enemy ) || dist2D < NPC_PILOT_HOLOPILOT_COMBAT_DIST_2D )
+						break
+				}
+			}
+
+			// project hologram
+			CreateNPCDecoyEnt( pilot, NPC_PILOT_DECOY_HEALTH, NPC_PILOT_DECOY_TIMEOUT )
+		}
+
+		// cooldown between next use
+		WeaponWaitForRandomNPCRest( abilityWeapon )
+	}
+}
+
+// create a npc entity as fake decoy
+entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = -1 )
+{
+	string decoyClass = "npc_soldier"
+	string decoyAISet = "npc_soldier"
+	if ( npc.IsNPC() )
+	{
+		decoyClass = npc.GetClassName()
+		decoyAISet = npc.GetAISettingsName()
+	}
+	int friendlyTeam = npc.GetTeam()
+
+	vector spawnAngle = < 0, npc.GetAngles().y, 0 > // no rotation
+	// taken from mp_ability_holopilot
+	float displacementDistance = 30.0
+	vector forwardVector = AnglesToForward( spawnAngle ) * displacementDistance
+	vector spawnPos = npc.GetOrigin() + forwardVector
+
+	entity decoy = CreateNPC( decoyClass, friendlyTeam, spawnPos, spawnAngle )
+	SetSpawnOption_AISettings( decoy, decoyAISet )
+	SetSpawnOption_SquadName( decoy, npc.kv.squadname )
+	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( npc ) )
+		ExtraSpawner_SetUpSpawnedNPC( decoy )
+	
+	// npc model take hold from T-pose
+	decoy.kv.VisibilityFlags = 0 // disable any model light stuffs
+	DispatchSpawn( decoy )
+
+	// npc model take hold from T-pose
+	thread DelayedShowNPCDecoy( decoy )
+
+	// taken from mp_ability_holopilot
+	PutEntityInSafeSpot( decoy, npc, null, npc.GetOrigin(), decoy.GetOrigin() )
+
+	// setup
+	decoy.SetOwner( npc ) // try to avoid collision?
+	decoy.SetMaxHealth( health )
+	decoy.SetHealth( health ) // won't get one shot by player like normal decoys
+
+	decoy.SetTitle( npc.GetTitle() )
+	decoy.SetModel( npc.GetModelName() )
+	decoy.SetNoTargetSmartAmmo( true ) // smart ammo won't target decoy
+	if ( npc.GetMainWeapons().len() > 0 )
+	{
+		TakeAllWeapons( decoy )
+		decoy.GiveWeapon( npc.GetMainWeapons()[0].GetWeaponClassName() )
+	}
+	decoy.SetHologram() // Make this NPC a hologram. It will generate hologram impact effects when hit
+	decoy.SetPassThroughThickness( 0 )
+	decoy.kv.CollisionGroup = 0 // they can still block weapon and hulls though
+	//decoy.kv.solid = SOLID_HITBOXES // mess things up
+	decoy.kv.contents = (int(decoy.kv.contents) | CONTENTS_NOGRAPPLE)
+
+	AddEntityCallback_OnDamaged( decoy, OnNPCDecoyDamaged )
+	AddEntityCallback_OnPostDamaged( decoy, OnNPCDecoyPostDamaged )
+
+	// try to inherit enemy highlight
+	string highlightAsset = GetHighlightAssetNameFromEnt( npc )
+	if ( highlightAsset != "" )
+		Highlight_SetEnemyHighlight( decoy, highlightAsset ) 
+	Highlight_SetFriendlyHighlight( decoy, "friendly_player_decoy" )
+	//print( "GetHighlightAssetNameFromEnt( npc ): " + GetHighlightAssetNameFromEnt( npc ) )
+
+	EmitSoundOnEntityToTeam( decoy, "holopilot_loop", friendlyTeam ) //loopingSound
+	EmitSoundOnEntityToEnemies( decoy, "holopilot_loop_enemy", friendlyTeam ) ///loopingSound
+	
+	// behavior
+	RemoveMinimapForNPC( decoy ) // don't show on minimap for any team, that's the way to identify them
+	decoy.SetNameVisibleToFriendly( false ) // try to avoid friendly player targeting them
+	DisableNPCAttackCapability( decoy, true, true, true ) // disable attacking and traverse
+	// don't drop any weapon, no pain
+	decoy.EnableNPCFlag( NPC_NO_WEAPON_DROP | NPC_NO_PAIN | NPC_NO_GESTURE_PAIN )
+	// don't do dangerous area displacement
+	decoy.EnableNPCMoveFlag( NPCMF_DISABLE_DANGEROUS_AREA_DISPLACEMENT | NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
+	decoy.SetCanBeMeleeExecuted( false ) 
+
+	thread NPCDecoyLifeTime( decoy, timeOut )
+	file.npcFakeDecoyEntArray.append( decoy )
+
+	return decoy
+}
+
+void function DelayedShowNPCDecoy( entity decoy )
+{
+	decoy.EndSignal( "OnDestroy" )
+	WaitFrame() // take hold
+
+	decoy.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	// flicker like player decoy
+	NPCDecoyFlicker( decoy )
+}
+
+bool function EntIsNPCFakeDecoy( entity ent )
+{
+	return file.npcFakeDecoyEntArray.contains( ent )
+}
+
+void function OnNPCDecoyDamaged( entity decoy, var damageInfo )
+{
+	// don't show indicator on damaging decoy
+	DamageInfo_AddCustomDamageType( damageInfo, DF_NO_INDICATOR )
+	// flicker like player decoy
+	NPCDecoyFlicker( decoy )
+}
+
+void function NPCDecoyFlicker( entity decoy )
+{
+	decoy.SetCanCloak( true )
+	decoy.SetCloakDuration( 0, 0.05, 0.5 )
+}
+
+void function OnNPCDecoyPostDamaged( entity decoy, var damageInfo )
+{
+	// never dies. if gonna die, clear any damage history so nobody will get score
+	// add playerOneShot effect to be more like normal decoy
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	bool attackerIsPlayer = IsValid( attacker ) && attacker.IsPlayer()
+	if ( attackerIsPlayer || ( DamageInfo_GetDamage( damageInfo ) >= decoy.GetHealth() ) )
+	{
+		ClearRecentDamageHistory( decoy )
+		ClearLastAttacker( decoy )
+		DamageInfo_SetDamage( damageInfo, decoy.GetHealth() - 1 )
+		// die to self damage, maintain force
+		decoy.Die( decoy, decoy, { damageSourceId = damagedef_suicide, force = DamageInfo_GetDamageForce( damageInfo ) } )
+	}
+}
+
+string function GetHighlightAssetNameFromEnt( entity ent )
+{
+	int entHighlightId = ent.Highlight_GetState( 2 ) // HIGHLIGHT_CONTEXT_ENEMY = 2
+	foreach ( assetName, highlightStruct in shGlobal.highlight )
+	{
+		if ( highlightStruct.highlightId == entHighlightId )
+			return assetName
+	}
+
+	return "" // default
+}
+
+void function NPCDecoyLifeTime( entity decoy, float timeOut = -1 )
+{
+	decoy.EndSignal( "OnDestroy" )
+	decoy.EndSignal( "OnDeath" ) // end on health run out
+
+	OnThreadEnd
+	(
+		function(): ( decoy )
+		{
+			if ( IsValid( decoy ) )
+			{
+				TakeAllWeapons( decoy ) // prevent meeting up attacking event during death animation, and don't want a weapon floating in air during dissolving
+				StopSoundOnEntity( decoy, "holopilot_loop" )
+				StopSoundOnEntity( decoy, "holopilot_loop_enemy" )
+
+				decoy.NotSolid()
+				decoy.SetInvulnerable()
+				decoy.Dissolve( ENTITY_DISSOLVE_CHAR, Vector( 0, 0, 0 ), 500 )
+			}
+		}
+	)
+
+	WaitEndFrame() // wait for RegisterForDamageDeathCallbacks() to end
+	decoy.SetDeathNotifications( false ) // don't run any death callbacks
+	
+	if ( timeOut > 0 )
+		wait timeOut // end on time out
+	else
+		WaitForever()
+}
+
+void function NPCPilotPhaseShiftThink( entity pilot, entity abilityWeapon )
+{
+	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
+
+	abilityWeapon.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		// get uses before we set to cooldown
+		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
+		//print( "useTimes: " + string( useTimes ) )
+		vector lastTickPos
+		for ( int i = 0; i < useTimes; i++ )
+		{
+			// start phase shift think: phase out of danger when taking massive damage
+			waitthread NPCPilotActivatesPhaseShift( pilot, abilityWeapon )
+		}
+
+		// cooldown between next use
+		WeaponWaitForRandomNPCRest( abilityWeapon )
+	}
+}
+
+const float NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC = 0.4 // if health about to take this amount of damage, phase out of danger
+// npc pilots can't use shift well, give them some speed boost based on health left
+const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN = 0.65
+const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 1.35
+
+void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
+{
+	pilot.EndSignal( "OnDestroy" )
+	pilot.EndSignal( "OnDeath" )
+	pilot.Signal( "NPCPilotActivatesPhaseShift" )
+	pilot.EndSignal( "NPCPilotActivatesPhaseShift" )
+	weapon.EndSignal( "OnDestroy" )
+
+	// update health threshold
+	file.npcPilotNextHealthThreshold[ pilot ] <- GetHealthFrac( pilot ) - NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC
+	if ( file.npcPilotNextHealthThreshold[ pilot ] <= 0 )
+		file.npcPilotNextHealthThreshold[ pilot ] = 0 // will phase on killshot
+
+	AddEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
+	OnThreadEnd
+	(
+		function(): ( pilot )
+		{
+			if ( IsValid( pilot ) )
+			{
+				RemoveEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
+				delete file.npcPilotNextHealthThreshold[ pilot ]
+			}
+		}
+	)
+
+	var results = pilot.WaitSignal( "PilotWantsToPhase" ) // wait for damage callback to signal stuff
+	float healthFracLeft = expect float( results.healthFracLeft )
+	if ( healthFracLeft <= 0 )
+		healthFracLeft = 0
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
+	PhaseShift( pilot, 0.0, duration )
+	// now fixed in sh_phase_shift.gnut
+	//if ( IsValid( pilot.GetEnemy() ) ) // vanilla missing npc behavior: needs to clear humansized npc enemy on phase
+	//	pilot.ClearEnemy()
+	// npc pilots can't use shift well, give them some speed boost to get out of danger
+	float effectSeverity = NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN + ( ( 1.0 - healthFracLeft ) * ( NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX - NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN ) )
+	//print( "effectSeverity: " + string( effectSeverity ) )
+	StatusEffect_AddTimed( pilot, eStatusEffect.speed_boost, NPC_PILOT_STIM_SPEED_BOOST_SEVERITY, duration, 0.0 )
+
+	pilot.WaitSignal( "StopPhaseShift" ) // wait for current phase to end
+}
+
+// phase out of danger when:
+// reaching max DPS taken
+// taking damage over health threshold
+// shot will kill pilot
+void function OnPhaseShiftNPCPilotDamaged( entity pilot, var damageInfo )
+{
+	int damage = int( DamageInfo_GetDamage( damageInfo ) )
+	int healthLeft = pilot.GetHealth() - damage
+	if ( healthLeft <= 0 ) // this is killshot!
+	{
+		PilotWantsToPhaseShift( pilot, damageInfo )
+		return
+	}
+
+	int dpsTaken = int( GetTotalDamageTakenInTime( pilot, 1.0 ) )
+	int maxDPSTaken = GetNPCPilotMaxDPSTaken( pilot )
+
+	float healthFrac = GetHealthFrac( pilot )
+	float newHealthFrac = float( healthLeft ) / float( pilot.GetMaxHealth() )
+	float healthThreshold = file.npcPilotNextHealthThreshold[ pilot ]
+
+	if ( dpsTaken >= maxDPSTaken || newHealthFrac <= healthThreshold )
+	{
+		PilotWantsToPhaseShift( pilot, damageInfo )
+	}
+}
+
+void function PilotWantsToPhaseShift( entity pilot, var damageInfo )
+{
+	int damage = int( DamageInfo_GetDamage( damageInfo ) )
+	float healthFracLeft = float( pilot.GetHealth() - damage ) / float( pilot.GetMaxHealth() )
+	DamageInfo_SetDamage( damageInfo, 0 )
+
+	var signalTable = {
+		healthFracLeft = healthFracLeft
+	}
+	Signal( pilot, "PilotWantsToPhase", signalTable )
 }
 
 void function PilotSpawnProtection( entity pilot, entity titan, float duration )
@@ -4953,7 +5813,7 @@ void function ForceStartTitan( entity titan, entity pilot, float delay )
 				ExtraSpawner_StopDefaultHandler( titan )
 				if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
 					thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
-				pilot.SetNPCMoveSpeedScale( 1.25 ) // reset move speed
+				pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE ) // reset move speed
 				pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
 			}
 			else
@@ -5181,9 +6041,7 @@ void function EmbarkedNPCTitanRodeoCounter_Threaded( entity titan )
 					OnWeaponNpcPrimaryAttack_titanability_smoke( rewardSmoke, emptyParams )
 					
 					// delay next smoke allowed time
-					float minCooldown = rewardSmoke.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
-					float maxCooldown = rewardSmoke.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
-					smokeDeployAllowedTime = Time() + RandomFloatRange( minCooldown, maxCooldown )
+					smokeDeployAllowedTime = Time() + GetWeaponNPCRestTime( rewardSmoke )
 					
 					// ammo management
 					rewardSmoke.SetWeaponPrimaryAmmoCount( rewardSmoke.GetWeaponPrimaryAmmoCount() - 1 )
@@ -5332,7 +6190,7 @@ void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 				entity activeWeapon = titan.GetActiveWeapon()
 				if ( IsValid( activeWeapon ) )
 				{
-					float bestRange = activeWeapon.GetWeaponSettingFloat( eWeaponVar.damage_near_distance )
+					float bestRange = activeWeapon.GetWeaponSettingFloat( eWeaponVar.npc_damage_near_distance )
 					if ( Distance( titan.GetOrigin(), enemy.GetOrigin() ) > bestRange )
 						break // try to run core ability
 				}
@@ -5340,32 +6198,18 @@ void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 
 			// multiple enemy heavy armor units attacking us together
 			entity soul = titan.GetTitanSoul()
-			array<entity> enemiesAttacking
-			foreach( DamageHistoryStruct attackerInfo in soul.e.recentDamageHistory )
+			array<entity> enemiesAttacking = GetEnemiesAttackingInTime( soul, SMART_CORE_RECENT_DAMAGE_HISTORY )
+			int enemyCount = 0
+			foreach ( entity attacker in enemiesAttacking )
 			{
-				entity attacker = attackerInfo.attacker
-				// generic check
-				if ( !IsValid( attacker ) )
-					continue
-				// checks for self damage
-				if ( attacker == titan )
-					return
-				// checks for player owned entities
-				if ( attacker == soul.GetBossPlayer() )
-					continue
-
-				// timer
-				if ( Time() > attackerInfo.time + SMART_CORE_RECENT_DAMAGE_HISTORY )
-					continue
-
 				// armor type
-				if ( !enemiesAttacking.contains( attacker ) && attacker.GetArmorType() == ARMOR_TYPE_HEAVY )
-					enemiesAttacking.append( attacker )
+				if ( attacker.GetArmorType() == ARMOR_TYPE_HEAVY )
+					enemyCount += 1
 			}
 
-			//print( "enemiesAttacking: " + string( enemiesAttacking.len() ) )
-			if ( enemiesAttacking.len() >= SMART_CORE_ACTIVATE_REQUIRED_EMENY_COUNT )
-				break
+			//print( "enemyCount: " + string( enemyCount ) )
+			if ( enemyCount >= SMART_CORE_ACTIVATE_REQUIRED_EMENY_COUNT )
+				break // try to run core ability
 
 			WaitFrame()
 		}
@@ -5391,6 +6235,48 @@ void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 		// cooldown before next core use
 		WeaponWaitForRandomNPCRest( coreWeapon )
 	}
+}
+
+array<entity> function GetEnemiesAttackingInTime( entity ent, float hitTime )
+{
+	array<entity> enemiesAttacking
+	foreach( DamageHistoryStruct attackerInfo in ent.e.recentDamageHistory )
+	{
+		// timer
+		if ( Time() > attackerInfo.time + hitTime )
+			continue
+		
+		entity attacker = attackerInfo.attacker
+		// generic check
+		if ( !IsValid( attacker ) )
+			continue
+		// checks for self damage
+		if ( attacker == ent )
+			continue
+		// checks for player owned entities
+		if ( attacker == ent.GetBossPlayer() )
+			continue
+		
+		// soul specific checks
+		if ( IsSoul( ent ) )
+		{
+			entity titan = ent.GetTitan()
+			if ( IsValid( titan ) )
+			{
+				// checks for self damage
+				if ( attacker == titan )
+					continue
+				// checks for player owned entities
+				if ( attacker == titan.GetBossPlayer() )
+					continue
+			}
+		}
+
+		if ( !enemiesAttacking.contains( attacker ) )
+			enemiesAttacking.append( attacker )
+	}
+
+	return enemiesAttacking
 }
 
 void function WaitTillTitanCoreCharge( entity titan )
@@ -5442,9 +6328,25 @@ void function DrainNPCTitanCoreMeter( entity titan )
 
 void function WeaponWaitForRandomNPCRest( entity weapon )
 {
-	float minCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
-	float maxCooldown = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
-	wait RandomFloatRange( minCooldown, maxCooldown )
+	wait GetWeaponNPCRestTime( weapon )
+}
+
+int function GetWeaponNPCBurstCount( entity weapon )
+{
+	int minBurst = weapon.GetWeaponSettingInt( eWeaponVar.npc_min_burst )
+	int maxBurst = weapon.GetWeaponSettingInt( eWeaponVar.npc_max_burst )
+	if ( maxBurst <= minBurst ) // anti-crash
+		return minBurst
+	return RandomIntRange( minBurst, maxBurst + 1 )
+}
+
+float function GetWeaponNPCRestTime( entity weapon )
+{
+	float minRest = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_min )
+	float maxRest = weapon.GetWeaponSettingFloat( eWeaponVar.npc_rest_time_between_bursts_max )
+	if ( maxRest <= minRest ) // anti-crash
+		return minRest
+	return RandomFloatRange( minRest, maxRest )
 }
 
 function OnNpcTitanBecomesPilot( pilot, titan )
@@ -5514,7 +6416,9 @@ void function NPCPilotEjectingAnimation( entity pilot )
 	pilot.EndSignal( "OnDeath" )
 	
 	if ( !pilot.ContextAction_IsBusy() )
-		pilot.ContextAction_SetBusy()
+		pilot.ContextAction_SetBusy() // this can make them stop finding new targets, and make them unable to be executed
+	file.npcPilotInScriptedAnim[ pilot ] = true // add a in-file mark
+
 	pilot.Anim_ScriptedPlayActivityByName( "ACT_FALL", true, 0.2 )
 	pilot.SetNPCPriorityOverride( 10 ) // npc titans aim bad at mid-air targets. don't let them do so
 
@@ -5526,6 +6430,8 @@ void function NPCPilotEjectingAnimation( entity pilot )
 			{
 				if ( pilot.ContextAction_IsBusy() )
 					pilot.ContextAction_ClearBusy()
+				file.npcPilotInScriptedAnim[ pilot ] = false
+				
 				pilot.Anim_Stop()
 				if ( IsAlive( pilot ) )
 					pilot.ClearNPCPriorityOverride()
@@ -6417,6 +7323,7 @@ entity function CreateNPCAsFakeMapIconForNPC( entity npc, string fakeIconNPCClas
 	mapIconNPC.SetOrigin( offset ) // so nobody can see them
 	mapIconNPC.NotSolid()
 	mapIconNPC.kv.CollisionGroup = 0
+	mapIconNPC.kv.solid = SOLID_HITBOXES // seems this can make them stop collide with other entity?
 	mapIconNPC.StopPhysics()
 
 	SetNPCFakeMinimapIconEnt( npc, mapIconNPC ) // make them related, so Add/RemoveMinimapForNPC() can handle both
