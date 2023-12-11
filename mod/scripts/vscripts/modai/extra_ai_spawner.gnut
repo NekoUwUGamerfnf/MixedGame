@@ -354,8 +354,9 @@ struct
 	// scripted npc pilot behavior
 	table<string, void functionref( entity pilot, entity abilityWeapon )> scriptedNPCPilotAbilityThink
 	table<entity, bool> npcPilotInScriptedAnim
+	table<entity, bool> npcPilotActivatedCloak
 	array<entity> npcFakeDecoyEntArray
-	table<entity, float> npcPilotNextHealthThreshold
+	table<entity, float> npcPilotPhaseHealthThreshold
 	// npc attacking management
 	table< entity, array<int> > npcDisabledAttackCapabilityFlags
 } file
@@ -5029,8 +5030,9 @@ void function ExtraSpawner_AddScriptedNPCPilotAbilityThink( string abilityWeapon
 // scripted ability thinks
 const float NPC_PILOT_CLOAK_REST_TIME_BETWEEN_USE = 1.5 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_CLOAK_RECENT_DAMAGE_TIME = 1.5 // if pilot taken damage within this time, they won't do cloak
-const float NPC_PILOT_CLOAK_COMBAT_DIST_2D = 1000 // if pilot has an enemy within this range they can see, consider them already combating... don't cloak
+const float NPC_PILOT_CLOAK_COMBAT_DIST_2D = 1000 // if pilot has a pilot enemy within this range they can see, consider them already combating... don't cloak
 const float NPC_PILOT_CLOAK_ACTIVATE_DIST_2D = 2200 // if pilot has an enemy within this range, they'll activate cloak while approaching
+const float NPC_PILOT_CLOAK_ACTIVATE_DIST_2D_AGAINST_TITAN = 1700
 
 void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
 {
@@ -5065,14 +5067,26 @@ void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
 				{
 					// wait till enemy is in safe range, cloak to approach them
 					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
-					if ( !( pilot.CanSee( enemy ) && dist2D < NPC_PILOT_CLOAK_COMBAT_DIST_2D ) && dist2D <= NPC_PILOT_CLOAK_ACTIVATE_DIST_2D )
-						break
+
+					if ( enemy.IsTitan() || enemy.IsNPC() ) // npcs or player titan target
+					{
+						if ( dist2D <= NPC_PILOT_CLOAK_ACTIVATE_DIST_2D_AGAINST_TITAN )
+						{
+							//if ( pilot.CanSee( enemy ) ) // cloak once pilot can see their enemy
+							//	break
+							break // always cloak on engaging npc targets
+						}
+					}
+					else // player pilot target
+					{
+						// cloak only when pilot not in close range, or when they can't see enemy
+						if ( ( !pilot.CanSee( enemy ) || dist2D > NPC_PILOT_CLOAK_COMBAT_DIST_2D ) && dist2D <= NPC_PILOT_CLOAK_ACTIVATE_DIST_2D )
+							break
+					}
 				}
 			}
 
-			// try to do blocking call, don't do too many threads...
-			//waitthread NPCPilotActivatesCloak( pilot, abilityWeapon )
-			NPCPilotActivatesCloak( pilot, abilityWeapon )
+			waitthread NPCPilotActivatesCloak( pilot, abilityWeapon )
 		}
 
 		// cooldown between next use
@@ -5093,7 +5107,7 @@ const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.1 // pilot firing weapon within t
 
 void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 {
-	// try to do blocking call, don't do too many threads...
+	// endSignal inherit from NPCPilotCloakThink()
 	/*
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
@@ -5106,6 +5120,7 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	EnableCloak( pilot, duration ) // function in player_cloak.nut has been reworked, can handle npc usage
 
 	// vanilla won't flicker npc on taking damage, do it manually
+	file.npcPilotActivatedCloak[ pilot ] <- true
 	AddEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
 
 	float startTime = Time()
@@ -5128,12 +5143,18 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	(
 		function(): ( pilot, cleanUpTable )
 		{
-			if ( !cleanUpTable["finalDamageCallback"] )
-				RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
-			if ( !cleanUpTable["disableAttackCapability"] )
-				RestoreNPCAttackCapability( pilot )
-			if ( !cleanUpTable["restoreEnemyMapIcon"] )
-				AddMinimapForNPC( pilot )
+			// don't know why sometimes they won't be remove callback...
+			if ( IsValid( pilot ) )
+			{
+				if ( !cleanUpTable["finalDamageCallback"] )
+					RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
+				if ( !cleanUpTable["disableAttackCapability"] )
+					RestoreNPCAttackCapability( pilot )
+				if ( !cleanUpTable["restoreEnemyMapIcon"] )
+					AddMinimapForNPC( pilot )
+
+				delete file.npcPilotActivatedCloak[ pilot ]
+			}
 		}
 	)
 
@@ -5206,6 +5227,17 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	DisableCloak( pilot, 0.5 ) // disable cloak after firing, same fadeout as player one does
 	RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
 	cleanUpTable["finalDamageCallback"] = true
+}
+
+void function OnCloakNPCPilotDamaged( entity pilot, var damageInfo )
+{
+	// don't know why sometimes they won't be remove callback...
+	// add a defensive fix
+	if ( !( pilot in file.npcPilotActivatedCloak ) )
+		return
+
+	if ( DamageInfo_GetDamage( damageInfo ) > 0 )
+		pilot.SetCloakFlicker( 0.5, 0.65 )
 }
 
 void function WaitTillTimeOutOrDamaged( entity ent, float timeOut )
@@ -5297,15 +5329,10 @@ void function RestoreNPCAttackCapability( entity guy )
 	delete file.npcDisabledAttackCapabilityFlags[ guy ] // clean up
 }
 
-void function OnCloakNPCPilotDamaged( entity pilot, var damageInfo )
-{
-	if ( DamageInfo_GetDamage( damageInfo ) > 0 )
-		pilot.SetCloakFlicker( 0.5, 0.65 )
-}
-
 const float NPC_PILOT_STIM_REST_TIME_BETWEEN_USE = 1.0 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2100 // if pilot has enemy within this range, do stim to approach them
 const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D = 500 // if pilot too close to their enemy, there's no need to use stim for approaching. they'll stop chasing once reached chaseStopDist
+const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR = 900
 const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 120 // have to be running before activating stim
 
 void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
@@ -5351,7 +5378,10 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 				{
 					// wait till enemy is in range or pilot sees an enemy
 					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
-					if ( dist2D <= NPC_PILOT_STIM_CHASE_STOP_DIST_2D ) // too close!
+					float stopDist = NPC_PILOT_STIM_CHASE_STOP_DIST_2D
+					if ( enemy.GetArmorType() == ARMOR_TYPE_HEAVY )
+						stopDist = NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR
+					if ( dist2D <= stopDist ) // too close!
 						continue
 					if ( pilot.CanSee( enemy ) && dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
 						break
@@ -5359,9 +5389,7 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 			}
 
 			// start stim think
-			// try to do blocking call, don't do too many threads...
-			//waitthread NPCPilotActivatesStim( pilot, abilityWeapon )
-			NPCPilotActivatesStim( pilot, abilityWeapon )
+			waitthread NPCPilotActivatesStim( pilot, abilityWeapon )
 		}
 
 		// cooldown between next use
@@ -5376,7 +5404,7 @@ const float NPC_PILOT_STIM_SPEED_BOOST_SEVERITY = 0.61 // will status effects wo
 // mostly from sh_stim.gnut, with some tweak to make npcs use it
 void function NPCPilotActivatesStim( entity pilot, entity weapon )
 {
-	// try to do blocking call, don't do too many threads...
+	// endSignal inherit from NPCPilotStimThink()
 	/*
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
@@ -5400,14 +5428,13 @@ void function NPCPilotActivatesStim( entity pilot, entity weapon )
 	OnThreadEnd(
 		function() : ( pilot, stimFX )
 		{
-			if ( !IsValid( pilot ) )
-				return
-
+			if ( IsValid( pilot ) )
+			{
+				StopSoundOnEntity( pilot, "pilot_stimpack_loop_3P" )
+				//pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE )
+			}
 			if ( IsValid( stimFX ) )
 				EffectStop( stimFX )
-
-			StopSoundOnEntity( pilot, "pilot_stimpack_loop_3P" )
-			//pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE )
 		}
 	)
 
@@ -5517,11 +5544,28 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	decoy.SetTitle( npc.GetTitle() )
 	decoy.SetModel( npc.GetModelName() )
 	decoy.SetNoTargetSmartAmmo( true ) // smart ammo won't target decoy
-	if ( npc.GetMainWeapons().len() > 0 )
+
+	// create fake weapon prop
+	entity weaponProp
+	if ( npc.IsTitan() ) // titans: try to assign first weapon to decoy
 	{
 		TakeAllWeapons( decoy )
-		decoy.GiveWeapon( npc.GetMainWeapons()[0].GetWeaponClassName() )
+		if ( npc.GetMainWeapons().len() > 0 )
+			weaponProp = CreatePropFromWeapon( npc.GetMainWeapons()[0] )
 	}
+	else // try to assign active weapon
+	{
+		entity activeWeapon = npc.GetActiveWeapon()
+		if ( !IsValid( activeWeapon ) ) // npc owner don't have a weapon... make decoy use their own weapon
+			activeWeapon = decoy.GetActiveWeapon()
+		
+		TakeAllWeapons( decoy )
+		if ( IsValid( activeWeapon ) )
+			weaponProp = CreatePropFromWeapon( activeWeapon )
+	}
+	if ( IsValid( weaponProp ) )
+		weaponProp.SetParent( decoy, "PROPGUN" )
+
 	decoy.SetHologram() // Make this NPC a hologram. It will generate hologram impact effects when hit
 	decoy.SetPassThroughThickness( 0 )
 	decoy.kv.CollisionGroup = 0 // they can still block weapon and hulls though
@@ -5551,10 +5595,25 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	decoy.EnableNPCMoveFlag( NPCMF_DISABLE_DANGEROUS_AREA_DISPLACEMENT | NPCMF_IGNORE_CLUSTER_DANGER_TIME | NPCMF_PREFER_SPRINT )
 	decoy.SetCanBeMeleeExecuted( false ) 
 
-	thread NPCDecoyLifeTime( decoy, timeOut )
+	thread NPCDecoyLifeTime( decoy, weaponProp, timeOut )
 	file.npcFakeDecoyEntArray.append( decoy )
 
 	return decoy
+}
+
+entity function CreatePropFromWeapon( entity weapon )
+{
+	entity owner = weapon.GetWeaponOwner()
+	if ( IsValid( owner ) && owner.IsPlayer() ) // player owned weapon will get their FP model when using GetModelName()...
+		return // don't do anything if so
+
+	asset modelName = weapon.GetModelName()
+	entity prop = CreatePropDynamic( modelName )
+	prop.Highlight_SetInheritHighlight( true ) // setup highlight
+	prop.NotSolid()
+	// no need to track lifetime because our owner won't be player
+
+	return prop
 }
 
 void function DelayedShowNPCDecoy( entity decoy )
@@ -5614,18 +5673,20 @@ string function GetHighlightAssetNameFromEnt( entity ent )
 	return "" // default
 }
 
-void function NPCDecoyLifeTime( entity decoy, float timeOut = -1 )
+void function NPCDecoyLifeTime( entity decoy, entity weaponProp, float timeOut = -1 )
 {
 	decoy.EndSignal( "OnDestroy" )
 	decoy.EndSignal( "OnDeath" ) // end on health run out
 
 	OnThreadEnd
 	(
-		function(): ( decoy )
+		function(): ( decoy, weaponProp )
 		{
 			if ( IsValid( decoy ) )
 			{
-				TakeAllWeapons( decoy ) // prevent meeting up attacking event during death animation, and don't want a weapon floating in air during dissolving
+				// prevent meeting up attacking event during death animation, and don't want a weapon floating in air during dissolving
+				// this is just a defensive fix, decoy uses prop as their holding weapon
+				TakeAllWeapons( decoy )
 				StopSoundOnEntity( decoy, "holopilot_loop" )
 				StopSoundOnEntity( decoy, "holopilot_loop_enemy" )
 
@@ -5633,6 +5694,8 @@ void function NPCDecoyLifeTime( entity decoy, float timeOut = -1 )
 				decoy.SetInvulnerable()
 				decoy.Dissolve( ENTITY_DISSOLVE_CHAR, Vector( 0, 0, 0 ), 500 )
 			}
+			if ( IsValid( weaponProp ) )
+				weaponProp.Dissolve( ENTITY_DISSOLVE_CHAR, Vector( 0, 0, 0 ), 500 )
 		}
 	)
 
@@ -5658,9 +5721,7 @@ void function NPCPilotPhaseShiftThink( entity pilot, entity abilityWeapon )
 		for ( int i = 0; i < useTimes; i++ )
 		{
 			// start phase shift think: phase out of danger when taking massive damage
-			// try to do blocking call, don't do too many threads...
-			//waitthread NPCPilotActivatesPhaseShift( pilot, abilityWeapon )
-			NPCPilotActivatesPhaseShift( pilot, abilityWeapon )
+			waitthread NPCPilotActivatesPhaseShift( pilot, abilityWeapon )
 		}
 
 		// cooldown between next use
@@ -5675,7 +5736,7 @@ const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 1.35
 
 void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 {
-	// try to do blocking call, don't do too many threads...
+	// endSignal inherit from NPCPilotPhaseShiftThink()
 	/*
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
@@ -5685,19 +5746,24 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	pilot.EndSignal( "NPCPilotActivatesPhaseShift" )
 
 	// update health threshold
-	file.npcPilotNextHealthThreshold[ pilot ] <- GetHealthFrac( pilot ) - NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC
-	if ( file.npcPilotNextHealthThreshold[ pilot ] <= 0 )
-		file.npcPilotNextHealthThreshold[ pilot ] = 0 // will phase on killshot
+	file.npcPilotPhaseHealthThreshold[ pilot ] <- GetHealthFrac( pilot ) - NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC
+	if ( file.npcPilotPhaseHealthThreshold[ pilot ] <= 0 )
+		file.npcPilotPhaseHealthThreshold[ pilot ] = 0 // will phase on killshot
 
 	AddEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
+	table<string, bool> cleanUpTable
+	cleanUpTable["finalDamageCallback"] <- false
+
 	OnThreadEnd
 	(
-		function(): ( pilot )
+		function(): ( pilot, cleanUpTable )
 		{
 			if ( IsValid( pilot ) )
 			{
-				RemoveEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
-				delete file.npcPilotNextHealthThreshold[ pilot ]
+				// don't know why sometimes they won't be remove callback... resulting become invulnerable
+				if ( !cleanUpTable["finalDamageCallback"] )
+					RemoveEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
+				delete file.npcPilotPhaseHealthThreshold[ pilot ]
 			}
 		}
 	)
@@ -5715,7 +5781,10 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	//print( "effectSeverity: " + string( effectSeverity ) )
 	StatusEffect_AddTimed( pilot, eStatusEffect.speed_boost, NPC_PILOT_STIM_SPEED_BOOST_SEVERITY, duration, 0.0 )
 
-	pilot.WaitSignal( "StopPhaseShift" ) // wait for current phase to end
+	//pilot.WaitSignal( "StopPhaseShift" ) // wait for current phase to end. this will make thread sometimes can't stop!
+	wait duration // wait for fire duration to end
+	RemoveEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
+	cleanUpTable["finalDamageCallback"] = true
 }
 
 // phase out of danger when:
@@ -5724,6 +5793,11 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 // shot will kill pilot
 void function OnPhaseShiftNPCPilotDamaged( entity pilot, var damageInfo )
 {
+	// don't know why sometimes they won't be remove callback... resulting become invulnerable
+	// add a defensive check
+	if ( !( pilot in file.npcPilotPhaseHealthThreshold ) )
+		return
+
 	int damage = int( DamageInfo_GetDamage( damageInfo ) )
 	int healthLeft = pilot.GetHealth() - damage
 	if ( healthLeft <= 0 ) // this is killshot!
@@ -5737,7 +5811,7 @@ void function OnPhaseShiftNPCPilotDamaged( entity pilot, var damageInfo )
 
 	float healthFrac = GetHealthFrac( pilot )
 	float newHealthFrac = float( healthLeft ) / float( pilot.GetMaxHealth() )
-	float healthThreshold = file.npcPilotNextHealthThreshold[ pilot ]
+	float healthThreshold = file.npcPilotPhaseHealthThreshold[ pilot ]
 
 	if ( dpsTaken >= maxDPSTaken || newHealthFrac <= healthThreshold )
 	{
