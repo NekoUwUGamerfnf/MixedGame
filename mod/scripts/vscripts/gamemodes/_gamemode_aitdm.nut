@@ -528,6 +528,14 @@ bool function IsValidNPCAssaultTarget( entity ent )
 	// is invulnerable?
 	if ( ent.IsInvulnerable() )
 		return false
+
+	// been cloaked?
+	if ( IsCloaked( ent ) )
+		return false
+	
+	// doing phase shift?
+	if ( ent.IsPhaseShifted() )
+		return false
 	
 	// npc
 	if ( ent.IsNPC() )
