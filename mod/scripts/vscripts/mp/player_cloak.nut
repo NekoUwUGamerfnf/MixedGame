@@ -23,6 +23,8 @@ void function PlayerCloak_Init()
 
 	AddCallback_OnPlayerKilled( AbilityCloak_OnDeath )
 	AddSpawnCallback( "npc_titan", SetCannotCloak ) // nessie: does this make any sense?
+	// adding npc usage support
+	AddCallback_OnNPCKilled( AbilityCloak_OnDeath )
 }
 
 void function SetCannotCloak( entity ent )
@@ -55,6 +57,8 @@ void function EnableCloak( entity player, float duration, float fadeIn = CLOAK_F
 		return
 	if ( player.IsNPC() )
 		player.SetCanCloak( true ) // npc is default to be cannotCloak. needs to enable
+
+	//print( "RUNNING EnableCloak() for player: " + string( player ) + " , duration: " +string( duration ) )
 
 	// add npc cloak compatibility
 	if ( player.IsPlayer() )
@@ -122,6 +126,12 @@ void function EnableCloakForever( entity player )
 
 void function DisableCloak( entity player, float fadeOut = CLOAK_FADE_OUT )
 {
+	//print( "RUNNING DisableCloak() for player: " + string( player ) )
+
+	// vanilla seems to miss this behavior
+	// we need to clean up any running HandleCloakEnd() think on decloak
+	player.Signal( "KillHandleCloakEnd" )
+
 	StopSoundOnEntity( player, "cloak_sustain_loop_1P" )
 	StopSoundOnEntity( player, "cloak_sustain_loop_3P" )
 
@@ -145,9 +155,9 @@ void function DisableCloak( entity player, float fadeOut = CLOAK_FADE_OUT )
 	player.SetCloakDuration( 0, 0, fadeOut )
 
 	// add npc cloak compatibility
-	if ( player.IsNPC() )
-		player.SetCanCloak( false ) // set npc's cloak availability to default
-	//
+	// no need to clean up this, will make their fadeOut flicker seem bad
+	//if ( player.IsNPC() )
+	//	player.SetCanCloak( false ) // set npc's cloak availability to default
 }
 
 void function DisableCloakForever( entity player, float fadeOut = CLOAK_FADE_OUT )
@@ -173,6 +183,7 @@ void function HandleCloakEnd( entity player )
 	OnThreadEnd(
 		function() : ( player )
 		{
+			//print( "RUNNING HandleCloakEnd() OnTheadEnd" )
 			if ( !IsValid( player ) )
 				return
 			// add npc cloak compatibility
@@ -204,11 +215,12 @@ void function HandleCloakEnd( entity player )
 	if ( duration > soundBufferTime )
 	{
 		wait ( duration - soundBufferTime )
-		if ( !IsCloaked( player ) )
-			return
 		// add npc cloak compatibility
 		if ( player.IsPlayer() )
 		{
+			if ( !IsCloaked( player ) ) // npc cloak isn't very accurate, no need to check this
+				return
+
 			EmitSoundOnEntityOnlyToPlayer( player, player, "cloak_warningtoend_1P" )
 			EmitSoundOnEntityExceptToPlayer( player, player, "cloak_warningtoend_3P" )
 		}
