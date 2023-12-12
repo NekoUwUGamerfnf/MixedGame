@@ -2620,6 +2620,7 @@ void function PrintColdWarNPCPrimaryAttack( entity npc )
 	}
 }
 
+// npc themselves don't receive primary attack signal...
 void function PrintPrimaryAttackSignal( entity npc )
 {
 	npc.EndSignal( "OnDeath" )
@@ -2628,6 +2629,8 @@ void function PrintPrimaryAttackSignal( entity npc )
 	while ( true )
 	{
 		table result = WaitSignal( npc, "OnPrimaryAttack" )
+		//entity weapon = npc.GetActiveWeapon()
+		//table result = WaitSignal( weapon, "OnPrimaryAttack" )
 		print( "=========================================" )
 		print( "OnPrimaryAttack signal print" )
 		foreach ( key, value in result )
@@ -5219,7 +5222,10 @@ float function GetNPCLastDamageTime( entity guy )
 }
 
 const float NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC = 0.3 // don't attack at the start of cloak ability
-const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.1 // pilot firing weapon within this frac of cloak duration won't break their cloak
+const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.05 // pilot firing weapon within this frac of cloak duration won't break their cloak
+
+const float NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION = 0.75 // have to hardcode for charge weapons... mostly for charge rifle. if pilot charges their weapon to this fraction, break cloak
+const float NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE = 0.1 // pilot firing weapon within this frac of cloak duration won't break their cloak
 
 void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 {
@@ -5255,8 +5261,13 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	else
 		cleanUpTable["restoreEnemyMapIcon"] = true // mark as no need to restore map icon
 
+	// EDIT: "decloakOnShoot" won't work at all!
+	//table<string, bool> results
+	//results["cloakEndByTime"] <- false
+
 	OnThreadEnd
 	(
+		//function(): ( pilot, cleanUpTable, results )
 		function(): ( pilot, cleanUpTable )
 		{
 			// don't know why sometimes they won't be remove callback...
@@ -5268,6 +5279,12 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 					RestoreNPCAttackCapability( pilot )
 				if ( !cleanUpTable["restoreEnemyMapIcon"] )
 					AddMinimapForNPC( pilot )
+
+				// EDIT: "decloakOnShoot" won't work at all!
+				/*
+				if ( !results["cloakEndByTime"] ) // this must means pilot triggered "decloakOnShoot"
+					NPCPilotDeCloakFlicker( pilot ) // do a fake flicker
+				*/
 
 				delete file.npcPilotActivatedCloak[ pilot ]
 			}
@@ -5284,7 +5301,10 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 
 	float timeLeft = duration - ( Time() - startTime )
 	pilot.EndSignal( "CloakTimeOut" )
-	thread NPCPilotCloakTimer( pilot, timeLeft ) // timeout
+	thread NPCPilotCloakTimer( pilot, timeLeft )
+	// EDIT: "decloakOnShoot" won't work at all!
+	//thread NPCPilotCloakTimer( pilot, timeLeft + 0.1 ) // timeout. add 0.1s more before signaling out "CloakTimeOut", for we can get cloak ended properly or not
+	
 	// wait for pilot firing weapon
 	// welp, it seems like npcs won't fire "OnPrimaryAttack" signal
 	// guess we'll check pilot's primary weapon ammo instead
@@ -5311,38 +5331,82 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	*/
 	// ammo check version
 	// no need to handle endTime(), we already got NPCPilotCloakTimer() to handle that
+	// can't get charge rifle firing
+	// now workaround with decloakOnShoot in aiSetFile
 	float checkStartTime = Time() + ( duration * NPC_PILOT_CLOAK_BROKE_INTERNAL )
+	float chargeCheckStartTime = Time() + ( duration * NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE )
 	table<entity, int> pilotWeaponAmmoCount
 	while ( true )
 	{
 		entity activeWeapon = pilot.GetActiveWeapon()
-		if ( IsValid( activeWeapon ) )
+		if ( IsValid( activeWeapon ) && !activeWeapon.IsWeaponOffhand() )
 		{
-			try // some weapon don't have ammo clip, mostly not for humansized weapons though
+			// have to hardcode for charge weapons...
+			// npc never reduces weapon's ammo stockpile count
+			// which means we can't get charge rifle's firing
+			if ( activeWeapon.IsChargeWeapon() )
+			{
+				if ( Time() > chargeCheckStartTime ) // cloak break check start
+				{
+					if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
+						break // break cloak
+				}
+			}
+			else
 			{
 				if ( !( activeWeapon in pilotWeaponAmmoCount ) )
-					pilotWeaponAmmoCount[ activeWeapon ] <- activeWeapon.GetWeaponPrimaryClipCount()
+					pilotWeaponAmmoCount[ activeWeapon ] <- GetWeaponAmmoOrClipCount( activeWeapon )
 				else
 				{
 					//print( "pilotWeaponAmmoCount[ activeWeapon ]: " + string( pilotWeaponAmmoCount[ activeWeapon ] ) )
-					//print( "activeWeapon.GetWeaponPrimaryClipCount(): " + string( activeWeapon.GetWeaponPrimaryClipCount() ) )
+					//print( "GetWeaponAmmoOrClipCount( activeWeapon ): " + string( GetWeaponAmmoOrClipCount( activeWeapon ) ) )
 					if ( Time() > checkStartTime ) // cloak break check start
 					{
-						if ( activeWeapon.GetWeaponPrimaryClipCount() < pilotWeaponAmmoCount[ activeWeapon ] ) // firing weapon!
-							break
+						if ( GetWeaponAmmoOrClipCount( activeWeapon ) < pilotWeaponAmmoCount[ activeWeapon ] ) // firing weapon!
+							break // break cloak
 					}
-					pilotWeaponAmmoCount[ activeWeapon ] = activeWeapon.GetWeaponPrimaryClipCount()
+					pilotWeaponAmmoCount[ activeWeapon ] = GetWeaponAmmoOrClipCount( activeWeapon )
 				}
 			}
-			catch(ex) {}
 		}
 
 		WaitFrame()
 	}
 
 	DisableCloak( pilot, 0.5 ) // disable cloak after firing, same fadeout as player one does
+
+	// EDIT: "decloakOnShoot" won't work at all!
+	/*
+	wait timeLeft // wait for cloak timer end
+	results["cloakEndByTime"] = true // mark as we ended cloak by time, not by "decloakOnShoot"
+	*/
+
 	RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
 	cleanUpTable["removeFinalDamageCallback"] = true
+}
+
+// search for valid ammo or clip count
+// welp this don't make sense, npc never reduces their weapon's ammo stockpile count
+int function GetWeaponAmmoOrClipCount( entity weapon )
+{
+	try // some weapon don't have ammo clip, mostly not for humansized weapons though
+	{
+		if ( weapon.GetWeaponSettingInt( eWeaponVar.ammo_clip_size ) <= 0 ) // not using ammo clip!!!
+			return weapon.GetWeaponPrimaryAmmoCount()
+		else
+			return weapon.GetWeaponPrimaryClipCount()
+	}
+	catch(ex) {}
+
+	return 0 // no ammo clip found
+}
+
+// this is a fake flicker
+void function NPCPilotDeCloakFlicker( entity pilot )
+{
+	pilot.SetCanCloak( true )
+	pilot.SetCloakDuration( 0, 0.05, 0.5 )
+	DisableCloak( pilot, 0.5 ) // do decloak sound and end looping sound thread
 }
 
 void function OnCloakNPCPilotDamaged( entity pilot, var damageInfo )
@@ -5366,6 +5430,8 @@ void function WaitTillTimeOutOrDamaged( entity ent, float timeOut )
 }
 
 // wait till pilot cloak runs out then do signal
+// welp this won't work well... change to check cloak duration, so we can get "decloakOnShoot" in aiSetFile
+// EDIT: "decloakOnShoot" won't work at all!
 void function NPCPilotCloakTimer( entity pilot, float duration )
 {
 	pilot.EndSignal( "OnDestroy" )
@@ -5373,6 +5439,19 @@ void function NPCPilotCloakTimer( entity pilot, float duration )
 
 	wait duration
 	pilot.Signal( "CloakTimeOut" )
+
+	// EDIT: "decloakOnShoot" won't work at all!
+	/*
+	float endTime = Time() + duration
+	while ( Time() < endTime ) // max timer think
+	{
+		if ( !IsCloaked( pilot ) ) // decloak due to "decloakOnShoot" in aiSetFile
+			break
+		WaitFrame()
+	}
+
+	pilot.Signal( "CloakTimeOut" )
+	*/
 }
 
 void function DisableNPCAttackCapability( entity guy, bool disableRangedAttack = true, bool disableMelee = true, bool disableMovement = false )
@@ -5449,7 +5528,7 @@ const float NPC_PILOT_STIM_REST_TIME_BETWEEN_USE = 1.0 // if pilot has more than
 const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2100 // if pilot has enemy within this range, do stim to approach them
 const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 130 * NPC_PILOT_MOVE_SPEED_SCALE // have to be running before activating stim
 const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D = 400 + NPC_PILOT_STIM_REQUIRED_VELOCITY // if pilot too close to their enemy, there's no need to use stim for approaching. they'll stop chasing once reached chaseStopDist
-const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR = NPC_PILOT_STIM_CHASE_STOP_DIST_2D * 1.5
+const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR = 800 + NPC_PILOT_STIM_REQUIRED_VELOCITY * 1.5
 
 void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 {
@@ -5763,6 +5842,7 @@ void function OnNPCDecoyDamaged( entity decoy, var damageInfo )
 	NPCDecoyFlicker( decoy )
 }
 
+// this is a fake flicker
 void function NPCDecoyFlicker( entity decoy )
 {
 	decoy.SetCanCloak( true )
