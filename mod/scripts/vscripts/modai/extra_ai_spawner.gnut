@@ -1062,15 +1062,16 @@ void function NPCUpgradeCoreSetUp( entity titan )
 	entity coreWeapon = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
 	if ( IsValid( coreWeapon ) )
 	{
-		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 0, NPC_UPGRADE_CORE_STAGE1_PASSIVES.getrandom() ) // first upgrade
-		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 1, NPC_UPGRADE_CORE_STAGE2_PASSIVES.getrandom() ) // second upgrade
-		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 3, NPC_UPGRADE_CORE_STAGE3_PASSIVES.getrandom() ) // forth upgrade
+		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 0, NPC_UPGRADE_CORE_STAGE1_PASSIVES[ RandomInt( NPC_UPGRADE_CORE_STAGE1_PASSIVES.len() ) ] ) // first upgrade
+		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 1, NPC_UPGRADE_CORE_STAGE2_PASSIVES[ RandomInt( NPC_UPGRADE_CORE_STAGE2_PASSIVES.len() ) ] ) // second upgrade
+		UpgradeCore_SetWeaponUpgradePassive( coreWeapon, 3, NPC_UPGRADE_CORE_STAGE3_PASSIVES[ RandomInt( NPC_UPGRADE_CORE_STAGE3_PASSIVES.len() ) ] ) // forth upgrade
 	}
 }
 
 void function NPCLegionLoadout( entity titan )
 {
 	// npc cannot use smart core, change to flame core
+	// has been changed to use scripted core ability handle
 	//NPCOgreTitanCoreReplace( titan )
 }
 
@@ -4969,7 +4970,7 @@ void function AssignTacticalAbilityForNPCPilot( entity pilot )
 		validAbilities.append( weaponName )
 
 	if ( validAbilities.len() > 0 )
-		pilot.GiveOffhandWeapon( validAbilities.getrandom(), OFFHAND_SPECIAL )
+		pilot.GiveOffhandWeapon( validAbilities[ RandomInt( validAbilities.len() ) ], OFFHAND_SPECIAL )
 }
 
 // ability settings
@@ -5221,36 +5222,43 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	table<entity, int> pilotWeaponAmmoCount
 	while ( true )
 	{
-		entity activeWeapon = pilot.GetActiveWeapon()
-		if ( IsValid( activeWeapon ) && !activeWeapon.IsWeaponOffhand() )
+		// init weapons
+		foreach ( entity weapon in pilot.GetMainWeapons() )
 		{
-			// have to hardcode for charge weapons...
-			// npc never reduces weapon's ammo stockpile count
-			// which means we can't get charge rifle's firing
-			if ( activeWeapon.IsChargeWeapon() )
+			if ( !( weapon in pilotWeaponAmmoCount ) )
+				pilotWeaponAmmoCount[ weapon ] <- GetWeaponAmmoOrClipCount( weapon )
+		}
+
+		// have to hardcode for charge weapons...
+		// npc never reduces weapon's ammo stockpile count
+		// which means we can't get charge rifle's firing
+		entity activeWeapon = pilot.GetActiveWeapon()
+		if ( IsValid( activeWeapon ) && activeWeapon.IsChargeWeapon() && !activeWeapon.IsWeaponOffhand() )
+		{
+			if ( Time() > chargeCheckStartTime ) // cloak break check start
 			{
-				if ( Time() > chargeCheckStartTime ) // cloak break check start
-				{
-					if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
-						break // break cloak
-				}
+				if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
+					break // break cloak
 			}
-			else
+		}
+		else // normal weapon case
+		{
+			if ( Time() > checkStartTime ) // cloak break check start
 			{
-				if ( !( activeWeapon in pilotWeaponAmmoCount ) )
-					pilotWeaponAmmoCount[ activeWeapon ] <- GetWeaponAmmoOrClipCount( activeWeapon )
-				else
+				foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
 				{
 					//print( "pilotWeaponAmmoCount[ activeWeapon ]: " + string( pilotWeaponAmmoCount[ activeWeapon ] ) )
 					//print( "GetWeaponAmmoOrClipCount( activeWeapon ): " + string( GetWeaponAmmoOrClipCount( activeWeapon ) ) )
-					if ( Time() > checkStartTime ) // cloak break check start
-					{
-						if ( GetWeaponAmmoOrClipCount( activeWeapon ) < pilotWeaponAmmoCount[ activeWeapon ] ) // firing weapon!
-							break // break cloak
-					}
-					pilotWeaponAmmoCount[ activeWeapon ] = GetWeaponAmmoOrClipCount( activeWeapon )
+					if ( GetWeaponAmmoOrClipCount( weapon ) < ammoSinceLastUpdate ) // firing weapon!
+						break // break cloak
 				}
 			}
+		}
+
+		foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
+		{
+			// update clip for next check
+			pilotWeaponAmmoCount[ weapon ] = GetWeaponAmmoOrClipCount( weapon )
 		}
 
 		WaitFrame()
