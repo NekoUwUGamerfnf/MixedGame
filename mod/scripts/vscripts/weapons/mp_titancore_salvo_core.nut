@@ -130,12 +130,16 @@ bool function OnAbilityCharge_SalvoCore( entity weapon )
 		}
 		else // other titans using it, could be bad... try to stop their movement for the duration of core
 		{
+			//print( "non-atlas chassis titan using salvo core..." )
 			float coreChargeTime = weapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
 			float coreDuration = weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
-			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 1.0, coreDuration + coreChargeTime, coreChargeTime )
+			// welp it's kinda funny but... 1.0 move_slow severity for npc will crash the game
+			// they'll move like weirdly some animation, and the game just boom
+			//StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 1.0, coreDuration + coreChargeTime, coreChargeTime )
+			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 0.5, coreDuration + coreChargeTime, coreChargeTime )
 		}
 	}
-#endif
+#endif // #if SERVER
 	return true
 }
 
