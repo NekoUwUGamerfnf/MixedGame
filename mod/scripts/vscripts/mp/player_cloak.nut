@@ -34,6 +34,10 @@ void function SetCannotCloak( entity ent )
 
 void function PlayCloakSounds( entity player )
 {
+	// clear last sound so player won't receive too much noise!
+	if ( player.IsPlayer() )
+		StopSoundOnEntity( player, "cloak_sustain_loop_1P" )
+	StopSoundOnEntity( player, "cloak_sustain_loop_3P" )
 	// add npc cloak compatibility
 	if ( player.IsPlayer() )
 	{
@@ -215,6 +219,10 @@ void function HandleCloakEnd( entity player )
 	if ( duration > soundBufferTime )
 	{
 		wait ( duration - soundBufferTime )
+		// clear last sound so player won't receive too much noise!
+		if ( player.IsPlayer() )
+			StopSoundOnEntity( player, "cloak_sustain_loop_1P" )
+		StopSoundOnEntity( player, "cloak_sustain_loop_3P" )
 		// add npc cloak compatibility
 		if ( player.IsPlayer() )
 		{
