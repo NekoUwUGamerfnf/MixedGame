@@ -48,7 +48,9 @@ void function StimPlayer_Internal( entity player, float duration, float effectSe
 	else
 	{
 		StatusEffect_AddTimed( player, eStatusEffect.speed_boost, effectSeverity, duration + 0.5, 0.25 ) // sound is slightly off
-		StatusEffect_AddTimed( player, eStatusEffect.stim_visual_effect, 1.0, duration, duration )
+		// add npc stim compatibility
+		if ( player.IsPlayer() )
+			StatusEffect_AddTimed( player, eStatusEffect.stim_visual_effect, 1.0, duration, duration )
 	}
 
 #if SERVER
@@ -66,55 +68,87 @@ void function StimPlayer_Internal( entity player, float duration, float effectSe
 void function StimThink( entity player, float duration, int endlessStatusEffectHandle )
 {
 	player.EndSignal( "OnDeath" )
-	player.EndSignal( "OnChangedPlayerClass" )
+	// add npc stim compatibility
+	if ( player.IsPlayer() )
+		player.EndSignal( "OnChangedPlayerClass" )
 	if ( endlessStatusEffectHandle != 0 )
 		player.EndSignal( "StopEndlessStim" )
 
 	// clear last sound so player won't receive too much noise!
-	StopSoundOnEntity( player, "pilot_stimpack_loop_1P" )
+	if ( player.IsPlayer() )
+		StopSoundOnEntity( player, "pilot_stimpack_loop_1P" )
 	StopSoundOnEntity( player, "pilot_stimpack_loop_3P" )
-	EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_stimpack_loop_1P" )
-	EmitSoundOnEntityExceptToPlayer( player, player, "pilot_stimpack_loop_3P" )
+	// add npc stim compatibility
+	if ( player.IsPlayer() )
+	{
+		EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_stimpack_loop_1P" )
+		EmitSoundOnEntityExceptToPlayer( player, player, "pilot_stimpack_loop_3P" )
+	}
+	else
+		EmitSoundOnEntity( player, "pilot_stimpack_loop_3P" )
 
 	int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
 
 	entity stimFX = StartParticleEffectOnEntity_ReturnEntity( player, PILOT_STIM_HLD_FX, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
-	stimFX.SetOwner( player )
-	stimFX.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) // not owner only
+	// add npc stim compatibility
+	if ( player.IsPlayer() )
+	{
+		stimFX.SetOwner( player )
+		stimFX.kv.VisibilityFlags = (ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY) // not owner only
+	}
 
 	//thread StimSlowmoAim( player, duration )
 
 	OnThreadEnd(
 		function() : ( player, stimFX, endlessStatusEffectHandle )
 		{
-			if ( !IsValid( player ) )
-				return
+			// this vanilla behavior looks bad... get rid of it
+			//if ( !IsValid( player ) )
+			//	return
 
 			if ( IsValid( stimFX ) )
 				EffectStop( stimFX )
 
-			StopSoundOnEntity( player, "pilot_stimpack_loop_1P" )
-			StopSoundOnEntity( player, "pilot_stimpack_loop_3P" )
+			if ( IsValid( player ) ) // player cleanup shouldn't affect fx cleanup
+			{
+				StopSoundOnEntity( player, "pilot_stimpack_loop_1P" )
+				StopSoundOnEntity( player, "pilot_stimpack_loop_3P" )
 
-			if ( endlessStatusEffectHandle != 0 )
-				StatusEffect_Stop( player, endlessStatusEffectHandle )
+				if ( endlessStatusEffectHandle != 0 )
+					StatusEffect_Stop( player, endlessStatusEffectHandle )
 
-			player.Signal( "EndStim" )
+				player.Signal( "EndStim" )
+			}
 		}
 	)
 
 	if ( duration == USE_TIME_INFINITE )
 		WaitForever()
 
-	wait duration - 2.0
+	// modified anti-crash
+	if ( duration >= 2.0 )
+	{
+		wait duration - 2.0
 
-	// clear last sound so player won't receive too much noise!
-	StopSoundOnEntity( player, "pilot_stimpack_deactivate_1P" )
-	StopSoundOnEntity( player, "pilot_stimpack_deactivate_3P" )
-	EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_stimpack_deactivate_1P" )
-	EmitSoundOnEntityExceptToPlayer( player, player, "pilot_stimpack_deactivate_3P" )
-
-	wait 2.0
+		// clear last sound so player won't receive too much noise!
+		if ( player.IsPlayer() )
+			StopSoundOnEntity( player, "pilot_stimpack_deactivate_1P" )
+		StopSoundOnEntity( player, "pilot_stimpack_deactivate_3P" )
+		// add npc stim compatibility
+		if ( player.IsPlayer() )
+		{
+			EmitSoundOnEntityOnlyToPlayer( player, player, "pilot_stimpack_deactivate_1P" )
+			EmitSoundOnEntityExceptToPlayer( player, player, "pilot_stimpack_deactivate_3P" )
+		}
+		else
+			EmitSoundOnEntity( player, "pilot_stimpack_deactivate_3P" )
+	
+		wait 2.0
+	}
+	else
+	{
+		wait duration
+	}
 }
 
 #else // #if SERVER
