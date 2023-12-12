@@ -363,6 +363,8 @@ struct
 	table<entity, float> npcPilotPhaseHealthThreshold
 	// npc attacking management
 	table< entity, array<int> > npcDisabledAttackCapabilityFlags
+	// npc execution management
+	array<entity> npcVanguardChassisTitan
 } file
 
 void function ExtraAISpawner_Init()
@@ -396,11 +398,6 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "ScriptedNPCTitanCoreAbility" )
 	// npc pilot think
 	RegisterSignal( "ScriptedNPCPilotTacticalAbility" )
-	RegisterSignal( "NPCPilotActivatesCloak" )
-	RegisterSignal( "CloakTimeOut" )
-	RegisterSignal( "NPCPilotActivatesStim" )
-	RegisterSignal( "NPCPilotActivatesPhaseShift" )
-	RegisterSignal( "PilotWantsToPhase" )
 	// gunship 
 	RegisterSignal( "GunshipJetBurstEffect" )
 	GunshipPrecache()
@@ -1337,17 +1334,30 @@ bool function ExtraSpawner_IsValidExecutionTarget( entity attacker, entity targe
 		return false
 	
 	// only handle those who spawn from this file
+	// attacker case
+	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) )
+	{
+		if ( attacker.IsTitan() ) 
+		{
+			// vanguard chassis shouldn't execute players due their victim animation don't have suitable attachment
+			bool targetIsPlayer = IsValid( target ) && target.IsPlayer()
+			if ( file.npcVanguardChassisTitan.contains( attacker ) && targetIsPlayer )
+				return false
+		}
+	}
+
+	// target case
 	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( target ) )
 	{
-		// npc target with core active can have bad animation while being executed
-		// usually happens for salvo core, but laser core seems working well? why?
-		// this cannot be solved by adding target.Anim_Stop() in _melee_synced_titan.gnut
-		// i don't know if it's a good idea to make them unable to be executed, just handle here
 		if ( target.IsTitan() ) 
 		{
 			entity soul = target.GetTitanSoul()
-			if ( IsValid( soul ) && TitanHasNpcPilot( target ) )
+			if ( IsValid( soul ) )
 			{
+				// npc target with core active can have bad animation while being executed
+				// usually happens for salvo core, but laser core seems working well? why?
+				// this cannot be solved by adding target.Anim_Stop() in _melee_synced_titan.gnut
+				// i don't know if it's a good idea to make them unable to be executed, just handle here
 				bool titanCoreInUse = TitanCoreInUse( target )
 				// also handle anim recover time for scripted core abilities
 				float timeSinceCoreExpire = Time() - SoulTitanCore_GetExpireTime( soul )
@@ -1357,6 +1367,13 @@ bool function ExtraSpawner_IsValidExecutionTarget( entity attacker, entity targe
 				if ( ( titanCoreInUse || titanCoreEndGracePeriod ) && target.Anim_IsActive() )
 					return false
 			}
+
+			// vanguard chassis shouldn't be executed by players due to bad AE_MELEE_KILLED events
+			bool attackerIsPlayer = IsValid( attacker ) && attacker.IsPlayer()
+			// EDIT: vanguard chassis shouldn't be executed by any titan
+			// change to be handled by MeleeSyncedTitan_SetSoulCanBeExecuted() again
+			//if ( file.npcVanguardChassisTitan.contains( target ) && attackerIsPlayer )
+			//	return false
 		}
 
 		// npc pilot elite case
@@ -1869,10 +1886,17 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 		}
 
 		PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( soul, false )	// disable earnmeter smoke availability, they already have electric smoke
+		// here has been reworked: we mark file.npcVanguardChassisTitan for them
+		// in that case, they can't execute player titan and players can't execute them
+		// npc executing each other is possible
+		// EDIT: should again make them unable to be executed by any titan
 		MeleeSyncedTitan_SetSoulCanBeExecuted( soul, false ) // cannot execute BT, they don't have enough animations
 		Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // bt don't have battery on hatch, don't allow removing
 		MeleeSyncedTitan_SetSoulDoRandomExecution( soul, true ) // execution_bt is already random with bt, this is for random classic execution
 	}
+
+	// mark as vanguard chassis titan
+	file.npcVanguardChassisTitan.append( titan )
 }
 
 const float NPC_VANGUARD_SHIELD_REGEN_DELAY = 6.0 // taken from titan_buddy.set( sp uses 3.0 )
@@ -5133,9 +5157,21 @@ void function ExtraSpawner_StopNPCPilotTacticalAbility( entity pilot )
 
 void function InitDefaultScriptedNPCPilotTactical()
 {
+	// cloak
+	RegisterSignal( "NPCPilotActivatesCloak" )
+	RegisterSignal( "CloakTimeOut" )
 	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_cloak", NPCPilotCloakThink )
+
+	// stim
+	RegisterSignal( "NPCPilotActivatesStim" )
 	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_heal", NPCPilotStimThink )
+
+	// holopilot
 	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_holopilot", NPCPilotHoloPilotThink )
+
+	// phase shift
+	RegisterSignal( "NPCPilotActivatesPhaseShift" )
+	RegisterSignal( "PilotWantsToPhase" )
 	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_shifter", NPCPilotPhaseShiftThink )
 }
 
@@ -5987,7 +6023,7 @@ const float NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC = 0.4 // if health about to take
 // npc pilots can't use shift well, give them some speed boost based on health left
 const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN = 0.3 // first version uses 0.65, no-time-extention version uses 0.35
 const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.6 // first version uses 1.35, no-time-extention version uses 0.8
-const float NPC_PILOT_PHASE_USE_TIME_EXTENTION = 1.5 // pilots can't use phase shift well... extend their use time for some bit
+const float NPC_PILOT_PHASE_USE_TIME_EXTENTION = 1.3 // pilots can't use phase shift well... extend their use time for some bit( was using 1.5 which might be annoying? )
 
 void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 {
