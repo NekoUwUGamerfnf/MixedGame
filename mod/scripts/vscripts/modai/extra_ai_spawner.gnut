@@ -2989,7 +2989,7 @@ void function ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 	if ( !IsValid( activeWeapon ) ) // must be disabled weapon, no need to do following checks
 		return
 
-	string acitveWeaponName = activeWeapon.GetWeaponClassName()
+	string activeWeaponName = activeWeapon.GetWeaponClassName()
 	bool antiTitanActive = activeWeapon != weapons[0] && !activeWeapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
 
 	bool isHeavyArmorTarget = enemy.GetArmorType() == ARMOR_TYPE_HEAVY
@@ -3008,7 +3008,7 @@ void function ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		foreach ( entity weapon in weapons )
 		{
 			string className = weapon.GetWeaponClassName()
-			if ( acitveWeaponName == className ) // already holding this weapon
+			if ( activeWeaponName == className ) // already holding this weapon
 				continue
 			bool isMainWeapon = weapon == weapons[0]
 			bool isAntiTitan = !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
@@ -3026,7 +3026,7 @@ void function ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		foreach ( entity weapon in weapons )
 		{
 			string className = weapon.GetWeaponClassName()
-			if ( acitveWeaponName == className ) // already holding this weapon
+			if ( activeWeaponName == className ) // already holding this weapon
 				continue
 			bool isMainWeapon = weapon == weapons[0]
 			bool isAntiTitan = !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required )
@@ -5188,9 +5188,12 @@ void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
 					// wait till enemy is in safe range, cloak to approach them
 					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
 
+					float activationDist = NPC_PILOT_CLOAK_ACTIVATE_DIST_2D
+					if ( enemy.IsTitan() )
+						activationDist = NPC_PILOT_CLOAK_ACTIVATE_DIST_2D_AGAINST_TITAN
 					if ( enemy.IsTitan() || enemy.IsNPC() ) // npcs or player titan target
 					{
-						if ( dist2D <= NPC_PILOT_CLOAK_ACTIVATE_DIST_2D_AGAINST_TITAN )
+						if ( dist2D <= activationDist )
 						{
 							//if ( pilot.CanSee( enemy ) ) // cloak once pilot can see their enemy
 							//	break
@@ -5200,7 +5203,9 @@ void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
 					else // player pilot target
 					{
 						// cloak only when pilot not in close range, or when they can't see enemy
-						if ( ( !pilot.CanSee( enemy ) || dist2D > NPC_PILOT_CLOAK_COMBAT_DIST_2D ) && dist2D <= NPC_PILOT_CLOAK_ACTIVATE_DIST_2D )
+						// removed CanSee enemy checks, only check for distance( because their sights are pretty silly )
+						//if ( ( !pilot.CanSee( enemy ) || dist2D > NPC_PILOT_CLOAK_COMBAT_DIST_2D ) && dist2D <= activationDist )
+						if ( dist2D > NPC_PILOT_CLOAK_COMBAT_DIST_2D && dist2D <= activationDist )
 							break
 					}
 				}
@@ -5222,11 +5227,11 @@ float function GetNPCLastDamageTime( entity guy )
 	return 0.0 // no damage taken yet
 }
 
-const float NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC = 0.3 // don't attack at the start of cloak ability
-const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.05 // pilot firing weapon within this frac of cloak duration won't break their cloak
+const float NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC = 0.35 // don't attack at the start of cloak ability
+const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.0 // pilot firing weapon within this frac of cloak duration won't break their cloak
 
 const float NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION = 0.75 // have to hardcode for charge weapons... mostly for charge rifle. if pilot charges their weapon to this fraction, break cloak
-const float NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE = 0.1 // pilot charge weapon within this frac of cloak duration won't break their cloak
+const float NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE = 0.0 // pilot charge weapon within this frac of cloak duration won't break their cloak
 
 void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 {
@@ -5352,13 +5357,24 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 		// npc never reduces weapon's ammo stockpile count
 		// which means we can't get charge rifle's firing
 		entity activeWeapon = pilot.GetActiveWeapon()
+		bool shouldBreakCloak = false
 		if ( IsValid( activeWeapon ) && activeWeapon.IsChargeWeapon() && !activeWeapon.IsWeaponOffhand() )
 		{
 			if ( Time() > chargeCheckStartTime ) // cloak break check start
 			{
+				// debug
+				/*
+				print( "activeWeapon: " + string( activeWeapon ) )
+				print( "chargeFrac: " + string( activeWeapon.GetWeaponChargeFraction() ) )
+				*/
+
 				if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
-					break // break cloak
+					shouldBreakCloak = true // break cloak
 			}
+			/*
+			else // debug
+				print( "cloaked firing check not started yet" )
+			*/
 		}
 		else // normal weapon case
 		{
@@ -5366,20 +5382,38 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 			{
 				foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
 				{
-					//print( "pilotWeaponAmmoCount[ activeWeapon ]: " + string( pilotWeaponAmmoCount[ activeWeapon ] ) )
-					//print( "GetWeaponAmmoOrClipCount( activeWeapon ): " + string( GetWeaponAmmoOrClipCount( activeWeapon ) ) )
+					// debug
+					/*
+					if ( weapon == activeWeapon )
+					{
+						print( "weapon: " + string( weapon ) )
+						print( "pilotWeaponAmmoCount[ weapon ]: " + string( pilotWeaponAmmoCount[ weapon ] ) )
+						print( "GetWeaponAmmoOrClipCount( weapon ): " + string( GetWeaponAmmoOrClipCount( weapon ) ) )
+						print( "ammoSinceLastUpdate: " + string( ammoSinceLastUpdate ) )
+					}
+					*/
+
 					if ( GetWeaponAmmoOrClipCount( weapon ) < ammoSinceLastUpdate ) // firing weapon!
-						break // break cloak
+					{
+						shouldBreakCloak = true // break cloak
+						break
+					}
 				}
 			}
+			/*
+			else // debug
+				print( "cloaked firing check not started yet" )
+			*/
 		}
 
-		foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
-		{
-			// update clip for next check
+		// break cloak if we have marked it
+		if ( shouldBreakCloak )
+			break
+
+		// update clip for next check
+		foreach ( entity weapon in pilot.GetMainWeapons() )
 			pilotWeaponAmmoCount[ weapon ] = GetWeaponAmmoOrClipCount( weapon )
-		}
-
+		
 		WaitFrame()
 	}
 
@@ -5412,12 +5446,18 @@ int function GetWeaponAmmoOrClipCount( entity weapon )
 }
 
 // this is a fake flicker
+// EDIT: "decloakOnShoot" won't work at all!
+// removing this
+/*
 void function NPCPilotDeCloakFlicker( entity pilot )
 {
 	pilot.SetCanCloak( true )
 	pilot.SetCloakDuration( 0, 0.05, 0.5 )
+	// use cloak fadeIn as flicker is enough
+	//pilot.SetCloakFlicker( 0.5, 0.65 )
 	DisableCloak( pilot, 0.5 ) // do decloak sound and end looping sound thread
 }
+*/
 
 void function OnCloakNPCPilotDamaged( entity pilot, var damageInfo )
 {
@@ -5691,10 +5731,11 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 }
 
 // create a npc entity as fake decoy
+// actually can be used for players
 entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = -1 )
 {
-	string decoyClass = "npc_soldier"
-	string decoyAISet = "npc_soldier"
+	string decoyClass = "npc_pilot_elite" // was using npc_soldier, but pilots don't have dialogue, which is better
+	string decoyAISet = "npc_pilot_elite" // was using npc_soldier
 	if ( npc.IsNPC() )
 	{
 		decoyClass = npc.GetClassName()
@@ -5714,13 +5755,14 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( npc ) )
 		ExtraSpawner_SetUpSpawnedNPC( decoy )
 	
-	// npc model take hold from T-pose
-	decoy.kv.VisibilityFlags = 0 // disable any model light stuffs
+	// npc model take hold from T-pose and non-alert state
+	thread DelayedShowNPCDecoy( decoy )
+	
 	DispatchSpawn( decoy )
 
-	// npc model take hold from T-pose
-	thread DelayedShowNPCDecoy( decoy )
-
+	// update model
+	decoy.SetModel( npc.GetModelName() )
+	decoy.SetVelocity( npc.GetVelocity() )
 	// taken from mp_ability_holopilot
 	PutEntityInSafeSpot( decoy, npc, null, npc.GetOrigin(), decoy.GetOrigin() )
 
@@ -5729,8 +5771,10 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	decoy.SetMaxHealth( health )
 	decoy.SetHealth( health ) // won't get one shot by player like normal decoys
 
-	decoy.SetTitle( npc.GetTitle() )
-	decoy.SetModel( npc.GetModelName() )
+	string title = npc.GetTitle()
+	if ( npc.IsPlayer() )
+		title = npc.GetPlayerName()
+	decoy.SetTitle( title )
 	decoy.SetNoTargetSmartAmmo( true ) // smart ammo won't target decoy
 
 	// create fake weapon prop
@@ -5739,7 +5783,7 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	{
 		TakeAllWeapons( decoy )
 		if ( npc.GetMainWeapons().len() > 0 )
-			weaponProp = CreatePropFromWeapon( npc.GetMainWeapons()[0] )
+			weaponProp = CreatemWeaponPropForDecoy( npc.GetMainWeapons()[0] )
 	}
 	else // try to assign active weapon
 	{
@@ -5749,14 +5793,14 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 		
 		TakeAllWeapons( decoy )
 		if ( IsValid( activeWeapon ) )
-			weaponProp = CreatePropFromWeapon( activeWeapon )
+			weaponProp = CreatemWeaponPropForDecoy( activeWeapon )
 	}
 	if ( IsValid( weaponProp ) )
 		weaponProp.SetParent( decoy, "PROPGUN" )
 
 	decoy.SetHologram() // Make this NPC a hologram. It will generate hologram impact effects when hit
 	decoy.SetPassThroughThickness( 0 )
-	decoy.kv.CollisionGroup = 0 // they can still block weapon and hulls though
+	decoy.kv.CollisionGroup = 0 // they can still block hitscan weapon and hulls though
 	//decoy.kv.solid = SOLID_HITBOXES // mess things up
 	decoy.kv.contents = (int(decoy.kv.contents) | CONTENTS_NOGRAPPLE)
 
@@ -5775,7 +5819,6 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	
 	// behavior
 	RemoveMinimapForNPC( decoy ) // don't show on minimap for any team, that's the way to identify them
-	decoy.SetNameVisibleToFriendly( false ) // try to avoid friendly player targeting them
 	DisableNPCAttackCapability( decoy, true, true, true ) // disable attacking and traverse
 	// don't drop any weapon, no pain
 	decoy.EnableNPCFlag( NPC_NO_WEAPON_DROP | NPC_NO_PAIN | NPC_NO_GESTURE_PAIN )
@@ -5789,17 +5832,26 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	return decoy
 }
 
-entity function CreatePropFromWeapon( entity weapon )
+entity function CreatemWeaponPropForDecoy( entity weapon )
 {
 	entity owner = weapon.GetWeaponOwner()
-	if ( IsValid( owner ) && owner.IsPlayer() ) // player owned weapon will get their FP model when using GetModelName()...
-		return // don't do anything if so
-
 	asset modelName = weapon.GetModelName()
+
+	// player owned weapon will get their FP model when using GetModelName()...
+	bool ownerIsPlayer = IsValid( owner ) && owner.IsPlayer()
+	if ( ownerIsPlayer )
+	{
+		// create a weapon drop and get it's model if so
+		string weaponName = weapon.GetWeaponClassName()
+		entity tempWeapon = CreateWeaponEntityByNameWithPhysics( weaponName, owner.GetOrigin(), <0,0,0> )
+		modelName = tempWeapon.GetModelName()
+		tempWeapon.Destroy()
+	}
+
 	entity prop = CreatePropDynamic( modelName )
 	prop.Highlight_SetInheritHighlight( true ) // setup highlight
 	prop.NotSolid()
-	// no need to track lifetime because our owner won't be player
+	// no need to track lifetime because prop owner won't be player
 
 	return prop
 }
@@ -5807,7 +5859,14 @@ entity function CreatePropFromWeapon( entity weapon )
 void function DelayedShowNPCDecoy( entity decoy )
 {
 	decoy.EndSignal( "OnDestroy" )
-	WaitFrame() // take hold
+
+	decoy.kv.VisibilityFlags = 0 // disable any model light stuffs
+	HideName( decoy )
+	WaitFrame() // take hold from T-posing
+
+	ShowName( decoy )
+	decoy.SetNameVisibleToFriendly( false ) // try to avoid friendly player targeting them
+	WaitFrame() // take hold from casual state
 
 	decoy.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 	// flicker like player decoy
@@ -5824,14 +5883,16 @@ void function OnNPCDecoyDamaged( entity decoy, var damageInfo )
 	// don't show indicator on damaging decoy
 	DamageInfo_AddCustomDamageType( damageInfo, DF_NO_INDICATOR )
 	// flicker like player decoy
-	NPCDecoyFlicker( decoy )
+	NPCDecoyFlicker( decoy, 0.25 )
 }
 
 // this is a fake flicker
-void function NPCDecoyFlicker( entity decoy )
+void function NPCDecoyFlicker( entity decoy, float duration = 0.5 )
 {
 	decoy.SetCanCloak( true )
-	decoy.SetCloakDuration( 0, 0.05, 0.5 )
+	decoy.SetCloakDuration( 0, 0.05, duration )
+	// use cloak fadeIn as flicker is enough
+	//decoy.SetCloakFlicker( duration, duration * 1.3 )
 }
 
 void function OnNPCDecoyPostDamaged( entity decoy, var damageInfo )
@@ -5845,8 +5906,12 @@ void function OnNPCDecoyPostDamaged( entity decoy, var damageInfo )
 		ClearRecentDamageHistory( decoy )
 		ClearLastAttacker( decoy )
 		DamageInfo_SetDamage( damageInfo, decoy.GetHealth() - 1 )
-		// die to self damage, maintain force
-		decoy.Die( decoy, decoy, { damageSourceId = damagedef_suicide, force = DamageInfo_GetDamageForce( damageInfo ) } )
+		// die to self damage, skip death callbacks, maintain force(don't really work though)
+		if ( IsAlive( decoy ) )
+		{
+			//DisableCloak( player, 0 ) // manually disable any flicker because we won't call AbilityCloak_OnDeath() in player_cloak.nut
+			decoy.Die( decoy, decoy, { damageSourceId = eDamageSourceId.round_end, force = DamageInfo_GetDamageForce( damageInfo ) } )
+		}
 	}
 }
 
@@ -5921,7 +5986,7 @@ void function NPCPilotPhaseShiftThink( entity pilot, entity abilityWeapon )
 const float NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC = 0.4 // if health about to take this amount of damage, phase out of danger
 // npc pilots can't use shift well, give them some speed boost based on health left
 const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN = 0.3 // first version uses 0.65, no-time-extention version uses 0.35
-const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.65 // first version uses 1.35, no-time-extention version uses 0.8
+const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.6 // first version uses 1.35, no-time-extention version uses 0.8
 const float NPC_PILOT_PHASE_USE_TIME_EXTENTION = 1.5 // pilots can't use phase shift well... extend their use time for some bit
 
 void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
