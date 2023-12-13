@@ -48,6 +48,9 @@ global function PlayerEarnMeter_GetSoulEarnMeterSmokeEnabled // shared with sv_e
 global function PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage
 global function PlayerEarnMeter_IsSoulNPCTitanEarnMeterSmokeUsageEnabled
 
+// modified callbacks, to get rid of maelstrom hardcode
+global function AddCallback_OnGiveOffhandElectricSmoke
+
 // when client display a 99% frac, server actually has "0.989999"
 // this fixes earnmeter displays as 99% but player can't earn goal
 const float ACTUAL_MAX_EARN_FRAC = 0.998
@@ -74,6 +77,9 @@ struct
 	// modified!!! for adding npc electric smoke usage
 	// THIS WON'T WORK AT ALL. npc can have smoke but they'll never use them. just saving here
 	table<entity, bool> soulEnableNPCEarnMeterSmokeUsage
+
+	// modified callbacks, to get rid of maelstrom hardcode
+	array<void functionref( entity titan, bool startWithSmoke )> onGiveOffhandElectricSmokeCallbacks
 } file
 
 void function Sv_EarnMeter_Init()
@@ -487,7 +493,12 @@ void function GiveOffhandElectricSmoke( entity titan )
 
 	//entity soul = titan.GetTitanSoul() // moved up
 	bool hasAntiRodeoKit = IsValid( soul ) && SoulHasPassive( soul, ePassives.PAS_ANTI_RODEO )
-	if ( titan.GetOffhandWeapon( OFFHAND_INVENTORY ) != null )
+
+	// move this check outside for we can pass into callbacks
+	bool startWithSmoke = titan.GetOffhandWeapon( OFFHAND_INVENTORY ) != null
+
+	//if ( titan.GetOffhandWeapon( OFFHAND_INVENTORY ) != null )
+	if ( startWithSmoke )
 	{
 		// debug
 		//print( "titan start with reward smoke" )
@@ -497,7 +508,7 @@ void function GiveOffhandElectricSmoke( entity titan )
 		else
 			weapon.SetWeaponPrimaryAmmoCount( weapon.GetWeaponPrimaryAmmoCount() + 1 )
 	}
-	else
+	else // titan don't have smoke, give them a new one
 	{
 		titan.GiveOffhandWeapon( CORE_SMOKE_WEAPON, OFFHAND_INVENTORY )
 		entity weapon = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
@@ -518,6 +529,10 @@ void function GiveOffhandElectricSmoke( entity titan )
 		{
 			weapon.SetWeaponPrimaryAmmoCount( weapon.GetWeaponPrimaryAmmoCount() + 1 )
 		}
+
+		// maelstrom hardcode
+		// turns to callback! handled in modified mp_titancore_upgrade.nut
+		/*
 		if ( soul.GetTitanSoulNetInt( "upgradeCount" ) >= 2 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 ) )
 		{
 			entity weapon = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
@@ -525,6 +540,7 @@ void function GiveOffhandElectricSmoke( entity titan )
 			mods.append( "maelstrom" )
 			weapon.SetMods( mods )
 		}
+		*/
 	}
 
 	// modified here: update npc smoke usage
@@ -537,6 +553,11 @@ void function GiveOffhandElectricSmoke( entity titan )
 			rewardSmoke.AllowUse( PlayerEarnMeter_IsSoulNPCTitanEarnMeterSmokeUsageEnabled( soul ) )
 		}
 	}
+
+	// modified callbacks
+	// Added via AddCallback_OnGiveOffhandElectricSmoke
+	foreach ( callbackFunc in file.onGiveOffhandElectricSmokeCallbacks )
+		callbackFunc( titan, startWithSmoke )
 }
 
 // CreateAutoTitanForPlayer_FromTitanLoadout's titan won't get an owner immediately, needs to delay
@@ -657,4 +678,12 @@ bool function PlayerEarnMeter_IsSoulNPCTitanEarnMeterSmokeUsageEnabled( entity s
 		return file.soulEnableNPCEarnMeterSmokeUsage[ soul ]
 
 	return ANTI_RODEO_SMOKE_ENABLED // vanilla behavior: never allow npc titan smoke usage
+}
+
+
+// modified callbacks, to get rid of maelstrom hardcode
+void function AddCallback_OnGiveOffhandElectricSmoke( void functionref( entity titan, bool startWithSmoke ) callbackFunc )
+{
+	if ( !file.onGiveOffhandElectricSmokeCallbacks.contains( callbackFunc ) )
+		file.onGiveOffhandElectricSmokeCallbacks.append( callbackFunc )
 }
