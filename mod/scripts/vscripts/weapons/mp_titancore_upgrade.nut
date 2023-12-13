@@ -14,9 +14,19 @@ global function OnWeaponNpcPrimaryAttack_UpgradeCore
 // modified settings
 // allow modifying shield regen amount when using custom shield amount
 global function UpgradeCore_SetShieldRegenScale
+
 // allow modifying upgrading method for titan
-global function UpgradeCore_SetWeaponUpgradePassive
-global function UpgradeCore_WeaponHasModifiedUpgrades
+// not a good idea to use weapon for stroing modified upgrades--- they can be easily destroyed
+//global function UpgradeCore_SetWeaponUpgradePassive
+//global function UpgradeCore_WeaponHasModifiedUpgrades
+global function UpgradeCore_SetTitanUpgradePassive
+global function UpgradeCore_SetTitanUpgradePassivesTable
+
+global function UpgradeCore_TitanHasModifiedUpgrades
+global function UpgradeCore_GetTitanMaxUpgradeLevel
+
+global function UpgradeCore_GetTitanModifiedUpgradePassive
+global function UpgradeCore_GetTitanModifiedUpgradesTable
 
 // to be shared with titan_replace, for handling loadout pickup
 global function UpgradeCore_GetTitanUpgradeCount // scripted upgrade count, not networkvar
@@ -43,7 +53,9 @@ struct
 	// allow modifying shield regen amount when using custom shield amount
 	float shieldRegenScale = 1.0 // 1.0 means regen to max shield
 	// allow modifying upgrading method for titan
-	table< entity, table<int, int> > upgradeCorePassivesTable
+	// not a good idea to use weapon for stroing modified upgrades--- they can be easily destroyed
+	//table< entity, table<int, int> > upgradeCorePassivesTable
+	table< entity, table<int, int> > soulUpgradePassivesTable
 	table<entity, int> soulUpgradeCount
 	// storing received upgrades for titan. array<int> is for storing passives index
 	table< entity, array<int> > soulReceivedUpgradePassives
@@ -73,6 +85,7 @@ void function InitUpgradeCoreTitanSoul( entity soul )
 {
 	file.soulUpgradeCount[ soul ] <- 0
 	file.soulReceivedUpgradePassives[ soul ] <- []
+	file.soulUpgradePassivesTable[ soul ] <- {}
 }
 
 // get rid of maelstrom hardcode
@@ -127,14 +140,23 @@ var function OnWeaponPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryAtta
 		// below are heavily modified
 		int totalUpgradeCount = UpgradeCore_GetTitanUpgradeCount( owner ) // script upgrade counter
 
-		void functionref( entity ) upgradeFunc = null
-		if ( !( weapon in file.upgradeCorePassivesTable ) ) // don't have modified settings?
+		bool functionref( entity ) upgradeFunc = null
+		//if ( !UpgradeCore_WeaponHasModifiedUpgrades( weapon ) ) // don't have modified settings?
+		if ( !UpgradeCore_TitanHasModifiedUpgrades( owner ) )
 			upgradeFunc = GetUpgradeFunctionFromTitan( owner ) // get upgrade from titan
 		else // has modified upgrade order
 		{
+			// not a good idea to use weapon for stroing modified upgrades--- they can be easily destroyed
+			/*
 			if ( totalUpgradeCount in file.upgradeCorePassivesTable[ weapon ] )
 			{
 				int passive = file.upgradeCorePassivesTable[ weapon ][ totalUpgradeCount ]
+				upgradeFunc = GetUpgradeFunctionFromPassive( passive )
+			}
+			*/
+			if ( UpgradeCore_TitanHasUpgradePassiveForLevel( owner, totalUpgradeCount ) )
+			{
+				int passive = UpgradeCore_GetTitanModifiedUpgradePassive( owner, totalUpgradeCount )
 				upgradeFunc = GetUpgradeFunctionFromPassive( passive )
 			}
 		}
@@ -258,7 +280,7 @@ void function UpgradeCoreThink( entity weapon, float coreDuration )
 
 // modified rework starts here
 // split everything into functions
-void functionref( entity ) function GetUpgradeFunctionFromTitan( entity titan )
+bool functionref( entity ) function GetUpgradeFunctionFromTitan( entity titan )
 {
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
@@ -296,7 +318,7 @@ void functionref( entity ) function GetUpgradeFunctionFromTitan( entity titan )
 	return null
 }
 
-void functionref( entity ) function GetUpgradeFunctionFromPassive( int passive )
+bool functionref( entity ) function GetUpgradeFunctionFromPassive( int passive )
 {
 	switch ( passive )
 	{
@@ -346,7 +368,7 @@ void function PlayUpgradeDialogue( entity titan )
 	else if ( effectiveUpgradeCount == 2 )
 	{
 		array<string> conversations = [ "upgradeTo3" ]
-		if ( GetMaxUpgradeLevel( titan ) == 2 ) // max upgrade level is 2
+		if ( UpgradeCore_GetTitanMaxUpgradeLevel( titan ) == 2 ) // max upgrade level is 2
 			conversations.append( "upgradeToFin" ) // add chance to pick "final upgrade" dialogue
 		conversationID = GetConversationIndex( conversations.getrandom() )
 	}
@@ -355,7 +377,7 @@ void function PlayUpgradeDialogue( entity titan )
 		conversationID = GetConversationIndex( "upgradeShieldReplenish" )
 
 		// custom level
-		if ( UpgradeCore_GetTitanUpgradeCount( titan ) == GetMaxUpgradeLevel( titan ) ) // reaching max upgrade level?
+		if ( UpgradeCore_GetTitanUpgradeCount( titan ) == UpgradeCore_GetTitanMaxUpgradeLevel( titan ) ) // reaching max upgrade level?
 			conversationID = GetConversationIndex( "upgradeToFin" ) // use final upgrade dialogue instead
 	}
 
@@ -363,18 +385,26 @@ void function PlayUpgradeDialogue( entity titan )
 		Remote_CallFunction_Replay( titan, "ServerCallback_PlayTitanConversation", conversationID )
 }
 
-int function GetMaxUpgradeLevel( entity titan )
+int function UpgradeCore_GetTitanMaxUpgradeLevel( entity titan )
 {
+	// not a good idea to use weapon for stroing modified upgrades--- they can be easily destroyed
+	/*
 	entity upgradeCore = GetUpgradeCoreWeapon( titan )
 	if ( !IsValid( upgradeCore ) ) // don't have upgrade core for some reason...
 		return 0
 
 	// core with no modified settings, just return default value
-	if ( !( upgradeCore in file.upgradeCorePassivesTable ) )
+	if ( !UpgradeCore_WeaponHasModifiedUpgrades( upgradeCore ) )
+		return UPGRADE_CORE_DEFAULT_MAX_LEVEL
+	*/
+
+	// titan with no modified settings, just return default value
+	if ( !UpgradeCore_TitanHasModifiedUpgrades( titan ) )
 		return UPGRADE_CORE_DEFAULT_MAX_LEVEL
 	
 	int highestLevel = 0
-	foreach ( int level, int passive in file.upgradeCorePassivesTable[ upgradeCore ] )
+	//foreach ( int level, int passive in file.upgradeCorePassivesTable[ upgradeCore ] )
+	foreach ( int level, int passive in UpgradeCore_GetTitanModifiedUpgradesTable( titan ) )
 	{
 		if ( highestLevel < level )
 			highestLevel = level
@@ -383,6 +413,8 @@ int function GetMaxUpgradeLevel( entity titan )
 }
 
 // this is hardcoded!
+// not a good idea to use weapon for stroing modified upgrades--- they can be easily destroyed
+/*
 entity function GetUpgradeCoreWeapon( entity titan )
 {
 	entity coreWeapon = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
@@ -391,8 +423,9 @@ entity function GetUpgradeCoreWeapon( entity titan )
 	
 	return null
 }
+*/
 
-void function Upgrade_ArcRounds( entity titan )
+bool function Upgrade_ArcRounds( entity titan )
 {
 	// anti-crash: don't upgrade again if we already got the same upgrade
 	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
@@ -420,12 +453,13 @@ void function Upgrade_ArcRounds( entity titan )
 	if ( titan.IsPlayer() )
 		Remote_CallFunction_NonReplay( titan, "ServerCallback_VanguardUpgradeMessage", 1 )
 
-	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
-	if ( receivedUpgrades.contains( ePassives.PAS_VANGUARD_CORE1 ) )
-		return false // upgrading failed
+	// append passive to received upgrades
+	receivedUpgrades.append( ePassives.PAS_VANGUARD_CORE1 )
+	UpgradeCore_SetTitanReceivedUpgradePassives( titan, receivedUpgrades )
+	return true // upgrading succeeded
 }
 
-void function Upgrade_MissileRacks( entity titan )
+bool function Upgrade_MissileRacks( entity titan )
 {
 	// anti-crash: don't upgrade again if we already got the same upgrade
 	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
@@ -454,7 +488,7 @@ void function Upgrade_MissileRacks( entity titan )
 	return true // upgrading succeeded
 }
 
-void function Upgrade_EnergyTransfer( entity titan )
+bool function Upgrade_EnergyTransfer( entity titan )
 {
 	// anti-crash: don't upgrade again if we already got the same upgrade
 	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
@@ -483,7 +517,7 @@ void function Upgrade_EnergyTransfer( entity titan )
 	return true // upgrading succeeded
 }
 
-void function Upgrade_RapidRearm( entity titan )
+bool function Upgrade_RapidRearm( entity titan )
 {
 	// anti-crash: don't upgrade again if we already got the same upgrade
 	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
@@ -523,7 +557,7 @@ void function Upgrade_RapidRearm( entity titan )
 	return true // upgrading succeeded
 }
 
-void function Upgrade_Maelstrom( entity titan )
+bool function Upgrade_Maelstrom( entity titan )
 {
 	// anti-crash: don't upgrade again if we already got the same upgrade
 	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
@@ -552,7 +586,7 @@ void function Upgrade_Maelstrom( entity titan )
 	return true // upgrading succeeded
 }
 
-void function Upgrade_EnergyField( entity titan )
+bool function Upgrade_EnergyField( entity titan )
 {
 	// anti-crash: don't upgrade again if we already got the same upgrade
 	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
@@ -592,7 +626,7 @@ void function Upgrade_EnergyField( entity titan )
 	return true // upgrading succeeded
 }
 
-void function Upgrade_MultiTargetMissiles( entity titan )
+bool function Upgrade_MultiTargetMissiles( entity titan )
 {
 	// anti-crash: don't upgrade again if we already got the same upgrade
 	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
@@ -629,7 +663,7 @@ void function Upgrade_MultiTargetMissiles( entity titan )
 	return true // upgrading succeeded
 }
 
-void function Upgrade_SuperiorChassis( entity titan )
+bool function Upgrade_SuperiorChassis( entity titan )
 {
 	// anti-crash: don't upgrade again if we already got the same upgrade
 	array<int> receivedUpgrades = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
@@ -788,6 +822,8 @@ void function UpgradeCore_SetShieldRegenScale( float scale )
 }
 
 // allow modifying upgrading method for titan
+// not a good idea to use weapon for stroing modified upgrades--- they can be easily destroyed
+/*
 void function UpgradeCore_SetWeaponUpgradePassive( entity weapon, int upgradeLevel, int passive )
 {
 	table<int, int> emptyTable
@@ -803,6 +839,78 @@ void function UpgradeCore_SetWeaponUpgradePassive( entity weapon, int upgradeLev
 bool function UpgradeCore_WeaponHasModifiedUpgrades( entity weapon )
 {
 	return ( weapon in file.upgradeCorePassivesTable )
+}
+*/
+
+void function UpgradeCore_SetTitanUpgradePassive( entity titan, int upgradeLevel, int passive )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( upgradeLevel in file.soulUpgradePassivesTable[ soul ] ) )
+		file.soulUpgradePassivesTable[ soul ][ upgradeLevel ] <- passive
+	else
+		file.soulUpgradePassivesTable[ soul ][ upgradeLevel ] = passive
+}
+
+void function UpgradeCore_SetTitanUpgradePassivesTable( entity titan, table<int, int> upgradeTable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	file.soulUpgradePassivesTable[ soul ] = upgradeTable
+}
+
+bool function UpgradeCore_TitanHasModifiedUpgrades( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	return file.soulUpgradePassivesTable[ soul ].len() > 0
+}
+
+bool function UpgradeCore_TitanHasUpgradePassiveForLevel( entity titan, int level )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	return level in file.soulUpgradePassivesTable[ soul ]
+}
+
+int function UpgradeCore_GetTitanModifiedUpgradePassive( entity titan, int level )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return -1
+	
+	if ( !UpgradeCore_TitanHasUpgradePassiveForLevel( titan, level ) ) // level overloaded!
+		return -1
+
+	return file.soulUpgradePassivesTable[ soul ][ level ]
+}
+
+table<int, int> function UpgradeCore_GetTitanModifiedUpgradesTable( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return {}
+	
+	if ( !UpgradeCore_TitanHasModifiedUpgrades( titan ) )
+		return {}
+
+	return clone file.soulUpgradePassivesTable[ soul ]
+}
+
+void function UpgradeCore_RemoveTitanModifiedUpgrades( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	file.soulUpgradePassivesTable[ soul ] = {} // clean up
 }
 
 int function UpgradeCore_GetTitanUpgradeCount( entity titan )

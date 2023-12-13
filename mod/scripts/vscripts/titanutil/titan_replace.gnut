@@ -6,9 +6,9 @@ global function TitanReplace_Init
 
 // settings
 global function TitanReplace_SetEnabled
+global function TitanReplace_MonarchUpgradeAfterDrop // monarch loadout keep upgrades after pickup
 
 global function TitanReplace_UseGunnerBisonVariant // bison variant
-global function TitanReplace_MonarchUpgradeAfterDrop // monarch loadout keep upgrades after pickup
 
 // fixes and rebalances, always gets applied no matter titan_replace is enabled or not
 global function TitanReplace_EnableRoninMiscFix // fix ronin's sword core behavior
@@ -92,6 +92,7 @@ struct MonarchUpgrades
 	int effectiveUpgradeCount
 	int totalUpgradeCount
 	array<int> receivedUpgradePassives
+	table<int, int> titanModifiedUpgrades
 }
 
 struct
@@ -143,6 +144,11 @@ void function TitanReplace_Init()
 void function TitanReplace_SetEnabled( bool enabled )
 {
 	file.defaultReplaceEnabled = enabled
+}
+
+void function TitanReplace_MonarchUpgradeAfterDrop( bool enable )
+{
+    file.upgradeAllowedAfterDrop = enable
 }
 
 void function TitanReplace_UseGunnerBisonVariant( bool use )
@@ -1782,8 +1788,20 @@ void function TitanReplace_BecomeMonarch( entity titan, bool isPickup = false, b
 				}
 
 				//Passives
+				// this is called earlier than Monarch_OnTitanPickupWeapon()
+				// can't handle stuffs, moved into ApplyMonarchUpgrades()
+				/*
+				// modified upgrades handle
+				entity core = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+				bool hasModifiedUpgrades = IsValid( core ) && UpgradeCore_WeaponHasModifiedUpgrades( core )
+
 				// maelstrom
-				if ( upgradeCount >= 2 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 ) )
+				bool hasMaelStrom = upgradeCount >= 2 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 )
+				if ( hasModifiedUpgrades )
+					hasMaelStrom = UpgradeCore_GetTitanReceivedUpgradePassives( titan ).contains( ePassives.PAS_VANGUARD_CORE5 )
+				// debug
+				//print( "hasMaelStrom: " + string( hasMaelStrom ) )
+				if ( hasMaelStrom )
 				{
 					entity smokeWeapon = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
 					if ( IsValid( smokeWeapon ) )
@@ -1793,8 +1811,14 @@ void function TitanReplace_BecomeMonarch( entity titan, bool isPickup = false, b
 						smokeWeapon.SetMods( mods )
 					}
 				}
+
 				// superior chassis
-				if ( upgradeCount >= 3 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 ) )
+				bool hasSuperiorChassis = upgradeCount >= 3 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 )
+				if ( hasModifiedUpgrades )
+					hasSuperiorChassis = UpgradeCore_GetTitanReceivedUpgradePassives( titan ).contains( ePassives.PAS_VANGUARD_CORE8 )
+				// debug
+				//print( "hasSuperiorChassis: " + string( hasSuperiorChassis ) )
+				if ( hasSuperiorChassis )
 				{
 					if ( !GetDoomedState( titan ) && IsAlive( titan ) )
 					{
@@ -1813,6 +1837,7 @@ void function TitanReplace_BecomeMonarch( entity titan, bool isPickup = false, b
 					// here goes a problem: a monarch with superior chassis cannot update it's health bar if it switch to another final upgrade with same upgradeCount
 					soul.SetPreventCrits( true )
 				}
+				*/
 
 				//Executions
 				if ( GetSoulTitanSubClass( soul ) == "atlas" ) // atlas titan
@@ -3171,8 +3196,10 @@ string function MonarchWeaponDisplayNameFunc( entity weapon )
 	string effectiveUpgrades = ""
 	
 	// get modified upgrades will be too much compilicated, ignore if so
-	entity core = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
-	bool hasModifiedUpgrades = IsValid( core ) && UpgradeCore_WeaponHasModifiedUpgrades( core )
+	// not a good idea to use weapon for stroing modified upgrades--- they can be easily destroyed
+	//entity core = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+	//bool hasModifiedUpgrades = IsValid( core ) && UpgradeCore_WeaponHasModifiedUpgrades( core )
+	bool hasModifiedUpgrades = UpgradeCore_TitanHasModifiedUpgrades( titan )
 	if ( !hasModifiedUpgrades )
 	{
 		// upgrade 1
@@ -3349,6 +3376,7 @@ void function Monarch_OnTitanDropWeapon( entity titan, entity weaponProp, bool d
 		file.droppedMonarchUpgrades[ weaponProp ].effectiveUpgradeCount = soul.GetTitanSoulNetInt( "upgradeCount" )
 		file.droppedMonarchUpgrades[ weaponProp ].totalUpgradeCount = UpgradeCore_GetTitanUpgradeCount( titan )
 		file.droppedMonarchUpgrades[ weaponProp ].receivedUpgradePassives = UpgradeCore_GetTitanReceivedUpgradePassives( titan )
+		file.droppedMonarchUpgrades[ weaponProp ].titanModifiedUpgrades = UpgradeCore_GetTitanModifiedUpgradesTable( titan )
 	}
 }
 
@@ -3367,10 +3395,25 @@ void function Monarch_OnTitanPickupWeapon( entity titan, entity weaponProp, enti
 		soul.SetTitanSoulNetInt( "upgradeCount", upgradeStruct.effectiveUpgradeCount )
 		UpgradeCore_SetTitanUpgradeCount( titan, upgradeStruct.totalUpgradeCount )
 		UpgradeCore_SetTitanReceivedUpgradePassives( titan, upgradeStruct.receivedUpgradePassives )
+		UpgradeCore_SetTitanUpgradePassivesTable( titan, upgradeStruct.titanModifiedUpgrades )
+
+		// debug
+		//print( "Titan: " + string( titan ) + " picked up weapon" )
+		//print( "upgradeStruct.effectiveUpgradeCount: " + string( upgradeStruct.effectiveUpgradeCount ) )
+		//print( "upgradeStruct.totalUpgradeCount: " + string( upgradeStruct.totalUpgradeCount ) )
+		//print( "upgradeStruct.receivedUpgradePassives: " )
+		foreach ( int passive in upgradeStruct.receivedUpgradePassives )
+		{
+			foreach( passiveName, passveId in _PassiveFromEnum )
+			{
+				if ( passive == passveId )
+					print( "	" + passiveName )
+			}
+		}
 	}
 
 	// check whether we can maintain upgrade progress on pickup
-	bool canKeepUpgrading = ShouldTitanMaintainUpgradeProgressForPickUp( player, weaponProp )
+	bool canKeepUpgrading = ShouldTitanMaintainUpgradeProgressForPickUp( titan, weaponProp )
 	ApplyMonarchUpgrades( titan, canKeepUpgrading )
 }
 
@@ -3404,10 +3447,36 @@ void function ApplyMonarchUpgrades( entity titan, bool keepUpgrading = false )
         // monarch upgrades
         if ( titan.IsPlayer() || IsPetTitan( titan ) )
         {
+			GiveSavedMonarchPassives( titan )
+
+			// hack check for maelstrom and superior chassis
+			// needs to add back weapon mod and classmod for titan
+			int upgradeCount = soul.GetTitanSoulNetInt( "upgradeCount" )
+			bool hasMaelStrom = upgradeCount >= 2 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 )
+			bool hasSuperiorChassis = upgradeCount >= 3 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 )
+			
+			// modified upgrades handle
+			// not a good idea to use weapon for stroing modified upgrades--- they can be easily destroyed
+			//entity core = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+			//bool hasModifiedUpgrades = IsValid( core ) && UpgradeCore_WeaponHasModifiedUpgrades( core )
+			bool hasModifiedUpgrades = UpgradeCore_TitanHasModifiedUpgrades( titan )
+			if ( hasModifiedUpgrades )
+			{
+				// check if we have upgraded index
+				hasMaelStrom = UpgradeCore_GetTitanReceivedUpgradePassives( titan ).contains( ePassives.PAS_VANGUARD_CORE5 )
+				hasSuperiorChassis = UpgradeCore_GetTitanReceivedUpgradePassives( titan ).contains( ePassives.PAS_VANGUARD_CORE8 )
+			}
+
+			// debug
+			//print( "upgradeCount: " + string( upgradeCount ) )
+			//print( "SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 ): " +	string( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 ) ) )
+			//print( "SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 ): " +	string( SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 ) ) )
+			//print( "UpgradeCore_GetTitanReceivedUpgradePassives( titan ).contains( ePassives.PAS_VANGUARD_CORE5 ): " + string( UpgradeCore_GetTitanReceivedUpgradePassives( titan ).contains( ePassives.PAS_VANGUARD_CORE5 ) ) )
+			//print( "UpgradeCore_GetTitanReceivedUpgradePassives( titan ).contains( ePassives.PAS_VANGUARD_CORE8 ): " + string( UpgradeCore_GetTitanReceivedUpgradePassives( titan ).contains( ePassives.PAS_VANGUARD_CORE8 ) ) )
+
             entity player = titan.IsPlayer() ? titan : GetPetTitanOwner( titan )
             if ( keepUpgrading ) // can keep upgrading
             {
-                GiveSavedMonarchPassives( titan )
                 // upgrade core icon
                 string passive4 = GetMonarchFirstUpgradeName( titan )
                 string passive5 = GetMonarchSecondUpgradeName( titan )
@@ -3424,35 +3493,51 @@ void function ApplyMonarchUpgrades( entity titan, bool keepUpgrading = false )
             }
             else // can't upgrade
             {
-                // hack check for maelstrom and superior chassis
-				// only works for not modified upgrade core!
-				entity core = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
-				bool hasModifiedUpgrades = IsValid( core ) && UpgradeCore_WeaponHasModifiedUpgrades( core )
-                
-				if ( !hasModifiedUpgrades )
-				{
-					int upgradeCount = soul.GetTitanSoulNetInt( "upgradeCount" )
-					bool hasMaelStrom = upgradeCount >= 2 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE5 )
-					bool hasSuperiorChassis = upgradeCount >= 3 && SoulHasPassive( soul, ePassives.PAS_VANGUARD_CORE8 )
-					
-					TakeAllMonarchCorePassives( titan ) // take off passives
-					// restore special core upgrades
-					if ( hasMaelStrom )
-					{
-						GivePassive( soul, ePassives.PAS_VANGUARD_CORE5 ) // titan passive handled by soul entity
-					}
-					if ( hasSuperiorChassis )
-					{
-						GivePassive( soul, ePassives.PAS_VANGUARD_CORE8 ) // titan passive handled by soul entity
-					}
+				TakeAllMonarchCorePassives( titan ) // take off passives after we get upgrading stuffs
 
-					// use passive's icon instead, for notifying player that they cannot upgrade
-					string replaceIcon = GetMonarchPassiveName( titan )
-					player.SetPersistentVar( "activeTitanLoadout.passive4", replaceIcon )
-					player.SetPersistentVar( "activeTitanLoadout.passive5", replaceIcon )
-					player.SetPersistentVar( "activeTitanLoadout.passive6", replaceIcon )
-				}
+				// use passive's icon instead, for notifying player that they cannot upgrade
+				string replaceIcon = GetMonarchPassiveName( titan )
+				player.SetPersistentVar( "activeTitanLoadout.passive4", replaceIcon )
+				player.SetPersistentVar( "activeTitanLoadout.passive5", replaceIcon )
+				player.SetPersistentVar( "activeTitanLoadout.passive6", replaceIcon )
             }
+
+			// restore special core upgrades
+			if ( hasMaelStrom )
+			{
+				if ( !hasModifiedUpgrades )
+					GivePassive( soul, ePassives.PAS_VANGUARD_CORE5 )
+				
+				entity smokeWeapon = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
+				if ( IsValid( smokeWeapon ) )
+				{
+					array<string> mods = smokeWeapon.GetMods()
+					mods.append( "maelstrom" )
+					smokeWeapon.SetMods( mods )
+				}
+			}
+			if ( hasSuperiorChassis )
+			{
+				if ( !hasModifiedUpgrades )
+					GivePassive( soul, ePassives.PAS_VANGUARD_CORE8 )
+				
+				if ( !GetDoomedState( titan ) && IsAlive( titan ) )
+				{
+					array<string> settingMods = titan.GetPlayerSettingsMods()
+					settingMods.append( "core_health_upgrade" )
+					// update health and class
+					float healthFrac = GetHealthFrac( titan )
+					titan.SetPlayerSettingsWithMods( titan.GetPlayerSettings(), settingMods )
+					int maxHealth = titan.GetMaxHealth()
+					titan.SetHealth( int( maxHealth * healthFrac ) )
+
+					//Hacky Hack - Append core_health_upgrade to setFileMods so that we have a way to check that this upgrade is active.
+					soul.soul.titanLoadout.setFileMods.append( "core_health_upgrade" )
+				}
+				
+				// here goes a problem: a monarch with superior chassis cannot update it's health bar if it switch to another final upgrade with same upgradeCount
+				soul.SetPreventCrits( true )
+			}
         }
     }
 }
