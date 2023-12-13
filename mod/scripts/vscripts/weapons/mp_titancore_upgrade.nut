@@ -35,6 +35,9 @@ global function UpgradeCore_SetTitanUpgradeCount
 global function UpgradeCore_GetTitanReceivedUpgradePassives
 global function UpgradeCore_SetTitanReceivedUpgradePassives
 
+// built function for fun
+global function UpgradeCore_GenerateRandomUpgradesForTitan
+
 // vanilla hardcode turns to default value
 const int UPGRADE_CORE_DEFAULT_MAX_LEVEL = 2 // lv0-lv1-lv2( stage1-stage2-stage3 )
 //
@@ -947,5 +950,72 @@ void function UpgradeCore_SetTitanReceivedUpgradePassives( entity titan, array<i
 		return
 
 	file.soulReceivedUpgradePassives[ soul ] = upgradePassives
+}
+
+// function for fun
+void function UpgradeCore_GenerateRandomUpgradesForTitan( entity titan, int maxLevel, int maxStage )
+{
+	array<int> firstStagePassives = 
+	[
+		ePassives.PAS_VANGUARD_CORE1,
+		ePassives.PAS_VANGUARD_CORE2,
+		ePassives.PAS_VANGUARD_CORE3,
+	]
+
+	array<int> secondStagePassives =
+	{
+		ePassives.PAS_VANGUARD_CORE4,
+		ePassives.PAS_VANGUARD_CORE5,
+		ePassives.PAS_VANGUARD_CORE6,
+	}
+
+	array<int> thirdStagePassives =
+	{
+		ePassives.PAS_VANGUARD_CORE7,
+		ePassives.PAS_VANGUARD_CORE8,
+		ePassives.PAS_VANGUARD_CORE9,
+	}
+
+	int upgradesPerStage = ( maxLevel + 1 ) / maxStage
+	if ( upgradesPerStage < 1 )
+		upgradesPerStage == 1
+	
+	int currentLevel = 0
+
+	while ( firstStagePassives.len() > 0 )
+	{
+		int passive = firstStagePassives.getrandom()
+		firstStagePassives.removebyvalue( passive )
+
+		UpgradeCore_SetTitanUpgradePassive( titan, currentLevel, passive )
+
+		currentLevel += 1
+		if ( currentLevel > maxLevel )
+			return
+	}
+
+	while ( secondStagePassives.len() > 0 )
+	{
+		int passive = secondStagePassives.getrandom()
+		secondStagePassives.removebyvalue( passive )
+		
+		UpgradeCore_SetTitanUpgradePassive( titan, currentLevel, passive )
+		
+		currentLevel += 1
+		if ( currentLevel > maxLevel )
+			return
+	}
+
+	while ( thirdStagePassives.len() > 0 )
+	{
+		int passive = thirdStagePassives.getrandom()
+		thirdStagePassives.removebyvalue( passive )
+		
+		UpgradeCore_SetTitanUpgradePassive( titan, currentLevel, passive )
+		
+		currentLevel += 1
+		if ( currentLevel > maxLevel )
+			return
+	}
 }
 #endif
