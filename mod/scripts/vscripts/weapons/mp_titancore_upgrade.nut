@@ -36,6 +36,10 @@ global function UpgradeCore_GetTitanReceivedUpgradePassives
 global function UpgradeCore_SetTitanReceivedUpgradePassives
 
 // built function for fun
+// example case:
+//	UpgradeCore_GenerateRandomUpgradesForTitan( titan, 2, 3 ) will generate a random upgrade at each stage
+//	UpgradeCore_GenerateRandomUpgradesForTitan( titan, 2, 1 ) will generate full upgrades at first stage
+//	UpgradeCore_GenerateRandomUpgradesForTitan( titan, 8, 3 ) will generate full upgrades at all three stages
 global function UpgradeCore_GenerateRandomUpgradesForTitan
 
 // vanilla hardcode turns to default value
@@ -963,26 +967,26 @@ void function UpgradeCore_GenerateRandomUpgradesForTitan( entity titan, int maxL
 	]
 
 	array<int> secondStagePassives =
-	{
+	[
 		ePassives.PAS_VANGUARD_CORE4,
 		ePassives.PAS_VANGUARD_CORE5,
 		ePassives.PAS_VANGUARD_CORE6,
-	}
+	]
 
 	array<int> thirdStagePassives =
-	{
+	[
 		ePassives.PAS_VANGUARD_CORE7,
 		ePassives.PAS_VANGUARD_CORE8,
 		ePassives.PAS_VANGUARD_CORE9,
-	}
+	]
 
 	int upgradesPerStage = ( maxLevel + 1 ) / maxStage
 	if ( upgradesPerStage < 1 )
-		upgradesPerStage == 1
+		upgradesPerStage = 1
 	
 	int currentLevel = 0
 
-	while ( firstStagePassives.len() > 0 )
+	for ( int i = 0; i < upgradesPerStage; i++ )
 	{
 		int passive = firstStagePassives.getrandom()
 		firstStagePassives.removebyvalue( passive )
@@ -992,9 +996,12 @@ void function UpgradeCore_GenerateRandomUpgradesForTitan( entity titan, int maxL
 		currentLevel += 1
 		if ( currentLevel > maxLevel )
 			return
+
+		if ( firstStagePassives.len() == 0 )
+			break
 	}
 
-	while ( secondStagePassives.len() > 0 )
+	for ( int i = 0; i < upgradesPerStage; i++ )
 	{
 		int passive = secondStagePassives.getrandom()
 		secondStagePassives.removebyvalue( passive )
@@ -1004,9 +1011,12 @@ void function UpgradeCore_GenerateRandomUpgradesForTitan( entity titan, int maxL
 		currentLevel += 1
 		if ( currentLevel > maxLevel )
 			return
+
+		if ( secondStagePassives.len() == 0 )
+			break
 	}
 
-	while ( thirdStagePassives.len() > 0 )
+	for ( int i = 0; i < upgradesPerStage; i++ )
 	{
 		int passive = thirdStagePassives.getrandom()
 		thirdStagePassives.removebyvalue( passive )
@@ -1016,6 +1026,9 @@ void function UpgradeCore_GenerateRandomUpgradesForTitan( entity titan, int maxL
 		currentLevel += 1
 		if ( currentLevel > maxLevel )
 			return
+
+		if ( thirdStagePassives.len() == 0 )
+			break
 	}
 }
 #endif
