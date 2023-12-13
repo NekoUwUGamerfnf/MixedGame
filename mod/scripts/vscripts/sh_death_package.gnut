@@ -23,8 +23,6 @@ global function GetDescStringForDamageFlags
 	global function TitanHasBeenGibbed // get this titan is gibbbed or not by checking it's "torso" bodygroup
 
 	global function DoomTitan
-	// modified function
-	global function DoomTitan_Instant // same as DoomedTitan(), removed random delay
 	global function UndoomTitan_Body
 
 	global function GetNumBrokenLimbs
@@ -163,7 +161,8 @@ void function Death_Package_Init()
 
 		// extra check for modified death cam!!!!
 		RegisterSignal( "EnsureDissolveEffectIsCleared" )
-		// modified signal to cancel out DelayedBodyGroupBreak
+		// modified signals to cancel out DelayedBodyGroupBreak()
+		RegisterSignal( "TitanGibbed" )
 		RegisterSignal( "TitanDoomedInstant" )
 	#endif
 }
@@ -600,11 +599,26 @@ void function EnsureDissolveEffectIsClearedForPlayer( entity player )
 //
 
 // this function has been modified and no longer necessary to pass a damageInfo inside
+// and add some hardcoded checks: we shouldn't gib titan's legs and hip...
+// buddy titan model have blank state for those bodygroups
+const array<string> GIB_IGNORE_TITAN_BODYGROUPS =
+[
+	"left_leg",
+	"right_leg",
+	"hip",
+]
+
 //void function GibTitan( entity titan, var damageInfo )
 void function GibTitan( entity titan, var damageInfo = null )
 {
 	if ( !HasHitData( titan ) )
 		return
+
+	// modified signal to cancel out DelayedBodyGroupBreak()
+	titan.Signal( "TitanGibbed" )
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+		soul.Signal( "TitanGibbed" )
 
 	if ( damageInfo != null )
 		DamageInfo_SetDeathPackage( damageInfo, "instant" )
@@ -614,6 +628,11 @@ void function GibTitan( entity titan, var damageInfo = null )
 
 	foreach ( bodyGroupName, bodyGroupData in hitData )
 	{
+		// modified checks: we shouldn't gib titan's legs and hip
+		if ( GIB_IGNORE_TITAN_BODYGROUPS.find( expect string( bodyGroupName ) ) != -1 )
+			continue
+		//
+
 		if ( !("blank" in bodyGroupData) )
 			continue
 
@@ -626,10 +645,23 @@ void function GibTitan( entity titan, var damageInfo = null )
 }
 
 // modified function: get this titan is gibbbed or not
-// by checking it's "torso" bodygroup
+// find bodygroups from this array until we got one valid
+const array<string> GIBBED_TITAN_BODYGROUPS = 
+[
+	"torso", // tf2 titans
+	"front", // buddy titans
+]
+
 bool function TitanHasBeenGibbed( entity titan )
 {
-	int bodyGroupIndex = titan.FindBodyGroup( "torso" )
+	int bodyGroupIndex = -1
+	foreach ( string bodyGroup in GIBBED_TITAN_BODYGROUPS )
+	{
+		bodyGroupIndex = titan.FindBodyGroup( bodyGroup )
+		if ( bodyGroupIndex > -1 )
+			break
+	}
+			
 	if ( bodyGroupIndex > -1 )
 	{
 		int currentState = titan.GetBodyGroupState( bodyGroupIndex )
@@ -657,7 +689,16 @@ void function UndoomTitan_Body( entity titan )
 	}
 }
 
-void function DoomTitan( entity titan )
+// add some hardcoded checks: we shouldn't doom titan's back...
+// those bodygroups only exists for buddy titans, but it only contains rocket pod mdoel, doesn't look well after hiding
+const array<string> DOOM_IGNORE_TITAN_BODYGROUPS =
+[
+	"back",
+]
+
+// function pamameter has been modified, allow skipping random wait
+//void function DoomTitan( entity titan )
+void function DoomTitan( entity titan, bool doomInstant = false )
 {
 	if ( !HasHitData( titan ) )
 		return
@@ -665,8 +706,23 @@ void function DoomTitan( entity titan )
 	local entKVs = titan.CreateTableFromModelKeyValues()
 	local hitData = entKVs["hit_data"]
 
+	// modified parameter: allow skipping random wait, instantly doom titan bodygroups
+	if ( doomInstant )
+	{
+		// modified signal to cancel out DelayedBodyGroupBreak()
+		titan.Signal( "TitanDoomedInstant" )
+		entity soul = titan.GetTitanSoul()
+		if ( IsValid( soul ) )
+			soul.Signal( "TitanDoomedInstant" )
+	}
+
 	foreach ( bodyGroupName, bodyGroupData in hitData )
 	{
+		// modified checks: we shouldn't doom titan's back
+		if ( DOOM_IGNORE_TITAN_BODYGROUPS.find( expect string( bodyGroupName ) ) != -1 )
+			continue
+		//
+
 		bool hasBlank = ("blank" in bodyGroupData)
 
 		int bodyGroupIndex = titan.FindBodyGroup( bodyGroupName )
@@ -675,8 +731,26 @@ void function DoomTitan( entity titan )
 		if ( hasBlank )
 			stateCount -= 1
 
+		// vanilla behavior
+		/*
 		thread DelayedBodyGroupBreak( titan, bodyGroupIndex, stateCount - 1 )
 		//titan.SetBodygroup( bodyGroupIndex, stateCount - 1 )
+		*/
+
+		// modified checks: if we already set state to doom or blank, don't do anything
+		int currentState = titan.GetBodyGroupState( bodyGroupIndex )
+		if ( currentState >= stateCount - 1 ) // blank state
+		{
+			//print( "titan bodygroup: " + bodyGroupName + " already doomed! skipping think" )
+			//print( "currentState: " + string( currentState ) )
+			continue
+		}
+
+		// modified parameter: allow skipping random wait, instantly doom titan bodygroups
+		if ( doomInstant )
+			titan.SetBodygroup( bodyGroupIndex, stateCount - 1 )
+		else
+			thread DelayedBodyGroupBreak( titan, bodyGroupIndex, stateCount - 1 )
 	}
 }
 
@@ -685,7 +759,8 @@ void function DelayedBodyGroupBreak( entity titan, int bodyGroupIndex, int state
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "TitanEjectionStarted" )
 	titan.EndSignal( "TitanUnDoomed" )
-	// modified signal to cancel out think
+	// modified signals to cancel out think
+	titan.EndSignal( "TitanGibbed" )
 	titan.EndSignal( "TitanDoomedInstant" )
 
 	if ( !HasSoul( titan ) )
@@ -693,6 +768,13 @@ void function DelayedBodyGroupBreak( entity titan, int bodyGroupIndex, int state
 
 	entity soul = titan.GetTitanSoul()
 	soul.EndSignal( "OnDestroy" )
+	// modified signals to cancel out think
+	soul.EndSignal( "TitanUnDoomed" ) // signaled by modified UndoomTitan() function
+	soul.EndSignal( "TitanGibbed" )
+	soul.EndSignal( "TitanDoomedInstant" )
+
+	// modified checks here: insure we didn't update bodygroup mid-way
+	int stateIndexBeforeWait = titan.GetBodyGroupState( bodyGroupIndex )
 
 	wait RandomFloat( 4.0 )
 
@@ -704,36 +786,12 @@ void function DelayedBodyGroupBreak( entity titan, int bodyGroupIndex, int state
 	if ( titan == null )
 		return
 
-	titan.SetBodygroup( bodyGroupIndex, stateIndex )
-}
-
-// modified function
-// same as DoomedTitan(), removed random delay
-void function DoomTitan_Instant( entity titan )
-{
-	if ( !HasHitData( titan ) )
+	// modifeid checks: if we updated bodygroup during wait, don't do anything
+	if ( stateIndexBeforeWait != titan.GetBodyGroupState( bodyGroupIndex ) )
 		return
 
-	// modified signal to cancel out DelayedBodyGroupBreak
-	titan.Signal( "TitanDoomedInstant" )
-
-	local entKVs = titan.CreateTableFromModelKeyValues()
-	local hitData = entKVs["hit_data"]
-
-	foreach ( bodyGroupName, bodyGroupData in hitData )
-	{
-		bool hasBlank = ("blank" in bodyGroupData)
-
-		int bodyGroupIndex = titan.FindBodyGroup( bodyGroupName )
-		int stateCount = titan.GetBodyGroupModelCount( bodyGroupIndex )
-
-		if ( hasBlank )
-			stateCount -= 1
-
-		titan.SetBodygroup( bodyGroupIndex, stateCount - 1 )
-	}
+	titan.SetBodygroup( bodyGroupIndex, stateIndex )
 }
-
 
 void function ExplodeTitanBits( entity titan )
 {
