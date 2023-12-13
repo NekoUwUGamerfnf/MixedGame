@@ -5594,10 +5594,14 @@ void function RestoreNPCAttackCapability( entity guy )
 }
 
 const float NPC_PILOT_STIM_REST_TIME_BETWEEN_USE = 1.0 // if pilot has more than one charge for ability, do some rest
-const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2100 // if pilot has enemy within this range, do stim to approach them
+const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2650 // if pilot has enemy within this range, do stim to approach them( was using 2100 )
+
+// removing these checks. we added health regen so activate stim without thinking isn't very bad
+/*
 const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 130 * NPC_PILOT_MOVE_SPEED_SCALE // have to be running before activating stim
 const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D = 400 + NPC_PILOT_STIM_REQUIRED_VELOCITY // if pilot too close to their enemy, there's no need to use stim for approaching. they'll stop chasing once reached chaseStopDist
 const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR = 800 + NPC_PILOT_STIM_REQUIRED_VELOCITY * 1.5
+*/
 
 void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 {
@@ -5633,6 +5637,9 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 				// use dist to calculate instead
 				//print( "pilot.IsOnGround(): " + string( pilot.IsOnGround() ) )
 				//print( "Length( pilot.GetVelocity() ): " + string( Length( pilot.GetVelocity() ) ) )
+
+				// removing these checks. we added health regen so activate stim without thinking isn't very bad
+				/*
 				bool onGround = lastTickOnGround && pilot.IsOnGround()
 				float vel = Length( pilot.GetOrigin() - lastTickPos ) / 0.1
 				//print( "vel: " + string( vel ) )
@@ -5653,6 +5660,17 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 					if ( pilot.CanSee( enemy ) || dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
 						break
 				}
+				*/
+
+				// simple check version
+				entity enemy = pilot.GetEnemy()
+				if ( IsAlive( enemy ) )
+				{
+					// wait till enemy is in range
+					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
+					if ( dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
+						break
+				}
 			}
 
 			// start stim think
@@ -5665,9 +5683,11 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 }
 
 // bit higher speed because npc don't get health regen and wallrun speed boost
-const float NPC_PILOT_MOVE_SPEED_SCALE_STIM = 2.7 // have to hardcode this because we can't get a npc's existing speed scale
-const float NPC_PILOT_STIM_SPEED_BOOST_SEVERITY = 0.45 // will status effects work for npcs? yes they do. no-time-extention version uses 0.65
+// EDIT: add health regen because they really can't use it well... scale down speed severity
+const float NPC_PILOT_STIM_SPEED_BOOST_SEVERITY = 0.4 // no-time-extention version uses 0.65, no-health-regen version uses 0.45
 const float NPC_PILOT_STIM_USE_TIME_EXTENTION = 1.5 // pilots can't use stim well... extend their use time for some bit
+const float NPC_PILOT_STIM_HEALTH_REGEN_FRAC = 0.3 // pilot will regen health by this frac over stim use time
+const float NPC_PILOT_STIM_REGEN_STOP_DURATION = 2.0 // taking damage will stop health regen for this time
 
 // needs modified sh_stim.gnut, with some tweak to make npcs use it
 void function NPCPilotActivatesStim( entity pilot, entity weapon )
@@ -5685,9 +5705,26 @@ void function NPCPilotActivatesStim( entity pilot, entity weapon )
 
 	StimPlayer( pilot, duration, NPC_PILOT_STIM_SPEED_BOOST_SEVERITY )
 
-	wait duration
-}
+	// adding health regen
+	//wait duration
+	float endTime = Time() + duration
+	const float tickRate = 0.2 // npc think don't need very accurate value
+	while ( Time() < endTime )
+	{
+		if ( Time() - GetNPCLastDamageTime( pilot ) >= NPC_PILOT_STIM_REGEN_STOP_DURATION )
+		{
+			int healthRegenRate = int( ( float( pilot.GetMaxHealth() ) * NPC_PILOT_STIM_HEALTH_REGEN_FRAC ) * ( duration / tickRate ) )
+			pilot.SetHealth( min( pilot.GetMaxHealth(), pilot.GetHealth() + healthRegenRate ) )
+			if ( pilot.GetHealth() == pilot.GetMaxHealth() )
+			{
+				ClearRecentDamageHistory( pilot )
+				ClearLastAttacker( pilot )
+			}
+		}
 
+		wait tickRate
+	}
+}
 
 const float NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE = 3.5 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_HOLOPILOT_COMBAT_DIST_2D = 1500 // if pilot can see an enemy within this range, let them project hologram
@@ -5999,7 +6036,7 @@ const float NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC = 0.4 // if health about to take
 // npc pilots can't use shift well, give them some speed boost based on health left
 const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN = 0.3 // first version uses 0.65, no-time-extention version uses 0.35
 const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.6 // first version uses 1.35, no-time-extention version uses 0.8
-const float NPC_PILOT_PHASE_USE_TIME_EXTENTION = 1.3 // pilots can't use phase shift well... extend their use time for some bit( was using 1.5 which might be annoying? )
+const float NPC_PILOT_PHASE_USE_TIME_EXTENTION = 1.25 // pilots can't use phase shift well... extend their use time for some bit( was using 1.5 which might be annoying? )
 
 void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 {
