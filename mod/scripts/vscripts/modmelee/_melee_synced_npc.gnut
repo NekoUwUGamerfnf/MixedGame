@@ -73,6 +73,9 @@ struct
     bool npcGruntExecution = false
 
     bool npcPilotExecuteOtherNPCs = false
+
+    // in-file table
+    table<entity, bool> npcDoingSyncedMelee // npc melee attack has extramely large radius, have to manually handle their states or they'll be able to execute multiple targets together
 } file
 
 void function MeleeSyncedNPC_Init()
@@ -188,7 +191,33 @@ void function NPCTrysSyncedMelee( entity victim, var damageInfo )
     // all checks passed
     //print( "npc tries synced melee.." )
     DamageInfo_SetDamage( damageInfo, 0 ) // remove damage from this hit! also remove for titans, since we're using AddDamageCallbackSourceID(), prevent sometimes they get extra damage from following damage callbacks
-    thread PlayerTriesSyncedMelee( attacker, victim )
+    // npc melee attack has extramely large radius
+    // have to manually handle something, or they can execute multiple targets together
+    //thread PlayerTriesSyncedMelee( attacker, victim )
+    thread NPCTriesSyncedMelee( attacker, victim )
+}
+
+bool function NPCTriesSyncedMelee( entity attacker, entity victim )
+{
+    // prevent them executing multiple targets together
+    if ( attacker in file.npcDoingSyncedMelee )
+        return false
+
+    file.npcDoingSyncedMelee[ attacker ] <- true
+
+    OnThreadEnd
+    (
+        function(): ( attacker, victim )
+        {
+            if ( IsValid( attacker ) )
+            {
+                delete file.npcDoingSyncedMelee[ attacker ]
+            }
+        }
+    )
+
+    waitthread PlayerTriesSyncedMelee( attacker, victim )
+    return true
 }
 
 // mostly no need to change these
