@@ -20,6 +20,7 @@ global function UpgradeCore_GetTitanMaxUpgradeLevel
 
 global function UpgradeCore_GetTitanModifiedUpgradePassive
 global function UpgradeCore_GetTitanModifiedUpgradesTable
+global function UpgradeCore_RemoveTitanModifiedUpgrades
 
 // to be shared with titan_replace, for handling loadout pickup
 global function UpgradeCore_GetTitanUpgradeCount // scripted upgrade count, not networkvar
