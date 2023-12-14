@@ -1,0 +1,510 @@
+// vanilla don't implement model FX for some entities
+// do a server-side fix for them, may cause performance issue but I don't care
+// NOTE: health and bodygroup restore checks won't work for now, other things do working fine
+
+global function ServerSide_ModelFX_Init
+
+// debug
+const bool SERVER_MODEL_FX_DEBUG = false
+
+// model health fx
+global function ServerModelHealthFX_Register
+global function ServerModelHealthFX_SetUpForEntity
+global function ServerModelHealthFX_CleanUpForEntity
+
+// model bodygroup fx
+// this one isn't very accurate compare to model fxs, as it uses only looping case for handling
+global function ServerModelBodyGroupFX_Register
+global function ServerModelBodyGroupFX_SetUpForEntity
+global function ServerModelBodyGroupFX_CleanUpForEntity
+
+struct ModelHealthFXStruct
+{
+    float healthFrac
+    string attachment
+    asset effectName
+
+    bool attachToEnt
+    bool loopEffect
+    int visibilityFlags
+
+    // HACK for titans
+    float doomedHealthFrac = -1
+
+    int index // only exists in this file
+}
+
+struct EntOwnedHealthFX
+{
+    float healthFrac
+    entity effect
+}
+
+struct ModelBodyGroupFXStruct
+{
+    string bodyGroupName
+    int stateIndex
+    string attachment
+    asset effectName
+
+    bool attachToEnt
+    bool loopEffect
+    int visibilityFlags
+
+    int index // only exists in this file
+}
+
+struct EntOwnedBodyGroupFX
+{
+    string bodyGroupName
+    int stateIndex
+    entity effect
+}
+
+struct
+{
+    // registering table
+    int registeredIndex
+    table< asset, array<ModelHealthFXStruct> > registeredModelHealthFXTable
+    table< asset, array<ModelBodyGroupFXStruct> > registeredModelBodyGroupFXTable
+
+    // in-file table
+    table<entity, bool> entHasSetUpServerModelHealthFX
+    table< entity, table<int, EntOwnedHealthFX> > entOwnedModelHealthFXs
+    table<entity, bool> entHasSetUpServerModelBodyGroupFX
+    table< entity, table<int, EntOwnedBodyGroupFX> > entOwnedModelBodyGroupFXs
+} file
+
+void function ServerSide_ModelFX_Init()
+{
+    RegisterSignal( "TrackOwnerModelUpdate" )
+    RegisterSignal( "TrackOwnerHealthUpdate" )
+    RegisterSignal( "TrackOwnerBodyGroupUpdate" )
+}
+
+void function ServerModelHealthFX_Register( asset modelName, float healthFrac, string attachment, asset effectName, bool attachToEnt = false, bool loopEffect = false, int visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE, float doomedHealthFrac = -1 )
+{
+    if ( !( modelName in file.registeredModelHealthFXTable ) )
+        file.registeredModelHealthFXTable[ modelName ] <- []
+
+    ModelHealthFXStruct newEffect
+    newEffect.healthFrac = healthFrac
+    newEffect.attachment = attachment
+    newEffect.healthFrac = healthFrac
+    newEffect.effectName = effectName
+    newEffect.attachToEnt = attachToEnt
+    newEffect.loopEffect = loopEffect
+    newEffect.visibilityFlags = visibilityFlags
+    newEffect.doomedHealthFrac = doomedHealthFrac
+    file.registeredModelHealthFXTable[ modelName ].append( newEffect )
+
+    // setup unique index
+    newEffect.index = file.registeredIndex
+    file.registeredIndex++
+}
+
+void function ServerModelHealthFX_SetUpForEntity( entity ent, bool trackHealthRestore = false )
+{
+    if ( ent in file.entHasSetUpServerModelHealthFX ) // don't allow setup multiple times
+        return
+    
+    file.entHasSetUpServerModelHealthFX[ ent ] <- true
+
+    ServerModelHealthFX_ApplyEffectsToEntity( ent )
+    AddEntityCallback_OnPostDamaged( ent, UpdateEntityModelFXOnDamage )
+    thread TrackOwnerModelUpdate( ent )
+    thread TrackOwnerHealthUpdate( ent, trackHealthRestore )
+}
+
+// clean up old effects and apply new ones once owner changed model
+void function TrackOwnerModelUpdate( entity ent )
+{
+    ent.Signal( "TrackOwnerModelUpdate" )
+    ent.EndSignal( "TrackOwnerModelUpdate" )
+    ent.EndSignal( "OnDestroy" )
+
+    asset lastTickModelName
+    while ( true )
+    {
+        lastTickModelName = ent.GetModelName()
+        WaitFrame()
+
+        // model updated for some reason!
+        if ( ent.GetModelName() != lastTickModelName )
+        {
+            // stop last model effects immediately
+            ServerModelHealthFX_RemoveEffectsOnEntity( ent )
+            // apply effects for new model
+            ServerModelHealthFX_ApplyEffectsToEntity( ent )
+        }
+    }
+}
+
+// track owner health update and do effects that we might miss upon their scripted health update
+// add an option to stop played effect on entity health restore, mainly for titans
+void function TrackOwnerHealthUpdate( entity ent, bool trackHealthRestore )
+{
+    ent.Signal( "TrackOwnerHealthUpdate" )
+    ent.EndSignal( "TrackOwnerHealthUpdate" )
+    ent.EndSignal( "OnDestroy" )
+
+    int lastTickHealth
+    while ( true )
+    {
+        if ( IsAlive( ent ) )
+            lastTickHealth = ent.GetHealth()
+        
+        WaitFrame()
+        if ( !IsAlive( ent ) )
+        {
+            // for players, stop any effect if they're dead
+            if ( ent.IsPlayer() )
+                ServerModelHealthFX_RemoveEffectsOnEntity( ent )
+            continue
+        }
+        
+        if ( lastTickHealth != ent.GetHealth() ) // in case we changed health without taking damage
+            ServerModelHealthFX_ApplyEffectsToEntity( ent )
+
+        if ( trackHealthRestore )
+        {
+            if ( ent.GetHealth() > lastTickHealth )
+            {
+                // stop model effects which requirements is below our current health
+                ServerModelHealthFX_RemoveEffectsOnEntity( ent, true, true )
+            }
+        }
+    }
+}
+
+// main updating method
+void function UpdateEntityModelFXOnDamage( entity ent, var damageInfo )
+{
+    if ( !( ent in file.entHasSetUpServerModelHealthFX ) ) // needs to be setup before we can call this think
+        return
+
+    ServerModelHealthFX_ApplyEffectsToEntity( ent, damageInfo )
+}
+
+// apply any valid effect to current entity
+void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageInfo = null )
+{
+    asset modelName = ent.GetModelName()
+    if ( !( modelName in file.registeredModelHealthFXTable ) )
+        return
+    
+    if ( !( ent in file.entOwnedModelHealthFXs ) )
+        file.entOwnedModelHealthFXs[ ent ] <- {}
+
+    foreach ( effectStruct in file.registeredModelHealthFXTable[ modelName ] )
+    {
+        // don't play effect again if we already had one
+        int index = effectStruct.index
+        if ( index in file.entOwnedModelHealthFXs[ ent ] )
+            continue
+
+        float healthFracReq = effectStruct.healthFrac
+        // HACK for titans
+        if ( ent.IsTitan() && GetDoomedState( ent ) )
+            healthFracReq = effectStruct.doomedHealthFrac
+        float entHealthFrac = GetHealthFrac( ent )
+        // if we passed an damageInfo inside, calculate entity health left after taking damage
+        float entHealthFracAfterDamage
+        if ( damageInfo != null )
+        {
+            entHealthFracAfterDamage = float( ent.GetHealth() - int( DamageInfo_GetDamage( damageInfo ) ) ) / float( ent.GetMaxHealth() )
+            if ( entHealthFracAfterDamage > healthFracReq )
+                continue
+        }
+        else
+        {
+            if ( entHealthFrac > healthFracReq )
+                continue
+        }
+
+        string attachment = effectStruct.attachment
+        int attachID = ent.LookupAttachment( attachment )
+        // anti-crash
+        if ( attachID <= 0 )
+            continue
+
+        bool attachToEnt = effectStruct.attachToEnt
+        bool loopEffect = effectStruct.loopEffect
+        // if effect don't require attach to entity
+        // shouldn't play unless we're taking damage
+        // only apply when health go down certain percentage
+        if ( !attachToEnt && !loopEffect )
+        {
+            if ( damageInfo == null )
+                continue
+            bool entTakeDamageDownToFrac = entHealthFrac > healthFracReq && entHealthFracAfterDamage <= healthFracReq
+            if ( !entTakeDamageDownToFrac )
+                continue
+        }
+
+        asset effectName = effectStruct.effectName
+        int visibilityFlags = effectStruct.visibilityFlags
+
+        entity effect
+        if ( attachToEnt )
+        {
+            if ( loopEffect )
+                effect = PlayLoopFXOnEntity( effectName, ent, attachment )
+            else
+                effect = PlayFXOnEntity( effectName, ent, attachment )
+        }
+        else
+        {
+            vector angs = ent.GetAttachmentAngles( attachID )
+            vector pos = ent.GetAttachmentOrigin( attachID )
+            if ( loopEffect )
+                effect = PlayLoopFX( effectName, pos, angs )
+            else
+                effect = PlayFX( effectName, pos, angs )
+        }
+        effect.SetOwner( ent )
+        effect.kv.VisibilityFlags = visibilityFlags
+        effect.DisableHibernation()
+
+        EntOwnedHealthFX ownedFXStruct
+        ownedFXStruct.healthFrac = healthFracReq
+        ownedFXStruct.effect = effect
+
+        file.entOwnedModelHealthFXs[ ent ][ index ] <- ownedFXStruct
+    }
+}
+
+void function ServerModelHealthFX_RemoveEffectsOnEntity( entity ent, bool destroyImmediate = true, bool checkHealthFracOnly = false )
+{
+    if ( !( ent in file.entHasSetUpServerModelHealthFX ) ) // needs to be setup before we can call this think
+        return
+    
+    if ( !( ent in file.entOwnedModelHealthFXs ) )
+        return
+        
+    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXs[ ent ] )
+    {
+        float healthFrac = ownedFXStruct.healthFrac
+        // health frac check version
+        // only stop effect if entity restore their health above required frac
+        if ( checkHealthFracOnly )
+        {
+            if ( GetHealthFrac( ent ) <= healthFrac )
+                continue
+        }
+
+        entity effect = ownedFXStruct.effect
+        if ( IsValid( effect ) )
+        {
+            if ( destroyImmediate )
+                effect.SetStopType( "DestroyImmediately" )
+            EffectStop( effect )
+        }
+        delete file.entOwnedModelHealthFXs[ ent ][ index ]
+    }
+}
+
+// clean up callbacks, thinks and owned effects
+void function ServerModelHealthFX_CleanUpForEntity( entity ent, bool destroyFXsImmediately = false )
+{
+    if ( !( ent in file.entHasSetUpServerModelHealthFX ) ) // needs to be setup before we can call this think
+        return
+    
+    // stop any threads in this file
+    ent.Signal( "TrackOwnerModelUpdate" )
+    ent.Signal( "TrackOwnerHealthUpdate" )
+
+    ServerModelHealthFX_RemoveEffectsOnEntity( ent, destroyFXsImmediately )
+    RemoveEntityCallback_OnPostDamaged( ent, UpdateEntityModelFXOnDamage )
+
+    delete file.entHasSetUpServerModelHealthFX[ ent ]
+}
+
+
+void function ServerModelBodyGroupFX_Register( asset modelName, string bodyGroupName, int stateIndex, string attachment, asset effectName, bool attachToEnt = false, bool loopEffect = false, int visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE )
+{
+    if ( !( modelName in file.registeredModelBodyGroupFXTable ) )
+        file.registeredModelBodyGroupFXTable[ modelName ] <- []
+
+    ModelBodyGroupFXStruct newEffect
+    newEffect.bodyGroupName = bodyGroupName
+    newEffect.stateIndex = stateIndex
+    newEffect.attachment = attachment
+    newEffect.effectName = effectName
+    newEffect.attachToEnt = attachToEnt
+    newEffect.loopEffect = loopEffect
+    newEffect.visibilityFlags = visibilityFlags
+    file.registeredModelBodyGroupFXTable[ modelName ].append( newEffect )
+
+    // setup unique index
+    newEffect.index = file.registeredIndex
+    file.registeredIndex++
+}
+
+void function ServerModelBodyGroupFX_SetUpForEntity( entity ent, bool trackHealthRestore = false )
+{
+    if ( ent in file.entHasSetUpServerModelBodyGroupFX ) // don't allow setup multiple times
+        return
+    
+    file.entHasSetUpServerModelBodyGroupFX[ ent ] <- true
+
+    thread TrackOwnerBodyGroupUpdate( ent )
+}
+
+// this tracks both model change and bodygroup update
+void function TrackOwnerBodyGroupUpdate( entity ent )
+{
+    ent.Signal( "TrackOwnerBodyGroupUpdate" )
+    ent.EndSignal( "TrackOwnerBodyGroupUpdate" )
+    ent.EndSignal( "OnDestroy" )
+
+    int lastTickFullBodyGroup
+    asset lastTickModelName
+    while ( true )
+    {
+        lastTickFullBodyGroup = ent.GetFullBodygroup()
+        lastTickModelName = ent.GetModelName()
+        WaitFrame()
+
+        // for players, stop any effect if they're dead
+        if ( ent.IsPlayer() && !IsAlive( ent ) )
+        {
+            ServerModelHealthFX_RemoveEffectsOnEntity( ent )
+            continue
+        }
+
+        // pretty bad things happened: model changed!
+        if ( ent.GetModelName() != lastTickModelName )
+        {
+            // stop all model effects immediately
+            ServerModelBodyGroupFX_RemoveEffectsOnEntity( ent, true, true )
+            continue
+        }
+        // bodygroup updated
+        if ( ent.GetFullBodygroup() != lastTickFullBodyGroup )
+        {
+            // clean up effects those aren't match required state
+            ServerModelBodyGroupFX_RemoveEffectsOnEntity( ent )
+            ServerModelBodyGroupFX_ApplyEffectsToEntity( ent )
+        }
+    }
+}
+
+// apply any valid effect to current entity
+void function ServerModelBodyGroupFX_ApplyEffectsToEntity( entity ent )
+{
+    asset modelName = ent.GetModelName()
+    if ( !( modelName in file.registeredModelBodyGroupFXTable ) )
+        return
+    
+    if ( !( ent in file.entOwnedModelBodyGroupFXs ) )
+        file.entOwnedModelBodyGroupFXs[ ent ] <- {}
+
+    foreach ( effectStruct in file.registeredModelBodyGroupFXTable[ modelName ] )
+    {
+        // don't play effect again if we already had one
+        int index = effectStruct.index
+        if ( index in file.entOwnedModelBodyGroupFXs[ ent ] )
+            continue
+
+        string bodyGroupName = effectStruct.bodyGroupName
+        int bodyGroupIndex = ent.FindBodyGroup( bodyGroupName )
+        // anti-crash
+        if ( bodyGroupIndex == -1 )
+            continue
+        int stateIndexReq = effectStruct.stateIndex
+        int currentState = ent.GetBodyGroupState( bodyGroupIndex )
+        if ( currentState != stateIndexReq ) // bodygroup not updated yet!
+            continue
+
+        string attachment = effectStruct.attachment
+        int attachID = ent.LookupAttachment( attachment )
+        // anti-crash
+        if ( attachID <= 0 )
+            continue
+
+        asset effectName = effectStruct.effectName
+        bool attachToEnt = effectStruct.attachToEnt
+        bool loopEffect = effectStruct.loopEffect
+        int visibilityFlags = effectStruct.visibilityFlags
+
+        entity effect
+        if ( attachToEnt )
+        {
+            if ( loopEffect )
+                effect = PlayLoopFXOnEntity( effectName, ent, attachment )
+            else
+                effect = PlayFXOnEntity( effectName, ent, attachment )
+        }
+        else
+        {
+            vector angs = ent.GetAttachmentAngles( attachID )
+            vector pos = ent.GetAttachmentOrigin( attachID )
+            if ( loopEffect )
+                effect = PlayLoopFX( effectName, pos, angs )
+            else
+                effect = PlayFX( effectName, pos, angs )
+        }
+        effect.SetOwner( ent )
+        effect.kv.VisibilityFlags = visibilityFlags
+        effect.DisableHibernation()
+
+        EntOwnedBodyGroupFX ownedFXStruct
+        ownedFXStruct.bodyGroupName = bodyGroupName
+        ownedFXStruct.stateIndex = currentState
+        ownedFXStruct.effect = effect
+
+        file.entOwnedModelBodyGroupFXs[ ent ][ index ] <- ownedFXStruct
+    }
+}
+
+void function ServerModelBodyGroupFX_RemoveEffectsOnEntity( entity ent, bool destroyImmediate = true, bool destroyAllEffects = false )
+{
+    if ( !( ent in file.entHasSetUpServerModelBodyGroupFX ) ) // needs to be setup before we can call this think
+        return
+    
+    if ( !( ent in file.entOwnedModelBodyGroupFXs ) )
+        return
+        
+    foreach ( index, ownedFXStruct in file.entOwnedModelBodyGroupFXs[ ent ] )
+    {
+        int bodyGroupIndex = ent.FindBodyGroup( ownedFXStruct.bodyGroupName )
+        // state check version
+        // only stop effect if our state has changed to another
+        // always stop effect if we can't find our saved bodygroup
+        if ( bodyGroupIndex > -1 )
+        {
+            if ( !destroyAllEffects )
+            {
+                int currentState = ent.GetBodyGroupState( bodyGroupIndex ) 
+                int stateIndex = ownedFXStruct.stateIndex
+                
+                if ( currentState == stateIndex ) // state unchanged!
+                    continue
+            }
+        }
+
+        entity effect = ownedFXStruct.effect
+        if ( IsValid( effect ) )
+        {
+            if ( destroyImmediate )
+                effect.SetStopType( "DestroyImmediately" )
+            EffectStop( effect )
+        }
+        delete file.entOwnedModelBodyGroupFXs[ ent ][ index ]
+    }
+}
+
+// clean up callbacks, thinks and owned effects
+void function ServerModelBodyGroupFX_CleanUpForEntity( entity ent, bool destroyFXsImmediately = false )
+{
+    if ( !( ent in file.entHasSetUpServerModelBodyGroupFX ) ) // needs to be setup before we can call this think
+        return
+    
+    // stop any threads in this file
+    ent.Signal( "TrackOwnerBodyGroupUpdate" )
+
+    ServerModelBodyGroupFX_RemoveEffectsOnEntity( ent, true, true )
+
+    delete file.entHasSetUpServerModelBodyGroupFX[ ent ]
+}

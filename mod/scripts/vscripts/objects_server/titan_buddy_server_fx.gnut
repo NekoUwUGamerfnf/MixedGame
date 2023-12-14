@@ -1,0 +1,587 @@
+// NOTE TO FILE: implement model effects on server-side, because respawn didn't add effects for buddy titans
+// requires server_model_fx.gnut and modified sh_death_package.gnut
+// may cause performance issue but I don't care
+
+global function BuddyTitan_ServerSide_ModelFX_Init
+
+// can turn this file off if we encountered serious performance issue
+const bool ENABLE_BUDDY_TITAN_MODEL_EFFECTS = true
+
+// make sure effects isn't visible for it's owner, because titans can be controlled by players
+const int BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS = (ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY)
+
+void function BuddyTitan_ServerSide_ModelFX_Init()
+{
+    #if ENABLE_BUDDY_TITAN_MODEL_EFFECTS
+    PrecacheParticleSystem( $"xo_health_smoke_white" )
+    PrecacheParticleSystem( $"xo_health_exhaust_white_1" )
+    PrecacheParticleSystem( $"xo_health_dam_exhaust_fire_1" )
+    PrecacheParticleSystem( $"xo_health_fire_vent" )
+    PrecacheParticleSystem( $"P_titan_doom_stage_1" )
+    PrecacheParticleSystem( $"P_titan_doom_stage_2" )
+    PrecacheParticleSystem( $"P_titan_doom_stage_3" )
+    PrecacheParticleSystem( $"P_xo_damage_fire_2_alt" )
+    PrecacheParticleSystem( $"P_xo_damage_fire_1" )
+	PrecacheParticleSystem( $"P_xo_damage_fire_2" )
+	PrecacheParticleSystem( $"P_xo_damage_fire_2_alt" )
+    PrecacheParticleSystem( $"xo_damage_exp_1" )
+	PrecacheParticleSystem( $"xo_damage_exp_2" )
+	PrecacheParticleSystem( $"xo_damage_lvl_1_elec" )
+	PrecacheParticleSystem( $"xo_dmg_gibs" )
+    PrecacheParticleSystem( $"xo_spark_med" )
+
+    // init effects for basic titan_buddy.mdl
+    RegisterBuddyTitanServerModelHealthFX( $"models/titans/buddy/titan_buddy.mdl" )
+
+    // automatically call modelFX update on buddy spawn
+    AddSpawnCallback( "npc_titan", OnTitanSpawned )
+    #endif // ENABLE_BUDDY_TITAN_MODEL_EFFECTS
+}
+
+#if ENABLE_BUDDY_TITAN_MODEL_EFFECTS
+void function RegisterBuddyTitanServerModelHealthFX( asset modelName )
+{
+    // register effects based on tf|1 atlas titans
+
+    // health effects
+    // this one don't working well for buddy titans-- their fire effect will collide with this effect
+    /*
+    ServerModelHealthFX_Register(
+        modelName,
+        TITAN_DAMAGE_STAGE_1,               // healthFrac
+        "dam_vents",                        // attachment
+        $"xo_health_smoke_white",           // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        -1                                  // doomedHealthFrac
+    )
+    */
+    ServerModelHealthFX_Register(
+        modelName,
+        TITAN_DAMAGE_STAGE_1,               // healthFrac
+        "dam_vent_right",                   // attachment
+        $"xo_health_exhaust_white_1",       // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        -1                                  // doomedHealthFrac
+    )
+    ServerModelHealthFX_Register(
+        modelName,
+        TITAN_DAMAGE_STAGE_1,               // healthFrac
+        "dam_vent_left",                    // attachment
+        $"xo_health_exhaust_white_1",       // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        -1                                  // doomedHealthFrac
+    )
+    ServerModelHealthFX_Register(
+        modelName,
+        TITAN_DAMAGE_STAGE_2,               // healthFrac
+        "dam_vent_right",                   // attachment
+        $"xo_health_dam_exhaust_fire_1",    // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        -1                                  // doomedHealthFrac
+    )
+    ServerModelHealthFX_Register(
+        modelName,
+        TITAN_DAMAGE_STAGE_2,               // healthFrac
+        "dam_vent_left",                    // attachment
+        $"xo_health_dam_exhaust_fire_1",    // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        -1                                  // doomedHealthFrac
+    )
+    ServerModelHealthFX_Register(
+        modelName,
+        TITAN_DAMAGE_STAGE_3,               // healthFrac
+        "dam_vents",                        // attachment
+        $"xo_health_fire_vent",             // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        -1                                  // doomedHealthFrac
+    )
+    // doomed
+    ServerModelHealthFX_Register(
+        modelName,
+        -1,                                 // healthFrac
+        "dam_vents",                        // attachment
+        $"P_titan_doom_stage_1",            // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        1.0                                 // doomedHealthFrac
+    )
+    ServerModelHealthFX_Register(
+        modelName,
+        -1,                                 // healthFrac
+        "dam_vents",                        // attachment
+        $"P_titan_doom_stage_2",            // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        0.5                                 // doomedHealthFrac
+    )
+    ServerModelHealthFX_Register(
+        modelName,
+        -1,                                 // healthFrac
+        "dam_vents",                        // attachment
+        $"P_titan_doom_stage_3",            // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS,     // visibilityFlags
+        0.05                                // doomedHealthFrac
+    )
+
+    // damage effects, can't add gibs from serverside though
+    //Left Shoulder Damage
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_arm",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_shoulder",                   // attachment
+        $"xo_damage_exp_1",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_arm",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_shoulder",                   // attachment
+        $"xo_damage_lvl_1_elec",            // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_arm",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_shoulder",                   // attachment
+        $"P_xo_damage_fire_2_alt",          // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    //Left Elbow Damage
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_arm",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_elbow",                      // attachment
+        $"xo_damage_exp_2",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    //Right Shoulder Damage
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_arm",                        // bodyGroupName
+        1,                                  // stateIndex
+        "dam_R_arm_upper",                  // attachment
+        $"xo_spark_med",                    // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_arm",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_shoulder",                   // attachment
+        $"xo_damage_exp_2",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+	//Right Elbow Damage
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_arm",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_elbow",                      // attachment
+        $"xo_damage_exp_1",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_arm",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_elbow",                      // attachment
+        $"xo_damage_lvl_1_elec",            // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_arm",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_elbow",                      // attachment
+        $"P_xo_damage_fire_2_alt",          // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    //Torso
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "front",                            // bodyGroupName
+        1,                                  // stateIndex
+        "exp_torso_front",                  // attachment
+        $"xo_damage_exp_1",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "front",                            // bodyGroupName
+        1,                                  // stateIndex
+        "exp_torso_back",                   // attachment
+        $"xo_damage_exp_1",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "front",                            // bodyGroupName
+        1,                                  // stateIndex
+        "dam_L_camera",                     // attachment
+        $"xo_spark_med",                    // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    //Left Thigh
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_thigh",                      // attachment
+        $"xo_damage_exp_2",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "dam_L_thigh_front",                // attachment
+        $"xo_spark_med",                    // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "dam_L_thigh_side",                 // attachment
+        $"xo_spark_med",                    // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "dam_L_thigh_back",                 // attachment
+        $"xo_spark_med",                    // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    //Left Knee
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_knee",                       // attachment
+        $"xo_damage_exp_1",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_knee",                       // attachment
+        $"xo_damage_lvl_1_elec",            // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_knee",                       // attachment
+        $"P_xo_damage_fire_2",              // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    //Right Thigh
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_thigh",                      // attachment
+        $"xo_damage_exp_1",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_thigh",                      // attachment
+        $"xo_damage_lvl_1_elec",            // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_thigh",                      // attachment
+        $"P_xo_damage_fire_1",              // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    //Right Knee
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_knee",                       // attachment
+        $"xo_damage_exp_1",                 // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_knee",                       // attachment
+        $"xo_damage_lvl_1_elec",            // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_knee",                       // attachment
+        $"P_xo_damage_fire_1",              // effectName
+        true,                               // attachToEnt
+        true,                               // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    // generic tag break effects
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_arm",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_shoulder",                   // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_arm",                         // bodyGroupName
+        2,                                  // stateIndex
+        "exp_L_shoulder",                   // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_arm",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_elbow",                      // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_arm",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_shoulder",                   // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_arm",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_elbow",                      // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_arm",                        // bodyGroupName
+        2,                                  // stateIndex
+        "exp_R_elbow",                      // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "front",                            // bodyGroupName
+        1,                                  // stateIndex
+        "exp_torso_front",                  // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "front",                            // bodyGroupName
+        2,                                  // stateIndex
+        "exp_torso_front",                  // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "front",                            // bodyGroupName
+        1,                                  // stateIndex
+        "exp_torso_back",                   // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "front",                            // bodyGroupName
+        1,                                  // stateIndex
+        "exp_torso_base",                   // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_thigh",                      // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        1,                                  // stateIndex
+        "exp_R_knee",                       // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "right_leg",                        // bodyGroupName
+        2,                                  // stateIndex
+        "exp_R_knee",                       // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_thigh",                      // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        2,                                  // stateIndex
+        "exp_L_thigh",                      // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+    ServerModelBodyGroupFX_Register(
+        modelName,
+        "left_leg",                         // bodyGroupName
+        1,                                  // stateIndex
+        "exp_L_knee",                       // attachment
+        $"xo_dmg_gibs",                     // effectName
+        true,                               // attachToEnt
+        false,                              // loopEffect
+        BUDDY_TITAN_MODEL_EFFECT_VISIBILITYFLAGS        // visibilityFlags
+    )
+}
+
+void function OnTitanSpawned( entity titan )
+{
+    // start modelFX update for buddy titans, track health restore
+    if ( titan.GetAIClass() == AIC_TITAN_BUDDY )
+    {
+        ServerModelHealthFX_SetUpForEntity( titan, true )
+        ServerModelBodyGroupFX_SetUpForEntity( titan )
+    }
+}
+#endif // ENABLE_BUDDY_TITAN_MODEL_EFFECTS
