@@ -2033,20 +2033,35 @@ void function NPCVanguard_GiveLoadout( entity titan )
 	{
 		int bodyGroupIndex = titan.FindBodyGroup( "back" )
 		if ( bodyGroupIndex > -1 )
-		{
-			int stateCount = titan.GetBodyGroupModelCount( bodyGroupIndex )
-			titan.SetBodygroup( bodyGroupIndex, stateCount - 1 )
-		}
+			titan.SetBodygroup( bodyGroupIndex, 1 ) // "buddy_titan_back_d_lod0.smd"
 	}
+}
+
+void function NPCVanguard_BodygroupSetUp( entity titan )
+{
+	// might be funny to add battery_cap_center and battery_cap_outer for them? though I don't know what exact is that
+	// EDIT: these two is enabled by default, it was used for SP where cooper inserts first two batteries for bt
+	// maybe I can set these bodygroup to blank state when they're at low health? that's an useless detail again
+	/*
+	int bodyGroupIndex = titan.FindBodyGroup( "battery_cap_center" )
+	if ( bodyGroupIndex > -1 )
+		titan.SetBodygroup( bodyGroupIndex, 0 ) // "buddy_titan_battery_cap_center.smd"
+	bodyGroupIndex = titan.FindBodyGroup( "battery_cap_outer" )
+	if ( bodyGroupIndex > -1 )
+		titan.SetBodygroup( bodyGroupIndex, 0 ) // "buddy_titan_battery_cap_outer.smd"
+	*/
 }
 
 // loadout functions for vanguard
 void function VanguardExpeditionLoadout( entity titan )
 {
 	// re-assign weapons
+	// "mp_titanweapon_xo16_shorty" has been modified to add npc usage, no need to change weapon
+	/*
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
 	//titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["arc_rounds"] ) // use the arc-rounds monarch xo16
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" ) // removed arc rounds
+	*/
 
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix weapon mod
 	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
@@ -5715,14 +5730,13 @@ void function RestoreNPCAttackCapability( entity guy )
 }
 
 const float NPC_PILOT_STIM_REST_TIME_BETWEEN_USE = 1.0 // if pilot has more than one charge for ability, do some rest
-const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2650 // if pilot has enemy within this range, do stim to approach them( was using 2100 )
-
+const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2100 // if pilot has enemy within this range, do stim to approach them( tried 2650 but seems not good )
 // removing these checks. we added health regen so activate stim without thinking isn't very bad
-/*
-const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 130 * NPC_PILOT_MOVE_SPEED_SCALE // have to be running before activating stim
+// adding back these again, if pilot already have max health these checks should still apply
+const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 100 * NPC_PILOT_MOVE_SPEED_SCALE // have to be running before activating stim( base value was 130, which is kinda difficult to reach )
 const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D = 400 + NPC_PILOT_STIM_REQUIRED_VELOCITY // if pilot too close to their enemy, there's no need to use stim for approaching. they'll stop chasing once reached chaseStopDist
 const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR = 800 + NPC_PILOT_STIM_REQUIRED_VELOCITY * 1.5
-*/
+const float NPC_PILOT_STIM_ADVANCED_CHECK_HEALTH_FRAC = 0.75 // if pilot's health reaching this frac, skip velocity and minium dist checks
 
 void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 {
@@ -5760,37 +5774,41 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 				//print( "Length( pilot.GetVelocity() ): " + string( Length( pilot.GetVelocity() ) ) )
 
 				// removing these checks. we added health regen so activate stim without thinking isn't very bad
-				/*
-				bool onGround = lastTickOnGround && pilot.IsOnGround()
-				float vel = Length( pilot.GetOrigin() - lastTickPos ) / 0.1
-				//print( "vel: " + string( vel ) )
-				//if ( !pilot.IsOnGround() || Length( pilot.GetVelocity() ) < NPC_PILOT_STIM_REQUIRED_VELOCITY )
-				if ( !onGround || vel < NPC_PILOT_STIM_REQUIRED_VELOCITY )
-					continue
-
-				entity enemy = pilot.GetEnemy()
-				if ( IsAlive( enemy ) )
+				// adding back these again, if pilot already have max health these checks should still apply
+				if ( GetHealthFrac( pilot ) > NPC_PILOT_STIM_ADVANCED_CHECK_HEALTH_FRAC )
 				{
-					// wait till enemy is in range or pilot sees an enemy
-					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
-					float stopDist = NPC_PILOT_STIM_CHASE_STOP_DIST_2D
-					if ( enemy.GetArmorType() == ARMOR_TYPE_HEAVY )
-						stopDist = NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR
-					if ( dist2D <= stopDist ) // too close!
+					bool onGround = lastTickOnGround && pilot.IsOnGround()
+					float vel = Length( pilot.GetOrigin() - lastTickPos ) / 0.1
+					//print( "vel: " + string( vel ) )
+					//if ( !pilot.IsOnGround() || Length( pilot.GetVelocity() ) < NPC_PILOT_STIM_REQUIRED_VELOCITY )
+					if ( !onGround || vel < NPC_PILOT_STIM_REQUIRED_VELOCITY )
 						continue
-					if ( pilot.CanSee( enemy ) || dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
-						break
-				}
-				*/
 
-				// simple check version
-				entity enemy = pilot.GetEnemy()
-				if ( IsAlive( enemy ) )
+					entity enemy = pilot.GetEnemy()
+					if ( IsAlive( enemy ) )
+					{
+						// wait till enemy is in range or pilot sees an enemy
+						float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
+						float stopDist = NPC_PILOT_STIM_CHASE_STOP_DIST_2D
+						if ( enemy.GetArmorType() == ARMOR_TYPE_HEAVY )
+							stopDist = NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR
+						if ( dist2D <= stopDist ) // too close!
+							continue
+						if ( pilot.CanSee( enemy ) || dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
+							break
+					}
+				}
+				else
 				{
-					// wait till enemy is in range
-					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
-					if ( dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
-						break
+					// simple check version
+					entity enemy = pilot.GetEnemy()
+					if ( IsAlive( enemy ) )
+					{
+						// wait till enemy is in range
+						float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
+						if ( dist2D < NPC_PILOT_STIM_COMBAT_DIST_2D )
+							break
+					}
 				}
 			}
 
@@ -5807,7 +5825,7 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 // EDIT: add health regen because they really can't use it well... scale down speed severity
 const float NPC_PILOT_STIM_SPEED_BOOST_SEVERITY = 0.4 // no-time-extention version uses 0.65, no-health-regen version uses 0.45
 const float NPC_PILOT_STIM_USE_TIME_EXTENTION = 1.5 // pilots can't use stim well... extend their use time for some bit
-const float NPC_PILOT_STIM_HEALTH_REGEN_FRAC = 0.3 // pilot will regen health by this frac over stim use time
+const float NPC_PILOT_STIM_HEALTH_REGEN_FRAC = 0.35 // pilot will regen health by this frac over stim use time
 const float NPC_PILOT_STIM_REGEN_STOP_DURATION = 2.0 // taking damage will stop health regen for this time
 
 // needs modified sh_stim.gnut, with some tweak to make npcs use it
