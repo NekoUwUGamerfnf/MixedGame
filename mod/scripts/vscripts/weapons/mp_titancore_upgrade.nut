@@ -695,15 +695,15 @@ bool function Upgrade_SuperiorChassis( entity titan )
 				settingMods.append( "core_health_upgrade" )
 				titan.SetPlayerSettingsWithMods( titan.GetPlayerSettings(), settingMods )
 				titan.SetHealth( max( titan.GetMaxHealth() - missingHealth, VANGUARD_CORE8_HEALTH_AMOUNT ) )
-
-				//Hacky Hack - Append core_health_upgrade to setFileMods so that we have a way to check that this upgrade is active.
-				soul.soul.titanLoadout.setFileMods.append( "core_health_upgrade" )
 			}
 			else
 			{
 				titan.SetMaxHealth( titan.GetMaxHealth() + VANGUARD_CORE8_HEALTH_AMOUNT )
 				titan.SetHealth( titan.GetHealth() + VANGUARD_CORE8_HEALTH_AMOUNT )
 			}
+
+			//Hacky Hack - Append core_health_upgrade to setFileMods so that we have a way to check that this upgrade is active.
+			soul.soul.titanLoadout.setFileMods.append( "core_health_upgrade" )
 		}
 		else
 		{
