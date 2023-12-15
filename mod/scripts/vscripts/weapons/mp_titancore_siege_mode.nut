@@ -78,6 +78,11 @@ void function SmartCoreFX( entity weapon, float coreDuration )
 			if ( IsValid( primaryWeapon ) )
 			{
 				primaryWeapon.StopWeaponEffect( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX )
+				// modified: add npc core effect, clean up here
+				#if SERVER
+				if ( IsValid( primaryWeapon.w.laserWorldModel ) )
+					EffectStop( primaryWeapon.w.laserWorldModel )
+				#endif
 			}
 		}
 	)
@@ -93,7 +98,12 @@ void function SmartCoreFX( entity weapon, float coreDuration )
 	if ( owner.IsPlayer() )
 		primaryWeapon.PlayWeaponEffectNoCull( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX, "muzzle_flash" )
 	else if ( owner.IsNPC() )
-		primaryWeapon.PlayWeaponEffect( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX, "muzzle_flash" )
+	{
+		// PlayWeaponEffect() won't work on npc predator cannon
+		// guess I'll play it directly on model, use entity struct for storing
+		//primaryWeapon.PlayWeaponEffect( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX, "muzzle_flash" )
+		primaryWeapon.w.laserWorldModel = PlayLoopFXOnEntity( SMART_CORE_LASER_SIGHT_FX, primaryWeapon, "muzzle_flash" )
+	}
 	#elseif CLIENT
 	primaryWeapon.PlayWeaponEffectNoCull( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX, "muzzle_flash" )
 	#endif // SERVER
