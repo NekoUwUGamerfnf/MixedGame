@@ -76,7 +76,9 @@ void function SmartCoreFX( entity weapon, float coreDuration )
 	function() : ( owner, primaryWeapon )
 		{
 			if ( IsValid( primaryWeapon ) )
+			{
 				primaryWeapon.StopWeaponEffect( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX )
+			}
 		}
 	)
 
@@ -85,7 +87,16 @@ void function SmartCoreFX( entity weapon, float coreDuration )
 		wait 0.1
 	}
 
+	// modified: add npc core effect
+	//primaryWeapon.PlayWeaponEffectNoCull( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX, "muzzle_flash" )
+	#if SERVER
+	if ( owner.IsPlayer() )
+		primaryWeapon.PlayWeaponEffectNoCull( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX, "muzzle_flash" )
+	else if ( owner.IsNPC() )
+		primaryWeapon.PlayWeaponEffect( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX, "muzzle_flash" )
+	#elseif CLIENT
 	primaryWeapon.PlayWeaponEffectNoCull( SMART_CORE_LASER_SIGHT_FX, SMART_CORE_LASER_SIGHT_FX, "muzzle_flash" )
+	#endif // SERVER
 
 	wait ( endTime - Time() )
 
