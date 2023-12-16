@@ -295,6 +295,7 @@ struct NPCVanguardLoadout
 	void functionref( entity ) loadoutFunction // leave this empty means we'll use OverwriteLoadoutWithDefaultsForSetFile() to get loadouts
 	array<int> lockedAbilities // make some ability won't change on giving default loadout( this doesn't affect loadoutFunction )
 	bool disableRocketPod // this is something funny: titan_buddy.mdl's "back" bodygroup don't have doomed state, it is actually hiding rocket pods. we can use it for fun
+	bool useUpgradeCore // change to shield-recharge-only upgrade core
 }
 
 struct NPCVanguardPilot
@@ -1425,8 +1426,17 @@ bool function ExtraSpawner_IsValidExecutionTarget( entity attacker, entity targe
 	return true // default is returning true, let other callbacks go through
 }
 
+// using functions in enum_utility.gnut
+// allow appending new passive
+int PAS_BOSS_TITAN_EXECUTION
+
 void function InitDefaultBossTitanList()
 {
+	// using functions in enum_utility.gnut
+	// allow appending new passive
+	// so we can make titans get battery reward without changing their executionref( which ePassives.PAS_VANGUARD_COREMETER does )
+	AddCallback_EntitiesDidLoad( InitBossPassiveOnLoad )
+
 	// slone
 	ExtraSpawner_RegisterToBossTitanSpawnList
 	(
@@ -1644,6 +1654,15 @@ void function InitDefaultBossTitanList()
 		-1												// decal index, -1 means don't reset
 	)
 }
+
+// using functions in enum_utility.gnut
+// allow appending new passive
+// so we can make titans get battery reward without changing their executionref( which ePassives.PAS_VANGUARD_COREMETER does )
+void function InitBossPassiveOnLoad()
+{
+	PAS_BOSS_TITAN_EXECUTION = RegisterPassive( "pas_boss_titan_execution" )
+	MeleeSyncedTitan_AddBatteryRewardTitanPassives( PAS_BOSS_TITAN_EXECUTION )
+}
 //
 
 // generic loadout function for boss that has no pilot model for mp
@@ -1682,14 +1701,17 @@ void function BossLoadout_ExecutionGivesBattery( entity titan )
 	if ( IsValid( soul ) )
 	{
 		// soul holds titan passives
-		GivePassive( soul, ePassives.PAS_VANGUARD_COREMETER )
+		//GivePassive( soul, ePassives.PAS_VANGUARD_COREMETER ) // rewards battery on execution, but this changes execution animation
+		// using functions in enum_utility.gnut
+		// allow appending new passive
+		// so we can make titans get battery reward without changing their executionref( which ePassives.PAS_VANGUARD_COREMETER does )
+		GivePassive( soul, PAS_BOSS_TITAN_EXECUTION )
 		GivePassive( soul, ePassives.PAS_VANGUARD_DOOM ) // this might be fun? so boss titans won't waste their battery from executions
 
 		// atlas specific execution animation
 		// not very necessary. we've reworked _melee_synced_titan.gnut to make battery check depending on passives
 		//if ( GetSoulTitanSubClass( soul ) == "atlas" )
 		//	soul.soul.titanLoadout.titanExecution = "execution_vanguard_kit" // this might be setup by settings func, here's to re-exam
-	
 	}
 }
 
@@ -1749,8 +1771,10 @@ void function BossLoadout_Sarah( entity titan )
 
 	// re-assign weapons
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
-	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["battle_rifle", "battle_rifle_icon", "fd_vanguard_utility_2"] )
-	
+	// removing healing electric smoke
+	//titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["battle_rifle", "battle_rifle_icon", "fd_vanguard_utility_2"] )
+	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard", ["battle_rifle", "battle_rifle_icon"] )
+
 	// add back multi-targeting missile for sarah because we've removed vanguard expedition loadout
 	// is that really needed? can npcs use them well? or it will be a bit too overpowered?
 	// idk, guess I'll use cluster missile now
@@ -1764,9 +1788,11 @@ void function BossLoadout_Sarah( entity titan )
 	
 	// add salvo core for them, we've tried to fix npc usage
 	// works weird but still good enough to use, I think... laser core shouldn't be used for npcs though
+	// removing it! use no-upgrading upgrade core might be enough, in NPCVanguard_SetUpTitan() we changed their max shield value to 2500
 	//titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
 	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
-	titan.GiveOffhandWeapon( "mp_titancore_salvo_core", OFFHAND_EQUIPMENT )
+	//titan.GiveOffhandWeapon( "mp_titancore_salvo_core", OFFHAND_EQUIPMENT )
+	NPCVanguard_UpgradeCore( titan )
 
 	// may needs to update spawn loadout
 	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
@@ -1802,9 +1828,8 @@ void function BossLoadout_SarahMonarch( entity titan )
 	titan.GiveOffhandWeapon( "mp_titanability_smoke", OFFHAND_ANTIRODEO )
 
 	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
-	// add laser core for them because we've tried to fix npc usage
-	//titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["npc_bt_balance"] )
-	titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT )
+	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["npc_bt_balance"] )
+	//titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT )
 
 	// may needs to update spawn loadout
 	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
@@ -1855,6 +1880,7 @@ void function InitNPCVanguardLoadouts()
 	roninLoadout.behaviorSelector = "behavior_titan_shotgun"
 	roninLoadout.lockedAbilities = [OFFHAND_MELEE, OFFHAND_EQUIPMENT] // BT might be able to use fixed sword core? but it looks hacky, remove for now
 	roninLoadout.disableRocketPod = true // ronin loadout doesn't require rocket pods, hide them on model
+	roninLoadout.useUpgradeCore = true // change to shield-recharge-only upgrade core for fun
 	file.npcVanguardLoadouts.append( roninLoadout )
 
 	// northstar
@@ -1865,7 +1891,6 @@ void function InitNPCVanguardLoadouts()
 	//northstarLoadout.loadoutFunction = null
 	//northstarLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use hover abilities, but we need to safe for them because tether trap is tactical ability, having together with electric smoke will crash
 	northstarLoadout.loadoutFunction = VanguardNorthstarLoadout
-	northstarLoadout.disableRocketPod = true // northstar loadout doesn't require rocket pods, hide them on model
 	file.npcVanguardLoadouts.append( northstarLoadout )
 
 	// brute
@@ -1893,7 +1918,8 @@ void function InitNPCVanguardLoadouts()
 	// add flame core for vanguard because we've tried to fix npc usage
 	// welp, should keep them banned... npc vanguard usually fail to fire, unless they randomized to a proper ACT_SPECIAL_ATTACK animation
 	scorchLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use flame core
-	scorchLoadout.disableRocketPod = true // legion loadout doesn't require rocket pods, hide them on model
+	scorchLoadout.disableRocketPod = true // scorch loadout doesn't require rocket pods, hide them on model
+	scorchLoadout.useUpgradeCore = true // change to shield-recharge-only upgrade core for fun
 	file.npcVanguardLoadouts.append( scorchLoadout )
 
 
@@ -1981,6 +2007,10 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 	{
+		// setup shield. they don't have weak points so no need to increase health
+		soul.SetShieldHealth( 0 )
+		soul.SetShieldHealthMax( 2500 )
+
 		// update seated pilot settings
 		if ( replacePilot )
 		{
@@ -2080,7 +2110,12 @@ void function NPCVanguard_GiveLoadout( entity titan )
 		if ( hasEquipmentReplace )
 			titan.GiveOffhandWeapon( titanLoadout.coreAbility, OFFHAND_EQUIPMENT )
 		else // core ability unchanged, we're still using burst core
-			titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
+		{
+			if ( pickedLoadout.useUpgradeCore ) // shield recharge only upgradecore
+				NPCVanguard_UpgradeCore( titan )
+			else
+				titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "npc_bt_balance" ) // balance core ability
+		}
 		if ( hasMeleeReplace )
 			titan.GiveOffhandWeapon( titanLoadout.melee, OFFHAND_MELEE )
 	}
@@ -2107,6 +2142,17 @@ void function NPCVanguard_BodygroupSetUp( entity titan )
 	if ( bodyGroupIndex > -1 )
 		titan.SetBodygroup( bodyGroupIndex, 0 ) // "buddy_titan_battery_cap_outer.smd"
 	*/
+}
+
+// give them a upgrade core without any upgrades, and change upgradeCount to 3
+void function NPCVanguard_UpgradeCore( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+		soul.SetTitanSoulNetInt( "upgradeCount", 3 )
+
+	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
+	titan.GiveOffhandWeapon( "mp_titancore_upgrade", OFFHAND_EQUIPMENT )
 }
 
 // loadout functions for vanguard
@@ -2159,8 +2205,10 @@ void function VanguardBruteLoadout( entity titan )
 	//titan.GiveOffhandWeapon( "mp_titanweapon_shoulder_rockets", OFFHAND_ORDNANCE )
 	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["brute4_grenade_volley"] )
 	//Titan Core. leaving it unchanged, vanguard can't use hover
+	// EDIT: maybe change it to upgrade core with no upgrading?( only recharges shield. max shield increased to 2500 in NPCVanguard_SetUpTitan() )
 	//titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT )
-	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["npc_bt_balance"] )
+	//titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT, ["npc_bt_balance"] )
+	NPCVanguard_UpgradeCore( titan )
 	//Melee
 	titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
 }
@@ -2193,8 +2241,10 @@ void function BossLoadout_Gates( entity titan )
 	// npc cannot use upgrade core, change to salvo core or laser core
 	//NPCAtlasTitanCoreReplace( titan )
 	// now only use laser core because we've add salvo core for sarah
+	// EDIT: sarah salvo core has been removed, now only use salvo core because we've added laser core for archon
 	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
-	titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT )
+	//titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT )
+	titan.GiveOffhandWeapon( "mp_titancore_salvo_core", OFFHAND_EQUIPMENT )
 }
 
 void function BossLoadout_Bear( entity titan )
@@ -6718,6 +6768,7 @@ void function InitDefaultScriptedNPCTitanCore()
 // npc upgrade core usage
 const float UPGRADE_CORE_ACTIVATE_REQUIRED_SHIELD_FRAC = 0.4 // if shield is below this fraction, titan activates upgrade core
 const float UPGRADE_CORE_ACTIVATE_MAX_DELAY = 12.0 // titan will activate upgrade core after this delay, no matter how many shield left
+const float UPGRADE_CORE_COOLDOWN_BETWEEN_USE = 5.0 // monarch can be annoying if upgrading too fast, add cooldown
 
 void function NPCTitanUpgradeCoreThink( entity titan, entity coreWeapon )
 {
@@ -6757,10 +6808,14 @@ void function NPCTitanUpgradeCoreThink( entity titan, entity coreWeapon )
 		}
 
 		// core used, drain meter
-		thread DrainNPCTitanCoreMeter( titan )
+		//thread DrainNPCTitanCoreMeter( titan )
 
 		// cooldown before next core use
-		WeaponWaitForRandomNPCRest( coreWeapon )
+		// vanilla doesn't seem like npcs will use rest time for core abilities
+		// but monarch can be annoying if upgrading too fast, still add cooldown
+		//WeaponWaitForRandomNPCRest( coreWeapon )
+		waitthread DrainNPCTitanCoreMeter( titan )
+		wait UPGRADE_CORE_COOLDOWN_BETWEEN_USE
 	}
 }
 
@@ -6830,10 +6885,13 @@ void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 		}
 
 		// core used, drain meter
-		thread DrainNPCTitanCoreMeter( titan )
+		//thread DrainNPCTitanCoreMeter( titan )
 
 		// cooldown before next core use
-		WeaponWaitForRandomNPCRest( coreWeapon )
+		// vanilla doesn't seem like npcs will use rest time for core abilities
+		// wait for core meter drain out should be good enough
+		//WeaponWaitForRandomNPCRest( coreWeapon )
+		waitthread DrainNPCTitanCoreMeter( titan )
 	}
 }
 

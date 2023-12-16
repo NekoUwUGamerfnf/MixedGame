@@ -30,6 +30,12 @@ const LASER_FIRE_SOUND_1P = "Titan_Core_Laser_FireBeam_1P_extended"
 const LASER_FIRE_SOUND_1P = "Titan_Core_Laser_FireBeam_1P"
 #endif
 
+// modified struct for handling npc execution
+struct
+{
+	table<entity, bool> entUsingFakeLaserCore
+} file
+
 void function LaserCannon_Init()
 {
 	PrecacheParticleSystem( FX_LASERCANNON_AIM )
@@ -210,7 +216,8 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 	// check for npc executions to work!
 	// don't want it intterupt execution animations
 	//PrintFunc()
-	//print( "!player.Anim_IsActive(): " + string( !player.Anim_IsActive() ) )
+	//print( "player.Anim_IsActive(): " + string( player.Anim_IsActive() ) )
+	//if ( player.IsNPC() )
 	if ( player.IsNPC() && !player.Anim_IsActive() )
 	{
 		player.SetVelocity( <0,0,0> )
@@ -278,7 +285,7 @@ void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 	// don't want it intterupt execution animations
 	//PrintFunc()
 	//print( "IsTitanCoreFiring( player ): " + string( IsTitanCoreFiring( player ) ) )
-	//print( "!player.Anim_IsActive(): " + string( !player.Anim_IsActive() ) )
+	//print( "player.Anim_IsActive(): " + string( player.Anim_IsActive() ) )
 	if ( player.IsNPC() && IsAlive( player ) && ( IsTitanCoreFiring( player ) || !player.Anim_IsActive() ) )
 		player.Anim_Stop()
 	#endif
@@ -328,16 +335,28 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 		EmitSoundOnEntity( player, "Titan_Core_Laser_FireBeam_3P" )
 	}
 	
-	// check for npc executions to work!
-	// don't want it intterupt execution animations
-	//PrintFunc()
-	//print( "!player.Anim_IsActive(): " + string( !player.Anim_IsActive() ) )
-	if ( player.IsNPC() && !player.Anim_IsActive() )
+	if ( player.IsNPC() )
 	{
-		player.SetVelocity( <0,0,0> )
-		// modified checks for animations, anti-crash
-		if ( TitanShouldPlayAnimationForLaserCore( player ) )
-			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK", true, 0.1 )
+		// check for npc executions to work!
+		// don't want it intterupt execution animations
+		//PrintFunc()
+		//print( "player.ContextAction_IsMeleeExecution(): " + string( player.ContextAction_IsMeleeExecution() ) )
+		//print( "player.Anim_IsActive(): " + string( player.Anim_IsActive() ) )
+		//print( "IsValid( player.GetParent() ): " + string( IsValid( player.GetParent() ) ) )
+		// player.ContextAction_IsMeleeExecution() can't get a npc's state
+		// modded behavior
+		if ( player.Anim_IsActive() )
+		{
+			// they can't aim laser core if use during execution, do some fake effect
+			thread FakeExecutionLaserCannonThink( player, weapon )
+		}
+		else // vanilla behavior
+		{
+			player.SetVelocity( <0,0,0> )
+			// modified checks for animations, anti-crash
+			if ( TitanShouldPlayAnimationForLaserCore( player ) )
+				player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK", true, 0.1 )
+		}
 	}
 
 	// thread LaserEndingWarningSound( weapon, player )
@@ -351,6 +370,113 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 
 	return true
 }
+
+// modified: fake lasercore think
+// npcs can't aim laser core if use during execution, do some fake effect
+#if SERVER
+void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
+{
+	owner.EndSignal( "OnDestroy" )
+	owner.EndSignal( "OnSustainedDischargeEnd" )
+	weapon.EndSignal( "OnDestroy" )
+
+	// tracer don't really work, but with impact effect it already looks not bad
+	entity laserSource //CreatePropDynamic( LASER_MODEL )
+	//laserSource.SetParent( owner, "CHESTFOCUS", true, 0.0 )
+	//laserSource.SetAngles( < 0, 180, 0 > )
+
+	entity laserTracer //= PlayFXOnEntity( $"P_wpn_lasercannon", laserSource, "muzzle_flash", null, null, 6 )
+
+	// adding this mark so we don't stop animation and sound in OnAbilityEnd_LaserCannon()
+	// all handle in this function
+	file.entUsingFakeLaserCore[ owner ] <- true
+
+	table<string, entity> entCleanUpTable
+	entCleanUpTable[ "executionParent" ] <- null
+	entCleanUpTable[ "laserGlowEffect" ] <- null
+
+	OnThreadEnd
+	(
+		function(): ( owner, entCleanUpTable, laserSource, laserTracer )
+		{
+			//print( "FakeExecutionLaserCannonThink() OnThreadEnd!" )
+			if ( IsValid( laserTracer ) )
+			{
+				laserTracer.ClearParent()
+				EffectStop( laserTracer )
+			}
+			if ( IsValid( laserSource ) )
+				laserSource.Destroy()
+			entity laserGlowEffect = entCleanUpTable[ "laserGlowEffect" ]
+			if ( IsValid( laserGlowEffect ) )
+				EffectStop( laserGlowEffect )
+
+			if ( IsValid( owner ) )
+			{
+				// fix sound
+				EmitSoundOnEntity( owner, "Titan_Core_Laser_FireStop_3P" )
+				StopSoundOnEntity( owner, "Titan_Core_Laser_FireBeam_3P" )
+				delete file.entUsingFakeLaserCore[ owner ]
+			}
+			entity executionParent = entCleanUpTable[ "executionParent" ]
+			if ( IsValid( executionParent ) )
+			{
+				StopSoundOnEntity( executionParent, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
+			}
+		}
+	)
+
+	float lifeTime = weapon.GetSustainedDischargeDuration()
+	float endTime = Time() + lifeTime
+	bool emittedSound = false
+	entity laserGlowEffect
+	while ( Time() < endTime && owner.Anim_IsActive() )
+	{
+		// stop weapon firing
+		ForceTitanSustainedDischargeEnd( owner )
+
+		int index = owner.LookupAttachment( "CHESTFOCUS" )
+		vector origin = owner.GetAttachmentOrigin( index )
+		vector angles = owner.GetAttachmentAngles( index )
+
+		TraceResults results = TraceLine( 
+			owner.EyePosition(), 
+			owner.EyePosition() + AnglesToForward( angles ) * 6000, // equal to "sustained_laser_range"
+			//[owner, laserSource, laserTracer], // laserSource and laserTracer has been set to invalid, can't ignore them
+			[owner], 
+			TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE 
+		)
+		// fake impact effect
+		// make sure we only play it on our victim... because npc sometimes call "AE_OFFHAND_BEGIN" earlier than we should expect
+		// "laser_core" impact effect isn't good, it will emit a looping impact sound...
+		entity executionParent = owner.GetParent()
+		entity hitEnt = results.hitEnt
+		if ( IsValid( hitEnt ) && IsValid( executionParent ) && hitEnt == executionParent )
+		{
+			vector fxPos = results.endPos - results.surfaceNormal
+			//PlayImpactFXTable( , owner, "laser_core", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+			// manually do effects
+			if ( IsValid( laserGlowEffect ) )
+			{
+				EffectStop( laserGlowEffect )
+				laserGlowEffect = null
+			}
+			laserGlowEffect = PlayFX( $"P_lasercannon_endglow", fxPos )
+			entCleanUpTable[ "laserGlowEffect" ] = laserGlowEffect
+			PlayFX( $"P_impact_lasercannon_default", fxPos )
+
+			if ( !emittedSound )
+			{
+				EmitSoundOnEntity( executionParent, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
+				entCleanUpTable[ "executionParent" ] = executionParent
+				emittedSound = true
+			}
+		}
+
+		WaitFrame()
+	}
+}
+#endif
 
 void function OnAbilityEnd_LaserCannon( entity weapon )
 {
@@ -381,30 +507,40 @@ void function OnAbilityEnd_LaserCannon( entity weapon )
 	}
 	else
 	{
-		EmitSoundOnEntity( player, "Titan_Core_Laser_FireStop_3P" )
+		// modified for handling npc laser core animation
+		if ( !( player in file.entUsingFakeLaserCore ) )
+			EmitSoundOnEntity( player, "Titan_Core_Laser_FireStop_3P" )
 	}
 
-	// check for npc executions to work!
-	// don't want it intterupt execution animations
-	//PrintFunc()
-	if ( player.IsNPC() && IsAlive( player ) )
+	// modified for handling npc laser core animation
+	if ( !( player in file.entUsingFakeLaserCore ) )
 	{
-		player.SetVelocity( <0,0,0> )
-
-		// modified checks for animations, anti-crash
-		if ( TitanShouldPlayAnimationForLaserCore( player ) )
+		// vanilla check
+		if ( player.IsNPC() && IsAlive( player ) )
 		{
-			player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.0 )
-			// vanilla missing: clean up context action state we set in OnAbilityCharge_LaserCannon()
-			// alright... shouldn't mark context action state for them, will make them stop finding new enemies
-			// just handle in extra_ai_spawner.gnut
-			//if ( player.ContextAction_IsBusy() )
-			//	thread ClearContextActionStateAfterCoreAnimation( player )
+			player.SetVelocity( <0,0,0> )
+
+			// modified checks for animations, anti-crash
+			if ( TitanShouldPlayAnimationForLaserCore( player ) )
+			{
+				player.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.0 )
+				// vanilla missing: clean up context action state we set in OnAbilityCharge_LaserCannon()
+				// alright... shouldn't mark context action state for them, will make them stop finding new enemies
+				// just handle in extra_ai_spawner.gnut
+				//if ( player.ContextAction_IsBusy() )
+				//	thread ClearContextActionStateAfterCoreAnimation( player )
+			}
 		}
 	}
 
-	StopSoundOnEntity( player, "Titan_Core_Laser_FireBeam_3P" )
-	StopSoundOnEntity( player, LASER_FIRE_SOUND_1P )
+	// modified for handling npc laser core animation
+	if ( !( player in file.entUsingFakeLaserCore ) )
+	{
+		StopSoundOnEntity( player, "Titan_Core_Laser_FireBeam_3P" )
+		StopSoundOnEntity( player, LASER_FIRE_SOUND_1P )
+	}
+
+	//print( "OnAbilityEnd_LaserCannon run to end!" )
 	#endif
 }
 
