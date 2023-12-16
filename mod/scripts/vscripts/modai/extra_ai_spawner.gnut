@@ -6695,7 +6695,8 @@ void function NPCTitanUpgradeCoreThink( entity titan, entity coreWeapon )
 // npc smart core usage
 const float SMART_CORE_ACTIVATE_REQUIRED_EMENY_COUNT = 3 // if more than this amount of enemy heavy armor units attacking us, we activate core
 const float SMART_CORE_RECENT_DAMAGE_HISTORY = 3.0 // damage histroy withing this time will consider 
-const float SMART_CORE_ACTIVATE_MAX_DELAY = 5.0 // after this delay, titan will activate smart core once they sees an enemy
+const float SMART_CORE_ACTIVATE_CHECK_HEAVY_ARMOR = 4.0 // after this delay, if titan sees an heavy armor target they'll activate core
+const float SMART_CORE_ACTIVATE_MAX_DELAY = 15.0 // after this delay, titan will activate smart core once they sees an enemy
 
 void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 {
@@ -6708,6 +6709,7 @@ void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 		WaitTillTitanCoreCharge( titan )
 
 		entity soul = titan.GetTitanSoul()
+		float checkHeavyArmorTime = Time() + SMART_CORE_ACTIVATE_CHECK_HEAVY_ARMOR
 		float maxWait = Time() + SMART_CORE_ACTIVATE_MAX_DELAY
 		while ( Time() < maxWait )
 		{
@@ -6715,6 +6717,12 @@ void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 			entity enemy = titan.GetEnemy()
 			if ( IsValid( enemy ) )
 			{
+				// heavy armor enemy check
+				if ( Time() > checkHeavyArmorTime )
+				{
+					if ( enemy.GetArmorType() == ARMOR_TYPE_HEAVY )
+						break
+				}
 				entity activeWeapon = titan.GetActiveWeapon()
 				if ( IsValid( activeWeapon ) )
 				{
@@ -6725,13 +6733,14 @@ void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 			}
 
 			// multiple enemy heavy armor units attacking us together
+			// EDIT: remove heavy armor unit check
 			entity soul = titan.GetTitanSoul()
 			array<entity> enemiesAttacking = GetEnemiesAttackingInTime( soul, SMART_CORE_RECENT_DAMAGE_HISTORY )
 			int enemyCount = 0
 			foreach ( entity attacker in enemiesAttacking )
 			{
 				// armor type
-				if ( attacker.GetArmorType() == ARMOR_TYPE_HEAVY )
+				//if ( attacker.GetArmorType() == ARMOR_TYPE_HEAVY )
 					enemyCount += 1
 			}
 
@@ -6748,9 +6757,20 @@ void function NPCTitanSmartCoreThink( entity titan, entity coreWeapon )
 		bool succeeded = false
 		while ( !succeeded )
 		{
-			// wait till titan stops scripted animation and sees an enemy
-			while ( titan.Anim_IsActive() || !IsAlive( titan.GetEnemy() ) )
+			// wait till titan stops scripted animation
+			if ( titan.Anim_IsActive() )
+			{
 				WaitFrame()
+				continue
+			}
+
+			// wait till titan sees an enemy
+			entity enemy = titan.GetEnemy()
+			if ( !IsAlive( enemy ) || !titan.CanSee( enemy ) )
+			{
+				WaitFrame()
+				continue
+			}
 
 			// needs modified mp_titancore_siege_mode.nut, or it will crash
 			succeeded = bool( OnWeaponPrimaryAttack_titancore_siege_mode( coreWeapon, emptyParams ) )
