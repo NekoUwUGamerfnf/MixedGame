@@ -451,25 +451,29 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 		// "laser_core" impact effect isn't good, it will emit a looping impact sound...
 		entity executionParent = owner.GetParent()
 		entity hitEnt = results.hitEnt
-		if ( IsValid( hitEnt ) && IsValid( executionParent ) && hitEnt == executionParent )
+		if ( IsValid( hitEnt ) )
 		{
 			vector fxPos = results.endPos - results.surfaceNormal
 			//PlayImpactFXTable( , owner, "laser_core", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
 			// manually do effects
-			if ( IsValid( laserGlowEffect ) )
-			{
-				EffectStop( laserGlowEffect )
-				laserGlowEffect = null
-			}
-			laserGlowEffect = PlayFX( $"P_lasercannon_endglow", fxPos )
-			entCleanUpTable[ "laserGlowEffect" ] = laserGlowEffect
 			PlayFX( $"P_impact_lasercannon_default", fxPos )
-
-			if ( !emittedSound )
+			// effects that only played when we hit player
+			if ( IsValid( executionParent ) && hitEnt == executionParent )
 			{
-				EmitSoundOnEntity( executionParent, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
-				entCleanUpTable[ "executionParent" ] = executionParent
-				emittedSound = true
+				if ( IsValid( laserGlowEffect ) )
+				{
+					EffectStop( laserGlowEffect )
+					laserGlowEffect = null
+				}
+				laserGlowEffect = PlayFX( $"P_lasercannon_endglow", fxPos )
+				entCleanUpTable[ "laserGlowEffect" ] = laserGlowEffect
+
+				if ( !emittedSound )
+				{
+					EmitSoundOnEntity( executionParent, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
+					entCleanUpTable[ "executionParent" ] = executionParent
+					emittedSound = true
+				}
 			}
 		}
 
