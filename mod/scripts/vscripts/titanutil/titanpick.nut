@@ -45,7 +45,8 @@ const string TITAN_DROPPED_WEAPON_SCRIPTNAME    = "titanPickWeaponDrop"
 const vector DEFAULT_DROP_ORIGIN                = < -99999, -99999, -99999 > // hack, this means drop right under player or titan
 const vector DEFAULT_DROP_ANGLES                = < -99999, -99999, -99999 > // hack, this means drop right under player or titan
 
-const float PLAYER_PICKUP_COOLDOWN              = 0.5 // for we use this 0.2s to update core icon
+// note: sound "bt_weapon_draw" lasts 1.5s
+const float PLAYER_PICKUP_COOLDOWN              = 0.5 // disallow next pickup before this time, for we use it to update core icon and emit sound
 const float PLAYER_RUI_UPDATE_DURATION          = 0.5 // use cinematic flag to update rui
 
 global struct DroppedTitanWeapon
@@ -579,8 +580,7 @@ void function ReplaceTitanWeapon( entity player, entity weaponProp )
 
     // successfully applies weapons
     // try update cockpit rui visibility
-    UpdateCoreIconForLoadoutSwitch( player )
-    thread UpdateCockpitRUIVisbilityForLoadoutSwitch( player )
+    UpdateTitanStatusForLoadoutSwitch( player )
 }
 
 void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOffhands )
@@ -646,10 +646,21 @@ void function ApplySavedOffhandWeapons( entity titan, OffhandWeaponData savedOff
     }
 }
 
+void function UpdateTitanStatusForLoadoutSwitch( entity player )
+{
+    // add a grace period for we update core icon and play sound
+    file.playerPickupAllowedTime[ player ] = Time() + PLAYER_PICKUP_COOLDOWN
+    
+    StopSoundOnEntity( player, "bt_weapon_draw" )
+    EmitSoundOnEntityOnlyToPlayer( player, player, "bt_weapon_draw" )
+
+    UpdateCoreIconForLoadoutSwitch( player )
+    thread UpdateCockpitRUIVisbilityForLoadoutSwitch( player )
+}
+
 // rui updating
 void function UpdateCoreIconForLoadoutSwitch( entity player )
 {
-    file.playerPickupAllowedTime[ player ] = Time() + PLAYER_PICKUP_COOLDOWN // add a grace period for we update core icon
     entity soul = player.GetTitanSoul()
     if ( IsValid( soul ) )
     {
