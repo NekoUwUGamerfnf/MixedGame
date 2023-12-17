@@ -148,7 +148,138 @@ void function ServerSide_ModelFX_Init()
     RegisterSignal( "ModelHealthFX_OwnerTracking" )
     RegisterSignal( "ModelFXData_OwnerTracking" )
     RegisterSignal( "ModelBodyGroupFX_OwnerTracking" )
+    // HACK for titans
+    AddSoulDeathCallback( OnSoulDeath )
+    AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
+	AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
 }
+
+// HACK for titans: use soul entity for storing everything
+// as PilotBecomesTitan() transfers parents
+void function OnSoulDeath( entity soul, var damageInfo )
+{
+    // clean up effects
+    if ( soul in file.entHasSetUpServerModelHealthFX )
+        ServerModelHealthFX_RemoveEffectsOnEntity( soul )
+    if ( soul in file.entHasSetUpServerModelFXData )
+    {
+        ServerModelFXData_RemoveSpawnFXOnEntity( soul )
+        ServerModelFXData_RemoveHealthFXOnEntity( soul )
+    }
+    if ( soul in file.entHasSetUpServerModelBodyGroupFX )
+        ServerModelBodyGroupFX_RemoveEffectsOnEntity( ent, true )
+}
+
+void function OnPilotBecomesTitan( entity player, entity titan )
+{
+    entity soul = player.GetTitanSoul() // soul has been transferred
+    if ( !IsValid( soul ) )
+        return
+
+    // update callbacks
+    if ( soul in file.entHasSetUpServerModelHealthFX )
+        AddEntityCallback_OnPostDamaged( player, ServerModelHealthFX_OnEntPostDamage )
+    if ( soul in file.entHasSetUpServerModelFXData )
+        AddEntityCallback_OnPostDamaged( player, ServerModelFXData_OnEntPostDamage )
+    
+    // update effects ownership
+    if ( soul in file.entOwnedModelHealthFXs )
+    {
+        foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXs[ soul ] )
+        {
+            entity effect = ownedFXStruct.effect
+            if ( IsValid( effect ) )
+                effect.SetOwner( player )
+        }
+    }
+    if ( soul in file.entOwnedModelSpawnFXsFromData )
+    {
+        foreach ( index, effect in file.entOwnedModelSpawnFXsFromData[ soul ] )
+        {
+            if ( IsValid( effect ) )
+                effect.SetOwner( player )
+        }
+    }
+    if ( soul in file.entOwnedModelHealthFXsFromData )
+    {
+        foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXsFromData[ soul ] )
+        {
+            entity effect = ownedFXStruct.effect
+            if ( IsValid( effect ) )
+                effect.SetOwner( player )
+        }
+    }
+    if ( soul in file.entOwnedModelBodyGroupFXs )
+    {
+        foreach ( index, ownedFXStruct in file.entOwnedModelBodyGroupFXs[ soul ] )
+        {
+            entity effect = ownedFXStruct.effect
+            if ( IsValid( effect ) )
+                effect.SetOwner( player )
+        }
+    }
+}
+
+void function OnTitanBecomesPilot( entity player, entity titan )
+{
+    entity soul = titan.GetTitanSoul() // soul has been transferred
+    if ( !IsValid( soul ) )
+        return
+
+    // update callbacks
+    if ( soul in file.entHasSetUpServerModelHealthFX )
+    {
+        RemoveEntityCallback_OnPostDamaged( player, ServerModelHealthFX_OnEntPostDamage )
+        AddEntityCallback_OnPostDamaged( titan, ServerModelHealthFX_OnEntPostDamage )
+    }
+    if ( soul in file.entHasSetUpServerModelFXData )
+    {
+        RemoveEntityCallback_OnPostDamaged( player, ServerModelFXData_OnEntPostDamage )
+        AddEntityCallback_OnPostDamaged( titan, ServerModelFXData_OnEntPostDamage )
+    }
+
+    // update effects ownership
+    // seems not working fine.
+    // player still can't see effects on their titan after disembarking once, but others could
+    // guess it's alright? at least player won't be blinded by too many effects
+    // the best method is we re-create effects like client-side does, but whatever
+    if ( soul in file.entOwnedModelHealthFXs )
+    {
+        foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXs[ soul ] )
+        {
+            entity effect = ownedFXStruct.effect
+            if ( IsValid( effect ) )
+                effect.SetOwner( titan )
+        }
+    }
+    if ( soul in file.entOwnedModelSpawnFXsFromData )
+    {
+        foreach ( index, effect in file.entOwnedModelSpawnFXsFromData[ soul ] )
+        {
+            if ( IsValid( effect ) )
+                effect.SetOwner( titan )
+        }
+    }
+    if ( soul in file.entOwnedModelHealthFXsFromData )
+    {
+        foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXsFromData[ soul ] )
+        {
+            entity effect = ownedFXStruct.effect
+            if ( IsValid( effect ) )
+                effect.SetOwner( titan )
+        }
+    }
+    if ( soul in file.entOwnedModelBodyGroupFXs )
+    {
+        foreach ( index, ownedFXStruct in file.entOwnedModelBodyGroupFXs[ soul ] )
+        {
+            entity effect = ownedFXStruct.effect
+            if ( IsValid( effect ) )
+                effect.SetOwner( titan )
+        }
+    }
+}
+//
 
 entity function CreateModelFXOnEnt( entity ent, asset effectName, string attachment, bool attachToEnt = false, bool loopEffect = false, int visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE, bool immediateDestroy = true )
 {
@@ -266,13 +397,29 @@ void function ServerModelHealthFX_Register( asset modelName, float healthFrac, s
 
 void function ServerModelHealthFX_SetUpForEntity( entity ent, bool trackHealthRestore = false )
 {
+    // HACK for titans: use soul entity for storing everything
+    // as PilotBecomesTitan() transfers parents
+    if ( ent.IsTitan() )
+    {
+        ent = ent.GetTitanSoul()
+        if ( !IsValid( ent ) )
+            return
+    }
+
     if ( ent in file.entHasSetUpServerModelHealthFX ) // don't allow setup multiple times
         return
-    
     file.entHasSetUpServerModelHealthFX[ ent ] <- true
-
+    
     ServerModelHealthFX_ApplyEffectsToEntity( ent )
-    AddEntityCallback_OnPostDamaged( ent, ServerModelHealthFX_OnEntPostDamage )
+    // HACK for titans
+    if ( IsSoul( ent ) )
+    {
+        entity titan = ent.GetTitan()
+        if ( IsValid( titan ) )
+            AddEntityCallback_OnPostDamaged( titan, ServerModelHealthFX_OnEntPostDamage )
+    }
+    else
+        AddEntityCallback_OnPostDamaged( ent, ServerModelHealthFX_OnEntPostDamage )
 
     thread ModelHealthFX_OwnerTracking( ent, trackHealthRestore )
 }
@@ -289,17 +436,45 @@ void function ModelHealthFX_OwnerTracking( entity ent, bool trackHealthRestore )
     asset lastTickModelName
     int lastTickHealth
     bool lastTickAlive
-    bool lastTickDoomed // only for titans
+    
+    // HACK for titans
+    entity soul = IsSoul( ent ) ? ent : null
+    entity lastTickTitan
+    bool lastTickDoomed
+
     while ( true )
     {
-        lastTickModelName = ent.GetModelName()
-        if ( IsAlive( ent ) )
-            lastTickHealth = ent.GetHealth()
-        lastTickAlive = IsAlive( ent )
-        if ( IsAlive( ent ) && ent.IsTitan() )
-            lastTickDoomed = GetDoomedState( ent )
-
+        // HACK for titans
+        lastTickTitan = null
+        if ( IsValid( soul ) )
+        {
+            lastTickTitan = soul.GetTitan()
+            if ( IsValid( lastTickTitan ) )
+            {
+                lastTickModelName = lastTickTitan.GetModelName()
+                if ( IsAlive( lastTickTitan ) )
+                    lastTickHealth = lastTickTitan.GetHealth()
+                lastTickAlive = IsAlive( lastTickTitan )
+                lastTickDoomed = GetDoomedState( lastTickTitan )
+            }
+        }
+        else
+        {
+            lastTickModelName = ent.GetModelName()
+            if ( IsAlive( ent ) )
+                lastTickHealth = ent.GetHealth()
+            lastTickAlive = IsAlive( ent )
+        }
+        
         WaitFrame()
+
+        // HACK for titans
+        if ( IsValid( soul ) )
+        {
+            ent = soul.GetTitan()
+            if ( !IsValid( ent ) )
+                continue
+        }
 
         // model updated for some reason!
         if ( ent.GetModelName() != lastTickModelName )
@@ -361,18 +536,33 @@ void function ServerModelHealthFX_OnEntPostDamage( entity ent, var damageInfo )
 // apply any valid effect to current entity
 void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageInfo = null )
 {
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+
+    if ( !IsValid( ent ) )
+        return
+    
     asset modelName = ent.GetModelName()
     if ( !( modelName in file.registeredModelHealthFXTable ) )
         return
     
-    if ( !( ent in file.entOwnedModelHealthFXs ) )
-        file.entOwnedModelHealthFXs[ ent ] <- {}
+    // HACK for titans: use soul entity for storing everything
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !( storingEnt in file.entOwnedModelHealthFXs ) )
+        file.entOwnedModelHealthFXs[ storingEnt ] <- {}
 
     foreach ( effectStruct in file.registeredModelHealthFXTable[ modelName ] )
     {
         // don't play effect again if we already had one
         int index = effectStruct.index
-        if ( index in file.entOwnedModelHealthFXs[ ent ] )
+        if ( index in file.entOwnedModelHealthFXs[ storingEnt ] )
             continue
 
         float healthFracReq = effectStruct.healthFrac
@@ -426,19 +616,31 @@ void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageIn
         ownedFXStruct.healthFrac = healthFracReq
         ownedFXStruct.checkDoomedHealth = checkDoomedHealth
 
-        file.entOwnedModelHealthFXs[ ent ][ index ] <- ownedFXStruct
+        file.entOwnedModelHealthFXs[ storingEnt ][ index ] <- ownedFXStruct
     }
 }
 
 void function ServerModelHealthFX_RemoveEffectsOnEntity( entity ent, bool checkHealthFracOnly = false )
 {
-    if ( !( ent in file.entOwnedModelHealthFXs ) )
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelHealthFXs ) )
         return
         
-    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXs[ ent ] )
+    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXs[ storingEnt ] )
     {
         float healthFrac = ownedFXStruct.healthFrac
-        // HACK for titans
         bool checkDoomedHealth = ownedFXStruct.checkDoomedHealth
         // health frac check version
         // only stop effect if entity restore their health above required frac
@@ -461,13 +663,21 @@ void function ServerModelHealthFX_RemoveEffectsOnEntity( entity ent, bool checkH
         if ( IsValid( effect ) )
             EffectStop( effect )
 
-        delete file.entOwnedModelHealthFXs[ ent ][ index ]
+        delete file.entOwnedModelHealthFXs[ storingEnt ][ index ]
     }
 }
 
 // clean up callbacks, thinks and owned effects
 void function ServerModelHealthFX_CleanUpForEntity( entity ent )
 {
+    // HACK for titans: use soul entity for storing everything
+    if ( ent.IsTitan() )
+    {
+        ent = ent.GetTitanSoul()
+        if ( !IsValid( ent ) )
+            return
+    }
+
     if ( !( ent in file.entHasSetUpServerModelHealthFX ) ) // needs to be setup before we can call this think
         return
     
@@ -475,7 +685,15 @@ void function ServerModelHealthFX_CleanUpForEntity( entity ent )
     ent.Signal( "ModelHealthFX_OwnerTracking" )
 
     ServerModelHealthFX_RemoveEffectsOnEntity( ent )
-    RemoveEntityCallback_OnPostDamaged( ent, ServerModelHealthFX_OnEntPostDamage )
+    // HACK for titans
+    if ( IsSoul( ent ) )
+    {
+        entity titan = ent.GetTitan()
+        if ( IsValid( titan ) )
+            RemoveEntityCallback_OnPostDamaged( titan, ServerModelHealthFX_OnEntPostDamage )
+    }
+    else
+        RemoveEntityCallback_OnPostDamaged( ent, ServerModelHealthFX_OnEntPostDamage )
 
     delete file.entHasSetUpServerModelHealthFX[ ent ]
 }
@@ -548,14 +766,30 @@ void function ServerModelFXData_AddHealthFX( asset modelName, string dataName, f
 
 void function ServerModelFXData_SetUpForEntity( entity ent )
 {
+    // HACK for titans: use soul entity for storing everything
+    // as PilotBecomesTitan() transfers parents
+    if ( ent.IsTitan() )
+    {
+        ent = ent.GetTitanSoul()
+        if ( !IsValid( ent ) )
+            return
+    }
+
     if ( ent in file.entHasSetUpServerModelFXData ) // don't allow setup multiple times
         return
-    
     file.entHasSetUpServerModelFXData[ ent ] <- true
 
     ServerModelFXData_ApplySpawnFXToEntity( ent )
     ServerModelFXData_ApplyHealthFXToEntity( ent )
-    AddEntityCallback_OnPostDamaged( ent, ServerModelFXData_OnEntPostDamage )
+    // HACK for titans
+    if ( IsSoul( ent ) )
+    {
+        entity titan = ent.GetTitan()
+        if ( IsValid( titan ) )
+            AddEntityCallback_OnPostDamaged( titan, ServerModelFXData_OnEntPostDamage )
+    }
+    else
+        AddEntityCallback_OnPostDamaged( ent, ServerModelFXData_OnEntPostDamage )
 
     thread ModelFXData_OwnerTracking( ent )
 }
@@ -571,17 +805,45 @@ void function ModelFXData_OwnerTracking( entity ent )
     asset lastTickModelName
     int lastTickHealth
     bool lastTickAlive
-    bool lastTickDoomed // only for titans
+
+    // HACK for titans
+    entity soul = IsSoul( ent ) ? ent : null
+    entity lastTickTitan
+    bool lastTickDoomed
+
     while ( true )
     {
-        lastTickModelName = ent.GetModelName()
-        if ( IsAlive( ent ) )
-            lastTickHealth = ent.GetHealth()
-        lastTickAlive = IsAlive( ent )
-        if ( IsAlive( ent ) && ent.IsTitan() )
-            lastTickDoomed = GetDoomedState( ent )
+        // HACK for titans
+        lastTickTitan = null
+        if ( IsValid( soul ) )
+        {
+            lastTickTitan = soul.GetTitan()
+            if ( IsValid( lastTickTitan ) )
+            {
+                lastTickModelName = lastTickTitan.GetModelName()
+                if ( IsAlive( lastTickTitan ) )
+                    lastTickHealth = lastTickTitan.GetHealth()
+                lastTickAlive = IsAlive( lastTickTitan )
+                lastTickDoomed = GetDoomedState( lastTickTitan )
+            }
+        }
+        else
+        {
+            lastTickModelName = ent.GetModelName()
+            if ( IsAlive( ent ) )
+                lastTickHealth = ent.GetHealth()
+            lastTickAlive = IsAlive( ent )
+        }
 
         WaitFrame()
+
+        // HACK for titans
+        if ( IsValid( soul ) )
+        {
+            ent = soul.GetTitan()
+            if ( !IsValid( ent ) )
+                continue
+        }
 
         // model updated for some reason!
         if ( ent.GetModelName() != lastTickModelName )
@@ -639,6 +901,19 @@ void function ServerModelFXData_OnEntPostDamage( entity ent, var damageInfo )
 // apply any valid effect to current entity
 void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
 {
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+
+    if ( !IsValid( ent ) )
+        return
+    
     asset modelName = ent.GetModelName()
     if ( !( modelName in file.registeredModelFXData_Spawn ) )
         return
@@ -648,8 +923,10 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
         print( "modelName: " + string( modelName ) )
     #endif
 
-    if ( !( ent in file.entOwnedModelSpawnFXsFromData ) )
-        file.entOwnedModelSpawnFXsFromData[ ent ] <- {}
+    // HACK for titans: use soul entity for storing everything
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !( storingEnt in file.entOwnedModelSpawnFXsFromData ) )
+        file.entOwnedModelSpawnFXsFromData[ storingEnt ] <- {}
 
     foreach ( dataName, effectStructs in file.registeredModelFXData_Spawn[ modelName ] )
     {
@@ -666,7 +943,7 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
             
             // don't play effect again if we already had one
             int index = effectStruct.index
-            if ( index in file.entOwnedModelSpawnFXsFromData[ ent ] )
+            if ( index in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
             {
                 #if SERVER_MODEL_FX_DEBUG
                     print( "ent already got this effect!" )
@@ -691,7 +968,7 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
             // add effect and setup cleanup
             // spawnFX always attach to ent and loop, won't destroy immediately
             entity effect = CreateModelFXOnEnt( ent, effectName, attachment, true, true, visibilityFlags, false )
-            file.entOwnedModelSpawnFXsFromData[ ent ][ index ] <- effect
+            file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ] <- effect
             #if SERVER_MODEL_FX_DEBUG
                 print( "Effect functioning on ent!" )
             #endif
@@ -701,26 +978,54 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
 
 void function ServerModelFXData_RemoveSpawnFXOnEntity( entity ent )
 {
-    if ( !( ent in file.entOwnedModelSpawnFXsFromData ) )
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelSpawnFXsFromData ) )
         return
     
-    foreach ( index, effect in file.entOwnedModelSpawnFXsFromData[ ent ] )
+    foreach ( index, effect in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
     {
         if ( IsValid( effect ) )
             EffectStop( effect )
 
-        delete file.entOwnedModelSpawnFXsFromData[ ent ][ index ]
+        delete file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ]
     }
 }
 
 void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInfo = null )
 {
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+
+    if ( !IsValid( ent ) )
+        return
+    
     asset modelName = ent.GetModelName()
     if ( !( modelName in file.registeredModelFXData_Health ) )
         return
 
-    if ( !( ent in file.entOwnedModelHealthFXsFromData ) )
-        file.entOwnedModelHealthFXsFromData[ ent ] <- {}
+    // HACK for titans: use soul entity for storing everything
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !( storingEnt in file.entOwnedModelHealthFXsFromData ) )
+        file.entOwnedModelHealthFXsFromData[ storingEnt ] <- {}
 
     #if SERVER_MODEL_FX_DEBUG
         //print( "Applying health FX for entity: " + string( ent ) )
@@ -742,7 +1047,7 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
 
             // don't play effect again if we already had one
             int index = effectStruct.index
-            if ( index in file.entOwnedModelHealthFXsFromData[ ent ] )
+            if ( index in file.entOwnedModelHealthFXsFromData[ storingEnt ] )
             {
                 #if SERVER_MODEL_FX_DEBUG
                     //print( "ent already got this effect!" )
@@ -816,7 +1121,7 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
             bool overrideEffects = effectStruct.overrideEffectsWithSameAttachment
             if ( overrideEffects )
             {
-                foreach ( id, fxStruct in file.entOwnedModelHealthFXsFromData[ ent ] )
+                foreach ( id, fxStruct in file.entOwnedModelHealthFXsFromData[ storingEnt ] )
                 {
                     #if SERVER_MODEL_FX_DEBUG
                         print( "======Try to override effect======" )
@@ -846,7 +1151,7 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
 
                         // don't delete data here, effect should still be considered as "applied to entity"
                         // so we don't overlap effects on every update
-                        //delete file.entOwnedModelHealthFXsFromData[ ent ][ id ]
+                        //delete file.entOwnedModelHealthFXsFromData[ storingEnt ][ id ]
                     }
 
                     #if SERVER_MODEL_FX_DEBUG
@@ -868,7 +1173,7 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
             ownedFXStruct.attachment = attachment
             ownedFXStruct.checkDoomedHealth = checkDoomedHealth
 
-            file.entOwnedModelHealthFXsFromData[ ent ][ index ] <- ownedFXStruct
+            file.entOwnedModelHealthFXsFromData[ storingEnt ][ index ] <- ownedFXStruct
             #if SERVER_MODEL_FX_DEBUG
                 print( "Effect functioning on ent!" )
             #endif
@@ -878,10 +1183,23 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
 
 void function ServerModelFXData_RemoveHealthFXOnEntity( entity ent, bool checkHealthFracOnly = false )
 {
-    if ( !( ent in file.entOwnedModelHealthFXsFromData ) )
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelHealthFXsFromData ) )
         return
         
-    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXsFromData[ ent ] )
+    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXsFromData[ storingEnt ] )
     {
         float healthFrac = ownedFXStruct.healthFrac
         // HACK for titans
@@ -907,7 +1225,7 @@ void function ServerModelFXData_RemoveHealthFXOnEntity( entity ent, bool checkHe
         if ( IsValid( effect ) )
             EffectStop( effect )
 
-        delete file.entOwnedModelHealthFXsFromData[ ent ][ index ]
+        delete file.entOwnedModelHealthFXsFromData[ storingEnt ][ index ]
     }
 }
 
@@ -915,6 +1233,14 @@ void function ServerModelFXData_RemoveHealthFXOnEntity( entity ent, bool checkHe
 // clean up callbacks, thinks and owned effects
 void function ServerModelFXData_CleanUpForEntity( entity ent )
 {
+    // HACK for titans: use soul entity for storing everything
+    if ( ent.IsTitan() )
+    {
+        ent = ent.GetTitanSoul()
+        if ( !IsValid( ent ) )
+            return
+    }
+
     if ( !( ent in file.entHasSetUpServerModelFXData ) ) // needs to be setup before we can call this think
         return
     
@@ -923,7 +1249,15 @@ void function ServerModelFXData_CleanUpForEntity( entity ent )
 
     ServerModelFXData_RemoveSpawnFXOnEntity( ent )
     ServerModelFXData_RemoveHealthFXOnEntity( ent )
-    RemoveEntityCallback_OnPostDamaged( ent, ServerModelFXData_OnEntPostDamage )
+    // HACK for titans
+    if ( IsSoul( ent ) )
+    {
+        entity titan = ent.GetTitan()
+        if ( IsValid( titan ) )
+            RemoveEntityCallback_OnPostDamaged( titan, ServerModelFXData_OnEntPostDamage )
+    }
+    else
+        RemoveEntityCallback_OnPostDamaged( ent, ServerModelFXData_OnEntPostDamage )
 
     delete file.entHasSetUpServerModelFXData[ ent ]
 }
@@ -955,9 +1289,17 @@ void function ServerModelBodyGroupFX_Register( asset modelName, string bodyGroup
 
 void function ServerModelBodyGroupFX_SetUpForEntity( entity ent, bool trackHealthRestore = false )
 {
+    // HACK for titans: use soul entity for storing everything
+    // as PilotBecomesTitan() transfers parents
+    if ( ent.IsTitan() )
+    {
+        ent = ent.GetTitanSoul()
+        if ( !IsValid( ent ) )
+            return
+    }
+
     if ( ent in file.entHasSetUpServerModelBodyGroupFX ) // don't allow setup multiple times
         return
-    
     file.entHasSetUpServerModelBodyGroupFX[ ent ] <- true
 
     thread ModelBodyGroupFX_OwnerTracking( ent )
@@ -972,12 +1314,39 @@ void function ModelBodyGroupFX_OwnerTracking( entity ent )
 
     int lastTickFullBodyGroup
     asset lastTickModelName
+    
+    // HACK for titans
+    entity soul = IsSoul( ent ) ? ent : null
+    entity lastTickTitan
+
     while ( true )
     {
-        lastTickFullBodyGroup = ent.GetFullBodygroup()
-        lastTickModelName = ent.GetModelName()
+        // HACK for titans
+        lastTickTitan = null
+        if ( IsValid( soul ) )
+        {
+            entity lastTickTitan = soul.GetTitan()
+            if ( IsValid( lastTickTitan ) )
+            {
+                lastTickFullBodyGroup = ent.GetFullBodygroup()
+                lastTickModelName = ent.GetModelName()
+            }
+        }
+        else
+        {
+            lastTickFullBodyGroup = ent.GetFullBodygroup()
+            lastTickModelName = ent.GetModelName()
+        }
 
         WaitFrame()
+
+        // HACK for titans
+        if ( IsValid( soul ) )
+        {
+            ent = soul.GetTitan()
+            if ( !IsValid( ent ) )
+                continue
+        }
 
         // for players, stop any effect if they're dead
         if ( ent.IsPlayer() && !IsAlive( ent ) )
@@ -1006,18 +1375,33 @@ void function ModelBodyGroupFX_OwnerTracking( entity ent )
 // apply any valid effect to current entity
 void function ServerModelBodyGroupFX_ApplyEffectsToEntity( entity ent )
 {
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+
+    if ( !IsValid( ent ) )
+        return
+    
     asset modelName = ent.GetModelName()
     if ( !( modelName in file.registeredModelBodyGroupFXTable ) )
         return
     
-    if ( !( ent in file.entOwnedModelBodyGroupFXs ) )
-        file.entOwnedModelBodyGroupFXs[ ent ] <- {}
+    // HACK for titans: use soul entity for storing everything
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !( storingEnt in file.entOwnedModelBodyGroupFXs ) )
+        file.entOwnedModelBodyGroupFXs[ storingEnt ] <- {}
 
     foreach ( effectStruct in file.registeredModelBodyGroupFXTable[ modelName ] )
     {
         // don't play effect again if we already had one
         int index = effectStruct.index
-        if ( index in file.entOwnedModelBodyGroupFXs[ ent ] )
+        if ( index in file.entOwnedModelBodyGroupFXs[ storingEnt ] )
             continue
 
         string bodyGroupName = effectStruct.bodyGroupName
@@ -1069,16 +1453,29 @@ void function ServerModelBodyGroupFX_ApplyEffectsToEntity( entity ent )
         ownedFXStruct.stateIndex = currentState
         ownedFXStruct.regenerateEffect = regenerateEffect
 
-        file.entOwnedModelBodyGroupFXs[ ent ][ index ] <- ownedFXStruct
+        file.entOwnedModelBodyGroupFXs[ storingEnt ][ index ] <- ownedFXStruct
     }
 }
 
 void function ServerModelBodyGroupFX_RemoveEffectsOnEntity( entity ent, bool destroyAllEffects = false )
 {
-    if ( !( ent in file.entOwnedModelBodyGroupFXs ) )
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelBodyGroupFXs ) )
         return
         
-    foreach ( index, ownedFXStruct in file.entOwnedModelBodyGroupFXs[ ent ] )
+    foreach ( index, ownedFXStruct in file.entOwnedModelBodyGroupFXs[ storingEnt ] )
     {
         int bodyGroupIndex = ent.FindBodyGroup( ownedFXStruct.bodyGroupName )
         // state check version
@@ -1106,13 +1503,22 @@ void function ServerModelBodyGroupFX_RemoveEffectsOnEntity( entity ent, bool des
                 EffectStop( effect )
         }
 
-        delete file.entOwnedModelBodyGroupFXs[ ent ][ index ]
+        delete file.entOwnedModelBodyGroupFXs[ storingEnt ][ index ]
     }
 }
 
 // clean up callbacks, thinks and owned effects
 void function ServerModelBodyGroupFX_CleanUpForEntity( entity ent )
 {
+    // HACK for titans: use soul entity for storing everything
+    // as PilotBecomesTitan() transfers parents
+    if ( ent.IsTitan() )
+    {
+        ent = ent.GetTitanSoul()
+        if ( !IsValid( ent ) )
+            return
+    }
+
     if ( !( ent in file.entHasSetUpServerModelBodyGroupFX ) ) // needs to be setup before we can call this think
         return
     
