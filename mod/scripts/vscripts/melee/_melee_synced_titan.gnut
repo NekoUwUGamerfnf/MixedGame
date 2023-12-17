@@ -68,10 +68,8 @@ struct TitanExcutionData
 
 	// modified settings: allow us tweak animation wait method
 	// mostly for buddy victim animations, because they don't have AE_MELEE_KILLED instead has AE_NPC_SYNCED_MELEE_DEATH
-	// for that case, we end execution once target sequence is done
-	table<string, bool> finishOnTargetSequenceEnd
-	// modified settings: always ragdoll death target no matter execution is finished or not
-	table<string, bool> alwaysRagdollTarget
+	// for that case, we kill the target once their sequence is done, force ragdolling them
+	table<string, bool> killTargetOnSequenceEnds
 }
 
 struct
@@ -145,20 +143,16 @@ void function Init3pExecutions()
 	// init for default executionrefs
 	foreach ( ref, data in file.executionData_3p )
 	{
-		data.finishOnTargetSequenceEnd[ "atlas" ] <- false
-		data.finishOnTargetSequenceEnd[ "stryder" ] <- false
-		data.finishOnTargetSequenceEnd[ "ogre" ] <- false
-
-		data.alwaysRagdollTarget[ "atlas" ] <- false
-		data.alwaysRagdollTarget[ "stryder" ] <- false
-		data.alwaysRagdollTarget[ "ogre" ] <- false
+		data.killTargetOnSequenceEnds[ "atlas" ] <- false
+		data.killTargetOnSequenceEnds[ "stryder" ] <- false
+		data.killTargetOnSequenceEnds[ "ogre" ] <- false
 	}
 
 	// modified for buddy titan as target
 	// mostly never used because we can make them unable to be executed or change model before animation starts
 	// and all animations don't have AE_MELEE_KILLED, leading to bad duration
 	// just to implement something here
-	// EDIT: added scripted handle: finishOnTargetSequenceEnd and alwaysRagdollTarget settings
+	// EDIT: added scripted handle: killTargetOnSequenceEnds settings
 
 	TitanExcutionData buddyRoninVictimData = file.executionData_3p[ "execution_ronin" ]
 	buddyRoninVictimData.attackerAnimation3pPilot[ "buddy" ] <- "lt_execution_attacker_sword_01"
@@ -167,8 +161,7 @@ void function Init3pExecutions()
 	buddyRoninVictimData.targetAnimation3pPilot[ "buddy" ] <- ""
 	buddyRoninVictimData.attackerAnimation3pPilot[ "buddy" ] <- ""
 	// due we don't have AE_MELEE_KILLED events, target should die on their sequence ends and always ragdoll themselves
-	buddyRoninVictimData.finishOnTargetSequenceEnd[ "buddy" ] <- true
-	buddyRoninVictimData.alwaysRagdollTarget[ "buddy" ] <- true
+	buddyRoninVictimData.killTargetOnSequenceEnds[ "buddy" ] <- true
 
 	TitanExcutionData buddyIonVictimData = file.executionData_3p[ "execution_ion" ]
 	buddyIonVictimData.attackerAnimation3pPilot[ "buddy" ] <- "mt_execution_attacker_laser"
@@ -177,8 +170,7 @@ void function Init3pExecutions()
 	buddyIonVictimData.targetAnimation3pPilot[ "buddy" ] <- ""
 	buddyIonVictimData.attackerAnimation3pPilot[ "buddy" ] <- ""
 	// due we don't have AE_MELEE_KILLED events, target should die on their sequence ends and always ragdoll themselves
-	buddyIonVictimData.finishOnTargetSequenceEnd[ "buddy" ] <- true
-	buddyIonVictimData.alwaysRagdollTarget[ "buddy" ] <- true
+	buddyIonVictimData.killTargetOnSequenceEnds[ "buddy" ] <- true
 
 	TitanExcutionData buddyToneVictimData = file.executionData_3p[ "execution_tone" ]
 	buddyToneVictimData.attackerAnimation3pPilot[ "buddy" ] <- "mt_execution_attacker_tone"
@@ -188,8 +180,7 @@ void function Init3pExecutions()
 	buddyToneVictimData.targetAnimation3pPilot[ "buddy" ] <- "pt_execution_victim_tone"
 	buddyToneVictimData.attackerAnimation3pPilot[ "buddy" ] <- ""
 	// due we don't have AE_MELEE_KILLED events, target should die on their sequence ends and always ragdoll themselves
-	buddyToneVictimData.finishOnTargetSequenceEnd[ "buddy" ] <- true
-	buddyToneVictimData.alwaysRagdollTarget[ "buddy" ] <- true
+	buddyToneVictimData.killTargetOnSequenceEnds[ "buddy" ] <- true
 
 	// legion execution makes bt rotates weirdly, removed
 	/*
@@ -200,8 +191,7 @@ void function Init3pExecutions()
 	buddyLegionVictimData.targetAnimation3pPilot[ "buddy" ] <- ""
 	buddyLegionVictimData.attackerAnimation3pPilot[ "buddy" ] <- ""
 	// due we don't have AE_MELEE_KILLED events, target should die on their sequence ends and always ragdoll themselves
-	buddyLegionVictimData.finishOnTargetSequenceEnd[ "buddy" ] <- true
-	buddyLegionVictimData.alwaysRagdollTarget[ "buddy" ] <- true
+	buddyLegionVictimData.killTargetOnSequenceEnds[ "buddy" ] <- true
 	*/
 
 	TitanExcutionData buddyScorchVictimData = file.executionData_3p[ "execution_scorch" ]
@@ -211,8 +201,7 @@ void function Init3pExecutions()
 	buddyScorchVictimData.targetAnimation3pPilot[ "buddy" ] <- ""
 	buddyScorchVictimData.attackerAnimation3pPilot[ "buddy" ] <- ""
 	// due we don't have AE_MELEE_KILLED events, target should die on their sequence ends and always ragdoll themselves
-	buddyScorchVictimData.finishOnTargetSequenceEnd[ "buddy" ] <- true
-	buddyScorchVictimData.alwaysRagdollTarget[ "buddy" ] <- true
+	buddyScorchVictimData.killTargetOnSequenceEnds[ "buddy" ] <- true
 }
 
 // vanilla missing!!!! we want other files can get all executions we registered
@@ -2970,16 +2959,6 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	}
 	//
 
-	// modified settings handle
-	string targetType = GetSoulTitanSubClass( soul )
-	// add modified setting: we can set execution to always ragdoll target on death
-	// doing here but in in OnThreadEnd() is because BT victim animations still executes AE_NPC_SYNCED_MELEE_DEATH if they're executed by other npcs
-	// it's pretty weird, seems native code only check whether they're parented or not to execute animevents... but it works fine
-	// set to forceRagdollDeath helps us play correct death FX
-	bool ragdollOnTargetDeath = targetType in data.alwaysRagdollTarget && data.alwaysRagdollTarget[ targetType ]
-	if ( ragdollOnTargetDeath )
-		target.e.forceRagdollDeath = true
-	
 	// modified: loadout replace think in sh_melee_synced_titan.gnut
 	// force attacker to use certain execution's weapon, to avoid visual issues
 	// this should also happen when player using random execution or have their execution replaced with best choice
@@ -3002,23 +2981,36 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	}
 	else
 	{
-		// modified settings: we allow target sequence to have higher priority
+		// modified settings handle
+		string targetType = GetSoulTitanSubClass( soul )
+		// modified settings: we allow target sequence to force kill target on it's end
 		// basically for BT animations, they don't have AE_MELEE_KILLED for player titan to takedown them
-		bool waitForTargetSequence = targetType in data.finishOnTargetSequenceEnd && data.finishOnTargetSequenceEnd[ targetType ]
-		if ( waitForTargetSequence )
-		{
-			thread FirstPersonSequence( attackerSequence, attacker, target )
-			waitthread FirstPersonSequence( targetSequence, target )
-		}
+		bool trackTargetSequence = targetType in data.killTargetOnSequenceEnds && data.killTargetOnSequenceEnds[ targetType ]
+		
+		if ( trackTargetSequence )
+			thread TrackTargetSequenceEnd( targetSequence, target )
 		else // vanilla behavior
-		{
 			thread FirstPersonSequence( targetSequence, target )
-			waitthread FirstPersonSequence( attackerSequence, attacker, target )
-		}
+		waitthread FirstPersonSequence( attackerSequence, attacker, target )
 	}
 
 	// if code hits here, we consider that attacker sequence has fully ends
 	e.attackerSequenceEnds = true
+}
+
+// modified function: call CodeCallback_OnMeleeKilled() at the end of target sequence
+void function TrackTargetSequenceEnd( FirstPersonSequenceStruct targetSequence, entity target )
+{
+	target.EndSignal( "OnDestroy" )
+	target.EndSignal( "OnDeath" )
+
+	// force ragdoll is to prevent target gets killed by npc attacker
+	// npc getting parented with another npc will trigger AE_NPC_SYNCED_MELEE_DEATH
+	// which script can't get that target will be ragdolled and do bad explosion effect
+	// adding this script mark
+	target.e.forceRagdollDeath = true
+	waitthread FirstPersonSequence( targetSequence, target )
+	CodeCallback_OnMeleeKilled( target )
 }
 
 // fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
