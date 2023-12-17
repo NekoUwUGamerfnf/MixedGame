@@ -92,12 +92,14 @@ void function OnPilotBecomesTitan( entity player, entity titan )
 	SetPlayerTitanTitle( player )
 	thread UpdateBTOffhands( player )
 	thread EjectingVoiceline( player ) // try enable voiceline every time
+	SetFakeBTWeaponUsage( player )
 }
 
 void function OnTitanBecomesPilot( entity player, entity titan )
 {
 	//SetBTLoadout( titan )
 	//SetAutoTitanTitle( titan )
+	SetFakeBTWeaponUsage( titan )
 }
 
 void function OnFakeBTExecuted( SyncedMeleeChooser actions, SyncedMelee action, entity attacker, entity victim )
@@ -105,8 +107,12 @@ void function OnFakeBTExecuted( SyncedMeleeChooser actions, SyncedMelee action, 
 	// extreme workaround here: we update bt's model and subclass back to monarch on being executed...
 	// they don't have animevents a MP titan animation should have
 	// though worked around with modifications in _melee_synced_titan.gnut
-	// I'd prefer we keep this workaround because it can handle more execution animations
-	// and remove target's DOF on fake bt executing a player titan
+	// bt also have bad animation camera about being executed
+	// and this workaround can handle more execution animations, using this one is better
+
+	// remove target's DOF on fake bt executing a player titan
+	// their animation camera isn't usable for MP
+
 	// hack for classic executions: bt have proper animation for being executed by that
 	entity attackerSoul = attacker.GetTitanSoul()
 	if ( IsValid( attackerSoul ) && !MeleeSyncedTitan_GetSoulDoClassicExecution( attackerSoul ) )
@@ -175,6 +181,11 @@ void function SetBTLoadout( entity titan )
 
 	if( isTitanDropping )
 	{
+		// start modelFX update for buddy titans
+		// titan transfer case handled in it's function
+		ServerModelFXData_SetUpForEntity( titan )
+		ServerModelBodyGroupFX_SetUpForEntity( titan )
+
 		file.soulIsFakeBT[ soul ] <- true // mark as we're using fake bt
 		FakeBTSettingsOverrideSetup( titan ) // setup settings override
 
@@ -242,7 +253,7 @@ void function SetBTLoadout( entity titan )
 	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE )
 
 	// Defence
-	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "sp_wider_return_spread"] )
+	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "sp_wider_return_spread", "impact_drain_vortex"] )
 	
 	// Tactical
 	titan.GiveOffhandWeapon("mp_titanability_smoke", OFFHAND_ANTIRODEO ) 
@@ -293,6 +304,8 @@ void function SetBTLoadout( entity titan )
 		//GivePassive( soul, ePassives.PAS_BUILD_UP_NUCLEAR_CORE )
 		GivePassive( soul, ePassives.PAS_AUTO_EJECT )
 	}
+
+	SetFakeBTWeaponUsage( titan ) // lock npc weapon usage
 }
 
 void function RemoveBTOffhandSmoke( entity titan )
@@ -420,14 +433,18 @@ void function SetBTOffhands( entity player )
 				TitanLoadoutSwitch_SetWeaponCooldownsFromTable( player, cooldowns )
 			}
 		}
-		int clipAmmoLeft = mainweapon.GetWeaponPrimaryClipCount() // always calcs current clip percentage
-		int maxClipAmmo = mainweapon.GetWeaponPrimaryClipCountMax()
-		float clipLeft = float( clipAmmoLeft ) / float( maxClipAmmo )
 
-		// update primary clip size
-		if( !( soul in file.btLastPrimaryAmmo ) )
-			file.btLastPrimaryAmmo[ soul ] <- 0.0
-		file.btLastPrimaryAmmo[ soul ] = clipLeft
+		if ( !mainweapon.IsWeaponOffhand() ) // insure we don't get offhand weapon's ammo
+		{
+			int clipAmmoLeft = mainweapon.GetWeaponPrimaryClipCount() // always calcs current clip percentage
+			int maxClipAmmo = mainweapon.GetWeaponPrimaryClipCountMax()
+			float clipLeft = float( clipAmmoLeft ) / float( maxClipAmmo )
+
+			// update primary clip size
+			if( !( soul in file.btLastPrimaryAmmo ) )
+				file.btLastPrimaryAmmo[ soul ] <- 0.0
+			file.btLastPrimaryAmmo[ soul ] = clipLeft
+		}
 	}
 }
 
@@ -456,9 +473,11 @@ void function UpdateBTOffhands( entity player )
 void function ReplaceWeaponAmmo( entity player, entity soul )
 {
 	entity mainweapon = player.GetActiveWeapon()
-	if( IsValid(mainweapon) )
+	if( IsValid(mainweapon) && !mainweapon.IsWeaponOffhand() )
 	{
-		float clipLeftPercentage = file.btLastPrimaryAmmo[ soul ]
+		float clipLeftPercentage = 0
+		if( soul in file.btLastPrimaryAmmo )
+			clipLeftPercentage = file.btLastPrimaryAmmo[ soul ]
 		// defensive fix...
 		if( clipLeftPercentage > 1 )
 			clipLeftPercentage = 1
@@ -466,6 +485,31 @@ void function ReplaceWeaponAmmo( entity player, entity soul )
 			clipLeftPercentage = 0
 		// Ammo
 		mainweapon.SetWeaponPrimaryClipCount( int( mainweapon.GetWeaponPrimaryClipCountMax() * clipLeftPercentage ) )
+	}
+}
+
+void function SetFakeBTWeaponUsage( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if( !IsValid( soul ) )
+		return
+	if ( !BTReplace_TitanIsFakeBT( titan ) ) // soul is not being setup as bt
+		return
+
+	// lock weapon to current holding one-- npc can't handle multiple weapon usage
+	if ( titan.IsNPC() )
+	{
+		entity activeWeapon = titan.GetActiveWeapon()
+		foreach ( entity weapon in titan.GetMainWeapons() )
+		{
+			if ( weapon != activeWeapon )
+				weapon.AllowUse( false )
+		}
+	}
+	else // unlock weapons
+	{
+		foreach ( entity weapon in titan.GetMainWeapons() )
+			weapon.AllowUse( true )
 	}
 }
 
