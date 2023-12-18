@@ -23,8 +23,11 @@ global function MeleeSyncedTitan_AddBatteryRewardTitanPassives // make execution
 global function MeleeSyncedTitan_RemoveBatteryRewardTitanPassives
 global function MeleeSyncedTitan_ExecutionAlwaysRewardsBattery
 global function MeleeSyncedTitan_ShouldApplyBatteryAfterExecution
-global function MeleeSyncedTitan_ExecutionNotInvulnerable
 global function MeleeSyncedTitan_DisableVanguardKitExecution
+
+// vanilla const turns to settings
+global function MeleeSyncedTitan_ExecutionNotInvulnerable // TITAN_EXECUTION_ATTACKER_IS_INVULNERABLE
+global function MeleeSyncedTitan_ExecutionAlwaysGiveBattery // TITAN_EXECUTION_GIVES_BATTERY
 
 // modified to have classic execution options
 global function MeleeSyncedTitan_SetSoulDoClassicExecution
@@ -47,6 +50,10 @@ global function MeleeSyncedTitan_SoulCanBeExecuted // shared with checks in Atte
 global function MeleeSyncedTitan_SetSoulExecutionTargetRequiredHealthFrac
 global function MeleeSyncedTitan_GetSoulExecutionTargetRequiredHealthFrac // shared with checks in ShouldPlayerExecuteTarget()
 //
+
+// HACK for npc using ion prime execution
+// npc can fire laser core at the beginning of animation, needs to get timer before do anything
+global function MeleeSyncedTitan_GetTitanExecutionStartTime
 
 enum eTitanExecutionType
 {
@@ -84,8 +91,10 @@ struct
 	// modified settings
 	array<int> titanExecutionRewardsBatteryPassives
 	bool titanExecutionAlwaysRewardsBattery = false
-	bool titanExecutionNotInvulnerable = false
 	bool disableVanguardKitExecution = false
+	// vanilla const turns to settings
+	bool titanExecutionNotInvulnerable = false
+	bool titanExecutionAlwaysGiveBattery = false
 
 	// modified to have more execution options
 	table<entity, bool> soulDoClassicExecution
@@ -96,6 +105,9 @@ struct
 
 	table<entity, bool> soulCanBeExecuted // shared with sh_melee_titan.gnut
 	table<entity, float> soulExecutionTargetRequiredHealthFrac // shared with sh_melee.gnut
+
+	// modified variables
+	table<entity, float> titanExecutionStartTime // HACK for npc ion prime execution to use... npc can fire laser core at the beginning of exeuction, needs to get timer before do anything
 } file
 
 int RAGDOLL_IMPACT_TABLE_IDX = -1
@@ -355,6 +367,10 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 	//attacker.Signal( "OnSyncedMelee" )
 	//target.Signal( "OnSyncedMelee" )
 
+	// HACK for npc ion prime execution to use
+	file.titanExecutionStartTime[ attacker ] <- Time()
+	//
+
 	MeleeThread_TitanVsTitanDataStruct dataStruct
 
 	OnThreadEnd(
@@ -386,12 +402,18 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 
 				// modified here: we handle battery style execution here
 				// so we don't have to hardcode everything into classic execution case
-				#if TITAN_EXECUTION_GIVES_BATTERY
+				//#if TITAN_EXECUTION_GIVES_BATTERY // use my own check!
+				if ( file.titanExecutionAlwaysGiveBattery )
 					Rodeo_GiveExecutingTitanABattery( attacker )
-				#else
+				else //#else
+				{
 					if ( dataStruct.executionGivesBattery )
 						Rodeo_GiveExecutingTitanABattery( attacker )
-				#endif
+				}
+				//#endif
+
+				// clean up modified variable
+				delete file.titanExecutionStartTime[ attacker ]
 			}
 		}
 	)
@@ -438,9 +460,9 @@ bool function MeleeThread_TitanVsTitan_Internal( SyncedMelee action, entity atta
 	}
 	//#endif
 
-	// modified: if function reaches here it must means titan being executed, we delay 1 frame and drop their weapon
+	// modified: if function reaches here it must means titan being executed
 #if MP
-	ExecutedTitanDropWeapon( target )
+	ExecutedTitanDropWeapon( target ) // we delay 1 frame and drop their weapon
 #endif
 	//
 
@@ -3510,15 +3532,22 @@ bool function MeleeSyncedTitan_ShouldApplyBatteryAfterExecution( entity titan )
 	return false
 }
 
+void function MeleeSyncedTitan_DisableVanguardKitExecution( bool disable )
+{
+	file.disableVanguardKitExecution = disable
+}
+
+// vanilla const turns to settings
 void function MeleeSyncedTitan_ExecutionNotInvulnerable( bool notInvulnerable )
 {
 	file.titanExecutionNotInvulnerable = notInvulnerable
 }
 
-void function MeleeSyncedTitan_DisableVanguardKitExecution( bool disable )
+void function MeleeSyncedTitan_ExecutionAlwaysGiveBattery( bool alwaysGive )
 {
-	file.disableVanguardKitExecution = disable
+	file.titanExecutionAlwaysGiveBattery = alwaysGive
 }
+//
 
 void function MeleeSyncedTitan_SetSoulDoClassicExecution( entity titanSoul, bool doClassic )
 {
@@ -3647,6 +3676,16 @@ float function MeleeSyncedTitan_GetSoulExecutionTargetRequiredHealthFrac( entity
 	if ( !( soul in file.soulExecutionTargetRequiredHealthFrac ) ) // no settings
 		return 0.0 // default value. 0.0 means we need target titan to be doomed before executing them
 	return file.soulExecutionTargetRequiredHealthFrac[ soul ]
+}
+
+// HACK for npc using ion prime execution
+// npc can fire laser core at the beginning of animation, needs to get timer before do anything
+float function MeleeSyncedTitan_GetTitanExecutionStartTime( entity titan )
+{
+	if ( !( titan in file.titanExecutionStartTime ) )
+		return -1 // invalid timer
+	
+	return file.titanExecutionStartTime[ titan ]
 }
 ///////////////
 ///// END /////
