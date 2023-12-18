@@ -291,6 +291,22 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 #if SERVER
 void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 {
+	if ( owner in file.entUsingFakeLaserCore ) // don't run this instance multiple times
+		return
+	
+	// HACK: npc sometimes call OnAbilityStart_LaserCannon() right after animation starts
+	// don't want that weird behavior to happen, use timer for handling
+	// { event AE_OFFHAND_BEGIN 118 "mp_titancore_laser_cannon" }( fps 30 )
+	const float animEventTime = ( 118 / 30 ) - 0.5 // minus 0.5s to avoid we get bad float value
+
+	// function from modified _melee_synced_titan.gnut
+	if ( MeleeSyncedTitan_GetTitanExecutionStartTime( owner ) < Time() )
+		return
+	float executionProcessTime = Time() - MeleeSyncedTitan_GetTitanExecutionStartTime( owner )
+	if ( executionProcessTime < animEventTime )
+		return
+
+	owner.EndSignal( "OnDeath" )
 	owner.EndSignal( "OnDestroy" )
 	owner.EndSignal( "OnSustainedDischargeEnd" )
 	weapon.EndSignal( "OnDestroy" )
