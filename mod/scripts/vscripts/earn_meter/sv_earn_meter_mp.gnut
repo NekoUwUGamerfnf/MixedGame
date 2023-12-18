@@ -32,8 +32,8 @@ struct
 {
 	// these are purely in-file and no need to change
 	array<string> catchedUpUIDs // for northstar specific
-	// in vanilla, only passive gain triggers EarnMeter_DecayHold()
-	table<entity, float> playerLastPassiveGainTime
+	table<entity, float> playerLastPassiveGainTime // in vanilla, only passive gain triggers EarnMeter_DecayHold()
+	table<entity, float> playerTitanReadyMessageTime // don't want to spam message to player
 	//
 
 	float playingStartTime
@@ -108,6 +108,8 @@ void function OnClientConnected( entity player )
 	// vanilla behavior recover
 	file.playerLastPassiveGainTime[ player ] <- 0.0
 	file.playerPassiveMeterGainInterval[ player ] <- EARNMETER_GAIN_INTERVAL
+	// useless detail
+	file.playerTitanReadyMessageTime[ player ] <- Time() + 10.0 // add bit delay before showing first message after connection
 
 	// progressing earnmeter frac
 	EarnMeterMP_ProgessFracCalculate( player )
@@ -446,7 +448,13 @@ void function EarnMeterMP_TitanEarned( entity player )
 		if( !player.IsTitan() && !IsValid( player.GetPetTitan() ) && !IsTitanAvailable( player ) ) // sometimes trigger this when "Respawn As Titan", should do a check.
 		{
 			SetTitanAvailable( player )
-			Remote_CallFunction_Replay( player, "ServerCallback_TitanReadyMessage" ) // broken for some reason
+			// only do ready message when player has connected for enough time, so we don't override gamemode announcements
+			// also don't want to spam message at player, though that won't happen very often with titans
+			if ( Time() >= file.playerTitanReadyMessageTime[ player ] )
+			{
+				Remote_CallFunction_NonReplay( player, "ServerCallback_TitanReadyMessage" )
+				file.playerTitanReadyMessageTime[ player ] = Time() + 15.0 // min interval in cl_earn_meter is 30, adding 15s here
+			}
 		}
 	}
 	else
