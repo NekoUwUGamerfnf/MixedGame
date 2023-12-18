@@ -30,6 +30,8 @@ global function GetDescStringForDamageFlags
 
 	global function PlayTitanDeathFx
 	global function PlayTitanDeathFxUp
+	// modified function: splite groundwash into function
+	global function PlayTitanDeathGroundWashFx
 	// here's a modified function: in case we want to add titan explode effect for ragdolled titans
 	global function PlayTitanDeathFx_Ragdoll
 	global function PlayTitanDeathFxUp_Ragdoll
@@ -82,7 +84,7 @@ struct
 	table hitDataCache
 	table<string,bool> disallowDissolveList
 
-	// modified
+	// modified in-file table settings
 	table<entity, bool> entDisabledDeathPackage
 	table<entity, asset> headshotFXOverride
 
@@ -164,8 +166,23 @@ void function Death_Package_Init()
 		// modified signals to cancel out DelayedBodyGroupBreak()
 		RegisterSignal( "TitanGibbed" )
 		RegisterSignal( "TitanDoomedInstant" )
+
+		// modified callback
+		// remove modified mark on player respawn
+		AddCallback_OnPlayerRespawned( DeathPackage_OnPlayerRespawned )
 	#endif
 }
+
+// modified callback
+#if SERVER
+void function DeathPackage_OnPlayerRespawned( entity player )
+{
+	// remove modified mark on player respawn
+	if ( "didDeathSound" in player.s )
+		delete player.s.didDeathSound
+}
+#endif
+//
 
 #if SERVER
 function InitDamageStates( ent )
@@ -411,9 +428,13 @@ void function HandleDeathPackage( entity ent, var damageInfo )
 		}
 	}
 
-	if ( !( "silentDeath" in ent.s ) )
+	// hardcoded for titans: adding "didDeathSound" mark, so we don't play sound multiple times( because modification of GibTitan() )
+	//if ( !( "silentDeath" in ent.s ) )
+	if ( !( "silentDeath" in ent.s ) && !( "didDeathSound" in ent.s ) )
 	{
 		PlayDeathSounds( ent, damageInfo )
+		// modified mark setup
+		ent.s.didDeathSound <- true
 	}
 
 
@@ -459,6 +480,7 @@ void function HandleDeathPackage( entity ent, var damageInfo )
 				shouldGibTitan = true
 			if ( shouldGibTitan )
 				GibTitan( ent, damageInfo )
+
 			return
 		}
 		else
@@ -609,10 +631,14 @@ const array<string> GIB_IGNORE_TITAN_BODYGROUPS =
 
 // add some hardcoded checks: we should hide titan's "states" bodygroup
 // that bodygroup exists for monarch, but isn't inited in hit_data keyvalues...
-const array<string> GIB_FORCE_HIDE_TITAN_BODYGROUPS =
-[
-	"states",
-]
+const table<string, int> GIB_FORCED_TITAN_BODYGROUPS =
+{
+	// hopefully this can work...
+	// oh wait, we already got a Titan_MonarchCleanup() in _titan_health.gnut???
+	// why it sometimes don't work at all?
+	// now handled all in this file to prevent mess up "file.titanAlwaysGibOnDeath = false" cases
+	["states"]		= 2,
+}
 
 // this function has been modified and no longer necessary to pass a damageInfo inside
 //void function GibTitan( entity titan, var damageInfo )
@@ -648,16 +674,33 @@ void function GibTitan( entity titan, var damageInfo = null )
 		titan.SetBodygroup( bodyGroupIndex, stateCount - 1 )
 	}
 
+	// note: this sound is still played by server-side, PlayDeathSounds()
+	// I want to do some misc fix here: do death sound on titan gib, so it will sound better for anim events
+	// ( mostly for scorch and ronin prime executions, seems respawn forgot to handle details in dlc updates )
+
 //	EmitSoundOnEntity( titan, "titan_death_explode" ) // moved to client side on bodygroup chang
 
+	// modified fix version
+	// "didDeathSound" is modified mark, so we don't play death sound multiple times for titan
+	if ( !( "silentDeath" in titan.s ) && !( "didDeathSound" in titan.s ) )
+	{
+		// this function has been modified and no longer necessary to pass a damageInfo inside
+		PlayDeathSounds( titan )
+		// mark as "didDeathSound" so it won't play sound again in HandleDeathPackage()
+		titan.s.didDeathSound <- true
+	}
+
 	// modified checks: we should always hide titan's upgrade states
-	foreach ( string bodyGroupName in GIB_FORCE_HIDE_TITAN_BODYGROUPS )
+	// in vanilla it's handled by _titan_health.gnut, seems respawn forgot how to handle entKVs in dlc updates
+	// but that don't work well with "file.titanAlwaysGibOnDeath = false" cases, so change to handle all in this file
+	foreach ( bodyGroupName, stateIndex in GIB_FORCED_TITAN_BODYGROUPS )
 	{
 		int bodyGroupIndex = titan.FindBodyGroup( bodyGroupName )
 		if ( bodyGroupIndex > -1 ) // validation check
 		{
 			int stateCount = titan.GetBodyGroupModelCount( bodyGroupIndex )
-			titan.SetBodygroup( bodyGroupIndex, stateCount - 1 ) // always set to last state, it should be blank
+			if ( stateCount - 1 >= stateIndex )
+				titan.SetBodygroup( bodyGroupIndex, stateIndex )
 		}
 	}
 }
@@ -919,6 +962,19 @@ function PlayTitanDeathFx_Internal( entity titan, int attachType )
 	int attachmentIndex = titan.LookupAttachment( "exp_torso_main" )
 	StartParticleEffectOnEntity( titan, TITAN_EXPLOSION_EFFECT, attachType, attachmentIndex )
 
+	// split this one into function so we don't have to deal with it
+	/*
+	TraceResults results = TraceLine( titan.GetOrigin(), titan.GetOrigin() + Vector( 0, 0, -TITAN_EXPLOSION_GROUNDWASH_HEIGHT ), [ titan ], TRACE_MASK_NPCSOLID_BRUSHONLY | TRACE_MASK_WATER, TRACE_COLLISION_GROUP_NONE )
+
+	if ( !results.startSolid && !results.allSolid && results.hitEnt )
+		PlayImpactFXTable( results.endPos, titan, TITAN_EXPLOSION_GROUNDWASH_FX_TABLE )
+	*/
+	PlayTitanDeathGroundWashFx( titan )
+}
+
+// split this one into function so we don't have to deal with it
+void function PlayTitanDeathGroundWashFx( entity titan )
+{
 	TraceResults results = TraceLine( titan.GetOrigin(), titan.GetOrigin() + Vector( 0, 0, -TITAN_EXPLOSION_GROUNDWASH_HEIGHT ), [ titan ], TRACE_MASK_NPCSOLID_BRUSHONLY | TRACE_MASK_WATER, TRACE_COLLISION_GROUP_NONE )
 
 	if ( !results.startSolid && !results.allSolid && results.hitEnt )
@@ -933,9 +989,7 @@ void function PlayTitanDeathFx_Ragdoll( entity titan )
 	vector angles = titan.GetAttachmentAngles( attachmentIndex )
 	StartParticleEffectInWorld( TITAN_EXPLOSION_EFFECT, origin, angles )
 
-	TraceResults results = TraceLine( titan.GetOrigin(), titan.GetOrigin() + Vector( 0, 0, -TITAN_EXPLOSION_GROUNDWASH_HEIGHT ), [ titan ], TRACE_MASK_NPCSOLID_BRUSHONLY | TRACE_MASK_WATER, TRACE_COLLISION_GROUP_NONE )
-	if ( !results.startSolid && !results.allSolid && results.hitEnt )
-		PlayImpactFXTable( results.endPos, titan, TITAN_EXPLOSION_GROUNDWASH_FX_TABLE )
+	PlayTitanDeathGroundWashFx( titan )
 }
 
 void function PlayTitanDeathFxUp_Ragdoll( entity titan )
@@ -947,9 +1001,7 @@ void function PlayTitanDeathFxUp_Ragdoll( entity titan )
 	angles.z = 0 // no rotation
 	StartParticleEffectInWorld( TITAN_EXPLOSION_EFFECT, origin, angles )
 
-	TraceResults results = TraceLine( titan.GetOrigin(), titan.GetOrigin() + Vector( 0, 0, -TITAN_EXPLOSION_GROUNDWASH_HEIGHT ), [ titan ], TRACE_MASK_NPCSOLID_BRUSHONLY | TRACE_MASK_WATER, TRACE_COLLISION_GROUP_NONE )
-	if ( !results.startSolid && !results.allSolid && results.hitEnt )
-		PlayImpactFXTable( results.endPos, titan, TITAN_EXPLOSION_GROUNDWASH_FX_TABLE )
+	PlayTitanDeathGroundWashFx( titan )
 }
 #endif
 
