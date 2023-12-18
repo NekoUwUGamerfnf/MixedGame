@@ -451,6 +451,18 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 		// stop weapon firing
 		ForceTitanSustainedDischargeEnd( owner )
 
+		// fake impact sound event, play on target
+		entity executionParent = owner.GetParent()
+		if ( IsValid( executionParent ) )
+		{
+			if ( !emittedSound )
+			{
+				EmitSoundOnEntity( executionParent, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
+				entCleanUpTable[ "executionParent" ] = executionParent
+				emittedSound = true
+			}
+		}
+
 		int index = owner.LookupAttachment( "CHESTFOCUS" )
 		vector origin = owner.GetAttachmentOrigin( index )
 		vector angles = owner.GetAttachmentAngles( index )
@@ -462,10 +474,10 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 			[owner], 
 			TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE 
 		)
+
 		// fake impact effect
 		// make sure we only play it on our victim... because npc sometimes call "AE_OFFHAND_BEGIN" earlier than we should expect
 		// "laser_core" impact effect isn't good, it will emit a looping impact sound...
-		entity executionParent = owner.GetParent()
 		entity hitEnt = results.hitEnt
 		if ( IsValid( hitEnt ) )
 		{
@@ -473,7 +485,7 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 			//PlayImpactFXTable( , owner, "laser_core", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
 			// manually do effects
 			PlayFX( $"P_impact_lasercannon_default", fxPos )
-			// effects that only played when we hit player
+			// effects that only played when we hit target
 			if ( IsValid( executionParent ) && hitEnt == executionParent )
 			{
 				if ( IsValid( laserGlowEffect ) )
@@ -483,13 +495,6 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 				}
 				laserGlowEffect = PlayFX( $"P_lasercannon_endglow", fxPos )
 				entCleanUpTable[ "laserGlowEffect" ] = laserGlowEffect
-
-				if ( !emittedSound )
-				{
-					EmitSoundOnEntity( executionParent, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
-					entCleanUpTable[ "executionParent" ] = executionParent
-					emittedSound = true
-				}
 			}
 		}
 
