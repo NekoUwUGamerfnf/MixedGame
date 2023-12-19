@@ -73,12 +73,38 @@ bool function OnAbilityCharge_FlameWave( entity weapon )
 			owner.SetTitanDisembarkEnabled( false )
 		// removing this: don't work at all because we already got "special_3p_attack_anim" enabled
 		// adding this will cause buddy titans unable to use flame core
+		// RETHINK: does this prevents npc from accidentally cancel their animation? by adding a scripted anim
+		// maybe we should chek chassis before playing animation, just like what I've done for laser core and salvo core
 		//else
 		//	owner.Anim_ScriptedPlay( "at_antirodeo_anim_fast" )
+
+		// new fixed think
+		if ( owner.IsNPC() )
+		{
+			if ( TitanShouldPlayAnimationForFlameCore( owner ) )
+				owner.Anim_ScriptedPlay( "at_antirodeo_anim_fast" )
+		}
 	#endif
 
 	return true
 }
+
+// modified functions
+#if SERVER
+// wants to limit animations to ogre-chassis only, in case we want to use it for other titans
+bool function TitanShouldPlayAnimationForFlameCore( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		string titanType = GetSoulTitanSubClass( soul )
+		if ( titanType == "ogre" )
+			return true
+	}
+
+	return false
+}
+#endif
 
 void function OnAbilityChargeEnd_FlameWave( entity weapon )
 {
