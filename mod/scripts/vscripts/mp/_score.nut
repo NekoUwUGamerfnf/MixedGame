@@ -35,6 +35,9 @@ global function AddTitanKilledDialogueEvent
 // nessie modify
 global function ScoreEvent_DisableCallSignEvent
 global function ScoreEvent_EnableComebackEvent // doesn't exsit in vanilla, make it a setting
+// funny things to be shared with other files, add more kill streak stuffs
+global function UpdateMixedUntimedKillStreaks
+global function UpdateMixedTimedKillStreaks
 
 struct 
 {
