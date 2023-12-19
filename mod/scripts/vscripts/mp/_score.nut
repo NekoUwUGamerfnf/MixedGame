@@ -306,13 +306,6 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 			AddPlayerScore( attacker, "Comeback", victim )
 	}
 	attacker.p.numberOfDeathsSinceLastKill = 0 // since they got a kill, remove the comeback trigger
-	
-	// untimed killstreaks
-	attacker.s.currentKillstreak++
-	if ( attacker.s.currentKillstreak == KILLINGSPREE_KILL_REQUIREMENT )
-		AddPlayerScore( attacker, "KillingSpree", attacker )
-	else if ( attacker.s.currentKillstreak == RAMPAGE_KILL_REQUIREMENT )
-		AddPlayerScore( attacker, "Rampage", attacker )
 
 	// increment untimed killstreaks against specific players
 	if ( !( victim in attacker.p.playerKillStreaks ) )
@@ -341,7 +334,8 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	attacker.s.lastKillTime = Time() // update last kill time
 
 	// npc&player mixed killsteaks
-	UpdateMixedKillStreaks( attacker )
+	UpdateMixedUntimedKillStreaks( attacker )
+	UpdateMixedTimedKillStreaks( attacker )
 
 	// assist. was previously be in _base_gametype_mp.gnut, which is bad. vanilla won't add assist on npc killing a player
 	if ( !victim.IsTitan() ) // titan assist handled by ScoreEvent_TitanKilled()
@@ -352,7 +346,17 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 }
 
 // npc&player mixed killsteaks
-void function UpdateMixedKillStreaks( entity attacker )
+void function UpdateMixedUntimedKillStreaks( entity attaker )
+{
+	// untimed killstreaks
+	attacker.s.currentKillstreak++
+	if ( attacker.s.currentKillstreak == KILLINGSPREE_KILL_REQUIREMENT )
+		AddPlayerScore( attacker, "KillingSpree", attacker )
+	else if ( attacker.s.currentKillstreak == RAMPAGE_KILL_REQUIREMENT )
+		AddPlayerScore( attacker, "Rampage", attacker )
+}
+
+void function UpdateMixedTimedKillStreaks( entity attacker )
 {
 	// mayhem and onslaught, won't add any value but vanilla have these events
 	// mayhem killstreak broke
@@ -469,6 +473,17 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	if ( playTitanKilledDiag )
 		KilledPlayerTitanDialogue( attacker, victim )
 
+	// npc&player mixed killsteaks
+	// only handle npc victim case-- player victim already handled by ScoreEvent_PlayerKilled()
+	// welp, this check is because vanilla don't count "player controlled titan" as two kills( pilot and titan )
+	// but this detail wasn't very necessary, why don't we just give players more kill streak for fun!
+	
+	//if ( !victim.IsPlayer() )
+	//{
+		UpdateMixedUntimedKillStreaks( attacker )
+		UpdateMixedTimedKillStreaks( attacker )
+	//}
+
 	// titan damage history stores in titanSoul, but if they killed by termination it's gonna transfer to victim themselves
 	bool killedByTermination = DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.titan_execution
 	entity damageHistorySaver = killedByTermination ? victim : victim.GetTitanSoul()
@@ -504,7 +519,7 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 		AddPlayerScore( attacker, "Headshot", victim, null, -1, 0.0 ) // no extra value earn from npc headshots
 
 	// npc&player mixed killsteaks
-	UpdateMixedKillStreaks( attacker )
+	UpdateMixedTimedKillStreaks( attacker )
 }
 
 void function ScoreEvent_MatchComplete( int winningTeam, bool isMatchEnd = true )
