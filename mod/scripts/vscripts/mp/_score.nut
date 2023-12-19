@@ -349,7 +349,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 }
 
 // npc&player mixed killsteaks
-void function UpdateMixedUntimedKillStreaks( entity attaker )
+void function UpdateMixedUntimedKillStreaks( entity attacker )
 {
 	// untimed killstreaks
 	attacker.s.currentKillstreak++
