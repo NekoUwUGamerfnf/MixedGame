@@ -2591,6 +2591,13 @@ void function ExtraSpawner_SetNPCHandlerFunc( string npcClass, void functionref(
 	file.npcHandlerFuncs[ npcClass ] = handler
 }
 
+void function ExtraSpawner_SetNPCSquadHandlerFunc( string npcClass, void functionref( array<entity> ) handler )
+{
+	if ( !( npcClass in file.npcSquadHandlerFuncs ) )
+		file.npcSquadHandlerFuncs[ npcClass ] <- null
+	file.npcSquadHandlerFuncs[ npcClass ] = handler
+}
+
 // utility for handling assault target
 bool function IsValidNPCAssaultTarget( entity ent )
 {
@@ -3902,11 +3909,14 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 // AI can also flee deeper into their zone suggesting someone spent way too much time on this
 void function ExtraSpawner_SquadHandler( array<entity> guys )
 {
+	bool squadHasSignalDummy = false
+	table signalDummy
 	// dummy signal table for handling our runtime
 	string squadname = expect string( guys[0].kv.squadname )
 	if ( ExtraSpawner_GetSquadSignalDummy( squadname ) != null )
 	{
-		table signalDummy = expect table( ExtraSpawner_GetSquadSignalDummy( squadname ) )
+		squadHasSignalDummy = true
+		signalDummy = expect table( ExtraSpawner_GetSquadSignalDummy( squadname ) )
 		signalDummy.EndSignal( "StopDefaultSquadHandler" )
 	}
 
@@ -4013,7 +4023,11 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 			{
 				// reworked here: use a full logic for us assaulting
 				//guy.AssaultPoint( clampedPos )
-				thread SquadGuyAssaultThink( guy, clampedPos, signalDummy )
+				// signal dummy version
+				if ( squadHasSignalDummy )
+					thread SquadGuyAssaultThink( guy, clampedPos, signalDummy )
+				else // normal think
+					guy.AssaultPoint( clampedPos )
 			}
 		}
 
@@ -4021,27 +4035,34 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 		// never do it. too many assault point can make them move really silly
 		// instead, we wait for one of our squadmate hit assault point( or failed to path )
 		//wait RandomFloatRange(5.0,15.0)
-		table signalData = WaitSignal( 
-								signalDummy, 
-								"OnFinishedAssault", 
-								"OnEnterGoalRadius", 
-								"OnFailedToPath"
-							)
 
-		// stop SquadGuyAssaultThink()
-		ArrayRemoveDead( guys )
-		foreach ( guy in guys )
+		// signal dummy version
+		if ( squadHasSignalDummy )
 		{
-			if ( IsValid( guy ) )
-				guy.Signal( "SquadGuyAssaultThink" )
-		}
+			table signalData = WaitSignal( 
+									signalDummy, 
+									"OnFinishedAssault", 
+									"OnEnterGoalRadius", 
+									"OnFailedToPath"
+								)
 
-		string receivedSignal = expect string( signalData.signal )
-		// main logic: re-run think if we failed to path; hold point for some time if we finished assault
-		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+			// stop SquadGuyAssaultThink()
+			ArrayRemoveDead( guys )
+			foreach ( guy in guys )
+			{
+				if ( IsValid( guy ) )
+					guy.Signal( "SquadGuyAssaultThink" )
+			}
+
+			string receivedSignal = expect string( signalData.signal )
+			// main logic: re-run think if we failed to path; hold point for some time if we finished assault
+			if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+				wait RandomFloatRange( 10.0, 15.0 )
+			else if ( receivedSignal == "OnFailedToPath" )
+				continue
+		}
+		else // normal think
 			wait RandomFloatRange( 10.0, 15.0 )
-		else if ( receivedSignal == "OnFailedToPath" )
-			continue
 	}
 }
 
@@ -7782,7 +7803,7 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 		// never do it. too many assault point can make them move really silly
 		//wait RandomFloatRange( 5.0, 15.0 )
 
-		pilot.AssaultPoint( targetPos )
+		pilot.AssaultPoint( clampedPos )
 		table signalData = WaitSignal( 
 								pilot, 
 								"OnFinishedAssault", 
@@ -7876,7 +7897,7 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		// reworked here: use a full logic for us assaulting
 		//wait RandomFloatRange( 10.0, 20.0 )
 		
-		titan.AssaultPoint( targetPos )
+		titan.AssaultPoint( clampedPos )
 		thread NPCAssaultEnemyThink( titan )
 		table signalData = WaitSignal( 
 								titan, 
@@ -8342,7 +8363,7 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		// never do it. too many assault point can make them move really silly
 		//wait RandomFloatRange( 10.0, 20.0 )
 
-		reaper.AssaultPoint( targetPos )
+		reaper.AssaultPoint( clampedPos )
 		thread NPCAssaultEnemyThink( reaper )
 		table signalData = WaitSignal( 
 								reaper, 
