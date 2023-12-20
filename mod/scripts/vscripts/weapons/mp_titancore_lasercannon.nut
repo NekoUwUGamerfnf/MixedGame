@@ -526,8 +526,10 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 			PlayFX( $"P_impact_lasercannon_default", fxPos )
 			// effects that only played when we hit target
 			// reverted. always do effect because I can't code fake sustained laser radius check
-			//if ( IsValid( executionParent ) && hitEnt == executionParent )
-			//{
+			// and there's no need we play a new effect each time
+			/*
+			if ( IsValid( executionParent ) && hitEnt == executionParent )
+			{
 				if ( IsValid( laserGlowEffect ) )
 				{
 					EffectStop( laserGlowEffect )
@@ -537,15 +539,29 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 				//entCleanUpTable[ "laserGlowEffect" ] = laserGlowEffect
 				ArrayRemoveInvalid( laserCoreScriptedEffects )
 				laserCoreScriptedEffects.append( laserGlowEffect )
-			//}
+			}
+			*/
+			if ( !IsValid( laserGlowEffect ) )
+			{
+				laserGlowEffect = PlayFX( $"P_lasercannon_endglow", fxPos )
+				laserGlowEffect.SetStopType( "DestroyImmediately" )
+			}
+			laserGlowEffect.SetOrigin( fxPos )
+			ArrayRemoveInvalid( laserCoreScriptedEffects )
+			laserCoreScriptedEffects.append( laserGlowEffect )
 		}
 		else // can't hit anything or hit sky
 		{
-			// stop impact sound
+			// stop impact sound and effect
 			if ( emittedSound )
 			{
 				StopSoundOnEntity( laserImpactSoundEnt, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
 				emittedSound = false
+			}
+			if ( IsValid( laserGlowEffect ) )
+			{
+				EffectStop( laserGlowEffect )
+				laserGlowEffect = null
 			}
 		}
 
