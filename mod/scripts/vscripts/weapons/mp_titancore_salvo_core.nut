@@ -136,7 +136,8 @@ bool function OnAbilityCharge_SalvoCore( entity weapon )
 			// welp it's kinda funny but... 1.0 move_slow severity for npc will crash the game
 			// they'll move like weirdly some animation, and the game just boom
 			//StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 1.0, coreDuration + coreChargeTime, coreChargeTime )
-			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 0.5, coreDuration + coreChargeTime, coreChargeTime )
+			StatusEffect_AddTimed( soul, eStatusEffect.move_slow, 0.6, coreDuration + coreChargeTime, coreChargeTime )
+			StatusEffect_AddTimed( soul, eStatusEffect.dodge_speed_slow, 0.6, coreDuration + coreChargeTime, coreChargeTime )
 		}
 	}
 #endif // #if SERVER

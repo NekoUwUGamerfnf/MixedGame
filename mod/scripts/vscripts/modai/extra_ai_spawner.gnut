@@ -88,12 +88,14 @@ global function ExtraSpawner_SquadHandler
 global function ExtraSpawner_TitanHandler
 global function ExtraSpawner_PilotHandler
 global function ExtraSpawner_ReaperHandler
+global function ExtraSpawner_ProwlerSquadHandler
 // handler overrides
-global function ExtraSpawner_SetSquadHandlerFunc
+global function ExtraSpawner_SetSquadHandlerFunc // this is for infantry squad and default squad handler
 global function ExtraSpawner_SetNPCHandlerFunc
+global function ExtraSpawner_SetNPCSquadHandlerFunc // squad handler override for different npcs
 // disabling default handlers
 global function ExtraSpawner_StopDefaultHandler // can't stop squad handler. maybe we need to store squad in a table like dropships?
-
+global function ExtraSpawner_StopDefaultSquadHandler // use table for signaling squad
 
 // settings func
 global function ExtraSpawner_SetNPCDamageHistoryLifeTime
@@ -321,8 +323,9 @@ struct
 	array<NPCVanguardLoadout> npcVanguardLoadouts
 	array<NPCVanguardPilot> npcVanguardPilots
 	// npc handler func
-	void functionref( array<entity> ) squadHandlerFunc
+	void functionref( array<entity> ) squadHandlerFunc // default squad handler for npcs to use
 	table< string, void functionref( entity ) > npcHandlerFuncs
+	table< string, void functionref( array<entity> ) > npcSquadHandlerFuncs // squad handler override for different npcs
 	// care package, now allowing every weapon to have a custom mod array
 	array<string> carePackageWeapons
 	table< string, array<string> > carePackageWeaponMods
@@ -370,6 +373,8 @@ struct
 	table< entity, array<int> > npcDisabledAttackCapabilityFlags
 	// npc execution management
 	array<entity> npcVanguardChassisTitan
+	// for sending signals to squad
+	table<string, table> squadSignalDummyTable
 } file
 
 void function ExtraAISpawner_Init()
@@ -399,6 +404,10 @@ void function ExtraAISpawner_Init()
 	PrecacheModel( $"models/titans/buddy/titan_buddy.mdl" )
 	// npc handlers
 	RegisterSignal( "StopDefaultHandler" )
+	RegisterSignal( "StopDefaultSquadHandler" )
+	RegisterSignal( "WaitForNPCCombatEnemy" )
+	RegisterSignal( "NPCAssaultEnemyThink" )
+	RegisterSignal( "OnSeeEnemyDuringAssault" )
 	// npc titan think
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
 	RegisterSignal( "ScriptedNPCTitanCoreAbility" )
@@ -514,6 +523,7 @@ string function ExtraSpawner_MakeMarkedSquadName( int team, string squadMsg )
 {
 	string squad = MakeSquadName( team, squadMsg )
 	file.npcSquadFromExtraSpawner.append( squad )
+	file.squadSignalDummyTable[ squad ] <- {}
 
 	return squad
 }
@@ -521,6 +531,13 @@ string function ExtraSpawner_MakeMarkedSquadName( int team, string squadMsg )
 bool function ExtraSpawner_IsSquadFromExtraSpawner( string squadname )
 {
 	return file.npcSquadFromExtraSpawner.contains( squadname )
+}
+
+table ornull function ExtraSpawner_GetSquadSignalDummy( string squadname )
+{
+	if ( !( squadname in file.squadSignalDummyTable ) )
+		return null
+	return file.squadSignalDummyTable[ squadname ]
 }
 
 // vanilla never store any damage histroy for npcs, here I do it for fun
@@ -2208,10 +2225,25 @@ void function BossLoadout_Bear( entity titan )
 
 void function InitDefaultNPCHandlerFunctions()
 {
+	RegisterSignal( "SquadGuyAssaultThink" )
 	file.squadHandlerFunc = ExtraSpawner_SquadHandler
+
 	file.npcHandlerFuncs[ "npc_pilot_elite" ] <- ExtraSpawner_PilotHandler
+
 	file.npcHandlerFuncs[ "npc_titan" ] <- ExtraSpawner_TitanHandler
+
 	file.npcHandlerFuncs[ "npc_super_spectre" ] <- ExtraSpawner_ReaperHandler
+	
+	RegisterSignal( "SetEnemyForProwlerAssault" )
+	file.npcSquadHandlerFuncs[ "npc_prowler" ] <- ExtraSpawner_ProwlerSquadHandler
+}
+
+void functionref( array<entity> ) function GetSquadHandlerForClass( string className )
+{
+	// if we don't have class specific squad handler, use default one
+	if ( !( className in file.npcSquadHandlerFuncs ) || file.npcSquadHandlerFuncs[ className ] == null )
+		return file.squadHandlerFunc
+	return file.npcSquadHandlerFuncs[ className ]
 }
 
 void functionref( entity ) function GetNPCHandlerForClass( string className )
@@ -2219,6 +2251,37 @@ void functionref( entity ) function GetNPCHandlerForClass( string className )
 	if ( !( className in file.npcHandlerFuncs ) )
 		return null
 	return file.npcHandlerFuncs[ className ]
+}
+
+// shared utilities
+void function WaitForNPCCombatEnemy( entity guy )
+{
+	guy.Signal( "WaitForNPCCombatEnemy" )
+	guy.EndSignal( "WaitForNPCCombatEnemy" )
+	guy.EndSignal( "OnDeath" )
+	guy.EndSignal( "OnDestroy" )
+
+	while ( IsAlive( guy.GetEnemy() ) )
+		wait 0.2 // enemy check shouldn't be added every frame
+}
+
+void function NPCAssaultEnemyThink( entity guy )
+{
+	guy.Signal( "NPCAssaultEnemyThink" )
+	guy.EndSignal( "NPCAssaultEnemyThink" )
+	guy.EndSignal( "OnDeath" )
+	guy.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		if ( IsValid( guy.GetEnemy() ) )
+		{
+			guy.Signal( "OnSeeEnemyDuringAssault" )
+			break
+		}
+
+		wait 0.2 // enemy check shouldn't be added every frame
+	}
 }
 
 void function ExtraSpawner_SetNPCWeapons( string npcClass, array<string> weapons )
@@ -2419,6 +2482,13 @@ void function ExtraSpawner_SetNPCHandlerFunc( string npcClass, void functionref(
 	file.npcHandlerFuncs[ npcClass ] = handler
 }
 
+void function ExtraSpawner_SetNPCSquadHandlerFunc( string npcClass, void functionref( array<entity> ) handler )
+{
+	if ( !( npcClass in file.npcSquadHandlerFuncs ) )
+		file.npcSquadHandlerFuncs[ npcClass ] <- null
+	file.npcSquadHandlerFuncs[ npcClass ] = handler
+}
+
 // utility for handling assault target
 bool function IsValidNPCAssaultTarget( entity ent )
 {
@@ -2428,6 +2498,10 @@ bool function IsValidNPCAssaultTarget( entity ent )
 
 	// is flight target?
 	if ( IsAirFlightTarget( ent ) )
+		return false
+
+	// is self-detonation target?
+	if ( IsSelfDetonationTarget( ent ) )
 		return false
 
 	// cannot be targeted?
@@ -2468,6 +2542,15 @@ bool function IsAirFlightTarget( entity ent )
 	if ( IsAirDrone( ent ) )
 		return true
 	if ( IsGunship( ent ) )
+		return true
+
+	return false
+}
+
+// should never assault any self-detonation target
+bool function IsSelfDetonationTarget( entity ent )
+{
+	if ( IsFragDrone( ent ) )
 		return true
 
 	return false
@@ -2538,6 +2621,19 @@ array<entity> function FindNPCTitanAssaultTargets( array<entity> targetsToSearch
 void function ExtraSpawner_StopDefaultHandler( entity npc )
 {
 	npc.Signal( "StopDefaultHandler" )
+}
+
+// signal squad table to stop handler, return true if signal succeeded
+bool function ExtraSpawner_StopDefaultSquadHandler( string squadname )
+{
+	if ( ExtraSpawner_GetSquadSignalDummy( squadname ) != null )
+	{
+		table signalDummy = expect table( ExtraSpawner_GetSquadSignalDummy( squadname ) )
+		Signal( signalDummy, "StopDefaultSquadHandler" ) // can't use method for table!
+		return true
+	}
+
+	return false
 }
 
 //------------------------------------------------------
@@ -3452,8 +3548,8 @@ void function ExtraSpawner_SpawnDropShip( vector pos, vector rot, int team, stri
 	
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-	else if ( file.squadHandlerFunc != null ) // default handler
-		thread file.squadHandlerFunc( guys )
+	else if ( GetSquadHandlerForClass( content ) != null ) // default handler
+		thread GetSquadHandlerForClass( content )( guys )
 }
 
 entity functionref( int, vector, vector ) function GetDropshipSpawnFunc( string content )
@@ -3536,8 +3632,8 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-	else if ( file.squadHandlerFunc != null ) // default handler
-		thread file.squadHandlerFunc( guys )
+	else if ( GetSquadHandlerForClass( content ) != null ) // default handler
+		thread GetSquadHandlerForClass( content )( guys )
 }
 
 // default handler!
@@ -3546,6 +3642,17 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 // AI can also flee deeper into their zone suggesting someone spent way too much time on this
 void function ExtraSpawner_SquadHandler( array<entity> guys )
 {
+	bool squadHasSignalDummy = false
+	table signalDummy
+	// dummy signal table for handling our runtime
+	string squadname = expect string( guys[0].kv.squadname )
+	if ( ExtraSpawner_GetSquadSignalDummy( squadname ) != null )
+	{
+		squadHasSignalDummy = true
+		signalDummy = expect table( ExtraSpawner_GetSquadSignalDummy( squadname ) )
+		EndSignal( signalDummy, "StopDefaultSquadHandler" ) // can't use method for table!
+	}
+
 	int team = guys[0].GetTeam()
 	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
 	foreach ( entity guy in guys )
@@ -3580,8 +3687,9 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
 		if ( hasHeavyArmorWeapon ) // squads won't flee if they got heavy armor weapon
 			guy.DisableNPCFlag( NPC_ALLOW_FLEE )
-
-		guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+		
+		// reworked here: use a full logic for us assaulting
+		//guy.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 	}
 
 	wait 3 // initial wait before guys disembark from droppod
@@ -3645,13 +3753,72 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 		foreach ( guy in guys )
 		{
 			if ( IsAlive( guy ) )
-				guy.AssaultPoint( clampedPos )
+			{
+				// reworked here: use a full logic for us assaulting
+				//guy.AssaultPoint( clampedPos )
+				// signal dummy version
+				if ( squadHasSignalDummy )
+					thread SquadGuyAssaultThink( guy, clampedPos, signalDummy )
+				else // normal think
+					guy.AssaultPoint( clampedPos )
+			}
 		}
 
 		// remove random wait to make them more aggresive?
 		// never do it. too many assault point can make them move really silly
-		wait RandomFloatRange(5.0,15.0)
+		// instead, we wait for one of our squadmate hit assault point( or failed to path )
+		//wait RandomFloatRange(5.0,15.0)
+
+		// signal dummy version
+		if ( squadHasSignalDummy )
+		{
+			table signalData = WaitSignal( 
+								   signalDummy, 
+								   "OnFinishedAssault", 
+								   "OnEnterGoalRadius", 
+								   "OnFailedToPath"
+							   )
+
+			// stop SquadGuyAssaultThink()
+			ArrayRemoveDead( guys )
+			foreach ( guy in guys )
+			{
+				if ( IsValid( guy ) )
+					guy.Signal( "SquadGuyAssaultThink" )
+			}
+
+			string receivedSignal = expect string( signalData.signal )
+			// main logic: re-run think if we failed to path; hold point for some time if we finished assault
+			if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+				wait RandomFloatRange( 10.0, 15.0 )
+			else if ( receivedSignal == "OnFailedToPath" )
+				continue
+		}
+		else // normal think
+			wait RandomFloatRange( 10.0, 15.0 )
 	}
+}
+
+void function SquadGuyAssaultThink( entity guy, vector targetPos, table signalDummy )
+{
+	guy.EndSignal( "OnDeath" )
+	guy.EndSignal( "OnDestroy" )
+	guy.Signal( "SquadGuyAssaultThink" )
+	guy.EndSignal( "SquadGuyAssaultThink" )
+	// table can be freed from memory
+	EndSignal( signalDummy, "OnDestroy" )
+
+	guy.AssaultPoint( targetPos )
+	table signalData = WaitSignal( 
+						   guy, 
+						   "OnFinishedAssault", 
+						   "OnEnterGoalRadius", 
+						   "OnFailedToPath"
+					   )
+	
+	// pass the signal to signalDummy
+	string receivedSignal = expect string( signalData.signal )
+	Signal( signalDummy, receivedSignal )
 }
 
 entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool doHotDrop = true, void functionref( entity titan ) titanHandler = null, string spawnName = "" )
@@ -4148,8 +4315,8 @@ void function ExtraSpawner_SpawnNPCInDropPod( vector pos, vector rot, int team, 
 
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-	else if ( file.squadHandlerFunc != null ) // default handler
-		thread file.squadHandlerFunc( guys )
+	else if ( GetSquadHandlerForClass( content ) != null ) // default handler
+		thread GetSquadHandlerForClass( content )( guys )
 }
 
 void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot, int team, string content, int count, string leaderAiSet = "npc_soldier_drone_summoner", int leaderHealth = 350, void functionref( array<entity> guys ) squadHandler = null )
@@ -4211,8 +4378,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropShip( vector pos, vector rot,
 	
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-	else if ( file.squadHandlerFunc != null ) // default handler
-		thread file.squadHandlerFunc( guys )
+	else if ( GetSquadHandlerForClass( content ) != null ) // default handler
+		thread GetSquadHandlerForClass( content )( guys )
 }
 
 // spawn a normal specialist grunt here, we setup them up later, since DispatchSpawn() is done in CreateNPCSForDropship()
@@ -4273,8 +4440,8 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-	else if ( file.squadHandlerFunc != null ) // default handler
-		thread file.squadHandlerFunc( guys )
+	else if ( GetSquadHandlerForClass( content ) != null ) // default handler
+		thread GetSquadHandlerForClass( content )( guys )
 }
 
 entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int team, string aiSet = "npc_soldier_drone_summoner", int maxHealth = 350 )
@@ -4545,8 +4712,121 @@ void function ExtraSpawner_SpawnProwlerSquadDropPod( vector pos, vector rot, int
 	
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-	else if ( file.squadHandlerFunc != null ) // default handler
-		thread file.squadHandlerFunc( guys )
+	else if ( GetSquadHandlerForClass( "npc_prowler" ) != null ) // default handler
+		thread GetSquadHandlerForClass( "npc_prowler" )( guys )
+}
+
+// prowler squad handler: basically same think as squad handler
+// but prowlers can't use AssaultPoint(), try to solve it by setting enemies directly
+void function ExtraSpawner_ProwlerSquadHandler( array<entity> guys )
+{
+	// dummy signal table for handling our runtime
+	string squadname = expect string( guys[0].kv.squadname )
+	if ( ExtraSpawner_GetSquadSignalDummy( squadname ) != null )
+	{
+		table signalDummy = expect table( ExtraSpawner_GetSquadSignalDummy( squadname ) )
+		EndSignal( signalDummy, "StopDefaultSquadHandler" )
+	}
+
+	int team = guys[0].GetTeam()
+	array<entity> points
+
+	// Setup AI
+	foreach ( guy in guys )
+	{
+		// add map
+		//AddMinimapForNPC( guy )
+		// if we can't handle this npc's map, generate fake map icon ent for them
+		// welp this can't be handled properly, there're something like prowlers always rotates their attachments
+		// reworked to add less offset, rotate map icon npc to upside-down
+		AddMinimapForNPC_FailsafeToCreateFakeMapIcon( guy )
+
+		guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE )
+	}
+
+	wait 3 // initial wait before guys disembark from droppod
+
+	// Every 5 - 15 secs get a closest target and go to them
+	while ( true )
+	{
+		WaitFrame() // wait a frame each loop
+
+		// remove dead guys
+		ArrayRemoveDead( guys )
+		foreach ( guy in guys )
+		{
+			// check leechable guys
+			if ( guy.GetTeam() != team )
+				guys.removebyvalue( guy )
+		}
+		// Stop func if our squad has been killed off
+		if ( guys.len() == 0 )
+			return
+
+		// Get point and send our whole squad to it
+		points = [] // clean up last pointS
+		array<entity> pointsToSearch = []
+		// try to find from npc targets
+		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
+		// try to find from alive player targets
+		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+
+		// start searching
+		foreach ( entity ent in pointsToSearch )
+		{
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
+				continue
+
+			// only search for targets with light armor
+			if ( ent.GetArmorType() == ARMOR_TYPE_HEAVY )
+				continue
+
+			points.append( ent )
+		}
+
+		ArrayRemoveDead( points ) // remove dead targets
+		if ( points.len() == 0 ) // can't find any points here
+			continue
+
+		// get nearest enemy and send our full squad to it
+		entity enemy = GetClosest2D( points, guys[0].GetOrigin() )
+		if ( !IsAlive( enemy ) )
+			continue
+
+		// prowlers can't use AssaultPoint(), maybe just set enemy for them...
+		foreach ( guy in guys )
+		{
+			if ( IsAlive( guy ) )
+				thread SetEnemyForProwlerAssault( guy, enemy )
+		}
+
+		// remove random wait to make them more aggresive?
+		// we're not using AssaultPoint() so this should be fine???
+		//wait RandomFloatRange( 5.0, 15.0 )
+	}
+}
+
+void function SetEnemyForProwlerAssault( entity prowler, entity target )
+{
+	prowler.EndSignal( "OnDeath" )
+	prowler.EndSignal( "OnDestroy" )
+	target.EndSignal( "OnDeath" )
+	target.EndSignal( "OnDestroy" )
+	prowler.Signal( "SetEnemyForProwlerAssault" )
+	prowler.EndSignal( "SetEnemyForProwlerAssault" ) // end think if we try to find new enemy
+
+	while ( true )
+	{
+		// wait until prowlers got no enemy, then force set to our assault target
+		if ( !IsAlive( prowler.GetEnemy() ) )
+		{
+			prowler.SetEnemy( target )
+			break
+		}
+
+		WaitFrame()
+	}
 }
 
 // stronger stalker: harder to be dismembered, no faster headshot kills, no more one-critical-hit overload, always overload on death if not getting headshot
@@ -4578,8 +4858,8 @@ void function ExtraSpawner_SpawnOverloadedStalkerDropShip( vector pos, vector ro
 	
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-	else if ( file.squadHandlerFunc != null ) // default handler
-		thread file.squadHandlerFunc( guys )
+	else if ( GetSquadHandlerForClass( "npc_stalker" ) != null ) // default handler
+		thread GetSquadHandlerForClass( "npc_stalker" )( guys )
 }
 
 entity function CreateOverloadedStalker( int team, vector origin, vector angles )
@@ -4624,8 +4904,8 @@ void function ExtraSpawner_SpawnOverloadedStalkerDropPod( vector pos, vector rot
 
 	if ( squadHandler != null )
 		thread squadHandler( guys )
-	else if ( file.squadHandlerFunc != null ) // default handler
-		thread file.squadHandlerFunc( guys )
+	else if ( GetSquadHandlerForClass( "npc_stalker" ) != null ) // default handler
+		thread GetSquadHandlerForClass( "npc_stalker" )( guys )
 }
 
 void function ExtraSpawner_SetUpOverloadedStalker( entity stalker )
@@ -7302,7 +7582,9 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 	int team = pilot.GetTeam()
 	array<entity> points
 
-	pilot.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+	// reworked here: use a full logic for us assaulting
+	//pilot.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+
 	// show on enemy radar, unfortunatelly cl_minimap won't track npc_pilot_elite
 	//AddMinimapForNPC( pilot )
 	// using a hacky way: add a tracked npc as fake npc
@@ -7348,11 +7630,26 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 		if ( clampedPos == null )
 			continue
 		expect vector( clampedPos )
-		pilot.AssaultPoint( clampedPos )
+		//pilot.AssaultPoint( clampedPos )
 
 		// remove random wait to make them more aggresive?
 		// never do it. too many assault point can make them move really silly
-		wait RandomFloatRange( 5.0, 15.0 )
+		//wait RandomFloatRange( 5.0, 15.0 )
+
+		pilot.AssaultPoint( clampedPos )
+		table signalData = WaitSignal( 
+							   pilot, 
+							   "OnFinishedAssault", 
+							   "OnEnterGoalRadius", 
+							   "OnFailedToPath"
+						   )
+		
+		string receivedSignal = expect string( signalData.signal )
+		// main logic: re-run think if we failed to path; hold point for some time if we finished assault
+		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+			wait RandomFloatRange( 3.0, 8.0 ) // hold point shorter because we only have 1 people
+		else if ( receivedSignal == "OnFailedToPath" )
+			continue
 	}
 }
 
@@ -7361,6 +7658,7 @@ void function ExtraSpawner_TitanHandler( entity titan )
 	entity soul = titan.GetTitanSoul()
 	if ( !IsValid( soul ) )
 		return
+	
 	soul.EndSignal( "OnDestroy" )
 	titan.EndSignal( "OnDestroy" )
 	titan.EndSignal( "OnDeath" )
@@ -7377,7 +7675,9 @@ void function ExtraSpawner_TitanHandler( entity titan )
 	// wait for standup
 	while ( soul.GetStance() < STANCE_STANDING )
 		WaitFrame()
-	titan.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
+	
+	// reworked here: use a full logic for us assaulting
+	//titan.AssaultSetGoalRadius( 1600 ) // 1600 is minimum for npc_stalker, works fine for others
 
 	wait 3 // initial wait before titans can move
 
@@ -7393,7 +7693,11 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		// check capturable
 		if ( titan.GetTeam() != team )
 			return
-		
+
+		// wait for current engagement to end
+		waitthread WaitForNPCCombatEnemy( titan )
+		titan.Signal( "WaitForNPCCombatEnemy" ) // stop WaitForNPCCombatEnemy()
+
 		// Get point and send guy to it
 		points = [] // clean up last points
 		array<entity> pointsToSearch = []
@@ -7417,11 +7721,37 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		if ( clampedPos == null )
 			continue
 		expect vector( clampedPos )
-		titan.AssaultPoint( clampedPos )
+
+		// reworked here: use a full logic for us assaulting
+		//titan.AssaultPoint( clampedPos )
 
 		// remove random wait to make them more aggresive?
 		// never do it. too many assault point can make them move really silly
-		wait RandomFloatRange( 10.0, 20.0 )
+		// reworked here: use a full logic for us assaulting
+		//wait RandomFloatRange( 10.0, 20.0 )
+		
+		titan.AssaultPoint( clampedPos )
+		thread NPCAssaultEnemyThink( titan )
+		table signalData = WaitSignal( 
+							   titan, 
+							   "OnFinishedAssault", 
+							   "OnEnterGoalRadius", 
+							   "OnFailedToPath",
+							   "OnSeeEnemyDuringAssault" // signaled by NPCAssaultEnemyThink()
+						   )
+
+		// stop NPCAssaultEnemyThink()
+		titan.Signal( "NPCAssaultEnemyThink" )
+		
+		string receivedSignal = expect string( signalData.signal )
+		// main logic: disable assault if our target has died or we've encountered an enemy
+		// re-run think if we failed to path; hold point for some time if we finished assault
+		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+			wait RandomFloatRange( 5.0, 10.0 )
+		else if ( receivedSignal == "OnSeeEnemyDuringAssault" )
+			titan.DisableBehavior( "Assault" )
+		else if ( receivedSignal == "OnFailedToPath" )
+			continue
 	}
 }
 
@@ -7818,7 +8148,8 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 
 	// wait for warpfall
 	reaper.WaitSignal( "WarpfallComplete" )
-	reaper.AssaultSetGoalRadius( 500 ) // goal radius
+	// reworked here: use a full logic for us assaulting
+	//reaper.AssaultSetGoalRadius( 500 ) // goal radius
 
 	wait 3 // initial wait before reapers do startup animation
 	
@@ -7830,6 +8161,10 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		// check leechable
 		if ( reaper.GetTeam() != team )
 			return
+
+		// wait for current engagement to end
+		waitthread WaitForNPCCombatEnemy( reaper )
+		reaper.Signal( "WaitForNPCCombatEnemy" ) // stop WaitForNPCCombatEnemy()
 
 		points = [] // clean up last points
 		array<entity> pointsToSearch = []
@@ -7853,11 +8188,36 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		if ( clampedPos == null )
 			continue
 		expect vector( clampedPos )
-		reaper.AssaultPoint( clampedPos )
+
+		// reworked here: use a full logic for us assaulting
+		//reaper.AssaultPoint( clampedPos )
 
 		// remove random wait to make them more aggresive?
 		// never do it. too many assault point can make them move really silly
-		wait RandomFloatRange( 10.0, 20.0 )
+		//wait RandomFloatRange( 10.0, 20.0 )
+
+		reaper.AssaultPoint( clampedPos )
+		thread NPCAssaultEnemyThink( reaper )
+		table signalData = WaitSignal( 
+							   reaper, 
+							   "OnFinishedAssault", 
+							   "OnEnterGoalRadius", 
+							   "OnFailedToPath",
+							   "OnSeeEnemyDuringAssault" // signaled by NPCAssaultEnemyThink()
+						   )
+
+		// stop NPCAssaultEnemyThink()
+		reaper.Signal( "NPCAssaultEnemyThink" )
+		
+		string receivedSignal = expect string( signalData.signal )
+		// main logic: disable assault if our target has died or we've encountered an enemy
+		// re-run think if we failed to path; hold point for some time if we finished assault
+		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+			wait RandomFloatRange( 5.0, 10.0 )
+		else if ( receivedSignal == "OnSeeEnemyDuringAssault" )
+			reaper.DisableBehavior( "Assault" )
+		else if ( receivedSignal == "OnFailedToPath" )
+			continue
 	}
 }
 
