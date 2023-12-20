@@ -312,36 +312,46 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 	owner.EndSignal( "OnSustainedDischargeEnd" )
 	weapon.EndSignal( "OnDestroy" )
 
-	// tracer don't really work, but with impact effect it already looks not bad
-	entity laserSource //CreatePropDynamic( LASER_MODEL )
-	//laserSource.SetParent( owner, "CHESTFOCUS", true, 0.0 )
-	//laserSource.SetAngles( < 0, 180, 0 > )
-
-	entity laserTracer //= PlayFXOnEntity( $"P_wpn_lasercannon", laserSource, "muzzle_flash", null, null, 6 )
-
 	// adding this mark so we don't stop animation and sound in OnAbilityEnd_LaserCannon()
 	// all handle in this function
 	file.entUsingFakeLaserCore[ owner ] <- true
 
+	// scripted entity handle
+	array<entity> laserCoreScriptedEffects
+	array<entity> laserCoreScriptedEntities
+
+	// tracer don't really work, but with impact effect it already looks not bad
+	//entity laserSource //CreatePropDynamic( LASER_MODEL )
+	//laserSource.SetParent( owner, "CHESTFOCUS", true, 0.0 )
+	//laserSource.SetAngles( < 0, 180, 0 > )
+	//laserCoreScriptedEntities.append( laserSource )
+
+	//entity laserTracer //= PlayFXOnEntity( $"P_wpn_lasercannon", laserSource, "muzzle_flash", null, null, 6 )
+	//laserCoreScriptedEffects.append( laserTracer )
+
+	// fake impact sound
+	entity laserImpactSoundEnt = CreatePropScript( $"models/dev/empty_model.mdl" )
+	laserImpactSoundEnt.NotSolid()
+	laserImpactSoundEnt.kv.fadedist = 10000 // try not to fade
+	laserImpactSoundEnt.DisableHibernation()
+	laserCoreScriptedEntities.append( laserImpactSoundEnt )
+
 	table<string, entity> entCleanUpTable
-	entCleanUpTable[ "executionParent" ] <- null
-	entCleanUpTable[ "laserGlowEffect" ] <- null
+	// all reworked
+	//entCleanUpTable[ "executionParent" ] <- null
+	//entCleanUpTable[ "laserGlowEffect" ] <- null
 
 	OnThreadEnd
 	(
-		function(): ( owner, entCleanUpTable, laserSource, laserTracer )
+		function(): ( owner, entCleanUpTable, laserCoreScriptedEffects, laserCoreScriptedEntities )
 		{
 			//print( "FakeExecutionLaserCannonThink() OnThreadEnd!" )
-			if ( IsValid( laserTracer ) )
-			{
-				laserTracer.ClearParent()
-				EffectStop( laserTracer )
-			}
-			if ( IsValid( laserSource ) )
-				laserSource.Destroy()
+			// now handled by laserCoreScriptedEffects
+			/*
 			entity laserGlowEffect = entCleanUpTable[ "laserGlowEffect" ]
 			if ( IsValid( laserGlowEffect ) )
 				EffectStop( laserGlowEffect )
+			*/
 
 			if ( IsValid( owner ) )
 			{
@@ -350,10 +360,25 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 				StopSoundOnEntity( owner, "Titan_Core_Laser_FireBeam_3P" )
 				delete file.entUsingFakeLaserCore[ owner ]
 			}
+			// now handled by laserImpactSoundEnt
+			/*
 			entity executionParent = entCleanUpTable[ "executionParent" ]
 			if ( IsValid( executionParent ) )
 			{
 				StopSoundOnEntity( executionParent, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
+			}
+			*/
+
+			foreach ( entity fx in laserCoreScriptedEffects )
+			{
+				if ( IsValid( fx ) )
+					EffectStop( fx )
+			}
+
+			foreach ( entity ent in laserCoreScriptedEntities )
+			{
+				if ( IsValid( ent ) )
+					ent.Destroy()
 			}
 		}
 	)
@@ -368,6 +393,8 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 		ForceTitanSustainedDischargeEnd( owner )
 
 		// fake impact sound event, play on target
+		// updated: play on laserImpactSoundEnt that moves with laser trace
+		/*
 		entity executionParent = owner.GetParent()
 		if ( IsValid( executionParent ) )
 		{
@@ -378,39 +405,62 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 				emittedSound = true
 			}
 		}
+		*/
 
 		int index = owner.LookupAttachment( "CHESTFOCUS" )
 		vector origin = owner.GetAttachmentOrigin( index )
 		vector angles = owner.GetAttachmentAngles( index )
 
+		array<entity> ignoreEnts = [ owner ]
+		ignoreEnts.extend( laserCoreScriptedEntities )
+		ArrayRemoveInvalid( ignoreEnts )
+
 		TraceResults results = TraceLine( 
 			owner.EyePosition(), 
 			owner.EyePosition() + AnglesToForward( angles ) * 6000, // equal to "sustained_laser_range"
-			//[owner, laserSource, laserTracer], // laserSource and laserTracer has been set to invalid, can't ignore them
-			[owner], 
+			ignoreEnts, 
 			TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE 
 		)
 
 		// fake impact effect
-		// make sure we only play it on our victim... because npc sometimes call "AE_OFFHAND_BEGIN" earlier than we should expect
 		// "laser_core" impact effect isn't good, it will emit a looping impact sound...
 		entity hitEnt = results.hitEnt
-		if ( IsValid( hitEnt ) )
+		if ( IsValid( hitEnt ) && !results.hitSky )
 		{
-			vector fxPos = results.endPos - results.surfaceNormal
+			// move impact sound ent
+			laserImpactSoundEnt.SetOrigin( results.endPos )
+			if ( !emittedSound )
+			{
+				EmitSoundOnEntity( laserImpactSoundEnt, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
+				emittedSound = true
+			}
+
+			vector fxPos = results.endPos// - results.surfaceNormal // no need to minus normal since we're not using impactFXTable
 			//PlayImpactFXTable( , owner, "laser_core", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
 			// manually do effects
 			PlayFX( $"P_impact_lasercannon_default", fxPos )
 			// effects that only played when we hit target
-			if ( IsValid( executionParent ) && hitEnt == executionParent )
-			{
+			// reverted. always do effect because I can't code fake sustained laser radius check
+			//if ( IsValid( executionParent ) && hitEnt == executionParent )
+			//{
 				if ( IsValid( laserGlowEffect ) )
 				{
 					EffectStop( laserGlowEffect )
 					laserGlowEffect = null
 				}
 				laserGlowEffect = PlayFX( $"P_lasercannon_endglow", fxPos )
-				entCleanUpTable[ "laserGlowEffect" ] = laserGlowEffect
+				//entCleanUpTable[ "laserGlowEffect" ] = laserGlowEffect
+				ArrayRemoveInvalid( laserCoreScriptedEffects )
+				laserCoreScriptedEffects.append( laserGlowEffect )
+			//}
+		}
+		else // can't hit anything or hit sky
+		{
+			// stop impact sound
+			if ( emittedSound )
+			{
+				StopSoundOnEntity( laserImpactSoundEnt, "Default.LaserLoop.BulletImpact_3P_VS_3P" )
+				emittedSound = false
 			}
 		}
 
