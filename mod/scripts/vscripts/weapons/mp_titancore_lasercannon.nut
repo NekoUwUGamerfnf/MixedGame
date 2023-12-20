@@ -402,24 +402,24 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 	file.entUsingFakeLaserCore[ owner ] <- true
 
 	// scripted entity handle
-	array<entity> laserCoreScripedEffects
-	array<entity> laserCoreScripedEntities
+	array<entity> laserCoreScriptedEffects
+	array<entity> laserCoreScriptedEntities
 
 	// tracer don't really work, but with impact effect it already looks not bad
 	//entity laserSource //CreatePropDynamic( LASER_MODEL )
 	//laserSource.SetParent( owner, "CHESTFOCUS", true, 0.0 )
 	//laserSource.SetAngles( < 0, 180, 0 > )
-	//laserCoreScripedEntities.append( laserSource )
+	//laserCoreScriptedEntities.append( laserSource )
 
 	//entity laserTracer //= PlayFXOnEntity( $"P_wpn_lasercannon", laserSource, "muzzle_flash", null, null, 6 )
-	//laserCoreScripedEffects.append( laserTracer )
+	//laserCoreScriptedEffects.append( laserTracer )
 
 	// fake impact sound
 	entity laserImpactSoundEnt = CreatePropScript( $"models/dev/empty_model.mdl" )
 	laserImpactSoundEnt.NotSolid()
 	laserImpactSoundEnt.kv.fadedist = 10000 // try not to fade
 	laserImpactSoundEnt.DisableHibernation()
-	laserCoreScripedEntities.append( laserImpactSoundEnt )
+	laserCoreScriptedEntities.append( laserImpactSoundEnt )
 
 	table<string, entity> entCleanUpTable
 	// all reworked
@@ -428,10 +428,10 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 
 	OnThreadEnd
 	(
-		function(): ( owner, entCleanUpTable, laserCoreScripedEntities )
+		function(): ( owner, entCleanUpTable, laserCoreScriptedEffects, laserCoreScriptedEntities )
 		{
 			//print( "FakeExecutionLaserCannonThink() OnThreadEnd!" )
-			// now handled by laserCoreScripedEffects
+			// now handled by laserCoreScriptedEffects
 			/*
 			entity laserGlowEffect = entCleanUpTable[ "laserGlowEffect" ]
 			if ( IsValid( laserGlowEffect ) )
@@ -454,13 +454,13 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 			}
 			*/
 
-			foreach ( entity fx in laserCoreScripedEffects )
+			foreach ( entity fx in laserCoreScriptedEffects )
 			{
 				if ( IsValid( fx ) )
 					EffectStop( fx )
 			}
 
-			foreach ( entity ent in laserCoreScripedEntities )
+			foreach ( entity ent in laserCoreScriptedEntities )
 			{
 				if ( IsValid( ent ) )
 					ent.Destroy()
@@ -497,7 +497,7 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 		vector angles = owner.GetAttachmentAngles( index )
 
 		array<entity> ignoreEnts = [ owner ]
-		ignoreEnts.extend( laserCoreScripedEntities )
+		ignoreEnts.extend( laserCoreScriptedEntities )
 		ArrayRemoveInvalid( ignoreEnts )
 
 		TraceResults results = TraceLine( 
@@ -535,8 +535,8 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 				}
 				laserGlowEffect = PlayFX( $"P_lasercannon_endglow", fxPos )
 				//entCleanUpTable[ "laserGlowEffect" ] = laserGlowEffect
-				ArrayRemoveInvalid( laserCoreScripedEffects )
-				laserCoreScripedEffects.append( laserGlowEffect )
+				ArrayRemoveInvalid( laserCoreScriptedEffects )
+				laserCoreScriptedEffects.append( laserGlowEffect )
 			//}
 		}
 		else // can't hit anything or hit sky
