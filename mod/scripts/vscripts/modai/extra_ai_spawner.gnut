@@ -3422,7 +3422,10 @@ void function ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon( entity guy )
 		return
 
 	if ( guy.Anim_IsActive() ) // may have animation playing?
+	{
+		//print( "npc: " + string( guy ) + " wants to switch weapon but they got animation playing!" )
 		thread SwitchWeaponAfterAnimationDone( guy, weaponToChange, isHeavyArmorTarget )
+	}
 	else
 		ScriptedNPCWeaponSwitch( guy, weaponToChange, isHeavyArmorTarget )
 }
@@ -3451,13 +3454,27 @@ void function ScriptedNPCWeaponSwitch( entity guy, string weaponToChange, bool i
 
 void function SwitchWeaponAfterAnimationDone( entity guy, string weaponToChange, bool isHeavyArmorTarget = false )
 {
+	//print( "RUNNING SwitchWeaponAfterAnimationDone()" )
 	guy.EndSignal( "OnDeath" )
 	guy.EndSignal( "OnDestroy" )
 
 	guy.Signal( "ScriptedWeaponSwitch" )
 	guy.EndSignal( "ScriptedWeaponSwitch" )
 
+	entity enemy = guy.GetEnemy()
+
 	WaittillAnimDone( guy )
+	// don't switch weapon if we changed enemy...
+	if ( guy.GetEnemy() != enemy )
+	{
+		//print( string( guy ) + " enemy changed! not switching weapon" )
+		//print( "old enemy: " + string( enemy ) )
+		//print( "new enemy: " + string( guy.GetEnemy() ) )
+		return
+	}
+
+	//print( string( guy ) + " animation done! try switching weapon to: " + weaponToChange )
+	//print( "current enemy: " + string( guy.GetEnemy() ) )
 	ScriptedNPCWeaponSwitch( guy, weaponToChange, isHeavyArmorTarget )
 }
 
@@ -4411,17 +4428,25 @@ void function ExtraSpawner_NPCTitanDrops( entity titan, bool standUp = true )
 	thread NPCTitanHotdrops( titan, standUp, animation )
 	wait impactTime // bubble shield creates at impactTime - 0.1, we wait full impact time here
 
-	// vanilla missing behavior: we shouldn't target npc titan in a bubble shield
-	thread MonitorNPCTitanTargetingInBubbleShield( titan )
-
 	titan.WaitSignal( "TitanHotDropComplete" )
 	// debug
 	//print( "NPCTitanHotdrops finished!" )
+	// vanilla missing behavior: we shouldn't target npc titan in a bubble shield
+	// I know vanilla added npc priority for them but it's just not enough, there's no dangerous area added for npcs
+	// do it after "TitanHotDropComplete" is done, because notarget state before the signal will be set by NPCTitanHotdrops()
+	// EDIT: changing to try adding dangerous area like player bubble
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) && IsValid( soul.soul.bubbleShield ) )
+	{
+		//thread MonitorNPCTitanTargetingInBubbleShield( titan )
+		AI_CreateDangerousArea_Static( soul.soul.bubbleShield, null, TITAN_BUBBLE_SHIELD_INVULNERABILITY_RANGE, titan.GetTeam(), true, true, titan.GetOrigin() )
+	}
 }
 
 const float NPC_BUBBLE_FAILSAFE_DELAY = 3.0
 void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
 {
+	//print( "RUNNING MonitorNPCTitanTargetingInBubbleShield" )
 	titan.EndSignal( "OnDeath" )
 	titan.EndSignal( "OnDestroy" )
 	entity soul = titan.GetTitanSoul()
@@ -4430,6 +4455,8 @@ void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
 	
 	// find bubble shield
 	WaitEndFrame() // wait for next frame so we won't be cleared notarget by NPCTitanHotdrops()
+	// no longer needs to loop because we're now do this think after titan signaling "TitanHotDropComplete"
+	/*
 	float maxWait = Time() + NPC_BUBBLE_FAILSAFE_DELAY
 	entity bubbleShield
 	while ( Time() < maxWait )
@@ -4442,16 +4469,30 @@ void function MonitorNPCTitanTargetingInBubbleShield( entity titan )
 
 		WaitFrame()
 	}
+	*/
+	entity bubbleShield = soul.soul.bubbleShield
 	if ( !IsValid( bubbleShield ) )
 		return
 
 	titan.SetNoTarget( true )
 	// debug
 	//print( "Awaiting titan bubble run out!" )
+	//thread PrintTitanNoTargetState( titan, bubbleShield )
 	WaitSignal( bubbleShield, "OnDestroy" )
 	titan.SetNoTarget( false )
 	// debug
 	//print( "Titan bubble has been destroyed!" )
+}
+
+// debug
+void function PrintTitanNoTargetState( entity titan, entity bubbleShield )
+{
+	bubbleShield.EndSignal( "OnDestroy" )
+	while ( true )
+	{
+		print( "titan: " + string( titan ) + " notarget state: " + string( titan.GetNoTarget() ) )
+		WaitFrame()
+	}
 }
 
 entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, void functionref( entity titan ) titanHandler = null )
