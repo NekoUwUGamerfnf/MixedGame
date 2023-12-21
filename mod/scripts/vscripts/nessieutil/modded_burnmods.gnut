@@ -25,6 +25,10 @@ void function Modded_Weapon_BurnMods_Init()
 	// try to add "DF_BURN_CARD_WEAPON" for burnmod kills!
 	// unfortunatelly client won't track it. obitColor is a variable that nowhere used
 	//AddDamageCallback( "player", OnPlayerOrNPCDamaged )
+
+	// using functions in modified _codecallbacks.gnut
+	// handling modified burnmods for player( or maybe npcs ): disable passThroughAddsMods once we have a modded weapon
+	TrackEntityPassThroughAddsMods()
 }
 
 void function ModdedBurnMods_AddDisabledMod( string mod )
@@ -186,4 +190,51 @@ bool function AttackerIsUsingBurnModWeapon( var damageInfo )
 	}
 
 	return hasBurnMod
+}
+
+// using functions in modified _codecallbacks.gnut
+// handling modified burnmods for player( or maybe npcs ): disable passThroughAddsMods once we have a modded weapon
+void function TrackEntityPassThroughAddsMods()
+{
+	thread TrackEntityPassThroughAddsMods_Threaded()
+}
+
+void function TrackEntityPassThroughAddsMods_Threaded()
+{
+	while ( true )
+	{
+		array<entity> allCombatCharacterEnts
+		allCombatCharacterEnts.extend( GetPlayerArray() )
+		allCombatCharacterEnts.extend( GetNPCArray() )
+
+		foreach ( entity guy in allCombatCharacterEnts )
+		{
+			if ( !IsValid( guy ) )
+				continue
+			// dead player update left until their next life
+			if ( !IsAlive( guy ) )
+				continue
+			
+			array<entity> weapons
+			weapons.extend( guy.GetMainWeapons() )
+			weapons.extend( guy.GetOffhandWeapons() )
+			bool foundModdedWeapon = false
+			foreach ( entity weapon in weapons )
+			{
+				if ( ModdedBurnMods_WeaponOrProjectileHasReplacementBurnMod( weapon ) || ModdedBurnMods_WeaponOrProjectileHasDisabledBurnMod( weapon ) )
+				{
+					foundModdedWeapon = true
+					break
+				}
+			}
+
+			// disable passThroughAddsMods once we have a modded weapon
+			if ( foundModdedWeapon && !PassThroughAddsMods_IsDisabledOnEntity( guy ) )
+				PassThroughAddsMods_SetDisabledForEntity( guy, true )
+			else if ( !foundModdedWeapon && PassThroughAddsMods_IsDisabledOnEntity( guy ) )
+				PassThroughAddsMods_SetDisabledForEntity( guy, false )
+		}
+
+		WaitFrame()
+	}
 }

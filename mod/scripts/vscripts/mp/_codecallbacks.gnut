@@ -25,12 +25,13 @@ global function CodeCallback_OnServerAnimEvent
 
 // modified settings
 global function GameMode_SetPlayerDamageHistoryLifeTime
-
 // modified callbacks
 global function AddCallback_OnPlayerGrappled
-
 // modified settings override
 global function AddCallback_WeaponMod_DamageSourceIdOverride
+// HACK for handling modded burnmods: disable passThroughAddsMods when player holding modded weapon
+global function PassThroughAddsMods_SetDisabledForEntity
+global function PassThroughAddsMods_IsDisabledOnEntity
 
 struct AccumulatedDamageData
 {
@@ -55,12 +56,12 @@ struct
 
 	// settings for fun: can store wider damage history
 	float playerDamageHistoryLifeTime = MAX_DAMAGE_HISTORY_TIME
-
 	// modified callbacks
 	array< void functionref( entity, entity ) > onPlayerGrappledCallbacks
-
 	// modified settings override
 	table< string, table<string, int> > damageSourceIdOverride_WeaponMod
+	// HACK for handling modded burnmods: disable passThroughAddsMods when player holding modded weapon
+	table<entity, bool> passThroughAddsModsDisabledEnt
 } file
 
 void function CodeCallback_Init()
@@ -1045,6 +1046,11 @@ string function CodeCallback_CheckPassThroughAddsMods( entity player, entity hit
 		}
 		//
 
+		// welp here we are-- to avoid amped wall mess up modded burnmods, leaving a variable that only affects certain entity
+		// settings update handled by modded_burnmods.gnut. whenever player(or maybe npcs?) gets a modded weapon, they will be marked
+		if ( PassThroughAddsMods_IsDisabledOnEntity( player ) )
+			return ""
+
 		array<string> mods = GetWeaponBurnMods( currWeaponName )
 		if ( mods.len() > 0 )
 			return mods[0]
@@ -1222,4 +1228,23 @@ int function GetDamageSourceIdOverride( var damageInfo )
 
 	// default value, return basic damageSourceId
 	return DamageInfo_GetDamageSourceIdentifier( damageInfo )
+}
+
+// HACK for handling modded burnmods: disable passThroughAddsMods when player holding modded weapon
+// settings update handled by modded_burnmods.gnut. whenever player(or maybe npcs?) gets a modded weapon, they will be marked
+void function PassThroughAddsMods_SetDisabledForEntity( entity ent, bool disable )
+{
+	// init
+	if ( !( ent in file.passThroughAddsModsDisabledEnt ) )
+		file.passThroughAddsModsDisabledEnt[ ent ] = false // default is not disabled
+
+	file.passThroughAddsModsDisabledEnt[ ent ] = disable
+}
+
+void function PassThroughAddsMods_IsDisabledOnEntity( entity ent )
+{
+	if ( !( ent in file.passThroughAddsModsDisabledEnt ) )
+		return false // default is not disabled
+
+	return file.passThroughAddsModsDisabledEnt[ ent ]
 }
