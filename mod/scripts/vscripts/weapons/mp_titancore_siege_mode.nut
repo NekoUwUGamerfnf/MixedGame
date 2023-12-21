@@ -149,8 +149,31 @@ void function SmartCoreThink( entity weapon, float coreDuration )
 
 	int statusEffect = StatusEffect_AddEndless( soul, eStatusEffect.titan_damage_amp, 0.20 )
 
-	OnThreadEnd(
-	function() : ( weapon, soul, owner, statusEffect, statusEffectSmartCore )
+	// modified for npc usage: don't allow melee during smart core
+	array<int> npcDisabledCapabilityFlags
+	if ( owner.IsNPC() )
+	{
+		if ( owner.GetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK1 ) ) // uncharged
+		{
+			owner.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK1, false )
+			npcDisabledCapabilityFlags.append( bits_CAP_INNATE_MELEE_ATTACK1 )
+		}
+		if ( owner.GetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK2 ) ) // charged
+		{
+			owner.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK2, false )
+			npcDisabledCapabilityFlags.append( bits_CAP_INNATE_MELEE_ATTACK2 )
+		}
+		if ( owner.GetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK ) )
+		{
+			owner.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false )
+			npcDisabledCapabilityFlags.append( bits_CAP_SYNCED_MELEE_ATTACK )
+		}
+	}
+
+	OnThreadEnd
+	(
+		//function() : ( weapon, soul, owner, statusEffect, statusEffectSmartCore )
+		function() : ( weapon, soul, owner, statusEffect, statusEffectSmartCore, npcDisabledCapabilityFlags )
 		{
 			if ( IsValid( owner ) )
 			{
@@ -164,6 +187,10 @@ void function SmartCoreThink( entity weapon, float coreDuration )
 					AddAmmoStatusEffect( owner )
 					StatusEffect_Stop( owner, statusEffectSmartCore )
 				}
+
+				// modified for npc usage: restore disabled capability flags
+				foreach ( int flag in npcDisabledCapabilityFlags )
+					owner.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, true )
 			}
 
 			if ( IsValid( weapon ) )
@@ -226,6 +253,12 @@ bool function SiegeMode_CheckCoreAvailable( entity weapon )
 
 	if ( primaryWeapon.IsReloading() )
 		return false
+
+	// modified for npc usage: don't allow core if ammo clip is empty
+	#if SERVER
+		if ( owner.IsNPC() && primaryWeapon.GetWeaponPrimaryClipCount() == 0 )
+			return false
+	#endif
 
 	OnAbilityCharge_TitanCore( weapon )
 	return true
