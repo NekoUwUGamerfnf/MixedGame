@@ -21,6 +21,7 @@ struct
 {
 	table<entity, ShiftCoreSavedMelee> soulShiftCoreSavedMelee
 	table<entity, string> npcShiftCoreSavedAiSet
+	table< entity, array<int> > npcShiftCoreDisabledCapabilityFlags
 } file
 #endif
 //
@@ -240,7 +241,15 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 			file.npcShiftCoreSavedAiSet[ titan ] <- titan.GetAISettingsName() // save aiset
 			titan.SetAISettings( "npc_titan_stryder_leadwall_shift_core" )
 			titan.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
-			titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+			// save disabled capabilityflags
+			//titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+			file.npcShiftCoreDisabledCapabilityFlags[ titan ] <- []
+			if ( titan.GetCapabilityFlag( bits_CAP_MOVE_SHOOT ) )
+			{
+				titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+				file.npcShiftCoreDisabledCapabilityFlags[ titan ].append( bits_CAP_MOVE_SHOOT )
+			}
+
 			AddAnimEvent( titan, "shift_core_use_meter", Shift_Core_UseMeter_NPC )
 		}
 
@@ -458,7 +467,14 @@ void function RestorePlayerWeapons( entity player )
 				titan.SetAISettings( settings )
 
 			titan.DisableNPCMoveFlag( NPCMF_PREFER_SPRINT )
-			titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, true )
+			// only restore our disabled capability flags
+			//titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, true )
+			if ( titan in file.npcShiftCoreDisabledCapabilityFlags )
+			{
+				foreach ( int flag in file.npcShiftCoreDisabledCapabilityFlags[ titan ] )
+					titan.SetCapabilityFlag( flag, true )
+				delete file.npcShiftCoreDisabledCapabilityFlags[ titan ]
+			}
 		}
 	}
 }
