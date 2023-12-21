@@ -163,11 +163,6 @@ void function SmartCoreThink( entity weapon, float coreDuration )
 			owner.SetCapabilityFlag( bits_CAP_INNATE_MELEE_ATTACK2, false )
 			npcDisabledCapabilityFlags.append( bits_CAP_INNATE_MELEE_ATTACK2 )
 		}
-		if ( owner.GetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK ) )
-		{
-			owner.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false )
-			npcDisabledCapabilityFlags.append( bits_CAP_SYNCED_MELEE_ATTACK )
-		}
 	}
 
 	OnThreadEnd
