@@ -26,13 +26,14 @@ void function MpTitanweaponGrenadeVolley_Init()
 	)
 
 	// vortex behavior override
-	// seems brute4 didn't implement this, I'll also keep it empty... maybe?
+	// seems brute4 didn't implement this, I'll also keep it removed... maybe?
 	/*
 	Vortex_AddBehaviorOverride_WeaponMod(
 		"mp_titanweapon_salvo_rockets", // weapon name 
 		"brute4_grenade_volley", // mod name
-		"", // impact sound 1p( seems no where used )
-		"", // impact sound 3p
+		"", // vortex impact sound 1p( seems no where used )
+		"", // vortex impact sound 3p
+		$"", // vortex impact effect
 		"fall" // ignores vortex behavior
 	)
 	*/
