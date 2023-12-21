@@ -2257,18 +2257,34 @@ void functionref( entity ) function GetNPCHandlerForClass( string className )
 }
 
 // shared utilities
-void function WaitForNPCCombatEnemy( entity guy )
+void function WaitForNPCCombatEnemy( entity guy, bool functionref( entity enemy ) enemyValidationCheck = null )
 {
 	guy.Signal( "WaitForNPCCombatEnemy" )
 	guy.EndSignal( "WaitForNPCCombatEnemy" )
 	guy.EndSignal( "OnDeath" )
 	guy.EndSignal( "OnDestroy" )
 
-	while ( IsAlive( guy.GetEnemy() ) )
+	while ( true )
+	{
+		entity enemy = guy.GetEnemy()
+		if ( IsAlive( enemy ) )
+		{
+			bool validEnemy = true
+			// enemy validation check
+			if ( enemyValidationCheck != null )
+				validEnemy = enemyValidationCheck( enemy )
+
+			if ( !validEnemy )
+				break
+		}
+		else // enemy invalid
+			break
+		
 		wait 0.2 // enemy check shouldn't be added every frame
+	}
 }
 
-void function NPCAssaultEnemyThink( entity guy )
+void function NPCAssaultEnemyThink( entity guy, bool functionref( entity enemy ) enemyValidationCheck = null )
 {
 	guy.Signal( "NPCAssaultEnemyThink" )
 	guy.EndSignal( "NPCAssaultEnemyThink" )
@@ -2277,10 +2293,19 @@ void function NPCAssaultEnemyThink( entity guy )
 
 	while ( true )
 	{
-		if ( IsValid( guy.GetEnemy() ) )
+		entity enemy = guy.GetEnemy()
+		if ( IsValid( enemy ) )
 		{
-			guy.Signal( "OnSeeEnemyDuringAssault" )
-			break
+			bool signalEnemy = true
+			// enemy validation check
+			if ( enemyValidationCheck != null )
+				signalEnemy = enemyValidationCheck( enemy )
+
+			if ( signalEnemy )
+			{
+				guy.Signal( "OnSeeEnemyDuringAssault" )
+				break
+			}
 		}
 
 		wait 0.2 // enemy check shouldn't be added every frame
@@ -2984,7 +3009,9 @@ void function StartUpdatingNPCWeaponBodyGroup_Threaded( entity npc )
 
 		lastPrimaryWeaponEnt = activeWeapon
 
-		WaitFrame()
+		// no need to update very accurate for npcs, I guess?
+		//WaitFrame()
+		wait 0.2
 	}
 }
 
@@ -3717,7 +3744,9 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 	// Every 5 - 15 secs get a closest target and go to them
 	while ( true )
 	{
-		WaitFrame() // wait a frame each loop
+		// no need to update very accurate for a full squad, I guess?
+		//WaitFrame() // wait a frame each loop
+		wait 0.2
 
 		// remove dead guys
 		ArrayRemoveDead( guys )
@@ -3810,7 +3839,7 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 			string receivedSignal = expect string( signalData.signal )
 			// main logic: re-run think if we failed to path; hold point for some time if we finished assault
 			if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
-				wait RandomFloatRange( 10.0, 15.0 )
+				wait RandomFloatRange( 5.0, 10.0 )
 			else if ( receivedSignal == "OnFailedToPath" )
 				continue
 		}
@@ -4793,7 +4822,9 @@ void function ExtraSpawner_ProwlerSquadHandler( array<entity> guys )
 	// Every 5 - 15 secs get a closest target and go to them
 	while ( true )
 	{
-		WaitFrame() // wait a frame each loop
+		// no need to update very accurate for a full squad, I guess?
+		//WaitFrame() // wait a frame each loop
+		wait 0.2
 
 		// remove dead guys
 		ArrayRemoveDead( guys )
@@ -4869,7 +4900,7 @@ void function SetEnemyForProwlerAssault( entity prowler, entity target )
 			break
 		}
 
-		WaitFrame()
+		wait 0.2 // enemy check shouldn't be added every frame
 	}
 }
 
@@ -7643,8 +7674,10 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 	
 	// Every 5 - 15 secs get a closest target and go to them
 	while ( true )
-	{	
-		WaitFrame() // always wait a frame before each loop
+	{
+		// no need to be very accruate for humansized npcs, I guess?
+		//WaitFrame() // always wait a frame before each loop
+		wait 0.2
 
 		// check leechable
 		if ( pilot.GetTeam() != team )
@@ -7696,7 +7729,7 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 		string receivedSignal = expect string( signalData.signal )
 		// main logic: re-run think if we failed to path; hold point for some time if we finished assault
 		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
-			wait RandomFloatRange( 3.0, 8.0 ) // hold point shorter because we only have 1 people
+			wait RandomFloatRange( 3.0, 5.0 ) // hold point shorter because we only have 1 people
 		else if ( receivedSignal == "OnFailedToPath" )
 			continue
 	}
@@ -7744,7 +7777,7 @@ void function ExtraSpawner_TitanHandler( entity titan )
 			return
 
 		// wait for current engagement to end
-		waitthread WaitForNPCCombatEnemy( titan )
+		waitthread WaitForNPCCombatEnemy( titan, IsValidEnemy_Titan )
 		titan.Signal( "WaitForNPCCombatEnemy" ) // stop WaitForNPCCombatEnemy()
 
 		// Get point and send guy to it
@@ -7780,7 +7813,7 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		//wait RandomFloatRange( 10.0, 20.0 )
 		
 		titan.AssaultPoint( clampedPos )
-		thread NPCAssaultEnemyThink( titan )
+		thread NPCAssaultEnemyThink( titan, IsValidEnemy_Titan )
 		table signalData = WaitSignal( 
 							   titan, 
 							   "OnFinishedAssault", 
@@ -7795,13 +7828,30 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		string receivedSignal = expect string( signalData.signal )
 		// main logic: disable assault if our target has died or we've encountered an enemy
 		// re-run think if we failed to path; hold point for some time if we finished assault
+		// EDIT: holding point works weird, never do that
+		/*
 		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
 			wait RandomFloatRange( 5.0, 10.0 )
 		else if ( receivedSignal == "OnSeeEnemyDuringAssault" )
 			titan.DisableBehavior( "Assault" )
 		else if ( receivedSignal == "OnFailedToPath" )
 			continue
+		*/
+		if ( receivedSignal == "OnSeeEnemyDuringAssault" )
+			titan.DisableBehavior( "Assault" )
 	}
+}
+
+// decides whether we should stop assaulting to attack enemy
+bool function IsValidEnemy_Titan( entity enemy )
+{
+	if ( !IsValidNPCAssaultTarget( enemy ) )
+		return false
+
+	if ( enemy.GetArmorType() != ARMOR_TYPE_HEAVY )
+		return false
+
+	return true
 }
 
 const float CARE_PACKAGE_LIFETIME = 30
@@ -8212,7 +8262,7 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 			return
 
 		// wait for current engagement to end
-		waitthread WaitForNPCCombatEnemy( reaper )
+		waitthread WaitForNPCCombatEnemy( reaper, IsValidEnemy_Reaper )
 		reaper.Signal( "WaitForNPCCombatEnemy" ) // stop WaitForNPCCombatEnemy()
 
 		points = [] // clean up last points
@@ -8246,7 +8296,7 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		//wait RandomFloatRange( 10.0, 20.0 )
 
 		reaper.AssaultPoint( clampedPos )
-		thread NPCAssaultEnemyThink( reaper )
+		thread NPCAssaultEnemyThink( reaper, IsValidEnemy_Reaper )
 		table signalData = WaitSignal( 
 							   reaper, 
 							   "OnFinishedAssault", 
@@ -8261,13 +8311,27 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 		string receivedSignal = expect string( signalData.signal )
 		// main logic: disable assault if our target has died or we've encountered an enemy
 		// re-run think if we failed to path; hold point for some time if we finished assault
+		// EDIT: holding point works weird, never do that
+		/*
 		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
 			wait RandomFloatRange( 5.0, 10.0 )
 		else if ( receivedSignal == "OnSeeEnemyDuringAssault" )
 			reaper.DisableBehavior( "Assault" )
 		else if ( receivedSignal == "OnFailedToPath" )
 			continue
+		*/
+		if ( receivedSignal == "OnSeeEnemyDuringAssault" )
+			reaper.DisableBehavior( "Assault" )
 	}
+}
+
+// decides whether we should stop assaulting to attack enemy
+bool function IsValidEnemy_Reaper( entity enemy )
+{
+	if ( !IsValidNPCAssaultTarget( enemy ) )
+		return false
+
+	return true
 }
 
 // welp this works pretty bad, because spawned npc still have collision with current npc
@@ -8327,7 +8391,9 @@ void function TrackNPCLifeTimeForMapIconNPC( entity mapIconNPC, entity npc )
 		// debug
 		//GetPlayerArray()[0].SetOrigin( mapIconNPC.GetOrigin() )
 		
-		WaitFrame()
+		// no need to update very accruate for npcs, I guess?
+		//WaitFrame()
+		wait 0.25
 	}
 	mapIconNPC.Destroy()
 }
@@ -8366,7 +8432,9 @@ void function TrackNPCLifeTimeForMapIconProp( entity mapIcon, entity npc )
 		if ( mapIcon.GetTeam() != npc.GetTeam() )
 			SetTeam( mapIcon, npc.GetTeam() )
 		
-		WaitFrame()
+		// no need to update very accruate for npcs, I guess?
+		//WaitFrame()
+		wait 0.25
 	}
 	mapIcon.Destroy()
 }
