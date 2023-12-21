@@ -256,7 +256,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
         if ( traceStart == DEFAULT_DROP_ORIGIN ) // not given any droppoint
             traceStart = titan.GetOrigin() // use titan orgin instead
 
-        vector traceEnd = traceStart + < 0, 0, -65535 >
+        vector traceEnd = traceStart + < 0, 0, -1024 > // no need to trace very much...
         TraceResults downTrace = TraceLine( traceStart, traceEnd, ignoreEnts, TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
 
         // calculate default drop point
@@ -287,7 +287,7 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
             droppoint = titan.GetOrigin()
         if ( dropangle == DEFAULT_DROP_ANGLES )
         {
-            dropangle = titan.GetAngles() + < 0,0,10 >
+            dropangle = titan.GetAngles() + < 0, 0, 10 >
             dropangle.x = 0
             dropangle.z = 90
         }
@@ -326,6 +326,10 @@ entity function TitanPick_TitanDropWeapon( entity titan, vector droppoint = DEFA
     }
     if ( !IsValid( weaponProp ) ) // anti-crash
         return
+
+    // try adjusting location closer to titan
+    if ( !droppedByPickup )
+        PutEntityInSafeSpot( weaponProp, null, null, titan.GetOrigin(), weaponProp.GetOrigin() )
 
     //weaponProp.SetUsable()
     weaponProp.SetUsableByGroup( "titan" )
