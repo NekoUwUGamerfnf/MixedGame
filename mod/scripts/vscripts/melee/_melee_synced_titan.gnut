@@ -28,11 +28,14 @@ global function MeleeSyncedTitan_DisableVanguardKitExecution
 global function MeleeSyncedTitan_EnableExecutionAttackerNoTarget // attacker will become no-target during execution
 // victim think is unused, as they're always invulnerable and we should always add notarget for them
 //global function MeleeSyncedTitan_EnableExecutionVictimNoTarget // victim will become no-target during execution
+
 // some execution ragdolls target, but npc target gets ragdolled will count as "destroyed", ends execution unexpectly...
 // better method is we end npc target execution manually on their death, for every execution ref
 // so our execution timer can get more stable and minimapIcon won't be messed up
 // NOTE: this is enabled by default, as a fix. turn it off to recover vanilla behavior
+// EDIT: not enabling this, instead... we now stop tracking target destroy for npcs, so attacker can always have full sequence played
 global function MeleeSyncedTitan_EndExecutionOnNPCTargetDeath
+global function MeleesyncedTitan_DisableTrackingNPCTargetDestroy
 
 // vanilla const turns to settings
 global function MeleeSyncedTitan_ExecutionNotInvulnerable // TITAN_EXECUTION_ATTACKER_IS_INVULNERABLE
@@ -104,7 +107,8 @@ struct
 	// misc fix settings
 	bool attackerNoTargetOnExecution = false
 	//bool victimNoTargetOnExecution = false
-	bool endExecutionOnNPCTargetDeath = true // this is enabled by default, as a fix
+	bool endExecutionOnNPCTargetDeath = false // this is enabled by default, as a fix. EDIT: now change to enabling disableTrackingNPCTargetDestroy() by default
+	bool disableTrackingNPCTargetDestroy = true
 	// vanilla const turns to settings
 	bool titanExecutionNotInvulnerable = false
 	bool titanExecutionAlwaysGiveBattery = false
@@ -147,6 +151,8 @@ function MeleeSyncedTitan_Init()
 	SetCallback_OnGetTitan3pExecutionRef( DefaultCallback_OnGetTitan3pExecutionRef )
 	// modified here: for we precache some effects that is used in classic executions
 	InitClassicExecutionModelEffects()
+	// modified signal for us handle execution after target getting destroyed
+	RegisterSignal( "ForceEndTitanExecution" )
 }
 
 void function Init3pExecutions()
@@ -1493,6 +1499,11 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	entity targetTitan
 	if ( targetIsPlayer )
 	{
+		// setup signal for us tracking execution progress
+		// end execution if target gets destroyed without dying( eg.disconnect )
+		attacker.EndSignal( "ForceEndTitanExecution" )
+		thread TrackTitanExecutionValidTime( attacker, target )
+
 		// we won't change class, no need to reset settings
 		//e.oldPlayerSettings <- target.s.storedPlayerSettings
 		//target.s.storedPlayerSettings = "pilot_titan_cockpit" // Makes player have titan cockpit temporarily. Turned off to avoid having extra checks all over in script
@@ -1512,6 +1523,12 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	else
 	{
 		targetTitan = target
+
+		// setup signal for us tracking execution progress
+		// end execution if target gets destroyed without dying
+		// for npcs, we track titan because our ripped target is always valid to kill
+		attacker.EndSignal( "ForceEndTitanExecution" )
+		thread TrackTitanExecutionValidTime( attacker, targetTitan )
 
 		// npc pilot variant
 		#if NPC_TITAN_PILOT_PROTOTYPE
@@ -2451,9 +2468,11 @@ void function RagdollNPCTargetAfterAnimDone( entity target )
 {
 	if ( !target.IsNPC() )
 		return
+	//print( "RUNNING RagdollNPCTargetAfterAnimDone()" )
 	target.EndSignal( "OnDestroy" )
 
 	WaittillAnimDone( target ) // this will wait for their titan gib to be done, then we're safe to ragdoll them
+	//print( "npc target died! ragdolling them" )
 	target.BecomeRagdoll( < 0, 0, 0 >, false )
 }
 
@@ -2891,7 +2910,19 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	entity bossPlayer = target.GetBossPlayer()
 	if ( IsValid( bossPlayer ) ) //Executing an auto-Titan, when the pilot disconnects it destroys the auto-titan creating weird circumstances.
 		bossPlayer.EndSignal( "OnDestroy" )
-	target.EndSignal( "OnDestroy" )
+	// modified stuffs here: npc victim being ragdoll will be destroyed on next frame
+	// to avoid that interrupts attacker animation, don't end think on npc target destroy could be better
+	//target.EndSignal( "OnDestroy" )
+	// add another signal on attacker for us tracking
+	// this breaks vanilla behavior, so make it a setting
+	if ( file.disableTrackingNPCTargetDestroy )
+	{
+		attacker.EndSignal( "ForceEndTitanExecution" )
+		thread TrackTitanExecutionValidTime( attacker, target )
+	}
+	else // vanilla behavior
+		target.EndSignal( "OnDestroy" )
+
 	// fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
 	// needs to end execution if target respawned
 	if ( target.IsPlayer() )
@@ -3050,7 +3081,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		bool trackTargetSequence = targetType in data.killTargetOnSequenceEnds && data.killTargetOnSequenceEnds[ targetType ]
 		
 		if ( trackTargetSequence )
-			thread TrackTargetSequenceEnd( targetSequence, target )
+			thread TrackTargetSequenceEnd( attacker, target, targetSequence )
 		else // vanilla behavior
 			thread FirstPersonSequence( targetSequence, target )
 		waitthread FirstPersonSequence( attackerSequence, attacker, target )
@@ -3060,14 +3091,41 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	e.attackerSequenceEnds = true
 }
 
+// modified function: signal "ForceEndTitanExecution" to end exection if target getting destroyed without dying
+void function TrackTitanExecutionValidTime( entity attacker, entity target )
+{
+	attacker.EndSignal( "OnDeath" )
+	attacker.EndSignal( "OnDestroy" )
+	attacker.EndSignal( "SyncedMeleeComplete" )
+
+	table signalData = WaitSignal( target, "OnDeath", "OnDestroy" )
+	if ( signalData.signal == "OnDestroy" ) // target destroyed without dying!
+		attacker.Signal( "ForceEndTitanExecution" ) // for that case, we end execution
+}
+
 // modified function: call CodeCallback_OnMeleeKilled() at the end of target sequence
-void function TrackTargetSequenceEnd( FirstPersonSequenceStruct targetSequence, entity target )
+void function TrackTargetSequenceEnd( entity attacker, entity target, FirstPersonSequenceStruct targetSequence )
 {
 	target.EndSignal( "OnDestroy" )
 	target.EndSignal( "OnDeath" )
 
-	// force ragdoll is to prevent target gets killed by npc attacker
 	// npc getting parented with another npc will trigger AE_NPC_SYNCED_MELEE_DEATH
+	// with that code kill, their kill credit will become unstable, mainly depending on GetLastAttacker() checks
+	// here we just manually set a lastAttackInfo manually, so attacker can garantee their kill credit
+	if ( attacker.IsNPC() )
+	{
+		entity soul = target.GetTitanSoul()
+		if ( IsValid( soul ) )
+		{
+			local fakeLastAttackInfo = {}
+			fakeLastAttackInfo.attacker <- attacker
+			soul.lastAttackInfo = fakeLastAttackInfo
+		}
+		else // though at normal case a npc shouldn't cound towards lastAttacker, but this is abnormal case so...
+			target.e.lastAttacker = attacker
+	}
+
+	// force ragdoll is to prevent target gets killed by npc attacker
 	// which script can't get that target will be ragdolled and do bad explosion effect
 	// adding this script mark
 	target.e.forceRagdollDeath = true
@@ -3486,6 +3544,11 @@ void function MeleeSyncedTitan_EnableExecutionVictimNoTarget( bool enable )
 void function MeleeSyncedTitan_EndExecutionOnNPCTargetDeath( bool enable )
 {
 	file.endExecutionOnNPCTargetDeath = enable
+}
+
+void function MeleesyncedTitan_DisableTrackingNPCTargetDestroy( bool disable )
+{
+	file.disableTrackingNPCTargetDestroy = disable
 }
 
 // vanilla const turns to settings
