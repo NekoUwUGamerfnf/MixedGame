@@ -24,6 +24,18 @@ void function MpTitanweaponGrenadeVolley_Init()
 		$"wpn_vortex_projectile_frag", // absorb effect 3p
 		"grenade" // refire behavior
 	)
+
+	// vortex behavior override
+	// seems brute4 didn't implement this, I'll also keep it empty... maybe?
+	/*
+	Vortex_AddBehaviorOverride_WeaponMod(
+		"mp_titanweapon_salvo_rockets", // weapon name 
+		"brute4_grenade_volley", // mod name
+		"", // impact sound 1p( seems no where used )
+		"", // impact sound 3p
+		"fall" // ignores vortex behavior
+	)
+	*/
 #endif
 }
 
