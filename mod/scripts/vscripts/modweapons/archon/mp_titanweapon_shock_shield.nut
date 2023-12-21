@@ -30,7 +30,8 @@ const SHOCK_RELEASE_EFFECT_FP = $"P_wpn_muzzleflash_epg_FP"
 const SHOCK_RELEASE_EFFECT = $"P_wpn_muzzleflash_epg"
 
 // shock shield color: keep light blue colored
-const SHOCK_SHIELD_VORTEX_COLOR = < 23, 236, 236 >
+const SHOCK_SHIELD_VORTEX_COLOR = < 155, 200, 200 >
+const SHOCK_SHIELD_VORTEX_COLOR_KIT = < 155, 174, 255 >
 
 const VortexIgnoreClassnames = {
 	["mp_titancore_flame_wave"] = true,
@@ -127,6 +128,8 @@ void function ShockShieldColorUpdate( entity weapon, var sphereClientFXHandle = 
 	while( IsValid( weapon ) && IsValid( weaponOwner ) )
 	{
 		vector colorVec = SHOCK_SHIELD_VORTEX_COLOR
+		if ( weapon.HasMod( "bolt_from_the_blue" ) )
+			colorVec = SHOCK_SHIELD_VORTEX_COLOR_KIT
 
 		// update the world entity that is linked to the world FX playing on the server
 		#if SERVER
