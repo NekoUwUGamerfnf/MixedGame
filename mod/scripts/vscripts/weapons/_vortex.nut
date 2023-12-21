@@ -199,9 +199,9 @@ struct
 	table< string, table< string, ImpactDataOverride > > vortexImpactDataOverride_WeaponMod
 
 	// respawn messy functions rework
-	table< entity, bool functionref( entity, entity, entity, bool ) > vortexCustomProjectileHitRules // don't want to change entityStruct, use fileStruct instead
+	table< entity, bool functionref( entity vortexSphere, entity attacker, entity projectile, bool takesDamage ) > vortexCustomProjectileHitRules // don't want to change entityStruct, use fileStruct instead
 	// respawn hardcode turns to settings
-	table<entity, void functionref( entity, var )> vortexWeaponColorUpdateFunc
+	table<entity, void functionref( entity weapon, var sphereClientFXHandle = null )> vortexWeaponColorUpdateFunc
 
 	// wip
 	array< bool functionref( entity weapon, entity vortexSphere, var damageInfo ) > vortexHitBulletCallbacks
@@ -535,7 +535,7 @@ float function Vortex_CalculateProjectileHitDamage( entity vortexSphere, entity 
 #endif
 
 // respawn hardcode turns to settings
-void function Vortex_SetWeaponVortexColorUpdateFunc( entity weapon, void functionref( entity, var ) func )
+void function Vortex_SetWeaponVortexColorUpdateFunc( entity weapon, void functionref( entity weapon, var sphereClientFXHandle = null ) func )
 {
 	if ( !( weapon in file.vortexWeaponColorUpdateFunc ) )
 		file.vortexWeaponColorUpdateFunc[ weapon ] <- null
@@ -550,7 +550,7 @@ bool function Vortex_ClearWeaponVortexColorUpdateFunc( entity weapon )
 	return true
 }
 
-void functionref( entity, var ) function GetWeaponVortexColorUpdateFunc( entity weapon )
+void functionref( entity weapon, var sphereClientFXHandle = null ) function GetWeaponVortexColorUpdateFunc( entity weapon )
 {
 	// default return value: use color update func in this file
 	if ( !( weapon in file.vortexWeaponColorUpdateFunc ) || file.vortexWeaponColorUpdateFunc[ weapon ] == null )
@@ -602,7 +602,7 @@ void function SetVortexSphereBulletHitRules( entity vortexSphere, var functionre
 
 // WTF RESPAWN? why not pass the projectile entity on vortex hit? modified
 //void function SetVortexSphereProjectileHitRules( entity vortexSphere, bool functionref( entity, entity, bool ) customRules  )
-void function SetVortexSphereProjectileHitRules( entity vortexSphere, bool functionref( entity, entity, entity, bool ) customRules )
+void function SetVortexSphereProjectileHitRules( entity vortexSphere, bool functionref( entity vortexSphere, entity attacker, entity projectile, bool takesDamage ) customRules )
 {
 	//vortexSphere.e.ProjectileHitRules = customRules // don't want to change entityStruct, use fileStruct instead
 	if ( !( vortexSphere in file.vortexCustomProjectileHitRules ) )
@@ -756,7 +756,7 @@ function EnableVortexSphere( entity vortexWeapon )
 
 		// modified: use a setting for handling function
 		//thread VortexSphereColorUpdate( vortexWeapon )
-		thread GetWeaponVortexColorUpdateFunc( vortexWeapon )( vortexWeapon, sphereClientFXHandle )
+		thread GetWeaponVortexColorUpdateFunc( vortexWeapon )( vortexWeapon )
 	#endif
 }
 
