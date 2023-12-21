@@ -29,6 +29,9 @@ const SHOCK_HOLD_EFFECT = $"arcTrap_CH_arcs_large"
 const SHOCK_RELEASE_EFFECT_FP = $"P_wpn_muzzleflash_epg_FP"
 const SHOCK_RELEASE_EFFECT = $"P_wpn_muzzleflash_epg"
 
+// shock shield color: keep light blue colored
+const SHOCK_SHIELD_VORTEX_COLOR = < 23, 236, 236 >
+
 const VortexIgnoreClassnames = {
 	["mp_titancore_flame_wave"] = true,
 	["mp_ability_grapple"] = true,
@@ -81,8 +84,6 @@ void function MpTitanWeaponShockShield_Init()
 
 void function OnWeaponOwnerChanged_titanweapon_shock_shield( entity weapon, WeaponOwnerChangedParams changeParams )
 {
-
-
 	if ( !( "initialized" in weapon.s ) )
 	{
 		weapon.s.fxChargingFPControlPoint <- $"wpn_vortex_chargingCP_titan_FP"
@@ -106,6 +107,40 @@ void function OnWeaponOwnerChanged_titanweapon_shock_shield( entity weapon, Weap
 		#endif
 
 		weapon.s.initialized <- true
+	}
+
+	// shared from modified _vortex.nut
+	// allow us add modified vortex color update
+	Vortex_SetWeaponVortexColorUpdateFunc( weapon, ShockShieldColorUpdate )
+}
+
+// shock shield color: keep light blue colored
+void function ShockShieldColorUpdate( entity weapon, var sphereClientFXHandle = null )
+{
+	weapon.EndSignal( "VortexStopping" )
+
+	#if CLIENT
+		Assert( sphereClientFXHandle != null )
+	#endif
+
+	entity weaponOwner = weapon.GetWeaponOwner()
+	while( IsValid( weapon ) && IsValid( weaponOwner ) )
+	{
+		vector colorVec = SHOCK_SHIELD_VORTEX_COLOR
+
+		// update the world entity that is linked to the world FX playing on the server
+		#if SERVER
+			weapon.s.vortexSphereColorCP.SetOrigin( colorVec )
+		#else
+			// handles the server killing the vortex sphere without the client knowing right away,
+			//  for example if an explosive goes off and we short circuit the charge timer
+			if ( !EffectDoesExist( sphereClientFXHandle ) )
+				break
+
+			EffectSetControlPointVector( sphereClientFXHandle, 1, colorVec )
+		#endif
+
+		WaitFrame()
 	}
 }
 

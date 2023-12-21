@@ -82,6 +82,9 @@ void function OnWeaponOwnerChanged_titanweapon_vortex_shield( entity weapon, Wea
 
 		weapon.s.initialized <- true
 	}
+
+	// respawn hardcode turns to settings: clear color update func might set by weapon mods
+	Vortex_ClearWeaponVortexColorUpdateFunc( weapon )
 }
 
 void function OnWeaponActivate_titanweapon_vortex_shield( entity weapon )
