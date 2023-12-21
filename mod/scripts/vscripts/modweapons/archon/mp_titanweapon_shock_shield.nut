@@ -30,8 +30,8 @@ const SHOCK_RELEASE_EFFECT_FP = $"P_wpn_muzzleflash_epg_FP"
 const SHOCK_RELEASE_EFFECT = $"P_wpn_muzzleflash_epg"
 
 // shock shield color: keep light blue colored
-const SHOCK_SHIELD_VORTEX_COLOR = < 155, 200, 200 >
-const SHOCK_SHIELD_VORTEX_COLOR_KIT = < 155, 174, 255 >
+const SHOCK_SHIELD_VORTEX_COLOR = < 155, 155, 200 >
+const SHOCK_SHIELD_VORTEX_COLOR_KIT = < 155, 155, 255 >
 
 const VortexIgnoreClassnames = {
 	["mp_titancore_flame_wave"] = true,
