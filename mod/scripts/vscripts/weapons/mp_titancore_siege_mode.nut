@@ -189,8 +189,11 @@ void function SmartCoreThink( entity weapon, float coreDuration )
 				}
 
 				// modified for npc usage: restore disabled capability flags
-				foreach ( int flag in npcDisabledCapabilityFlags )
-					owner.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, true )
+				if ( owner.IsNPC() )
+				{
+					foreach ( int flag in npcDisabledCapabilityFlags )
+						owner.SetCapabilityFlag( flag, true )
+				}
 			}
 
 			if ( IsValid( weapon ) )
