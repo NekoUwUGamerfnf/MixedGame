@@ -35,7 +35,7 @@ global function MeleeSyncedTitan_EnableExecutionAttackerNoTarget // attacker wil
 // NOTE: this is enabled by default, as a fix. turn it off to recover vanilla behavior
 // EDIT: not enabling this, instead... we now stop tracking target destroy for npcs, so attacker can always have full sequence played
 global function MeleeSyncedTitan_EndExecutionOnNPCTargetDeath
-global function MeleesyncedTitan_EnableTrackingTargetDestroyFix
+global function MeleesyncedTitan_Enable3pExecutionTimerFix
 
 // vanilla const turns to settings
 global function MeleeSyncedTitan_ExecutionNotInvulnerable // TITAN_EXECUTION_ATTACKER_IS_INVULNERABLE
@@ -107,8 +107,8 @@ struct
 	// misc fix settings
 	bool attackerNoTargetOnExecution = false
 	//bool victimNoTargetOnExecution = false
-	bool endExecutionOnNPCTargetDeath = false // this is enabled by default, as a fix. EDIT: now change to enabling trackingTargetDestroyFix by default
-	bool trackingTargetDestroyFix = true
+	bool endExecutionOnNPCTargetDeath = false // this is enabled by default, as a fix. EDIT: now change to enabling titanVsTitan3pTimerFix by default
+	bool enableTitanVsTitan3pTimerFix = true
 	// vanilla const turns to settings
 	bool titanExecutionNotInvulnerable = false
 	bool titanExecutionAlwaysGiveBattery = false
@@ -2830,74 +2830,54 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 
 			}
 
-			if ( IsValid( target ) )
+			// modified: if attacker sequence is shorter than target's, npc victim animation will be messed up
+			// seems only happen with monarch executions. player won't be ragdolled but also don't have weird animation sets
+			// in that case, target won't trigger AE_MELEE_KILLED but was killed by this script, might also miss other animevents such as predator_killed_ragdoll
+			// for handling that, we do some special checks, delay our cleanup
+			// note: to keep vanilla behavior, add a setting for toggling
+
+			// attacker sequence ends but target still alive!!!
+			if ( file.enableTitanVsTitan3pTimerFix 
+				 && e.attackerSequenceEnds 
+				 && IsAlive( target ) && IsValid( attacker ) )
 			{
-				// this behavior works bad on some executions, as their attacher sequence is shorter than target's
-				// if that case ever happended, we needs to delay anim events cleanup
-				// wrapped anim event cleanup into function
-				// EDIT: this can't help because there's target.Die() in lines below...
-				/*
-				if ( HasAnimEvent( target, "melee_killed_ragdoll" ) )
-					DeleteAnimEvent( target, "melee_killed_ragdoll" )
-				if ( HasAnimEvent( target, "execution_battery_show" ) )
-					DeleteAnimEvent( target, "execution_battery_show" )
-				if ( HasAnimEvent( target, "execution_battery_hide" ) )
-					DeleteAnimEvent( target, "execution_battery_hide" )
-
-				
-				if ( HasAnimEvent( target, "rider_rodeo_over" ) )
-					DeleteAnimEvent( target, "rider_rodeo_over" )
-				*/
-				// modified behavior start
-				//if ( IsAlive( target ) )
-				//{
-				//	thread CleanUpTargetAnimEventsOnDeathOrAnimDone( target )
-				//}
-				//else
-				//{
-					CleanUpTargetAnimEvents( target )
-				//}
-
-				target.e.syncedMeleeAttacker = null
-
-				target.ClearParent()
-				target.ClearInvulnerable()
-				// target should be ignored while being executed
-				// breaks vanilla behavior but whatever
-				target.SetNoTarget( false )
-
-				if ( target.IsPlayer() )
+				thread DelayedCleanUpTargetSyncedMelee( target, attacker, targetViewBody )
+			}
+			else // vanilla behavior
+			{
+				// MODIFIED here: move all these stuffs to a wrapped function
+				// so we don't have to duplicate code in DelayedCleanUpTargetSyncedMelee()
+				if ( IsValid( target ) )
 				{
-					ClearPlayerAnimViewEntity( target )
-					//DeployViewModelAndEnableWeapons( target ) //Melee anims need to use this to stop players from firing weapons but for the weapon to still show up in the 3p anims
-					if ( IsAlive( target ) )
-						target.EnableWeaponViewModel()
-					target.Server_TurnOffhandWeaponsDisabledOff()
+					CleanUpTargetSyncedMelee( target )
+
+					if ( IsAlive( target ) ) //Should have no need to PlayTitanCockpitSounds for target because the target is going to die
+					{
+						// modified: if attacker sequence is shorter than target's, npc victim animation will be messed up
+						// seems only happen with monarch executions. player won't be ragdolled but also don't have weird animation sets
+						// to keep both execution case identical, I'll use forceRagdollDeath for both
+						if ( e.attackerSequenceEnds )
+							target.e.forceRagdollDeath = true
+
+						target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
+					}
+					else if ( target.IsPlayer() )
+					{
+						if ( isAttackerRef && IsValid( attacker ) )
+						{
+							PutEntityInSafeSpot( target, attacker, null, attacker.GetOrigin(), target.GetOrigin() )
+						}
+						else
+						{
+							PutEntityInSafeSpot( target, attacker, null, target.GetOrigin(), target.GetOrigin() )
+						}
+					}
 				}
 
-				if ( !target.IsNPC() && target.ContextAction_IsMeleeExecution() )
-					target.PlayerMelee_ExecutionEndTarget()
-
-				if ( IsAlive( target ) ) //Should have no need to PlayTitanCockpitSounds for target because the target is going to die
+				if ( IsValid( targetViewBody ) )
 				{
-					// modified: if attacker sequence is shorter than target's, npc victim animation will be messed up
-					// seems only happen with monarch executions. player won't be ragdolled but also don't have weird animation sets
-					// to keep both execution case identical, I'll use forceRagdollDeath for both
-					if ( e.attackerSequenceEnds )
-						target.e.forceRagdollDeath = true
-					
-					target.Die( attacker, attacker, { scriptType = DF_KILLSHOT, damageSourceId = eDamageSourceId.titan_execution } )
-				}
-				else if ( target.IsPlayer() )
-				{
-					if ( isAttackerRef && IsValid( attacker ) )
-					{
-						PutEntityInSafeSpot( target, attacker, null, attacker.GetOrigin(), target.GetOrigin() )
-					}
-					else
-					{
-						PutEntityInSafeSpot( target, attacker, null, target.GetOrigin(), target.GetOrigin() )
-					}
+					targetViewBody.Hide()
+					targetViewBody.Destroy()
 				}
 			}
 
@@ -2918,11 +2898,14 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 				attackerViewBody.Destroy()
 			}
 
+			// moving this up for us handling modified execution timer
+			/*
 			if ( IsValid( targetViewBody ) )
 			{
 				targetViewBody.Hide()
 				targetViewBody.Destroy()
 			}
+			*/
 		}
 	)
 
@@ -2935,7 +2918,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	//target.EndSignal( "OnDestroy" )
 	// add another signal on attacker for us tracking
 	// this breaks vanilla behavior, so make it a setting
-	if ( file.trackingTargetDestroyFix )
+	if ( file.enableTitanVsTitan3pTimerFix )
 	{
 		attacker.EndSignal( "ForceEndTitanExecution" )
 		thread TrackTitanExecutionValidTime( attacker, target )
@@ -3151,6 +3134,63 @@ void function TrackTargetSequenceEnd( entity attacker, entity target, FirstPerso
 	target.e.forceRagdollDeath = true
 	waitthread FirstPersonSequence( targetSequence, target )
 	CodeCallback_OnMeleeKilled( target )
+}
+
+void function CleanUpTargetSyncedMelee( entity target )
+{
+	CleanUpTargetAnimEvents( target )
+	target.e.syncedMeleeAttacker = null
+
+	target.ClearParent()
+	target.ClearInvulnerable()
+	// target should be ignored while being executed
+	// breaks vanilla behavior but whatever
+	target.SetNoTarget( false )
+
+	if ( target.IsPlayer() )
+	{
+		ClearPlayerAnimViewEntity( target )
+		//DeployViewModelAndEnableWeapons( target ) //Melee anims need to use this to stop players from firing weapons but for the weapon to still show up in the 3p anims
+		if ( IsAlive( target ) )
+			target.EnableWeaponViewModel()
+		target.Server_TurnOffhandWeaponsDisabledOff()
+	}
+
+	if ( !target.IsNPC() && target.ContextAction_IsMeleeExecution() )
+		target.PlayerMelee_ExecutionEndTarget()
+}
+// fix for the cases execution attacker sequence is shorter than victim's( mostly because )
+void function DelayedCleanUpTargetSyncedMelee( entity target, entity attacker, entity targetViewBody, bool isAttackerRef )
+{
+	target.EndSignal( "OnDestroy" )
+
+	// clean up target viewbody on think end
+	OnThreadEnd
+	(
+		function(): ( target, targetViewBody )
+		{
+			if ( IsValid( targetViewBody ) )
+			{
+				targetViewBody.Hide()
+				targetViewBody.Destroy()
+			}
+		}
+	)
+
+	// clean up stuffs on death
+	target.WaitSignal( "OnDeath" )
+	CleanUpTargetSyncedMelee( target )
+	if ( target.IsPlayer() )
+	{
+		if ( isAttackerRef && IsValid( attacker ) )
+		{
+			PutEntityInSafeSpot( target, attacker, null, attacker.GetOrigin(), target.GetOrigin() )
+		}
+		else
+		{
+			PutEntityInSafeSpot( target, attacker, null, target.GetOrigin(), target.GetOrigin() )
+		}
+	}
 }
 
 // fix for modified deathcam: player can respawn before attacker sequence ends, causes them being killed again, or cause PutEntityInSafeSpot() teleports attacker
@@ -3674,9 +3714,9 @@ void function MeleeSyncedTitan_EndExecutionOnNPCTargetDeath( bool enable )
 	file.endExecutionOnNPCTargetDeath = enable
 }
 
-void function MeleesyncedTitan_EnableTrackingTargetDestroyFix( bool disable )
+void function MeleesyncedTitan_Enable3pExecutionTimerFix( bool enable )
 {
-	file.trackingTargetDestroyFix = disable
+	file.enableTitanVsTitan3pTimerFix = enable
 }
 
 // vanilla const turns to settings
