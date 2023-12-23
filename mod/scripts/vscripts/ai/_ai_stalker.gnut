@@ -255,12 +255,7 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 	//if ( PlayerHitGear( npc, damageInfo, hitGroup ) )
 	if ( DamageShouldOverloadStalker( npc, damageInfo ) )
 	{
-		// don't die from damage
-		float damage = DamageInfo_GetDamage( damageInfo )
-		damage = npc.GetHealth() - 1.0
-		DamageInfo_SetDamage( damageInfo, damage )
-
-		thread StalkerGearOverloads( npc, attacker )
+		StalkerGearOverloadsFromDamageInfo( npc, damageInfo )
 
 		// modified condition: overload on death
 		// if we reached here it must means this stalker won't die from damage
@@ -279,6 +274,12 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 			// this will cause self damage to stalker, so it's better to handle it here, after StalkerMeltingDown() can return true
 			if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.damagedef_titan_step )
 				StalkerExplodeOnSteppedOn( npc )
+
+			// vanilla missing behavior: add DF_KILLSHOT for overloading hit, so player can better know that they killed stalker
+			// adding only in this scope is to prevent impacting vanilla stalker behavior
+			DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+			// no more killshot sound after we add it manually
+			npc.ai.killShotSound = false
 		}
 		//
 
@@ -341,6 +342,33 @@ void function StalkerOnDamaged_Internal( entity npc, var damageInfo )
 	*/
 }
 
+void function StalkerDeathProtection( entity npc, var damageInfo )
+{
+	// don't die from damage
+	float damage = DamageInfo_GetDamage( damageInfo )
+	damage = npc.GetHealth() - 1.0
+	DamageInfo_SetDamage( damageInfo, damage )
+}
+
+void function StalkerGearOverloadsFromDamageInfo( entity npc, var damageInfo )
+{
+	// melting down checks so we don't do it over and over
+	if ( StalkerMeltingDown( npc ) )
+		return
+	
+	// don't die from damage
+	StalkerDeathProtection( npc, damageInfo )
+
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	thread StalkerGearOverloads( npc, attacker )
+
+	// vanilla missing behavior: add DF_KILLSHOT for overloading hit, so player can better know that they killed stalker
+	// change to add them manually because we might don't want to change vanilla stalker behavior
+	//DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+	// no more killshot sound after we add it manually
+	//npc.ai.killShotSound = false
+}
+
 // modified condition here, basically for pre-death overload
 // AddDamageCallback() can't handle modified damage like plasma railgun and scorch thermites
 void function StalkerOnFinalDamaged( entity npc, var damageInfo )
@@ -353,28 +381,18 @@ void function StalkerOnFinalDamaged( entity npc, var damageInfo )
 	if ( file.stalkerOverloadedFromThisDamage[ npc ] )
 	{
 		// don't die from damage
-		float damage = DamageInfo_GetDamage( damageInfo )
-		damage = npc.GetHealth() - 1.0
-		DamageInfo_SetDamage( damageInfo, damage )
-		
+		StalkerDeathProtection( npc, damageInfo )
 		return
 	}
 
 	// use a better check for handling modified overload cases
 	if ( DamageShouldOverloadStalker( npc, damageInfo ) )
 	{
-		// melting down checks so we don't do it over and over
-		if ( !StalkerMeltingDown( npc ) )
-		{
-			// don't die from damage
-			float damage = DamageInfo_GetDamage( damageInfo )
-			damage = npc.GetHealth() - 1.0
-			DamageInfo_SetDamage( damageInfo, damage )
-
-			entity attacker = DamageInfo_GetAttacker( damageInfo )
-			thread StalkerGearOverloads( npc, attacker )
-		}
-
+		StalkerGearOverloadsFromDamageInfo( npc, damageInfo )
+		// vanilla missing behavior: add DF_KILLSHOT for overloading hit, so player can better know that they killed stalker
+		DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+		// no more killshot sound after we add it manually
+		npc.ai.killShotSound = false
 		return
 	}
 }
