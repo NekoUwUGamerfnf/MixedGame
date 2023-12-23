@@ -248,6 +248,9 @@ void function StartReaperNukeSequenceFromDamageInfo( entity npc, var damageInfo 
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 	thread SuperSpectre_StartNukeSequence( npc, attacker )
+
+	// add DF_KILLSHOT for overloading hit, so player can better know that they killed reaper
+	DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
 }
 
 void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null )
