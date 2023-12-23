@@ -251,6 +251,8 @@ void function StartReaperNukeSequenceFromDamageInfo( entity npc, var damageInfo 
 
 	// add DF_KILLSHOT for overloading hit, so player can better know that they killed reaper
 	DamageInfo_AddCustomDamageType( damageInfo, DF_KILLSHOT )
+	// no more killshot sound after we add it manually
+	npc.ai.killShotSound = false
 }
 
 void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null )
