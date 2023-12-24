@@ -210,6 +210,10 @@ bool function TitanPick_ShouldTitanDropWeapon( entity titan )
     if( !titan.IsTitan() )
         return false
 
+    // npc flag check
+    if ( titan.IsNPC() && titan.GetNPCFlag( NPC_NO_WEAPON_DROP ) )
+        return false
+
     entity soul = titan.GetTitanSoul()
     //print( soul )
     if ( !IsValid( soul ) )
