@@ -31,6 +31,8 @@ global function ExtraSpawner_EmbarkedNPCTitanRodeoCounter
 global function ExtraSpawner_StopNPCTitanRodeoCounter
 global function ExtraSpawner_ScriptedNPCTitanCoreAbility
 global function ExtraSpawner_StopNPCTitanCoreAbility
+global function ExtraSpawner_EmbarkedNPCTitanNoPain
+global function ExtraSpawner_RemoveNPCTitanNoPain
 // modded titan registering func
 global function ExtraSpawner_RegisterToTitanSpawnList
 global function ExtraSpawner_RegisterToBossTitanSpawnList
@@ -108,7 +110,7 @@ global function ExtraSpawner_IsNPCSpawnedFromExtraSpawner
 global function ExtraSpawner_IsSquadFromExtraSpawner
 
 // debug
-const bool EXTRA_SPAWNER_DEBUG = false
+const bool EXTRA_SPAWNER_DEBUG = true
 
 // these consts are no need to change
 const asset CAREPACKAGE_MODEL = $"models/vehicle/escape_pod/escape_pod.mdl"
@@ -411,6 +413,7 @@ void function ExtraAISpawner_Init()
 	// npc titan think
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
 	RegisterSignal( "ScriptedNPCTitanCoreAbility" )
+	RegisterSignal( "EmbarkedNPCTitanNoPain" )
 	// npc pilot think
 	RegisterSignal( "ScriptedNPCPilotTacticalAbility" )
 	// gunship 
@@ -3472,12 +3475,14 @@ void function DisableNPCMiniMapIcon( entity mapIcon, bool enemyOnly = false )
 // can't use localized string as pilotTitle, because pilot disembarking will and reset autotitan's title
 void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int pilotHealth = NPC_PILOT_MAX_HEALTH, int pilotWeaponProficiency = eWeaponProficiency.PERFECT, asset pilotModel = $"", string pilotTitle = "鐵馭" )
 {
+	// debug 
+	//print( "USING ExtraSpawner_SetUpTitanSeatedPilot()" )
 	entity titanSoul = titan.GetTitanSoul()
 	if ( !IsValid( titanSoul ) )
 		return
 
 	entity pilot = ExtraSpawner_SpawnPilotElite( titan.GetOrigin(), < 0, 0, 0 >, titan.GetTeam() )
-	// this destroys pilot
+	// this destroys pilot and runs OnNpcPilotBecomesTitan() callback in this file
 	NpcPilotBecomesTitan( pilot, titan )
 
 	// do some override settings
@@ -4042,11 +4047,11 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 		// attack settings
 		titan.kv.WeaponProficiency = eWeaponProficiency.PERFECT // they can shoot very nice
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
-		// core ability
+		// core ability( due we've added NPC_NO_PAIN for them, should add less core builder multiplier )
+		// NPC_NO_PAIN don't work for titans, revert back to high multiplier
 		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+		//TitanHealth_SetTitanCoreBuilderMultiplier( titan, 3.0 )
 	}
-	else // normal embarked titan behavior
-		ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
 
 	// loadout function should run after all setup done, so we can modify them
 	if ( loadoutFunction != null ) // modded titan!!
@@ -6782,6 +6787,9 @@ function OnNpcPilotBecomesTitan( pilot, titan )
 	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( titan ) )
 		return
 
+	// debug
+	//print( "RUNNING OnNpcPilotBecomesTitan()" )
+
 	ExtraSpawner_SetUpNPCEmbarkedTitan( titan )
 	ApplySoulSettingsForNpcPilotEmbarking( titan ) // become smarter, since pilot has control of it
 
@@ -6809,15 +6817,16 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	//titan.SetCanBeMeleeExecuted( false ) // code synced melee ignores this
 	if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
+
 	// soul settings
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 	{
 		// since we're adding no pain for embarked titan, should add less core builder multiplier?
-		//TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
-		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.5 )
+		// NPC_NO_PAIN don't work for titans, revert back to high multiplier
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
+		//TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.5 )
 		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, true ) // allow this npc titan use reward electric smoke
-		titan.EnableNPCFlag( NPC_NO_PAIN | NPC_NO_GESTURE_PAIN ) // no pain like player embarked titans
 
 		// debug only
 		#if EXTRA_SPAWNER_DEBUG
@@ -6837,6 +6846,9 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	ExtraSpawner_EmbarkedNPCTitanRodeoCounter( titan )
 	// start specific think, for handling core abilities that won't be used by npcs in vanilla
 	ExtraSpawner_ScriptedNPCTitanCoreAbility( titan )
+	// keep applying NPC_NO_PAIN for this titan, to fake a player embarked titan behavior
+	// welp this thing just don't work, titan always try to clear their NPC_NO_PAIN upon taking massive damage
+	//ExtraSpawner_EmbarkedNPCTitanNoPain( titan )
 }
 
 // Rodeo counter: force inventory smoke to fire when getting rodeo hit recently
@@ -6908,6 +6920,14 @@ void function EmbarkedNPCTitanRodeoCounter_Threaded( entity titan )
 			// delay is enough!
 			if ( Time() > smokeDeployAllowedTime && Time() > beingRodeoedTime + RODEO_COUNTER_DELAY )
 			{
+				// team checks: weapons like satchel can trigger friendly rodeo alert...
+				bool isFriendlyRodeo = rodeoPilot.GetTeam() == titan.GetTeam()
+				// reversed rodeo and friendly fire checks: never count as friendly rodeo for these cases
+				if ( FriendlyFire_IsEnabled() || FriendlyFire_ShouldDoReversedRodeo() )
+					isFriendlyRodeo = false
+				if ( isFriendlyRodeo )
+					continue
+
 				entity rewardSmoke = titan.GetOffhandWeapon( OFFHAND_INVENTORY )
 				if ( IsValid( rewardSmoke ) && rewardSmoke.GetWeaponPrimaryAmmoCount() > 0 )
 				{
@@ -7274,6 +7294,72 @@ float function GetWeaponNPCRestTime( entity weapon )
 	return RandomFloatRange( minRest, maxRest )
 }
 
+// welp this thing just don't work, titan always try to clear their NPC_NO_PAIN upon taking massive damage
+void function ExtraSpawner_EmbarkedNPCTitanNoPain( entity titan )
+{
+	thread EmbarkedNPCTitanNoPain_Threaded( titan )
+}
+
+void function EmbarkedNPCTitanNoPain_Threaded( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	soul.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "EmbarkedNPCTitanNoPain" ) // for we disable think
+	// being embarked by player: end npc titan think
+	titan.EndSignal( "player_embarks_titan" )
+
+	// seems npc titan will be cleared NPC_NO_PAIN flag once stood up
+	// maybe do some loop to handle it?
+	/*
+	// wait for standup
+	WaitFrame() // wait for titan starts drop sequence before we get it's stance
+	while ( soul.GetStance() < STANCE_STAND )
+		WaitFrame()
+	
+	print( "applying no-pain state after npc standing up..." )
+	titan.EnableNPCFlag( NPC_NO_PAIN ) // no pain like player embarked titans
+	thread TrackNPCTitanNoPainDuration( titan )
+	*/
+	while ( true )
+	{
+		if ( !titan.GetNPCFlag( NPC_NO_PAIN ) )
+		{
+			//print( "titan got removed NPC_NO_PAIN for some reason..." )
+			titan.EnableNPCFlag( NPC_NO_PAIN )
+		}
+		WaitFrame()
+	}
+}
+
+// debugging on why npc not getting NPC_NO_PAIN applied
+void function TrackNPCTitanNoPainDuration( entity titan )
+{
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+
+	float startTime = Time()
+	while ( true )
+	{
+		if ( !titan.GetNPCFlag( NPC_NO_PAIN ) )
+			break
+		
+		//print( "titan: " + string( titan ) + " 's NPC_NO_PAIN state: " + string( titan.GetNPCFlag( NPC_NO_PAIN ) ) )
+		WaitFrame()
+	}
+
+	print( "titan loses NPC_NO_PAIN flag! duration: " + string( Time() - startTime ) )
+}
+
+void function ExtraSpawner_RemoveNPCTitanNoPain( entity titan )
+{
+	titan.Signal( "EmbarkedNPCTitanNoPain" )
+}
+
 function OnNpcTitanBecomesPilot( pilot, titan )
 {
 	expect entity( pilot )
@@ -7312,6 +7398,9 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	// setup abilities to make them more like mp auto-titans
 	ExtraSpawner_SetUpPilotOwnedAutoTitan( titan )
 
+	//titan.SetCanBeMeleeExecuted( true ) // npc synced melee ignores this
+	titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, true ) // restore synced melee for auto-titans
+
 	// soul settings
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
@@ -7319,10 +7408,7 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 		bool isEjecting = soul.IsEjecting() // we don't want to cleanup some stuff if titan is ejecting
 
 		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.0 ) // reset core build speed to normal
-		//titan.SetCanBeMeleeExecuted( true ) // npc synced melee ignores this
-		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, true ) // restore synced melee for auto-titans
 		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, false ) // disable npc titan reward electric smoke usage
-		titan.DisableNPCFlag( NPC_NO_PAIN | NPC_NO_GESTURE_PAIN ) // remove no pain
 
 		if ( !isEjecting )
 		{
@@ -7334,6 +7420,7 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	// stop scripted behavior
 	ExtraSpawner_StopNPCTitanRodeoCounter( titan )
 	ExtraSpawner_StopNPCTitanCoreAbility( titan )
+	ExtraSpawner_RemoveNPCTitanNoPain( titan )
 }
 
 // if pilot still not touching ground after this amount of time
@@ -7761,7 +7848,8 @@ void function ExtraSpawner_TitanHandler( entity titan )
 	AddMinimapForNPC( titan )
 
 	// wait for standup
-	while ( soul.GetStance() < STANCE_STANDING )
+	WaitFrame() // wait for titan starts drop sequence before we get it's stance
+	while ( soul.GetStance() < STANCE_STAND )
 		WaitFrame()
 	
 	// reworked here: use a full logic for us assaulting
@@ -7775,7 +7863,7 @@ void function ExtraSpawner_TitanHandler( entity titan )
 		WaitFrame() // always wait a frame before each loop
 
 		// wait for standup
-		while ( soul.GetStance() < STANCE_STANDING )
+		while ( soul.GetStance() < STANCE_STAND )
 			WaitFrame()
 
 		// check capturable
