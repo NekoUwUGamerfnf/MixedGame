@@ -10,17 +10,42 @@ global function Wallrun_EnforceWeaponDefaults
 global function Wallrun_CreateCopyOfPilotModel
 
 // nessie modify
-global function Wallrun_EnableProtectionForRodeoPlayerAgainstNPCs
+global function Wallrun_SetProtectionForRodeoPlayerStyle
+// vanilla hardcode turns to settings
+global function Wallrun_AddRodeoProtectionIgnoredDamageSourceId
+global function Wallrun_AddRodeoDamageAdjustmentIgnoredDamageSourceId
+
+global enum eRodeoPlayerProtectionStyle
+{
+	// no damage protection against current titan rodeoing
+	PROTECTION_AGAINST_NPC,				// vanilla behavior: protect player from all npcs
+	PROTECTION_AGAINST_NPC_MELEE,		// protect player from accidental npc melee attacks
+	PROTECTION_AGAINST_NON_AGGRO_NPC,	// protect player from npcs who're not aggro at them, and invalid attacker case
+	PROTECTION_AGAINST_NON_PLAYER,		// protect player from all damages those are not done by other players
+}
+
+// modified settings struct
 struct
 {
-	bool protectRodeoPlayerFromNPC = true
+	int rodeoPlayerProtectionStyle = eRodeoPlayerProtectionStyle.PROTECTION_AGAINST_NPC
+	// vanilla hardcode turns to settings
+	array<int> rodeoProtectionIgnoredDamageSourceIds
+	array<int> rodeoDamageAdjustmentIgnoredDamageSourceIds
 } file
 
 function ClassWallrun_Init()
 {
-
 	// Make weapons less effective when playing at higher difficulty.
 	level.lethalityMods <- {}
+
+
+	// vanilla hardcode turns to settings
+	Wallrun_AddRodeoProtectionIgnoredDamageSourceId( eDamageSourceId.mp_titanability_smoke )
+	Wallrun_AddRodeoDamageAdjustmentIgnoredDamageSourceId( eDamageSourceId.rodeo_trap )
+	Wallrun_AddRodeoDamageAdjustmentIgnoredDamageSourceId( eDamageSourceId.mp_titanweapon_vortex_shield )
+	Wallrun_AddRodeoDamageAdjustmentIgnoredDamageSourceId( eDamageSourceId.mp_titanweapon_vortex_shield_ion )
+	Wallrun_AddRodeoDamageAdjustmentIgnoredDamageSourceId( eDamageSourceId.mp_titanability_smoke )
+	Wallrun_AddRodeoDamageAdjustmentIgnoredDamageSourceId( eDamageSourceId.mp_weapon_satchel ) //added so that rodeoing players are no longer invulnerable to their satchels when detonated by Titan's smoke
 }
 
 function Wallrun_AddPlayer( player )
@@ -93,19 +118,36 @@ function AdjustDamageForRodeoPlayers( entity player, var damageInfo, entity atta
 	// dont let npcs hurt rodeo player
 	// nessie: adding a toggle. I'm adding various npcs to battle, needs to allow npcs damage rodeoing players
 	//if ( attacker.IsNPC() && attacker != playerParent && DamageInfo_GetDamageSourceIdentifier( damageInfo ) != eDamageSourceId.mp_titanability_smoke )
-	bool removeDamage = file.protectRodeoPlayerFromNPC // new adding
-						&& attacker.IsNPC() 
-						&& attacker != playerParent 
-						&& DamageInfo_GetDamageSourceIdentifier( damageInfo ) != eDamageSourceId.mp_titanability_smoke 
-	// modified checks: npc melee( auto-titan and reaper )
-	// they have extramely large radius that can hurt rodeo player when targeting titan
-	// should remove their damage even when disabled file.protectRodeoPlayerFromNPC
-	if ( !file.protectRodeoPlayerFromNPC )
+	
+	// default damage protection case: when getting attacked by npc
+	bool removeDamage = IsValid( attacker ) && attacker.IsNPC() 			
+	
+	if ( file.rodeoPlayerProtectionStyle == eRodeoPlayerProtectionStyle.PROTECTION_AGAINST_NPC_MELEE )
 	{
-		removeDamage = attacker.IsNPC()
+		// modified checks: npc melee protection( mostly from auto-titan and reaper )
+		// they have extramely large radius that can hurt rodeo player when targeting titan
+		// should remove their damage
+		removeDamage = IsValid( attacker )
+					   && attacker.IsNPC()
 					   && attacker.GetEnemy() != player // to avoid meleeing rodeo player when targeting titan
 					   && bool( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
 	}
+	else if ( file.rodeoPlayerProtectionStyle == eRodeoPlayerProtectionStyle.PROTECTION_AGAINST_NON_AGGRO_NPC )
+	{
+		// modified damage removal case: only take damage from players or npcs who're aggro at player
+		removeDamage = ( !IsValid( attacker ) || !( attacker instanceof CBaseCombatCharacter ) )
+					   || ( attacker.IsNPC() && attacker.GetEnemy() != player )
+	}
+	else if ( file.rodeoPlayerProtectionStyle == eRodeoPlayerProtectionStyle.PROTECTION_AGAINST_NON_PLAYER )
+	{
+		// modified damage removal case: only take damage from players
+		removeDamage = !IsValid( attacker ) || !attacker.IsPlayer()
+	}
+
+	// HARDCODE: if it's parent themselves' damage or electric smoke damage, we never do protection
+	if ( attacker == playerParent || file.rodeoProtectionIgnoredDamageSourceIds.contains( DamageInfo_GetDamageSourceIdentifier( damageInfo ) ) )
+		removeDamage = false
+
 	// debug
 	//print( "removeDamage for rodeo player: " + string( removeDamage ) )
 	if ( removeDamage )
@@ -167,6 +209,8 @@ function ShouldAdjustDamageForRodeoPlayer( damageInfo )
 {
 	int sourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
 
+	// vanilla hardcode turns to settings
+	/*
 	switch( sourceID )
 	{
 		case eDamageSourceId.rodeo_trap:
@@ -179,6 +223,8 @@ function ShouldAdjustDamageForRodeoPlayer( damageInfo )
 		default:
 			return true
 	}
+	*/
+	return file.rodeoDamageAdjustmentIgnoredDamageSourceIds.contains( sourceID )
 }
 
 
@@ -272,7 +318,19 @@ entity function Wallrun_CreateCopyOfPilotModel( entity player )
 
 
 // nessie modify
-void function Wallrun_EnableProtectionForRodeoPlayerAgainstNPCs( bool enable )
+void function Wallrun_SetProtectionForRodeoPlayerStyle( int style )
 {
-	file.protectRodeoPlayerFromNPC = enable
+	file.rodeoPlayerProtectionStyle = style
+}
+
+void function Wallrun_AddRodeoProtectionIgnoredDamageSourceId( int damageSourceId )
+{
+	if ( !file.rodeoProtectionIgnoredDamageSourceIds.contains( damageSourceId ) )
+		file.rodeoProtectionIgnoredDamageSourceIds.append( damageSourceId )
+}
+
+void function Wallrun_AddRodeoDamageAdjustmentIgnoredDamageSourceId( int damageSourceId )
+{
+	if ( !file.rodeoDamageAdjustmentIgnoredDamageSourceIds.contains( damageSourceId ) )
+		file.rodeoDamageAdjustmentIgnoredDamageSourceIds.append( damageSourceId )
 }
