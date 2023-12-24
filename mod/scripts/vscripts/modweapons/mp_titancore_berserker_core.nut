@@ -15,6 +15,8 @@ struct
 {
 	table<entity, BerserkerCoreSavedMelee> soulBerserkerCoreSavedMelee
 	table<entity, string> npcBerserkerCoreSavedAiSet
+	table< entity, array<int> > npcBerserkerCoreEnabledMoveFlags
+	table< entity, array<int> > npcBerserkerCoreDisabledCapabilityFlags
 } file
 #endif
 
@@ -144,8 +146,22 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 		{
 			file.npcBerserkerCoreSavedAiSet[ titan ] <- titan.GetAISettingsName() // save aiset
 			titan.SetAISettings( "npc_titan_ogre_fighter_berserker_core" )
-			titan.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
-			titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+			// save enabled moveflags
+			file.npcBerserkerCoreEnabledMoveFlags[ titan ] <- []
+			//titan.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+			if ( !titan.GetNPCMoveFlag( NPCMF_PREFER_SPRINT ) )
+			{
+				titan.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+				file.npcBerserkerCoreEnabledMoveFlags[ titan ].append( NPCMF_PREFER_SPRINT )
+			}
+			// save disabled capabilityflags
+			//titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+			file.npcBerserkerCoreDisabledCapabilityFlags[ titan ] <- []
+			if ( titan.GetCapabilityFlag( bits_CAP_MOVE_SHOOT ) )
+			{
+				titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+				file.npcBerserkerCoreDisabledCapabilityFlags[ titan ].append( bits_CAP_MOVE_SHOOT )
+			}
 		}
 
 		// core melee, only "melee_titan_punch_fighter" has deployed animations
@@ -298,8 +314,22 @@ void function RestorePlayerWeapons( entity player )
 			if ( settings != "" )
 				titan.SetAISettings( settings )
 
-			titan.DisableNPCMoveFlag( NPCMF_PREFER_SPRINT )
-			titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, true )
+			// only restore our enabled move flags
+			//titan.DisableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+			if ( titan in file.npcBerserkerCoreEnabledMoveFlags )
+			{
+				foreach ( int flag in file.npcBerserkerCoreEnabledMoveFlags[ titan ] )
+					titan.DisableNPCMoveFlag( flag )
+				delete file.npcBerserkerCoreEnabledMoveFlags[ titan ]
+			}
+			// only restore our disabled capability flags
+			//titan.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, true )
+			if ( titan in file.npcBerserkerCoreDisabledCapabilityFlags )
+			{
+				foreach ( int flag in file.npcBerserkerCoreDisabledCapabilityFlags[ titan ] )
+					titan.SetCapabilityFlag( flag, true )
+				delete file.npcBerserkerCoreDisabledCapabilityFlags[ titan ]
+			}
 		}
 	}
 }

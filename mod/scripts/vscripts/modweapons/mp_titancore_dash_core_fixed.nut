@@ -72,8 +72,12 @@ void function DashCoreThink( entity weapon, float coreDuration )
 	if( !owner.IsTitan() )
 		return
 
-	table savedData = {}
-	savedData.aiSettings <- ""
+	// save data fr npcs so we can recover it later
+	table<string, string> savedStringData
+	savedStringData["aiSettings"] <- ""
+
+	table< string, array<int> > savedArrayIntData
+	savedArrayIntData["enabledMoveFlags"] <- []
 
 	if ( owner.IsPlayer() )
 	{
@@ -84,10 +88,17 @@ void function DashCoreThink( entity weapon, float coreDuration )
 	else // npc
 	{
 		EmitSoundOnEntity( owner, "Titan_Legion_Smart_Core_Activated_3P" )
-		savedData.aiSettings = owner.GetAISettingsName()
+		// save previous aiSettings
+		savedStringData["aiSettings"] = owner.GetAISettingsName()
 		owner.SetAISettings( "npc_titan_stryder_rocketeer_dash_core" )
-		owner.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
-		owner.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
+		// save enabled moveflags
+		if ( !owner.GetNPCMoveFlag( NPCMF_PREFER_SPRINT ) )
+		{
+			owner.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+			savedArrayIntData["enabledMoveFlags"].append( NPCMF_PREFER_SPRINT )
+		}
+		// dash core no need to disable main weapon firing
+		//owner.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, false )
 	}
 
 	entity soul = owner.GetTitanSoul()
@@ -99,6 +110,7 @@ void function DashCoreThink( entity weapon, float coreDuration )
 
 		if ( weapon.HasMod( "ttf1_dash_core" ) ) // specific
 		{
+			// infinite dash capacity
 			owner.SetPowerRegenRateScale( 16.0 )
 			owner.SetDodgePowerDelayScale( 0.1 )
 		}
@@ -109,7 +121,7 @@ void function DashCoreThink( entity weapon, float coreDuration )
 	}
 
 	OnThreadEnd(
-	function() : ( weapon, soul, owner, savedData )
+	function() : ( weapon, soul, owner, savedStringData, savedArrayIntData )
 		{
 			if ( IsValid( owner ) )
 			{
@@ -125,10 +137,10 @@ void function DashCoreThink( entity weapon, float coreDuration )
 				}
 				else // npc
 				{
-					if ( savedData.aiSettings != "" )
-						owner.SetAISettings( expect string( savedData.aiSettings ) )
-					owner.DisableNPCMoveFlag( NPCMF_PREFER_SPRINT )
-					owner.SetCapabilityFlag( bits_CAP_MOVE_SHOOT, true )
+					if ( savedStringData["aiSettings"] != "" )
+						owner.SetAISettings( savedStringData["aiSettings"] )
+					foreach ( int flag in savedArrayIntData["enabledMoveFlags"] )
+						owner.DisableNPCMoveFlag( flag )
 				}
 			}
 
