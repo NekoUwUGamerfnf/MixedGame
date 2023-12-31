@@ -12,6 +12,8 @@ global function MeleeSyncedNPC_AllowNPCGruntExecutions
 global function MeleeSyncedNPC_AllowExecutingNPCPilot // "pilotelite" is not a valid syncedMelee body type, this overwrites it to "human"
 // npc executing each other
 global function MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs // pilot models don't have syncedMeleeData, so let them use mp executions
+// npc titan executions
+global function MeleeSyncedNPC_SetTitanIgnoreHealthCheck // disable health check on specific titan
 
 // utility, mostly shared with sh_melee.gnut
 // syncedmelee availability
@@ -22,6 +24,7 @@ global function MeleeSyncedNPC_IsSpectreAbleToExecute
 global function MeleeSyncedNPC_IsGruntAbleToExecute
 global function MeleeSyncedNPC_ExecutingNPCPilotAllowed
 global function MeleeSyncedNPC_IsPilotAbleToExecuteOtherNPCs
+global function MeleeSyncedNPC_IsTitanIgnoresHealthCheck
 
 // normal synced melee with scripted cameras(not working well)
 global function MeleeSyncedNPC_NPCUseNormalSyncedMelee // they'will try to use executions from synced_melee_data.rson
@@ -84,6 +87,8 @@ struct
     bool npcGruntExecution = false
 
     bool npcPilotExecuteOtherNPCs = false
+
+    table<entity, bool> npcTitanIgnoreHealthChecks
 
     bool useNormalSyncedMelee = false
 
@@ -217,6 +222,11 @@ void function NPCTriesSyncedMelee( entity victim, var damageInfo )
     // titan specific checks, should basically match AttemptScriptedExecution() checks, now using shared func TitanMelee_CanScriptedExecution()
     if( attacker.IsTitan() && victim.IsTitan() )
     {
+        if( !file.npcTitanExecution )
+            return
+        if( !TitanHasNpcPilot( attacker ) && file.npcTitanWithPilotsOnly )
+            return
+        
         //print( "TitanMelee_CanScriptedExecution() for npc:" + string( TitanMelee_CanScriptedExecution( attacker, victim ) ) )
         if ( !TitanMelee_CanScriptedExecution( attacker, victim ) )
 			return
@@ -226,14 +236,17 @@ void function NPCTriesSyncedMelee( entity victim, var damageInfo )
         //    return
 
         // this hit will kill the victim
-        // just want them execute more targets. ignore this check
-        //if( DamageInfo_GetDamage( damageInfo ) >= victim.GetHealth() + victim.GetShieldHealth() )
-        //    return
-
-        if( !file.npcTitanExecution )
-            return
-        if( !TitanHasNpcPilot( attacker ) && file.npcTitanWithPilotsOnly )
-            return
+        // if we want them to execute more targets, remove this check
+        // maybe make it a setting for each entity? so we can make boss titans execute more targets but normal titans won't
+        if ( !MeleeSyncedNPC_IsTitanIgnoresHealthCheck( attacker ) )
+        {
+            int health = victim.GetHealth()
+            int shieldHealth = 0
+            if ( IsValid( victim.GetTitanSoul() ) )
+                shieldHealth = victim.GetTitanSoul().GetShieldHealth()
+            if( DamageInfo_GetDamage( damageInfo ) >= ( health + shieldHealth ) )
+                return
+        }
     }
 
     // debug
@@ -492,6 +505,13 @@ void function MeleeSyncedNPC_AllowNPCPilotExecuteOtherNPCs( bool allow )
     file.npcPilotExecuteOtherNPCs = allow 
 }
 
+void function MeleeSyncedNPC_SetTitanIgnoreHealthCheck( entity titan, bool ignore )
+{
+    if ( !( titan in file.npcTitanIgnoreHealthChecks ) )
+        file.npcTitanIgnoreHealthChecks[ titan ] <- false // default value is don't ignore health check
+    file.npcTitanIgnoreHealthChecks[ titan ] = ignore
+}
+
 bool function MeleeSyncedNPC_IsTitanAbleToExecute()
 {
     return file.npcTitanExecution
@@ -525,6 +545,13 @@ bool function MeleeSyncedNPC_ExecutingNPCPilotAllowed()
 bool function MeleeSyncedNPC_IsPilotAbleToExecuteOtherNPCs()
 {
     return file.npcPilotExecuteOtherNPCs
+}
+
+bool function MeleeSyncedNPC_IsTitanIgnoresHealthCheck( entity titan )
+{
+    if ( !( titan in file.npcTitanIgnoreHealthChecks ) )
+        return false // default value is don't ignore health check
+    return file.npcTitanIgnoreHealthChecks[ titan ]
 }
 
 void function MeleeSyncedNPC_NPCUseNormalSyncedMelee( bool use )
