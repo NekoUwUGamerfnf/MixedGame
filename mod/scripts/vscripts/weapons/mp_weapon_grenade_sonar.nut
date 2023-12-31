@@ -19,30 +19,49 @@ global function AddSonarStartCallback
 global function SonarGrenadeThink // should make this globalled, it's funny
 #endif
 
-global function OnWeaponTossReleaseAnimEvent_weapon_grenade_sonar
 global function OnProjectileCollision_weapon_grenade_sonar
 global function OnProjectileIgnite_weapon_grenade_sonar
 
+// modded callbacks
+global function OnWeaponActivate_weapon_grenade_sonar
+global function OnWeaponPrimaryAttack_weapon_grenade_sonar
+global function OnWeaponTossReleaseAnimEvent_weapon_grenade_sonar
+
 const asset FLASHEFFECT    = $"wpn_grenade_sonar_impact"
+
+// modded callbacks
+void function OnWeaponActivate_weapon_grenade_sonar( entity weapon )
+{
+
+}
+
+var function OnWeaponPrimaryAttack_weapon_grenade_sonar( entity weapon, WeaponPrimaryAttackParams attackParams )
+{
+	// modded weapon
+	if( weapon.HasMod( "death_marker" ) )
+		return OnWeaponAbilityStart_Death_Marker( weapon, attackParams )
+
+	return 0 // vanilla pulse blade has no primary attack event
+}
 
 var function OnWeaponTossReleaseAnimEvent_weapon_grenade_sonar( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	if( weapon.HasMod( "death_marker" ) )
-	{
-		#if SERVER
-		return OnWeaponAbilityStart_Death_Marker( weapon, attackParams )
-		#endif
-	}
-	else
-		return Grenade_OnWeaponTossReleaseAnimEvent( weapon, attackParams )
+	// modded weapon
+	if( weapon.HasMod( "ninja_projectile" ) )
+		return OnWeaponTossReleaseAnimEvent_ninja_projectile( weapon, attackParams )
+
+	// vanilla behavior
+	return Grenade_OnWeaponTossReleaseAnimEvent( weapon, attackParams )
 }
 
 void function OnProjectileCollision_weapon_grenade_sonar( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	// modded weapon
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
 	if( mods.contains( "ninja_projectile" ) )
 		return OnProjectileCollision_ninja_projectile( projectile, pos, normal, hitEnt, hitbox, isCritical )
 
+	// vanilla behavior
 	#if SERVER
 	projectile.proj.onlyAllowSmartPistolDamage = false
 	#endif
