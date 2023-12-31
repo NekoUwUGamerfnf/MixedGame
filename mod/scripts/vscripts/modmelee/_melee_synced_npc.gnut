@@ -1,5 +1,7 @@
 global function MeleeSyncedNPC_Init
 
+global function NPCTriesSyncedMelee // just for fun! not to be confused with NPCTriesSyncedMeleeVsPlayer() in sh_melee.gnut
+
 // npc executing players or titans
 global function MeleeSyncedNPC_AllowNPCTitanExecutions
 global function MeleeSyncedNPC_OnlyAllowNPCTitanWithPilotsToExecute // default is true
@@ -88,7 +90,7 @@ void function MeleeSyncedNPC_Init()
 {
     //print( "Running MeleeSyncedNPC_Init()" )
     foreach ( int damageSourceID in NPC_EXECUTION_DAMAGESOURCE )
-        AddDamageCallbackSourceID( damageSourceID, NPCTriesSyncedMelee )
+        AddDamageCallbackSourceID( damageSourceID, OnNPCMeleeDamageTarget )
 
     // test!
     //AddCallback_OnClientConnected( OnClientConnected )
@@ -116,33 +118,38 @@ bool function MeleeSyncedNPC_IsValidExecutionTarget( entity attacker, entity tar
     return true // default value: return true to let other callbacks go through
 }
 
-void function NPCTriesSyncedMelee( entity victim, var damageInfo )
+void function OnNPCMeleeDamageTarget( entity victim, var damageInfo )
+{
+    NPCTriesSyncedMelee( victim, damageInfo )
+}
+
+bool function NPCTriesSyncedMelee( entity victim, var damageInfo )
 {
     // debug
     //print( "RUNNING NPCTriesSyncedMelee()" )
 
     if( !IsValid( victim ) )
-        return
+        return false
     if( !victim.IsPlayer() && !victim.IsNPC() ) // not a valid type to be executed
-        return
+        return false
     // anti-crash, technically it should be handled by GetSyncedMeleeChooserForPlayerVsTarget()? maybe because I messed up MeleeThread_PilotVsEnemy()
     if ( !NPC_EXECUTION_ALLOWED_VICTIMS.contains( victim.GetClassName() ) )
-        return
+        return false
 
     entity attacker = DamageInfo_GetAttacker( damageInfo )
     if( !IsValid( attacker ) )
-        return
+        return false
     if( !attacker.IsNPC() )
-        return
+        return false
 
     if( attacker.ContextAction_IsActive() || victim.ContextAction_IsActive() ) // already doing a execution?
-		return
+		return false
 
     // prevent them executing multiple targets together
     if ( attacker in file.npcDoingSyncedMelee )
     {
         DamageInfo_SetDamage( damageInfo, 0 ) // this attacker's melee can still hit multiple targets, should ignore following damages
-        return
+        return false
     }
     // update timer: npc titan melee can sometimes hit one target twice? leading to doubled execution animation
     if ( !( attacker in file.npcLastTrySyncedMeleeTime ) )
@@ -150,17 +157,17 @@ void function NPCTriesSyncedMelee( entity victim, var damageInfo )
     else
     {
         if ( Time() - file.npcLastTrySyncedMeleeTime[ attacker ] < 0.2 ) // add 0.2s for better handling
-            return
+            return false
         file.npcLastTrySyncedMeleeTime[ attacker ] = Time()
     }
 
     // general availability check
     if ( !CodeCallback_IsValidMeleeExecutionTarget( attacker, victim ) )
-        return
+        return false
 
     // general class check
     if( !NPC_EXECUTION_ALLOWED_ATTACKERS.contains( attacker.GetClassName() ) )
-        return
+        return false
 
     bool canProgress = victim.IsPlayer() || victim.IsTitan()
     // specific class checks
@@ -186,19 +193,19 @@ void function NPCTriesSyncedMelee( entity victim, var damageInfo )
     }
     
     if ( !canProgress )
-        return
+        return false
 
     // titan specific checks, should basically match AttemptScriptedExecution() checks, now using shared func TitanMelee_CanScriptedExecution()
     if( attacker.IsTitan() && victim.IsTitan() )
     {
         if( !file.npcTitanExecution )
-            return
+            return false
         if( !TitanHasNpcPilot( attacker ) && file.npcTitanWithPilotsOnly )
-            return
+            return false
         
         //print( "TitanMelee_CanScriptedExecution() for npc:" + string( TitanMelee_CanScriptedExecution( attacker, victim ) ) )
         if ( !TitanMelee_CanScriptedExecution( attacker, victim ) )
-			return
+			return false
         // victim doomed check now handled properly by reworked ShouldPlayerExecuteTarget()
         // no need to hardcode here
         //if ( !GetDoomedState( victim ) ) // victim is not doomed!
@@ -209,12 +216,8 @@ void function NPCTriesSyncedMelee( entity victim, var damageInfo )
         // maybe make it a setting for each entity? so we can make boss titans execute more targets but normal titans won't
         if ( !MeleeSyncedNPC_IsTitanIgnoresHealthCheck( attacker ) )
         {
-            int health = victim.GetHealth()
-            int shieldHealth = 0
-            if ( IsValid( victim.GetTitanSoul() ) )
-                shieldHealth = victim.GetTitanSoul().GetShieldHealth()
-            if( DamageInfo_GetDamage( damageInfo ) >= ( health + shieldHealth ) )
-                return
+            if ( !TitanCanSurviveDamage( victim, damageInfo ) )
+                return false
         }
     }
 
@@ -231,6 +234,54 @@ void function NPCTriesSyncedMelee( entity victim, var damageInfo )
     // have to manually handle something, or they can execute multiple targets together
     //thread PlayerTriesSyncedMelee( attacker, victim )
     thread NPCSyncedMeleeThink( attacker, victim )
+    return true
+}
+
+bool function TitanCanSurviveDamage( entity titan, var damageInfo )
+{
+    int damage = int( DamageInfo_GetDamage( damageInfo ) )
+    int validHealth = GetTitanValidHealthFromDamageInfo( titan, damageInfo )
+    return damage < validHealth
+}
+
+int function GetTitanValidHealthFromDamageInfo( entity titan, var damageInfo )
+{
+    // force kill damage -- health is never valid
+    if ( DamageInfo_GetForceKill( damageInfo ) )
+        return 0
+
+    const int INFINITE_HEALTH = 999999 // over max health limit, means titan won't die from damage
+
+    entity soul = titan.GetTitanSoul()
+    int healthShield = titan.GetHealth() 
+    if ( IsValid( soul ) )
+        healthShield = soul.GetShieldHealth()
+    // undoomed titan
+    if ( !GetDoomedState( titan ) )
+    {
+        if ( !ShouldDoomTitan( titan, damageInfo ) ) // won't be doomed by damage
+            return healthShield // valid health is current health + shield
+        
+        // damage skips doom protection
+        if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_SKIP_DAMAGE_PROT )
+        {
+            int doomedHealth = int( GetTitanSoulDoomedHealth( soul ) )
+            return healthShield + doomedHealth // valid health is current health + shield + doomedHealth
+        }
+
+        return INFINITE_HEALTH // undoomed titan, not taking special damage -- never die from current damage
+    }
+    else // doomed titan
+    {
+        // in damage protection -- never die from current damage
+        if ( Time() - soul.soul.doomedStartTime < TITAN_DOOMED_INVUL_TIME )
+            return INFINITE_HEALTH
+
+        // normal doomed titan, valid health is current health + shield
+        return healthShield
+    }
+    
+    return 0 // titan in unknown state...
 }
 
 void function NPCSyncedMeleeThink( entity attacker, entity victim )
