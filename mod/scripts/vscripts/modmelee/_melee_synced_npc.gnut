@@ -229,7 +229,12 @@ bool function NPCTriesSyncedMelee( entity victim, var damageInfo )
     // EDIT: no need to remove damage... victim will be set to invulnerable in PlayerTriesSyncedMelee()
     // we need to let damage callbacks go through, otherwise we can't get correct lastAttacker
     //DamageInfo_SetDamage( damageInfo, 0 ) // remove damage from this hit! also remove for titans, since we're using AddDamageCallbackSourceID(), prevent sometimes they get extra damage from following damage callbacks
-    
+    int maxDamage = int( DamageInfo_GetDamage( damageInfo ) )
+    int validHealth = GetTitanValidHealthFromDamageInfo( victim, damageInfo )
+    if ( validHealth <= maxDamage ) // damage is higher than valid health!
+        maxDamage = validHealth - 1 // make sure we never die from damage
+    DamageInfo_SetDamage( damageInfo, maxDamage )
+
     // npc melee attack has extramely large radius
     // have to manually handle something, or they can execute multiple targets together
     //thread PlayerTriesSyncedMelee( attacker, victim )
@@ -241,6 +246,7 @@ bool function TitanCanSurviveDamage( entity titan, var damageInfo )
 {
     int damage = int( DamageInfo_GetDamage( damageInfo ) )
     int validHealth = GetTitanValidHealthFromDamageInfo( titan, damageInfo )
+    //print( "titan( " + string( titan ) + " )'s valid health: " + string( validHealth ) )
     return damage < validHealth
 }
 
@@ -255,18 +261,19 @@ int function GetTitanValidHealthFromDamageInfo( entity titan, var damageInfo )
     entity soul = titan.GetTitanSoul()
     int healthShield = titan.GetHealth() 
     if ( IsValid( soul ) )
-        healthShield = soul.GetShieldHealth()
+        healthShield += soul.GetShieldHealth()
     // undoomed titan
     if ( !GetDoomedState( titan ) )
     {
-        if ( !ShouldDoomTitan( titan, damageInfo ) ) // won't be doomed by damage
+        if ( IsValid( soul ) && !ShouldDoomTitan( titan, damageInfo ) ) // won't be doomed by damage
             return healthShield // valid health is current health + shield
         
         // damage skips doom protection
         if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_SKIP_DAMAGE_PROT )
         {
-            int doomedHealth = int( GetTitanSoulDoomedHealth( soul ) )
-            return healthShield + doomedHealth // valid health is current health + shield + doomedHealth
+            if ( IsValid( soul ) )
+                healthShield += int( GetTitanSoulDoomedHealth( soul ) ) // valid health is current health + shield + doomedHealth
+            return healthShield
         }
 
         return INFINITE_HEALTH // undoomed titan, not taking special damage -- never die from current damage
@@ -274,8 +281,11 @@ int function GetTitanValidHealthFromDamageInfo( entity titan, var damageInfo )
     else // doomed titan
     {
         // in damage protection -- never die from current damage
-        if ( Time() - soul.soul.doomedStartTime < TITAN_DOOMED_INVUL_TIME )
-            return INFINITE_HEALTH
+        if ( IsValid( soul ) )
+        {
+            if ( Time() - soul.soul.doomedStartTime < TITAN_DOOMED_INVUL_TIME )
+                return INFINITE_HEALTH
+        }
 
         // normal doomed titan, valid health is current health + shield
         return healthShield
