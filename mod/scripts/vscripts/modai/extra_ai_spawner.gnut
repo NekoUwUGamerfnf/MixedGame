@@ -474,8 +474,8 @@ void function ExtraAISpawner_Init()
 	AddCallback_OnNpcTitanBecomesPilot( OnNpcTitanBecomesPilot )
 	// modified callback in _ai_pilots.gnut
 	AddCallback_OnNPCPilotStartsEmbarkSequence( OnNPCPilotStartsEmbarkSequence )
-	
-	AddCallback_OnNPCKilled( OnNPCKilled )
+	// fake score event for players
+	AddCallback_OnNPCKilled( FakePlayerScoreEventForNPCKilled )
 
 	AddCallback_IsValidMeleeExecutionTarget( ExtraSpawner_IsValidExecutionTarget )
 
@@ -526,6 +526,12 @@ void function ExtraAISpawner_Init()
 		AddPostDamageCallback( className, HACK_NPCDamagedBehaviorHandle_PostDamage )
 	}
 	AddCallback_PlayerDamageFeedback( NPCModifiedDamage_FeedbackFix )
+
+	// fix titan earnmeter conversation: embarked npc titan can earn core from damage received
+	AddPostDamageCallback( "npc_titan", NPCTitanDamagedCoreMeterUpdate )
+	// fake score event for npcs
+	AddCallback_OnPlayerKilled( FakeNPCTitanScoreEventForPlayerOrNPCKilled )
+	AddCallback_OnNPCKilled( FakeNPCTitanScoreEventForPlayerOrNPCKilled )
 
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
@@ -888,7 +894,8 @@ void function HACK_NPCDamagedBehaviorHandle_FinalDamage( entity ent, var damageI
 			if ( ent.GetNPCFlag( NPC_DIE_ON_ANY_DAMAGE ) )
 			{
 				// seems no need to do these complicated checks, just disable their flag?
-				/* 
+				// maybe not. we need to add DAMAGEFLAG_NOPAIN for this case because we don't want them play pain animation
+				// if we just disable flag, we can't recognize incoming damage
 				float damage = DamageInfo_GetDamage( damageInfo )
 				// fix damage feedback for players
 				entity attacker = DamageInfo_GetAttacker( damageInfo )
@@ -905,8 +912,8 @@ void function HACK_NPCDamagedBehaviorHandle_FinalDamage( entity ent, var damageI
 				DamageInfo_SetDamage( damageInfo, min( damage, maxDamage ) )
 
 				file.damageHandledByDieOnAnyDamageImmune = true
-				*/
-				ent.DisableNPCFlag( NPC_DIE_ON_ANY_DAMAGE )
+				
+				//ent.DisableNPCFlag( NPC_DIE_ON_ANY_DAMAGE )
 			}
 		}
 	}
@@ -959,11 +966,13 @@ void function HACK_NPCDamagedBehaviorHandle_PostDamage( entity ent, var damageIn
 		DamageInfo_SetDamage( damageInfo, 0 )
 		int actualDamage = int( file.dieOnAnyDamageImmuneActualDamage )
 		ent.SetHealth( health - actualDamage )
-
 		// debug
 		//entity attacker = DamageInfo_GetAttacker( damageInfo )
 		//if ( IsValid( attacker ) && attacker.IsPlayer() )
 		//	print( "player actualDamage: " + string( actualDamage ) )
+
+		// if damage handled like this, should never play pain animation
+		DamageInfo_AddDamageFlags( damageInfo, DAMAGEFLAG_NOPAIN )
 	}
 
 	if ( NPCHasEnabledNoPainOnDamage( ent ) )
@@ -982,6 +991,139 @@ void function NPCModifiedDamage_FeedbackFix( entity ent, var damageInfo, PlayerD
 		feedbackStruct.damageToDisplay = file.dieOnAnyDamageImmuneActualDamage
 		feedbackStruct.customDamageType = feedbackStruct.customDamageType & ~DF_KILLSHOT // remove killshot indicator
 	}
+}
+
+// award titan core meter for embarked npc titans
+void function NPCTitanDamagedCoreMeterUpdate( entity ent, var damageInfo )
+{
+	// only handle entities spawned from this file
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( ent ) )
+		return
+
+	// only handle titan with npc pilot embarked
+	if ( !TitanHasNpcPilot( ent ) )
+		return
+
+	// same check as _codecallbacks.gnut does
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	int attackerTeam = ent.GetTeam()
+	if ( IsValid( attacker ) )
+	{
+		attackerTeam = attacker.GetTeam()
+	}
+
+	// scale up core meter because they can't earn core from killing non-titan entities
+	// reverted, try to handle this by adding fake score events for them...
+	float damageToConvert = DamageInfo_GetDamage( damageInfo ) //DamageInfo_GetDamage( damageInfo ) * 2
+	// supports friendlyFire
+	if( TitanDamageRewardsTitanCoreTime() 
+		&& ( attackerTeam != ent.GetTeam() || FriendlyFire_IsEnabled() )
+		)
+		AddCreditToTitanCoreBuilderForTitanDamageReceived( ent, damageToConvert )
+}
+
+// fake score event added to titans
+void function FakeNPCTitanScoreEventForPlayerOrNPCKilled( entity victim, entity attacker, var damageInfo )
+{
+	// attacker must be a npc pilot embarked titan spawn from this file
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) )
+		return
+	if ( !attacker.IsTitan() )
+		return
+	if ( !TitanHasNpcPilot( attacker ) )
+		return
+
+	string scoreEventName = GetScoreEventForNPCTitanKillTarget( victim, attacker, damageInfo )
+	if ( scoreEventName == "" )
+		return
+
+	ScoreEvent event = clone GetScoreEvent( scoreEventName )
+
+	// get value and add for titan
+	float multiplier = GetCurrentPlaylistVarFloat( "earn_meter_titan_multiplier", 1.0 )
+	float ownValue = event.earnMeterOwnValue * event.coreMeterScalar * multiplier
+	AddCreditToTitanCoreBuilder( attacker, ownValue )
+	//print( "npc titan received core meter: " + string( ownValue ) )
+}
+
+// basically same checks as _socre.nut does
+string function GetScoreEventForNPCTitanKillTarget( entity victim, entity attacker, var damageInfo )
+{
+	string scoreEventName = ""
+
+	// pilot kill
+	if ( victim.IsPlayer() && !victim.IsTitan() )
+	{
+		scoreEventName = "KillPilot"
+		if( IsPilotEliminationBased() )
+			scoreEventName = "EliminatePilot" // elimination gamemodes have a special medal
+	}
+	// titan kill
+	if ( victim.IsTitan() )
+	{
+		// modified for npc pilot embarked titan
+		#if NPC_TITAN_PILOT_PROTOTYPE
+			entity owner = victim.GetOwner()
+			bool hasNPCPilot = TitanHasNpcPilot( victim )
+			bool isEjecting = true // npc pilot ejecting meaning their titan already died. default to be true
+			if ( IsValid( victim.GetTitanSoul() ) )
+				isEjecting = victim.GetTitanSoul().IsEjecting()
+			// debug
+			//print( "hasNPCPilot: " + string( hasNPCPilot ) )
+			//print( "isEjecting: " + string( isEjecting ) )
+		#endif
+
+		scoreEventName = "KillTitan"
+		if ( attacker.IsTitan() )
+			scoreEventName = "TitanKillTitan"
+		else if( victim.IsNPC() ) // vanilla still use KillAutoTitan even if the titan is pet titan... pretty weird
+		{
+			scoreEventName = "KillAutoTitan"
+
+			// modified for npc pilot embarked titan
+			#if NPC_TITAN_PILOT_PROTOTYPE
+				if ( hasNPCPilot && !isEjecting )
+				{
+					scoreEventName = "KillTitan"
+					if ( attacker.IsTitan() )
+						scoreEventName = "TitanKillTitan"
+				}
+			#endif
+		}
+
+		if( IsTitanEliminationBased() )
+		{
+			scoreEventName = "EliminateTitan"
+			if( victim.IsNPC() )
+			{
+				scoreEventName = "EliminateAutoTitan"
+				// modified for npc pilot embarked titan
+				#if NPC_TITAN_PILOT_PROTOTYPE
+					if ( hasNPCPilot )
+						scoreEventName = "EliminateTitan"
+				#endif
+			}
+		}
+	}
+	// npc kill
+	else if ( victim.IsNPC() )
+	{
+		try
+		{
+			// to prevent crash happen when killing a modified npc target
+			scoreEventName = ScoreEventForNPCKilled( victim, damageInfo )
+		}
+		catch(ex) 
+		{
+			scoreEventName = ""
+		}
+	}
+
+	if ( scoreEventName != "" )
+		return scoreEventName
+
+	// failsafe -- get score from current file
+	return ExtraSpawner_GetNPCScoreEvent( victim )
 }
 
 void function ProwlerPrecache()
@@ -1488,7 +1630,7 @@ void function NPCArchonLoadout( entity titan )
 }
 #endif // EXTRA_SPAWNER_HAS_ARCHON
 
-void function OnNPCKilled( entity victim, entity attacker, var damageInfo )
+void function FakePlayerScoreEventForNPCKilled( entity victim, entity attacker, var damageInfo )
 {
 	// debug
 	//if ( victim.GetClassName() == "npc_pilot_elite" )
