@@ -142,6 +142,9 @@ void function AddTeamScoreForPlayerKilled( entity victim, entity attacker, var d
 		AddTeamScore( victim.GetTeam(), 1 )
 	else // vanilla behavior
 		AddTeamScore( GetOtherTeam( victim.GetTeam() ), 1 )
+
+	if ( GetGameState() == eGameState.WinnerDetermined ) // win match with AddTeamScore()
+		ScoreEvent_VictoryKill( attacker )
 }
 
 int function CheckScoreForDraw()
