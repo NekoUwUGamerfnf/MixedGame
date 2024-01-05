@@ -123,8 +123,10 @@ void function UpgradeCoreOffhandElectricSmoke( entity titan, bool startWithSmoke
 #if SERVER
 var function OnWeaponNpcPrimaryAttack_UpgradeCore( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	OnWeaponPrimaryAttack_UpgradeCore( weapon, attackParams )
-	return 1
+	// modified here: we return same value as player titan does
+	//OnWeaponPrimaryAttack_UpgradeCore( weapon, attackParams )
+	//return 1
+	return OnWeaponPrimaryAttack_UpgradeCore( weapon, attackParams )
 }
 #endif
 
