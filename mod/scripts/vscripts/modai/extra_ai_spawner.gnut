@@ -31,12 +31,16 @@ global function ExtraSpawner_EmbarkedNPCTitanRodeoCounter
 global function ExtraSpawner_StopNPCTitanRodeoCounter
 global function ExtraSpawner_ScriptedNPCTitanCoreAbility
 global function ExtraSpawner_StopNPCTitanCoreAbility
-global function ExtraSpawner_EmbarkedNPCTitanNoPain
-global function ExtraSpawner_RemoveNPCTitanNoPain
+// no-pain now handled by ExtraSpawner_EnableEmbarkedNPCTitanNoPain()
+//global function ExtraSpawner_EmbarkedNPCTitanNoPain
+//global function ExtraSpawner_RemoveNPCTitanNoPain
 // modded titan registering func
 global function ExtraSpawner_RegisterToTitanSpawnList
 global function ExtraSpawner_RegisterToBossTitanSpawnList
 global function ExtraSpawner_AddScriptedNPCTitanCoreThink
+// settings
+global function ExtraSpawner_EnableEmbarkedNPCTitanNoPain // this is enabled by default for each titan!
+global function ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier
 
 // scripted spawn
 global function ExtraSpawner_SpawnGunShip
@@ -104,6 +108,15 @@ global function ExtraSpawner_SetNPCDamageHistoryLifeTime
 global function ExtraSpawner_SetNPCPilotBulletDamageScale
 global function ExtraSpawner_SetNPCPilotMaxDPSTaken
 global function ExtraSpawner_SetProwlerMeleeDamageScale
+
+// HACK but stronger npc behavior: less flinch on taking damage( 1.0 severity means never flinch )
+global function ExtraSpawner_SetNPCFlinchProtectionScale
+// stronger npc behavior: won't be knocked down by DF_KNOCK_BACK / DF_MELEE damages
+global function ExtraSpawner_EnableNPCKnockBackImmune
+// stronger npc behavior: won't die from NPC_DIE_ON_ANY_DAMAGE
+global function ExtraSpawner_EnableNPCDieOnAnyDamageImmune
+// stronger npc behavior: won't do pain animation
+global function ExtraSpawner_EnableNPCNoPainOnDamage
 
 // shared utility
 global function ExtraSpawner_IsNPCSpawnedFromExtraSpawner
@@ -178,7 +191,7 @@ const int NPC_PILOT_MAX_DAMAGE_TAKEN_PER_SECOND = 300 // pilots will only take 3
 // damage dealt by prowler multiplyer
 // base damage for MP: claw: 80, pounce: 100
 // this is now served as default value, can be modified by other files through ExtraSpawner_SetProwlerMeleeDamageScale()
-const float PROWLER_MELEE_DAMAGE_MULTIPLIER = 0.5
+const float PROWLER_MELEE_DAMAGE_MULTIPLIER = 0.4 // was 0.5
 // damage dealt by prowler to heavy armor units multiplyer
 // base damage for MP: claw: 60-80, pounce: 100
 // this is now served as default value, can be modified by other files through ExtraSpawner_SetProwlerMeleeDamageScale()
@@ -186,6 +199,9 @@ const float PROWLER_MELEE_DAMAGE_MULTIPLIER_HEAVYARMOR = 6.0
 
 // care package
 const float CARE_PACKAGE_MESSAGE_INTERVAL = 3.0 // prevent care package spamming message
+
+// embarked npc titan
+const float EMBARKED_NPC_TITAN_CORE_BUILDIER = 1.5 // 2.5 when ExtraSpawner_EnableEmbarkedNPCTitanNoPain() is not implemented
 
 // basically medium animation pilots!
 const array<asset> NPC_PILOT_ALLOWED_MODELS = 
@@ -237,6 +253,19 @@ const array<asset> NPC_PILOT_SWITCH_WEAPON_ALLOWED_MODELS =
 const array<asset> NPC_PILOT_ALL_VALID_MODELS =
 [
 	// temp stub, until I have time to implement SP model pack mod
+]
+
+// for we HACK npc damaged behavior...
+// basically included all kinds of ground units
+const array<string> NPC_DAMAGE_MODIFIER_ALLOWED_CLASSNAMES =
+[
+	"npc_soldier",
+	"npc_spectre",
+	"npc_stalker",
+	"npc_super_spectre",
+	"npc_prowler",
+	"npc_titan",
+	"npc_pilot_elite",
 ]
 
 // for ExtraSpawner_SpawnTitan() picking random titans
@@ -324,6 +353,10 @@ struct
 	// for BossLoadout_Vanguard() picking random loadouts
 	array<NPCVanguardLoadout> npcVanguardLoadouts
 	array<NPCVanguardPilot> npcVanguardPilots
+	// npc titan settings
+	table<entity, bool> soulEnabledNoPainOnEmbark
+	table<entity, float> soulEmbarkedTitanCoreMultiplier
+	table<entity, float> soulSavedTitanCoreMultiplier // restore core multiplier on disembark
 	// npc handler func
 	void functionref( array<entity> ) squadHandlerFunc // default squad handler for npcs to use
 	table< string, void functionref( entity ) > npcHandlerFuncs
@@ -331,6 +364,13 @@ struct
 	// care package, now allowing every weapon to have a custom mod array
 	array<string> carePackageWeapons
 	table< string, array<string> > carePackageWeaponMods
+	// npc damaged behavior, basically some HACK through modifying damage...
+	table<entity, float> npcFlinchProtectionScale
+	table<entity, bool> npcEnabledKnockBackImmune
+	table<entity, bool> npcEnabledDieOnAnyDamageImmune
+	bool damageHandledByDieOnAnyDamageImmune
+	float dieOnAnyDamageImmuneActualDamage
+	table<entity, bool> npcEnabledNoPainOnDamage
 
 	// in-file only variables
 	// care package, for limiting player care package usages
@@ -478,6 +518,14 @@ void function ExtraAISpawner_Init()
 
 	// crash handle for later we supports leeching?
 	AddCallback_EntityChangedTeam( "npc_super_spectre", OnReaperChangeTeam )
+
+	// npc damage handle allowed classes
+	foreach ( string className in NPC_DAMAGE_MODIFIER_ALLOWED_CLASSNAMES )
+	{
+		AddDamageFinalCallback( className, HACK_NPCDamagedBehaviorHandle_FinalDamage )
+		AddPostDamageCallback( className, HACK_NPCDamagedBehaviorHandle_PostDamage )
+	}
+	AddCallback_PlayerDamageFeedback( NPCModifiedDamage_FeedbackFix )
 
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
@@ -745,6 +793,195 @@ void function OnProwlerSpawned( entity prowler )
 	// try to set prowlers not alwaysalert, perhaps it can make them start wandering around?
 	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( prowler ) )
 		prowler.kv.alwaysalert = 0
+}
+
+void function ExtraSpawner_SetNPCFlinchProtectionScale( entity npc, float scale )
+{
+	if ( !( npc in file.npcFlinchProtectionScale ) )
+		file.npcFlinchProtectionScale[ npc ] <- 0.0
+
+	file.npcFlinchProtectionScale[ npc ] = scale
+}
+
+float function GetNPCFlinchProtectionScale( entity npc )
+{
+	if ( !( npc in file.npcFlinchProtectionScale ) )
+		return 0.0
+
+	return file.npcFlinchProtectionScale[ npc ]
+}
+
+void function ExtraSpawner_EnableNPCKnockBackImmune( entity npc, bool enable )
+{
+	if ( !( npc in file.npcEnabledKnockBackImmune ) )
+		file.npcEnabledKnockBackImmune[ npc ] <- false
+
+	file.npcEnabledKnockBackImmune[ npc ] = enable
+}
+
+bool function NPCHasEnabledKnockBackImmune( entity npc )
+{
+	if ( !( npc in file.npcEnabledKnockBackImmune ) )
+		return false
+
+	return file.npcEnabledKnockBackImmune[ npc ]
+}
+
+void function ExtraSpawner_EnableNPCDieOnAnyDamageImmune( entity npc, bool enable )
+{
+	if ( !( npc in file.npcEnabledDieOnAnyDamageImmune ) )
+		file.npcEnabledDieOnAnyDamageImmune[ npc ] <- false
+
+	file.npcEnabledDieOnAnyDamageImmune[ npc ] = enable
+}
+
+bool function NPCHasEnabledDieOnAnyDamageImmune( entity npc )
+{
+	if ( !( npc in file.npcEnabledDieOnAnyDamageImmune ) )
+		return false
+
+	return file.npcEnabledDieOnAnyDamageImmune[ npc ]
+}
+
+void function ExtraSpawner_EnableNPCNoPainOnDamage( entity npc, bool enable )
+{
+	if ( !( npc in file.npcEnabledNoPainOnDamage ) )
+		file.npcEnabledNoPainOnDamage[ npc ] <- false
+
+	file.npcEnabledNoPainOnDamage[ npc ] = enable
+}
+
+bool function NPCHasEnabledNoPainOnDamage( entity npc )
+{
+	if ( !( npc in file.npcEnabledNoPainOnDamage ) )
+		return false
+
+	return file.npcEnabledNoPainOnDamage[ npc ]
+}
+
+const array<int> KNOCK_BACK_DAMAGE_FLAGS = 
+[
+	DF_KNOCK_BACK,
+	DF_MELEE,
+]
+
+// HACKY HACK: zero out damage if npc has NPC_DIE_ON_ANY DAMAGE enabled, directly modify health
+void function HACK_NPCDamagedBehaviorHandle_FinalDamage( entity ent, var damageInfo )
+{
+	// clean up variable each time
+	file.damageHandledByDieOnAnyDamageImmune = false
+	file.dieOnAnyDamageImmuneActualDamage = 0.0
+
+	// general check
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) )	
+		return
+	if ( !ent.IsNPC() )
+		return
+
+	int damage = int( DamageInfo_GetDamage( damageInfo ) )
+	int health = ent.GetHealth()
+
+	if ( NPCHasEnabledDieOnAnyDamageImmune( ent ) )
+	{
+		if ( damage < health ) // only triggered if not killshot
+		{
+			if ( ent.GetNPCFlag( NPC_DIE_ON_ANY_DAMAGE ) )
+			{
+				// seems no need to do these complicated checks, just disable their flag?
+				/* 
+				float damage = DamageInfo_GetDamage( damageInfo )
+				// fix damage feedback for players
+				entity attacker = DamageInfo_GetAttacker( damageInfo )
+				if ( IsValid( attacker ) && attacker.IsPlayer() )
+				{
+					file.dieOnAnyDamageImmuneActualDamage = damage
+					//print( "player triggered dieOnAnyDamageImmune..." )
+				}
+
+				// directly modify health
+				// damage modifier also handled by postdamage case
+				// here we can't just remove all damage, or other damage callbacks won't run
+				int maxDamage = ent.GetHealth() - 1
+				DamageInfo_SetDamage( damageInfo, min( damage, maxDamage ) )
+
+				file.damageHandledByDieOnAnyDamageImmune = true
+				*/
+				ent.DisableNPCFlag( NPC_DIE_ON_ANY_DAMAGE )
+			}
+		}
+	}
+}
+
+// HACKY HACK: maintain the damage through directly modifying entity health, then zero out actual damage, so they never gets flinch
+// remove DF_KNOCK_BACK and DF_MELEE if current hit isn't killshot, so we can keep death package working and remove knockback stuffs
+// add DAMAGEFLAG_NOPAIN if we don't want them to flinch
+void function HACK_NPCDamagedBehaviorHandle_PostDamage( entity ent, var damageInfo )
+{
+	// general check
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) )	
+		return
+	if ( !ent.IsNPC() )
+		return
+
+	int damage = int( DamageInfo_GetDamage( damageInfo ) )
+	int health = ent.GetHealth()
+
+	if ( GetNPCFlinchProtectionScale( ent ) > 0 )
+	{
+		// at this point, titan doomed state, entity shield health update and stuffs all triggered
+		// player already gets earnmeter award -- it's now safe to modify everything...
+		if ( damage < health ) // only triggered if not killshot
+		{
+			float flinchProtection = GetNPCFlinchProtectionScale( ent )
+			int damageTaken = int( float( damage ) * ( 1.0 - flinchProtection ) )
+			DamageInfo_SetDamage( damageInfo, damageTaken )
+			// directly modify health
+			ent.SetHealth( health - ( damage - damageTaken ) )
+		}
+	}
+
+	if ( NPCHasEnabledKnockBackImmune( ent ) )
+	{
+		if ( damage < health ) // only triggered if not killshot
+		{
+			int damageTypes = DamageInfo_GetCustomDamageType( damageInfo )
+			foreach ( int flag in KNOCK_BACK_DAMAGE_FLAGS )
+			{
+				if ( damageTypes | flag )
+					DamageInfo_RemoveCustomDamageType( damageInfo, flag )
+			}
+		}
+	}
+
+	// remove all damage we modified from final damage callback
+	if ( file.damageHandledByDieOnAnyDamageImmune )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 )
+		int actualDamage = int( file.dieOnAnyDamageImmuneActualDamage )
+		ent.SetHealth( health - actualDamage )
+
+		// debug
+		//entity attacker = DamageInfo_GetAttacker( damageInfo )
+		//if ( IsValid( attacker ) && attacker.IsPlayer() )
+		//	print( "player actualDamage: " + string( actualDamage ) )
+	}
+
+	if ( NPCHasEnabledNoPainOnDamage( ent ) )
+	{
+		DamageInfo_AddDamageFlags( damageInfo, DAMAGEFLAG_NOPAIN )
+	}
+}
+
+// fix damage feedback
+void function NPCModifiedDamage_FeedbackFix( entity ent, var damageInfo, PlayerDamageFeedbackStruct feedbackStruct )
+{
+	// display correct damage value after taking damage...
+	if ( file.damageHandledByDieOnAnyDamageImmune )
+	{
+		//print( "restoring damage display value on damage feedback" )
+		feedbackStruct.damageToDisplay = file.dieOnAnyDamageImmuneActualDamage
+		feedbackStruct.customDamageType = feedbackStruct.customDamageType & ~DF_KILLSHOT // remove killshot indicator
+	}
 }
 
 void function ProwlerPrecache()
@@ -4050,8 +4287,12 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
 		// core ability( due we've added NPC_NO_PAIN for them, should add less core builder multiplier )
 		// NPC_NO_PAIN don't work for titans, revert back to high multiplier
-		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
+		// EDIT: no-pain now handled properly by new function ExtraSpawner_EnableNPCNoPainOnDamage()
+		//TitanHealth_SetTitanCoreBuilderMultiplier( titan, 5.0 ) // want them get core abilities faster
 		//TitanHealth_SetTitanCoreBuilderMultiplier( titan, 3.0 )
+		// only update core multiplier if we do have override value
+		if ( !TitanHasModifiedEmbarkedCoreMultiplier( titan ) )
+			TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.75 )
 	}
 
 	// loadout function should run after all setup done, so we can modify them
@@ -6825,8 +7066,18 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	{
 		// since we're adding no pain for embarked titan, should add less core builder multiplier?
 		// NPC_NO_PAIN don't work for titans, revert back to high multiplier
-		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
+		// EDIT: no-pain now handled properly by new function ExtraSpawner_EnableNPCNoPainOnDamage()
+		//TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 ) // want them get core abilities faster
 		//TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.5 )
+		if ( EmbarkedNPCTitanHasEnabledNoPain( titan ) )
+			ExtraSpawner_EnableNPCNoPainOnDamage( titan, true )
+		
+		// try to save value before updating
+		if ( !( soul in file.soulSavedTitanCoreMultiplier ) )
+			file.soulSavedTitanCoreMultiplier[ soul ] <- 1.0
+		file.soulSavedTitanCoreMultiplier[ soul ] = TitanHealth_GetTitanCoreBuilderMultiplier( titan )
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, GetEmbarkedNPCTitanCoreMultiplier( titan ) )
+		
 		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, true ) // allow this npc titan use reward electric smoke
 
 		// debug only
@@ -7357,6 +7608,65 @@ void function ExtraSpawner_RemoveNPCTitanNoPain( entity titan )
 	titan.Signal( "EmbarkedNPCTitanNoPain" )
 }
 
+void function ExtraSpawner_EnableEmbarkedNPCTitanNoPain( entity titan, bool enable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	// this is enabled by default
+	if ( !( soul in file.soulEnabledNoPainOnEmbark ) )
+		file.soulEnabledNoPainOnEmbark[ soul ] <- true
+	
+	file.soulEnabledNoPainOnEmbark[ soul ] = enable
+}
+
+bool function EmbarkedNPCTitanHasEnabledNoPain( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	// this is enabled by default
+	if ( !( soul in file.soulEnabledNoPainOnEmbark ) )
+		return true
+	
+	return file.soulEnabledNoPainOnEmbark[ soul ]
+}
+
+void function ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier( entity titan, float multiplier )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulEmbarkedTitanCoreMultiplier ) )
+		file.soulEmbarkedTitanCoreMultiplier[ soul ] <- EMBARKED_NPC_TITAN_CORE_BUILDIER // default value
+	
+	file.soulEmbarkedTitanCoreMultiplier[ soul ] = multiplier
+}
+
+float function GetEmbarkedNPCTitanCoreMultiplier( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return 1.0
+
+	if ( !( soul in file.soulEmbarkedTitanCoreMultiplier ) )
+		return EMBARKED_NPC_TITAN_CORE_BUILDIER // default value
+	
+	return file.soulEmbarkedTitanCoreMultiplier[ soul ]
+}
+
+// basically for boss titans: don't change default value if they don't have override value
+bool function TitanHasModifiedEmbarkedCoreMultiplier( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	return soul in file.soulEmbarkedTitanCoreMultiplier
+}
+
 function OnNpcTitanBecomesPilot( pilot, titan )
 {
 	expect entity( pilot )
@@ -7404,7 +7714,14 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	{
 		bool isEjecting = soul.IsEjecting() // we don't want to cleanup some stuff if titan is ejecting
 
-		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.0 ) // reset core build speed to normal
+		//TitanHealth_SetTitanCoreBuilderMultiplier( titan, 1.0 ) // reset core build speed to normal
+		ExtraSpawner_EnableNPCNoPainOnDamage( titan, false ) // remove no-pain, because they're now auto-titans
+		
+		float coreMultiplier = 1.0 // reset core build speed to normal
+		if ( soul in file.soulSavedTitanCoreMultiplier ) // try to use saved value
+			coreMultiplier = file.soulSavedTitanCoreMultiplier[ soul ]
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, coreMultiplier )
+		
 		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, false ) // disable npc titan reward electric smoke usage
 
 		if ( !isEjecting )
