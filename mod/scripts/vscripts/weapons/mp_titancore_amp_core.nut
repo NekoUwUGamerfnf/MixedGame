@@ -21,22 +21,31 @@ void function AmpCore_Init()
 
 bool function OnWeaponChargeBegin_AmpCore( entity weapon )
 {
+	// modded weapon
 	if( weapon.HasMod( "damage_core" ) )
 		return OnCoreCharge_Damage_Core( weapon )
+	
+	// vanilla behavior
 	return true
 }
 
 void function OnWeaponChargeEnd_AmpCore( entity weapon )
 {
+	// modded weapon
 	if( weapon.HasMod( "damage_core" ) )
 		return OnCoreChargeEnd_Damage_Core( weapon )
+	
+	// vanilla behavior
 	weapon.PlayWeaponEffect( FX_AMPED_XO16, FX_AMPED_XO16_3P, "fx_laser" )
 }
 
 void function OnWeaponActivate_AmpCore( entity weapon )
 {
+	// modded weapon
 	if( weapon.HasMod( "damage_core" ) )
-		return
+		return // damage core don't have activate event
+	
+	// vanilla behavior
 	OnAbilityCharge_TitanCore( weapon )
 
 	weapon.EmitWeaponSound_1p3p( "Weapon_Predator_MotorLoop_1P", "Weapon_Predator_MotorLoop_3P" )
@@ -57,14 +66,20 @@ void function OnWeaponActivate_AmpCore( entity weapon )
 
 void function OnWeaponDeactivate_AmpCore( entity weapon )
 {
+	// modded weapon
 	if( weapon.HasMod( "damage_core" ) )
-		return
+		return // damage core don't have deactivate event
+	
+	// vanilla behavior
 	#if SERVER
 	OnAbilityChargeEnd_TitanCore( weapon )
 	if ( weapon.w.initialized )
 	{
 		weapon.w.initialized = false
 		OnAbilityEnd_TitanCore( weapon )
+		// respawn missing behavior: deactivates weapon should cancel effect
+		weapon.StopWeaponEffect( FX_AMPED_XO16, FX_AMPED_XO16_3P )
+
 		entity owner = weapon.GetWeaponOwner()
 		if ( IsValid( owner ) && HasSoul( owner ) )
 		{
@@ -88,14 +103,33 @@ void function OnWeaponDeactivate_AmpCore( entity weapon )
 #if SERVER
 var function OnWeaponNPCPrimaryAttack_AmpCore( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	OnWeaponPrimaryAttack_AmpCore( weapon, attackParams )
+	// fix for npc usage: we can't get npc's burst index... shouldn't let them spam OnAbilityStart_TitanCore()
+	// respawn used burstIndex for handling is because client-side can't get weapon.w.initialized variable
+	// but npc firing is pure server-side, no need to care about that case
+
+	// vanilla behavior
+	//OnWeaponPrimaryAttack_AmpCore( weapon, attackParams )
+
+	// only start core effect once!
+	if ( !weapon.w.initialized )
+	{
+		weapon.w.initialized = true
+		OnAbilityStart_TitanCore( weapon )
+	}
+
+	weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, damageTypes.largeCaliber | DF_STOPS_TITAN_REGEN )
+
+	return 1
 }
 #endif
 
 var function OnWeaponPrimaryAttack_AmpCore( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	// modded weapon
 	if( weapon.HasMod( "damage_core" ) )
 		return OnAbilityStart_Damage_Core( weapon, attackParams )
+	
+	// vanilla behavior
 	entity owner = weapon.GetWeaponOwner()
 	entity soul = owner.GetTitanSoul()
 
@@ -108,8 +142,9 @@ var function OnWeaponPrimaryAttack_AmpCore( entity weapon, WeaponPrimaryAttackPa
 	}
 
 #if SERVER
-	if ( soul != null )
-		CleanupCoreEffect( soul )
+	// don't really understand this, why we have to remove core effect for burst core?
+	//if ( soul != null )
+	//	CleanupCoreEffect( soul )
 #endif
 
 	// OnWeaponPrimaryAttack_titanweapon_predator_cannon( weapon, attackParams )
