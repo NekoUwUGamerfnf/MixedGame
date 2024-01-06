@@ -21,31 +21,16 @@ void function AmpCore_Init()
 
 bool function OnWeaponChargeBegin_AmpCore( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "damage_core" ) )
-		return OnCoreCharge_Damage_Core( weapon )
-	
-	// vanilla behavior
 	return true
 }
 
 void function OnWeaponChargeEnd_AmpCore( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "damage_core" ) )
-		return OnCoreChargeEnd_Damage_Core( weapon )
-	
-	// vanilla behavior
 	weapon.PlayWeaponEffect( FX_AMPED_XO16, FX_AMPED_XO16_3P, "fx_laser" )
 }
 
 void function OnWeaponActivate_AmpCore( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "damage_core" ) )
-		return // damage core don't have activate event
-	
-	// vanilla behavior
 	OnAbilityCharge_TitanCore( weapon )
 
 	weapon.EmitWeaponSound_1p3p( "Weapon_Predator_MotorLoop_1P", "Weapon_Predator_MotorLoop_3P" )
@@ -66,11 +51,6 @@ void function OnWeaponActivate_AmpCore( entity weapon )
 
 void function OnWeaponDeactivate_AmpCore( entity weapon )
 {
-	// modded weapon
-	if( weapon.HasMod( "damage_core" ) )
-		return // damage core don't have deactivate event
-	
-	// vanilla behavior
 	#if SERVER
 	OnAbilityChargeEnd_TitanCore( weapon )
 	if ( weapon.w.initialized )
@@ -125,11 +105,6 @@ var function OnWeaponNPCPrimaryAttack_AmpCore( entity weapon, WeaponPrimaryAttac
 
 var function OnWeaponPrimaryAttack_AmpCore( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	// modded weapon
-	if( weapon.HasMod( "damage_core" ) )
-		return OnAbilityStart_Damage_Core( weapon, attackParams )
-	
-	// vanilla behavior
 	entity owner = weapon.GetWeaponOwner()
 	entity soul = owner.GetTitanSoul()
 
