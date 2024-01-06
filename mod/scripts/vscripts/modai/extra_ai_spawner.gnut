@@ -41,6 +41,7 @@ global function ExtraSpawner_AddScriptedNPCTitanCoreThink
 // settings
 global function ExtraSpawner_EnableEmbarkedNPCTitanNoPain // this is enabled by default for each titan!
 global function ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier
+global function ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee // this is disabled by default
 
 // scripted spawn
 global function ExtraSpawner_SpawnGunShip
@@ -358,9 +359,10 @@ struct
 	array<NPCVanguardLoadout> npcVanguardLoadouts
 	array<NPCVanguardPilot> npcVanguardPilots
 	// npc titan settings
-	table<entity, bool> soulEnabledNoPainOnEmbark
+	table<entity, bool> soulEnableEmbarkedTitanNoPain
 	table<entity, float> soulEmbarkedTitanCoreMultiplier
 	table<entity, float> soulSavedTitanCoreMultiplier // restore core multiplier on disembark
+	table<entity, bool> soulDisableEmbarkedTitanSyncedMelee
 	// npc handler func
 	void functionref( array<entity> ) squadHandlerFunc // default squad handler for npcs to use
 	table< string, void functionref( entity ) > npcHandlerFuncs
@@ -2454,6 +2456,10 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 		//MeleeSyncedTitan_SetSoulCanBeExecuted( soul, false ) // cannot execute BT, they don't have enough animations
 		Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // bt don't have battery on hatch, don't allow removing
 		MeleeSyncedTitan_SetSoulDoRandomExecution( soul, true ) // execution_bt is already random with bt, this is for random classic execution
+	
+		// we've modified synced_melee_data.rson, which removed all of bt's "executions", leaving only damaging synced melee
+		// so now we don't disable their capability of synced melee after embark by npc
+		ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee( titan, false )
 	}
 
 	// mark as vanguard chassis titan
@@ -7376,7 +7382,7 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 
 	titan.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // they can shoot very nice
 	//titan.SetCanBeMeleeExecuted( false ) // code synced melee ignores this
-	if ( MeleeSyncedNPC_IsTitanOnlyAllowedToExecuteWithNPCPilot() )
+	if ( EmbarkedNPCTitanHasDisabledSyncedMelee( titan ) )
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
 
 	// soul settings
@@ -7936,11 +7942,12 @@ void function ExtraSpawner_EnableEmbarkedNPCTitanNoPain( entity titan, bool enab
 	entity soul = titan.GetTitanSoul()
 	if ( !IsValid( soul ) )
 		return
-	// this is enabled by default
-	if ( !( soul in file.soulEnabledNoPainOnEmbark ) )
-		file.soulEnabledNoPainOnEmbark[ soul ] <- true
 	
-	file.soulEnabledNoPainOnEmbark[ soul ] = enable
+	// this is enabled by default
+	if ( !( soul in file.soulEnableEmbarkedTitanNoPain ) )
+		file.soulEnableEmbarkedTitanNoPain[ soul ] <- true
+	
+	file.soulEnableEmbarkedTitanNoPain[ soul ] = enable
 }
 
 bool function EmbarkedNPCTitanHasEnabledNoPain( entity titan )
@@ -7950,10 +7957,10 @@ bool function EmbarkedNPCTitanHasEnabledNoPain( entity titan )
 		return false
 	
 	// this is enabled by default
-	if ( !( soul in file.soulEnabledNoPainOnEmbark ) )
+	if ( !( soul in file.soulEnableEmbarkedTitanNoPain ) )
 		return true
 	
-	return file.soulEnabledNoPainOnEmbark[ soul ]
+	return file.soulEnableEmbarkedTitanNoPain[ soul ]
 }
 
 void function ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier( entity titan, float multiplier )
@@ -7988,6 +7995,32 @@ bool function TitanHasModifiedEmbarkedCoreMultiplier( entity titan )
 		return false
 	
 	return soul in file.soulEmbarkedTitanCoreMultiplier
+}
+
+void function ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee( entity titan, bool disable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	// this is disabled by default
+	if ( !( soul in file.soulDisableEmbarkedTitanSyncedMelee ) )
+		file.soulDisableEmbarkedTitanSyncedMelee[ soul ] <- true
+	
+	file.soulDisableEmbarkedTitanSyncedMelee[ soul ] = disable
+}
+
+bool function EmbarkedNPCTitanHasDisabledSyncedMelee( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+
+	// this is disabled by default
+	if ( !( soul in file.soulDisableEmbarkedTitanSyncedMelee ) )
+		return true
+	
+	return file.soulDisableEmbarkedTitanSyncedMelee[ soul ]
 }
 
 function OnNpcTitanBecomesPilot( pilot, titan )
