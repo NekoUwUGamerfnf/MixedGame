@@ -374,6 +374,8 @@ struct
 	bool damageHandledByDieOnAnyDamageImmune
 	float dieOnAnyDamageImmuneActualDamage
 	table<entity, bool> npcEnabledNoPainOnDamage
+	// npc specialist grunts
+	array<entity> specialistGruntOwnedTurrets
 
 	// in-file only variables
 	// care package, for limiting player care package usages
@@ -468,6 +470,9 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "StandUnboardedTitan" )
 	// npc weapon switch
 	RegisterSignal( "ScriptedWeaponSwitch" )
+	// specialist grunts
+	AddCallback_OnNPCPlaceTurret( OnNPCPlaceTurret )
+	AddDamageByCallback( "npc_turret_sentry", OnSentryTurretDamageTarget )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -659,7 +664,8 @@ void function OnStalkerSpawned( entity stalker )
 	}
 }
 
-// this is kinda weird logic... could've reset models in ExtraSpawner_SpawnGunShip()
+// this is logic is to prevent mess up modelFX
+// but it looks all good, so now we reset models in ExtraSpawner_SpawnGunShip()
 /*
 void function OnGunshipSpawned( entity gunship )
 {
@@ -5525,6 +5531,8 @@ entity function CreateSpecialistGrunt_NonSetup( int team, vector origin, vector 
 	if ( changeGrenade )
 		ExtraSpawner_ApplyNPCGrenadeWeapon( npc ) // grenade have to be given before DispatchSpawn()
 	
+	ExtraSpawner_SetUpSpawnedNPC( npc ) // generic setup for any npc in this file
+	
 	return npc
 }
 
@@ -5619,6 +5627,14 @@ const array<string> ELITE_GUARD_VALID_WEAPONS =
 	"mp_weapon_shotgun_pistol",
 	"mp_weapon_wingman_n",
 ]
+
+// npc turret placement
+const string NPC_PLACED_TURRET_AISETTINGS = "npc_turret_sentry"
+const float NPC_PLACED_TURRET_ACCURACY = 0.7
+const float NPC_PLACED_TURRET_HEALTH_MULTIPLIER = 1.0
+const float NPC_PLACED_TURRET_DAMAGE_SCALE = 0.3
+const float NPC_PLACED_TURRET_DAMAGE_SCALE_HEAVYARMOR = 0.6
+const int NPC_PLACED_TURRET_PROFICIENCY = eWeaponProficiency.VERYGOOD
 
 void function SetUpSpecialistGrunt( entity npc, string aiSet )
 {
@@ -5744,6 +5760,36 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			npc.DisableNPCFlag( NPC_CROUCH_COMBAT ) // pistol activity don't have crouch animations, disable crouch combat
 
 			break
+
+		case "npc_soldier_training_sentry": // turret grunt
+			npc.SetModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
+
+			npc.SetTitle( "哨兵砲塔步兵" )
+
+			// setup turret placement
+			const int totalTurretSettings = 2 // set to 3 if we want to enable hitscan turret
+			switch ( RandomInt( totalTurretSettings ) )
+			{
+				// plasma turret
+				case 0:
+					AiTurretGrunt_NPCPlacementSettings( npc, NPC_PLACED_TURRET_AISETTINGS, PLASMA_TURRET_MODEL, "mp_weapon_turretplasma", "#WPN_PLASMA_TURRET" )
+					break
+			
+				// blaster(rocket) turret
+				case 1:
+					AiTurretGrunt_NPCPlacementSettings( npc, NPC_PLACED_TURRET_AISETTINGS, ROCKET_TURRET_MODEL, "mp_weapon_yh803", "#WPN_BLASTER_TURRET" )
+					break
+
+				// sentry turret
+				// kinda annoying, not enabled
+				//case 2:
+				//	AiTurretGrunt_NPCPlacementSettings( npc, NPC_PLACED_TURRET_AISETTINGS, HITSCAN_TURRET_MODEL, "mp_weapon_yh803_bullet", "#WPN_SENTRY_TURRET" )
+				//	break
+			}
+
+			thread TurretGruntThink( npc ) // start turret placement think
+
+			break
 	}
 }
 
@@ -5795,6 +5841,49 @@ void function WaitForShieldCaptainDrop( entity npc )
 		WaitFrame()
 
 	thread ActivatePersonalShield( npc )
+}
+
+void function OnNPCPlaceTurret( entity npc, entity turret )
+{
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( npc ) )
+	{
+		//print( "npc: " + string( npc ) + " is not spawned by extra spawner" )
+		return
+	}
+
+	// update turret settings
+	turret.kv.AccuracyMultiplier = NPC_PLACED_TURRET_ACCURACY
+	int maxHealth = turret.GetMaxHealth()
+	turret.SetMaxHealth( maxHealth * NPC_PLACED_TURRET_HEALTH_MULTIPLIER )
+	turret.SetHealth( maxHealth * NPC_PLACED_TURRET_HEALTH_MULTIPLIER )
+	turret.kv.WeaponProficiency = NPC_PLACED_TURRET_PROFICIENCY
+
+	// mark as this turret is spawned by npcs from this file
+	file.specialistGruntOwnedTurrets.append( turret )
+}
+
+void function OnSentryTurretDamageTarget( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+	{
+		//print( "turret attacker invalid!" )
+		return
+	}
+	// only handle turrets spawned by specialist grunts
+	// welp, I feel like projectile turret can sometimes be destroyed and make us can't get what we need...
+	if ( !file.specialistGruntOwnedTurrets.contains( attacker ) )
+		return
+
+	float damageScale = victim.GetArmorType() == ARMOR_TYPE_HEAVY ? NPC_PLACED_TURRET_DAMAGE_SCALE_HEAVYARMOR : NPC_PLACED_TURRET_DAMAGE_SCALE
+	DamageInfo_ScaleDamage( damageInfo, damageScale )
+
+	// debug
+	if ( victim.IsPlayer() )
+	{
+		//print( "turret damaging player" )
+		//print( "scaled damage: " + string( DamageInfo_GetDamage( damageInfo ) ) )
+	}
 }
 
 // prowler squad: 2 cqb prowler with 3 small prowlers
@@ -6106,8 +6195,6 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	HideName( animGunship ) // this gunship will be deleted soon, never show it's name
 	
 	ExtraSpawner_SetUpSpawnedNPC( animGunship ) // generic setup for any npc in this file. adding this mark so we can update gunship's model on their spawn
-	// this is kinda weird logic... now reset model in our function
-	// no need to update model keyvalues
 	//file.gunshipForcedSpawnModel[ animGunship ] <- gunshipModel // assign forced model
 	animGunship.SetModel( gunshipModel )
 	DispatchSpawn( animGunship )
@@ -7565,7 +7652,7 @@ void function NPCPilotPhaseShiftThink( entity pilot, entity abilityWeapon )
 const float NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC = 0.4 // if health about to take this amount of damage, phase out of danger
 // npc pilots can't use shift well, give them some speed boost based on health left
 const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN = 0.3 // first version uses 0.65, no-time-extention version uses 0.35
-const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.6 // first version uses 1.35, no-time-extention version uses 0.8
+const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.7 // first version uses 1.35, no-time-extention version uses 0.8
 const float NPC_PILOT_PHASE_USE_TIME_EXTENTION = 1.25 // pilots can't use phase shift well... extend their use time for some bit( was using 1.5 which might be annoying? )
 
 void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
