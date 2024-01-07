@@ -211,12 +211,13 @@ const array<asset> NPC_PILOT_ALLOWED_MODELS =
 	// now leaving only sp pilot models
 	// reverted. mp pilot model is good enough for using
 	// sp model is now saved exclusively for boss titan spawns
-	//$"models/humans/pilots/pilot_medium_stalker_m.mdl", // has been used to fake boss kane
-	//$"models/humans/pilots/pilot_medium_stalker_f.mdl", // not uses anywhere, but I think leaving only grapple pilot model is enough
+	// edit: their fake model doesn't matter, just add back these
+	$"models/humans/pilots/pilot_medium_stalker_m.mdl", // has been used to fake boss kane
+	$"models/humans/pilots/pilot_medium_stalker_f.mdl", // not uses anywhere, but I think leaving only grapple pilot model is enough
 	$"models/humans/pilots/pilot_medium_geist_m.mdl", 
 	$"models/humans/pilots/pilot_medium_geist_f.mdl", 
-	//$"models/humans/pilots/pilot_medium_reaper_m.mdl", // has been used to fake boss viper
-	//$"models/humans/pilots/pilot_medium_reaper_f.mdl", // has been uses to fake boss slone
+	$"models/humans/pilots/pilot_medium_reaper_m.mdl", // has been used to fake boss viper
+	$"models/humans/pilots/pilot_medium_reaper_f.mdl", // has been uses to fake boss slone
 	/*
 	$"models/humans/pilots/sp_medium_geist_f.mdl", 
 	$"models/humans/pilots/sp_medium_reaper_m.mdl", 
@@ -324,6 +325,7 @@ struct NPCVanguardLoadout
 	string behaviorSelector
 	void functionref( entity ) loadoutFunction // leave this empty means we'll use OverwriteLoadoutWithDefaultsForSetFile() to get loadouts
 	array<int> lockedAbilities // make some ability won't change on giving default loadout( this doesn't affect loadoutFunction )
+	bool blockDefaultLoadout // if this set to true, we don't get any loadout from setfile, only run loadout function
 	bool disableRocketPod // this is something funny: titan_buddy.mdl's "back" bodygroup don't have doomed state, it is actually hiding rocket pods. we can use it for fun
 	bool useUpgradeCore // change to shield-recharge-only upgrade core
 }
@@ -333,7 +335,6 @@ struct NPCVanguardPilot
 	string titanTitle
 	string pilotTitle // can't use localized string!
 	asset pilotModel
-	bool neverEjects = false // if this pilot model isn't suitable for npc combat, we can make them never eject at all
 }
 
 struct
@@ -560,6 +561,9 @@ void function ExtraAISpawner_Init()
 		//AddClientCommandCallback( "pistolgrunt", CC_SpawnTestPistolGrunt )
 		AddClientCommandCallback( "gruntdroppod", CC_SpawnGruntDroppod )
 		AddClientCommandCallback( "overloadedstalkers", CC_SpawnOverloadedStalkers )
+	#else
+		// this should always setup by extra_spawner
+		MeleeSyncedNPC_AllowNPCTitanExecutions( true )
 	#endif // EXTRA_SPAWNER_DEBUG
 }
 
@@ -1585,11 +1589,98 @@ void function NPCBruteLoadout( entity titan )
 	// title should be setup by npc pilot's spawn func
 	//titan.SetTitle( "#NPC_TITAN_AUTO_STRYDER_ROCKET" )
 
-	// setup executions
-	// execution_northstar_prime does't require weapon, no need to fix
+	entity soul = titan.GetTitanSoul()
+	//if ( IsValid( soul ) )
+	//	MeleeSyncedTitan_SetSoulShouldReplaceLoadoutOnExecution( soul, true ) // required for executions behave nicely
 
-	// may needs to update spawn loadout
-	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
+	// camo for prime titans
+	int team = titan.GetTeam()
+	if ( team == TEAM_IMC )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 19 ) // shadow
+	}
+	if ( team == TEAM_MILITIA )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 1 ) // forest
+	}
+}
+
+void function NPCBisonLoadout( entity titan )
+{
+	TakeAllWeapons( titan )
+	//Weapon, npc bison is not smart enough, give them a main weapon
+	titan.GiveWeapon( "mp_titanweapon_triplethreat", ["bison_triplethreat"] )
+	//Defence
+	titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_mobile_dome_shield", "molting_dome", "bison_dome"] )
+	//Tactical
+	//titan.GiveOffhandWeapon( "mp_titanability_laser_trip", OFFHAND_ANTIRODEO )
+	titan.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ANTIRODEO )
+	//Offence
+	//titan.GiveOffhandWeapon( "mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE, ["pas_northstar_cluster", "fd_twin_cluster"] )
+	titan.GiveOffhandWeapon( "mp_titanweapon_homing_rockets", OFFHAND_ORDNANCE, ["burn_mod_titan_homing_rockets", "fighter_rockets"] )
+	//Titan Core
+	titan.GiveOffhandWeapon( "mp_titancore_shift_core", OFFHAND_EQUIPMENT, ["berserker_core"] )
+	//Melee
+	// gives 10% damage reduction, changes titan's melee damageSourceId
+	// npc melee damage is handled by aiSettings
+	titan.GiveOffhandWeapon( "melee_titan_punch_scorch", OFFHAND_MELEE, ["bison_punch_npc"] )
+
+	// title should be setup by npc pilot's spawn func
+	//titan.SetTitle( "#NPC_TITAN_AUTO_OGRE_FIGHTER" )
+
+	// execution_scorch_prime don't require weapons, no need to fix
+
+	//Bison have damage reduction
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+		soul.SetPreventCrits( true )
+
+	// camo for prime titans
+	titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+	titan.SetCamo( 31 ) // default is white. best camo for bison
+
+	int team = titan.GetTeam()
+	if ( team == TEAM_IMC )
+		titan.SetCamo( 19 ) // shadow
+	if ( team == TEAM_MILITIA )
+		titan.SetCamo( 1 ) // forest
+}
+
+void function NPCBrute4Loadout( entity titan )
+{
+	TakeAllWeapons( titan )
+	//Weapon
+	titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["brute4_quad_rocket"])
+	//Defence
+	titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL, ["brute4_mobile_dome_shield"] )
+	//Tactical
+	titan.GiveOffhandWeapon( "mp_titanability_rocketeer_ammo_swap", OFFHAND_ANTIRODEO, ["brute4_cluster_payload"] )
+	//Offence
+	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["brute4_grenade_volley"] )
+	//Titan Core
+	titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT, ["brute4_barrage_core"] )
+	//Melee
+	titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
+
+	// title should be setup by npc pilot's spawn func
+	//titan.SetTitle( "#NPC_TITAN_AUTO_ATLAS_ROCKETEER" )
+
+	// execution_northstar_prime don't require weapons, no need to fix
+
+	// camo for prime titans
+	int team = titan.GetTeam()
+	if ( team == TEAM_IMC )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 19 ) // shadow
+	}
+	if ( team == TEAM_MILITIA )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 1 ) // forest
+	}
 }
 #endif // EXTRA_SPAWNER_HAS_BRUTE4
 
@@ -1629,9 +1720,6 @@ void function NPCArchonLoadout( entity titan )
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
 		titan.SetCamo( 1 ) // forest
 	}
-
-	// may needs to update spawn loadout
-	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
 }
 #endif // EXTRA_SPAWNER_HAS_ARCHON
 
@@ -1793,7 +1881,8 @@ void function InitDefaultBossTitanList()
 		"#BOSSNAME_SLONE",								// boss title
 		"Slone",										// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_medium_reaper_f.mdl",		// character model, use mp pilot model: pulse blade female
-		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
+		//BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
+		BossLoadout_Ion,
 		7,												// skin index
 		11												// decal index
 	)
@@ -1810,7 +1899,8 @@ void function InitDefaultBossTitanList()
 		"#BOSSNAME_KANE",								// boss title
 		"Kane",											// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_medium_stalker_m.mdl",		// character model, use mp pilot model: holopilot male
-		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
+		//BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
+		BossLoadout_Scorch,
 		3,												// skin index
 		1												// decal index
 	)
@@ -1827,7 +1917,8 @@ void function InitDefaultBossTitanList()
 		"#BOSSNAME_VIPER",								// boss title
 		"Viper",										// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_medium_reaper_m.mdl",		// character model, use mp pilot model: pulse blade male
-		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
+		//BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
+		BossLoadout_Northstar,
 		5,												// skin index
 		10												// decal index
 	)
@@ -1848,7 +1939,8 @@ void function InitDefaultBossTitanList()
 		"Ash",											// pilot title. can't use localized string
 		$"models/Humans/heroes/imc_hero_ash.mdl",		// character model
 		//BossLoadout_Generic_IMCBoss, 					// generic loadout function for imc boss
-		BossLoadout_Generic_NoModelForMP,				// weird intro animation, make them never eject
+		//BossLoadout_Generic_NoModelForMP,				// weird intro animation, make them never eject
+		BossLoadout_Ronin,
 		6,												// skin index
 		10												// decal index
 	)
@@ -1865,7 +1957,8 @@ void function InitDefaultBossTitanList()
 		"#BOSSNAME_RICHTER",							// boss title
 		"Richter",										// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_heavy_drex_m.mdl",		// character model, use mp pilot model: cloak male
-		BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
+		//BossLoadout_Generic_NoModelForMP, 				// generic loadout function for boss that has no pilot model for mp
+		BossLoadout_Tone
 		4,												// skin index
 		13												// decal index
 	)
@@ -1886,7 +1979,8 @@ void function InitDefaultBossTitanList()
 		"Blisk",										// pilot title. can't use localized string
 		$"models/Humans/heroes/imc_hero_blisk.mdl",		// character model
 		//BossLoadout_Blisk, 								// loadout function: change core weapon
-		BossLoadout_Generic_NoModelForMP,				// weird intro animation, make them never eject
+		//BossLoadout_Generic_NoModelForMP,				// weird intro animation, make them never eject
+		BossLoadout_Legion
 		8,												// skin index
 		12												// decal index
 	)
@@ -1925,15 +2019,14 @@ void function InitDefaultBossTitanList()
 		0												// decal index
 	)
 
-	/*
 	// sarah, monarch variant
 	ExtraSpawner_RegisterToBossTitanSpawnList
 	(
 		"sarah_monarch",								// spawn name. unique
 		"",												// boss name. leave empty if this is not a valid boss titan
 		"titan_atlas_vanguard",							// setFile
-		"npc_titan_atlas_vanguard_boss_fd",				// aiSet
-		"behavior_titan",								// titan behavior
+		"npc_titan_atlas_vanguard",						// aiSet
+		"behavior_titan_long_range",					// titan behavior
 		"execution_vanguard_kit",						// executionRef
 		"#FACTION_LEADER_NAME_SARAH",					// boss title
 		"Sarah",										// pilot title. can't use localized string
@@ -1942,7 +2035,6 @@ void function InitDefaultBossTitanList()
 		-1,												// skin index, -1 means don't reset
 		-1												// decal index, -1 means don't reset
 	)
-	*/
 
 	// vanguard
 	// vanguard is the chassis that spawn with random loadout
@@ -1970,7 +2062,8 @@ void function InitDefaultBossTitanList()
 		"gates",										// spawn name. unique
 		"",												// boss name. leave empty if this is not a valid boss titan
 		"titan_atlas_vanguard",							// setFile
-		"npc_titan_atlas_vanguard_boss_fd",				// aiSet
+		//"npc_titan_atlas_vanguard_boss_fd",				// aiSet
+		"npc_titan_atlas_vanguard",
 		"behavior_titan_long_range",					// titan behavior
 		"execution_tone_prime",							// executionRef, was using execution_vanguard_kit
 		"#NPC_GATES_NAME",								// boss title
@@ -1988,19 +2081,57 @@ void function InitDefaultBossTitanList()
 		"",												// boss name. leave empty if this is not a valid boss titan
 		"titan_atlas_vanguard",							// setFile
 		"npc_titan_atlas_vanguard",						// aiSet
-		"behavior_titan_shotgun",						// titan behavior
+		//"behavior_titan_shotgun",						// titan behavior
+		"behavior_titan",								// titan behavior
 		"execution_vanguard_kit",						// executionRef
 		"#NPC_BEAR_NAME",								// boss title
 		"Bear",											// pilot title. can't use localized string
 		$"models/humans/pilots/pilot_heavy_roog_m.mdl",	// character model
 		BossLoadout_Bear, 								// loadout function
-		TITAN_SKIN_INDEX_CAMO,							// skin index, -1 means don't reset
+		-1,												// skin index, -1 means don't reset
 		-1												// decal index, -1 means don't reset
+	)
+
+	// below are two for fun
+	// lastimosa
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"lastimosa",									// spawn name. unique
+		"",												// boss name. leave empty if this is not a valid boss titan
+		"titan_buddy",									// setFile
+		"npc_titan_vanguard",							// aiSet. was using npc_titan_buddy but it won't show health bar
+		"behavior_titan_long_range",					// titan behavior
+		"execution_bt",									// executionRef
+		"#TRAINING_OG_PILOT_NAME",						// boss title
+		"拉斯提摩沙",									// pilot title. can't use localized string
+		$"models/humans/heroes/mlt_hero_jack.mdl",		// character model. cooper has same pilot loadout than him, so using cooper is good enough( I guess )
+		BossLoadout_Lastimosa, 							// loadout function
+		-1,												// skin index, -1 means don't reset
+		-1												// decal index, -1 means don't reset
+	)
+
+	// anderson
+	ExtraSpawner_RegisterToBossTitanSpawnList
+	(
+		"anderson",										// spawn name. unique
+		"",												// boss name. leave empty if this is not a valid boss titan
+		"titan_buddy",									// setFile
+		"npc_titan_vanguard",							// aiSet. was using npc_titan_buddy but it won't show health bar
+		"behavior_titan_long_range",					// titan behavior
+		"execution_bt",									// executionRef
+		"#TRAINING_ANDERSON_NAME",						// boss title
+		"安德森",										// pilot title. can't use localized string
+		$"models/humans/pilots/pilot_medium_geist_m.mdl",		// character model. // just use a random picking model. no model is similar to aderson's in MP
+		BossLoadout_Anderson, 							// loadout function
+		1,												// skin index
+		0												// decal index
 	)
 }
 //
 
 // generic loadout function for boss that has no pilot model for mp
+// removed, all of boss titans never ejects. handled by ExtraSpawner_SpawnBossTitan()
+/*
 void function BossLoadout_Generic_NoModelForMP( entity titan )
 {
 	entity soul = titan.GetTitanSoul()
@@ -2017,8 +2148,11 @@ void function BossLoadout_Generic_NoModelForMP( entity titan )
 	// they never ejects, just save here for fun
 	ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
 }
+*/
 
 // generic loadout function for imc boss
+// removed, all of boss titans never ejects. handled by ExtraSpawner_SpawnBossTitan()
+/*
 void function BossLoadout_Generic_IMCBoss( entity titan )
 {
 	// boss titan rewards themselves a battery on performing execution
@@ -2026,6 +2160,21 @@ void function BossLoadout_Generic_IMCBoss( entity titan )
 
 	// nuke. imc titans do nuke
 	ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+}
+*/
+
+// generic loadout function for all bosses
+void function BossLoadout_Generic( entity titan )
+{
+	// boss titan rewards themselves a battery on performing execution
+	BossLoadout_ExecutionGivesBattery( titan )
+
+	// nuke. boss titans do nuke
+	// they never ejects, just save here for fun
+	ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+
+	// add an arm badge
+	BossLoadout_ArmBadge( titan )
 }
 
 // give themselves a battery on performing execution and faster core regen
@@ -2053,14 +2202,241 @@ void function BossLoadout_ExecutionGivesBattery( entity titan )
 	}
 }
 
+void function BossLoadout_ArmBadge( entity titan, asset modelOverride = $"" )
+{
+	// setup variables
+	TitanLoadoutDef spawnLoadout = titan.ai.spawnLoadout
+	spawnLoadout.showArmBadge = true
+
+	// better model checks for npc usage
+	asset model
+	if ( modelOverride != $"" )
+		model = modelOverride
+	else
+		model = GetTitanArmBadgeFromLoadoutAndPrimeStatus( spawnLoadout )
+
+	if ( model == $"" )
+		return
+
+	// same think as AddArmBadgeToTitan_Internal() does, but npc variant
+	entity armBadge = CreatePropDynamic( model )
+
+	armBadge.NotSolid()
+	armBadge.SetParent( titan, TITAN_ARM_BADGE_ATTACHMENT )
+
+	SetTeam( armBadge, titan.GetTeam() )
+	armBadge.MarkAsNonMovingAttachment()
+	armBadge.RemoveFromSpatialPartition()
+	// randomized bodygroup
+	armBadge.SetBodygroup( 0, RandomIntRange( 1, 4 ) )
+
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+		soul.soul.armBadge = armBadge
+}
+
+// now handled by BossLoadout_Legion()
+/*
 void function BossLoadout_Blisk( entity titan )
 {
 	// generic loadout function for imc boss
-	BossLoadout_Generic_IMCBoss( titan )
+	//BossLoadout_Generic_IMCBoss( titan )
+	BossLoadout_Generic( titan )
 	
 	// npc cannot use smart core, change to flame core
 	// has been changed to use scripted core ability handle
 	//NPCOgreTitanCoreReplace( titan )
+}
+*/
+
+// buffed loadouts for boss
+void function BossLoadout_Ion( entity titan )
+{
+	// generic loadout function for boss titan
+	BossLoadout_Generic( titan )
+
+	// add kits those are useful for a npc
+	FullNPCKitsIonLoadout( titan )
+}
+
+void function FullNPCKitsIonLoadout( entity titan )
+{
+	titan.GetMainWeapons()[0].AddMod( "pas_ion_weapon_ads" )
+	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "pas_ion_vortex" )
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "pas_ion_lasercannon" )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_ION_WEAPON_ADS )
+		GivePassive( soul, ePassives.PAS_ION_VORTEX )
+		GivePassive( soul, ePassives.PAS_ION_LASERCANNON )
+	}
+}
+
+void function BossLoadout_Tone( entity titan )
+{
+	// generic loadout function for boss titan
+	BossLoadout_Generic( titan )
+
+	// add kits those are useful for a npc
+	FullNPCKitsToneLoadout( titan )
+}
+
+void function FullNPCKitsToneLoadout( entity titan )
+{
+	titan.GetOffhandWeapon( OFFHAND_ANTIRODEO ).AddMod( "pas_tone_sonar" )
+	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "pas_tone_rockets" )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_TONE_WALL )
+		GivePassive( soul, ePassives.PAS_TONE_SONAR )
+		GivePassive( soul, ePassives.PAS_TONE_ROCKETS )
+	}
+}
+
+void function BossLoadout_Legion( entity titan )
+{
+	// generic loadout function for boss titan
+	BossLoadout_Generic( titan )
+
+	// add kits those are useful for a npc
+	FullNPCKitsLegionLoadout( titan )
+}
+
+void function FullNPCKitsLegionLoadout( entity titan )
+{
+	titan.GetMainWeapons()[0].AddMod( "pas_legion_weapon" )
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "pas_legion_smartcore" )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_LEGION_WEAPON )
+		GivePassive( soul, ePassives.PAS_LEGION_GUNSHIELD )
+		GivePassive( soul, ePassives.PAS_LEGION_SMARTCORE )
+	}
+}
+
+void function BossLoadout_Scorch( entity titan )
+{
+	// generic loadout function for boss titan
+	BossLoadout_Generic( titan )
+
+	// add kits those are useful for a npc
+	FullNPCKitsScorchLoadout( titan )
+}
+
+void function FullNPCKitsScorchLoadout( entity titan )
+{
+	// scorch already powerful enough...
+	// add only flame core kit for fun
+	//titan.GetMainWeapons()[0].AddMod( "pas_scorch_weapon" )
+	//titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "pas_scorch_shield" )
+	titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "pas_scorch_flamecore" )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		//GivePassive( soul, ePassives.PAS_SCORCH_WEAPON )
+		//GivePassive( soul, ePassives.PAS_SCORCH_SHIELD )
+		GivePassive( soul, ePassives.PAS_SCORCH_FLAMECORE )
+	}
+}
+
+void function BossLoadout_Ronin( entity titan )
+{
+	// generic loadout function for boss titan
+	BossLoadout_Generic( titan )
+
+	// add kits those are useful for a npc
+	FullNPCKitsRoninLoadout( titan )
+}
+
+void function FullNPCKitsRoninLoadout( entity titan )
+{
+	titan.GetMainWeapons()[0].AddMod( "pas_ronin_weapon" )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_RONIN_WEAPON )
+
+		// ronin don't have enough effective kits for npc
+		// scale up core multiplier instead
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.5 )
+		ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier( titan, 2.5 )
+	}
+}
+
+void function BossLoadout_Northstar( entity titan )
+{
+	// generic loadout function for boss titan
+	BossLoadout_Generic( titan )
+
+	// add kits those are useful for a npc
+	FullNPCKitsNorthstarLoadout( titan )
+}
+
+void function FullNPCKitsNorthstarLoadout( entity titan )
+{
+	titan.GetMainWeapons()[0].AddMod( "pas_northstar_weapon" )
+	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "pas_northstar_trap" )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_WEAPON )
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_TRAP )
+
+		// northstar don't have enough effective kits for npc
+		// scale up core multiplier instead
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.0 )
+		ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier( titan, 2.0 )
+	}
+}
+
+// modded titans
+void function FullNPCKitsArchonLoadout( entity titan )
+{
+	titan.GetMainWeapons()[0].AddMod( "chain_reaction" )
+	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "bolt_from_the_blue" ) // won't buff npc usage, just for fun
+	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "thylord_module" )
+	//titan.GetOffhandWeapon( OFFHAND_EQUIPMENT ).AddMod( "pas_ion_lasercannon" )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_ION_WEAPON ) // chain reaction
+		GivePassive( soul, ePassives.PAS_ION_VORTEX ) // bolt from the blue
+		GivePassive( soul, ePassives.PAS_ION_WEAPON_ADS ) // thylord module
+		//GivePassive( soul, ePassives.PAS_ION_LASERCANNON )
+	}
+}
+
+void function FullNPCKitsBruteLoadout( entity titan )
+{
+	titan.GetMainWeapons()[0].AddMod( "straight_shot" )
+	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "pas_ion_vortex" )
+	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "magnetic_rollers" )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_WEAPON ) // straight shot
+		GivePassive( soul, ePassives.PAS_ION_VORTEX )
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_CLUSTER ) // magnetic rollers
+	}
 }
 
 void function BossLoadout_Jack( entity titan )
@@ -2074,7 +2450,8 @@ void function BossLoadout_Jack( entity titan )
 
 	// boss titan rewards themselves a battery on performing execution
 	//BossLoadout_ExecutionGivesBattery( titan )
-	BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	BossLoadout_Generic( titan )
 
 	// re-assign weapons
 	// updated, now using NPC vanguard's random loadout!
@@ -2085,11 +2462,19 @@ void function BossLoadout_Jack( entity titan )
 	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" ) // removed arc rounds
 	*/
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix weapon mod
+	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "pas_ion_vortex" ) // buffed boss loadout
 	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
 	
 	//NPCVanguard_GiveLoadout( titan )
 
-	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_ION_VORTEX )
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE2 ) // missile racks
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE7 ) // multi-targeting missiles
+	}
 }
 
 void function BossLoadout_Sarah( entity titan )
@@ -2103,7 +2488,8 @@ void function BossLoadout_Sarah( entity titan )
 
 	// boss titan rewards themselves a battery on performing execution
 	//BossLoadout_ExecutionGivesBattery( titan )
-	BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	BossLoadout_Generic( titan )
 
 	// re-assign weapons
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
@@ -2120,7 +2506,7 @@ void function BossLoadout_Sarah( entity titan )
 	titan.GiveOffhandWeapon( "mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE )
 
 	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
-	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL )
+	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL, ["pas_scorch_shield"] )
 	
 	// add salvo core for them, we've tried to fix npc usage
 	// works weird but still good enough to use, I think... laser core shouldn't be used for npcs though
@@ -2129,8 +2515,13 @@ void function BossLoadout_Sarah( entity titan )
 	//titan.GiveOffhandWeapon( "mp_titancore_salvo_core", OFFHAND_EQUIPMENT )
 	NPCVanguard_UpgradeCore( titan )
 
-	// may needs to update spawn loadout
-	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE9 ) // xo-16 battle rifle
+		GivePassive( soul, ePassives.PAS_SCORCH_SHIELD )
+	}
 }
 
 void function BossLoadout_SarahMonarch( entity titan )
@@ -2146,7 +2537,8 @@ void function BossLoadout_SarahMonarch( entity titan )
 
 	// boss titan rewards themselves a battery on performing execution
 	//BossLoadout_ExecutionGivesBattery( titan )
-	BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	BossLoadout_Generic( titan )
 
 	// re-assign weapons
 	titan.GetMainWeapons()[0].SetMods( ["battle_rifle", "battle_rifle_icon", "fd_vanguard_utility_2"] )
@@ -2157,7 +2549,7 @@ void function BossLoadout_SarahMonarch( entity titan )
 	
 	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
 	//titan.GiveOffhandWeapon( "mp_titanweapon_stun_laser", OFFHAND_SPECIAL, ["energy_field_energy_transfer"] )
-	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL )
+	titan.GiveOffhandWeapon( "mp_titanweapon_heat_shield", OFFHAND_SPECIAL, ["pas_scorch_shield"] )
 	
 	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
 	titan.GiveOffhandWeapon( "mp_titanability_smoke", OFFHAND_ANTIRODEO )
@@ -2166,8 +2558,18 @@ void function BossLoadout_SarahMonarch( entity titan )
 	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT )
 	//titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT )
 
-	// may needs to update spawn loadout
-	TitanLoadoutDef spawnLoadout = titan.ai.titanSpawnLoadout
+	// setup camo
+	titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+	titan.SetCamo( 133 ) // Lockdown Red
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE9 ) // xo-16 battle rifle
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE2 ) // missile racks
+		GivePassive( soul, ePassives.PAS_SCORCH_SHIELD )
+	}
 }
 
 // NPC vanguard loadouts, hardcoded!
@@ -2197,6 +2599,7 @@ void function InitNPCVanguardLoadouts()
 	// add laser core for vanguard because we've tried to fix npc usage
 	// welp, should keep them banned... npc vanguard have firing spot and won't discard core meter after using
 	ionLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use laser core
+	ionLoadout.loadoutFunction = VanguardIonLoadout // add some mods for weapon
 	file.npcVanguardLoadouts.append( ionLoadout )
 
 	// tone
@@ -2207,13 +2610,15 @@ void function InitNPCVanguardLoadouts()
 	// welp, should keep them banned... npc vanguard have weird firing spot and won't discard core meter after using
 	// but it's not that bad compare to laser core, guess I'll keep it for sarah
 	toneLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use salvo core
+	toneLoadout.loadoutFunction = VanguardToneLoadout // add some mods for weapon
 	file.npcVanguardLoadouts.append( toneLoadout )
 
 	// ronin
 	NPCVanguardLoadout roninLoadout = clone emptyLoadout
 	roninLoadout.setFile = "titan_stryder_leadwall"
 	roninLoadout.behaviorSelector = "behavior_titan_shotgun"
-	roninLoadout.lockedAbilities = [OFFHAND_MELEE, OFFHAND_EQUIPMENT] // BT can't use sword core, and they'll have weird animation using titan sword
+	roninLoadout.lockedAbilities = [OFFHAND_MELEE, OFFHAND_EQUIPMENT] // BT might be able to use fixed sword core? but it looks hacky, remove for now
+	roninLoadout.loadoutFunction = VanguardRoninLoadout // add some mods for weapon
 	roninLoadout.disableRocketPod = true // ronin loadout doesn't require rocket pods, hide them on model
 	roninLoadout.useUpgradeCore = true // change to shield-recharge-only upgrade core for fun
 	file.npcVanguardLoadouts.append( roninLoadout )
@@ -2224,8 +2629,9 @@ void function InitNPCVanguardLoadouts()
 	northstarLoadout.behaviorSelector = "behavior_titan_long_range" // they can't use "behavior_titan_sniper"
 	// reworked here: use modified loadout for northstar: particle wall, tether trap and cluster missile
 	//northstarLoadout.loadoutFunction = null
-	//northstarLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use hover abilities, but we need to safe for them because tether trap is tactical ability, having together with electric smoke will crash
-	northstarLoadout.loadoutFunction = VanguardNorthstarLoadout
+	//northstarLoadout.lockedAbilities = [OFFHAND_ANTIRODEO, OFFHAND_EQUIPMENT] // BT can't use hover abilities, but we need to safe for them because tether trap is tactical ability, having together with electric smoke will crash
+	northstarLoadout.loadoutFunction = VanguardNorthstarLoadout // completely new loadout
+	northstarLoadout.blockDefaultLoadout = true // don't get weapons from setfile
 	file.npcVanguardLoadouts.append( northstarLoadout )
 
 	// brute
@@ -2234,7 +2640,8 @@ void function InitNPCVanguardLoadouts()
 	NPCVanguardLoadout bruteLoadout = clone emptyLoadout
 	bruteLoadout.setFile = "titan_stryder_sniper" // titan_stryder_rocketeer isn't implemented good enough for MP usage, using sniper instead. loadout handled by loadoutFunction
 	bruteLoadout.behaviorSelector = "behavior_titan_shotgun" // they can't use "behavior_titan_rocketeer"
-	bruteLoadout.loadoutFunction = VanguardBruteLoadout
+	bruteLoadout.loadoutFunction = VanguardBruteLoadout // completely new loadout
+	bruteLoadout.blockDefaultLoadout = true // don't get weapons from setfile
 	file.npcVanguardLoadouts.append( bruteLoadout )
 	*/
 
@@ -2246,6 +2653,7 @@ void function InitNPCVanguardLoadouts()
 	// maybe ban them because most of the core ability isn't usable for npc vanguard
 	// but I want to keep it valid, just for fun?
 	//legionLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // smart core is not added for npc usage from native code
+	legionLoadout.loadoutFunction = VanguardLegionLoadout // add some mods for weapon
 	legionLoadout.disableRocketPod = true // legion loadout doesn't require rocket pods, hide them on model
 	file.npcVanguardLoadouts.append( legionLoadout )
 
@@ -2257,6 +2665,7 @@ void function InitNPCVanguardLoadouts()
 	// welp, should keep them banned... npc vanguard usually fail to fire, unless they randomized to a proper ACT_SPECIAL_ATTACK animation
 	// EDIT: add back because I want various core ability for them
 	//scorchLoadout.lockedAbilities = [OFFHAND_EQUIPMENT] // BT can't use flame core
+	scorchLoadout.loadoutFunction = VanguardScorchLoadout // add some mods for weapon
 	scorchLoadout.disableRocketPod = true // scorch loadout doesn't require rocket pods, hide them on model
 	file.npcVanguardLoadouts.append( scorchLoadout )
 
@@ -2266,13 +2675,13 @@ void function InitNPCVanguardLoadouts()
 	// welp, there's something way too weird: pilots can sometimes play their intro animation???? emitting to the dropship sound that everyone could hear
 	// happens after I adding holopilot and cloak ability for them. after disabling capability to attack, their animation went weird
 	// guess I'll remove all boss titan disembarking/ejecting case...
+	// it's now handled by ExtraSpawner_SpawnBossTitan()
 
 	// droz
 	NPCVanguardPilot drozPilot = clone emptyPilot
 	drozPilot.titanTitle = "#NPC_DROZ_NAME"
 	drozPilot.pilotTitle = "Droz"
 	drozPilot.pilotModel = $"models/humans/pilots/sp_medium_reaper_m.mdl"
-	drozPilot.neverEjects = true // can have weird intro animation, make them never eject
 	file.npcVanguardPilots.append( drozPilot )
 
 	// davis
@@ -2280,7 +2689,6 @@ void function InitNPCVanguardLoadouts()
 	davisPilot.titanTitle = "#NPC_DAVIS_NAME"
 	davisPilot.pilotTitle = "Davis"
 	davisPilot.pilotModel = $"models/humans/pilots/sp_medium_stalker_m.mdl"
-	davisPilot.neverEjects = true // can have weird intro animation, make them never eject
 	file.npcVanguardPilots.append( davisPilot )
 
 	// bear
@@ -2290,7 +2698,6 @@ void function InitNPCVanguardLoadouts()
 	bearPilot.titanTitle = "#NPC_BEAR_NAME"
 	bearPilot.pilotTitle = "Bear"
 	bearPilot.pilotModel = $"models/humans/pilots/pilot_heavy_roog_m.mdl"
-	bearPilot.neverEjects = true // don't have suitable model for MP, make him never eject
 	file.npcVanguardPilots.append( bearPilot )
 
 	// gates
@@ -2300,7 +2707,6 @@ void function InitNPCVanguardLoadouts()
 	gatesPilot.titanTitle = "#NPC_GATES_NAME"
 	gatesPilot.pilotTitle = "Gates"
 	gatesPilot.pilotModel = $"models/humans/pilots/sp_medium_geist_f.mdl"
-	gatesPilot.neverEjects = true // can have weird intro animation, make them never eject
 	file.npcVanguardPilots.append( gatesPilot )
 
 	// now we add every valid mlt pilot as vanguard pilot
@@ -2315,8 +2721,20 @@ void function InitNPCVanguardLoadouts()
 	sarahPilot.titanTitle = "#FACTION_LEADER_NAME_SARAH"
 	sarahPilot.pilotTitle = "莎拉"
 	sarahPilot.pilotModel = $"models/humans/heroes/mlt_hero_sarah.mdl"
-	sarahPilot.neverEjects = true // can have weird intro animation, make them never eject
 	file.npcVanguardPilots.append( sarahPilot )
+
+	// below are two for fun
+	NPCVanguardPilot lastimosaPilot = clone emptyPilot
+	lastimosaPilot.titanTitle = "#TRAINING_OG_PILOT_NAME"
+	lastimosaPilot.pilotTitle = "拉斯提摩沙"
+	lastimosaPilot.pilotModel = $"models/humans/heroes/mlt_hero_jack.mdl" // cooper uses his pilot loadout, guess we fake model using cooper's is enough
+	file.npcVanguardPilots.append( lastimosaPilot )
+
+	NPCVanguardPilot andersonPilot = clone andersonPilot
+	andersonPilot.titanTitle = "#TRAINING_ANDERSON_NAME"
+	andersonPilot.pilotTitle = "安德森"
+	andersonPilot.pilotModel = $"models/humans/pilots/pilot_medium_geist_m.mdl" // just use a random picking model. no model is similar to aderson's in MP
+	file.npcVanguardPilots.append( andersonPilot )
 }
 
 void function BossLoadout_Vanguard( entity titan )
@@ -2327,10 +2745,23 @@ void function BossLoadout_Vanguard( entity titan )
 
 	// boss titan rewards themselves a battery on performing execution
 	//BossLoadout_ExecutionGivesBattery( titan )
-	BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	VanguardGenericLoadout( titan )
 
 	// start giving loadout
 	NPCVanguard_GiveLoadout( titan )
+}
+
+void function VanguardGenericLoadout( entity titan )
+{
+	// boss titan rewards themselves a battery on performing execution
+	BossLoadout_ExecutionGivesBattery( titan )
+
+	// nuke. boss titans do nuke
+	// they never ejects, just save here for fun
+	ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+
+	// arm badge left for NPCVanguard_SetUpTitan()
 }
 
 // generic setup for all npc vanguard chassis titan
@@ -2366,8 +2797,6 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 		{
 			soul.soul.seatedNpcPilot.title = pickedPilot.pilotTitle
 			soul.soul.seatedNpcPilot.modelAsset = pickedPilot.pilotModel
-			if ( pickedPilot.neverEjects )
-				TitanHealth_SetSoulNPCPilotEjectDelay( soul, -1 ) // -1 means never eject
 		}
 
 		PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( soul, false )	// disable earnmeter smoke availability, they already have electric smoke
@@ -2384,11 +2813,24 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 	
 		// we've modified synced_melee_data.rson, which removed all of bt's "executions", leaving only damaging synced melee
 		// so now we don't disable their capability of synced melee after embark by npc
-		ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee( titan, false )
+		// reverted. their synced melee makes target vulnerable for very long period of time
+		//ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee( titan, false )
 	}
 
 	// mark as vanguard chassis titan
 	file.npcVanguardChassisTitan.append( titan )
+
+	// add an arm badge, use random model
+	const array<asset> titanArmBadgeValidModels = [
+		$"models/titans_r2/titan_insignia/ion_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/tone_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/scorch_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/legion_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/ronin_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/northstar_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/vanguard_shoulder_pad.mdl",
+	]
+	BossLoadout_ArmBadge( titan, titanArmBadgeValidModels[ RandomInt( titanArmBadgeValidModels.len() ) ] )
 }
 
 const float NPC_VANGUARD_SHIELD_REGEN_DELAY = 6.0 // taken from titan_buddy.set( sp uses 3.0 )
@@ -2412,13 +2854,11 @@ void function NPCVanguard_GiveLoadout( entity titan )
 	// update behavior first, so loadout functions can modify it
 	if ( pickedLoadout.behaviorSelector != "" )
 		titan.SetBehaviorSelector( pickedLoadout.behaviorSelector )
-	// modified loadout case
-	if ( pickedLoadout.loadoutFunction != null )
-		pickedLoadout.loadoutFunction( titan )
-	else // vanilla loadout case
+	
+	if ( !pickedLoadout.blockDefaultLoadout )
 	{
 		TitanLoadoutDef titanLoadout
-    	titanLoadout.setFile = pickedLoadout.setFile
+		titanLoadout.setFile = pickedLoadout.setFile
 		OverwriteLoadoutWithDefaultsForSetFile( titanLoadout )
 		// manually apply loadout! only weapons are needed
 		// directly modify this struct is all good
@@ -2463,11 +2903,8 @@ void function NPCVanguard_GiveLoadout( entity titan )
 			titan.GiveOffhandWeapon( titanLoadout.antirodeo, OFFHAND_ANTIRODEO, titanLoadout.antirodeoMods )
 		if ( hasEquipmentReplace )
 			titan.GiveOffhandWeapon( titanLoadout.coreAbility, OFFHAND_EQUIPMENT )
-		else // core ability unchanged, we're still using burst core
-		{
-			if ( pickedLoadout.useUpgradeCore ) // shield recharge only upgradecore
-				NPCVanguard_UpgradeCore( titan )
-		}
+		else if ( pickedLoadout.useUpgradeCore ) // shield recharge only upgradecore
+			NPCVanguard_UpgradeCore( titan )
 		if ( hasMeleeReplace )
 			titan.GiveOffhandWeapon( titanLoadout.melee, OFFHAND_MELEE )
 	}
@@ -2479,6 +2916,10 @@ void function NPCVanguard_GiveLoadout( entity titan )
 		if ( bodyGroupIndex > -1 )
 			titan.SetBodygroup( bodyGroupIndex, 1 ) // "buddy_titan_back_d_lod0.smd"
 	}
+
+	// modified loadout case. run after every basic setup so we can modify them
+	if ( pickedLoadout.loadoutFunction != null )
+		pickedLoadout.loadoutFunction( titan )
 }
 
 void function NPCVanguard_BodygroupSetUp( entity titan )
@@ -2519,18 +2960,29 @@ void function VanguardExpeditionLoadout( entity titan )
 	*/
 
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix weapon mod
+	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "pas_ion_vortex" ) // buffed boss loadout
 	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_ION_VORTEX )
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE2 ) // missile racks
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE7 ) // multi-targeting missiles
+	}
 }
 
 void function VanguardNorthstarLoadout( entity titan )
 {
 	TakeAllWeapons( titan )
 	//Weapon
-	titan.GiveWeapon( "mp_titanweapon_sniper" )
-	//Defence. tether trap is utility ability and it can't be used together with electric smoke, just assign it to utility slot, and give a defense ability
-	titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL )
+	titan.GiveWeapon( "mp_titanweapon_sniper", ["pas_northstar_weapon"] )
+	//Defence. tether trap is utility ability and it can't be used together with electric smoke, just assign it to utility slot, and give another defense ability
+	//titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL ) // modified mod. vanilla uses passive for handling
+	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "pas_ion_vortex"] )
 	// Utility
-	titan.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ANTIRODEO )
+	titan.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ANTIRODEO, ["pas_northstar_trap"] )
 	//Offence
 	titan.GiveOffhandWeapon( "mp_titanweapon_dumbfire_rockets", OFFHAND_ORDNANCE )
 	//Titan Core. leaving it unchanged, vanguard can't use hover
@@ -2538,6 +2990,18 @@ void function VanguardNorthstarLoadout( entity titan )
 	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT )
 	//Melee
 	titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
+
+	// not setting titan core multiplier to 2.0 because we have kit particle wall
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_WEAPON )
+		//GivePassive( soul, ePassives.PAS_TONE_WALL )
+		GivePassive( soul, ePassives.PAS_ION_VORTEX )
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_TRAP )
+	}
 }
 
 void function VanguardBruteLoadout( entity titan )
@@ -2546,14 +3010,14 @@ void function VanguardBruteLoadout( entity titan )
 	//Weapon
 	titan.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream" )
 	//Defence
-	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex"] )
+	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "pas_ion_vortex"] )
 	// Utility. leaving it unchanged, vanguard can't use hover
 	titan.GiveOffhandWeapon( "mp_titanability_smoke", OFFHAND_ANTIRODEO )
 	//Offence
 	// we have buffed quad rocket that have higher projectile speed and can make npcs do explosion damage
 	// no need to use multi-targeting missile( which extra_spawner branch uses )
 	//titan.GiveOffhandWeapon( "mp_titanweapon_shoulder_rockets", OFFHAND_ORDNANCE )
-	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["brute4_grenade_volley"] )
+	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["brute4_grenade_volley", "magnetic_rollers"] )
 	//Titan Core. leaving it unchanged, vanguard can't use hover
 	// EDIT: maybe change it to upgrade core with no upgrading?( only recharges shield. max shield increased to 2500 in NPCVanguard_SetUpTitan() )
 	//titan.GiveOffhandWeapon( "mp_titancore_flight_core", OFFHAND_EQUIPMENT )
@@ -2561,6 +3025,15 @@ void function VanguardBruteLoadout( entity titan )
 	NPCVanguard_UpgradeCore( titan )
 	//Melee
 	titan.GiveOffhandWeapon( "melee_titan_punch_northstar", OFFHAND_MELEE )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_WEAPON ) // straight shot
+		GivePassive( soul, ePassives.PAS_ION_VORTEX )
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_CLUSTER ) // magnetic rollers
+	}
 }
 
 void function BossLoadout_Gates( entity titan )
@@ -2571,7 +3044,8 @@ void function BossLoadout_Gates( entity titan )
 	
 	// boss titan rewards themselves a battery on performing execution
 	//BossLoadout_ExecutionGivesBattery( titan )
-	BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	BossLoadout_Generic( titan )
 
 	// re-assign weapons
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_vanguard" )
@@ -2583,22 +3057,32 @@ void function BossLoadout_Gates( entity titan )
 
 	//titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "energy_field_energy_transfer" ) // note that due it's setfile is misisng npc_explosion_damage, npcs can't use it properly
 	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
-	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex"] )
+	titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "pas_ion_vortex"] )
 
 	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
 	titan.GiveOffhandWeapon( "mp_titanability_phase_dash", OFFHAND_ANTIRODEO )
 
-	// if we already got archon npc titan, gates should only have salvo core because archon is using laser core
-	#if EXTRA_SPAWNER_HAS_ARCHON
-		titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
-		// now change to laser core because we've made sarah use salvo core
-		// EDIT: sarah salvo core has been removed, now only use salvo core because we've added laser core for archon
-		titan.GiveOffhandWeapon( "mp_titancore_salvo_core", OFFHAND_EQUIPMENT )
-		//titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT )
-	#else // default case: pick a random core
-		// npc cannot use upgrade core, change to salvo core or laser core
-		NPCAtlasTitanCoreReplace( titan )
-	#endif
+	// npc cannot use upgrade core, change to salvo core or laser core
+	//NPCAtlasTitanCoreReplace( titan )
+	// now only use laser core because we've add salvo core for sarah
+	// EDIT: sarah salvo core has been removed, now only use salvo core because we've added laser core for archon
+	titan.TakeOffhandWeapon( OFFHAND_EQUIPMENT )
+	//titan.GiveOffhandWeapon( "mp_titancore_laser_cannon", OFFHAND_EQUIPMENT )
+	titan.GiveOffhandWeapon( "mp_titancore_salvo_core", OFFHAND_EQUIPMENT )
+
+	// setup camo
+	titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+	//titan.SetCamo( 133 ) // Lockdown Red
+	//titan.SetCamo( 93 ) // Quantum Woodland
+	titan.SetCamo( 131 ) // Lockdown Forest
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_TONE_ROCKETS )
+		GivePassive( soul, ePassives.PAS_ION_VORTEX )
+	}
 }
 
 void function BossLoadout_Bear( entity titan )
@@ -2606,15 +3090,22 @@ void function BossLoadout_Bear( entity titan )
 	// bear don't have suitable model for MP, make him never eject
 	// boss titan rewards themselves a battery on performing execution
 	//BossLoadout_ExecutionGivesBattery( titan )
-	BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
+	BossLoadout_Generic( titan )
 
 	// re-assign weapons
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_vanguard" )
-	titan.GiveWeapon( "mp_titanweapon_leadwall", ["pas_ronin_weapon"] )
+	//titan.GiveWeapon( "mp_titanweapon_leadwall", ["pas_ronin_weapon"] )
+	titan.GiveWeapon( "mp_titanweapon_particle_accelerator", ["pas_ion_weapon_ads"] )
+
+	titan.TakeOffhandWeapon( OFFHAND_SPECIAL )
+	//titan.GiveOffhandWeapon( "mp_titanweapon_vortex_shield", OFFHAND_SPECIAL, ["slow_recovery_vortex", "pas_ion_vortex"] )
+	titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL ) // modified mod. vanilla uses passive for handling
 
 	titan.TakeOffhandWeapon( OFFHAND_ANTIRODEO )
 	//titan.GiveOffhandWeapon( "mp_titanability_tether_trap", OFFHAND_ANTIRODEO )
-	titan.GiveOffhandWeapon( "mp_titanability_sonar_pulse", OFFHAND_ANTIRODEO, ["fd_sonar_damage_amp"] )
+	//titan.GiveOffhandWeapon( "mp_titanability_sonar_pulse", OFFHAND_ANTIRODEO, ["fd_sonar_damage_amp"] )
+	titan.GiveOffhandWeapon( "mp_titanability_laser_trip", OFFHAND_ANTIRODEO )
 
 	// setup custom upgrades
 	// first upgrade: missile racks
@@ -2630,7 +3121,75 @@ void function BossLoadout_Bear( entity titan )
 	UpgradeCore_SetTitanUpgradePassive( titan, 3, ePassives.PAS_VANGUARD_CORE8 )
 
 	// setup camo
+	titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
 	titan.SetCamo( 130 ) // Lockdown Binary
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		//GivePassive( soul, ePassives.PAS_RONIN_WEAPON )
+		GivePassive( soul, ePassives.PAS_ION_WEAPON_ADS )
+		//GivePassive( soul, ePassives.PAS_ION_VORTEX )
+		GivePassive( soul, ePassives.PAS_TONE_WALL )
+	}
+}
+
+void function BossLoadout_Lastimosa( entity titan )
+{
+	TakeAllWeapons( titan )
+	//Weapon
+	titan.GiveWeapon( "mp_titanweapon_meteor", ["pas_scorch_weapon"] )
+	//Defence
+	titan.GiveOffhandWeapon( "mp_titanability_particle_wall", OFFHAND_SPECIAL ) // modified mod. vanilla uses passive for handling
+	//Tactical
+	titan.GiveOffhandWeapon( "mp_titanability_slow_trap", OFFHAND_ANTIRODEO )
+	//Offence
+	titan.GiveOffhandWeapon( "mp_titanweapon_salvo_rockets", OFFHAND_ORDNANCE, ["missile_racks"] )
+	//Titan Core
+	// upgrade core that only recharges shield. max shield increased to 2500 in NPCVanguard_SetUpTitan()
+	NPCVanguard_UpgradeCore( titan )
+	//Melee
+	titan.GiveOffhandWeapon( "melee_titan_punch_legion", OFFHAND_MELEE )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_SCORCH_WEAPON )
+		GivePassive( soul, ePassives.PAS_TONE_WALL )
+		//GivePassive( soul, ePassives.PAS_SCORCH_SELFDMG ) // self damage immune
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE2 ) // missile racks
+	}
+}
+
+void function BossLoadout_Anderson( entity titan )
+{
+	TakeAllWeapons( titan )
+	//Weapon
+	titan.GiveWeapon( "mp_titanweapon_sniper", ["pas_northstar_weapon"] )
+	//Defence
+	titan.GiveOffhandWeapon( "mp_titanweapon_stun_laser", OFFHAND_SPECIAL ) // modified mod. vanilla uses passive for handling
+	//Tactical
+	titan.GiveOffhandWeapon( "mp_titanability_phase_dash", OFFHAND_ANTIRODEO )
+	//Offence
+	titan.GiveOffhandWeapon( "mp_titanweapon_laser_lite", OFFHAND_ORDNANCE )
+	//Titan Core
+	titan.GiveOffhandWeapon( "mp_titancore_amp_core", OFFHAND_EQUIPMENT )
+	//Melee
+	titan.GiveOffhandWeapon( "melee_titan_punch_tone", OFFHAND_MELEE )
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_NORTHSTAR_WEAPON )
+		GivePassive( soul, ePassives.PAS_VANGUARD_SHIELD )
+		
+		// missing one kit, add bit core meter
+		TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.0 )
+		ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier( titan, 2.0 )
+	}
 }
 
 void function InitDefaultNPCHandlerFunctions()
@@ -4423,7 +4982,7 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	// titan won't have a soul until they DispatchSpawn()
 	entity titanSoul = titan.GetTitanSoul()
 	if ( executionRef != "" )
-		titan.GetTitanSoul().soul.titanLoadout.titanExecution = executionRef
+		titanSoul.soul.titanLoadout.titanExecution = executionRef
 
 	// set up embarked behavior, we may feature npc pilot disembarking in future?
 	// these settings gets applied by ExtraSpawner_SetUpTitanSeatedPilot()
@@ -4458,6 +5017,10 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 		if ( !TitanHasModifiedEmbarkedCoreMultiplier( titan ) )
 			TitanHealth_SetTitanCoreBuilderMultiplier( titan, 2.75 )
 	}
+
+	// disable boss tiatn ejecting, so players won't easily notice that they have no proper model
+	// also prevents scripted abilities cause them to play intro animation
+	TitanHealth_SetSoulNPCPilotEjectDelay( titanSoul, -1 ) // -1 means never eject
 
 	// loadout function should run after all setup done, so we can modify them
 	if ( loadoutFunction != null ) // modded titan!!
@@ -4738,11 +5301,20 @@ entity function ExtraSpawner_SpawnTitanBT( vector pos, vector rot, int team, voi
 	string squad = ExtraSpawner_MakeMarkedSquadName( titan.GetTeam(), UniqueString( "_buddy" ) )
 	SetSquad( titan, squad )
 
-	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
-	titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
+	// "mp_titanweapon_xo16_shorty" has been modified to add npc usage, no need to change weapon
+	//titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
+	//titan.GiveWeapon( "mp_titanweapon_xo16_vanguard" )
 	titan.GetOffhandWeapon( OFFHAND_SPECIAL ).AddMod( "slow_recovery_vortex" ) // fix mod
 	titan.GetOffhandWeapon( OFFHAND_ORDNANCE ).AddMod( "upgradeCore_MissileRack_Vanguard" ) // fix mod: lock on heavy armor target only
 	//titan.SetSkin(1) // sarah skin
+
+	// passives update
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE2 ) // missile racks
+		GivePassive( soul, ePassives.PAS_VANGUARD_CORE7 ) // multi-targeting missiles
+	}
 
 	if ( titanHandler != null )
 		thread titanHandler( titan )
