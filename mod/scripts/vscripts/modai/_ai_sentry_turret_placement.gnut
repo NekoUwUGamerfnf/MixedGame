@@ -14,7 +14,7 @@ global function AddCallback_OnNPCPlaceTurret // gets called by DeployTurretFromN
 
 // default values
 const string NPC_TURRET_PLACEMENT_DEFAULT_AISET = "npc_turret_sentry"
-const string NPC_TURRET_PLACEMENT_DEFAULT_MODEL = "models/robots/turret_plasma/turret_plasma.mdl"
+const asset NPC_TURRET_PLACEMENT_DEFAULT_MODEL = $"models/robots/turret_plasma/turret_plasma.mdl"
 const string NPC_TURRET_PLACEMENT_DEFAULT_WEAPON = "mp_weapon_yh803_bullet"
 
 // consts copied from mp_ability_turretweapon.nut
@@ -29,6 +29,7 @@ struct NPCTurretPlacementSettings
 	string aiSettings
 	asset modelName
 	string weaponName
+	string turretTitle
 }
 
 // copied from mp_ability_turretweapon.nut
@@ -68,7 +69,6 @@ entity function DeployTurretFromNPC( entity npc, vector origin, vector angles )
 	turret.ai.preventOwnerDamage = true
 	turret.StartDeployed()
 	SetTeam( turret, team )
-	EmitSoundOnEntity( turret, "Boost_Card_SentryTurret_Deployed_3P" )
 
 	asset model = GetNPCTurretPlaceModel( npc )
 	turret.SetValueForModelKey( model )
@@ -81,6 +81,10 @@ entity function DeployTurretFromNPC( entity npc, vector origin, vector angles )
 	SetSpawnOption_SquadName( turret, squad )
 
 	thread DestroyOnDeathDelayed( turret, 0.15 )
+
+	string title = GetNPCTurretPlaceTitle( npc )
+	if ( title != "" )
+		turret.SetTitle( title )
 
 	return turret
 }
@@ -98,25 +102,37 @@ void function DestroyOnDeathDelayed( entity turret, float delay )
 
 // wrapped function, includes everything that a turret spawn needs to have
 // return null if we failed to deploy
-entity function DeployTurretFromNPCWithSetup( entity npc )
+entity function DeployTurretFromNPCWithSetup( entity npc, bool doAnimatedDeploy = false )
 {
 	asset turretModel = GetNPCTurretPlaceModel( npc )
 	InitTurretPoseDataForModel( turretModel )
 
 	// get turret
 	entity turretProxy = CreateDeployableTurretProxy( turretModel )
-	SentryTurretPlacementInfo placementInfo = GetDeployableTurretPlacementInfo( ownerPlayer, turretProxy )
+	SentryTurretPlacementInfo placementInfo = GetNPCDeployableTurretPlacementInfo( npc, turretProxy )
 	turretProxy.Destroy()
 
 	if ( !placementInfo.success ) // failed to deploy
 		return null
 
-	entity turret = DeployTurretFromNPC( npc, placementInfo.origin, placementInfo.angle )
-	if ( turret.Dev_GetAISettingByKeyField( "cleanup_between_rounds" ) == null || turret.Dev_GetAISettingByKeyField( "cleanup_between_rounds" ) == 1 )
-		thread TrapDestroyOnRoundEnd( ownerPlayer, turret )
+	entity turret = DeployTurretFromNPC( npc, placementInfo.origin, placementInfo.angles )
+	DispatchSpawn( turret )
 
 	AddTurretSpawnProtection( turret )
-	turret.Anim_Play( "deploy" )
+
+	// animation
+	if ( !doAnimatedDeploy ) // turret anim only
+	{
+		EmitSoundOnEntity( turret, "Boost_Card_SentryTurret_Deployed_3P" )
+		turret.Anim_Play( "deploy" )
+	}
+	else // animated deploy
+	{
+		thread PlayAnim( npc, "pt_activate_drone_indoor", npc.GetOrigin(), npc.GetAngles() )
+		thread TurretDeployAnimation( turret )
+
+		npc.EnableNPCFlag( NPC_PAIN_IN_SCRIPTED_ANIM )
+	}
 	
 	TurretPoseData turretPoseData = file.turretPoseData[turretModel.tolower()]
 	for ( int footIndex = 0; footIndex < turretPoseData.turretFootAttachIds.len(); footIndex++ )
@@ -125,19 +141,29 @@ entity function DeployTurretFromNPCWithSetup( entity npc )
 		turret.SetPoseParameter( turretPoseData.turretLegPoseIds[footIndex], poseOffset )
 	}
 
+	// placement succeeded, do callbacks
+	// Added via AddCallback_OnNPCPlaceTurret
+	foreach ( callbackFunc in file.onNPCPlaceTurretCallbacks )
+		callbackFunc( npc, turret )
+
 	// successfully deployed and setup
 	return turret
 }
 
-void function DestroyOnDeathDelayed( entity turret, float delay )
+void function TurretDeployAnimation( entity turret )
 {
+	turret.EndSignal( "OnDeath" )
 	turret.EndSignal( "OnDestroy" )
-	turret.WaitSignal( "OnDeath" )
 
-	wait delay
+	turret.DisableTurret()
+	//turret.Anim_Play( "idle" )
+	turret.SetInvulnerable() // invulnerable during idle animation
+	wait 0.5 // wait for human animation
 
-	// TODO: explosion or other FX
-	turret.Destroy()
+	EmitSoundOnEntity( turret, "Boost_Card_SentryTurret_Deployed_3P" )
+	turret.EnableTurret()
+	turret.Anim_Play( "deploy" )
+	turret.ClearInvulnerable()
 }
 
 // turret grunt deploys drone after cooldown when drone is destroyed
@@ -185,19 +211,26 @@ void function TurretGruntThink( entity npc )
 		//if ( !WithinEngagementRange( npc, pos ) )
 		//	continue
 
-		// try to do placement
-		drone = DeployTurretFromNPCWithSetup( npc, aiSettings )
-		if ( drone == null )
+		// don't do placement if enemy not in turret range
+		string turretWeapon = GetNPCTurretPlaceWeapon( npc )
+		float turretRange = GetWeaponInfoFileKeyField_GlobalFloat( turretWeapon, "npc_max_engage_range" )
+		//print( "turretRange for weapon " + turretWeapon + ": " + string( turretRange ) )
+
+		if ( !npc.CanSee( enemy ) || ( Distance( npc.GetOrigin(), enemy.GetOrigin() ) > turretRange * 0.7 ) )
 		{
-			// failed to deploy -- it means we're in valid deployment state, do less wait
+			// failed to deploy, but we're in valid deployment state, do less wait
 			failDeployChecks = true
 			continue
 		}
 
-		// placement succeeded, do callbacks
-		// Added via AddCallback_OnNPCPlaceTurret
-		foreach ( callbackFunc in file.onNPCPlaceTurretCallbacks )
-			callbackFunc( npc, turret )
+		// try to do placement
+		turret = DeployTurretFromNPCWithSetup( npc, true )
+		if ( turret == null )
+		{
+			// failed to deploy, but we're in valid deployment state, do less wait
+			failDeployChecks = true
+			continue
+		}
 
 		waitthread TurretWaitTillDeath( turret )
 
@@ -211,6 +244,23 @@ void function TurretWaitTillDeath( entity turret )
 	turret.EndSignal( "OnDeath" )
 
 	WaitForever()
+}
+
+void function TurretCleanupOnOwnerDeath_Thread( entity owner, entity turret )
+{
+	turret.EndSignal( "OnDestroy" )
+	turret.EndSignal( "OnDeath" )
+
+	for ( ; ; )
+	{
+		if ( !IsAlive( owner ) )
+			break
+
+		WaitFrame()
+	}
+
+	wait RandomFloatRange( 5.0, 10.0 ) // longer hold time before self detonate
+	turret.Die()
 }
 
 void function InitTurretPoseDataForModel( asset modelName )
@@ -395,13 +445,14 @@ bool function NPCCanSeePos( entity npc, vector pos, bool doTrace, float degrees 
 	return true
 }
 
-void function AiTurretGrunt_NPCPlacementSettings( entity npc, string aiSettings, asset model = $"", string weapon = "" )
+void function AiTurretGrunt_NPCPlacementSettings( entity npc, string aiSettings, asset model = $"", string weapon = "", string title = "" )
 {
 	NPCTurretPlacementSettings placementSettings
 
 	placementSettings.aiSettings = aiSettings
 	placementSettings.modelName = model == $"" ? NPC_TURRET_PLACEMENT_DEFAULT_MODEL : model
-	placementSettings.weaponName = weapon == $"" ? NPC_TURRET_PLACEMENT_DEFAULT_WEAPON : weapon
+	placementSettings.weaponName = weapon == "" ? NPC_TURRET_PLACEMENT_DEFAULT_WEAPON : weapon
+	placementSettings.turretTitle = title
 
     if ( !( npc in file.npcTurretSettingsOverride ) )
 		file.npcTurretSettingsOverride[ npc ] <- placementSettings
@@ -433,9 +484,17 @@ string function GetNPCTurretPlaceWeapon( entity npc )
 	return file.npcTurretSettingsOverride[ npc ].weaponName
 }
 
+string function GetNPCTurretPlaceTitle( entity npc )
+{
+	if ( !( npc in file.npcTurretSettingsOverride ) )
+		return ""
+
+	return file.npcTurretSettingsOverride[ npc ].turretTitle
+}
+
 void function AddCallback_OnNPCPlaceTurret( void functionref( entity npc, entity turret ) callbackFunc )
 {
-	if ( !file.onNPCPlaceTurretCallbacks )
+	if ( !file.onNPCPlaceTurretCallbacks.contains( callbackFunc ) )
 		file.onNPCPlaceTurretCallbacks.append( callbackFunc )
 }
 
