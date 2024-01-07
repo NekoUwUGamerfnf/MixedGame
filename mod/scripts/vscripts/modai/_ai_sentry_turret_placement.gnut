@@ -1,0 +1,506 @@
+// copy logics from sh_sentry_turrets.gnut and mp_ability_turretweapon.nut
+// make them compatible with npc usage
+
+global function AiSentryTurretPlacement_Init
+
+// main shared logic
+global function DeployTurretFromNPC
+global function DeployTurretFromNPCWithSetup
+global function TurretGruntThink
+
+// allow modifying turret stuffs ignoring aiSettings
+global function AiTurretGrunt_NPCPlacementSettings
+global function AddCallback_OnNPCPlaceTurret // gets called by DeployTurretFromNPC()
+
+// default values
+const string NPC_TURRET_PLACEMENT_DEFAULT_AISET = "npc_turret_sentry"
+const string NPC_TURRET_PLACEMENT_DEFAULT_MODEL = "models/robots/turret_plasma/turret_plasma.mdl"
+const string NPC_TURRET_PLACEMENT_DEFAULT_WEAPON = "mp_weapon_yh803_bullet"
+
+// consts copied from mp_ability_turretweapon.nut
+const float DEPLOYABLE_TURRET_PLACEMENT_RANGE_MAX = 80
+const float DEPLOYABLE_TURRET_PLACEMENT_RANGE_MIN = 40
+const vector DEPLOYABLE_TURRET_MINS = < -30, -30, 0 >
+const vector DEPLOYABLE_TURRET_MAXS = < 30, 30, 60 >
+const vector DEPLOYABLE_TURRET_PLACEMENT_TRACE_OFFSET = < 0, 0, 128 >
+
+struct NPCTurretPlacementSettings
+{
+	string aiSettings
+	asset modelName
+	string weaponName
+}
+
+// copied from mp_ability_turretweapon.nut
+struct TurretPoseData
+{
+	int[4] turretFootAttachIds
+	string[4] turretLegPoseNames
+	int[4] turretLegPoseIds
+}
+
+struct
+{
+	// in-file data
+	table<asset, TurretPoseData> turretPoseData
+	array<void functionref( entity npc, entity turret )> onNPCPlaceTurretCallbacks
+	// settings variables
+	table<entity, NPCTurretPlacementSettings> npcTurretSettingsOverride
+} file
+
+void function AiSentryTurretPlacement_Init()
+{
+    RegisterSignal( "TurretGruntThink" )
+	RegisterSignal( "ForceStopTurretPlacement" )
+}
+
+// raw function
+entity function DeployTurretFromNPC( entity npc, vector origin, vector angles )
+{
+    origin += <0, 0, 1>
+
+	int team = npc.GetTeam()
+
+	entity turret = CreateEntity( "npc_turret_sentry" )
+	turret.SetOrigin( origin )
+	turret.SetAngles( angles )
+	turret.SetOwner( npc ) // try to prevent collition against owner
+	turret.ai.preventOwnerDamage = true
+	turret.StartDeployed()
+	SetTeam( turret, team )
+	EmitSoundOnEntity( turret, "Boost_Card_SentryTurret_Deployed_3P" )
+
+	asset model = GetNPCTurretPlaceModel( npc )
+	turret.SetValueForModelKey( model )
+	turret.SetModel( model )
+
+	SetSpawnOption_AISettings( turret, GetNPCTurretPlaceAiSettings( npc ) )
+	SetSpawnOption_Weapon( turret, GetNPCTurretPlaceWeapon( npc ) )
+
+	string squad = expect string( npc.kv.squadname ) // needs to assign drone to the same squad as npc, so it's easier to identify
+	SetSpawnOption_SquadName( turret, squad )
+
+	thread DestroyOnDeathDelayed( turret, 0.15 )
+
+	return turret
+}
+
+void function DestroyOnDeathDelayed( entity turret, float delay )
+{
+	turret.EndSignal( "OnDestroy" )
+	turret.WaitSignal( "OnDeath" )
+
+	wait delay
+
+	// TODO: explosion or other FX
+	turret.Destroy()
+}
+
+// wrapped function, includes everything that a turret spawn needs to have
+// return null if we failed to deploy
+entity function DeployTurretFromNPCWithSetup( entity npc )
+{
+	asset turretModel = GetNPCTurretPlaceModel( npc )
+	InitTurretPoseDataForModel( turretModel )
+
+	// get turret
+	entity turretProxy = CreateDeployableTurretProxy( turretModel )
+	SentryTurretPlacementInfo placementInfo = GetDeployableTurretPlacementInfo( ownerPlayer, turretProxy )
+	turretProxy.Destroy()
+
+	if ( !placementInfo.success ) // failed to deploy
+		return null
+
+	entity turret = DeployTurretFromNPC( npc, placementInfo.origin, placementInfo.angle )
+	if ( turret.Dev_GetAISettingByKeyField( "cleanup_between_rounds" ) == null || turret.Dev_GetAISettingByKeyField( "cleanup_between_rounds" ) == 1 )
+		thread TrapDestroyOnRoundEnd( ownerPlayer, turret )
+
+	AddTurretSpawnProtection( turret )
+	turret.Anim_Play( "deploy" )
+	
+	TurretPoseData turretPoseData = file.turretPoseData[turretModel.tolower()]
+	for ( int footIndex = 0; footIndex < turretPoseData.turretFootAttachIds.len(); footIndex++ )
+	{
+		float poseOffset = placementInfo.poseParamOffsets[footIndex]
+		turret.SetPoseParameter( turretPoseData.turretLegPoseIds[footIndex], poseOffset )
+	}
+
+	// successfully deployed and setup
+	return turret
+}
+
+void function DestroyOnDeathDelayed( entity turret, float delay )
+{
+	turret.EndSignal( "OnDestroy" )
+	turret.WaitSignal( "OnDeath" )
+
+	wait delay
+
+	// TODO: explosion or other FX
+	turret.Destroy()
+}
+
+// turret grunt deploys drone after cooldown when drone is destroyed
+void function TurretGruntThink( entity npc )
+{
+	if ( !IsValid( npc ) )
+		return
+
+	npc.EndSignal( "OnDestroy" )
+	npc.EndSignal( "OnDeath" )
+
+	// modified signals
+	npc.Signal( "TurretGruntThink" )
+	npc.EndSignal( "TurretGruntThink" )
+	npc.EndSignal( "ForceStopTurretPlacement" )
+	//
+
+	entity turret
+	npc.EnableNPCFlag( NPC_USE_SHOOTING_COVER | NPC_CROUCH_COMBAT )
+
+	bool failDeployChecks = false
+	while ( true )
+	{
+		// use more constant wait if we didn't fail anim checks and stuff
+		if ( failDeployChecks )
+			WaitFrame()
+		else
+			wait ( RandomFloatRange( 0, 1.0 ) )
+
+		failDeployChecks = false
+
+		//dont do stuff when animating on a parent
+		if ( npc.GetParent() )
+			continue
+
+		// modified: npc may try to disembark a droppod or dropship
+		if ( npc.Anim_IsActive() )
+			continue
+
+		entity enemy = npc.GetEnemy()
+		if ( !IsAlive( enemy ) )
+			continue
+
+		//vector pos = npc.LastKnownPosition( enemy )
+		//if ( !WithinEngagementRange( npc, pos ) )
+		//	continue
+
+		// try to do placement
+		drone = DeployTurretFromNPCWithSetup( npc, aiSettings )
+		if ( drone == null )
+		{
+			// failed to deploy -- it means we're in valid deployment state, do less wait
+			failDeployChecks = true
+			continue
+		}
+
+		// placement succeeded, do callbacks
+		// Added via AddCallback_OnNPCPlaceTurret
+		foreach ( callbackFunc in file.onNPCPlaceTurretCallbacks )
+			callbackFunc( npc, turret )
+
+		waitthread TurretWaitTillDeath( turret )
+
+		wait 20 // longer cooldown than drones
+	}
+}
+
+void function TurretWaitTillDeath( entity turret )
+{
+	turret.EndSignal( "OnDestroy" )
+	turret.EndSignal( "OnDeath" )
+
+	WaitForever()
+}
+
+void function InitTurretPoseDataForModel( asset modelName )
+{
+	// already inited?
+	if ( modelName.tolower() in file.turretPoseData )
+		return
+
+	TurretPoseData turretPoseData
+
+	entity turretProxy = CreateDeployableTurretProxy( modelName )
+	turretPoseData.turretFootAttachIds[0] = turretProxy.LookupAttachment( "foot_front_r" )
+	turretPoseData.turretFootAttachIds[1] = turretProxy.LookupAttachment( "foot_front_l" )
+	turretPoseData.turretFootAttachIds[2] = turretProxy.LookupAttachment( "foot_rear_r" )
+	turretPoseData.turretFootAttachIds[3] = turretProxy.LookupAttachment( "foot_rear_l" )
+
+	turretPoseData.turretLegPoseNames[0] = "front_right_leg"
+	turretPoseData.turretLegPoseNames[1] = "front_left_leg"
+	turretPoseData.turretLegPoseNames[2] = "back_right_leg"
+	turretPoseData.turretLegPoseNames[3] = "back_left_leg"
+
+	#if SERVER
+		turretPoseData.turretLegPoseIds[0] = turretProxy.LookupPoseParameterIndex( "front_right_leg" )
+		turretPoseData.turretLegPoseIds[1] = turretProxy.LookupPoseParameterIndex( "front_left_leg" )
+		turretPoseData.turretLegPoseIds[2] = turretProxy.LookupPoseParameterIndex( "back_right_leg" )
+		turretPoseData.turretLegPoseIds[3] = turretProxy.LookupPoseParameterIndex( "back_left_leg" )
+
+		printt( "InitTurretPoseDataForModel", modelName )
+	#endif
+
+	turretProxy.Destroy()
+
+	file.turretPoseData[modelName.tolower()] <- turretPoseData
+}
+
+entity function CreateDeployableTurretProxy( asset modelName ) //TODO: Needs work if we do different turret models
+{
+	entity turret = CreatePropDynamic( modelName, < 0, 0, 0>, < 0, 0, 0 > )
+	turret.kv.renderamt = 0
+	turret.kv.rendermode = 10
+	turret.kv.rendercolor = "0 0 0 0"
+	turret.Anim_Play( "deploy_idle_01" )
+	turret.Hide()
+
+	return turret
+}
+
+// copied from mp_ability_turret_weapon.nut, npc variant
+SentryTurretPlacementInfo function GetNPCDeployableTurretPlacementInfo( entity npc, entity turretModel, entity footDataModel = null )
+{
+	vector eyePos = npc.EyePosition()
+	vector viewVec = npc.GetPlayerOrNPCViewVector()
+	vector angles = < 0, VectorToAngles( viewVec ).y, 0 >
+	viewVec = AnglesToForward( angles )
+
+	float maxRange = DEPLOYABLE_TURRET_PLACEMENT_RANGE_MAX
+
+	TraceResults viewTraceResults = TraceLine( eyePos, eyePos + viewVec * (DEPLOYABLE_TURRET_PLACEMENT_RANGE_MAX * 2) , [npc, turretModel], TRACE_MASK_SOLID | TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+	if ( viewTraceResults.fraction < 1.0 )
+	{
+		float slope = fabs( viewTraceResults.surfaceNormal.x ) + fabs( viewTraceResults.surfaceNormal.y )
+		if ( slope < 0.707 )
+			maxRange = min( Distance2D( eyePos, viewTraceResults.endPos ), DEPLOYABLE_TURRET_PLACEMENT_RANGE_MAX )
+	}
+
+	vector idealPos = npc.GetOrigin() + (viewVec * DEPLOYABLE_TURRET_PLACEMENT_RANGE_MAX)
+
+	SentryTurretPlacementInfo placementInfo
+
+	TraceResults fwdResults = TraceHull( eyePos + viewVec * min( DEPLOYABLE_TURRET_PLACEMENT_RANGE_MIN, maxRange ), eyePos + viewVec * maxRange, DEPLOYABLE_TURRET_MINS, <30, 30, 1>, npc, TRACE_MASK_SOLID | TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+	TraceResults downResults = TraceHull( fwdResults.endPos, fwdResults.endPos - DEPLOYABLE_TURRET_PLACEMENT_TRACE_OFFSET, DEPLOYABLE_TURRET_MINS, DEPLOYABLE_TURRET_MAXS, npc, TRACE_MASK_SOLID | TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+
+	bool isScriptedTurretPlaceable = false
+	if ( IsValid( downResults.hitEnt ) )
+	{
+		string hitEntClassname = downResults.hitEnt.GetClassName()
+
+		if ( hitEntClassname == "prop_script" )
+		{
+			if ( downResults.hitEnt.GetScriptPropFlags() == PROP_IS_VALID_FOR_TURRET_PLACEMENT )
+				isScriptedTurretPlaceable = true
+		}
+	}
+
+	bool success = !downResults.startSolid && downResults.fraction < 1.0 && ( downResults.hitEnt.IsWorld() || isScriptedTurretPlaceable )
+	if ( downResults.startSolid && downResults.fraction < 1.0 && ( downResults.hitEnt.IsWorld() || isScriptedTurretPlaceable ) )
+	{
+		TraceResults upResults = TraceHull( downResults.endPos, downResults.endPos, DEPLOYABLE_TURRET_MINS, DEPLOYABLE_TURRET_MAXS, npc, TRACE_MASK_SOLID | TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+		if ( !upResults.startSolid )
+			success = true
+	}
+
+	if ( success )
+	{
+		TurretPoseData turretPoseData = file.turretPoseData[turretModel.GetModelName().tolower()]
+
+		turretModel.SetOrigin( downResults.endPos )
+		turretModel.SetAngles( angles )
+
+		if ( footDataModel )
+		{
+			footDataModel.SetOrigin( downResults.endPos )
+			footDataModel.SetAngles( angles )
+		}
+		else
+		{
+			footDataModel = turretModel
+			for ( int footIndex = 0; footIndex < turretPoseData.turretFootAttachIds.len(); footIndex++ )
+			{
+				#if CLIENT
+					turretModel.SetPoseParameter( turretPoseData.turretLegPoseNames[footIndex], 0.0 )
+				#else
+					turretModel.SetPoseParameter( turretPoseData.turretLegPoseIds[footIndex], 0.0 )
+				#endif
+			}
+		}
+
+		int numFootPlants = 0
+		for ( int footIndex = 0; footIndex < turretPoseData.turretFootAttachIds.len(); footIndex++ )
+		{
+			placementInfo.poseParamOffsets[footIndex] = 0.0
+
+			vector footOrigin = footDataModel.GetAttachmentOrigin( turretPoseData.turretFootAttachIds[footIndex] )
+			TraceResults footTrace = TraceLineHighDetail( footOrigin + < 0, 0, 15>, footOrigin + < 0, 0, -15>, [npc, turretModel], TRACE_MASK_SOLID | TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
+
+			float poseOffset = GraphCapped( footTrace.fraction, 0.0, 1.0, 16.0, -16.0 )
+			placementInfo.poseParamOffsets[footIndex] = poseOffset
+
+			if ( footTrace.fraction != 1.0 )
+			{
+				numFootPlants++
+			}
+
+			//Debug visualization
+			//if ( footTrace.fraction != 1.0 )
+			//	DebugDrawLine( footOrigin + < 0, 0, 15>, footTrace.endPos, 0, 255, 0, true, 0.25 )
+			//else
+			//	DebugDrawLine( footOrigin + < 0, 0, 15>, footTrace.endPos, 255, 0, 0, true, 0.25 )
+		}
+
+		for ( int footIndex = 0; footIndex < turretPoseData.turretFootAttachIds.len(); footIndex++ )
+		{
+			#if CLIENT
+				turretModel.SetPoseParameter( turretPoseData.turretLegPoseNames[footIndex], placementInfo.poseParamOffsets[footIndex] )
+			#else
+				turretModel.SetPoseParameter( turretPoseData.turretLegPoseIds[footIndex], placementInfo.poseParamOffsets[footIndex] )
+			#endif
+		}
+
+		success = numFootPlants >= 3
+	}
+
+
+	if ( viewTraceResults.hitEnt != null && ( !viewTraceResults.hitEnt.IsWorld() && !isScriptedTurretPlaceable ) )
+		success = false
+
+	if ( !NPCCanSeePos( npc, downResults.endPos, true, 90 ) )
+		success = false
+
+	placementInfo.success = success
+	placementInfo.origin = placementInfo.success ? downResults.endPos : idealPos
+	placementInfo.angles = angles
+
+	return placementInfo
+}
+
+// copied from utility_shared, PlayerCanSeePos(). make it compatible with npc usage
+bool function NPCCanSeePos( entity npc, vector pos, bool doTrace, float degrees )
+{
+	float minDot = deg_cos( degrees )
+	float dot = DotProduct( Normalize( pos - npc.EyePosition() ), npc.GetPlayerOrNPCViewVector() )
+	if ( dot < minDot )
+		return false
+
+	if ( doTrace )
+	{
+		TraceResults trace = TraceLine( npc.EyePosition(), pos, null, TRACE_MASK_BLOCKLOS, TRACE_COLLISION_GROUP_NONE )
+		if ( trace.fraction < 0.99 )
+			return false
+	}
+
+	return true
+}
+
+void function AiTurretGrunt_NPCPlacementSettings( entity npc, string aiSettings, asset model = $"", string weapon = "" )
+{
+	NPCTurretPlacementSettings placementSettings
+
+	placementSettings.aiSettings = aiSettings
+	placementSettings.modelName = model == $"" ? NPC_TURRET_PLACEMENT_DEFAULT_MODEL : model
+	placementSettings.weaponName = weapon == $"" ? NPC_TURRET_PLACEMENT_DEFAULT_WEAPON : weapon
+
+    if ( !( npc in file.npcTurretSettingsOverride ) )
+		file.npcTurretSettingsOverride[ npc ] <- placementSettings
+	else
+		file.npcTurretSettingsOverride[ npc ] = placementSettings
+}
+
+string function GetNPCTurretPlaceAiSettings( entity npc )
+{
+	if ( !( npc in file.npcTurretSettingsOverride ) )
+		return NPC_TURRET_PLACEMENT_DEFAULT_AISET
+	
+	return file.npcTurretSettingsOverride[ npc ].aiSettings
+}
+
+asset function GetNPCTurretPlaceModel( entity npc )
+{
+	if ( !( npc in file.npcTurretSettingsOverride ) )
+		return NPC_TURRET_PLACEMENT_DEFAULT_MODEL
+	
+	return file.npcTurretSettingsOverride[ npc ].modelName
+}
+
+string function GetNPCTurretPlaceWeapon( entity npc )
+{
+	if ( !( npc in file.npcTurretSettingsOverride ) )
+		return NPC_TURRET_PLACEMENT_DEFAULT_WEAPON
+	
+	return file.npcTurretSettingsOverride[ npc ].weaponName
+}
+
+void function AddCallback_OnNPCPlaceTurret( void functionref( entity npc, entity turret ) callbackFunc )
+{
+	if ( !file.onNPCPlaceTurretCallbacks )
+		file.onNPCPlaceTurretCallbacks.append( callbackFunc )
+}
+
+void function AddTurretSpawnProtection( entity turret )
+{
+	vector forward = turret.GetForwardVector()
+
+	float maxDistPilot = turret.GetMaxEnemyDist() + 256
+	float maxDistPilotSq = maxDistPilot * maxDistPilot
+	float maxDistTitan = turret.GetMaxEnemyDistHeavyArmor() + 256
+	float maxDistTitanSq = maxDistTitan * maxDistTitan
+
+	float yaw = turret.GetMaxTurretYaw() + 5
+	float mindot = deg_cos( yaw )
+
+	vector turretPos = turret.EyePosition()
+
+	array<entity> negatedSpawnpoints
+
+	foreach ( spawnpoint in svSpawnGlobals.allNormalSpawnpoints )
+	{
+		if ( !IsValid( spawnpoint ) )
+			continue
+
+		vector spawnpointPos = spawnpoint.GetOrigin()
+		vector offset = spawnpointPos - turretPos
+		offset.z = 0
+		float distSq = offset.LengthSqr()
+
+		if ( spawnpoint.GetClassName() == "info_spawnpoint_titan" )
+		{
+			if ( distSq > maxDistTitanSq )
+				continue
+			spawnpointPos.z += 185.0
+		}
+		else
+		{
+			if ( distSq > maxDistPilotSq )
+				continue
+			spawnpointPos.z += 60.0
+		}
+
+		offset.Normalize()
+
+		float dot = DotProduct( offset, forward )
+		if ( dot < mindot )
+			continue
+
+		TraceResults trace = TraceLineNoEnts( turretPos, spawnpointPos, TRACE_MASK_SHOT )
+		if ( trace.fraction < 1.0 )
+			continue
+
+		spawnpoint.sp.visibleToTurret.append( turret )
+		negatedSpawnpoints.append( spawnpoint )
+	}
+
+	thread ClearTurretSpawnProtection( turret, negatedSpawnpoints )
+}
+
+void function ClearTurretSpawnProtection( entity turret, array<entity> negatedSpawnpoints )
+{
+	turret.WaitSignal( "OnDestroy" )
+
+	foreach ( spawnpoint in negatedSpawnpoints )
+	{
+		spawnpoint.sp.visibleToTurret.fastremovebyvalue( turret )
+	}
+}

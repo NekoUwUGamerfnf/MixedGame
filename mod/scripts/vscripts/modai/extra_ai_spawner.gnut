@@ -378,6 +378,8 @@ struct
 	bool damageHandledByDieOnAnyDamageImmune
 	float dieOnAnyDamageImmuneActualDamage
 	table<entity, bool> npcEnabledNoPainOnDamage
+	// npc specialist grunts
+	array<entity> specialistGruntOwnedTurrets
 
 	// in-file only variables
 	// care package, for limiting player care package usages
@@ -472,6 +474,9 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "StandUnboardedTitan" )
 	// npc weapon switch
 	RegisterSignal( "ScriptedWeaponSwitch" )
+	// specialist grunts
+	AddCallback_OnNPCPlaceTurret( OnNPCPlaceTurret )
+	AddDamageByCallback( "npc_turret_sentry", OnSentryTurretDamageTarget )
 
 	AddCallback_OnClientConnected( OnClientConnected )
 	// this should be in _ai_pilots.gnut
@@ -660,7 +665,8 @@ void function OnStalkerSpawned( entity stalker )
 	}
 }
 
-// this is kinda weird logic... could've reset models in ExtraSpawner_SpawnGunShip()
+// this is logic is to prevent mess up modelFX
+// but it looks all good, so now we reset models in ExtraSpawner_SpawnGunShip()
 /*
 void function OnGunshipSpawned( entity gunship )
 {
@@ -5746,6 +5752,21 @@ const array<string> ELITE_GUARD_VALID_WEAPONS =
 	"mp_weapon_wingman_n",
 ]
 
+// npc turret placement
+const string NPC_PLACED_TURRET_AISETTINGS = "npc_turret_sentry"
+const float NPC_PLACED_TURRET_ACCURACY = 0.5
+const float NPC_PLACED_TURRET_HEALTH_MULTIPLIER = 0.75
+const float NPC_PLACED_TURRET_DAMAGE_SCALE = 0.25
+const float NPC_PLACED_TURRET_DAMAGE_SCALE_HEAVYARMOR = 0.75
+
+const table<asset, string> SENTRY_TURRET_PLACEMENT_DATA =
+[
+	[PLASMA_TURRET_MODEL]	= ["mp_weapon_turretplasma"]
+	[ROCKET_TURRET_MODEL]	= ["mp_weapon_yh803"]
+	// hitscan turret maybe a bit annoying...
+	//[HITSCAN_TURRET_MODEL]	= ["mp_weapon_yh803_bullet"]
+]
+
 void function SetUpSpecialistGrunt( entity npc, string aiSet )
 {
 	// hardcoded here..
@@ -5870,6 +5891,24 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			npc.DisableNPCFlag( NPC_CROUCH_COMBAT ) // pistol activity don't have crouch animations, disable crouch combat
 
 			break
+
+		case "npc_soldier_training_sentry": // turret grunt
+			npc.SetModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
+
+			npc.SetTitle( "哨兵砲塔步兵" )
+
+			// setup turret placement
+			array<asset> validTurretModels
+			foreach ( asset model, string weapon in SENTRY_TURRET_PLACEMENT_DATA )
+				validTurretModels.append( model )
+
+			asset model = validTurretModels[ RandomInt( validTurretModels.len() ) ]
+			string weapon = SENTRY_TURRET_PLACEMENT_DATA[ model ]
+			AiTurretGrunt_NPCPlacementSettings( npc, NPC_PLACED_TURRET_AISETTINGS, model, weapon )
+
+			thread TurretGruntThink( npc ) // start turret placement think
+
+			break
 	}
 }
 
@@ -5883,6 +5922,35 @@ void function WaitForShieldCaptainDrop( entity npc )
 		WaitFrame()
 
 	thread ActivatePersonalShield( npc )
+}
+
+void function OnNPCPlaceTurret( entity npc, entity turret )
+{
+	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( npc ) )
+		return
+
+	// update turret settings
+	turret.kv.AccuracyMultiplier = NPC_PLACED_TURRET_ACCURACY
+	int maxHealth = turret.GetMaxHealth()
+	turret.SetMaxHealth( maxHealth * NPC_PLACED_TURRET_HEALTH_MULTIPLIER )
+	turret.SetHealth( maxHealth * NPC_PLACED_TURRET_HEALTH_MULTIPLIER )
+
+	// mark as this turret is spawned by npcs from this file
+	file.specialistGruntOwnedTurrets.append( turret )
+}
+
+void function OnSentryTurretDamageTarget( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+	// only handle turrets spawned by specialist grunts
+	// welp, I feel like projectile turret can sometimes be destroyed and make us can't get what we need...
+	if ( !file.specialistGruntOwnedTurrets.contains( attacker ) )
+		return
+
+	float damageScale = victim.GetArmorType() == ARMOR_TYPE_HEAVY ? NPC_PLACED_TURRET_DAMAGE_SCALE_HEAVYARMOR : NPC_PLACED_TURRET_DAMAGE_SCALE
+	DamageInfo_ScaleDamage( damageInfo, damageScale )
 }
 
 // prowler squad: 2 cqb prowler with 3 small prowlers
@@ -6196,8 +6264,6 @@ void function ExtraSpawner_SpawnGunShip( vector pos, vector rot, int team )
 	HideName( animGunship ) // this gunship will be deleted soon, never show it's name
 	
 	ExtraSpawner_SetUpSpawnedNPC( animGunship ) // generic setup for any npc in this file. adding this mark so we can update gunship's model on their spawn
-	// this is kinda weird logic... now reset model in our function
-	// no need to update model keyvalues
 	//file.gunshipForcedSpawnModel[ animGunship ] <- gunshipModel // assign forced model
 	animGunship.SetModel( gunshipModel )
 	DispatchSpawn( animGunship )
