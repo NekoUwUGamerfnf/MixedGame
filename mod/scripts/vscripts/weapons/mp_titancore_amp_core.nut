@@ -117,6 +117,11 @@ var function OnWeaponNPCPrimaryAttack_AmpCore( entity weapon, WeaponPrimaryAttac
 		OnAbilityStart_TitanCore( weapon )
 	}
 
+	entity owner = weapon.GetWeaponOwner()
+	entity soul = owner.GetTitanSoul()
+	if ( soul != null )
+		CleanupCoreEffect( soul )
+
 	weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, damageTypes.largeCaliber | DF_STOPS_TITAN_REGEN )
 
 	return 1
@@ -143,8 +148,9 @@ var function OnWeaponPrimaryAttack_AmpCore( entity weapon, WeaponPrimaryAttackPa
 
 #if SERVER
 	// don't really understand this, why we have to remove core effect for burst core?
-	//if ( soul != null )
-	//	CleanupCoreEffect( soul )
+	// maybe to keep identical with flame core? whatever I don't care
+	if ( soul != null )
+		CleanupCoreEffect( soul )
 #endif
 
 	// OnWeaponPrimaryAttack_titanweapon_predator_cannon( weapon, attackParams )
