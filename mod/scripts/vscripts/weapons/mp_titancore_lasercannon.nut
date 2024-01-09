@@ -573,7 +573,7 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 bool function NPCInValidFakeLaserCoreState( entity npc )
 {
 	if ( npc in file.entUsingFakeLaserCore ) // don't run this instance multiple times
-		return
+		return false
 	
 	// HACK: npc sometimes call OnAbilityStart_LaserCannon() right after animation starts
 	// don't want that weird behavior to happen, use timer for handling
@@ -582,10 +582,13 @@ bool function NPCInValidFakeLaserCoreState( entity npc )
 
 	// function from modified _melee_synced_titan.gnut
 	if ( MeleeSyncedTitan_GetTitanExecutionStartTime( npc ) == -1 ) // invalid timer!
-		return
+		return false
 	float executionProcessTime = Time() - MeleeSyncedTitan_GetTitanExecutionStartTime( npc )
 	if ( executionProcessTime < animEventTime )
-		return
+		return false
+
+	// all checks passed
+	return true
 }
 #endif
 
