@@ -298,13 +298,25 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 	if ( weapon.HasMod( "tesla_core" ) ) // tesla core don't have a sustained laser
 		return true
 
+	// modded check
+	entity player = weapon.GetWeaponOwner()
+	// if owner npc is playing animation, we only run function if npc can use fake laser core
+#if SERVER
+	if ( player.IsNPC() && player.Anim_IsActive() )
+	{
+		if ( !NPCInValidFakeLaserCoreState( player ) )
+			return true
+	}
+#endif
+
 	// vanilla behavior
 	OnAbilityStart_TitanCore( weapon )
 
 #if SERVER
 	weapon.e.onlyDamageEntitiesOncePerTick = true
 
-	entity player = weapon.GetWeaponOwner()
+	// moved up
+	//entity player = weapon.GetWeaponOwner()
 	float stunDuration = weapon.GetSustainedDischargeDuration()
 	float fadetime = 2.0
 	entity soul = player.GetTitanSoul()
@@ -377,19 +389,8 @@ bool function OnAbilityStart_LaserCannon( entity weapon )
 #if SERVER
 void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 {
-	if ( owner in file.entUsingFakeLaserCore ) // don't run this instance multiple times
-		return
-	
-	// HACK: npc sometimes call OnAbilityStart_LaserCannon() right after animation starts
-	// don't want that weird behavior to happen, use timer for handling
-	// { event AE_OFFHAND_BEGIN 118 "mp_titancore_laser_cannon" }( fps 30 )
-	const float animEventTime = ( 118.0 / 30 ) - 0.5 // minus 0.5s to avoid we get bad float value
-
-	// function from modified _melee_synced_titan.gnut
-	if ( MeleeSyncedTitan_GetTitanExecutionStartTime( owner ) == -1 ) // invalid timer!
-		return
-	float executionProcessTime = Time() - MeleeSyncedTitan_GetTitanExecutionStartTime( owner )
-	if ( executionProcessTime < animEventTime )
+	// general check
+	if ( !NPCInValidFakeLaserCoreState( owner ) )
 		return
 
 	owner.EndSignal( "OnDeath" )
@@ -567,6 +568,24 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 
 		WaitFrame()
 	}
+}
+
+bool function NPCInValidFakeLaserCoreState( entity npc )
+{
+	if ( npc in file.entUsingFakeLaserCore ) // don't run this instance multiple times
+		return
+	
+	// HACK: npc sometimes call OnAbilityStart_LaserCannon() right after animation starts
+	// don't want that weird behavior to happen, use timer for handling
+	// { event AE_OFFHAND_BEGIN 118 "mp_titancore_laser_cannon" }( fps 30 )
+	const float animEventTime = ( 118.0 / 30 ) - 0.5 // minus 0.5s to avoid we get bad float value
+
+	// function from modified _melee_synced_titan.gnut
+	if ( MeleeSyncedTitan_GetTitanExecutionStartTime( npc ) == -1 ) // invalid timer!
+		return
+	float executionProcessTime = Time() - MeleeSyncedTitan_GetTitanExecutionStartTime( npc )
+	if ( executionProcessTime < animEventTime )
+		return
 }
 #endif
 
