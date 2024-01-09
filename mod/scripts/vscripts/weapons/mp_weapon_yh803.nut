@@ -47,6 +47,11 @@ var function OnWeaponNpcPrimaryAttack_yh803Rocket( entity weapon, WeaponPrimaryA
 		// entity weaponOwner = weapon.GetOwner()
 		// entity target = weaponOwner.GetEnemy()
 		// SetMissileTarget( missile, target, weaponOwner )
+
+		// modified here: helps us get correct damageSourceId display name
+		#if SERVER
+			missile.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_turretrockets )
+		#endif
 	}
 
 	// modified here: do reduced effect for sentry turrets
