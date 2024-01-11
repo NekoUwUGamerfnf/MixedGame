@@ -29,17 +29,21 @@ const SHOCK_HOLD_EFFECT = $"arcTrap_CH_arcs_large"
 const SHOCK_RELEASE_EFFECT_FP = $"P_wpn_muzzleflash_epg_FP"
 const SHOCK_RELEASE_EFFECT = $"P_wpn_muzzleflash_epg"
 
-// shock shield color: keep light blue colored
+// shock shield color: keep purple colored
 const SHOCK_SHIELD_VORTEX_COLOR = < 155, 155, 200 >
 const SHOCK_SHIELD_VORTEX_COLOR_KIT = < 155, 155, 255 >
 
+// modified: use data shared from modified _vortex.nut
+// welp, seems no where uses this because shock shield won't refire projectile
+// if whenever needs to use it, be sure to use GetVortexIgnoreClassnames() and GetVortexIgnoreWeaponMods()
+/*
 const VortexIgnoreClassnames = {
 	["mp_titancore_flame_wave"] = true,
 	["mp_ability_grapple"] = true,
 	["mp_ability_flame_wave"] = true,
 	["mp_titancore_storm_core"] = true,
 }
-
+*/
 
 // we're now setup stuffs in mod.json, return type should be void
 void function MpTitanWeaponShockShield_Init()
