@@ -142,24 +142,37 @@ void function TrackLaserCoreDuration( entity titan, entity weapon )
 // modified callbacks
 void function OnWeaponActivate_LaserCannon( entity weapon )
 {
+	if ( weapon.HasMod( "archon_storm_core" ) )
+		return OnWeaponActivate_StormCore( weapon )
+}
 
+void function OnWeaponDeactivate_LaserCannon( entity weapon )
+{
+	if ( weapon.HasMod( "archon_storm_core" ) )
+		return OnWeaponDeactivate_StormCore( weapon )
 }
 
 var function OnWeaponPrimaryAttack_LaserCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+	if ( weapon.HasMod( "archon_storm_core" ) )
+		return OnWeaponPrimaryAttack_StormCore( weapon )
 	if ( weapon.HasMod( "tesla_core" ) )
 		return OnAbilityStart_Tesla_Core( weapon, attackParams )
 }
 
 void function OnProjectileCollision_LaserCannon( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
-
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
+	if ( mods.contains( "archon_storm_core" ) )
+		return OnProjectileCollision_StormCore( weapon )
 }
 //
 
 bool function OnAbilityCharge_LaserCannon( entity weapon )
 {
 	// modded weapon
+	if ( weapon.HasMod( "archon_storm_core" ) )
+		return OnAbilityCharge_StormCore( weapon )
 	if ( weapon.HasMod( "tesla_core" ) )
 		return OnCoreCharge_Tesla_Core( weapon )
 	//
@@ -254,6 +267,8 @@ bool function OnAbilityCharge_LaserCannon( entity weapon )
 void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 {
 	// modded weapon
+	if ( weapon.HasMod( "archon_storm_core" ) )
+		return OnAbilityChargeEnd_StormCore( weapon )
 	if ( weapon.HasMod( "tesla_core" ) )
 		return OnCoreChargeEnd_Tesla_Core( weapon )
 	//
@@ -295,8 +310,11 @@ void function OnAbilityChargeEnd_LaserCannon( entity weapon )
 bool function OnAbilityStart_LaserCannon( entity weapon )
 {
 	// modded weapon
+	if ( weapon.HasMod( "archon_storm_core" ) ) // storm core don't have a sustained laser
+		return true
 	if ( weapon.HasMod( "tesla_core" ) ) // tesla core don't have a sustained laser
 		return true
+	//
 
 	// modded check
 	entity player = weapon.GetWeaponOwner()
@@ -595,6 +613,8 @@ bool function NPCInValidFakeLaserCoreState( entity npc )
 void function OnAbilityEnd_LaserCannon( entity weapon )
 {
 	// modded weapon
+	if ( weapon.HasMod( "archon_storm_core" ) ) // storm core don't have a sustained laser
+		return
 	if ( weapon.HasMod( "tesla_core" ) ) // tesla core don't have a sustained laser
 		return
 	//

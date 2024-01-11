@@ -9,6 +9,7 @@ global function DamageShieldsInRadiusOnEntity
 #endif
 
 global function OnWeaponActivate_StormCore
+global function OnWeaponDeactivate_StormCore
 global function OnAbilityCharge_StormCore
 global function OnAbilityChargeEnd_StormCore
 global function OnWeaponPrimaryAttack_StormCore
@@ -33,6 +34,9 @@ void function MpTitanWeaponStormCore_Init()
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titancore_storm_core, StormCore_DamagedTarget )
 		//prevent player earning coremeter by storm core 
 		GameModeRulesRegisterTimerCreditException( eDamageSourceId.mp_titancore_storm_core )
+
+		// modified utility in _vortex.nut
+		RegisterNewVortexIgnoreWeaponMod( "archon_storm_core", true )
 	#endif
 }
 
@@ -44,6 +48,30 @@ void function OnWeaponActivate_StormCore( entity weapon )
 	OnAbilityCharge_TitanCore( weapon )
 }
 
+void function OnWeaponDeactivate_StormCore( entity weapon )
+{
+	#if SERVER
+		// taken from salvo core behavior
+		if ( weapon.GetWeaponClassName() == "mp_titancore_laser_cannon" )
+		{
+			entity owner = weapon.GetWeaponOwner()
+			if ( owner.IsNPC() && IsAlive( owner ) )
+			{
+				owner.SetVelocity( <0,0,0> )
+
+				// modified checks for animations, anti-crash
+				if ( TitanShouldPlayAnimationForStormCore_LaserCoreMod( owner ) )
+				{
+					titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.1 )
+				}
+
+				// reset again at end so titan doesn't go to evasive mode
+				owner.ResetHealthChangeRate()
+			}
+		}
+	#endif
+}
+
 bool function OnAbilityCharge_StormCore( entity weapon )
 {
 	#if SERVER
@@ -52,21 +80,98 @@ bool function OnAbilityCharge_StormCore( entity weapon )
 		entity soul = owner.GetTitanSoul()
 		if ( soul == null )
 			soul = owner
-		StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime, 0 )
-		StatusEffect_AddTimed( owner, eStatusEffect.dodge_speed_slow, 0.6, chargeTime, 0 )
+
+		// now adding two variantions of storm core: flame core & laser core
+		// it's hardcoded
+		if ( weapon.GetWeaponClassName() == "mp_titancore_flame_wave" )
+		{
+			StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime, 0 )
+			StatusEffect_AddTimed( owner, eStatusEffect.dodge_speed_slow, 0.6, chargeTime, 0 )
+		}
+		else if ( weapon.GetWeaponClassName() == "mp_titancore_laser_cannon" )
+		{
+			// modified here: change slow effect duration to match chargeTime
+			// so titan won't be able to sprint while using core
+			// that case will make titan have bad moving animation
+			//StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime, 0 )
+			StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime * 1.5, 0.35 )
+			StatusEffect_AddTimed( owner, eStatusEffect.dodge_speed_slow, 0.6, chargeTime, 0 )
+		}
+
+		// use eStatusEffect.emp as damage amp effect
 		StatusEffect_AddTimed( owner, eStatusEffect.emp, 0.05, chargeTime*1.5, 0.35 )
-		StatusEffect_AddTimed( soul, eStatusEffect.damageAmpFXOnly, 1.0, chargeTime, 0 )
+		//StatusEffect_AddTimed( soul, eStatusEffect.damageAmpFXOnly, 1.0, chargeTime, 0 )
 
 		if ( owner.IsPlayer() )
 			owner.SetTitanDisembarkEnabled( false )
-		// removing this: don't work at all because we already got "special_3p_attack_anim" enabled
-		// adding this will cause buddy titans unable to use storm core
-		//else
-		//	owner.Anim_ScriptedPlay( "at_antirodeo_anim_fast" )
+		
+		if ( weapon.GetWeaponClassName() == "mp_titancore_flame_wave" )
+		{
+			// removing this: don't work at all because we already got "special_3p_attack_anim" enabled
+			// adding this will cause buddy titans unable to use flame core
+			// RETHINK: does this prevents npc from accidentally cancel their animation? by adding a scripted anim
+			// maybe we should chek chassis before playing animation, just like what I've done for laser core and salvo core
+			//else
+			//	owner.Anim_ScriptedPlay( "at_antirodeo_anim_fast" )
+
+			// new fixed think
+			if ( owner.IsNPC() )
+			{
+				if ( TitanShouldPlayAnimationForStormCore_FlameCoreMod( owner ) )
+					owner.Anim_ScriptedPlay( "at_antirodeo_anim_fast" )
+			}
+		}
+		else if ( weapon.GetWeaponClassName() == "mp_titancore_laser_cannon" )
+		{
+			
+			StatusEffect_AddTimed( owner, eStatusEffect.emp, 0.05, chargeTime*1.5, 0.35 )
+			//StatusEffect_AddTimed( owner, eStatusEffect.damageAmpFXOnly, 1.0, chargeTime, 0 )
+
+			if ( owner.IsPlayer() )
+				owner.SetTitanDisembarkEnabled( false )
+		
+			// use atlas core animation for titan
+			if ( owner.IsNPC() )
+			{
+				if ( TitanShouldPlayAnimationForStormCore_LaserCoreMod( owner ) )
+					owner.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_START", true, 0.1 )
+			}
+		}
 	#endif
 
 	return true
 }
+
+// modified functions
+#if SERVER
+// wants to limit animations to ogre-chassis only, in case we want to use it for other titans
+bool function TitanShouldPlayAnimationForStormCore_FlameCoreMod( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		string titanType = GetSoulTitanSubClass( soul )
+		if ( titanType == "ogre" )
+			return true
+	}
+
+	return false
+}
+
+// wants to limit animations to atlas-chassis only, in case we want to use it for other titans
+bool function TitanShouldPlayAnimationForStormCore_LaserCoreMod( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		string titanType = GetSoulTitanSubClass( soul )
+		if ( titanType == "atlas" )
+			return true
+	}
+
+	return false
+}
+#endif
 
 void function OnAbilityChargeEnd_StormCore( entity weapon )
 {
@@ -83,14 +188,18 @@ void function OnAbilityChargeEnd_StormCore( entity weapon )
 		if ( owner.IsPlayer() )
 			owner.Server_TurnOffhandWeaponsDisabledOff()
 
-		if ( owner.IsNPC() && IsAlive( owner ) )
+		// flame core only animation think
+		if ( weapon.GetWeaponClassName() == "mp_titancore_flame_wave" )
 		{
-			owner.Anim_Stop()
-		}
+			if ( owner.IsNPC() && IsAlive( owner ) )
+			{
+				owner.Anim_Stop()
+			}
 
-		// shared from special_3p_attack_anim_fix.gnut
-		// fix atlas chassis animation
-		HandleSpecial3pAttackAnim( owner, weapon, 1.0, OnWeaponPrimaryAttack_StormCore, true )
+			// shared from special_3p_attack_anim_fix.gnut
+			// fix atlas chassis animation
+			HandleSpecial3pAttackAnim( owner, weapon, 1.0, OnWeaponPrimaryAttack_StormCore, true )
+		}
 
 	#endif // #if SERVER
 }
@@ -118,18 +227,26 @@ var function OnWeaponPrimaryAttack_StormCore( entity weapon, WeaponPrimaryAttack
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.5 )
 
 		entity owner = weapon.GetWeaponOwner()
-		if ( owner.IsNPC() )
+
+		// removing npc specific think for laser core variant, maybe
+		if ( weapon.GetWeaponClassName() == "mp_titancore_flame_wave" )
 		{
-			vector attackAngles = VectorToAngles( attackParams.dir )
-			attackAngles.x = -10 // move up attack angle a little bit for npcs( was -20 )
-			attackAngles.z = 0
-			attackParams.dir = AnglesToForward( attackAngles )
+			if ( owner.IsNPC() )
+			{
+				vector attackAngles = VectorToAngles( attackParams.dir )
+				attackAngles.x = -10 // move up attack angle a little bit for npcs( was -20 )
+				attackAngles.z = 0
+				attackParams.dir = AnglesToForward( attackAngles )
+			}
 		}
 
-      	FireStormBall( weapon, attackParams.pos, attackParams.dir, shouldPredict)
+		// move this out of serverside-only case
+      	//FireStormBall( weapon, attackParams.pos, attackParams.dir, shouldPredict)
 	#elseif CLIENT
 		ClientScreenShake( 8.0, 10.0, 1.0, Vector( 0.0, 0.0, 0.0 ) )
 	#endif
+
+	FireStormBall( weapon, attackParams.pos, attackParams.dir, shouldPredict )
 
 	return 1
 }
@@ -367,7 +484,9 @@ void function StormCoreSmokescreen( entity bolt, asset fx, entity owner )
 array<entity> function DamageShieldsInRadiusOnEntity( entity weapon, entity inflictor, float radius, float damage )
 {
 	array<entity> damagedEnts = [] // used so that we only damage a shield once per function call
-	array<string> shieldClasses = [ "mp_titanweapon_vortex_shield", "mp_titanweapon_shock_shield", "mp_titanweapon_heat_shield", "mp_titanability_brute4_bubble_shield" ] // add shields that are like vortex shield/heat shield to this, they seem to be exceptions?
+	// modifying this array, to make it include only vanilla weapon classes
+	//array<string> shieldClasses = [ "mp_titanweapon_vortex_shield", "mp_titanweapon_shock_shield", "mp_titanweapon_heat_shield", "mp_titanability_brute4_bubble_shield" ] // add shields that are like vortex shield/heat shield to this, they seem to be exceptions?
+	array<string> shieldClasses = [ "mp_titanweapon_shock_shield", "mp_titanweapon_vortex_shield_ion", "mp_titanweapon_heat_shield" ]
 
 	// not ideal
 	foreach ( entity shield in GetEntArrayByClass_Expensive( "vortex_sphere" ) )
