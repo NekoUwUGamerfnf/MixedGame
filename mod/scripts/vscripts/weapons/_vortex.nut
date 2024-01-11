@@ -8,6 +8,12 @@ global function EnableVortexSphere
 // northstar modified utility
 global function RegisterNewVortexIgnoreClassname
 global function RegisterNewVortexIgnoreClassnames
+// mods ignoring
+global function RegisterNewVortexIgnoreWeaponMod
+global function RegisterNewVortexIgnoreWeaponMods
+// let modded vortex weapon get what we ignoring
+global function GetVortexIgnoreClassnames
+global function GetVortexIgnoreWeaponMods
 //
 #if SERVER
 global function ValidateVortexImpact
@@ -86,12 +92,17 @@ global const VORTEX_REFIRE_GRENADE				= "grenade"
 global const VORTEX_REFIRE_GRENADE_LONG_FUSE	= "grenade_long_fuse"
 
 // northstar modified utility
+// const VortexIgnoreClassnames
 table<string, bool> VortexIgnoreClassnames = {
 	["mp_titancore_flame_wave"] = true,
 	["mp_ability_grapple"] = true,
 	["mp_ability_shifter"] = true,
 }
 //
+
+// modified utility: allow ignore specific weapon mod
+// vanilla should be empty
+table<string, bool> VortexIgnoreWeaponMods
 
 // nessie modified utility
 global function Vortex_GetRefiredProjectileMods
@@ -226,6 +237,18 @@ void function RegisterNewVortexIgnoreClassname(string classname, bool shouldigno
 //
 
 // nessie modified utility
+void function RegisterNewVortexIgnoreWeaponMod( table<string, bool> classTable )
+{
+	foreach( string modname, bool shouldignore in classTable )
+	{
+		RegisterNewVortexIgnoreWeaponMod( modname, shouldignore )
+	}
+}
+void function RegisterNewVortexIgnoreWeaponMod( string modname, bool shouldignore )
+{
+	VortexIgnoreWeaponMods[ modname ] <- shouldignore
+}
+
 array<string> function Vortex_GetRefiredProjectileMods( entity projectile )
 {
 	if ( !( projectile in file.vortexRefiredProjectileMods ) )
@@ -970,6 +993,20 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 	if ( weaponName in VortexIgnoreClassnames && VortexIgnoreClassnames[weaponName] )
 		return false
 
+	// modded utility
+	entity weaponOrProjectile = impactType == "hitscan" ? weapon : projectile
+	// weapon mods check
+	if ( IsValid( weaponOrProjectile ) )
+	{
+		array<string> mods = weaponOrProjectile.IsProjectile() ? Vortex_GetRefiredProjectileMods( weaponOrProjectile ) : weaponOrProjectile.GetMods()
+		foreach ( string mod in mods )
+		{
+			if ( mod in VortexIgnoreWeaponMods && VortexIgnoreWeaponMods[ mod ] )
+				return false
+		}
+	}
+	//
+
 	entity vortexWeapon = vortexSphere.GetOwnerWeapon()
 	entity owner = vortexWeapon.GetWeaponOwner()
 
@@ -978,7 +1015,7 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 	{
 		if ( impactType == "hitscan" )
 			Vortex_ClampAbsorbedBulletCount( vortexWeapon )
-		else
+		else if ( impactType == "projectile" ) // changed to use else if() case
 			Vortex_ClampAbsorbedProjectileCount( vortexWeapon )
 	}
 
@@ -1058,9 +1095,8 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 			EmitSoundAtPosition( TEAM_UNASSIGNED, origin, impact_sound_3p )
 	}
 
-	// modified to add callbacks
+	// modified to add callback compatible
 	//local impactData = Vortex_CreateImpactEventData( vortexWeapon, attacker, origin, damageSourceID, weaponName, impactType )
-	entity weaponOrProjectile = impactType == "hitscan" ? weapon : projectile
 	local impactData = Vortex_CreateImpactEventData( vortexWeapon, attacker, origin, damageSourceID, weaponName, impactType, weaponOrProjectile )
 
 	VortexDrainedByImpact( vortexWeapon, weapon, projectile, damageType )
@@ -1082,7 +1118,7 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 
 	if ( impactType == "hitscan" )
 		vortexSphere.AddBulletToSphere();
-	else
+	else if ( impactType == "projectile" ) // changed to use else if() case
 		vortexSphere.AddProjectileToSphere();
 
 	// nessie note: I don't think this works best for shotgun bullets...
