@@ -1197,7 +1197,7 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 		// Max projectile stat tracking
 		int projectilesInVortex = 1
 		//projectilesInVortex += vortexWeapon.w.vortexImpactData.len()
-		projectilesInVortex += Vortex_GetAllImpactEvents( vortexWeapon ).len()
+		projectilesInVortex += int( Vortex_GetAllImpactEvents( vortexWeapon ).len() )
 
 		if ( IsValid( owner ) && owner.IsPlayer() )
 		{
