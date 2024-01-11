@@ -28,8 +28,9 @@ function MpTitanweaponVortexShield_Init()
 {
 	VortexShieldPrecache()
 
-	RegisterSignal( "DisableAmpedVortex" )
-	RegisterSignal( "FireAmpedVortexBullet" )
+	// to fix bad vortex refiring, this is removed
+	//RegisterSignal( "DisableAmpedVortex" )
+	//RegisterSignal( "FireAmpedVortexBullet" )
 }
 
 function VortexShieldPrecache()
@@ -104,8 +105,11 @@ void function OnWeaponActivate_titanweapon_vortex_shield( entity weapon )
 	}
 
 	#if SERVER
+		// to fix bad vortex refiring, this is removed
+		/*
 		if ( weapon.GetWeaponSettingBool( eWeaponVar.is_burn_mod ) )
 			thread AmpedVortexRefireThink( weapon )
+		*/
 	#endif
 }
 
@@ -118,8 +122,9 @@ void function OnWeaponDeactivate_titanweapon_vortex_shield( entity weapon )
 	// vanilla behavior
 	EndVortex( weapon )
 
-	if ( weapon.GetWeaponSettingBool( eWeaponVar.is_burn_mod ) )
-		weapon.Signal( "DisableAmpedVortex" )
+	// to fix bad vortex refiring, this is removed
+	//if ( weapon.GetWeaponSettingBool( eWeaponVar.is_burn_mod ) )
+	//	weapon.Signal( "DisableAmpedVortex" )
 }
 
 void function OnWeaponCustomActivityStart_titanweapon_vortex_shield( entity weapon )
@@ -181,6 +186,8 @@ function StartVortex( entity weapon )
 	#endif
 }
 
+// to fix bad vortex refiring, this is removed
+/*
 // this needs to rework and should be fully handled by VortexReflectAttack()
 function AmpedVortexRefireThink( entity weapon )
 {
@@ -201,6 +208,7 @@ function AmpedVortexRefireThink( entity weapon )
 		}
 	}
 }
+*/
 
 function ForceReleaseOnPlayerEject( entity weapon )
 {

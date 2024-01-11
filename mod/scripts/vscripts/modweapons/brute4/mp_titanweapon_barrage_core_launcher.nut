@@ -35,8 +35,41 @@ void function MpTitanWeaponBarrageCoreLauncher_Init()
 		$"wpn_vortex_projectile_frag", // absorb effect 3p
 		"grenade" // refire behavior
 	)
+
+	// vortex refire callback
+	AddCallback_OnProjectileRefiredByVortex_ClassName( "mp_titanweapon_flightcore_rockets", OnBarrageCoreRefireByVortex )
+
+	// maybe shouldn't add this, not necessary for brute4 because it can break vortex sphere very easily?
+	//AddCallback_OnVortexHitProjectile( OnVortexHitProjectile_BarrageCoreLauncher )
 #endif
 }
+
+#if SERVER
+void function OnBarrageCoreRefireByVortex( entity projectile, entity vortexWeapon )
+{
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
+	if ( mods.contains( "brute4_barrage_core_launcher" ) )
+		SetUpEffectsForBarrageCoreGrenade( projectile )
+}
+
+void function OnVortexHitProjectile_BarrageCoreLauncher( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos )
+{
+	if ( projectile.ProjectileGetWeaponClassName() == "mp_titanweapon_flightcore_rockets" )
+	{
+		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
+		
+		// modded weapon
+		if ( mods.contains( "brute4_barrage_core_launcher" ) )
+		{
+			// same build as respawn's hardcode in CodeCallback_OnVortexHitProjectile()
+			vector normal = projectile.GetVelocity() * -1
+			normal = Normalize( normal )
+			// trigger it's cluster explosion
+			StartClusterAfterDelay( projectile, normal )
+		}
+	}
+}
+#endif
 
 var function OnWeaponPrimaryAttack_titanweapon_barrage_core_launcher( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
@@ -72,20 +105,27 @@ var function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams,
 			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_titanweapon_barrage_core_launcher ) // change damageSourceID
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
-
-			// hide default trail, so clients without scripts installed won't show flight core rocket launcher's trails
-			nade.SetReducedEffects()
 		#else
 			entity weaponOwner = weapon.GetWeaponOwner()
-			SetTeam( nade, weaponOwner.GetTeam() )
+			SetTeam( nade, weaponOwner.GetTeam() ) // helps magnetic find target?
 		#endif
 
-		// fix for trail effect, so clients without scripts installed can see the trail
-		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"Rocket_Smoke_SMALL_Titan_mod" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_sonar_titan_AMP" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_frag_softball_burn" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+		
 	}
 	return 1
+}
+
+void function SetUpEffectsForBarrageCoreGrenade( entity nade )
+{
+	#if SERVER
+		// hide default trail, so clients without scripts installed won't show flight core rocket launcher's trails
+		nade.SetReducedEffects()
+	#endif
+
+	// fix for trail effect, so clients without scripts installed can see the trail
+	StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"Rocket_Smoke_SMALL_Titan_mod" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_sonar_titan_AMP" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"wpn_grenade_frag_softball_burn" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 }
 
 void function OnProjectileCollision_titanweapon_barrage_core_launcher( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )

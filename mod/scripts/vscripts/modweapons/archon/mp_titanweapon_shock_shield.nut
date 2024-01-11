@@ -161,17 +161,11 @@ void function OnWeaponActivate_titanweapon_shock_shield( entity weapon )
 		Assert( !( "isVortexing" in weaponOwner.s ), "NPC trying to vortex before cleaning up last vortex" )
 		StartVortex( weapon )
 	}
-
-	#if SERVER
-		thread AmpedVortexRefireThink( weapon )
-	#endif
 }
 
 void function OnWeaponDeactivate_titanweapon_shock_shield( entity weapon )
 {
 	EndVortex( weapon )
-
-	weapon.Signal( "DisableAmpedVortex" )
 }
 
 void function OnWeaponCustomActivityStart_titanweapon_shock_shield( entity weapon )
@@ -225,25 +219,6 @@ function StartVortex( entity weapon )
 	#if CLIENT
 		weapon.s.lastUseTime = Time()
 	#endif
-}
-
-function AmpedVortexRefireThink( entity weapon )
-{
-	entity weaponOwner = weapon.GetWeaponOwner()
-	weapon.EndSignal( "DisableAmpedVortex" )
-	weapon.EndSignal( "OnDestroy" )
-	weaponOwner.EndSignal( "OnDestroy" )
-
-	for ( ;; )
-	{
-		weapon.WaitSignal( "FireAmpedVortexBullet" )
-
-		if ( IsValid( weaponOwner )	)
-		{
-			ShotgunBlast( weapon, weaponOwner.EyePosition(), weaponOwner.GetPlayerOrNPCViewVector(), expect int( weapon.s.ampedBulletCount ), damageTypes.shotgun | DF_VORTEX_REFIRE )
-			weapon.s.ampedBulletCount = 0
-		}
-	}
 }
 
 function ForceReleaseOnPlayerEject( entity weapon )

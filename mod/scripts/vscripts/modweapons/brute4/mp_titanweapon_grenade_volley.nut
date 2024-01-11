@@ -37,8 +37,20 @@ void function MpTitanweaponGrenadeVolley_Init()
 		"fall" // ignores vortex behavior
 	)
 	*/
+
+	// vortex refire callback
+	AddCallback_OnProjectileRefiredByVortex_ClassName( "mp_titanweapon_salvo_rockets", OnGrenadeVolleyRefireByVortex )
 #endif
 }
+
+#if SERVER
+void function OnGrenadeVolleyRefireByVortex( entity projectile, entity vortexWeapon )
+{
+	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
+	if ( mods.contains( "brute4_grenade_volley" ) )
+		SetUpEffectsForGrenadeVolley( projectile )
+}
+#endif
 
 bool function OnWeaponAttemptOffhandSwitch_titanweapon_grenade_volley( entity weapon )
 {
@@ -102,12 +114,18 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 			EmitSoundOnEntity( nade, "Weapon_softball_Grenade_Emitter" )
 			Grenade_Init( nade, weapon )
 		#else
-			SetTeam( nade, weaponOwner.GetTeam() )
+			SetTeam( nade, weaponOwner.GetTeam() ) // helps magnetic find target?
 		#endif
 
 		// fix for trail effect, so clients without scripts installed can see the trail
 		StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"weapon_40mm_projectile" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 	}
+}
+
+void function SetUpEffectsForGrenadeVolley( entity nade )
+{
+	// fix for trail effect, so clients without scripts installed can see the trail
+	StartParticleEffectOnEntity( nade, GetParticleSystemIndex( $"weapon_40mm_projectile" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 }
 
 void function OnProjectileCollision_titanweapon_grenade_volley( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )

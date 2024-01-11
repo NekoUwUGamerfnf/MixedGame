@@ -41,8 +41,33 @@ void function MpTitanWeaponBrute4QuadRocket_Init()
 	RegisterWeaponDamageSource( "mp_titanweapon_brute4_quad_rocket", "#WPN_TITAN_ROCKET_LAUNCHER" ) 
 
 	PrecacheModel( AMPED_SHOT_PROJECTILE )
+
+	// vortex hit callback
+	// maybe shouldn't add this, not necessary for brute4 because she only needs utility ability to trigger cluster?
+	//AddCallback_OnVortexHitProjectile( OnVortexHitProjectile_Brute4QuadRocket )
 #endif // #if SERVER
 }
+
+#if SERVER
+void function OnVortexHitProjectile_Brute4QuadRocket( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos )
+{
+	if ( projectile.ProjectileGetWeaponClassName() == "mp_titanweapon_rocketeer_rocketstream" )
+	{
+		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
+		
+		// modded weapon
+		if ( mods.contains( "brute4_quad_rocket" ) )
+		{
+			vector pos = contactPos
+			// same build as respawn's hardcode in CodeCallback_OnVortexHitProjectile()
+			vector normal = projectile.GetVelocity() * -1
+			normal = Normalize( normal )
+			// do a fake callback to trigger it's cluster explosion
+			OnProjectileCollision_Brute4_QuadRocket( projectile, pos, normal, vortexSphere, 0, false )
+		}
+	}
+}
+#endif
 
 void function OnWeaponStartZoomIn_TitanWeapon_Brute4_QuadRocket( entity weapon )
 {

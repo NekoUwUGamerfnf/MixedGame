@@ -57,8 +57,33 @@ function MpTitanweaponRocketeetRocketStream_Init()
 
 #if SERVER
 	PrecacheModel( AMPED_SHOT_PROJECTILE )
+
+	AddCallback_OnVortexHitProjectile( OnVortexHitProjectile_QuadRocket )
 #endif // #if SERVER
 }
+
+// modified callback to trigger cluster on vortex hit
+#if SERVER
+void function OnVortexHitProjectile_QuadRocket( entity weapon, entity vortexSphere, entity attacker, entity projectile, vector contactPos )
+{
+	if ( projectile.ProjectileGetWeaponClassName() == "mp_titanweapon_rocketeer_rocketstream" )
+	{
+		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // I don't care, let's break vanilla behavior
+		
+		// modded weapon
+		// burn mod quad rocket will trigger cluster explosion on impact with vortex sphere( mini_clusters won't )
+		if ( mods.contains( "burn_mod_titan_rocket_launcher" ) )
+		{
+			vector pos = contactPos
+			// same build as respawn's hardcode in CodeCallback_OnVortexHitProjectile()
+			vector normal = projectile.GetVelocity() * -1
+			normal = Normalize( normal )
+			// do a fake callback to trigger it's cluster explosion
+			OnProjectileCollision_SpiralMissile( projectile, pos, normal, vortexSphere, 0, false )
+		}
+	}
+}
+#endif
 
 void function OnWeaponStartZoomIn_TitanWeapon_Rocketeer_RocketStream( entity weapon )
 {
