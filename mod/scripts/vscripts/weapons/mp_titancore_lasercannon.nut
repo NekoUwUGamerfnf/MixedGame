@@ -2,6 +2,7 @@ global function LaserCannon_Init
 
 // modified callbacks
 global function OnWeaponActivate_LaserCannon
+global function OnWeaponDeactivate_LaserCannon
 global function OnWeaponPrimaryAttack_LaserCannon
 global function OnProjectileCollision_LaserCannon
 //
@@ -155,7 +156,7 @@ void function OnWeaponDeactivate_LaserCannon( entity weapon )
 var function OnWeaponPrimaryAttack_LaserCannon( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
 	if ( weapon.HasMod( "archon_storm_core" ) )
-		return OnWeaponPrimaryAttack_StormCore( weapon )
+		return OnWeaponPrimaryAttack_StormCore( weapon, attackParams )
 	if ( weapon.HasMod( "tesla_core" ) )
 		return OnAbilityStart_Tesla_Core( weapon, attackParams )
 }
@@ -164,7 +165,7 @@ void function OnProjectileCollision_LaserCannon( entity projectile, vector pos, 
 {
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile )
 	if ( mods.contains( "archon_storm_core" ) )
-		return OnProjectileCollision_StormCore( weapon )
+		return OnProjectileCollision_StormCore( projectile, pos, normal, hitEnt, hitbox, isCritical )
 }
 //
 
