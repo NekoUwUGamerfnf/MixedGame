@@ -1251,7 +1251,12 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 
 	Vortex_StoreImpactEvent( vortexWeapon, impactData )
 
-	VortexImpact_PlayAbsorbedFX( vortexWeapon, impactData )
+	// modified here: if we're gonna reflect the impact immediately, shouldn't do absorbed FX
+	// only needs to ping shield once
+	if ( !reflect )
+		VortexImpact_PlayAbsorbedFX( vortexWeapon, impactData )
+	else
+		Vortex_SpawnShieldPingFX( vortexWeapon, impactData )
 
 	// modified here: just stop adding bullets/projectiles into sphere if we wanted to reflect
 	if ( !reflect )
@@ -1260,6 +1265,13 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 			vortexSphere.AddBulletToSphere();
 		else if ( impactType == "projectile" ) // changed to use else if() case
 			vortexSphere.AddProjectileToSphere();
+	}
+	else // amped refire needs modified logic... they won't use client-side prediction so feel free to use serverside-only variables
+	{
+		if ( impactType == "hitscan" )
+			AddVortexWeaponAmpedBulletCount( vortexWeapon )
+		else if ( impactType == "projectile" ) // changed to use else if() case
+			AddVortexWeaponAmpedProjectileCount( vortexWeapon )
 	}
 
 	// nessie note: I don't think this works best for shotgun bullets...
@@ -1327,16 +1339,18 @@ void function DelayedVortexFireBack( entity owner, entity vortexWeapon, impactDa
 		{
 			if ( IsValid( vortexWeapon ) )
 			{
-				Vortex_CleanupImpactAbsorbFX( vortexWeapon )
-				Vortex_ClearImpactEventData( vortexWeapon )
+				// these clean-ups now handled by VortexPrimaryAttack()
+				//Vortex_CleanupImpactAbsorbFX( vortexWeapon )
+				//Vortex_ClearImpactEventData( vortexWeapon )
 			}
 		}
 	)
 
 	WaitFrame()
 	// we may clamp out current impactData, needs re-exam after delay
-	if ( !Vortex_GetAllImpactEvents( vortexWeapon ).contains( impactData ) )
-		return
+	// removed: no longer needs clamp
+	//if ( !Vortex_GetAllImpactEvents( vortexWeapon ).contains( impactData ) )
+	//	return
 
 	WeaponPrimaryAttackParams attackParams
 	attackParams.pos = owner.EyePosition()
@@ -1357,6 +1371,13 @@ void function DelayedVortexFireBack( entity owner, entity vortexWeapon, impactDa
 			vortexSphere.RemoveProjectileFromSphere()
 	}
 	*/
+
+	// amped refire needs modified logic... they won't use client-side prediction so feel free to use serverside-only variables
+	if ( impactType == "hitscan" )
+		RemoveVortexWeaponAmpedBulletCount( vortexWeapon )
+	else if ( impactType == "projectile" ) // changed to use else if() case
+		RemoveVortexWeaponAmpedProjectileCount( vortexWeapon )
+	
 }
 #endif // SERVER
 
@@ -1785,6 +1806,10 @@ function Vortex_CleanupImpactAbsorbFX( entity vortexWeapon )
 
 function Vortex_ImpactData_KillAbsorbFX( impactData )
 {
+	// modified: we now allow null absorb effect for amped vortex
+	// add validation check
+	if ( impactData.fxEnt_absorb == null )
+		return
 	foreach ( fxRef in impactData.fxEnt_absorb )
 	{
 		if ( !IsValid( fxRef ) )
@@ -1876,6 +1901,11 @@ int function VortexPrimaryAttack( entity vortexWeapon, WeaponPrimaryAttackParams
 int function Vortex_FireBackBullets( entity vortexWeapon, WeaponPrimaryAttackParams attackParams )
 {
 	int bulletCount = GetBulletsAbsorbedCount( vortexWeapon )
+	// server modification here: always use amped bullet count if it's not 0
+	#if SERVER
+		if ( GetAmpedBulletsAbsorbedCount( vortexWeapon ) > 0 )
+			bulletCount = GetAmpedBulletsAbsorbedCount( vortexWeapon )
+	#endif
 
 	// nessie note: I don't think this works best for shotgun bullets...
 	// legion's power shot won't be handled, amped vortex refire also ignore this
@@ -2196,6 +2226,73 @@ int function GetProjectilesAbsorbedCount( entity vortexWeapon )
 
 	return vortexSphere.GetProjectileAbsorbedCount()
 }
+
+// reworked amped vortex: they won't use any predicted refire, feel free to use serverside-only variables
+#if SERVER
+int function GetAmpedBulletsAbsorbedCount( entity vortexWeapon )
+{
+	if ( !vortexWeapon )
+		return 0
+	
+	if ( !( "ampedBulletCount" in vortexWeapon.s ) )
+		return 0
+
+	return expect int( vortexWeapon.s.ampedBulletCount )
+}
+
+int function GetAmpedProjectilesAbsorbedCount( entity vortexWeapon )
+{
+	if ( !vortexWeapon )
+		return 0
+	
+	if ( !( "ampedProjectileCount" in vortexWeapon.s ) )
+		return 0
+
+	return expect int( vortexWeapon.s.ampedProjectileCount )
+}
+
+void function AddVortexWeaponAmpedBulletCount( entity vortexWeapon )
+{
+	if ( "ampedBulletCount" in vortexWeapon.s )
+		vortexWeapon.s.ampedBulletCount++
+	else
+		vortexWeapon.s.ampedBulletCount <- 1
+}
+
+void function RemoveVortexWeaponAmpedBulletCount( entity vortexWeapon )
+{
+	if ( !( "ampedBulletCount" in vortexWeapon.s ) )
+		return
+	
+	if ( vortexWeapon.s.ampedBulletCount <= 0 )
+	{
+		vortexWeapon.s.ampedBulletCount = 0
+		return
+	}
+	vortexWeapon.s.ampedBulletCount--
+}
+
+void function AddVortexWeaponAmpedProjectileCount( entity vortexWeapon )
+{
+	if ( "ampedProjectileCount" in vortexWeapon.s )
+		vortexWeapon.s.ampedProjectileCount++
+	else
+		vortexWeapon.s.ampedProjectileCount <- 1
+}
+
+void function RemoveVortexWeaponAmpedProjectileCount( entity vortexWeapon )
+{
+	if ( !( "ampedProjectileCount" in vortexWeapon.s ) )
+		return
+	
+	if ( vortexWeapon.s.ampedProjectileCount <= 0 )
+	{
+		vortexWeapon.s.ampedProjectileCount = 0
+		return
+	}
+	vortexWeapon.s.ampedProjectileCount--
+}
+#endif // SERVER
 
 #if SERVER
 function Vortex_GetProjectileImpacts( entity vortexWeapon )
