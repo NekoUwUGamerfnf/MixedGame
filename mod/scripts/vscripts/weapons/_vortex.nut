@@ -1196,7 +1196,8 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 
 		// Max projectile stat tracking
 		int projectilesInVortex = 1
-		projectilesInVortex += vortexWeapon.w.vortexImpactData.len()
+		//projectilesInVortex += vortexWeapon.w.vortexImpactData.len()
+		projectilesInVortex += Vortex_GetAllImpactEvents( vortexWeapon ).len()
 
 		if ( IsValid( owner ) && owner.IsPlayer() )
 		{
@@ -1328,6 +1329,10 @@ void function DelayedVortexFireBack( entity owner, entity vortexWeapon, impactDa
 	)
 
 	WaitFrame()
+	// we may clamp out current impactData, needs re-exam after delay
+	if ( !Vortex_GetAllImpactEvents( vortexWeapon ).contains( impactData ) )
+		return
+
 	WeaponPrimaryAttackParams attackParams
 	attackParams.pos = owner.EyePosition()
 	attackParams.dir = owner.GetPlayerOrNPCViewVector()
