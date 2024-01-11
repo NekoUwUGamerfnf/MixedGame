@@ -1145,13 +1145,14 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 	entity owner = vortexWeapon.GetWeaponOwner()
 
 	// keep cycling the oldest hitscan bullets out
-	if( !reflect )
-	{
+	// modified here: we've reworked amped refire, they also needs clamp now
+	//if( !reflect )
+	//{
 		if ( impactType == "hitscan" )
 			Vortex_ClampAbsorbedBulletCount( vortexWeapon )
 		else if ( impactType == "projectile" ) // changed to use else if() case
 			Vortex_ClampAbsorbedProjectileCount( vortexWeapon )
-	}
+	//}
 
 	// vortex spheres tag refired projectiles with info about the original projectile for accurate duplication when re-absorbed
 	if ( projectile )
