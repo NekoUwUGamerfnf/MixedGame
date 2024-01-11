@@ -404,14 +404,17 @@ var function OnWeaponPrimaryAttack_titanweapon_vortex_shield( entity weapon, Wea
 
 		// server-side sound fix
 		#if SERVER
-			entity owner = weapon.GetWeaponOwner()
-			if ( IsValid( owner ) && owner.IsPlayer() )
+			if ( hasBurnMod )
 			{
-				EmitSoundOnEntityOnlyToPlayer( weapon, owner, "vortex_shield_throw_1P" )
-				EmitSoundOnEntityExceptToPlayer( weapon, owner, "vortex_shield_throw_3P" )
+				entity owner = weapon.GetWeaponOwner()
+				if ( IsValid( owner ) && owner.IsPlayer() )
+				{
+					EmitSoundOnEntityOnlyToPlayer( weapon, owner, "vortex_shield_throw_1P" )
+					EmitSoundOnEntityExceptToPlayer( weapon, owner, "vortex_shield_throw_3P" )
+				}
+				else
+					EmitSoundOnEntity( weapon, "vortex_shield_throw_3P" )
 			}
-			else
-				EmitSoundOnEntity( weapon, "vortex_shield_throw_3P" )
 		#endif
 	}
 
