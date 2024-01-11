@@ -1146,13 +1146,14 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 
 	// keep cycling the oldest hitscan bullets out
 	// modified here: we've reworked amped refire, they also needs clamp now
-	//if( !reflect )
-	//{
+	// welp this will cause crash, guess I'll just stop adding bullets/projectiles into sphere to avoid issue
+	if( !reflect )
+	{
 		if ( impactType == "hitscan" )
 			Vortex_ClampAbsorbedBulletCount( vortexWeapon )
 		else if ( impactType == "projectile" ) // changed to use else if() case
 			Vortex_ClampAbsorbedProjectileCount( vortexWeapon )
-	//}
+	}
 
 	// vortex spheres tag refired projectiles with info about the original projectile for accurate duplication when re-absorbed
 	if ( projectile )
@@ -1197,7 +1198,7 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 		// Max projectile stat tracking
 		int projectilesInVortex = 1
 		//projectilesInVortex += vortexWeapon.w.vortexImpactData.len()
-		projectilesInVortex += int( Vortex_GetAllImpactEvents( vortexWeapon ).len() )
+		projectilesInVortex += expect int( Vortex_GetAllImpactEvents( vortexWeapon ).len() )
 
 		if ( IsValid( owner ) && owner.IsPlayer() )
 		{
@@ -1252,10 +1253,14 @@ bool function TryVortexAbsorb( entity vortexSphere, entity attacker, vector orig
 
 	VortexImpact_PlayAbsorbedFX( vortexWeapon, impactData )
 
-	if ( impactType == "hitscan" )
-		vortexSphere.AddBulletToSphere();
-	else if ( impactType == "projectile" ) // changed to use else if() case
-		vortexSphere.AddProjectileToSphere();
+	// modified here: just stop adding bullets/projectiles into sphere if we wanted to reflect
+	if ( !reflect )
+	{
+		if ( impactType == "hitscan" )
+			vortexSphere.AddBulletToSphere();
+		else if ( impactType == "projectile" ) // changed to use else if() case
+			vortexSphere.AddProjectileToSphere();
+	}
 
 	// nessie note: I don't think this works best for shotgun bullets...
 	// legion's power shot won't be handled, amped vortex refire also ignore this
@@ -1342,6 +1347,8 @@ void function DelayedVortexFireBack( entity owner, entity vortexWeapon, impactDa
 	// clean up after firing
 	Vortex_RemoveImpactEvent( vortexWeapon, impactData )
 
+	// we've stopped adding bullet/projectiles to sphere when reflecting, no need to do this
+	/*
 	if ( IsValid( vortexSphere ) )
 	{
 		if ( impactType == "hitscan" )
@@ -1349,6 +1356,7 @@ void function DelayedVortexFireBack( entity owner, entity vortexWeapon, impactDa
 		else if ( impactType == "projectile" ) // changed to use else if() case
 			vortexSphere.RemoveProjectileFromSphere()
 	}
+	*/
 }
 #endif // SERVER
 
