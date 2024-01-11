@@ -110,7 +110,7 @@ var function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams,
 			SetTeam( nade, weaponOwner.GetTeam() ) // helps magnetic find target?
 		#endif
 
-		
+		SetUpEffectsForBarrageCoreGrenade( nade )
 	}
 	return 1
 }
@@ -425,11 +425,12 @@ void function DetonateStickyAfterTime( entity projectile, float delay, vector no
 	wait delay
 	if ( IsValid( projectile ) )
 	{
-		projectile.GrenadeExplode( normal )
 		// due we've hide projectile effect, do a impact effect manually
 		// this is actually better cause "exp_rocket_dumbfire" have bad airburst effect, but grenades exploding with offset sometimes triggering them
 		// PlayImpactFXTable() with SF_ENVEXPLOSION_INCLUDE_ENTITIES flag can prevent that from happening
 		PlayImpactFXTable( projectile.GetOrigin(), projectile, "exp_rocket_dumbfire", SF_ENVEXPLOSION_INCLUDE_ENTITIES )
+		
+		projectile.GrenadeExplode( normal )
 	}
 }
 #endif

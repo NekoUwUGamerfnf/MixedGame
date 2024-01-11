@@ -146,7 +146,7 @@ int function FireMissileStream( entity weapon, WeaponPrimaryAttackParams attackP
     // modified
 	if ( hasAmmoSwap )
 	{
-		weapon.EmitWeaponSound_1p3p( "Weapon_Titan_Rocket_Launcher_Amped_Fire_1P", "Weapon_Titan_Rocket_Launcher_Amped_Fire_3P" )
+		//weapon.EmitWeaponSound_1p3p( "Weapon_Titan_Rocket_Launcher_Amped_Fire_1P", "Weapon_Titan_Rocket_Launcher_Amped_Fire_3P" )
 		weapon.EmitWeaponSound_1p3p( "Weapon_Archer_Fire_1P", "Weapon_Archer_Fire_3P" )
 	}
 	else if ( adsPressed )

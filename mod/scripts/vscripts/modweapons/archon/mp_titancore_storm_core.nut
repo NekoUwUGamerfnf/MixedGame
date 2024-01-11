@@ -62,7 +62,7 @@ void function OnWeaponDeactivate_StormCore( entity weapon )
 				// modified checks for animations, anti-crash
 				if ( TitanShouldPlayAnimationForStormCore_LaserCoreMod( owner ) )
 				{
-					titan.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.1 )
+					owner.Anim_ScriptedPlayActivityByName( "ACT_SPECIAL_ATTACK_END", true, 0.1 )
 				}
 
 				// reset again at end so titan doesn't go to evasive mode
@@ -93,8 +93,10 @@ bool function OnAbilityCharge_StormCore( entity weapon )
 			// modified here: change slow effect duration to match chargeTime
 			// so titan won't be able to sprint while using core
 			// that case will make titan have bad moving animation
-			//StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime, 0 )
-			StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime * 1.5, 0.35 )
+			// pretty weird... unlike moblin's archon, this version of storm core will be deactivated immediately after firing...
+			// thus anim issue never happens, will that cause it to be way too powerful?
+			StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime, 0 )
+			//StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime * 1.5, 0.35 )
 			StatusEffect_AddTimed( owner, eStatusEffect.dodge_speed_slow, 0.6, chargeTime, 0 )
 		}
 
