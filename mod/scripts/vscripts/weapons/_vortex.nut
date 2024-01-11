@@ -236,8 +236,8 @@ void function RegisterNewVortexIgnoreClassname(string classname, bool shouldigno
 }
 //
 
-// nessie modified utility
-void function RegisterNewVortexIgnoreWeaponMod( table<string, bool> classTable )
+// modified utilities
+void function RegisterNewVortexIgnoreWeaponMods( table<string, bool> classTable )
 {
 	foreach( string modname, bool shouldignore in classTable )
 	{
@@ -249,6 +249,31 @@ void function RegisterNewVortexIgnoreWeaponMod( string modname, bool shouldignor
 	VortexIgnoreWeaponMods[ modname ] <- shouldignore
 }
 
+array<string> function GetVortexIgnoreClassnames()
+{
+	array<string> ignoreArray
+	foreach( string classname, bool shouldignore in VortexIgnoreClassnames )
+	{
+		if ( shouldignore && !ignoreArray.contains( classname ) )
+			ignoreArray.append( classname )
+	}
+
+	return ignoreArray
+}
+
+array<string> function GetVortexIgnoreWeaponMods()
+{
+	array<string> ignoreArray
+	foreach( string modname, bool shouldignore in VortexIgnoreWeaponMods )
+	{
+		if ( shouldignore && !ignoreArray.contains( modname ) )
+			ignoreArray.append( modname )
+	}
+
+	return ignoreArray
+}
+
+// nessie modified utility
 array<string> function Vortex_GetRefiredProjectileMods( entity projectile )
 {
 	if ( !( projectile in file.vortexRefiredProjectileMods ) )
