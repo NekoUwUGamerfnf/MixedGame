@@ -1,3 +1,9 @@
+**Archive Note**
+
+Archive is only for myself, feel free to fork/use this repo. Hope it could help you in any means.
+
+For those scripts from other repo/mods, please ask for permission from their original owner before re-release.
+
 **This repository contains contents from:**
 
 https://github.com/Legonzaur/Northstar-HoloShift
