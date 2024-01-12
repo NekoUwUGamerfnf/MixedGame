@@ -2220,7 +2220,7 @@ void function HarvesterThink( HarvesterStruct fw_harvester )
 			EffectSetControlPointVector( fw_harvester.particleBeam, 1, beamColor )
 		}
 
-		if ( fw_harvester.GetShieldHealthWithFix( harvester ) == 0 )
+		if ( GetShieldHealthWithFix( fw_harvester.harvester ) == 0 )
 			if( IsValid( fw_harvester.particleShield ) )
 				fw_harvester.particleShield.Destroy()
 
@@ -2245,8 +2245,8 @@ void function HarvesterThink( HarvesterStruct fw_harvester )
 			if ( newShieldHealth >= GetShieldHealthMaxWithFix( harvester ) )
 			{
 				StopSoundOnEntity( harvester, "coop_generator_shieldrecharge_resume" )
-				//harvester.SetShieldHealth( GetShieldHealthMaxWithFix( harvester ) )
-				SetShieldHealthWithFix( harvester, GetShieldHealthMax() )
+				//harvester.SetShieldHealth( harvester.GetShieldHealthMax() )
+				SetShieldHealthWithFix( harvester, GetShieldHealthMaxWithFix( harvester ) )
 				EmitSoundOnEntity( harvester, "coop_generator_shieldrecharge_end" )
 				PlayFactionDialogueToTeam( "fortwar_baseShieldUpFriendly", harvester.GetTeam() )
 				isRegening = false
@@ -2278,7 +2278,7 @@ void function HarvesterAlarm( HarvesterStruct fw_harvester )
 {
 	while( IsAlive( fw_harvester.harvester ) )
 	{
-		if( fw_harvester.GetShieldHealthWithFix( harvester ) == 0 )
+		if( GetShieldHealthWithFix( fw_harvester.harvester ) == 0 )
 		{
 			wait EmitSoundOnEntity( fw_harvester.harvester, "coop_generator_underattack_alarm" )
 		}

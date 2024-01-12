@@ -1678,8 +1678,13 @@ float function GetShieldHealthFrac( entity ent )
 			ent = soul
 	}
 
-	int shieldHealth = GetShieldHealthWithFix( ent )
-	int shieldMaxHealth = GetShieldHealthMaxWithFix( ent )
+	#if SERVER // server-side check: with shield fix
+		int shieldHealth = GetShieldHealthWithFix( ent )
+		int shieldMaxHealth = GetShieldHealthMaxWithFix( ent )
+	#elseif CLIENT // vanilla behavior
+		int shieldHealth = ent.GetShieldHealth()
+		int shieldMaxHealth = ent.GetShieldHealthMax()
+	#endif
 
 	if ( shieldMaxHealth == 0 )
 		return 0.0

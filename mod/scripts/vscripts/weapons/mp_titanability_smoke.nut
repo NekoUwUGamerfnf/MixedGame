@@ -160,7 +160,7 @@ void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 			{
 				int shieldRestoreAmount = 35
 				int actualShieldRestoreAmount = minint( GetShieldHealthMaxWithFix( soul )-GetShieldHealthWithFix( soul ), shieldRestoreAmount )
-				//soul.SetShieldHealth( min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
+				//soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
 				SetShieldHealthWithFix( soul, min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
 
 				if ( file.smokeHealCallback != null && actualShieldRestoreAmount > 0 )
@@ -253,7 +253,7 @@ bool function TryElectricSmokeTargetHeal( entity attacker, entity target )
 
 	int shieldRestoreAmount = 35
 	int actualShieldRestoreAmount = minint( GetShieldHealthMaxWithFix( soul )-GetShieldHealthWithFix( soul ), shieldRestoreAmount )
-	//soul.SetShieldHealth( min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
+	//soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
 	SetShieldHealthWithFix( soul, min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
 
 	if ( file.smokeHealCallback != null && actualShieldRestoreAmount > 0 )

@@ -260,7 +260,7 @@ void function UpgradeCoreThink( entity weapon, float coreDuration )
 	//SetShieldHealthWithFix( soul, GetShieldHealthMaxWithFix( soul ) )
 	// adding settings that allows shield regen amount to be modified
 	int shieldRegen = int( GetShieldHealthMaxWithFix( soul ) * file.shieldRegenScale )
-    //soul.SetShieldHealth( min( GetShieldHealthMaxWithFix( soul ), GetShieldHealthWithFix( soul ) + shieldRegen ) )
+    //soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + shieldRegen ) )
 	SetShieldHealthWithFix( soul, min( GetShieldHealthMaxWithFix( soul ), GetShieldHealthWithFix( soul ) + shieldRegen ) )
 
 	OnThreadEnd(

@@ -114,7 +114,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			{
 				CleanupCoreEffect( soul )
 				int orgMaxShield = expect int ( storedShield.startingMaxShield )
-				//soul.SetShieldHealth( min( orgMaxShield, GetShieldHealthWithFix( soul ) ) )
+				//soul.SetShieldHealth( min( orgMaxShield, soul.GetShieldHealthMax() ) )
 				//soul.SetShieldHealthMax( orgMaxShield )
 				SetShieldHealthWithFix( soul, min( orgMaxShield, GetShieldHealthWithFix( soul ) ) )
     			SetShieldHealthMaxWithFix( soul, orgMaxShield )
@@ -147,7 +147,7 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 		{
 			if( Time() - owner.p.lastDamageTime >= SHIELD_CORE_REGEN_DELAY )
 			{
-				//soul.SetShieldHealth( min( GetShieldHealthMaxWithFix( soul ), GetShieldHealthWithFix( soul ) + regenRate ) )
+				//soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + regenRate ) )
 				SetShieldHealthWithFix( soul, min( GetShieldHealthMaxWithFix( soul ), GetShieldHealthWithFix( soul ) + regenRate ) )
 			}
 		}

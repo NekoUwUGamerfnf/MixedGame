@@ -1,3 +1,4 @@
+untyped // to use ent.s
 // this is to fix respawn's weird client-side crash
 // use in-file shield value for non-titan heavy armor target
 // needs to replace all GetShieldHealth(), SetShieldHealth(), GetShieldHealthMax() and SetShieldHealthMax() function with functions in this file
@@ -12,7 +13,8 @@ global function GetShieldHealthMaxWithFix
 // main functioning array
 const array<string> USE_SCRIPTED_SHIELD_CLASSES =
 [
-    "npc_super_spectre",    // currently, reapers are only non-titan unit who uses weakpoint
+    "npc_super_spectre",
+    "npc_stalker",
 ]
 
 struct
@@ -23,7 +25,8 @@ struct
 
 void function Nessie_Shield_Crash_Fix_Init()
 {
-
+    // change effect to be handled by server
+    // also prevents crits from happening
 }
 
 void function InitFileShieldValue( entity ent )
@@ -48,14 +51,51 @@ bool function EntCanHaveShield( entity ent )
     return true
 }
 
-void function SetShieldHealthWithFix( entity ent, int targetShield )
+bool function EntCritHidden( entity ent )
+{
+    // script handle
+    if ( "critHiddenByScript" in ent.s )
+        return false
+
+    int bodyGroupIndex = ent.FindBodyGroup( "hitpoints" )
+
+	if ( bodyGroupIndex == -1 )
+		return false
+
+	return ent.GetBodyGroupState( bodyGroupIndex ) != 1
+}
+
+void function SetShieldHealthWithFix( entity ent, var targetShield )
 {
     InitFileShieldValue( ent )
 
+    // type casting
+    int intShieldValue = typeof( targetShield ) == "int" ? expect int( targetShield ) : int( targetShield )
+
     if ( !EntCanHaveShield( ent ) ) // update scripted shield health if ent is non-titan heavy armor unit
-        file.entShieldValue[ ent ] = targetShield
+    {
+        file.entShieldValue[ ent ] = intShieldValue
+        // due we can't make client-side get shield they left
+        // try to hide on server-side
+        if ( intShieldValue > 0 )
+        {
+            if ( !EntCritHidden( ent ) )
+            {
+                HideCrit( ent )
+                ent.s.critHiddenByScript <- true
+            }
+        }
+        else
+        {
+            if ( "critHiddenByScript" in ent.s ) // only recover crit for those getting hidden by this file
+            {
+                ShowCrit( ent )
+                delete ent.s.critHiddenByScript
+            }
+        }
+    }
     else // otherwise we use vanilla behavior
-        ent.SetShieldHealth( targetShield )
+        ent.SetShieldHealth( intShieldValue )
 }
 
 int function GetShieldHealthWithFix( entity ent )
@@ -65,25 +105,50 @@ int function GetShieldHealthWithFix( entity ent )
     if ( !EntCanHaveShield( ent ) ) // update scripted shield health if ent is non-titan heavy armor unit
         return file.entShieldValue[ ent ]
   
-    return GetShieldHealthWithFix( ent )
+    // safe to use vanilla behavior
+    return ent.GetShieldHealth()
 }
 
-void function SetShieldHealthMaxWithFix( entity ent, int targetMaxShield )
+void function SetShieldHealthMaxWithFix( entity ent, var targetMaxShield )
 {
     InitFileShieldValue( ent )
 
+    // type casting
+    int intShieldValue = typeof( targetMaxShield ) == "int" ? expect int( targetMaxShield ) : int( targetMaxShield )
+
     if ( !EntCanHaveShield( ent ) ) // update scripted shield health if ent is non-titan heavy armor unit
-        file.entMaxShieldValue[ ent ] = targetMaxShield
+    {
+        file.entMaxShieldValue[ ent ] = intShieldValue
+        // due we can't make client-side get shield they left
+        // try to hide on server-side
+        if ( intShieldValue > 0 && GetShieldHealthWithFix( ent ) > 0 )
+        {
+            if ( !EntCritHidden( ent ) )
+            {
+                HideCrit( ent )
+                ent.s.critHiddenByScript <- true
+            }
+        }
+        else
+        {
+            if ( "critHiddenByScript" in ent.s ) // only recover crit for those getting hidden by this file
+            {
+                ShowCrit( ent )
+                delete ent.s.critHiddenByScript
+            }
+        }
+    }
     else // otherwise we use vanilla behavior
-        ent.SetShieldHealthMax( targetMaxShield )
+        ent.SetShieldHealthMax( intShieldValue )
 }
 
-int function GetShieldHealthWithFix( entity ent )
+int function GetShieldHealthMaxWithFix( entity ent )
 {
     InitFileShieldValue( ent )
 
     if ( !EntCanHaveShield( ent ) ) // update scripted shield health if ent is non-titan heavy armor unit
         return file.entMaxShieldValue[ ent ]
   
-    return GetShieldHealthMaxWithFix( ent )
+    // safe to use vanilla behavior
+    return ent.GetShieldHealthMax()
 }
