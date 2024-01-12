@@ -1903,8 +1903,11 @@ int function Vortex_FireBackBullets( entity vortexWeapon, WeaponPrimaryAttackPar
 	int bulletCount = GetBulletsAbsorbedCount( vortexWeapon )
 	// server modification here: always use amped bullet count if it's not 0
 	#if SERVER
+		// edit: no need to do such think, we fire back each bullet and projectile individually
+		/*
 		if ( GetAmpedBulletsAbsorbedCount( vortexWeapon ) > 0 )
 			bulletCount = GetAmpedBulletsAbsorbedCount( vortexWeapon )
+		*/
 	#endif
 
 	// nessie note: I don't think this works best for shotgun bullets...
