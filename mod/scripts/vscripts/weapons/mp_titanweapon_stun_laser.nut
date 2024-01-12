@@ -138,8 +138,16 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 			if ( IsValid( soul ) )
 			{
 				int shieldRestoreAmount = 750
+				// NOTE here: respawn mess things up by checking target's titan soul passive
+				// so if we want to handle weapon, needs to get target's weapon here
 				//if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) ) // respawn messed this up
-				if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) || weapon.HasMod( "pas_vanguard_shield" ) ) 
+				// removed, this method gets attacker's weapon
+				//if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) || weapon.HasMod( "pas_vanguard_shield" ) ) 
+				bool shouldDoAmpedRegen = SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD )
+				entity targetStunLaser = GetStunLaserWeapon( target )
+				if ( !shouldDoAmpedRegen && IsValid( targetStunLaser ) )
+					shouldDoAmpedRegen = targetStunLaser.HasMod( "pas_vanguard_shield" )
+				if ( shouldDoAmpedRegen )
 					shieldRestoreAmount = int( 1.25 * shieldRestoreAmount )
 
 				float shieldAmount = min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) )
