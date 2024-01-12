@@ -2170,6 +2170,14 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData, entity vor
 		foreach ( mod in impactData.refiredProjectileMods )
 			typedArray.append( expect string( mod ) )
 		file.vortexRefiredProjectileMods[ projectile ] <- typedArray
+
+		// also... try to use our hack to add mods to current projectile
+		array<string> ownedMods = projectile.ProjectileGetMods() // get original projectile's mods
+		foreach ( string mod in typedArray )
+		{
+			if ( !ownedMods.contains( mod ) )
+				HACK_ProjectileAddMod( projectile, mod )
+		}
 	}
 
 	// modified: run callbacks
@@ -2562,7 +2570,8 @@ function VortexSphereDrainHealthForDamage( entity vortexSphere, damage )
 			if ( IsValid( soul ) )
 			{
 				int shieldRestoreAmount = int( damage ) //Might need tuning
-				soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
+				//soul.SetShieldHealth( min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
+				SetShieldHealthWithFix( soul, min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
 			}
 		}
 	}

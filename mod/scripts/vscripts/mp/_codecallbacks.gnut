@@ -32,11 +32,20 @@ global function AddCallback_WeaponMod_DamageSourceIdOverride
 // HACK for handling modded burnmods: disable passThroughAddsMods when player holding modded weapon
 global function PassThroughAddsMods_SetDisabledForEntity
 global function PassThroughAddsMods_IsDisabledOnEntity
+// HACK for adding mods to projectile: use a temporary prop to trigger CodeCallback_CheckPassThroughAddsMods()
+global function HACK_ProjectileAddMod
 
 struct AccumulatedDamageData
 {
 	float accumulatedDamage
 	float lastDamageTime
+}
+
+// HACK for adding mods to projectile: use a temporary prop to trigger CodeCallback_CheckPassThroughAddsMods()
+struct ProjectileModProp
+{
+	entity targetProjectile
+	string modToAdd
 }
 
 struct
@@ -62,6 +71,8 @@ struct
 	table< string, table<string, int> > damageSourceIdOverride_WeaponMod
 	// HACK for handling modded burnmods: disable passThroughAddsMods when player holding modded weapon
 	table<entity, bool> passThroughAddsModsDisabledEnt
+	// HACK for adding mods to projectile: use a temporary prop to trigger CodeCallback_CheckPassThroughAddsMods()
+	table<entity, ProjectileModProp> tempPropForAddingProjectileMod
 } file
 
 void function CodeCallback_Init()
@@ -1036,6 +1047,11 @@ string function CodeCallback_CheckPassThroughAddsMods( entity player, entity hit
 	print( "hullResult.hitEnt: " + string( hullResult.hitEnt ) )
 	*/
 
+	// hacky hack here: use a temp prop for us get what mod we want to add to this projectile
+	if ( EntIsTempAmpedProp( hitEnt ) )
+		return TryAddModFromAmpedProp( hitEnt )
+	//
+
 	if ( StatusEffect_Get( hitEnt, eStatusEffect.pass_through_amps_weapon ) > 0 )
 	{
 		// remove all titan burnmods for my own modded weapon usage. this breaks vanilla leadwall behavior but whatever
@@ -1058,6 +1074,7 @@ string function CodeCallback_CheckPassThroughAddsMods( entity player, entity hit
 		if ( mods.len() > 0 )
 			return mods[0]
 	}
+
 	return ""
 }
 
@@ -1080,7 +1097,7 @@ void function Generic_NPCTookDamage( entity npc, damageInfo, TitanDamage titanDa
 
 int function NPCShieldHealthUpdate( entity npc, damageInfo, bool critHit )
 {
-	if ( npc.GetShieldHealth() <= 0 )
+	if ( npcGetShieldHealthWithFix( npc ) <= 0 )
 		return 0
 
 	if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == damagedef_suicide )
@@ -1088,7 +1105,8 @@ int function NPCShieldHealthUpdate( entity npc, damageInfo, bool critHit )
 
 	if ( DamageInfo_GetForceKill( damageInfo ) )
 	{
-		npc.SetShieldHealth( 0 )
+		//npc.SetShieldHealth( 0 )
+		SetShieldHealthWithFix( npc, 0 )
 		return 0
 	}
 	else if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BYPASS_SHIELD )
@@ -1250,4 +1268,108 @@ bool function PassThroughAddsMods_IsDisabledOnEntity( entity ent )
 		return false // default is not disabled
 
 	return file.passThroughAddsModsDisabledEnt[ ent ]
+}
+
+// HACK for adding mods to projectile: use a temporary prop to trigger CodeCallback_CheckPassThroughAddsMods()
+const asset AMPED_PROP_MODEL = $"models/fx/pilot_shield_wall_amped.mdl"
+void function HACK_ProjectileAddMod( entity projectile, string mod )
+{
+	// will spawn right onto projectile triggers our effect?
+	vector origin = projectile.GetOrigin()
+	vector angles = VectorToAngles( Normalize( projectile.GetVelocity() ) )
+
+	// basically copied from mp_weapon_deployable_cover.nut
+	entity ampedProp = CreatePropDynamic( AMP_PROP_MODEL, origin, angles, SOLID_VPHYSICS )
+	ampedProp.kv.contents = (CONTENTS_WINDOW)
+	ampedProp.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS //TRACE_COLLISION_GROUP_BLOCK_WEAPONS_AND_PHYSICS
+	ampedProp.SetPassThroughFlags( PTF_ADDS_MODS | PTF_NO_DMG_ON_PASS_THROUGH )
+	
+	// remove their capability of being damaged or blocking damage
+	//ampedProp.SetBlocksRadiusDamage( true )
+	ampedProp.Hide()
+	//ampedProp.SetTakeDamageType( DAMAGE_YES )
+	//ampedProp.SetDamageNotifications( true )
+	//ampedProp.SetMaxHealth( 1000 )
+	//ampedProp.SetHealth( 1000 )
+	ampedProp.SetInvulnerable()
+
+	SetTeam( ampedProp, TEAM_BOTH )
+
+	ampedProp.SetPassThroughThickness( 0 )
+	ampedProp.SetPassThroughDirection( -0.55 )
+	StatusEffect_AddEndless( ampedProp, eStatusEffect.pass_through_amps_weapon, 1.0 )
+
+	ProjectileModProp modStruct
+	modStruct.targetProjectile = projectile
+	modStruct.modToAdd = mod
+	file.tempPropForAddingProjectileMod[ ampedProp ] <- modStruct
+
+	// destroy our prop if projectile gone
+	thread TrackProjectileLifeTime( ampedProp, projectile )
+}
+
+void function TrackProjectileLifeTime( entity prop, entity projectile )
+{
+	prop.EndSignal( "OnDestroy" )
+
+	projectile.WaitSignal( "OnDestroy" )
+	DestroyAmpedProp( prop )
+}
+
+bool function EntIsTempAmpedProp( entity ent )
+{
+	return ent in file.tempPropForAddingProjectileMod
+}
+
+string function TryAddModFromAmpedProp( entity prop )
+{
+	if ( !EntIsTempAmpedProp( prop ) )
+		return ""
+
+	entity projectile = GetTargetProjectileForProp( prop )
+	if ( !IsValid( projectile ) )
+		return ""
+
+	// we got our projectile, try to destroy the prop and return the mod they contain
+	string mod = GetModToAddFromProp( prop )
+	DestroyAmpedProp( prop )
+
+	//print( "Adding mod \"" + mod + "\" to " + string( projectile ) )
+
+	return mod
+}
+
+bool function DestroyAmpedProp( entity prop )
+{
+	if ( !IsValid( prop ) )
+		return false
+	
+	if ( EntIsTempAmpedProp( prop ) )
+		delete file.tempPropForAddingProjectileMod[ prop ]
+	
+	prop.Destroy()
+	return true
+}
+
+entity function GetTargetProjectileForProp( entity prop )
+{
+	if ( !EntIsTempAmpedProp( prop ) )
+		return null
+	
+	// search for projectiles within a small radius
+	array<entity> projectiles = GetProjectileArrayEx( "any", TEAM_ANY, TEAM_ANY, prop.GetOrigin(), 256 )
+
+	entity targetProjectile = file.tempPropForAddingProjectileMod[ prop ].targetProjectile
+	if ( projectiles.contains( targetProjectile ) )
+		return targetProjectile
+
+	return null // can't find within range
+}
+
+string function GetModToAddFromProp( entity prop )
+{
+	if ( !EntIsTempAmpedProp( prop ) )
+		return ""
+
+	return file.tempPropForAddingProjectileMod[ prop ].modToAdd
 }
