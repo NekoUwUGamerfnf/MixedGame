@@ -41,6 +41,9 @@ void function MpTitanWeaponBarrageCoreLauncher_Init()
 
 	// maybe shouldn't add this, not necessary for brute4 because it can break vortex sphere very easily?
 	//AddCallback_OnVortexHitProjectile( OnVortexHitProjectile_BarrageCoreLauncher )
+
+	// retain damage mod on refired by vortex
+	Vortex_AddWeaponModRetainedOnRefire( "mp_titanweapon_flightcore_rockets", "brute4_barrage_core_launcher" )
 #endif
 }
 

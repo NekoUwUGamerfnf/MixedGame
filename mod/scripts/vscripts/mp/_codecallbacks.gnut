@@ -34,6 +34,8 @@ global function PassThroughAddsMods_SetDisabledForEntity
 global function PassThroughAddsMods_IsDisabledOnEntity
 // HACK for adding mods to projectile: use a temporary prop to trigger CodeCallback_CheckPassThroughAddsMods()
 global function HACK_ProjectileAddMod
+// DEBUG
+global function DEBUG_PassThrough
 
 struct AccumulatedDamageData
 {
@@ -46,6 +48,7 @@ struct ProjectileModProp
 {
 	entity targetProjectile
 	string modToAdd
+	float creationTime
 }
 
 struct
@@ -1097,7 +1100,7 @@ void function Generic_NPCTookDamage( entity npc, damageInfo, TitanDamage titanDa
 
 int function NPCShieldHealthUpdate( entity npc, damageInfo, bool critHit )
 {
-	if ( npcGetShieldHealthWithFix( npc ) <= 0 )
+	if ( GetShieldHealthWithFix( npc ) <= 0 )
 		return 0
 
 	if ( DamageInfo_GetDamageSourceIdentifier( damageInfo ) == damagedef_suicide )
@@ -1272,40 +1275,102 @@ bool function PassThroughAddsMods_IsDisabledOnEntity( entity ent )
 
 // HACK for adding mods to projectile: use a temporary prop to trigger CodeCallback_CheckPassThroughAddsMods()
 const asset AMPED_PROP_MODEL = $"models/fx/pilot_shield_wall_amped.mdl"
+// $"models/weapons/bullets/mgl_grenade.mdl" // not accurate
+// $"models/fx/pilot_shield_wall_amped.mdl" // sometimes blocking missiles
+// $"models/weapons/bullets/triple_threat_projectile.mdl" // needs no offset, can't handle bolt
+
 void function HACK_ProjectileAddMod( entity projectile, string mod )
 {
-	// will spawn right onto projectile triggers our effect?
-	vector origin = projectile.GetOrigin()
-	vector angles = VectorToAngles( Normalize( projectile.GetVelocity() ) )
+	//print( "RUNNING HACK_ProjectileAddMod()" )
 
+	vector velocity = projectile.GetVelocity()
+	// will spawn right onto projectile triggers our effect?
+	// seems won't... try to add bit offset?
+	// with projectile's mod incremant, we should add more offset to avoid them collide with our wall
+	// ( mostly happens for bolts those have large bolt_hitsize or missiles )
+	// also, even after passing through, bolts will still call their collisonCallback, can't avoid that
+	// idk why missiles struggling with props
+	const float firstVelScale = 0.005
+	const float followingVelScale = 0.0025
+	int sameTimePendingModsToApply = GetProjectilePendingModsToApplyThisFrame( projectile )
+	float velScale = firstVelScale + sameTimePendingModsToApply * followingVelScale
+	//print( "velScale: " + string( velScale ) )
+
+	vector offset = velocity * velScale
+
+	vector origin = projectile.GetOrigin() + offset
+	origin.z -= 25 // with 1.0 modelscale amped wall needs adjust origin
+	vector angles = VectorToAngles( Normalize( velocity ) )
+	// try to remove rotation... maybe bad
+	//angles.x = 0
+	//angles.z = 0
+	angles = AnglesCompose( angles, <0, 180, 0> )
+
+	ampedProp = CreateAmpedProp( origin, angles )
+
+	ProjectileModProp modStruct
+	modStruct.targetProjectile = projectile
+	modStruct.modToAdd = mod
+	modStruct.creationTime = Time() // for us get how many mods this projectile is pending to apply in current game frame
+	file.tempPropForAddingProjectileMod[ ampedProp ] <- modStruct
+
+	// destroy our prop if projectile gone
+	thread TrackProjectileLifeTime( ampedProp, projectile )
+	// non-solid until projectile gets close to it. ignores script FPS limit
+	//vector desiredContactPos = projectile.GetOrigin() + offset
+	//thread AmpedPropThink( ampedProp, projectile, desiredContactPos )
+}
+
+entity function CreateAmpedProp( vector origin, vector angles )
+{
 	// basically copied from mp_weapon_deployable_cover.nut
-	entity ampedProp = CreatePropDynamic( AMP_PROP_MODEL, origin, angles, SOLID_VPHYSICS )
+	//entity ampedProp = CreatePropDynamic( AMPED_PROP_MODEL, origin, angles, SOLID_HITBOXES )
+
+	entity ampedProp = CreateEntity( "prop_dynamic" )
+	ampedProp.SetValueForModelKey( AMPED_PROP_MODEL )
+	ampedProp.kv.solid = SOLID_HITBOXES
+	ampedProp.SetOrigin( origin )
+	ampedProp.SetAngles( angles )
 	ampedProp.kv.contents = (CONTENTS_WINDOW)
-	ampedProp.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS //TRACE_COLLISION_GROUP_BLOCK_WEAPONS_AND_PHYSICS
+	ampedProp.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	//ampedProp.kv.modelscale = 0.1 // does not affect hitbox
 	ampedProp.SetPassThroughFlags( PTF_ADDS_MODS | PTF_NO_DMG_ON_PASS_THROUGH )
 	
 	// remove their capability of being damaged or blocking damage
 	//ampedProp.SetBlocksRadiusDamage( true )
-	ampedProp.Hide()
+	//ampedProp.Hide()
 	//ampedProp.SetTakeDamageType( DAMAGE_YES )
 	//ampedProp.SetDamageNotifications( true )
 	//ampedProp.SetMaxHealth( 1000 )
 	//ampedProp.SetHealth( 1000 )
 	ampedProp.SetInvulnerable()
+	//ampedProp.NotSolid()
+
+	ampedProp.SetTouchTriggers( false )
+	ampedProp.SetAimAssistAllowed( false )
 
 	SetTeam( ampedProp, TEAM_BOTH )
 
-	ampedProp.SetPassThroughThickness( 0 )
-	ampedProp.SetPassThroughDirection( -0.55 )
-	StatusEffect_AddEndless( ampedProp, eStatusEffect.pass_through_amps_weapon, 1.0 )
+	ampedProp.SetPassThroughThickness( 0.0 ) // projectiles still can't travel through multiple passthrough stuffs...
+	ampedProp.SetPassThroughDirection( 0 ) // don't block any direction
+	//ampedProp.SetPassThroughDirection( -0.55 )
+	//StatusEffect_AddEndless( ampedProp, eStatusEffect.pass_through_amps_weapon, 1.0 )
 
-	ProjectileModProp modStruct
-	modStruct.targetProjectile = projectile
-	modStruct.modToAdd = mod
-	file.tempPropForAddingProjectileMod[ ampedProp ] <- modStruct
+	DispatchSpawn( ampedProp )
+	ampedProp.SetModel( AMPED_PROP_MODEL )
+}
 
-	// destroy our prop if projectile gone
-	thread TrackProjectileLifeTime( ampedProp, projectile )
+int function GetProjectilePendingModsToApplyThisFrame( entity projectile )
+{
+	float currentTime = Time()
+	int validModPropCount = 0
+	foreach ( prop, modStruct in file.tempPropForAddingProjectileMod )
+	{
+		if ( modStruct.targetProjectile == projectile && modStruct.creationTime == currentTime )
+			validModPropCount++
+	}
+
+	return validModPropCount
 }
 
 void function TrackProjectileLifeTime( entity prop, entity projectile )
@@ -1314,6 +1379,34 @@ void function TrackProjectileLifeTime( entity prop, entity projectile )
 
 	projectile.WaitSignal( "OnDestroy" )
 	DestroyAmpedProp( prop )
+}
+
+void function AmpedPropThink( entity prop, entity projectile, vector desiredContactPos )
+{
+	prop.EndSignal( "OnDestroy" )
+	projectile.EndSignal( "OnDestroy" )
+
+	prop.NotSolid()
+	while ( true )
+	{
+		WaitFrame( true ) // ignore script fps limit
+
+		vector velocity = projectile.GetVelocity()
+		float speed = Length( velocity )
+		if ( Distance( projectile.GetOrigin(), desiredContactPos ) < speed * 0.1 )
+		{
+			print( "projectile close enough to prop!!" )
+			prop.Solid()
+			return
+		}
+	}
+}
+
+// vortex HACK: they'll fire too many projectiles at the same time
+// better use only one amped prop for handling
+void function Hack_VortexRefiredProjectileAddMod( entity projectile, string mod )
+{
+
 }
 
 bool function EntIsTempAmpedProp( entity ent )
@@ -1334,7 +1427,7 @@ string function TryAddModFromAmpedProp( entity prop )
 	string mod = GetModToAddFromProp( prop )
 	DestroyAmpedProp( prop )
 
-	//print( "Adding mod \"" + mod + "\" to " + string( projectile ) )
+	print( "Adding mod \"" + mod + "\" to " + string( projectile ) )
 
 	return mod
 }
@@ -1347,6 +1440,7 @@ bool function DestroyAmpedProp( entity prop )
 	if ( EntIsTempAmpedProp( prop ) )
 		delete file.tempPropForAddingProjectileMod[ prop ]
 	
+	prop.NotSolid() // non-solid immediately before destroy
 	prop.Destroy()
 	return true
 }
@@ -1372,4 +1466,44 @@ string function GetModToAddFromProp( entity prop )
 		return ""
 
 	return file.tempPropForAddingProjectileMod[ prop ].modToAdd
+}
+
+entity function DEBUG_PassThrough( float thickness = 0, float direction = -0.55 )
+{
+	vector angles = GetPlayerArray()[0].EyeAngles()
+	vector origin = GetPlayerArray()[0].EyePosition()
+	origin.z -= 25
+	angles = AnglesCompose( angles, <0, 180, 0> )
+
+	entity ampedProp = CreateEntity( "prop_dynamic" )
+	ampedProp.SetValueForModelKey( AMPED_PROP_MODEL )
+	ampedProp.kv.solid = SOLID_HITBOXES
+	ampedProp.SetOrigin( origin )
+	ampedProp.SetAngles( angles )
+	ampedProp.kv.contents = (CONTENTS_WINDOW)
+	ampedProp.kv.CollisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
+	//ampedProp.kv.modelscale = 0.1 // does not affect hitbox
+	ampedProp.SetPassThroughFlags( PTF_ADDS_MODS | PTF_NO_DMG_ON_PASS_THROUGH )
+	
+	// remove their capability of being damaged or blocking damage
+	//ampedProp.SetBlocksRadiusDamage( true )
+	//ampedProp.Hide()
+	//ampedProp.SetTakeDamageType( DAMAGE_YES )
+	//ampedProp.SetDamageNotifications( true )
+	//ampedProp.SetMaxHealth( 1000 )
+	//ampedProp.SetHealth( 1000 )
+	ampedProp.SetInvulnerable()
+	//ampedProp.NotSolid()
+
+	ampedProp.SetTouchTriggers( false )
+	ampedProp.SetAimAssistAllowed( false )
+
+	SetTeam( ampedProp, TEAM_BOTH )
+
+	ampedProp.SetPassThroughThickness( thickness )
+	ampedProp.SetPassThroughDirection( direction )
+	//StatusEffect_AddEndless( ampedProp, eStatusEffect.pass_through_amps_weapon, 1.0 )
+
+	DispatchSpawn( ampedProp )
+	ampedProp.SetModel( AMPED_PROP_MODEL )
 }

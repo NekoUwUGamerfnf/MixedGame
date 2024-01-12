@@ -40,6 +40,9 @@ void function MpTitanweaponGrenadeVolley_Init()
 
 	// vortex refire callback
 	AddCallback_OnProjectileRefiredByVortex_ClassName( "mp_titanweapon_salvo_rockets", OnGrenadeVolleyRefireByVortex )
+
+	// retain damage mod on refired by vortex
+	Vortex_AddWeaponModRetainedOnRefire( "mp_titanweapon_salvo_rockets", "brute4_grenade_volley" )
 #endif
 }
 

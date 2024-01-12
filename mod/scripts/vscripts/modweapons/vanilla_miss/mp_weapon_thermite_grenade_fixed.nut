@@ -28,5 +28,8 @@ void function MpWeaponThermiteGrenade_Init()
         THERMITE_GRENADE_DOT_STACK_MAX,                 // dot max stacks
         eDamageSourceId.mp_weapon_thermite_grenade_dot  // dot damage source override
     )
+
+    // retain damage mod on refired by vortex
+	Vortex_AddWeaponModRetainedOnRefire( "mp_weapon_thermite_grenade", "thermite_grenade_dot" )
 #endif
 }

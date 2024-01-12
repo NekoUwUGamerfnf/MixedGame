@@ -133,7 +133,6 @@ global function Vortex_GetImpactDataOverride_WeaponMod
 global function Vortex_WeaponOrProjectileHasImpactDataOverride
 global function Vortex_GetImpactDataOverrideFromWeaponOrProjectile
 
-
 // respawn messy functions rework
 #if SERVER
 global function Vortex_CalculateBulletHitDamage
@@ -157,8 +156,8 @@ global function RunEntityCallbacks_OnVortexHitBullet
 // this will run all callbacks from vortexHitProjectileCallbacks, and entityVortexHitProjectileCallbacks specified for current entity
 global function RunEntityCallbacks_OnVortexHitProjectile
 
-// modified callbacks
 #if SERVER
+// modified callbacks
 global function AddCallback_VortexDrainedByImpact
 
 global function AddCallback_CalculateVortexBulletHitDamage
@@ -166,6 +165,10 @@ global function AddCallback_CalculateVortexProjectileHitDamage
 
 global function AddCallback_OnProjectileRefiredByVortex_ClassName // allows specific projectile being fired to trigger callback
 global function RunCallback_OnProjectileRefiredByVortex_ClassName // run callback for specific classname
+
+// modified utility
+// on refire by vortex, certain weapon mod will be retained so we can get correct damage
+global function Vortex_AddWeaponModRetainedOnRefire
 #endif
 
 // WIP: basic behavior override
@@ -214,6 +217,9 @@ struct
 	array< float functionref( entity vortexSphere, entity attacker, entity projectile, float damage ) > calculateVortexProjectileHitDamageCallbacks
 
 	table< string, array< void functionref( entity projectile, entity vortexWeapon ) > > onProjectileRefiredByVortexCallbacks_ClassName
+
+	// modded utility
+	table< string, array<string> > weaponModsToRetainOnVortexRefire
 } file
 //
 
@@ -711,6 +717,24 @@ void function RunCallback_OnProjectileRefiredByVortex_ClassName( string classNam
 
 	foreach ( callbackFunc in file.onProjectileRefiredByVortexCallbacks_ClassName[ className ] )
 		callbackFunc( projectile, vortexWeapon )
+}
+
+// modified utility after adding HACK_ProjectileAddMod
+void function Vortex_AddWeaponModRetainedOnRefire( string weaponName, string modName )
+{
+	if ( !( weaponName in file.weaponModsToRetainOnVortexRefire ) )
+		file.weaponModsToRetainOnVortexRefire[ weaponName ] <- []
+	
+	if ( !file.weaponModsToRetainOnVortexRefire[ weaponName ].contains( modName ) )
+		file.weaponModsToRetainOnVortexRefire[ weaponName ].append( modName )
+}
+
+array<string> function GetWeaponModsRetainedOnRefire( string weaponName )
+{
+	if ( !( weaponName in file.weaponModsToRetainOnVortexRefire ) )
+		return []
+	
+	return file.weaponModsToRetainOnVortexRefire[ weaponName ]
 }
 #endif // SERVER
 
@@ -2172,12 +2196,16 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData, entity vor
 		file.vortexRefiredProjectileMods[ projectile ] <- typedArray
 
 		// also... try to use our hack to add mods to current projectile
+		// can't handle it good enough, multiple props with 0 passthrough thickness can still block projectile
+		/*
 		array<string> ownedMods = projectile.ProjectileGetMods() // get original projectile's mods
+		array<string> modsToRetain = GetWeaponModsRetainedOnRefire( weaponName ) // only add mods those needs to be applied on refire( such as damage mod )
 		foreach ( string mod in typedArray )
 		{
-			if ( !ownedMods.contains( mod ) )
+			if ( !ownedMods.contains( mod ) && modsToRetain.contains( mod ) )
 				HACK_ProjectileAddMod( projectile, mod )
 		}
+		*/
 	}
 
 	// modified: run callbacks
@@ -2570,7 +2598,7 @@ function VortexSphereDrainHealthForDamage( entity vortexSphere, damage )
 			if ( IsValid( soul ) )
 			{
 				int shieldRestoreAmount = int( damage ) //Might need tuning
-				//soul.SetShieldHealth( min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
+				//soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
 				SetShieldHealthWithFix( soul, min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
 			}
 		}

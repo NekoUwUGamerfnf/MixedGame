@@ -45,6 +45,12 @@ void function MpTitanWeaponBrute4QuadRocket_Init()
 	// vortex hit callback
 	// maybe shouldn't add this, not necessary for brute4 because she only needs utility ability to trigger cluster?
 	//AddCallback_OnVortexHitProjectile( OnVortexHitProjectile_Brute4QuadRocket )
+
+	// retain damage mod on refired by vortex
+	Vortex_AddWeaponModRetainedOnRefire( "mp_titanweapon_rocketeer_rocketstream", "brute4_quad_rocket" )
+	// seems not very necessary to handle single shot
+	// we should keep as less as we can for missile mods -- they can sometimes block fire
+	Vortex_AddWeaponModRetainedOnRefire( "mp_titanweapon_rocketeer_rocketstream", "brute4_single_shot" )
 #endif // #if SERVER
 }
 

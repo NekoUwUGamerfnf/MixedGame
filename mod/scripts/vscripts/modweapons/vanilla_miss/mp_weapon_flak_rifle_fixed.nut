@@ -26,6 +26,10 @@ void function MpWeaponFlakRifle_Init()
 	// burnmod blacklist
     ModdedBurnMods_AddDisabledMod( "flak_rifle" )
 	ModdedBurnMods_AddDisabledMod( "flak_cannon" )
+
+	// retain damage mod on refired by vortex
+	Vortex_AddWeaponModRetainedOnRefire( "mp_weapon_vinson", "flak_rifle" )
+	Vortex_AddWeaponModRetainedOnRefire( "mp_weapon_vinson", "flak_cannon" )
 #endif
 }
 

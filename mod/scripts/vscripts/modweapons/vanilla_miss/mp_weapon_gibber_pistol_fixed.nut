@@ -24,5 +24,9 @@ void function MpWeaponGibberPistol_Init()
 	// burnmod blacklist
     ModdedBurnMods_AddDisabledMod( "gibber_pistol" )
 	ModdedBurnMods_AddDisabledMod( "grenade_pistol" )
+
+	// retain damage mod on refired by vortex
+	Vortex_AddWeaponModRetainedOnRefire( "mp_weapon_semipistol", "gibber_pistol" )
+	Vortex_AddWeaponModRetainedOnRefire( "mp_weapon_semipistol", "grenade_pistol" )
 #endif
 }
