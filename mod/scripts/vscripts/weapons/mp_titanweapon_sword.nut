@@ -85,7 +85,8 @@ void function Sword_DamagedTarget( entity target, var damageInfo )
 	if ( coreWeapon.HasMod( "fd_duration" ) && IsValid( soul ) )
 	{
 		int shieldRestoreAmount = target.GetArmorType() == ARMOR_TYPE_HEAVY ? 500 : 250
-		soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
+		//soul.SetShieldHealth( min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
+		SetShieldHealthWithFix( soul, min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
 	}
 }
 #endif

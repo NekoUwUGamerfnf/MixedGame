@@ -142,10 +142,11 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 				if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) || weapon.HasMod( "pas_vanguard_shield" ) ) 
 					shieldRestoreAmount = int( 1.25 * shieldRestoreAmount )
 
-				float shieldAmount = min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() )
-				shieldRestoreAmount = soul.GetShieldHealthMax() - int( shieldAmount )
+				float shieldAmount = min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) )
+				shieldRestoreAmount = GetShieldHealthMaxWithFix( soul ) - int( shieldAmount )
 
-				soul.SetShieldHealth( shieldAmount )
+				//soul.SetShieldHealth( shieldAmount )
+				SetShieldHealthWithFix( soul, shieldAmount )
 
 				if ( file.stunHealCallback != null && shieldRestoreAmount > 0 )
 					file.stunHealCallback( attacker, target, shieldRestoreAmount )
@@ -187,7 +188,8 @@ void function StunLaser_DamagedTarget( entity target, var damageInfo )
 			//if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) ) // respawn messed this up
 			if ( SoulHasPassive( soul, ePassives.PAS_VANGUARD_SHIELD ) || weapon.HasMod( "pas_vanguard_shield" ) )
 				shieldRestoreAmount = int( 1.25 * shieldRestoreAmount )
-			soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
+			//soul.SetShieldHealth( min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
+			SetShieldHealthWithFix( soul, min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
 		}
 		if ( attacker.IsPlayer() )
 			MessageToPlayer( attacker, eEventNotifications.VANGUARD_ShieldGain, attacker )

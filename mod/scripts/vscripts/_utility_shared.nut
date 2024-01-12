@@ -1678,8 +1678,8 @@ float function GetShieldHealthFrac( entity ent )
 			ent = soul
 	}
 
-	int shieldHealth = ent.GetShieldHealth()
-	int shieldMaxHealth = ent.GetShieldHealthMax()
+	int shieldHealth = GetShieldHealthWithFix( ent )
+	int shieldMaxHealth = GetShieldHealthMaxWithFix( ent )
 
 	if ( shieldMaxHealth == 0 )
 		return 0.0

@@ -1487,11 +1487,13 @@ entity function FW_ReplaceMegaTurret( entity perviousTurret )
 	turret.s.relatedBatteryPort <- perviousTurret.s.relatedBatteryPort
 
 	int maxHealth = perviousTurret.GetMaxHealth()
-	int maxShield = perviousTurret.GetShieldHealthMax()
+	int maxShield = GetShieldHealthMaxWithFix( perviousTurret )
 	turret.SetMaxHealth( maxHealth )
 	turret.SetHealth( maxHealth )
-	turret.SetShieldHealth( maxShield )
-	turret.SetShieldHealthMax( maxShield )
+	//turret.SetShieldHealth( maxShield )
+	//turret.SetShieldHealthMax( maxShield )
+	SetShieldHealthWithFix( turret, maxShield )
+	SetShieldHealthMaxWithFix( turret, maxShield )
 
 	// update turretSiteStruct
 	foreach( TurretSiteStruct turretsite in file.turretsites )
@@ -1557,7 +1559,7 @@ void function OnMegaTurretFinalDamaged( entity turret, var damageInfo )
 	if ( !damageSourceID && !damageAmount && !attacker )
 		return
 
-	if( turret.GetShieldHealth() - damageAmount <= 0 && scriptType != damageTypes.rodeoBatteryRemoval ) // this shot breaks shield
+	if( GetShieldHealthWithFix( turret ) - damageAmount <= 0 && scriptType != damageTypes.rodeoBatteryRemoval ) // this shot breaks shield
 	{
 		if ( !attacker.IsTitan() && !IsSuperSpectre( attacker ) )
 		{
@@ -1571,7 +1573,7 @@ void function OnMegaTurretFinalDamaged( entity turret, var damageInfo )
 					attacker.s.lastTurretNotifyTime = Time()
 				}
 			}
-			DamageInfo_SetDamage( damageInfo, turret.GetShieldHealth() ) // only try to damage shields, never damage health
+			DamageInfo_SetDamage( damageInfo, GetShieldHealthWithFix( turret ) ) // only try to damage shields, never damage health
 			return
 		}
 	}
@@ -1698,7 +1700,8 @@ void function TurretStateWatcher( TurretSiteStruct turretSite )
 	int turretShield = GetCurrentPlaylistVarInt( "fw_turret_shield", FW_DEFAULT_TURRET_SHIELD )
 	turret.SetMaxHealth( turretHealth )
 	turret.SetHealth( turretHealth )
-	turret.SetShieldHealthMax( turretShield )
+	//turret.SetShieldHealthMax( turretShield )
+	SetShieldHealthMaxWithFix( turret, turretShield )
 
 	string idString = turretSite.turretflagid
 	string siteVarName = "turretSite" + idString
@@ -1776,7 +1779,7 @@ void function TurretStateWatcher( TurretSiteStruct turretSite )
 		{
 			if( lastDamagedTime + FW_TURRET_DAMAGED_DEBOUNCE >= Time() ) // recent underattack
 			{
-				if( turret.GetShieldHealth() > 0 ) // has shields
+				if( GetShieldHealthWithFix( turret ) > 0 ) // has shields
 					stateFlag = TURRET_SHIELDED_UNDERATTACK_IMC_FLAG
 				else
 					stateFlag = TURRET_UNDERATTACK_IMC_FLAG
@@ -1787,7 +1790,7 @@ void function TurretStateWatcher( TurretSiteStruct turretSite )
 				else
 					PlayFactionDialogueToTeam( "fortwar_awayTurretsUnderAttack", TEAM_IMC )
 			}
-			else if( turret.GetShieldHealth() > 0 ) // has shields left
+			else if( GetShieldHealthWithFix( turret ) > 0 ) // has shields left
 				stateFlag = TURRET_SHIELDED_IMC_FLAG
 			else
 				stateFlag = TURRET_IMC_FLAG
@@ -1798,7 +1801,7 @@ void function TurretStateWatcher( TurretSiteStruct turretSite )
 		{
 			if( lastDamagedTime + FW_TURRET_DAMAGED_DEBOUNCE >= Time() ) // recent underattack
 			{
-				if( turret.GetShieldHealth() > 0 ) // has shields
+				if( GetShieldHealthWithFix( turret ) > 0 ) // has shields
 					stateFlag = TURRET_SHIELDED_UNDERATTACK_MLT_FLAG
 				else
 					stateFlag = TURRET_UNDERATTACK_MLT_FLAG
@@ -1809,7 +1812,7 @@ void function TurretStateWatcher( TurretSiteStruct turretSite )
 				else
 					PlayFactionDialogueToTeam( "fortwar_awayTurretsUnderAttack", TEAM_MILITIA )
 			}
-			else if( turret.GetShieldHealth() > 0 ) // has shields left
+			else if( GetShieldHealthWithFix( turret ) > 0 ) // has shields left
 				stateFlag = TURRET_SHIELDED_MLT_FLAG
 			else
 				stateFlag = TURRET_MLT_FLAG
@@ -1986,7 +1989,7 @@ void function OnHarvesterFinalDamaged( entity harvester, var damageInfo )
 		callbackFunc( harvester, damageInfo )
 	// get modified damage
 	float damageAmount = DamageInfo_GetDamage( damageInfo )
-	if( ( harvester.GetShieldHealth()-damageAmount) < 0 )
+	if( ( GetShieldHealthWithFix( harvester )-damageAmount) < 0 )
 	{
 		if( !harvesterstruct.harvesterShieldDown )
 		{
@@ -2044,7 +2047,7 @@ void function OnHarvesterPostDamaged( entity harvester, var damageInfo )
 	{
 		if( attacker.IsPlayer() )
 			Remote_CallFunction_NonReplay( attacker , "ServerCallback_FW_NotifyTitanRequired" )
-		DamageInfo_SetDamage( damageInfo, harvester.GetShieldHealth() )
+		DamageInfo_SetDamage( damageInfo, GetShieldHealthWithFix( harvester ) )
 		damageAmount = 0 // never damage haveter's prop
 	}
 
@@ -2192,7 +2195,7 @@ void function HarvesterThink( HarvesterStruct fw_harvester )
 
 	float lastTime = Time()
 	wait 4
-	int lastShieldHealth = harvester.GetShieldHealth()
+	int lastShieldHealth = GetShieldHealthWithFix( harvester )
 	generateBeamFX( fw_harvester )
 	generateShieldFX( fw_harvester )
 
@@ -2207,7 +2210,7 @@ void function HarvesterThink( HarvesterStruct fw_harvester )
 
 		if ( IsValid( fw_harvester.particleShield ) )
 		{
-			vector shieldColor = GetShieldTriLerpColor( 1.0 - ( harvester.GetShieldHealth().tofloat() / harvester.GetShieldHealthMax().tofloat() ) )
+			vector shieldColor = GetShieldTriLerpColor( 1.0 - ( GetShieldHealthWithFix( harvester ).tofloat() / GetShieldHealthMaxWithFix( harvester ).tofloat() ) )
 			EffectSetControlPointVector( fw_harvester.particleShield, 1, shieldColor )
 		}
 
@@ -2217,16 +2220,16 @@ void function HarvesterThink( HarvesterStruct fw_harvester )
 			EffectSetControlPointVector( fw_harvester.particleBeam, 1, beamColor )
 		}
 
-		if ( fw_harvester.harvester.GetShieldHealth() == 0 )
+		if ( fw_harvester.GetShieldHealthWithFix( harvester ) == 0 )
 			if( IsValid( fw_harvester.particleShield ) )
 				fw_harvester.particleShield.Destroy()
 
-		if ( ( ( currentTime-fw_harvester.lastDamage ) >= GetCurrentPlaylistVarFloat( "fw_harvester_regen_delay", FW_DEFAULT_HARVESTER_REGEN_DELAY ) ) && ( harvester.GetShieldHealth() < harvester.GetShieldHealthMax() ) )
+		if ( ( ( currentTime-fw_harvester.lastDamage ) >= GetCurrentPlaylistVarFloat( "fw_harvester_regen_delay", FW_DEFAULT_HARVESTER_REGEN_DELAY ) ) && ( GetShieldHealthWithFix( harvester ) < GetShieldHealthMaxWithFix( harvester ) ) )
 		{
 			if( !IsValid( fw_harvester.particleShield ) )
 				generateShieldFX( fw_harvester )
 
-			if( harvester.GetShieldHealth() == 0 )
+			if( GetShieldHealthWithFix( harvester ) == 0 )
 				EmitSoundOnEntity( harvester, "coop_generator_shieldrecharge_start" )
 
 			if (!isRegening)
@@ -2236,34 +2239,36 @@ void function HarvesterThink( HarvesterStruct fw_harvester )
 				isRegening = true
 			}
 
-			float newShieldHealth = ( harvester.GetShieldHealthMax() / GetCurrentPlaylistVarFloat( "fw_harvester_regen_time", FW_DEFAULT_HARVESTER_REGEN_TIME ) * deltaTime ) + harvester.GetShieldHealth()
+			float newShieldHealth = ( GetShieldHealthMaxWithFix( harvester ) / GetCurrentPlaylistVarFloat( "fw_harvester_regen_time", FW_DEFAULT_HARVESTER_REGEN_TIME ) * deltaTime ) + GetShieldHealthWithFix( harvester )
 
 			// shield full
-			if ( newShieldHealth >= harvester.GetShieldHealthMax() )
+			if ( newShieldHealth >= GetShieldHealthMaxWithFix( harvester ) )
 			{
 				StopSoundOnEntity( harvester, "coop_generator_shieldrecharge_resume" )
-				harvester.SetShieldHealth( harvester.GetShieldHealthMax() )
+				//harvester.SetShieldHealth( GetShieldHealthMaxWithFix( harvester ) )
+				SetShieldHealthWithFix( harvester, GetShieldHealthMax() )
 				EmitSoundOnEntity( harvester, "coop_generator_shieldrecharge_end" )
 				PlayFactionDialogueToTeam( "fortwar_baseShieldUpFriendly", harvester.GetTeam() )
 				isRegening = false
 			}
 			else
 			{
-				harvester.SetShieldHealth( newShieldHealth )
+				//harvester.SetShieldHealth( newShieldHealth )
+				SetShieldHealthWithFix( harvester, newShieldHealth )
 			}
 		}
-		else if ( ( ( currentTime-fw_harvester.lastDamage ) < GENERATOR_SHIELD_REGEN_DELAY ) && ( harvester.GetShieldHealth() < harvester.GetShieldHealthMax() ) )
+		else if ( ( ( currentTime-fw_harvester.lastDamage ) < GENERATOR_SHIELD_REGEN_DELAY ) && ( GetShieldHealthWithFix( harvester ) < GetShieldHealthMaxWithFix( harvester ) ) )
 		{
 			isRegening = false
 		}
 
-		if ( ( lastShieldHealth > 0 ) && ( harvester.GetShieldHealth() == 0 ) )
+		if ( ( lastShieldHealth > 0 ) && ( GetShieldHealthWithFix( harvester ) == 0 ) )
 		{
 			EmitSoundOnEntity( harvester, "TitanWar_Harvester_ShieldDown" ) // add this
 			EmitSoundOnEntity( harvester, "coop_generator_shielddown" )
 		}
 
-		lastShieldHealth = harvester.GetShieldHealth()
+		lastShieldHealth = GetShieldHealthWithFix( harvester )
 		lastTime = currentTime
 		WaitFrame()
 	}
@@ -2273,7 +2278,7 @@ void function HarvesterAlarm( HarvesterStruct fw_harvester )
 {
 	while( IsAlive( fw_harvester.harvester ) )
 	{
-		if( fw_harvester.harvester.GetShieldHealth() == 0 )
+		if( fw_harvester.GetShieldHealthWithFix( harvester ) == 0 )
 		{
 			wait EmitSoundOnEntity( fw_harvester.harvester, "coop_generator_underattack_alarm" )
 		}
@@ -2296,7 +2301,7 @@ void function UpdateHarvesterHealth( int team )
 	{
 		if( IsValid(harvester) )
 		{
-			GameRules_SetTeamScore2( team, 1.0 * harvester.GetShieldHealth() / harvester.GetShieldHealthMax() * 100 )
+			GameRules_SetTeamScore2( team, 1.0 * GetShieldHealthWithFix( harvester ) / GetShieldHealthMaxWithFix( harvester ) * 100 )
 			WaitFrame()
 		}
 		else // harvester down
@@ -2482,14 +2487,15 @@ function FW_UseBattery( batteryPortvar, playervar ) //actually void function( en
     if( turretReplaced || teamChanged ) // replaced/hacked turret will spawn with 50% health
         newHealth = int ( turret.GetMaxHealth() * GetCurrentPlaylistVarFloat( "fw_turret_hacked_health", TURRET_HACKED_HEALTH_PERCENTAGE ) )
     // restore turret shield
-    int newShield = int ( min( turret.GetShieldHealthMax(), turret.GetShieldHealth() + ( turret.GetShieldHealthMax() * GetCurrentPlaylistVarFloat( "fw_turret_fixed_shield", TURRET_FIXED_SHIELD_PERCENTAGE ) ) ) )
+    int newShield = int ( min( GetShieldHealthMaxWithFix( turret ), GetShieldHealthWithFix( turret ) + ( GetShieldHealthMaxWithFix( turret ) * GetCurrentPlaylistVarFloat( "fw_turret_fixed_shield", TURRET_FIXED_SHIELD_PERCENTAGE ) ) ) )
     if( turretReplaced || teamChanged ) // replaced/hacked turret will spawn with 50% shield
-        newShield = int ( turret.GetShieldHealthMax() * GetCurrentPlaylistVarFloat( "fw_turret_hacked_shield", TURRET_HACKED_SHIELD_PERCENTAGE ) )
+        newShield = int ( GetShieldHealthMaxWithFix( turret ) * GetCurrentPlaylistVarFloat( "fw_turret_hacked_shield", TURRET_HACKED_SHIELD_PERCENTAGE ) )
     // only do team score event if turret's shields down, encourage players to hack more turrets
-    bool additionalScore = turret.GetShieldHealth() <= 0
+    bool additionalScore = GetShieldHealthWithFix( turret ) <= 0
     // this can be too much powerful
     turret.SetHealth( newHealth )
-    turret.SetShieldHealth( newShield )
+    //turret.SetShieldHealth( newShield )
+	SetShieldHealthWithFix( turret, newShield )
 
     // score event
     string scoreEvent = "FortWarForwardConstruction"

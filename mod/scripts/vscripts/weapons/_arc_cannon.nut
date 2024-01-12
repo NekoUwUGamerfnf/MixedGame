@@ -234,7 +234,7 @@ function ConvertTitanShieldIntoBonusCharge( entity soul, entity weapon )
 	local maxShieldDecay = OVERCHARGE_MAX_SHIELD_DECAY
 	local bonusChargeFraction = OVERCHARGE_BONUS_CHARGE_FRACTION
 	local shieldDecayMultiplier = OVERCHARGE_SHIELD_DECAY_MULTIPLIER
-	int shieldHealthMax = soul.GetShieldHealthMax()
+	int shieldHealthMax = GetShieldHealthMaxWithFix( soul )
 	local chargeRatio = GetArcCannonChargeFraction( weapon )
 
 	while( 1 )
@@ -246,7 +246,7 @@ function ConvertTitanShieldIntoBonusCharge( entity soul, entity weapon )
 		local charge = clamp ( baseCharge * ( 1 / chargeRatio ), 0.0, 1.0 )
 		if ( charge < 1.0 || maxShieldDecay > 0)
 		{
-			int shieldHealth = soul.GetShieldHealth()
+			int shieldHealth = GetShieldHealthWithFix( soul )
 
 			//Slight inconsistency in server updates, this ensures it never takes too much.
 			if ( shieldDecayMultiplier > maxShieldDecay )
@@ -255,7 +255,7 @@ function ConvertTitanShieldIntoBonusCharge( entity soul, entity weapon )
 
 			local shieldDecayAmount = shieldHealthMax * shieldDecayMultiplier
 			local newShieldAmount = shieldHealth - shieldDecayAmount
-			soul.SetShieldHealth( max( newShieldAmount, 0 ) )
+			//SetShieldHealthWithFix( soul, max( newShieldAmount, 0 ) )
 			soul.nextRegenTime = Time() + GetShieldRegenTime( soul )
 
 			if ( shieldDecayAmount > shieldHealth )

@@ -257,10 +257,11 @@ void function UpgradeCoreThink( entity weapon, float coreDuration )
 		EmitSoundOnEntity( owner, "Titan_Monarch_Smart_Core_Activated_3P" )
 	
 	entity soul = owner.GetTitanSoul()
-	//soul.SetShieldHealth( soul.GetShieldHealthMax() )
+	//SetShieldHealthWithFix( soul, GetShieldHealthMaxWithFix( soul ) )
 	// adding settings that allows shield regen amount to be modified
-	int shieldRegen = int( soul.GetShieldHealthMax() * file.shieldRegenScale )
-    soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + shieldRegen ) )
+	int shieldRegen = int( GetShieldHealthMaxWithFix( soul ) * file.shieldRegenScale )
+    //soul.SetShieldHealth( min( GetShieldHealthMaxWithFix( soul ), GetShieldHealthWithFix( soul ) + shieldRegen ) )
+	SetShieldHealthWithFix( soul, min( GetShieldHealthMaxWithFix( soul ), GetShieldHealthWithFix( soul ) + shieldRegen ) )
 
 	OnThreadEnd(
 	function() : ( weapon, owner, soul )

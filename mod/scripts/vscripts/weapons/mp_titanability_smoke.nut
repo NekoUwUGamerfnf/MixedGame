@@ -159,8 +159,9 @@ void function ElectricSmoke_DamagedTarget( entity target, var damageInfo )
 			if ( IsValid( soul ) )
 			{
 				int shieldRestoreAmount = 35
-				int actualShieldRestoreAmount = minint( soul.GetShieldHealthMax()-soul.GetShieldHealth(), shieldRestoreAmount )
-				soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
+				int actualShieldRestoreAmount = minint( GetShieldHealthMaxWithFix( soul )-GetShieldHealthWithFix( soul ), shieldRestoreAmount )
+				//soul.SetShieldHealth( min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
+				SetShieldHealthWithFix( soul, min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
 
 				if ( file.smokeHealCallback != null && actualShieldRestoreAmount > 0 )
 					file.smokeHealCallback( attacker, target, actualShieldRestoreAmount )
@@ -251,8 +252,9 @@ bool function TryElectricSmokeTargetHeal( entity attacker, entity target )
 	entity soul = target.GetTitanSoul() // safe to use, validation checks done in SmokeCanHealTarget()
 
 	int shieldRestoreAmount = 35
-	int actualShieldRestoreAmount = minint( soul.GetShieldHealthMax()-soul.GetShieldHealth(), shieldRestoreAmount )
-	soul.SetShieldHealth( min( soul.GetShieldHealth() + shieldRestoreAmount, soul.GetShieldHealthMax() ) )
+	int actualShieldRestoreAmount = minint( GetShieldHealthMaxWithFix( soul )-GetShieldHealthWithFix( soul ), shieldRestoreAmount )
+	//soul.SetShieldHealth( min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
+	SetShieldHealthWithFix( soul, min( GetShieldHealthWithFix( soul ) + shieldRestoreAmount, GetShieldHealthMaxWithFix( soul ) ) )
 
 	if ( file.smokeHealCallback != null && actualShieldRestoreAmount > 0 )
 		file.smokeHealCallback( attacker, target, actualShieldRestoreAmount )

@@ -76,8 +76,8 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 
 	entity soul = owner.GetTitanSoul()
 	table storedShield = {
-		startingShield = soul.GetShieldHealth(),
-		startingMaxShield = soul.GetShieldHealthMax(),
+		startingShield = GetShieldHealthWithFix( soul ),
+		startingMaxShield = GetShieldHealthMaxWithFix( soul ),
 	}
 
 	if ( owner.IsPlayer() )
@@ -114,8 +114,10 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 			{
 				CleanupCoreEffect( soul )
 				int orgMaxShield = expect int ( storedShield.startingMaxShield )
-				soul.SetShieldHealth( min( orgMaxShield, soul.GetShieldHealth() ) )
-				soul.SetShieldHealthMax( orgMaxShield )
+				//soul.SetShieldHealth( min( orgMaxShield, GetShieldHealthWithFix( soul ) ) )
+				//soul.SetShieldHealthMax( orgMaxShield )
+				SetShieldHealthWithFix( soul, min( orgMaxShield, GetShieldHealthWithFix( soul ) ) )
+    			SetShieldHealthMaxWithFix( soul, orgMaxShield )
 			}
 		}
 	)
@@ -132,8 +134,10 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 		int regenRate = SHILED_CORE_REGEN_RATE_REGENNING
 	}
 
-	soul.SetShieldHealthMax( int( soul.GetShieldHealthMax() * shieldMultiplier ) )
-	soul.SetShieldHealth( soul.GetShieldHealthMax() )
+	//soul.SetShieldHealthMax( int( GetShieldHealthMaxWithFix( soul ) * shieldMultiplier ) )
+	//soul.SetShieldHealth( GetShieldHealthMaxWithFix( soul ) )
+	SetShieldHealthMaxWithFix( soul, int( GetShieldHealthMaxWithFix( soul ) * shieldMultiplier ) )
+	SetShieldHealthWithFix( soul, GetShieldHealthMaxWithFix( soul ) )
 
 	float startTime = Time()
 	owner.p.lastDamageTime = Time() - regenDelay // reset lastDamageTime, force start player regen
@@ -142,7 +146,10 @@ void function ShieldCoreThink( entity weapon, float coreDuration )
 		if ( IsValid( soul ) && !owner.ContextAction_IsActive() )
 		{
 			if( Time() - owner.p.lastDamageTime >= SHIELD_CORE_REGEN_DELAY )
-				soul.SetShieldHealth( min( soul.GetShieldHealthMax(), soul.GetShieldHealth() + regenRate ) )
+			{
+				//soul.SetShieldHealth( min( GetShieldHealthMaxWithFix( soul ), GetShieldHealthWithFix( soul ) + regenRate ) )
+				SetShieldHealthWithFix( soul, min( GetShieldHealthMaxWithFix( soul ), GetShieldHealthWithFix( soul ) + regenRate ) )
+			}
 		}
 
 		wait SHIELD_CORE_REGEN_TICKRATE

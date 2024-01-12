@@ -356,8 +356,10 @@ void function UpdateRespawnedPlayerHealthAndShield( entity player )
 		{
 			player.SetMaxHealth( BLEEDOUT_MODE_HEALTH )
 			player.SetHealth( BLEEDOUT_MODE_HEALTH )
-			player.SetShieldHealthMax( BLEEDOUT_MODE_SHIELD_HEALTH )
-			player.SetShieldHealth( BLEEDOUT_MODE_SHIELD_HEALTH )
+			//player.SetShieldHealthMax( BLEEDOUT_MODE_SHIELD_HEALTH )
+			//player.SetShieldHealth( BLEEDOUT_MODE_SHIELD_HEALTH )
+			SetShieldHealthMaxWithFix( player, BLEEDOUT_MODE_SHIELD_HEALTH )
+			SetShieldHealthWithFix( player, BLEEDOUT_MODE_SHIELD_HEALTH )
 		}
 	}
 }
@@ -547,7 +549,7 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 	{
 		if( attacker.IsPlayer() && victim.IsPlayer() && victim != attacker )
 		{
-			if( attacker.GetShieldHealth() < attacker.GetShieldHealthMax() )
+			if( GetShieldHealthWithFix( attacker ) < GetShieldHealthMaxWithFix( attacker ) )
 			{
 				int shieldRestored = PlayerShieldReward( attacker, BLEEDOUT_MODE_EXECUTION_SHIELD_REWARD )
 				SendHudMessage( attacker, "處決一名敵人, 已回復" + string(shieldRestored) + "點護盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
@@ -609,7 +611,7 @@ void function OnPlayerDamaged( entity victim, var damageInfo )
 	// at this point shield health hasn't been updated yet, we store shield value
 	// from PR#66
 	#if SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE
-		file.playerShieldHealthLeftSinceLastHit[ victim ] = victim.GetShieldHealth()
+		file.playerShieldHealthLeftSinceLastHit[ victim ] = GetShieldHealthWithFix( victim )
 	#endif
 }
 
@@ -623,8 +625,8 @@ void function OnPlayerPostDamaged( entity victim, var damageInfo )
 	#if SHOULD_SEND_PILOT_SHIELD_DAMAGE_MESSAGE
 		if ( !Bleedout_IsPlayerBleeding( victim ) )
 		{
-			int shieldHealthMax = victim.GetShieldHealthMax()
-			int currentShieldHealth = victim.GetShieldHealth()
+			int shieldHealthMax = GetShieldHealthMaxWithFix( victim )
+			int currentShieldHealth = GetShieldHealthWithFix( victim )
 			int lastShieldHealth = file.playerShieldHealthLeftSinceLastHit[ victim ]
 			//print( "currentShieldHealth: " + string( currentShieldHealth ) )
 			
@@ -650,11 +652,12 @@ int function PlayerShieldReward( entity player, int reward )
 	shieldFXHandle.SetOwner( player )
 	EffectSetControlPointVector( shieldFXHandle, 1, <115, 247, 255> )
 
-	int currentShieldHealth = player.GetShieldHealth()
-	int shieldToRestore = int( min( player.GetShieldHealthMax() - currentShieldHealth, reward ) )
+	int currentShieldHealth = GetShieldHealthWithFix( player )
+	int shieldToRestore = int( min( GetShieldHealthMaxWithFix( player ) - currentShieldHealth, reward ) )
 	if( shieldToRestore <= reward ) // consider shield is full, not showing a extra fx
 		shieldFXHandle.kv.VisibilityFlags = ENTITY_VISIBLE_TO_ENEMY | ENTITY_VISIBLE_TO_FRIENDLY
-	player.SetShieldHealth( min( player.GetShieldHealthMax(), player.GetShieldHealth() + shieldToRestore ) )
+	//player.SetShieldHealth( min( GetShieldHealthMaxWithFix( player ), GetShieldHealthWithFix( player ) + shieldToRestore ) )
+	SetShieldHealthWithFix( player, min( GetShieldHealthMaxWithFix( player ), GetShieldHealthWithFix( player ) + shieldToRestore ) )
 	MessageToPlayer( player, eEventNotifications.VANGUARD_ShieldGain, player )
 
 	return shieldToRestore
@@ -698,7 +701,10 @@ void function BleedoutMode_OnPlayerDowned( entity player, entity attacker, var d
 	//player.Signal( "StopHealthRegenThink" )
 	// Delete any shield health remaining, but not for DF_BYPASS_SHIELDS
 	if( !( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BYPASS_SHIELD ) )
-		player.SetShieldHealth( 0 )
+	{
+		//player.SetShieldHealth( 0 )
+		SetShieldHealthWithFix( player, 0 )
+	}
 
 	// error handle... don't know how this happens
 	if ( !IsAlive( player ) )
@@ -805,7 +811,7 @@ void function BleedoutMode_OnPlayerRevived( entity playerToRes, entity playerHea
     // do a reward for playerHealer
 	if( playerHealer != playerToRes ) // selfRes
 	{
-    	if( playerHealer.GetShieldHealth() < playerHealer.GetShieldHealthMax() )
+    	if( GetShieldHealthWithFix( playerHealer ) < GetShieldHealthMaxWithFix( playerHealer ) )
 		{
 			int shieldRestored = PlayerShieldReward( playerHealer, BLEEDOUT_MODE_REVIVING_FRIENDLY_SHIELD_REWARD )
 			SendHudMessage( playerHealer, "復活一名隊友, 已回復" + string(shieldRestored) + "點護盾! ", -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
@@ -965,7 +971,7 @@ void function PlayerStatusDisplayer( entity player )
 	{
 		NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_SHIELD_MESSAGE_ID ) // try to delete existing one
 		NSDeleteStatusMessageOnPlayer( player, BLEEDOUT_MODE_HEALTH_MESSAGE_ID ) // try to delete existing one
-		NSCreateStatusMessageOnPlayer( player, "護盾", string( player.GetShieldHealth() ), BLEEDOUT_MODE_SHIELD_MESSAGE_ID ) // init shield message
+		NSCreateStatusMessageOnPlayer( player, "護盾", string( GetShieldHealthWithFix( player ) ), BLEEDOUT_MODE_SHIELD_MESSAGE_ID ) // init shield message
 		NSCreateStatusMessageOnPlayer( player, "血量", string( player.GetHealth() ), BLEEDOUT_MODE_HEALTH_MESSAGE_ID ) // init health message
 	}
 
@@ -977,7 +983,7 @@ void function PlayerStatusDisplayer( entity player )
 			return
 		WaitFrame()
 		//player.WaitSignal( "OnDamaged" ) // this can't handle the health regen!
-		string shieldString = string( player.GetShieldHealth() )
+		string shieldString = string( GetShieldHealthWithFix( player ) )
 		string healthString = string( player.GetHealth() )
 		if ( Bleedout_IsPlayerBleeding( player ) ) // for noticing players health that they've been downed
 			healthString += " (倒地)"
@@ -985,7 +991,7 @@ void function PlayerStatusDisplayer( entity player )
 		NSEditStatusMessageOnPlayer( player, "護盾", shieldString, BLEEDOUT_MODE_SHIELD_MESSAGE_ID ) // update shield message
 		NSEditStatusMessageOnPlayer( player, "血量", healthString, BLEEDOUT_MODE_HEALTH_MESSAGE_ID ) // update health message
 
-		if ( ShouldAddPlayerBatteryHint( player ) && player.GetShieldHealth() != player.GetShieldHealthMax() && !Bleedout_IsPlayerBleeding( player ) )
+		if ( ShouldAddPlayerBatteryHint( player ) && GetShieldHealthWithFix( player ) != GetShieldHealthMaxWithFix( player ) && !Bleedout_IsPlayerBleeding( player ) )
 		{
 			if ( hasBatteryHint )
 				continue
@@ -1030,7 +1036,7 @@ bool function ShouldAddPlayerBatteryHint( entity player )
 
 void function GetShieldLeft( entity player )
 {
-    SendHudMessage( player, "剩餘護盾值: " + string( player.GetShieldHealth() ) + " / " + string( player.GetShieldHealthMax() ), -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
+    SendHudMessage( player, "剩餘護盾值: " + string( GetShieldHealthWithFix( player ) ) + " / " + string( GetShieldHealthMaxWithFix( player ) ), -1, -0.3, 0, 255, 255, 255, 0, 2, 0 )
 }
 
 
@@ -1039,7 +1045,7 @@ bool function ModifierBleedout_PlayerDownedCheck( entity victim, var damageInfo 
 {
 	bool isBypassShield = ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_BYPASS_SHIELD ) > 0
 	// doing a better check including shield health
-	if ( victim.GetHealth() + victim.GetShieldHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )
+	if ( victim.GetHealth() + GetShieldHealthWithFix( victim ) - DamageInfo_GetDamage( damageInfo ) <= 0 )
 		return true
 	// bypass shield condition
 	else if ( isBypassShield && victim.GetHealth() - DamageInfo_GetDamage( damageInfo ) <= 0 )

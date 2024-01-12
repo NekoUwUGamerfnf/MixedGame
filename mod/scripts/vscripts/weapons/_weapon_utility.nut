@@ -3591,16 +3591,17 @@ function EMP_FX( asset effect, entity ent, string tag, float duration )
 //function EMPGrenade_AffectsShield( entity titan, damageInfo )
 void function EMPGrenade_AffectsShield( entity titan, var damageInfo, float shieldDamageScale = EMP_AFFECTS_SHIELD_SCALE )
 {
-	int shieldHealth = titan.GetTitanSoul().GetShieldHealth()
+	int shieldHealth = GetShieldHealthWithFix( titan.GetTitanSoul() )
 	// modified to add more parameter and global settings handle
-	//int shieldDamage = int( titan.GetTitanSoul().GetShieldHealthMax() * 0.5 )
+	//int shieldDamage = int( GetShieldHealthMaxWithFix( titan.GetTitanSoul() ) * 0.5 )
 	float affectsShieldFrac = shieldDamageScale * file.empAffectsShieldDamageScale
-	int shieldDamage = int( titan.GetTitanSoul().GetShieldHealthMax() * affectsShieldFrac )
+	int shieldDamage = int( GetShieldHealthMaxWithFix( titan.GetTitanSoul() ) * affectsShieldFrac )
 
-	titan.GetTitanSoul().SetShieldHealth( maxint( 0, shieldHealth - shieldDamage ) )
+	//titan.GetTitanSoul().SetShieldHealth( maxint( 0, shieldHealth - shieldDamage ) )
+	SetShieldHealthWithFix( titan.GetTitanSoul(), maxint( 0, shieldHealth - shieldDamage ) )
 
 	// attacker took down titan shields
-	if ( shieldHealth && !titan.GetTitanSoul().GetShieldHealth() )
+	if ( shieldHealth && !GetShieldHealthWithFix( titan.GetTitanSoul() ) )
 	{
 		entity attacker = DamageInfo_GetAttacker( damageInfo )
 		if ( attacker && attacker.IsPlayer() )
