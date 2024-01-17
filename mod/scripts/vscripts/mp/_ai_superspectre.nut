@@ -188,7 +188,8 @@ void function SuperSpectre_OnDamage( entity npc, var damageInfo )
 bool function DamageShouldStartReaperNuke( entity npc, var damageInfo )
 {
 	// general check
-	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo ) )
+	// this ignores interruptable state check because we will handle animations manually
+	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo, true ) )
 		return false
 
 	// nuke before death check
@@ -341,7 +342,7 @@ void function ReaperNukeSequenceFailSafe( entity npc )
 	// ( 89/200 ) * 7.233 ≈ 3.21, so we wait 3.3s as failsafe
 	wait 0.1
 	// here's for fun: if reaper don't have a animation active
-	// it must means it's animation gets intterupted by something
+	// it must means it's animation gets interrupted by something
 	// we manually do a effect( can't handle beam effects because there're too many of them, like SP ticks )
 	// NOTE: this can't handle because after anim start the reaper will be recognized as AnimActive, but actually they can still gets stuck
 	if ( !npc.Anim_IsActive() )
@@ -385,7 +386,9 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 	while ( Time() < endTime )
 	{
 		// this must means reaper isn't actually playing animation, they got some schedule to do...
-		if ( !npc.Anim_IsActive() )
+		// we wait if reaper isn't interruptable
+		//if ( !npc.Anim_IsActive() )
+		if ( !npc.Anim_IsActive() && npc.IsInterruptable() )
 		{
 			//print( "reaper still don't have anim active!" )
 			//print( "elapsed time: " + string( Time() - startTime ) )
@@ -644,7 +647,7 @@ entity function CreateExplosionInflictor( vector origin )
 }
 
 // modified nuke threshold and force kill think, wrapped into function
-bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = null )
+bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = null, bool ignoreInterruptableCheck = false )
 {
 	// these are checks that only valid when passing a damageInfo inside
 	bool damageThresholdChecksFailed = false
@@ -663,7 +666,8 @@ bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = nul
 	// failing checks:
 	if( !ShouldNukeOnDeath( npc ) 
 		|| !npc.IsOnGround() 
-		|| !npc.IsInterruptable() // it's weird that if reaper is in attack or flinch activity, it won't be recognized as "not interruptable", unlike stalkers...
+		//|| !npc.IsInterruptable() // it's weird that if reaper is in attack or flinch activity, it won't be recognized as "not interruptable", unlike stalkers...
+		|| ( !ignoreInterruptableCheck && !npc.IsInterruptable() ) // remove interruptable check if we're detonating before death
 		|| damageThresholdChecksFailed
 		|| forceKilledByTitanChecksFailed
 		)
