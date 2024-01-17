@@ -65,7 +65,9 @@ void function OnHit_TitanWeaponSniper_Internal( entity victim, var damageInfo )
 
 	float f_extraDamage = float( extraDamage )
 
-	bool isCritical = IsCriticalHit( DamageInfo_GetAttacker( damageInfo ), victim, DamageInfo_GetHitBox( damageInfo ), damage, DamageInfo_GetDamageType( damageInfo ) )
+	// change to handle scripted shield check
+	//bool isCritical = IsCriticalHit( DamageInfo_GetAttacker( damageInfo ), victim, DamageInfo_GetHitBox( damageInfo ), damage, DamageInfo_GetDamageType( damageInfo ) )
+	bool isCritical = IsCriticalHit_WithScriptedShieldCheck( DamageInfo_GetAttacker( damageInfo ), victim, DamageInfo_GetHitBox( damageInfo ), damage, DamageInfo_GetDamageType( damageInfo ) )
 
 	//array<string> projectileMods = inflictor.ProjectileGetMods() // moving here! contains vanilla behavior, no need to change to Vortex_GetRefiredProjectileMods()
 	array<string> projectileMods = Vortex_GetRefiredProjectileMods( inflictor ) // I don't care, let's break vanilla behavior

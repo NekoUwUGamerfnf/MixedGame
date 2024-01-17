@@ -1,4 +1,4 @@
-untyped // to use ent.s
+untyped // to use ent.s and untyped variables
 // this is to fix respawn's weird client-side crash
 // use in-file shield value for non-titan heavy armor target
 // needs to replace all GetShieldHealth(), SetShieldHealth(), GetShieldHealthMax() and SetShieldHealthMax() function with functions in this file
@@ -10,12 +10,27 @@ global function GetShieldHealthWithFix
 global function SetShieldHealthMaxWithFix
 global function GetShieldHealthMaxWithFix
 
+// replacement func to handle native think
+// prevents crits from happening on scripted shield entities
+global function IsCriticalHit_WithScriptedShieldCheck
+
+// effects from cl_player_common.gnut
+const asset SHIELD_BODY_FX = $"P_xo_armor_body_CP"
+const asset SHIELD_BREAK_FX = $"P_xo_armor_break_CP"
+
 // main functioning array
 const array<string> USE_SCRIPTED_SHIELD_CLASSES =
 [
     "npc_super_spectre",
     "npc_stalker",
 ]
+
+// stores our bodygroup to hide for these shielded entities
+// doesn't seem to working well, client-side still shows their crit spot
+const table<string, string> SCRIPTED_SHIELDING_ENT_CRIT_BODYGROUP =
+{
+
+}
 
 struct
 {
@@ -26,7 +41,41 @@ struct
 void function Nessie_Shield_Crash_Fix_Init()
 {
     // change effect to be handled by server
-    // also prevents crits from happening
+    // play in final damage callback because it's where shield health isn't modified yet
+    foreach ( string className in USE_SCRIPTED_SHIELD_CLASSES )
+        AddDamageFinalCallback( className, OnScriptedShieldEntDamage )
+    // removes client-side effect and crit indicator
+    // modified callback in _base_gametype.gnut
+    AddCallback_PlayerDamageFeedback( ScriptedShieldPlayerFeedbackFix )
+}
+
+// replacement func to handle native think
+// prevents crits from happening on scripted shield entities
+bool function IsCriticalHit_WithScriptedShieldCheck( entity attacker, entity victim, int hitBox, damageAmount, damageTypes )
+{
+    bool victimHasShield = GetShieldHealthWithFix( victim ) > 0 && GetShieldHealthMax( victim ) > 0
+    return IsCriticalHit( attacker, victim, hitbox, damageAmount, damageTypes ) && !victimHasShield
+}
+
+void function OnScriptedShieldEntDamage( entity ent, var damageInfo )
+{
+    // fix shield hit effect on scripted shield entity
+    // can't fix impact effect and sound, those are native stuff
+    if ( !EntCanHaveShield( ent ) && GetShieldHealthWithFix( ent ) > 0 )
+        PlayShieldHitEffect_Server( ent )
+}
+
+void function ScriptedShieldPlayerFeedbackFix( entity victim, var damageInfo, PlayerDamageFeedbackStruct feedbackStruct )
+{
+    bool victimHasShield = GetShieldHealthWithFix( victim ) > 0 && GetShieldHealthMax( victim ) > 0
+    // removes client-side effect and crit indicator
+    if ( victimHasShield )
+    {
+        if ( feedbackStruct.customDamageType & DF_CRITICAL )
+            feedbackStruct.customDamageType & ~DF_CRITICAL
+        if ( feedbackStruct.customDamageType & DF_SHIELD_DAMAGE )
+            feedbackStruct.customDamageType & ~DF_SHIELD_DAMAGE
+    }
 }
 
 void function InitFileShieldValue( entity ent )
@@ -69,6 +118,8 @@ void function SetShieldHealthWithFix( entity ent, var targetShield )
 {
     InitFileShieldValue( ent )
 
+    // shield value before updating
+    int oldShieldValue = GetShieldHealthWithFix( ent )
     // type casting
     int intShieldValue = typeof( targetShield ) == "int" ? expect int( targetShield ) : int( targetShield )
 
@@ -77,6 +128,8 @@ void function SetShieldHealthWithFix( entity ent, var targetShield )
         file.entShieldValue[ ent ] = intShieldValue
         // due we can't make client-side get shield they left
         // try to hide on server-side
+        // doesn't seem to working well, client-side still shows their crit spot
+        /*
         if ( intShieldValue > 0 )
         {
             if ( !EntCritHidden( ent ) )
@@ -92,6 +145,17 @@ void function SetShieldHealthWithFix( entity ent, var targetShield )
                 ShowCrit( ent )
                 delete ent.s.critHiddenByScript
             }
+        }
+        */
+
+        // fake effect: shield up / shield down
+        int maxShieldValue = GetShieldHealthMaxWithFix( ent )
+        if ( GetShieldHealthWithFix( ent ) > 0 )
+        {
+            if ( oldShieldValue > 0 && intShieldValue <= 0 )
+                PlayShieldBreakEffect_Server( ent )
+            else if ( oldShieldValue < maxShieldValue && intShieldValue >= maxShieldValue )
+                PlayShieldActivateEffect_Server( ent )
         }
     }
     else // otherwise we use vanilla behavior
@@ -121,6 +185,8 @@ void function SetShieldHealthMaxWithFix( entity ent, var targetMaxShield )
         file.entMaxShieldValue[ ent ] = intShieldValue
         // due we can't make client-side get shield they left
         // try to hide on server-side
+        // doesn't seem to working well, client-side still shows their crit spot
+        /*
         if ( intShieldValue > 0 && GetShieldHealthWithFix( ent ) > 0 )
         {
             if ( !EntCritHidden( ent ) )
@@ -137,6 +203,7 @@ void function SetShieldHealthMaxWithFix( entity ent, var targetMaxShield )
                 delete ent.s.critHiddenByScript
             }
         }
+        */
     }
     else // otherwise we use vanilla behavior
         ent.SetShieldHealthMax( intShieldValue )
@@ -151,4 +218,113 @@ int function GetShieldHealthMaxWithFix( entity ent )
   
     // safe to use vanilla behavior
     return ent.GetShieldHealthMax()
+}
+
+// effects taken from cl_player.gnut
+entity function PlayShieldHitEffect_Server( entity ent )
+{
+	float shieldHealthFrac = GetShieldHealthFrac( ent )
+
+	int shieldbodyFX = GetParticleSystemIndex( SHIELD_BODY_FX )
+	int attachID
+	if ( ent.IsTitan() )
+		attachID = ent.LookupAttachment( "exp_torso_main" )
+	else
+		attachID = ent.LookupAttachment( "ref" ) // TEMP
+
+	entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( ent, shieldbodyFX, FX_PATTACH_POINT_FOLLOW, attachID )
+	EffectSetControlPointVector( shieldFXHandle, 1, GetShieldEffectCurrentColor( 1 - shieldHealthFrac ) )
+    
+    return shieldFXHandle
+}
+
+const table SHIELD_COLOR_CHARGE_FULL = { r = 115, g = 247, b = 255 }    // blue
+const table SHIELD_COLOR_CHARGE_MED  = { r = 200, g = 128, b = 80 } // orange
+const table SHIELD_COLOR_CHARGE_EMPTY = { r = 200, g = 80, b = 80 } // red
+
+const SHIELD_COLOR_CROSSOVERFRAC_FULL2MED    = 0.75  // from zero to this fraction, fade between full and medium charge colors
+const SHIELD_COLOR_CROSSOVERFRAC_MED2EMPTY    = 0.95  // from "full2med" to this fraction, fade between medium and empty charge colors
+
+function GetShieldEffectCurrentColor( shieldHealthFrac )
+{
+	local color1 = SHIELD_COLOR_CHARGE_FULL
+	local color2 = SHIELD_COLOR_CHARGE_MED
+	local color3 = SHIELD_COLOR_CHARGE_EMPTY
+
+	local crossover1 = SHIELD_COLOR_CROSSOVERFRAC_FULL2MED  // from zero to this fraction, fade between color1 and color2
+	local crossover2 = SHIELD_COLOR_CROSSOVERFRAC_MED2EMPTY  // from crossover1 to this fraction, fade between color2 and color3
+
+	local colorVec = < 0, 0, 0 >
+	// 0 = full charge, 1 = no charge remaining
+	if ( shieldHealthFrac < crossover1 )
+	{
+		colorVec.x = Graph( shieldHealthFrac, 0, crossover1, color1.r, color2.r )
+		colorVec.y = Graph( shieldHealthFrac, 0, crossover1, color1.g, color2.g )
+		colorVec.z = Graph( shieldHealthFrac, 0, crossover1, color1.b, color2.b )
+	}
+	else if ( shieldHealthFrac < crossover2 )
+	{
+		colorVec.x = Graph( shieldHealthFrac, crossover1, crossover2, color2.r, color3.r )
+		colorVec.y = Graph( shieldHealthFrac, crossover1, crossover2, color2.g, color3.g )
+		colorVec.z = Graph( shieldHealthFrac, crossover1, crossover2, color2.b, color3.b )
+	}
+	else
+	{
+		// for the last bit of overload timer, keep it max danger color
+		colorVec.x = color3.r
+		colorVec.y = color3.g
+		colorVec.z = color3.b
+	}
+
+	return colorVec
+}
+
+entity function PlayShieldBreakEffect_Server( entity ent )
+{
+	entity shieldEnt = ent
+	if ( IsSoul( ent ) )
+	{
+		shieldEnt = ent.GetTitan()
+		if ( !shieldEnt )
+			return
+	}
+
+	float shieldHealthFrac = GetShieldHealthFrac( shieldEnt )
+
+	int shieldBreakFX = GetParticleSystemIndex( SHIELD_BREAK_FX )
+	int attachID
+	if ( shieldEnt.IsTitan() )
+		attachID = shieldEnt.LookupAttachment( "exp_torso_main" )
+	else
+		attachID = shieldEnt.LookupAttachment( "ref" ) // TEMP
+
+	entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( shieldEnt, shieldBreakFX, FX_PATTACH_POINT_FOLLOW, attachID )
+	EffectSetControlPointVector( shieldFXHandle, 1, GetShieldEffectCurrentColor( 1 - shieldHealthFrac ) )
+    
+    return shieldFXHandle
+}
+
+entity function PlayShieldActivateEffect_Server( entity ent )
+{
+	entity shieldEnt = ent
+	if ( IsSoul( ent ) )
+	{
+		shieldEnt = ent.GetTitan()
+		if ( !shieldEnt )
+			return
+	}
+
+	float shieldHealthFrac = GetShieldHealthFrac( shieldEnt )
+
+	int shieldBreakFX = GetParticleSystemIndex( SHIELD_BREAK_FX )
+	int attachID
+	if ( shieldEnt.IsTitan() )
+		attachID = shieldEnt.LookupAttachment( "exp_torso_main" )
+	else
+		attachID = shieldEnt.LookupAttachment( "ref" ) // TEMP
+
+	entity shieldFXHandle = StartParticleEffectOnEntity_ReturnEntity( shieldEnt, shieldBreakFX, FX_PATTACH_POINT_FOLLOW, attachID )
+	EffectSetControlPointVector( shieldFXHandle, 1, GetShieldEffectCurrentColor( 1 - shieldHealthFrac ) )
+
+    return shieldFXHandle
 }
