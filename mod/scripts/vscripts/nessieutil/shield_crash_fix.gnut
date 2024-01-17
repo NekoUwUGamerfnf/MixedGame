@@ -25,13 +25,6 @@ const array<string> USE_SCRIPTED_SHIELD_CLASSES =
     "npc_stalker",
 ]
 
-// stores our bodygroup to hide for these shielded entities
-// doesn't seem to working well, client-side still shows their crit spot
-const table<string, string> SCRIPTED_SHIELDING_ENT_CRIT_BODYGROUP =
-{
-
-}
-
 struct
 {
     table<entity, int> entMaxShieldValue
@@ -51,9 +44,11 @@ void function Nessie_Shield_Crash_Fix_Init()
 
 // replacement func to handle native think
 // prevents crits from happening on scripted shield entities
-bool function IsCriticalHit_WithScriptedShieldCheck( entity attacker, entity victim, int hitBox, damageAmount, damageTypes )
+// needs to be fully untyped so we can handle vanilla usages...
+bool function IsCriticalHit_WithScriptedShieldCheck( attacker, victim, hitbox, damageAmount, damageTypes )
 {
-    bool victimHasShield = GetShieldHealthWithFix( victim ) > 0 && GetShieldHealthMax( victim ) > 0
+    expect entity( victim )
+    bool victimHasShield = GetShieldHealthWithFix( victim ) > 0 && GetShieldHealthMaxWithFix( victim ) > 0
     return IsCriticalHit( attacker, victim, hitbox, damageAmount, damageTypes ) && !victimHasShield
 }
 
@@ -67,14 +62,14 @@ void function OnScriptedShieldEntDamage( entity ent, var damageInfo )
 
 void function ScriptedShieldPlayerFeedbackFix( entity victim, var damageInfo, PlayerDamageFeedbackStruct feedbackStruct )
 {
-    bool victimHasShield = GetShieldHealthWithFix( victim ) > 0 && GetShieldHealthMax( victim ) > 0
+    bool victimHasShield = GetShieldHealthWithFix( victim ) > 0 && GetShieldHealthMaxWithFix( victim ) > 0
     // removes client-side effect and crit indicator
     if ( victimHasShield )
     {
         if ( feedbackStruct.customDamageType & DF_CRITICAL )
-            feedbackStruct.customDamageType & ~DF_CRITICAL
+            feedbackStruct.customDamageType = feedbackStruct.customDamageType & ~DF_CRITICAL
         if ( feedbackStruct.customDamageType & DF_SHIELD_DAMAGE )
-            feedbackStruct.customDamageType & ~DF_SHIELD_DAMAGE
+            feedbackStruct.customDamageType = feedbackStruct.customDamageType & ~DF_SHIELD_DAMAGE
     }
 }
 
@@ -104,14 +99,14 @@ bool function EntCritHidden( entity ent )
 {
     // script handle
     if ( "critHiddenByScript" in ent.s )
-        return false
+        return true
 
     int bodyGroupIndex = ent.FindBodyGroup( "hitpoints" )
 
 	if ( bodyGroupIndex == -1 )
 		return false
 
-	return ent.GetBodyGroupState( bodyGroupIndex ) != 1
+	return ent.GetBodyGroupState( bodyGroupIndex ) == 1
 }
 
 void function SetShieldHealthWithFix( entity ent, var targetShield )
@@ -128,29 +123,30 @@ void function SetShieldHealthWithFix( entity ent, var targetShield )
         file.entShieldValue[ ent ] = intShieldValue
         // due we can't make client-side get shield they left
         // try to hide on server-side
-        // doesn't seem to working well, client-side still shows their crit spot
-        /*
-        if ( intShieldValue > 0 )
+        if ( intShieldValue > 0 && GetShieldHealthMaxWithFix( ent ) > 0 )
         {
+            //print( "trying to hide crit for entity..." )
             if ( !EntCritHidden( ent ) )
             {
+                //print( "crit hidden!" )
                 HideCrit( ent )
                 ent.s.critHiddenByScript <- true
             }
         }
         else
         {
+            //print( "trying to show crit for entity..." )
             if ( "critHiddenByScript" in ent.s ) // only recover crit for those getting hidden by this file
             {
+                //print( "crit shown!" )
                 ShowCrit( ent )
                 delete ent.s.critHiddenByScript
             }
         }
-        */
 
         // fake effect: shield up / shield down
         int maxShieldValue = GetShieldHealthMaxWithFix( ent )
-        if ( GetShieldHealthWithFix( ent ) > 0 )
+        if ( GetShieldHealthMaxWithFix( ent ) > 0 )
         {
             if ( oldShieldValue > 0 && intShieldValue <= 0 )
                 PlayShieldBreakEffect_Server( ent )
@@ -165,6 +161,10 @@ void function SetShieldHealthWithFix( entity ent, var targetShield )
 int function GetShieldHealthWithFix( entity ent )
 {
     InitFileShieldValue( ent )
+
+    // if entity has no max shield, don't do anything
+    if ( GetShieldHealthMaxWithFix( ent ) <= 0 )
+        return 0
 
     if ( !EntCanHaveShield( ent ) ) // update scripted shield health if ent is non-titan heavy armor unit
         return file.entShieldValue[ ent ]
@@ -185,25 +185,26 @@ void function SetShieldHealthMaxWithFix( entity ent, var targetMaxShield )
         file.entMaxShieldValue[ ent ] = intShieldValue
         // due we can't make client-side get shield they left
         // try to hide on server-side
-        // doesn't seem to working well, client-side still shows their crit spot
-        /*
         if ( intShieldValue > 0 && GetShieldHealthWithFix( ent ) > 0 )
         {
+            //print( "trying to hide crit for entity..." )
             if ( !EntCritHidden( ent ) )
             {
+                //print( "crit hidden!" )
                 HideCrit( ent )
                 ent.s.critHiddenByScript <- true
             }
         }
         else
         {
+            //print( "trying to show crit for entity..." )
             if ( "critHiddenByScript" in ent.s ) // only recover crit for those getting hidden by this file
             {
+                //print( "crit shown!" )
                 ShowCrit( ent )
                 delete ent.s.critHiddenByScript
             }
         }
-        */
     }
     else // otherwise we use vanilla behavior
         ent.SetShieldHealthMax( intShieldValue )
