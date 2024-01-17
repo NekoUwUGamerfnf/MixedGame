@@ -293,8 +293,9 @@ void function LaggingBoltThink( entity bolt, entity owner, float boltSpeed = 350
 
 	wait 0.15 // can server respon this?
 	bolt.SetVelocity( bolt.GetVelocity() * 0.0001 )
-	bolt.SetOwner( null ) // make bolts can hit their owner!
-	bolt.SetBossPlayer( owner ) // we use bossplayer for checking it's belonging
+	// removing these, try to handle with projectile_collide_with_owner settings
+	//bolt.SetOwner( null ) // make bolts can hit their owner!
+	//bolt.SetBossPlayer( owner ) // we use bossplayer for checking it's belonging
 	FriendlyFire_SetEntityDoFFDamage( bolt, true ) // self damage. team damage handled in LStar_DamagedTarget()
 	PlayerLaggingBoltLimit( owner, bolt )
 	owner.WaitSignal( "ReleaseAllBolts" )
