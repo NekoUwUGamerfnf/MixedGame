@@ -189,7 +189,9 @@ bool function DamageShouldStartReaperNuke( entity npc, var damageInfo )
 {
 	// general check
 	// this ignores interruptable state check because we will handle animations manually
-	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo, true ) )
+	// seems no need to ignore interruptable for reapers? that only happens when they're preparing an mega jump
+	//if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo, true ) )
+	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo ) )
 		return false
 
 	// nuke before death check
