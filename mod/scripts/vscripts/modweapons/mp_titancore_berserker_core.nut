@@ -1,5 +1,10 @@
 global function Berserker_Core_Init
 
+#if SERVER
+// to be shared with mp_titanweapon_punch_fixed.gnut
+global function BerserkerCore_FistDeactivated
+#endif
+
 global function OnCoreCharge_Berserker_Core
 global function OnCoreChargeEnd_Berserker_Core
 global function OnAbilityStart_Berserker_Core
@@ -30,6 +35,8 @@ void function Berserker_Core_Init()
 		// modified function in sh_melee_titan, other players can't counter berserker core's melee
 		TitanMelee_AddCounterImmuneMod( BERSERKER_CORE_MELEE_MOD_NAME )
 		TitanMelee_AddDamageSourceIdMod( BERSERKER_CORE_MELEE_MOD_NAME, eDamageSourceId.mp_titancore_berserker_core )
+	
+		RegisterSignal( "BerserkerCore_FistDeactivated" )
 	#endif
 }
 
@@ -194,14 +201,14 @@ var function OnAbilityStart_Berserker_Core( entity weapon, WeaponPrimaryAttackPa
 	}
 
 	float delay = weapon.GetWeaponSettingFloat( eWeaponVar.charge_cooldown_delay )
-	thread Shift_Core_End( weapon, owner, delay )
+	thread Berserker_Core_End( weapon, owner, delay )
 #endif
 
 	return 1
 }
 
 #if SERVER
-void function Shift_Core_End( entity weapon, entity player, float delay )
+void function Berserker_Core_End( entity weapon, entity player, float delay )
 {
 	weapon.EndSignal( "OnDestroy" )
 
@@ -219,7 +226,7 @@ void function Shift_Core_End( entity weapon, entity player, float delay )
 	OnThreadEnd(
 	function() : ( weapon, player )
 		{
-			OnAbilityEnd_Shift_Core( weapon, player )
+			OnAbilityEnd_Berserker_Core( weapon, player )
 
 			if ( IsValid( player ) )
 			{
@@ -242,7 +249,7 @@ void function Shift_Core_End( entity weapon, entity player, float delay )
 	}
 }
 
-void function OnAbilityEnd_Shift_Core( entity weapon, entity player )
+void function OnAbilityEnd_Berserker_Core( entity weapon, entity player )
 {
 	OnAbilityEnd_TitanCore( weapon )
 
@@ -284,14 +291,22 @@ void function RestorePlayerWeapons( entity player )
 		// restore passive
 		TakePassive( soul, ePassives.PAS_BERSERKER )
 
-		// restore melee
-		titan.TakeOffhandWeapon( OFFHAND_MELEE )
-		if ( soul in file.soulBerserkerCoreSavedMelee )
+		// remove damage buff melee mods
+		entity meleeWeapon = titan.GetOffhandWeapon( OFFHAND_MELEE )
+		if ( IsValid( meleeWeapon ) )
 		{
-			BerserkerCoreSavedMelee savedMelee = file.soulBerserkerCoreSavedMelee[ soul ]
-			titan.GiveOffhandWeapon( savedMelee.meleeName, OFFHAND_MELEE, savedMelee.meleeMods )
-			delete file.soulBerserkerCoreSavedMelee[ soul ]
+			meleeWeapon.RemoveMod( "allow_as_primary" )
+			meleeWeapon.RemoveMod( "berserker" )
+			meleeWeapon.RemoveMod( "berserker_core_punch" )
+			meleeWeapon.RemoveMod( "berserker_fast_deploy" )
 		}
+
+		// restore melee
+		// should be delayed if titan player having their melee weapon out, otherwise their last hit will be blanked
+		if ( titan.IsPlayer() && titan.PlayerMelee_IsAttackActive() )
+			thread DelayedRestorePlayerMeleeWeapon( titan )
+		else // normal case
+			RestoreBerserkerCoreSavedMelee( titan )
 		
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
 			mainWeapon.AllowUse( true )
@@ -330,6 +345,33 @@ void function RestorePlayerWeapons( entity player )
 					titan.SetCapabilityFlag( flag, true )
 				delete file.npcBerserkerCoreDisabledCapabilityFlags[ titan ]
 			}
+		}
+	}
+}
+
+bool function TitanHasSavedMeleeForBerserkerCore( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+
+	return soul in file.soulBerserkerCoreSavedMelee
+}
+
+void function RestoreBerserkerCoreSavedMelee( entity owner )
+{
+	if ( !TitanHasSavedMeleeForBerserkerCore( owner ) )
+		return
+	
+	owner.TakeOffhandWeapon( OFFHAND_MELEE )
+	entity soul = owner.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		if ( soul in file.soulBerserkerCoreSavedMelee )
+		{
+			BerserkerCoreSavedMelee savedMelee = file.soulBerserkerCoreSavedMelee[ soul ]
+			owner.GiveOffhandWeapon( savedMelee.meleeName, OFFHAND_MELEE, savedMelee.meleeMods )
+			delete file.soulBerserkerCoreSavedMelee[ soul ]
 		}
 	}
 }
@@ -382,5 +424,58 @@ void function ReDeployWeapon( entity owner, string weaponName )
 	
 	if ( owner.IsPlayer() )
 		owner.DeployWeapon()
+}
+
+// behavior fixes below
+void function BerserkerCore_FistDeactivated( entity meleeWeapon )
+{
+	meleeWeapon.Signal( "BerserkerCore_FistDeactivated" )
+}
+
+void function DelayedRestorePlayerMeleeWeapon( entity player )
+{
+	// don't do anything if no weapon saved
+	if ( !TitanHasSavedMeleeForBerserkerCore( player ) )
+		return
+	
+	entity soul = player.GetTitanSoul() // we use our soul for storing anything
+	entity meleeWeapon = player.GetOffhandWeapon( OFFHAND_MELEE )
+	entity coreWeapon = player.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+
+	soul.EndSignal( "OnDestroy" )
+
+	// wait for melee attack to finish
+	meleeWeapon.EndSignal( "OnDestroy" )
+	meleeWeapon.EndSignal( "BerserkerCore_FistDeactivated" )
+
+	// wait for core to be destroyed
+	coreWeapon.EndSignal( "OnDestroy" )
+
+	// wait for player disembarks or ejecting
+	// same endsignals as Berserker_Core_End() does
+	player.EndSignal( "OnDestroy" )
+	if ( IsAlive( player ) )
+		player.EndSignal( "OnDeath" )
+	player.EndSignal( "TitanEjectionStarted" )
+	player.EndSignal( "DisembarkingTitan" )
+	player.EndSignal( "OnSyncedMelee" )
+	player.EndSignal( "InventoryChanged" )
+
+	OnThreadEnd
+	(
+		function() : ( soul )
+		{
+			if ( IsValid( soul ) )
+			{
+				entity titan = soul.GetTitan()
+				if ( IsValid( titan ) )
+					RestoreBerserkerCoreSavedMelee( titan )
+			}
+		}
+	)
+
+	// normal wait: until player deactivates melee weapon
+	while ( player.GetActiveWeapon() == meleeWeapon )
+		WaitFrame()
 }
 #endif

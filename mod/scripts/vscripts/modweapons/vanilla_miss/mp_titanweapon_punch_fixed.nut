@@ -1,6 +1,7 @@
 global function MpTitanWeaponPunch_Init
 
 global function OnWeaponActivate_titanweapon_punch
+global function OnWeaponDeactivate_titanweapon_punch
 
 // less than this we'll consider re-deploy melee, so it can have proper anim time
 const float TITAN_EMPTYHAND_ATTACK_ANIMTIME = 0.7 // actually 0.8
@@ -34,5 +35,15 @@ void function OnWeaponActivate_titanweapon_punch( entity weapon )
             if ( attackAnimTime < minAnimTime )
                 ModifiedMelee_ReDeployAfterTime( weapon ) // forced melee attack animtime
         }
+    #endif
+}
+
+void function OnWeaponDeactivate_titanweapon_punch( entity weapon )
+{
+    // melee weapon mod is removed after weapon deactivate
+	// thus we can better handle melee replace cases
+	// function shared from mp_titancore_berserker_core.nut
+    #if SERVER
+        BerserkerCore_FistDeactivated( weapon )
     #endif
 }
