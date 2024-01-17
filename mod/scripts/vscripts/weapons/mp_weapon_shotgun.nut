@@ -13,9 +13,14 @@ var function OnWeaponPrimaryAttack_weapon_shotgun( entity weapon, WeaponPrimaryA
 	// modded weapon
 	if ( hasTwinSlugMod )
 	{
-		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 2, weapon.GetWeaponDamageFlags() )
-		return 1
-		//return 2 // fire 2 bullets already costs 2 ammo!
+		// in respawn's though, this mod will blast all two pellets in one time
+		// my version is to turn it to an marksman weapon which fires two bullets at the same time
+		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, weapon.GetWeaponDamageFlags() )
+		weapon.FireWeaponBullet( attackParams.pos, attackParams.dir, 1, weapon.GetWeaponDamageFlags() )
+		
+		// might be respawn's though
+		//ShotgunBlast( weapon, attackParams.pos, attackParams.dir, 16, weapon.GetWeaponDamageFlags() )
+		return 2
 	}
 	//
 

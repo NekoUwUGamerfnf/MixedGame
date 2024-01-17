@@ -10,6 +10,7 @@ void function MpWeaponShotgun_Init()
     #endif
 }
 
+#if SERVER
 void function OnShotgunDamageTarget( entity ent, var damageInfo )
 {
     // calculate damage manually to get rid of "damage_falloff_type" "inverse"
@@ -19,8 +20,8 @@ void function OnShotgunDamageTarget( entity ent, var damageInfo )
 
     if ( weapon.HasMod( "twin_slug" ) )
     {
-        float manualCalculatedDamage = CalculateWeaponOrProjectileDamageAgainstTarget( weapon, ent )
-        print( "manualCalculatedDamage: " + string( manualCalculatedDamage ) )
-        DamageInfo_SetDamage( damageInfo, manualCalculatedDamage )
+        // modifydamage using force calculated value
+        ModifyDamageInfoWithCalculatedDamage( weapon, ent, damageInfo )
     }
 }
+#endif

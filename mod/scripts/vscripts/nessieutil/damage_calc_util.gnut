@@ -3,6 +3,8 @@ global function Nessie_Damage_Calculation_Utility_Init
 
 global function CalculateDamageWithGivenValue
 global function CalculateWeaponOrProjectileDamageAgainstTarget
+// this will floor damage and run HandleLocationBasedDamage(), similar to CodeCallback_DamagePlayerOrNPC() does
+global function ModifyDamageInfoWithCalculatedDamage
 
 // can't get projectile's launch origin from native, guess we'll have to do like this
 // can also store damageTypes from projectile, no need to use TEMP_GetDamageFlagsFromProjectile() anymore
@@ -19,7 +21,7 @@ struct
     table<entity, vector> projectileLaunchOrigin
     table<entity, int> projectileTouchDamageFlags
     table<entity, int> projectileExplosionDamageFlags
-}
+} file
 
 void function Nessie_Damage_Calculation_Utility_Init()
 {
@@ -34,38 +36,38 @@ float function CalculateDamageWithGivenValue( entity weaponOrProjectile, entity 
     // manually calculate everything
     // ignore "damage_falloff_type" modifications
     if ( distanceToTarget <= damage_near_distance ) // near
-        return damage_near_value
+        return float( damage_near_value )
     else if ( distanceToTarget > damage_near_distance && distanceToTarget <= damage_far_distance ) // near-far
     {
-        int nearDistDiff = distanceToTarget - damage_near_distance
-        int farDistDiff = distanceToTarget - damage_near_distance
-        float distFrac = float( nearDistDiff ) / float( farDistDiff )
+        float nearDistDiff = distanceToTarget - damage_near_distance
+        float farDistDiff = damage_far_distance - damage_near_distance
+        float distFrac = nearDistDiff / farDistDiff
         int damageDiff = damage_near_value - damage_far_value
         float calcDamage = float( damageDiff ) * distFrac
 
-        return damage_near_value - calcDamage
+        return float( damage_near_value ) - calcDamage
     }
     else // far-very far. can have ignored parameters
     {
         if ( damage_very_far_value == -1 || damage_very_far_distance == -1 )
         {
             if ( distanceToTarget > damage_far_distance )
-                return damage_far_value
+                return float( damage_far_value )
         }
         else 
         {
             if ( distanceToTarget > damage_far_distance && distanceToTarget <= damage_very_far_distance )
             {
-                int farDistDiff = distanceToTarget - damage_far_distance
-                int veryFarDistDiff = distanceToTarget - damage_far_distance
-                float distFrac = float( farDistDiff ) / float( veryFarDistDiff )
+                float farDistDiff = distanceToTarget - damage_far_distance
+                float veryFarDistDiff = damage_very_far_distance - damage_far_distance
+                float distFrac = farDistDiff / veryFarDistDiff
                 int damageDiff = damage_far_value - damage_very_far_value
                 float calcDamage = float( damageDiff ) * distFrac
 
-                return damage_far_value - calcDamage
+                return float( damage_far_value ) - calcDamage
             }
             else if ( distanceToTarget > damage_very_far_distance )
-                return damage_very_far_distance
+                return float( damage_very_far_value )
         }
     }
 
@@ -122,8 +124,24 @@ float function CalculateWeaponOrProjectileDamageAgainstTarget( entity weaponOrPr
     return CalculateDamageWithGivenValue( weaponOrProjectile, target, damage_near_value, damage_near_distance, damage_far_value, damage_far_distance, damage_very_far_value, damage_very_far_distance )
 }
 
+void function ModifyDamageInfoWithCalculatedDamage( entity weaponOrProjectile, entity ent, var damageInfo )
+{
+    float manualCalculatedDamage = CalculateWeaponOrProjectileDamageAgainstTarget( weaponOrProjectile, ent )
+        
+    //print( "manualCalculatedDamage: " + string( manualCalculatedDamage ) )
+    DamageInfo_SetDamage( damageInfo, manualCalculatedDamage )
+
+    // Round damage to nearest full value
+    DamageInfo_SetDamage( damageInfo, floor( DamageInfo_GetDamage( damageInfo ) + 0.5 ) )
+    if ( DamageInfo_GetDamage( damageInfo ) <= 0 )
+        return
+
+    HandleLocationBasedDamage( ent, damageInfo )
+    //print( "final damage value: " + string( DamageInfo_GetDamage( damageInfo ) ) )
+}
+
 // script wrapped functions
-entity function FireWeaponBolt_RecordData( pos, dir, float speedScale, touchDamageFlags, explosionDamageFlags, isClientPredicted, additionalRandomSeed )
+entity function FireWeaponBolt_RecordData( entity weapon, pos, dir, float speedScale, touchDamageFlags, explosionDamageFlags, isClientPredicted, additionalRandomSeed )
 {
     entity bolt = weapon.FireWeaponBolt( pos, dir, speedScale, touchDamageFlags, explosionDamageFlags, isClientPredicted, additionalRandomSeed )
     InitProjectileData( bolt, pos, touchDamageFlags, explosionDamageFlags )
@@ -131,7 +149,7 @@ entity function FireWeaponBolt_RecordData( pos, dir, float speedScale, touchDama
     return bolt
 }
 
-entity function FireWeaponGrenade_RecordData( pos, dir, angularVelocity, fuseTime, touchDamageFlags, explosionDamageFlags, isClientPredicted, isLagCompensated, unknownUsage )
+entity function FireWeaponGrenade_RecordData( entity weapon, pos, dir, angularVelocity, fuseTime, touchDamageFlags, explosionDamageFlags, isClientPredicted, isLagCompensated, unknownUsage )
 {
     entity nade = weapon.FireWeaponGrenade( pos, dir, angularVelocity, fuseTime, touchDamageFlags, explosionDamageFlags, isClientPredicted, isLagCompensated, unknownUsage )
     InitProjectileData( nade, pos, touchDamageFlags, explosionDamageFlags )
@@ -139,7 +157,7 @@ entity function FireWeaponGrenade_RecordData( pos, dir, angularVelocity, fuseTim
     return nade
 }
 
-entity function FireWeaponMissile_RecordData( pos, dir, float speedScale, touchDamageFlags, explosionDamageFlags, doRandomVelocAndThinkVars, isClientPredicted )
+entity function FireWeaponMissile_RecordData( entity weapon, pos, dir, float speedScale, touchDamageFlags, explosionDamageFlags, doRandomVelocAndThinkVars, isClientPredicted )
 {
     entity missile = weapon.FireWeaponMissile( pos, dir, speedScale, touchDamageFlags, explosionDamageFlags, doRandomVelocAndThinkVars, isClientPredicted )
     InitProjectileData( missile, pos, touchDamageFlags, explosionDamageFlags )
