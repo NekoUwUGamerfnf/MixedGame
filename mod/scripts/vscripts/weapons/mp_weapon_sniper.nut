@@ -259,7 +259,7 @@ void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos
 			titanDamage,													// heavy armor damage
 			explosionInnerRadius,											// inner radius
 			explosionRadius,												// outer radius
-			SF_ENVEXPLOSION_NO_NPC_SOUND_EVENT,								// explosion flags
+			SF_ENVEXPLOSION_MASK_BRUSHONLY,									// explosion flags
 			0, 																// distanceFromAttacker
 			explosionForce, 												// explosionForce
 			damageFlags,													// damage flags
