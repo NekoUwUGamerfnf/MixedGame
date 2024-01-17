@@ -71,6 +71,13 @@ void function OnWeaponDeactivate_titanweapon_sword( entity weapon )
 		weapon.StopWeaponEffect( SWORD_GLOW_PRIME_FP, SWORD_GLOW_PRIME )
 	else
 		weapon.StopWeaponEffect( SWORD_GLOW_FP, SWORD_GLOW )
+
+	// melee weapon mod is removed after weapon deactivate
+	// thus we can better handle melee replace and SP sword core cases
+	// function shared from modified mp_titancore_shift_core.nut
+	#if SERVER
+		ShiftCore_SwordDeactivated( weapon )
+	#endif
 }
 
 #if SERVER

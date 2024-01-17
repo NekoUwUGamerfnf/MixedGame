@@ -3,6 +3,9 @@ global function OnWeaponPrimaryAttack_DoNothing
 global function Shift_Core_Init
 #if SERVER
 global function Shift_Core_UseMeter
+
+// modified function to be shared with mp_titanweapon_sword.nut
+global function ShiftCore_SwordDeactivated
 #endif
 
 global function OnCoreCharge_Shift_Core
@@ -33,6 +36,11 @@ void function Shift_Core_Init()
 	#if SERVER
 	AddCallback_OnPlayerKilled( SwordCore_OnPlayedOrNPCKilled )
 	AddCallback_OnNPCKilled( SwordCore_OnPlayedOrNPCKilled )
+
+	// modified behavior fix
+	RegisterSignal( "ShiftCore_SwordDeactivated" )
+	// modified function in sh_melee_titan, other players can't counter SP sword core's melee
+	TitanMelee_AddCounterImmuneMod( "super_charged_SP" )
 	#endif
 }
 
@@ -266,7 +274,9 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		{
 			// triggering melee replacement
 			array<string> mods = ["super_charged"]
-			if ( IsSingleplayer() )
+			// now allow SP sword core to be used in MP
+			//if ( IsSingleplayer() )
+			if ( TitanShouldUseSPSwordCoreThink( titan ) )
 				mods.append( "super_charged_SP" ) // sp have a buffed sword
 			// prime sword check
 			TitanLoadoutDef loadout = soul.soul.titanLoadout
@@ -278,7 +288,9 @@ var function OnAbilityStart_Shift_Core( entity weapon, WeaponPrimaryAttackParams
 		{
 			// vanilla behavior
 			titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged" )
-			if ( IsSingleplayer() )
+			// now allow SP sword core to be used in MP
+			//if ( IsSingleplayer() )
+			if ( TitanShouldUseSPSwordCoreThink( titan ) )
 			{
 				titan.GetOffhandWeapon( OFFHAND_MELEE ).AddMod( "super_charged_SP" )
 			}
@@ -431,10 +443,11 @@ void function RestorePlayerWeapons( entity player )
 		if ( IsValid( meleeWeapon ) )
 		{
 			meleeWeapon.RemoveMod( "super_charged" )
-			if ( IsSingleplayer() )
-			{
+			// SP sword core mod has been modified to add in MP, just remove this mod, won't cause any issue
+			//if ( IsSingleplayer() )
+			//{
 				meleeWeapon.RemoveMod( "super_charged_SP" )
-			}
+			//}
 
 			// safe to remove animation fix
 			//meleeWeapon.RemoveMod( "sword_instant_deploy" )
@@ -442,14 +455,11 @@ void function RestorePlayerWeapons( entity player )
 		}
 
 		// modified: weapon store system, so we can use sword core with no melee_titan_sword
-		if ( soul in file.soulShiftCoreSavedMelee ) // do saved another melee?
-		{
-			titan.TakeOffhandWeapon( OFFHAND_MELEE ) // take of sword
-			// restore melee
-			ShiftCoreSavedMelee savedMelee = file.soulShiftCoreSavedMelee[ soul ]
-			titan.GiveOffhandWeapon( savedMelee.meleeName, OFFHAND_MELEE, savedMelee.meleeMods )
-			delete file.soulShiftCoreSavedMelee[ soul ]
-		}
+		// should be delayed if titan player having their melee weapon out, otherwise their last hit will be blanked
+		if ( titan.IsPlayer() && titan.PlayerMelee_IsAttackActive() )
+			thread DelayedRestorePlayerMeleeWeapon( titan )
+		else // normal case
+			RestoreShiftCoreSavedMelee( titan )
 		
 		// reworked here: supporting multiple main weapon titans
 		foreach( entity mainWeapon in titan.GetMainWeapons() )
@@ -494,9 +504,58 @@ void function RestorePlayerWeapons( entity player )
 	}
 }
 
+// modified utilities
+bool function TitanShouldUseSPSwordCoreThink( entity titan )
+{
+	// always activated in SP
+	if ( IsSingleplayer() )
+		return true
+
+	// do SP sword effect if our melee weapon has sp_titan_sword mod
+	// or our sword core has sp_shift_core mod
+	entity meleeWeapon = titan.GetOffhandWeapon( OFFHAND_MELEE )
+	if ( IsValid( meleeWeapon ) && meleeWeapon.HasMod( "sp_titan_sword" ) )
+		return true
+	entity coreWeapon = titan.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+	if ( IsValid( coreWeapon ) && coreWeapon.HasMod( "sp_shift_core" ) )
+		return true
+
+	return false
+}
+
+bool function TitanHasSavedMeleeForShiftCore( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	return soul in file.soulShiftCoreSavedMelee
+}
+
+void function RestoreShiftCoreSavedMelee( entity owner )
+{
+	// don't do anything if we don't have melee saved
+	if ( !TitanHasSavedMeleeForShiftCore( owner ) )
+		return
+
+	owner.TakeOffhandWeapon( OFFHAND_MELEE )
+	entity soul = owner.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		if ( soul in file.soulShiftCoreSavedMelee )
+		{
+			ShiftCoreSavedMelee savedMelee = file.soulShiftCoreSavedMelee[ soul ]
+			owner.GiveOffhandWeapon( savedMelee.meleeName, OFFHAND_MELEE, savedMelee.meleeMods )
+			delete file.soulShiftCoreSavedMelee[ soul ]
+		}
+	}
+}
+
 void function Shift_Core_UseMeter( entity player )
 {
-	if ( IsMultiplayer() )
+	// now we allow SP sword core to be used in MP
+	//if ( IsMultiplayer() )
+	//	return
+	if ( !TitanShouldUseSPSwordCoreThink( player ) )
 		return
 
 	entity soul = player.GetTitanSoul()
@@ -572,5 +631,58 @@ void function ReDeployWeapon( entity owner, string weaponName )
 	
 	if ( owner.IsPlayer() )
 		owner.DeployWeapon()
+}
+
+// behavior fixes below
+void function ShiftCore_SwordDeactivated( entity meleeWeapon )
+{
+	meleeWeapon.Signal( "ShiftCore_SwordDeactivated" )
+}
+
+void function DelayedRestorePlayerMeleeWeapon( entity player )
+{
+	// don't do anything if we don't have melee saved
+	if ( !TitanHasSavedMeleeForShiftCore( player ) )
+		return
+	
+	entity soul = player.GetTitanSoul() // we use our soul for storing anything
+	entity meleeWeapon = player.GetOffhandWeapon( OFFHAND_MELEE )
+	entity coreWeapon = player.GetOffhandWeapon( OFFHAND_EQUIPMENT )
+
+	soul.EndSignal( "OnDestroy" )
+
+	// wait for melee attack to finish
+	meleeWeapon.EndSignal( "OnDestroy" )
+	meleeWeapon.EndSignal( "ShiftCore_SwordDeactivated" )
+
+	// wait for core to be destroyed
+	coreWeapon.EndSignal( "OnDestroy" )
+
+	// wait for player disembarks or ejecting
+	// same endsignals as Shift_Core_End() does
+	player.EndSignal( "OnDestroy" )
+	if ( IsAlive( player ) )
+		player.EndSignal( "OnDeath" )
+	player.EndSignal( "TitanEjectionStarted" )
+	player.EndSignal( "DisembarkingTitan" )
+	player.EndSignal( "OnSyncedMelee" )
+	player.EndSignal( "InventoryChanged" )
+
+	OnThreadEnd
+	(
+		function() : ( soul )
+		{
+			if ( IsValid( soul ) )
+			{
+				entity titan = soul.GetTitan()
+				if ( IsValid( titan ) )
+					RestoreShiftCoreSavedMelee( titan )
+			}
+		}
+	)
+
+	// normal wait: until player deactivates melee weapon
+	while ( player.GetActiveWeapon() == meleeWeapon )
+		WaitFrame()
 }
 #endif
