@@ -1,0 +1,186 @@
+untyped // native FireWeapon functions can be used as untyped
+global function Nessie_Damage_Calculation_Utility_Init
+
+global function CalculateDamageWithGivenValue
+global function CalculateWeaponOrProjectileDamageAgainstTarget
+
+// can't get projectile's launch origin from native, guess we'll have to do like this
+// can also store damageTypes from projectile, no need to use TEMP_GetDamageFlagsFromProjectile() anymore
+global function FireWeaponBolt_RecordData // replace all weapon.FireWeaponBolt() method with this function
+global function FireWeaponGrenade_RecordData // replace all weapon.FireWeaponGrenade() method with this function
+global function FireWeaponMissile_RecordData // replace all weapon.FireWeaponMissile() method with this function
+
+global function GetProjectileLaunchOrigin
+global function GetProjectileTouchDamageFlags
+global function GetProjectileExplosionDamageFlags
+
+struct
+{
+    table<entity, vector> projectileLaunchOrigin
+    table<entity, int> projectileTouchDamageFlags
+    table<entity, int> projectileExplosionDamageFlags
+}
+
+void function Nessie_Damage_Calculation_Utility_Init()
+{
+
+}
+
+float function CalculateDamageWithGivenValue( entity weaponOrProjectile, entity target, int damage_near_value, float damage_near_distance, int damage_far_value, float damage_far_distance, int damage_very_far_value = -1, float damage_very_far_distance = -1 )
+{
+    vector pos = weaponOrProjectile.IsProjectile() ? GetProjectileLaunchOrigin( weaponOrProjectile ) : weaponOrProjectile.GetOrigin()
+    float distanceToTarget = Distance( pos, target.GetOrigin() )
+
+    // manually calculate everything
+    // ignore "damage_falloff_type" modifications
+    if ( distanceToTarget <= damage_near_distance ) // near
+        return damage_near_value
+    else if ( distanceToTarget > damage_near_distance && distanceToTarget <= damage_far_distance ) // near-far
+    {
+        int nearDistDiff = distanceToTarget - damage_near_distance
+        int farDistDiff = distanceToTarget - damage_near_distance
+        float distFrac = float( nearDistDiff ) / float( farDistDiff )
+        int damageDiff = damage_near_value - damage_far_value
+        float calcDamage = float( damageDiff ) * distFrac
+
+        return damage_near_value - calcDamage
+    }
+    else // far-very far. can have ignored parameters
+    {
+        if ( damage_very_far_value == -1 || damage_very_far_distance == -1 )
+        {
+            if ( distanceToTarget > damage_far_distance )
+                return damage_far_value
+        }
+        else 
+        {
+            if ( distanceToTarget > damage_far_distance && distanceToTarget <= damage_very_far_distance )
+            {
+                int farDistDiff = distanceToTarget - damage_far_distance
+                int veryFarDistDiff = distanceToTarget - damage_far_distance
+                float distFrac = float( farDistDiff ) / float( veryFarDistDiff )
+                int damageDiff = damage_far_value - damage_very_far_value
+                float calcDamage = float( damageDiff ) * distFrac
+
+                return damage_far_value - calcDamage
+            }
+            else if ( distanceToTarget > damage_very_far_distance )
+                return damage_very_far_distance
+        }
+    }
+
+    return 0
+}
+
+float function CalculateWeaponOrProjectileDamageAgainstTarget( entity weaponOrProjectile, entity target )
+{
+    if ( !IsValid( weaponOrProjectile ) )
+        return 0
+    
+    bool targetIsHeavyArmor = target.GetArmorType() == ARMOR_TYPE_HEAVY
+
+    int damage_near_value
+    float damage_near_distance
+    int damage_far_value
+    float damage_far_distance
+    int damage_very_far_value // default to be -1
+    float damage_very_far_distance // default to be -1
+
+    int damageNearValueVar = eWeaponVar.damage_near_value
+    int damageNearDistanceVar = eWeaponVar.damage_near_distance
+    int damageFarValueVar = eWeaponVar.damage_far_value
+    int damageFarDistanceVar = eWeaponVar.damage_far_distance
+    int damageVeryFarValueVar = eWeaponVar.damage_very_far_value
+    int damageVeryFarDistanceVar = eWeaponVar.damage_very_far_distance
+
+    if ( targetIsHeavyArmor )
+    {
+        damageNearValueVar = eWeaponVar.damage_near_value_titanarmor
+        damageFarValueVar = eWeaponVar.damage_far_value_titanarmor
+        damageVeryFarValueVar = eWeaponVar.damage_very_far_value_titanarmor
+    }
+
+    if ( weaponOrProjectile.IsProjectile() )
+    {
+        damage_near_value = weaponOrProjectile.GetProjectileWeaponSettingInt( damageNearValueVar )
+        damage_near_distance = weaponOrProjectile.GetProjectileWeaponSettingFloat( damageNearDistanceVar )
+        damage_far_value = weaponOrProjectile.GetProjectileWeaponSettingInt( damageFarValueVar )
+        damage_far_distance = weaponOrProjectile.GetProjectileWeaponSettingFloat( damageFarDistanceVar)
+        damage_very_far_value = weaponOrProjectile.GetProjectileWeaponSettingInt( damageVeryFarValueVar )
+        damage_very_far_distance = weaponOrProjectile.GetProjectileWeaponSettingFloat( damageVeryFarDistanceVar )
+    }
+    else
+    {
+        damage_near_value = weaponOrProjectile.GetWeaponSettingInt( damageNearValueVar )
+        damage_near_distance = weaponOrProjectile.GetWeaponSettingFloat( damageNearDistanceVar )
+        damage_far_value = weaponOrProjectile.GetWeaponSettingInt( damageFarValueVar )
+        damage_far_distance = weaponOrProjectile.GetWeaponSettingFloat( damageFarDistanceVar)
+        damage_very_far_value = weaponOrProjectile.GetWeaponSettingInt( damageVeryFarValueVar )
+        damage_very_far_distance = weaponOrProjectile.GetWeaponSettingFloat( damageVeryFarDistanceVar )
+    }
+
+    return CalculateDamageWithGivenValue( weaponOrProjectile, target, damage_near_value, damage_near_distance, damage_far_value, damage_far_distance, damage_very_far_value, damage_very_far_distance )
+}
+
+// script wrapped functions
+entity function FireWeaponBolt_RecordData( pos, dir, float speedScale, touchDamageFlags, explosionDamageFlags, isClientPredicted, additionalRandomSeed )
+{
+    entity bolt = weapon.FireWeaponBolt( pos, dir, speedScale, touchDamageFlags, explosionDamageFlags, isClientPredicted, additionalRandomSeed )
+    InitProjectileData( bolt, pos, touchDamageFlags, explosionDamageFlags )
+
+    return bolt
+}
+
+entity function FireWeaponGrenade_RecordData( pos, dir, angularVelocity, fuseTime, touchDamageFlags, explosionDamageFlags, isClientPredicted, isLagCompensated, unknownUsage )
+{
+    entity nade = weapon.FireWeaponGrenade( pos, dir, angularVelocity, fuseTime, touchDamageFlags, explosionDamageFlags, isClientPredicted, isLagCompensated, unknownUsage )
+    InitProjectileData( nade, pos, touchDamageFlags, explosionDamageFlags )
+
+    return nade
+}
+
+entity function FireWeaponMissile_RecordData( pos, dir, float speedScale, touchDamageFlags, explosionDamageFlags, doRandomVelocAndThinkVars, isClientPredicted )
+{
+    entity missile = weapon.FireWeaponMissile( pos, dir, speedScale, touchDamageFlags, explosionDamageFlags, doRandomVelocAndThinkVars, isClientPredicted )
+    InitProjectileData( missile, pos, touchDamageFlags, explosionDamageFlags )
+
+    return missile
+}
+
+void function InitProjectileData( entity projectile, pos, touchDamageFlags, explosionDamageFlags )
+{
+    file.projectileLaunchOrigin[ projectile ] <- expect vector( pos )
+    file.projectileTouchDamageFlags[ projectile ] <- expect int( touchDamageFlags )
+    file.projectileExplosionDamageFlags[ projectile ] <- expect int( explosionDamageFlags )
+}
+
+vector function GetProjectileLaunchOrigin( entity projectile )
+{
+    if ( !( projectile in file.projectileLaunchOrigin ) )
+    {
+        // try to use owner...
+        entity owner = projectile.GetOwner()
+        if ( IsValid( owner ) )
+            return owner.GetOrigin()
+        // can't do anything, failsafe
+        return projectile.GetOrigin()
+    }
+
+    return file.projectileLaunchOrigin[ projectile ]
+}
+
+int function GetProjectileTouchDamageFlags( entity projectile )
+{
+    if ( !( projectile in file.projectileTouchDamageFlags ) )
+        return TEMP_GetDamageFlagsFromProjectile( projectile ) // very temp value
+
+    return file.projectileTouchDamageFlags[ projectile ]
+}
+
+int function GetProjectileExplosionDamageFlags( entity projectile )
+{
+    if ( !( projectile in file.projectileExplosionDamageFlags ) )
+        return TEMP_GetDamageFlagsFromProjectile( projectile ) // very temp value
+
+    return file.projectileExplosionDamageFlags[ projectile ]
+}
