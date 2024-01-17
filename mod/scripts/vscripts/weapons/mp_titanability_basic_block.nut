@@ -199,6 +199,10 @@ void function IncrementChargeBlockAnim( entity blockingEnt, var damageInfo )
 const float TITAN_BLOCK_DAMAGE_REDUCTION = 0.3
 const float SWORD_CORE_BLOCK_DAMAGE_REDUCTION = 0.15
 
+// modded blocking damage value
+const float TITAN_BLOCK_DAMAGE_REDUCTION_NERF = 0.4
+const float SWORD_CORE_BLOCK_DAMAGE_REDUCTION_NERF = 0.2
+
 float function HandleBlockingAndCalcDamageScaleForHit( entity blockingEnt, var damageInfo )
 {
 	if ( blockingEnt.IsTitan() )
@@ -207,10 +211,22 @@ float function HandleBlockingAndCalcDamageScaleForHit( entity blockingEnt, var d
 		if ( shouldPassThroughDamage )
 			return 1.0
 
-		if ( blockingEnt.IsPlayer() && PlayerHasPassive( blockingEnt, ePassives.PAS_SHIFT_CORE ) )
-			return SWORD_CORE_BLOCK_DAMAGE_REDUCTION
+		// hardcoded modded weapon: less damage reduction for mod
+		entity weapon = blockingEnt.GetOffhandWeapon( OFFHAND_LEFT )
+		if ( IsValid( weapon ) && weapon.HasMod( "rebalanced_weapon" ) )
+		{
+			if ( blockingEnt.IsPlayer() && PlayerHasPassive( blockingEnt, ePassives.PAS_SHIFT_CORE ) )
+				return SWORD_CORE_BLOCK_DAMAGE_REDUCTION_NERF
 
-		return TITAN_BLOCK_DAMAGE_REDUCTION
+			return TITAN_BLOCK_DAMAGE_REDUCTION_NERF
+		}
+		else // vanilla behaviopr
+		{
+			if ( blockingEnt.IsPlayer() && PlayerHasPassive( blockingEnt, ePassives.PAS_SHIFT_CORE ) )
+				return SWORD_CORE_BLOCK_DAMAGE_REDUCTION
+
+			return TITAN_BLOCK_DAMAGE_REDUCTION
+		}
 	}
 
 	entity weapon = blockingEnt.GetActiveWeapon()
@@ -317,18 +333,22 @@ void function BasicBlock_OnDamage( entity blockingEnt, var damageInfo )
 
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
 
-	int attachId = blockingEnt.LookupAttachment( "PROPGUN" )
-	vector origin = GetDamageOrigin( damageInfo, blockingEnt )
-	vector eyePos = blockingEnt.GetAttachmentOrigin( attachId )
-	vector blockAngles = blockingEnt.GetAttachmentAngles( attachId )
-	vector fwd = AnglesToForward( blockAngles )
+	// reblanaced weapon with fix: won't get pierced
+	if ( !weapon.HasMod( "rebalanced_weapon" ) )
+	{
+		int attachId = blockingEnt.LookupAttachment( "PROPGUN" )
+		vector origin = GetDamageOrigin( damageInfo, blockingEnt )
+		vector eyePos = blockingEnt.GetAttachmentOrigin( attachId )
+		vector blockAngles = blockingEnt.GetAttachmentAngles( attachId )
+		vector fwd = AnglesToForward( blockAngles )
 
-	vector vec1 = Normalize( origin - eyePos )
-	float dot = DotProduct( vec1, fwd )
-	float angleRange = GetAngleForBlock( blockingEnt )
-	float minDot = AngleToDot( angleRange )
-	if ( dot < minDot )
-		return
+		vector vec1 = Normalize( origin - eyePos )
+		float dot = DotProduct( vec1, fwd )
+		float angleRange = GetAngleForBlock( blockingEnt )
+		float minDot = AngleToDot( angleRange )
+		if ( dot < minDot )
+			return
+	}
 
 	IncrementChargeBlockAnim( blockingEnt, damageInfo )
 	EmitSoundOnEntity( blockingEnt, "ronin_sword_bullet_impacts" )
