@@ -169,6 +169,11 @@ global function RunCallback_OnProjectileRefiredByVortex_ClassName // run callbac
 // modified utility
 // on refire by vortex, certain weapon mod will be retained so we can get correct damage
 global function Vortex_AddWeaponModRetainedOnRefire
+
+// modified settings override: use our impact data to create
+
+// using a modified function so we can get whether they're vortexed or not
+global function Vortex_SetProjectileRefiredByVortex
 #endif
 
 // WIP: basic behavior override
@@ -188,6 +193,26 @@ struct ImpactDataOverride
 	asset absorb_effect					// leave empty $"" to use weapon's default value
 	asset absorb_effect_third_person	// leave empty $"" to use weapon's default value
 	string refire_behavior				// leave empty "" to use weapon's default value
+}
+
+// damage data storing
+// not splited into npc damage, they're stored during refire
+struct RefiredProjectileDamageData
+{
+	int damage_near_value
+	int damage_far_value
+	int damage_very_far_value
+	int damage_near_value_titanarmor
+	int damage_far_value_titanarmor
+	int damage_very_far_value_titanarmor
+	int damage_near_distance
+	int damage_far_distance
+	int damage_very_far_distance
+
+	int explosion_damage
+	int explosion_damage_heavy_armor
+	int explosionradius
+	int explosion_inner_radius
 }
 
 struct
@@ -220,6 +245,12 @@ struct
 
 	// modded utility
 	table< string, array<string> > weaponModsToRetainOnVortexRefire
+
+	// projectile behavior fix
+	table< entity, bool > projectileRefiredByVortex
+	int refireDataIndex
+	table< int, RefiredProjectileDamageData > indexedProjectileDamagedata // for us store a index in impactData
+	table< entity, RefiredProjectileDamageData > vortexRefiredProjectileDamageData
 } file
 //
 
@@ -735,6 +766,26 @@ array<string> function GetWeaponModsRetainedOnRefire( string weaponName )
 		return []
 	
 	return file.weaponModsToRetainOnVortexRefire[ weaponName ]
+}
+
+// modified radius damage data storing
+
+// modified utility
+void function Vortex_SetProjectileRefiredByVortex( entity projectile, bool refired )
+{
+	projectile.SetVortexRefired( refired )
+	
+	if ( !( projectile in file.projectileRefiredByVortex ) )
+		file.projectileRefiredByVortex[ projectile ] <- false // default value
+	file.projectileRefiredByVortex[ projectile ] = refired
+}
+
+bool function Vortex_IsProjectileRefiredByVortex( entity projectile )
+{
+	if ( !( projectile in file.projectileRefiredByVortex ) )
+		return false // default value
+
+	return file.projectileRefiredByVortex[ projectile ]
 }
 #endif // SERVER
 
@@ -2165,8 +2216,10 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData, entity vor
 
 	Vortex_SetImpactEffectTable_OnProjectile( projectile, impactData )  // set the correct impact effect table
 
-	projectile.SetVortexRefired( true ) // This tells code the projectile was refired from the vortex so that it uses "projectile_vortex_vscript"
-	
+	// using a modified function so we can get whether they're vortexed or not
+	//projectile.SetVortexRefired( true ) // This tells code the projectile was refired from the vortex so that it uses "projectile_vortex_vscript"
+	Vortex_SetProjectileRefiredByVortex( projectile, true )
+
 	// modified: model from modified impactData
 	if ( "projectileModel" in impactData )
 		projectile.SetModel( expect asset( impactData.projectileModel ) )
@@ -3078,8 +3131,9 @@ int function VortexReflectAttack( entity vortexWeapon, WeaponPrimaryAttackParams
 
 		if ( impactType == "projectile" )
 		{
-			// last parameter "attackSeedCount" is no where used
-			bool didFire = DoVortexAttackForImpactData( vortexWeapon, attackParams, impactData, -1 )
+			// last parameter "attackSeedCount" is only used in Vortex_FireBackExplosiveRound() and Vortex_FireBackProjectileBullet()
+			// default value should be 0
+			bool didFire = DoVortexAttackForImpactData( vortexWeapon, attackParams, impactData, 0 )
 			if ( !didFire ) // firing failed
 				return 0 // don't do following think, return 0
 		}
