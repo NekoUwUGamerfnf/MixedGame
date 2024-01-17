@@ -363,7 +363,8 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 {
 	// starting sequence and setup
 	EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
-	PlayDeathAnimByActivity( npc ) // play the anim before think starts
+	if ( npc.IsInterruptable() ) // nuke before death now ignores interruptable check, needs to manually handle
+		PlayDeathAnimByActivity( npc ) // play the anim before think starts
 
 	// for fun
 	entity nukeBodyFX = PlayFXOnEntity( $"P_sup_spectre_warn_body", npc, "exp_torso_core_fx" )
