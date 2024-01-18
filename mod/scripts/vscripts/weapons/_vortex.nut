@@ -582,6 +582,8 @@ float function Vortex_CalculateBulletHitDamage( entity vortexSphere, var damageI
 {
 	entity weapon = DamageInfo_GetWeapon( damageInfo )
 	float damage = ceil( DamageInfo_GetDamage( damageInfo ) )
+	// debug print here for us testing heavy armor vortex
+	//print( "damage: " + string( damage ) )
 
 	Assert( damage >= 0, "Bug 159851 - Damage should be greater than or equal to 0.")
 	damage = max( 0.0, damage )
@@ -604,9 +606,20 @@ float function Vortex_CalculateBulletHitDamage( entity vortexSphere, var damageI
 
 float function Vortex_CalculateProjectileHitDamage( entity vortexSphere, entity attacker, entity projectile )
 {
+	// modified here: try to use our new utility for calculating projectile damage??
+	// this will break projectile with falloff's damage behavior... but more accurate I think???
+	/*
 	float damage = float( projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value ) )
 	//	once damageInfo is passed correctly we'll use that instead of looking up the values from the weapon .txt file.
 	//	local damage = ceil( DamageInfo_GetDamage( damageInfo ) )
+
+	// modified: try to add heavy armor vortex sphere???
+	if ( vortexSphere.GetArmorType() == ARMOR_TYPE_HEAVY )
+		damage = float( projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor ) )
+	//
+	*/
+	// modified function in damage_calc_util.gnut
+	float damage = ceil( CalculateWeaponOrProjectileDamageAgainstTarget( projectile, vortexSphere ) )
 
 	if ( IsValid( projectile ) )
 	{
