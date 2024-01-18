@@ -542,6 +542,12 @@ void function ExtraAISpawner_Init()
 	AddCallback_OnPlayerKilled( FakeNPCTitanScoreEventForPlayerOrNPCKilled )
 	AddCallback_OnNPCKilled( FakeNPCTitanScoreEventForPlayerOrNPCKilled )
 
+	// phase shifted npc can still melee or fire charged weapon to their enemy
+	// we want to remove their damage if they're spawned by this file
+	// function Levels_GetValidCombatCharacterClasses() shared from levels_util.gnut
+	foreach ( string className in Levels_GetValidCombatCharacterClasses() )
+		AddDamageCallback( className, ShiftedNPCDamageHandle )
+
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
 		MeleeSyncedNPC_AllowNPCTitanExecutions( true )
@@ -1138,6 +1144,25 @@ string function GetScoreEventForNPCTitanKillTarget( entity victim, entity attack
 	return ExtraSpawner_GetNPCScoreEvent( victim )
 }
 
+// if attacker is npc spawned by this file and they've shifted, remove melee damage
+void function ShiftedNPCDamageHandle( entity victim, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+
+	// handle npc shifted damage
+	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) )
+	{
+		if ( attacker.IsPhaseShifted() )
+		{
+			// npc melee damage isn't intented to fire during phase shift
+			if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
+				DamageInfo_SetDamage( damageInfo, 0 )
+		}
+	}
+}
+
 void function ProwlerPrecache()
 {
 	// don't precache corpses again, or game's existing model will become errors!
@@ -1731,6 +1756,10 @@ bool function ExtraSpawner_IsValidExecutionTarget( entity attacker, entity targe
 	// attacker case
 	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) )
 	{
+		// npc can damage target during phase shift!!
+		if ( attacker.IsPhaseShifted() )
+			return false
+
 		if ( attacker.IsTitan() ) 
 		{
 			// vanguard chassis shouldn't execute players due their victim animation don't have suitable attachment
@@ -6746,6 +6775,7 @@ void function InitDefaultScriptedNPCPilotTactical()
 	// cloak
 	RegisterSignal( "NPCPilotActivatesCloak" )
 	RegisterSignal( "CloakTimeOut" )
+	AddDamageByCallback( "npc_pilot_elite", OnCloakedPilotDamageTarget )
 	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_cloak", NPCPilotCloakThink )
 
 	// stim
@@ -6769,7 +6799,25 @@ void function ExtraSpawner_AddScriptedNPCPilotAbilityThink( string abilityWeapon
 		file.scriptedNPCPilotAbilityThink[ abilityWeaponName ] = thinkFunc
 }
 
+
 // scripted ability thinks
+
+// have to HACK here from the result: if a cloaked pilot's melee hits their enemy
+// should make them flicker, otherwise they can't be targeted, makes them kill their target very easily
+void function OnCloakedPilotDamageTarget( entity ent, var damageInfo )
+{
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( !IsValid( attacker ) )
+		return
+
+	// same think as CodeCallback_OnMeleePressed() does
+	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
+	{
+		if ( svGlobal.cloakBreaksOnMelee && IsCloaked( attacker ) )
+			attacker.SetCloakFlicker( 1.0, 2.0 )
+	}
+}
+
 const float NPC_PILOT_CLOAK_REST_TIME_BETWEEN_USE = 1.5 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_CLOAK_RECENT_DAMAGE_TIME = 1.5 // if pilot taken damage within this time, they won't do cloak
 const float NPC_PILOT_CLOAK_COMBAT_DIST_2D = 1000 // if pilot has a pilot enemy within this range they can see, consider them already combating... don't cloak
@@ -6849,11 +6897,14 @@ float function GetNPCLastDamageTime( entity guy )
 	return 0.0 // no damage taken yet
 }
 
-const float NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC = 0.35 // don't attack at the start of cloak ability
-const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.0 // pilot firing weapon within this frac of cloak duration won't break their cloak
+// reworking this behavior: disabling an npc pilot's capability of shooting can result in weird animations
+// now we make them no longer breaks their cloak before this time frac, only flicker on shoot
+//const float NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC = 0.35 // don't attack at the start of cloak ability
+//const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.0 // pilot firing weapon within this frac of cloak duration won't break their cloak
+const float NPC_PILOT_CLOAK_GRACE_PERIOD = 0.3 // pilot firing weapon within this frac of cloak duration won't break their cloak, only flicker themselves
 
 const float NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION = 0.75 // have to hardcode for charge weapons... mostly for charge rifle. if pilot charges their weapon to this fraction, break cloak
-const float NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE = 0.0 // pilot charge weapon within this frac of cloak duration won't break their cloak
+//const float NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE = 0.0 // pilot charge weapon within this frac of cloak duration won't break their cloak
 
 void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 {
@@ -6876,7 +6927,8 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	float startTime = Time()
 	float endTime = Time() + duration
 	// first few seconds pilot won't shoot, then they will
-	DisableNPCAttackCapability( pilot, true, false ) // they can still melee
+	// reworking this behavior: 
+	//DisableNPCAttackCapability( pilot, true, false ) // they can still melee
 
 	// use OnThreadEnd() to ensure things have been cleaned up
 	table<string, bool> cleanUpTable
@@ -6904,7 +6956,11 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 				if ( !cleanUpTable["removeFinalDamageCallback"] )
 					RemoveEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
 				if ( !cleanUpTable["restoreAttackCapability"] )
-					RestoreNPCAttackCapability( pilot )
+				{
+					// we now flicker pilot if they try to fire weapon at the beginning of cloaking
+					// no need to handle attack capability
+					//RestoreNPCAttackCapability( pilot )
+				}
 				if ( !cleanUpTable["restoreEnemyMapIcon"] )
 					AddMinimapForNPC( pilot )
 
@@ -6921,10 +6977,11 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 
 	// first few seconds pilot won't shoot, then they will
 	// or they will start shooting once taken damage
-	float noFireDuration = duration * NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC
-	waitthread WaitTillTimeOutOrDamaged( pilot, noFireDuration )
+	// cloak break behavior has been reworked, no need to handle capability flags
+	//float noFireDuration = duration * NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC
+	//waitthread WaitTillTimeOutOrDamaged( pilot, noFireDuration )
 
-	RestoreNPCAttackCapability( pilot )
+	//RestoreNPCAttackCapability( pilot )
 	cleanUpTable["restoreAttackCapability"] = true
 
 	float timeLeft = duration - ( Time() - startTime )
@@ -6963,8 +7020,10 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	// now workaround with decloakOnShoot in aiSetFile
 	// EDIT: "decloakOnShoot" won't work at all!
 	// now workaround with charge frac checks
-	float checkStartTime = Time() + ( duration * NPC_PILOT_CLOAK_BROKE_INTERNAL )
-	float chargeCheckStartTime = Time() + ( duration * NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE )
+	// reworking these checks. pilots now flicker themselves if they fire/charged weapon at the beginning of cloaking
+	//float checkStartTime = Time() + ( duration * NPC_PILOT_CLOAK_BROKE_INTERNAL )
+	//float chargeCheckStartTime = Time() + ( duration * NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE )
+	float onlyFlickerEndTime = Time() + ( duration * NPC_PILOT_CLOAK_GRACE_PERIOD )
 	table<entity, int> pilotWeaponAmmoCount
 	while ( true )
 	{
@@ -6982,38 +7041,45 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 		bool shouldBreakCloak = false
 		if ( IsValid( activeWeapon ) && activeWeapon.IsChargeWeapon() && !activeWeapon.IsWeaponOffhand() )
 		{
+			// reworking these checks. pilots now flicker themselves if they fire/charged weapon at the beginning of cloaking
+			/*
 			if ( Time() > chargeCheckStartTime ) // cloak break check start
 			{
 				// debug
-				/*
-				print( "activeWeapon: " + string( activeWeapon ) )
-				print( "chargeFrac: " + string( activeWeapon.GetWeaponChargeFraction() ) )
-				*/
+				//print( "activeWeapon: " + string( activeWeapon ) )
+				//print( "chargeFrac: " + string( activeWeapon.GetWeaponChargeFraction() ) )
 
 				if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
 					shouldBreakCloak = true // break cloak
 			}
-			/*
-			else // debug
-				print( "cloaked firing check not started yet" )
+			//else // debug
+			//	print( "cloaked firing check not started yet" )
 			*/
+
+			if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
+			{
+				if ( Time() > onlyFlickerEndTime )
+					shouldBreakCloak = true // break cloak
+				else // flicker only
+					pilot.SetCloakFlicker( 1.0, 2.0 ) // same flicker as CodeCallback_WeaponFireInCloak() does
+			}
 		}
 		else // normal weapon case
 		{
+			// reworking these checks. pilots now flicker themselves if they fire/charged weapon at the beginning of cloaking
+			/*
 			if ( Time() > checkStartTime ) // cloak break check start
 			{
 				foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
 				{
 					// debug
-					/*
-					if ( weapon == activeWeapon )
-					{
-						print( "weapon: " + string( weapon ) )
-						print( "pilotWeaponAmmoCount[ weapon ]: " + string( pilotWeaponAmmoCount[ weapon ] ) )
-						print( "GetWeaponAmmoOrClipCount( weapon ): " + string( GetWeaponAmmoOrClipCount( weapon ) ) )
-						print( "ammoSinceLastUpdate: " + string( ammoSinceLastUpdate ) )
-					}
-					*/
+					//if ( weapon == activeWeapon )
+					//{
+					//	print( "weapon: " + string( weapon ) )
+					//	print( "pilotWeaponAmmoCount[ weapon ]: " + string( pilotWeaponAmmoCount[ weapon ] ) )
+					//	print( "GetWeaponAmmoOrClipCount( weapon ): " + string( GetWeaponAmmoOrClipCount( weapon ) ) )
+					//	print( "ammoSinceLastUpdate: " + string( ammoSinceLastUpdate ) )
+					//}
 
 					if ( GetWeaponAmmoOrClipCount( weapon ) < ammoSinceLastUpdate ) // firing weapon!
 					{
@@ -7022,10 +7088,21 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 					}
 				}
 			}
-			/*
-			else // debug
-				print( "cloaked firing check not started yet" )
+			//else // debug
+			//	print( "cloaked firing check not started yet" )
 			*/
+
+			foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
+			{
+				if ( GetWeaponAmmoOrClipCount( weapon ) < ammoSinceLastUpdate ) // firing weapon!
+				{
+					if ( Time() > onlyFlickerEndTime )
+						shouldBreakCloak = true // break cloak
+					else // flicker only
+						pilot.SetCloakFlicker( 1.0, 2.0 ) // same flicker as CodeCallback_WeaponFireInCloak() does
+					break
+				}
+			}
 		}
 
 		// break cloak if we have marked it
@@ -7490,7 +7567,10 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	
 	// behavior
 	RemoveMinimapForNPC( decoy ) // don't show on minimap for any team, that's the way to identify them
-	DisableNPCAttackCapability( decoy, true, true, true ) // disable attacking and traverse
+	// now we try not to disable ranged attack capability, because we've removed their main weapons
+	// disabling gun fire may make them suffer weird animations
+	//DisableNPCAttackCapability( decoy, true, true, true ) // disable attacking and traverse
+	DisableNPCAttackCapability( decoy, false, true, true ) // disable melee and traverse
 	// don't drop any weapon, no pain
 	// NPC_NO_PAIN isn't really a valid flag, use new functions instead
 	//decoy.EnableNPCFlag( NPC_NO_WEAPON_DROP | NPC_NO_PAIN | NPC_NO_GESTURE_PAIN )
@@ -7696,7 +7776,11 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 				if ( !cleanUpTable["removeFinalDamageCallback"] )
 					RemoveEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
 				if ( !cleanUpTable["restoreAttackCapability"] )
-					RestoreNPCAttackCapability( pilot )
+				{
+					// shifted npc damage now handled by ShiftedNPCDamageHandle()
+					// this fix should be removed
+					//RestoreNPCAttackCapability( pilot )
+				}
 				delete file.npcPilotPhaseHealthThreshold[ pilot ]
 			}
 		}
@@ -7712,7 +7796,9 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	// and they're still able to attack, needs to clear their attack capability
 	if ( IsValid( pilot.GetEnemy() ) )
 		pilot.ClearEnemy()
-	DisableNPCAttackCapability( pilot, true, true ) // disable both melee and ranged attack
+	// disabling gun fire may make them suffer weird animations
+	// now we remove their damage in ShiftedNPCDamageHandle()
+	//DisableNPCAttackCapability( pilot, true, true ) // disable both melee and ranged attack
 	cleanUpTable["restoreAttackCapability"] = false // mark as we need to clean up stuffs
 
 	// npc pilots can't use shift well, give them some speed boost to get out of danger
