@@ -188,6 +188,9 @@ void function SuperSpectre_OnDamage( entity npc, var damageInfo )
 bool function DamageShouldStartReaperNuke( entity npc, var damageInfo )
 {
 	// general check
+	// this ignores interruptable state check because we will handle animations manually
+	// seems no need to ignore interruptable for reapers? that only happens when they're preparing an mega jump
+	//if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo, true ) )
 	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo ) )
 		return false
 
@@ -341,7 +344,7 @@ void function ReaperNukeSequenceFailSafe( entity npc )
 	// ( 89/200 ) * 7.233 ≈ 3.21, so we wait 3.3s as failsafe
 	wait 0.1
 	// here's for fun: if reaper don't have a animation active
-	// it must means it's animation gets intterupted by something
+	// it must means it's animation gets interrupted by something
 	// we manually do a effect( can't handle beam effects because there're too many of them, like SP ticks )
 	// NOTE: this can't handle because after anim start the reaper will be recognized as AnimActive, but actually they can still gets stuck
 	if ( !npc.Anim_IsActive() )
@@ -362,7 +365,8 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 {
 	// starting sequence and setup
 	EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
-	PlayDeathAnimByActivity( npc ) // play the anim before think starts
+	if ( npc.IsInterruptable() ) // nuke before death now ignores interruptable check, needs to manually handle
+		PlayDeathAnimByActivity( npc ) // play the anim before think starts
 
 	// for fun
 	entity nukeBodyFX = PlayFXOnEntity( $"P_sup_spectre_warn_body", npc, "exp_torso_core_fx" )
@@ -385,7 +389,9 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 	while ( Time() < endTime )
 	{
 		// this must means reaper isn't actually playing animation, they got some schedule to do...
-		if ( !npc.Anim_IsActive() )
+		// we wait if reaper isn't interruptable
+		//if ( !npc.Anim_IsActive() )
+		if ( !npc.Anim_IsActive() && npc.IsInterruptable() )
 		{
 			//print( "reaper still don't have anim active!" )
 			//print( "elapsed time: " + string( Time() - startTime ) )
@@ -644,7 +650,7 @@ entity function CreateExplosionInflictor( vector origin )
 }
 
 // modified nuke threshold and force kill think, wrapped into function
-bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = null )
+bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = null, bool ignoreInterruptableCheck = false )
 {
 	// these are checks that only valid when passing a damageInfo inside
 	bool damageThresholdChecksFailed = false
@@ -663,7 +669,8 @@ bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = nul
 	// failing checks:
 	if( !ShouldNukeOnDeath( npc ) 
 		|| !npc.IsOnGround() 
-		|| !npc.IsInterruptable() // it's weird that if reaper is in attack or flinch activity, it won't be recognized as "not interruptable", unlike stalkers...
+		//|| !npc.IsInterruptable() // it's weird that if reaper is in attack or flinch activity, it won't be recognized as "not interruptable", unlike stalkers...
+		|| ( !ignoreInterruptableCheck && !npc.IsInterruptable() ) // remove interruptable check if we're detonating before death
 		|| damageThresholdChecksFailed
 		|| forceKilledByTitanChecksFailed
 		)
@@ -1150,7 +1157,7 @@ void function LaunchSpawnerProjectile( entity npc, vector targetOrigin, int acti
 //	DebugDrawLine( npc.GetOrigin() + <3,3,3>, launchPos + <3,3,3>, 255, 0, 0, true, 5.0 )
 	float armTime = SPAWN_PROJECTILE_AIR_TIME + RandomFloatRange( 1.0, 2.5 )
 	vector angularVelocity = < 200, 0, 0 >
-	entity nade = weapon.FireWeaponGrenade( launchPos, vel, angularVelocity, armTime, damageTypes.dissolve, damageTypes.explosive, PROJECTILE_NOT_PREDICTED, true, true )
+	entity nade = FireWeaponGrenade_RecordData( weapon, launchPos, vel, angularVelocity, armTime, damageTypes.dissolve, damageTypes.explosive, PROJECTILE_NOT_PREDICTED, true, true )
 
 	// modified callbacks, for we can get ticks owner reaper on their spawn
 	foreach ( callbackFunc in file.onReaperLaunchedFragDroneSpawnedCallbacks )
