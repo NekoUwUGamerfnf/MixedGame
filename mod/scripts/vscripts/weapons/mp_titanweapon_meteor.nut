@@ -491,7 +491,7 @@ function PlayerOrNPCFire_Meteor( WeaponPrimaryAttackParams attackParams, playerF
 		float speed	= 1.0 // 2200.0
 
  		//TODO:: Calculate better attackParams.dir if auto-titan using mortarShots
-		entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, speed, METEOR_DAMAGE_FLAGS, METEOR_DAMAGE_FLAGS, playerFired , 0 )
+		entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, speed, METEOR_DAMAGE_FLAGS, METEOR_DAMAGE_FLAGS, playerFired , 0 )
 		if ( bolt != null )
 			EmitSoundOnEntity( bolt, "weapon_thermitelauncher_projectile_3p" )
 	}

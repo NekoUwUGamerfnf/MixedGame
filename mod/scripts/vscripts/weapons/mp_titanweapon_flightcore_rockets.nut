@@ -43,7 +43,7 @@ var function OnWeaponPrimaryAttack_titanweapon_flightcore_rockets( entity weapon
 	vector attackDir = attackParams.dir + offset + <0,0,RandomFloatRange(-0.25,0.55)>
 	vector attackPos = attackParams.pos + offset*32
 	attackDir = Normalize( attackDir )
-	entity missile = weapon.FireWeaponMissile( attackPos, attackDir, 1, (damageTypes.projectileImpact | DF_DOOM_FATALITY), damageTypes.explosive, false, shouldPredict )
+	entity missile = FireWeaponMissile_RecordData( weapon, attackPos, attackDir, 1, (damageTypes.projectileImpact | DF_DOOM_FATALITY), damageTypes.explosive, false, shouldPredict )
 
 	if ( missile )
 	{

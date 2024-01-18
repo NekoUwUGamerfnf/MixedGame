@@ -261,7 +261,7 @@ var function OnWeaponPrimaryAttack_titanweapon_salvocore_rockets( entity weapon,
 		attackPos += offset*offsetPosScale
 		attackDir = Normalize( attackDir )
 
-		entity missile = weapon.FireWeaponMissile( attackPos, attackDir, RandomFloatRange( 0.8, 1.1 ), (damageTypes.projectileImpact | DF_DOOM_FATALITY), damageTypes.explosive, doPopup, shouldPredict )
+		entity missile = FireWeaponMissile_RecordData( weapon, attackPos, attackDir, RandomFloatRange( 0.8, 1.1 ), (damageTypes.projectileImpact | DF_DOOM_FATALITY), damageTypes.explosive, doPopup, shouldPredict )
 
 		if ( missile )
 		{

@@ -159,7 +159,7 @@ void function DoGrappleImpactExplosion( entity player, entity grappleWeapon, ent
 
 	vector origin = hitpos + hitNormal * 16.0
 	int damageType = (DF_RAGDOLL | DF_EXPLOSION | DF_ELECTRICAL)
-	entity nade = grappleWeapon.FireWeaponGrenade( origin, hitNormal, <0,0,0>, 0.01, damageType, damageType, true, true, true )
+	entity nade = FireWeaponGrenade_RecordData( grappleWeapon, origin, hitNormal, <0,0,0>, 0.01, damageType, damageType, true, true, true )
 	if ( !nade )
 		return
 

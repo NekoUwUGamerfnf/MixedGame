@@ -76,8 +76,8 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 
 			int boltSpeed = expect int( weapon.GetWeaponInfoFileKeyField( "bolt_speed" ) )
 			int damageFlags = weapon.GetWeaponDamageFlags()
-			entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackDir, boltSpeed, damageFlags, damageFlags, playerFired, 0 )
-			//entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackDir, 1.0, damageFlags, damageFlags, playerFired, 0 )
+			entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackDir, boltSpeed, damageFlags, damageFlags, playerFired, 0 )
+			//entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackDir, 1.0, damageFlags, damageFlags, playerFired, 0 )
 			if ( bolt != null )
 			{
 				if( index == 0 ) // always create linking with the first projectile

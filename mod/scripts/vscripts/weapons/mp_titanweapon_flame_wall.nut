@@ -79,7 +79,7 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 
 	// float missileSpeed = 1200.0
 	// bool doPopup = false
-	// entity grenade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir * missileSpeed, < 200,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, shouldPredict, true, true )
+	// entity grenade = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir * missileSpeed, < 200,0,0 >, 99, damageTypes.projectileImpact, damageTypes.explosive, shouldPredict, true, true )
 	// vector angles = VectorToAngles( attackParams.dir )
 	// #if SERVER
 	// 	float chargeTime = weapon.GetWeaponChargeTime()
@@ -100,7 +100,7 @@ var function OnWeaponPrimaryAttack_FlameWall( entity weapon, WeaponPrimaryAttack
 	#endif
 
 	const float FUSE_TIME = 99.0
-	entity projectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, shouldPredict, true, true )
+	entity projectile = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, shouldPredict, true, true )
 	if ( projectile )
 	{
 		projectile.SetModel( $"models/dev/empty_model.mdl" )

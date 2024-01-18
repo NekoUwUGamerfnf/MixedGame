@@ -209,7 +209,7 @@ function FireSniper( entity weapon, WeaponPrimaryAttackParams attackParams, bool
 	if ( !shouldCreateProjectile )
 		return 1
 
-	entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, SNIPER_PROJECTILE_SPEED, DF_GIB | DF_BULLET | DF_ELECTRICAL, DF_EXPLOSION | DF_RAGDOLL, playerFired, 0 )
+	entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, SNIPER_PROJECTILE_SPEED, DF_GIB | DF_BULLET | DF_ELECTRICAL, DF_EXPLOSION | DF_RAGDOLL, playerFired, 0 )
 	if ( bolt )
 	{
 		bolt.kv.gravity = 0.001

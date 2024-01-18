@@ -201,7 +201,7 @@ int function FireLaggingBoltLstar( entity weapon, WeaponPrimaryAttackParams atta
 	float launchSpeed = weapon.GetWeaponSettingFloat( eWeaponVar.projectile_launch_speed )
 
 	int damageFlags = weapon.GetWeaponDamageFlags()
-	entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, 1, damageFlags, damageFlags, isPlayerFired, 0 )
+	entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, 1, damageFlags, damageFlags, isPlayerFired, 0 )
 	if ( bolt != null )
 	{
 		bolt.kv.gravity = 0.00001

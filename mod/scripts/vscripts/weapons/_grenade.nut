@@ -284,7 +284,7 @@ entity function Grenade_Launch( entity weapon, vector attackPos, vector throwVel
 	}
 
 	int damageFlags = weapon.GetWeaponDamageFlags()
-	entity frag = weapon.FireWeaponGrenade( attackPos, throwVelocity, angularVelocity, fuseTime, damageFlags, damageFlags, isPredicted, isLagCompensated, true )
+	entity frag = FireWeaponGrenade_RecordData( weapon, attackPos, throwVelocity, angularVelocity, fuseTime, damageFlags, damageFlags, isPredicted, isLagCompensated, true )
 	if ( frag == null )
 		return null
 

@@ -185,7 +185,7 @@ void function DoPhaseExitExplosion( entity player, entity phaseWeapon )
 	//DebugDrawLine( player.GetWorldSpaceCenter(), origin, 255, 0, 0, true, 5.0 )
 
 	int damageType = (DF_RAGDOLL | DF_EXPLOSION | DF_ELECTRICAL)
-	entity nade = phaseWeapon.FireWeaponGrenade( origin, <0,0,1>, <0,0,0>, 0.01, damageType, damageType, true, true, true )
+	entity nade = FireWeaponGrenade_RecordData( phaseWeapon, origin, <0,0,1>, <0,0,0>, 0.01, damageType, damageType, true, true, true )
 	if ( !nade )
 		return
 

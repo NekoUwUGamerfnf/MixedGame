@@ -144,9 +144,9 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 		else // vanilla behavior
 		{
 			// modified to add explosionFlags
-			//entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, boltSpeed, damageFlags, damageFlags, playerFired, 0 )
-			//bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, 1.0, damageFlags, damageFlags, playerFired, 0 )
-			entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, boltSpeed, damageFlags, explosionFlags, playerFired, 0 )
+			//entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, boltSpeed, damageFlags, damageFlags, playerFired, 0 )
+			//bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, 1.0, damageFlags, damageFlags, playerFired, 0 )
+			entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, boltSpeed, damageFlags, explosionFlags, playerFired, 0 )
 
 			if ( bolt != null )
 			{

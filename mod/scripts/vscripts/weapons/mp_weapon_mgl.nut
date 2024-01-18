@@ -80,7 +80,7 @@ var function OnWeaponNpcPrimaryAttack_weapon_mgl( entity weapon, WeaponPrimaryAt
 void function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, bool isNPCFiring = false )
 {
 	vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
-	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0, damageTypes.explosive, damageTypes.explosive, !isNPCFiring, true, false )
+	entity nade = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir, angularVelocity, 0, damageTypes.explosive, damageTypes.explosive, !isNPCFiring, true, false )
 
 	if ( nade )
 	{

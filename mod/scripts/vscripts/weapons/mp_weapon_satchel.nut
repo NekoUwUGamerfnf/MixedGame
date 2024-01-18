@@ -93,7 +93,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_satchel( entity weapon, WeaponP
 	float fuseTime = 0.0	// infinite
 
 	int damageFlags = weapon.GetWeaponDamageFlags()
-	entity satchel = weapon.FireWeaponGrenade( attackPos, attackVec, angularVelocity, fuseTime, damageFlags, damageFlags, PROJECTILE_PREDICTED, true, true )
+	entity satchel = FireWeaponGrenade_RecordData( weapon, attackPos, attackVec, angularVelocity, fuseTime, damageFlags, damageFlags, PROJECTILE_PREDICTED, true, true )
 	if ( satchel == null )
 		return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 

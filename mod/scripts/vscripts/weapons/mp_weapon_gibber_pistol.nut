@@ -55,7 +55,7 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	vector attackVec = attackParams.dir
 	vector angularVelocity = Vector( RandomFloatRange( -1200, 1200 ), 100, 0 )
 	float fuseTime = 0.0
-	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackVec, angularVelocity, fuseTime, damageTypes.pinkMist, damageTypes.pinkMist, !isNPCFiring, true, false )
+	entity nade = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackVec, angularVelocity, fuseTime, damageTypes.pinkMist, damageTypes.pinkMist, !isNPCFiring, true, false )
 
 	if ( nade )
 	{

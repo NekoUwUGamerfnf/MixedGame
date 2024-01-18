@@ -432,7 +432,7 @@ function IgniteTrap( entity damageArea, var damageInfo, bool isExplosiveBarrel =
 		const float FUSE_TIME = 0.0
 		if( !IsValid( weapon ) ) // nessie defensive fix
 			return
-		entity projectile = weapon.FireWeaponGrenade( origin, <0,0,0>, <0,0,0>, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, PROJECTILE_NOT_PREDICTED, true, true )
+		entity projectile = FireWeaponGrenade_RecordData( weapon, origin, <0,0,0>, <0,0,0>, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, PROJECTILE_NOT_PREDICTED, true, true )
 		if ( !IsValid( projectile ) )
 			continue
 		projectile.SetModel( $"models/dev/empty_model.mdl" )

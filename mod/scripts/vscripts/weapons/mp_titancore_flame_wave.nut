@@ -176,7 +176,7 @@ var function OnWeaponPrimaryAttack_titancore_flame_wave( entity weapon, WeaponPr
 		vector offset = offsets[count] * right * PROJECTILE_SEPARATION
 
 		const float FUSE_TIME = 99.0
-		entity projectile = weapon.FireWeaponGrenade( attackParams.pos + offset, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, shouldPredict, true, true )
+		entity projectile = FireWeaponGrenade_RecordData( weapon, attackParams.pos + offset, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, shouldPredict, true, true )
 		if ( IsValid( projectile ) )
 		{
 			#if SERVER

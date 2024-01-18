@@ -112,7 +112,7 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 	if ( shouldCreateProjectile )
 	{
 		float speed = XO16_PROJECTILE_SPEED
-		entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, speed, damageType, damageType, playerFired, 0 )
+		entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, speed, damageType, damageType, playerFired, 0 )
 
 		if ( !IsValid( bolt ) )
 			return 0

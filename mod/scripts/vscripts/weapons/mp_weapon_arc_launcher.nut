@@ -108,7 +108,7 @@ var function FireDirectHitArcBall( entity weapon, WeaponPrimaryAttackParams atta
 	// keep same as FireArcBall() does
 	int damageFlags = damageTypes.arcCannon | DF_IMPACT
 	int explosionFlags = damageTypes.arcCannon | DF_EXPLOSION
-	entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, speed, damageFlags, explosionFlags, isPlayerFired, 0 )
+	entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, speed, damageFlags, explosionFlags, isPlayerFired, 0 )
 	if ( bolt != null )
 	{
 		bolt.kv.gravity = PROJ_GRAVITY

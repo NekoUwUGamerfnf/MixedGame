@@ -93,7 +93,7 @@ entity function FireClusterRocket( entity weapon, vector attackPos, vector attac
 
 	bool doPopup = false
 
-	entity missile = weapon.FireWeaponMissile( attackPos, attackDir, missileSpeed, damageTypes.projectileImpact, damageTypes.explosive, doPopup, shouldPredict )
+	entity missile = FireWeaponMissile_RecordData( weapon, attackPos, attackDir, missileSpeed, damageTypes.projectileImpact, damageTypes.explosive, doPopup, shouldPredict )
 
 	if ( missile )
 	{

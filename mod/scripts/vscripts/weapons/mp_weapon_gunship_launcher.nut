@@ -113,7 +113,7 @@ function FireGunshipLauncher( entity weapon, WeaponPrimaryAttackParams attackPar
 			targetPos += right * expect int( attackOffsets[i] )
 			vector velocity = GetVelocityForDestOverTime( attackParams.pos, targetPos, 0.5 )
 
-			entity nade = weapon.FireWeaponGrenade( attackPos, velocity, angularVelocity, fuseTime, damageType, damageType, predicted, true, true )
+			entity nade = FireWeaponGrenade_RecordData( weapon, attackPos, velocity, angularVelocity, fuseTime, damageType, damageType, predicted, true, true )
 
 			entity fxHandle = PlayLoopFXOnEntity( FX_MINE_TRAIL, nade )
 			//DebugDrawLine( attackPos, attackPos + ( velocity * 1000 ), 255, 0, 0, true, 10.0 )

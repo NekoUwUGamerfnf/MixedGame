@@ -66,7 +66,7 @@ var function OnWeaponTossReleaseAnimEvent_weapon_proximity_mine( entity weapon, 
 	float fuseTime = 0.0	// infinite
 
 	int damageFlags = weapon.GetWeaponDamageFlags()
-	entity proximityMine = weapon.FireWeaponGrenade( attackPos, attackVec, angularVelocity, fuseTime, damageFlags, damageFlags, PROJECTILE_PREDICTED, true, true )
+	entity proximityMine = FireWeaponGrenade_RecordData( weapon, attackPos, attackVec, angularVelocity, fuseTime, damageFlags, damageFlags, PROJECTILE_PREDICTED, true, true )
 	if ( proximityMine == null )
 		return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 

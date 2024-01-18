@@ -2037,7 +2037,7 @@ bool function Vortex_FireBackExplosiveRound( entity vortexWeapon, WeaponPrimaryA
 	vector fireVec = Vortex_GenerateRandomRefireVector( vortexWeapon, VORTEX_EXP_ROUNDS_RETURN_SPREAD_XY, VORTEX_EXP_ROUNDS_RETURN_SPREAD_Z )
 
 	// fire off the bolt
-	entity bolt = vortexWeapon.FireWeaponBolt( attackPos, fireVec, projSpeed, damageType, damageType, PROJECTILE_NOT_PREDICTED, sequenceID )
+	entity bolt = FireWeaponBolt_RecordData( vortexWeapon, attackPos, fireVec, projSpeed, damageType, damageType, PROJECTILE_NOT_PREDICTED, sequenceID )
 	if ( bolt )
 	{
 		bolt.kv.gravity = 0.3
@@ -2073,7 +2073,7 @@ bool function Vortex_FireBackProjectileBullet( entity vortexWeapon, WeaponPrimar
 	//printt( Time(), fireVec ) // print for bug with random
 
 	// fire off the bolt
-	entity bolt = vortexWeapon.FireWeaponBolt( attackPos, fireVec, projSpeed, damageType, damageType, PROJECTILE_NOT_PREDICTED, sequenceID )
+	entity bolt = FireWeaponBolt_RecordData( vortexWeapon, attackPos, fireVec, projSpeed, damageType, damageType, PROJECTILE_NOT_PREDICTED, sequenceID )
 	if ( bolt )
 	{
 		bolt.kv.gravity = 0.0
@@ -2120,7 +2120,7 @@ bool function Vortex_FireBackRocket( entity vortexWeapon, WeaponPrimaryAttackPar
 	// TODO prediction for clients
 	Assert( IsServer() )
 
-	entity rocket = vortexWeapon.FireWeaponMissile( attackParams.pos, attackParams.dir, 1800.0, damageTypes.largeCaliberExp | DF_VORTEX_REFIRE, damageTypes.largeCaliberExp | DF_VORTEX_REFIRE, false, PROJECTILE_NOT_PREDICTED )
+	entity rocket = FireWeaponMissile_RecordData( vortexWeapon, attackParams.pos, attackParams.dir, 1800.0, damageTypes.largeCaliberExp | DF_VORTEX_REFIRE, damageTypes.largeCaliberExp | DF_VORTEX_REFIRE, false, PROJECTILE_NOT_PREDICTED )
 
 	if ( rocket )
 	{
@@ -2155,7 +2155,7 @@ bool function Vortex_FireBackGrenade( entity vortexWeapon, WeaponPrimaryAttackPa
 	float fuseTime = hasIgnitionTime ? 0.0 : baseFuseTime
 	const int HARDCODED_DAMAGE_TYPE = (damageTypes.explosive | DF_VORTEX_REFIRE)
 
-	entity grenade = vortexWeapon.FireWeaponGrenade( attackParams.pos, velocity, angularVelocity, fuseTime, HARDCODED_DAMAGE_TYPE, HARDCODED_DAMAGE_TYPE, PROJECTILE_NOT_PREDICTED, true, true )
+	entity grenade = FireWeaponGrenade_RecordData( vortexWeapon, attackParams.pos, velocity, angularVelocity, fuseTime, HARDCODED_DAMAGE_TYPE, HARDCODED_DAMAGE_TYPE, PROJECTILE_NOT_PREDICTED, true, true )
 	if ( grenade )
 	{
 		Grenade_Init( grenade, vortexWeapon )

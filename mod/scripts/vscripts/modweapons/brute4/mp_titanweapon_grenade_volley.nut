@@ -107,7 +107,7 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	// apply spread
 	bulletVec = ApplyVectorSpread( bulletVec, (weaponOwner.GetAttackSpreadAngle() - 1.0) * 2 )
 
-	entity nade = weapon.FireWeaponGrenade( attackParams.pos, bulletVec, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
+	entity nade = FireWeaponGrenade_RecordData( weapon, attackParams.pos, bulletVec, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
 
 	if ( nade )
 	{

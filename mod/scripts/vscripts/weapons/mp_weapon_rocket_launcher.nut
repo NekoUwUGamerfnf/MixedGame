@@ -193,7 +193,7 @@ var function OnWeaponPrimaryAttack_weapon_rocket_launcher( entity weapon, Weapon
 
 		weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
-		entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, speed, damageTypes.projectileImpact | DF_IMPACT, damageTypes.explosive, false, shouldPredict )
+		entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, speed, damageTypes.projectileImpact | DF_IMPACT, damageTypes.explosive, false, shouldPredict )
 
 		if ( missile )
 		{
@@ -214,7 +214,7 @@ var function OnWeaponNpcPrimaryAttack_S2S_weapon_rocket_launcher( entity weapon,
 	entity weaponOwner = weapon.GetWeaponOwner()
 
 	bool shouldPredict = false
-	entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, S2S_MISSILE_SPEED, damageTypes.projectileImpact | DF_IMPACT, damageTypes.explosive, false, shouldPredict )
+	entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, S2S_MISSILE_SPEED, damageTypes.projectileImpact | DF_IMPACT, damageTypes.explosive, false, shouldPredict )
 
 	if ( missile )
 	{
@@ -248,7 +248,7 @@ var function OnWeaponNpcPrimaryAttack_weapon_rocket_launcher( entity weapon, Wea
 	}
 
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
-	entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, 1800.0, damageTypes.projectileImpact, damageTypes.explosive, false, PROJECTILE_NOT_PREDICTED )
+	entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, 1800.0, damageTypes.projectileImpact, damageTypes.explosive, false, PROJECTILE_NOT_PREDICTED )
 	if ( missile )
 	{
 		missile.InitMissileForRandomDriftFromWeaponSettings( attackParams.pos, attackParams.dir )

@@ -679,7 +679,7 @@ int function FireGenericBoltWithDrop( entity weapon, WeaponPrimaryAttackParams a
 	const float PROJ_SPEED_SCALE = 1
 	const float PROJ_GRAVITY = 1
 	int damageFlags = weapon.GetWeaponDamageFlags()
-	entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, PROJ_SPEED_SCALE, damageFlags, damageFlags, isPlayerFired, 0 )
+	entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, PROJ_SPEED_SCALE, damageFlags, damageFlags, isPlayerFired, 0 )
 	if ( bolt != null )
 	{
 		bolt.kv.gravity = PROJ_GRAVITY
@@ -697,7 +697,7 @@ var function OnWeaponPrimaryAttack_GenericBoltWithDrop_Player( entity weapon, We
 
 var function OnWeaponPrimaryAttack_EPG( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
-	entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, 1, damageTypes.largeCaliberExp, damageTypes.largeCaliberExp, false, PROJECTILE_NOT_PREDICTED )
+	entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, 1, damageTypes.largeCaliberExp, damageTypes.largeCaliberExp, false, PROJECTILE_NOT_PREDICTED )
 	if ( missile )
 	{
 		EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )
@@ -728,7 +728,7 @@ var function OnWeaponPrimaryAttack_GenericMissile_Player( entity weapon, WeaponP
 
 	if ( IsServer() || weapon.ShouldPredictProjectiles() )
 	{
-		entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, 1.0, weapon.GetWeaponDamageFlags(), weapon.GetWeaponDamageFlags(), false, PROJECTILE_PREDICTED )
+		entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, 1.0, weapon.GetWeaponDamageFlags(), weapon.GetWeaponDamageFlags(), false, PROJECTILE_PREDICTED )
 		if ( missile )
 		{
 			missile.InitMissileForRandomDriftFromWeaponSettings( attackParams.pos, attackParams.dir )
@@ -741,7 +741,7 @@ var function OnWeaponPrimaryAttack_GenericMissile_NPC( entity weapon, WeaponPrim
 {
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
-	entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, 1.0, weapon.GetWeaponDamageFlags(), weapon.GetWeaponDamageFlags(), true, PROJECTILE_NOT_PREDICTED )
+	entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, 1.0, weapon.GetWeaponDamageFlags(), weapon.GetWeaponDamageFlags(), true, PROJECTILE_NOT_PREDICTED )
 	if ( missile )
 	{
 		missile.InitMissileForRandomDriftFromWeaponSettings( attackParams.pos, attackParams.dir )
@@ -2111,7 +2111,7 @@ array<entity> function FireExpandContractMissiles( entity weapon, WeaponPrimaryA
 
 	for ( int i = 0; i < rocketsPerShot; i++ )
 	{
-		entity missile = weapon.FireWeaponMissile( attackPos, attackDir, missileSpeed, damageType, explosionDamageType, false, shouldPredict )
+		entity missile = FireWeaponMissile_RecordData( weapon, attackPos, attackDir, missileSpeed, damageType, explosionDamageType, false, shouldPredict )
 
 		if ( missile )
 		{
@@ -2153,7 +2153,7 @@ array<entity> function FireExpandContractMissiles_S2S( entity weapon, WeaponPrim
 
 	for ( int i = 0; i < rocketsPerShot; i++ )
 	{
-		entity missile = weapon.FireWeaponMissile( attackPos, attackDir, missileSpeed, DF_GIB | DF_IMPACT, damageTypes.explosive, false, shouldPredict )
+		entity missile = FireWeaponMissile_RecordData( weapon, attackPos, attackDir, missileSpeed, DF_GIB | DF_IMPACT, damageTypes.explosive, false, shouldPredict )
 		missile.SetOrigin( attackPos )//HACK why do I have to do this?
 		if ( missile )
 		{
@@ -2728,7 +2728,7 @@ void function ChargeBall_FireProjectile( entity weapon, vector position, vector 
 
 	if ( shouldPredict )
 	{
-		entity missile = weapon.FireWeaponMissile( position, direction, MISSILE_SPEED, CONTACT_DAMAGE_TYPES, EXPLOSION_DAMAGE_TYPES, DO_POPUP, shouldPredict )
+		entity missile = FireWeaponMissile_RecordData( weapon, position, direction, MISSILE_SPEED, CONTACT_DAMAGE_TYPES, EXPLOSION_DAMAGE_TYPES, DO_POPUP, shouldPredict )
 		if ( missile )
 		{
 			EmitSoundOnEntity( owner, "ShoulderRocket_Cluster_Fire_3P" )

@@ -178,7 +178,7 @@ int function FireMissileStream( entity weapon, WeaponPrimaryAttackParams attackP
 
 		int impactFlags = (DF_IMPACT | DF_GIB | DF_KNOCK_BACK)
 		// uses bolt instead of missile, so bolt_hitsize will work
-		entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, predicted, 0 )
+		entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, predicted, 0 )
 		if ( bolt != null )
 		{
 			SetTeam( bolt, weaponOwner.GetTeam() )
@@ -262,7 +262,7 @@ void function FireMissileStream_Spiral( entity weapon, WeaponPrimaryAttackParams
             pos += straightDir[i] * STRAIGHT_EXPAND_DIST
         }
 
-        entity missile = weapon.FireWeaponMissile( pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
+        entity missile = FireWeaponMissile_RecordData( weapon, pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
         if ( missile )
         {
             //Spreading out the missiles

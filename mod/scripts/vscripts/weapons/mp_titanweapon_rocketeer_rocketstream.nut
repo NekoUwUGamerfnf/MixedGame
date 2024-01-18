@@ -241,7 +241,7 @@ int function FireMissileStream( entity weapon, WeaponPrimaryAttackParams attackP
 
 		int impactFlags = (DF_IMPACT | DF_GIB | DF_KNOCK_BACK)
 
-		entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
+		entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
 
 		if ( missile )
 		{
@@ -303,7 +303,7 @@ void function FireMissileStream_Spiral( entity weapon, WeaponPrimaryAttackParams
 
 	for ( int i = 0; i < numMissiles; i++ )
 	{
-		entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
+		entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, missileSpeed, impactFlags, damageTypes.explosive | DF_KNOCK_BACK, false, predicted )
 		if ( missile )
 		{
 			//Spreading out the missiles

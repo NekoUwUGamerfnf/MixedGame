@@ -97,7 +97,7 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 
 			vector attackDir = attackParams.dir + upVec + rightVec
 			int damageFlags = weapon.GetWeaponDamageFlags()
-			entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackDir, 3000, damageFlags, damageFlags, playerFired, index )
+			entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackDir, 3000, damageFlags, damageFlags, playerFired, index )
 			if ( bolt != null )
 			{
 				bolt.kv.gravity = 0.09

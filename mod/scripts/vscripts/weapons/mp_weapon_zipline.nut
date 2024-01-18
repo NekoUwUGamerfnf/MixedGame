@@ -64,7 +64,7 @@ var function OnWeaponPrimaryAttack_weapon_zipline( entity weapon, WeaponPrimaryA
 
 	if ( shouldCreateProjectile )
 	{
-		entity projectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir * 3000, < 0, 0, 0 >, 0.0, 0, 0, false, true, false )
+		entity projectile = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir * 3000, < 0, 0, 0 >, 0.0, 0, 0, false, true, false )
 		#if SERVER
 			entity weaponOwner = weapon.GetWeaponOwner()
 			SetTeam( projectile, weaponOwner.GetTeam() )

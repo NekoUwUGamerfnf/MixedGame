@@ -139,7 +139,7 @@ entity function FireArcBall( entity weapon, vector pos, vector dir, bool shouldP
 	if ( IsValid( owner ) )
 		team = owner.GetTeam()
 
-	entity bolt = weapon.FireWeaponBolt( pos, dir, speed, damageTypes.arcCannon | DF_IMPACT, damageTypes.arcCannon | DF_EXPLOSION, shouldPredict, 0 )
+	entity bolt = FireWeaponBolt_RecordData( weapon, pos, dir, speed, damageTypes.arcCannon | DF_IMPACT, damageTypes.arcCannon | DF_EXPLOSION, shouldPredict, 0 )
 	if ( bolt != null )
 	{
 		bolt.kv.rendercolor = "0 0 0"

@@ -56,7 +56,7 @@ var function OnWeaponPrimaryAttack_weapon_tether( entity weapon, WeaponPrimaryAt
 entity function FireTether( entity weapon, vector pos, vector dir, bool predicted, float velocity )
 {
 	vector angVel = < RandomFloat( 720.0 ) - 360.0, RandomFloat( 720.0 ) - 360.0, RandomFloat( 720.0 ) - 360.0 >
-	entity projectile = weapon.FireWeaponGrenade( pos, dir * velocity, angVel, 0.0, 0, 0, predicted, PROJECTILE_LAG_COMPENSATED, false )
+	entity projectile = FireWeaponGrenade_RecordData( weapon, pos, dir * velocity, angVel, 0.0, 0, 0, predicted, PROJECTILE_LAG_COMPENSATED, false )
 	if ( !IsValid( projectile ) )
 		return null
 	//SetTeam( projectile, weapon.GetTeam() ) // use owner's team is better

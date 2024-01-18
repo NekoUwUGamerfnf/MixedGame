@@ -188,7 +188,7 @@ var function OnWeaponPrimaryAttack_titanweapon_predator_cannon( entity weapon, W
 			#if CLIENT
 			if ( weapon.ShouldPredictProjectiles() )
 			#endif
-			bolt = weapon.FireWeaponBolt( attackParams.pos, attackParams.dir, 10000, damageTypes.gibBullet | DF_IMPACT | DF_EXPLOSION , DF_EXPLOSION | DF_RAGDOLL , PROJECTILE_NOT_PREDICTED, 0 )
+			bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, 10000, damageTypes.gibBullet | DF_IMPACT | DF_EXPLOSION , DF_EXPLOSION | DF_RAGDOLL , PROJECTILE_NOT_PREDICTED, 0 )
 			if ( bolt )
 			{
 				bolt.kv.gravity = -0.1

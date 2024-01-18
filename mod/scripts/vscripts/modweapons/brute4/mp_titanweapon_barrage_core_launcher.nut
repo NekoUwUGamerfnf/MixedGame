@@ -99,7 +99,7 @@ var function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams,
 
 	int damageType = DF_RAGDOLL | DF_EXPLOSION
 
-	entity nade = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
+	entity nade = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
 
 	if ( nade )
 	{

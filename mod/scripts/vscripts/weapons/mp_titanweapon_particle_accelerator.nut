@@ -187,7 +187,7 @@ function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams attack
 			if ( owner.IsNPC() )
 				speed = TPAC_PROJECTILE_SPEED_NPC
 
-			entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackVec, speed, damageType, damageType, playerFired, 0 )
+			entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackVec, speed, damageType, damageType, playerFired, 0 )
 			if ( bolt != null )
 			{
 				//bolt.kv.gravity = -0.1

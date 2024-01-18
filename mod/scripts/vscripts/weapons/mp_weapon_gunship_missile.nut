@@ -49,7 +49,7 @@ var function OnWeaponNpcPrimaryAttack_gunship_missile( entity weapon, WeaponPrim
 	weapon.EmitWeaponNpcSound( LOUD_WEAPON_AI_SOUND_RADIUS_MP, 0.2 )
 
 	#if SERVER
-		entity missile = weapon.FireWeaponMissile( attackParams.pos, attackParams.dir, 1, damageTypes.largeCaliberExp, damageTypes.largeCaliberExp, false, PROJECTILE_NOT_PREDICTED )
+		entity missile = FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, 1, damageTypes.largeCaliberExp, damageTypes.largeCaliberExp, false, PROJECTILE_NOT_PREDICTED )
 		if ( missile )
 		{
 			EmitSoundOnEntity( missile, "Weapon_Sidwinder_Projectile" )

@@ -283,7 +283,7 @@ entity function FireStormBall( entity weapon, vector pos, vector dir, bool shoul
 
 	int flags = DF_EXPLOSION | DF_STOPS_TITAN_REGEN | DF_DOOM_FATALITY | DF_SKIP_DAMAGE_PROT
 
-	entity bolt = weapon.FireWeaponBolt( pos, dir, speed, damageTypes.arcCannon | DF_ELECTRICAL, damageTypes.arcCannon | DF_EXPLOSION, shouldPredict, 0 )
+	entity bolt = FireWeaponBolt_RecordData( weapon, pos, dir, speed, damageTypes.arcCannon | DF_ELECTRICAL, damageTypes.arcCannon | DF_EXPLOSION, shouldPredict, 0 )
 
 	if ( bolt != null )
 	{

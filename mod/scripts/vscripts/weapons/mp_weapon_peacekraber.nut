@@ -163,7 +163,7 @@ function FireWeaponPlayerAndNPC( WeaponPrimaryAttackParams attackParams, bool pl
 					projectileSpeed = 6400
 				}
 
-			entity bolt = weapon.FireWeaponBolt( attackParams.pos, attackDir, projectileSpeed, damageTypes.largeCaliber | DF_SHOTGUN, damageTypes.largeCaliber | DF_SHOTGUN, playerFired, index )
+			entity bolt = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackDir, projectileSpeed, damageTypes.largeCaliber | DF_SHOTGUN, damageTypes.largeCaliber | DF_SHOTGUN, playerFired, index )
 			if ( bolt )
 			{
 				bolt.kv.gravity = 0.4 // 0.09

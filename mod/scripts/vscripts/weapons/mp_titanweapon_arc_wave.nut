@@ -72,7 +72,7 @@ var function OnWeaponPrimaryAttack_titanweapon_arc_wave( entity weapon, WeaponPr
 	#endif
 
 	const float FUSE_TIME = 99.0
-	entity projectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, shouldPredict, true, true )
+	entity projectile = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, shouldPredict, true, true )
 	if ( IsValid( projectile ) )
 	{
 		entity owner = weapon.GetWeaponOwner()
@@ -129,7 +129,7 @@ var function OnWeaponNpcPrimaryAttack_titanweapon_arc_wave( entity weapon, Weapo
 
 	// vanilla behavior
 	const float FUSE_TIME = 99.0
-	entity projectile = weapon.FireWeaponGrenade( attackParams.pos, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, false, true, true )
+	entity projectile = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir, < 0,0,0 >, FUSE_TIME, damageTypes.projectileImpact, damageTypes.explosive, false, true, true )
 	if ( IsValid( projectile ) )
 		thread BeginEmpWave( projectile, attackParams )
 
