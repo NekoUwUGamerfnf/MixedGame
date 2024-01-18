@@ -228,7 +228,9 @@ void function LStar_DamagedTarget( entity victim, var damageInfo )
 		// lagging bolt damage handle
 		if ( mods.contains( "lagging_lstar" ) )
 		{
-			bool selfDamage = victim == inflictor.GetBossPlayer() // boss player assigned in LaggingBoltThink()
+			// projectile owner now works well with projectile_collide_with_owner 1
+			//bool selfDamage = victim == inflictor.GetBossPlayer() // boss player assigned in LaggingBoltThink()
+			bool selfDamage = victim == inflictor.GetOwner()
 			bool sameTeam = victim.GetTeam() == inflictor.GetTeam()
 			bool hasFriendlyFire = FriendlyFire_IsEnabled() || mods.contains( "friendlyfire_weapon" )
 			if ( !selfDamage ) // self damage
