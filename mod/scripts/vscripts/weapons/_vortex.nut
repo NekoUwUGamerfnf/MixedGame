@@ -608,18 +608,21 @@ float function Vortex_CalculateProjectileHitDamage( entity vortexSphere, entity 
 {
 	// modified here: try to use our new utility for calculating projectile damage??
 	// this will break projectile with falloff's damage behavior... but more accurate I think???
-	/*
+	// vortex cannot be used as heavy armor... revert back to this behavior
 	float damage = float( projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value ) )
 	//	once damageInfo is passed correctly we'll use that instead of looking up the values from the weapon .txt file.
 	//	local damage = ceil( DamageInfo_GetDamage( damageInfo ) )
 
 	// modified: try to add heavy armor vortex sphere???
-	if ( vortexSphere.GetArmorType() == ARMOR_TYPE_HEAVY )
-		damage = float( projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor ) )
+	// vortex cannot be used as heavy armor... at least we can't use SetArmorType() for them
+	//if ( vortexSphere.GetArmorType() == ARMOR_TYPE_HEAVY )
+	//	damage = float( projectile.GetProjectileWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor ) )
 	//
-	*/
-	// modified function in damage_calc_util.gnut
-	float damage = ceil( CalculateWeaponOrProjectileDamageAgainstTarget( projectile, vortexSphere ) )
+	// modified function in damage_calc_util.gnut. requires any other projectile weapon to be modified before taking effect
+	// vortex cannot be used as heavy armor...
+	//float damage = ceil( CalculateWeaponOrProjectileDamageAgainstTarget( projectile, vortexSphere ) )
+	// debug
+	//print( "damage: " + string( damage ) )
 
 	if ( IsValid( projectile ) )
 	{
