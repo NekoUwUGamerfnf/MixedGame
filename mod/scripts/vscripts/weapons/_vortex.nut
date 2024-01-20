@@ -167,13 +167,28 @@ global function AddCallback_OnProjectileRefiredByVortex_ClassName // allows spec
 global function RunCallback_OnProjectileRefiredByVortex_ClassName // run callback for specific classname
 
 // modified utility
+/*
+	note: 
+		grenades deal damage before calling OnProjectileExplode() callback
+		missiles deal damage before callbacks
+		bolts won't do OnProjectileExplode() callback. their explosion damage happens after OnProjectileCollision() callback
+*/
 // on refire by vortex, certain weapon mod will be retained so we can get correct damage
 global function Vortex_AddWeaponModRetainedOnRefire
 
-// modified settings override: use our impact data to create
-
 // using a modified function so we can get whether they're vortexed or not
 global function Vortex_SetProjectileRefiredByVortex
+
+// modified settings override: use our impact data to handle modded projectile damage
+/*
+global function OnProjectileCollision_VortexRefiredDamageOverride
+global function Vortex_RefiredMissileImpactExplosion
+global function Vortex_RefiredBoltImpactExplosion
+global function Vortex_RefiredGrenadeExplode
+global function Vortex_RefiredProjectileExplodeForCollisionCallback
+*/
+
+//global function 
 #endif
 
 // WIP: basic behavior override
@@ -213,6 +228,9 @@ struct RefiredProjectileDamageData
 	int explosion_damage_heavy_armor
 	int explosionradius
 	int explosion_inner_radius
+
+	float damage_headshot_scale
+	float critical_hit_damage_scale
 }
 
 struct
@@ -251,6 +269,9 @@ struct
 	int refireDataIndex
 	table< int, RefiredProjectileDamageData > indexedProjectileDamagedata // for us store a index in impactData
 	table< entity, RefiredProjectileDamageData > vortexRefiredProjectileDamageData
+	table< entity, bool > refiredProjectileHitTargets
+	table< entity, bool > projectileOverrideImpactDamageFromData // when impact, this projectile won't do it's original damage, but re-calculate damage from saved data
+	table< entity, bool > projectileDoingRefiredExplosions // when triggering this, projectile itself won't deal explosion damage, but do an extra explosion from saved data
 } file
 //
 
@@ -828,7 +849,40 @@ function Vortex_Init()
 	// fixing instal vortex refire for tf2
 	// delay 1 frame to fire back if we're not collecting more bullets/projectiles
 	RegisterSignal( "DelayedVortexFireBack" )
+
+	// add damage callback for every classes to handle damage override
+	#if SERVER
+		// shared function from levels_util.gnut
+		foreach ( string className in Levels_GetAllVulnerableEntityClasses() )
+			AddDamageCallback( className, VortexRefiredProjectileDamageOverride )
+	#endif
 }
+
+// modified callback func
+#if SERVER
+void function VortexRefiredProjectileDamageOverride( entity ent, var damageInfo )
+{
+	entity inflictor = DamageInfo_GetInflictor( damageInfo )
+	if ( !IsValid( inflictor ) )
+		return
+	if ( !inflictor.IsProjectile() )
+		return
+	
+	if ( inflictor in file.projectileOverrideImpactDamageFromData )
+	{
+		// grenades deal impact damage earlier than their OnProjectileCollision() callbacks
+		if ( inflictor instanceof CBaseGrenade )
+
+		
+		// this means projectile dealing explosion damage to target
+		if ( !( inflictor in file.refiredProjectileHitTargets ) )
+		{
+			
+		}
+	}
+}
+#endif
+//
 
 #if SERVER
 var function VortexBulletHitRules_Default( entity vortexSphere, var damageInfo )
