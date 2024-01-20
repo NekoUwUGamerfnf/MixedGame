@@ -13,8 +13,12 @@ global function OnClientAnimEvent_weapon_sniper
 global function OnWeaponNpcPrimaryAttack_weapon_sniper
 #endif // #if SERVER
 
+// modded weapon mod
 const int MAX_FLOATING_BOLT_COUNT = 64
-array<entity> floatingBolts
+struct
+{
+	array<entity> floatingBolts
+} file
 
 void function MpWeaponSniper_Init()
 {
@@ -160,7 +164,7 @@ int function FireWeaponPlayerAndNPC( entity weapon, WeaponPrimaryAttackParams at
 				else if( weapon.HasMod( "floating_bolt_sniper" ) )
 				{
 					#if SERVER
-					floatingBolts.append( bolt )
+					file.floatingBolts.append( bolt )
 					thread BoltArrayThink( bolt )
 					FloatingBoltLimitThink()
 					#endif
@@ -210,6 +214,9 @@ array<entity> function FindSmartSniperProjectile( entity weapon )
 
 void function OnProjectileCollision_weapon_sniper( entity projectile, vector pos, vector normal, entity hitEnt, int hitbox, bool isCritical )
 {
+	// for debugging explosion damage
+    //print( "kraber projectile collision!" )
+
 	// modified condition
 	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) 
 	array<string> refiredMods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
@@ -280,7 +287,7 @@ void function BoltArrayThink( entity bolt )
 	OnThreadEnd(
 		function(): ( bolt )
 		{
-			floatingBolts.removebyvalue( bolt )
+			file.floatingBolts.removebyvalue( bolt )
 		}
 	)
 
@@ -289,17 +296,19 @@ void function BoltArrayThink( entity bolt )
 
 void function FloatingBoltLimitThink()
 {
-	if( floatingBolts.len() >= MAX_FLOATING_BOLT_COUNT )
+	if( file.floatingBolts.len() >= MAX_FLOATING_BOLT_COUNT )
 	{
-		if( IsValid( floatingBolts[0] ) )
-			floatingBolts[0].Destroy()
-		floatingBolts.remove(0)
+		if( IsValid( file.floatingBolts[0] ) )
+			file.floatingBolts[0].Destroy()
+		file.floatingBolts.remove(0)
 	}
 }
 
 void function OnHit_WeaponSniper( entity victim, var damageInfo )
 {
 	EffectVictim( victim, damageInfo )
+	// for debugging explosion damage
+    //print( "kraber damaged target!" )
 }
 
 void function EffectVictim( entity victim, var damageInfo )

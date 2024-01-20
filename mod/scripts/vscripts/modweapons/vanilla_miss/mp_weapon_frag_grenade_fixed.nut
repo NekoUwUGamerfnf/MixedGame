@@ -10,10 +10,45 @@ void function MpWeaponFragGrenade_Init()
     Grenade_AddDropOnCancelDisabledMod( "frag_no_charge" )
     
     Grenade_AddDropOnCancelDisabledMod( "nessie_grenade" )
+
+    // for debugging explosion damage
+    /*
+    #if SERVER
+        AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_frag_grenade, OnFragGrenadeDamageTarget )
+    #endif
+    */
 }
+
+// for debugging explosion damage
+#if SERVER
+void function OnFragGrenadeDamageTarget( entity ent, var damageInfo )
+{
+    print( "frag grenade damage target!" )
+}
+#endif
 
 var function OnWeaponTossReleaseAnimEvent_weapon_frag_grenade( entity weapon, WeaponPrimaryAttackParams attackParams )
 {
+    // for debugging explosion damage
+    // missile
+    /*
+    #if CLIENT
+        if ( !weapon.ShouldPredictProjectiles() )
+            return
+    #endif
+    FireWeaponMissile_RecordData( weapon, attackParams.pos, attackParams.dir, 1, damageTypes.projectileImpact, damageTypes.explosive, false, true )
+    return
+    */
+
+    // bolt
+    // can't debug bolt from tossReleaseAnimEvent!
+    /*
+    #if SERVER
+        FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, 1, damageTypes.projectileImpact, damageTypes.explosive, false, 0 )
+        return
+    #endif
+    */
+
     // base grenade modifiers
     entity grenade = Grenade_OnWeaponToss_ReturnEntity( weapon, attackParams )
     if ( grenade )
@@ -50,5 +85,8 @@ void function OnProjectileExplode_weapon_frag_grenade( entity frag )
     //"s2s_goblin_explode"
     //"explo_spectremortar_impact_3p"
     //"Default.ClusterRocket_Primary_Explosion_3P_vs_3P"
+
+    // for debugging explosion damage
+    //print( "frag grenade exploding!" )
 #endif
 }

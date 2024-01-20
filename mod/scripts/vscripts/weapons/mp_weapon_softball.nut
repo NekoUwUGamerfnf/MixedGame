@@ -7,6 +7,7 @@ global function OnProjectileCollision_weapon_softball
 global function OnWeaponActivate_weapon_softball
 global function OnWeaponOwnerChanged_weapon_softball
 global function OnWeaponReload_weapon_softball
+global function OnProjectileExplode_weapon_softball
 //
 
 #if SERVER
@@ -140,5 +141,10 @@ void function OnWeaponReload_weapon_softball( entity weapon, int milestoneIndex 
 		return OnWeaponReload_weapon_moded_softball( weapon, milestoneIndex )
 
 	// vanilla has no behavior
+}
+
+void function OnProjectileExplode_weapon_softball( entity weapon )
+{
+
 }
 //
