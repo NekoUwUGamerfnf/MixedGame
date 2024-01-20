@@ -6899,6 +6899,10 @@ void function OnCloakedPilotDamageTarget( entity ent, var damageInfo )
 	if ( !IsValid( attacker ) )
 		return
 
+	// only run for pilots who activated cloak in this file
+	if ( !( attacker in file.npcPilotActivatedCloak ) )
+		return
+
 	// same think as CodeCallback_OnMeleePressed() does
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
 	{
@@ -6988,12 +6992,18 @@ float function GetNPCLastDamageTime( entity guy )
 
 // reworking this behavior: disabling an npc pilot's capability of shooting can result in weird animations
 // now we make them no longer breaks their cloak before this time frac, only flicker on shoot
-//const float NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC = 0.35 // don't attack at the start of cloak ability
-//const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.0 // pilot firing weapon within this frac of cloak duration won't break their cloak
+// EDIT: I've figure out what causes bad animations: NPCMF_PREFER_SPRINT
+// revert back to this version of checks and make it a setting
+const bool NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK = true
+
+const float NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC = 0.35 // don't attack at the start of cloak ability
+const float NPC_PILOT_CLOAK_BROKE_INTERNAL = 0.0 // pilot firing weapon within this frac of cloak duration won't break their cloak
+// welp this is a bit too overpowered: other npcs still won't fire at a flickering npc... they aim at them and do nothing!
+// now turned on through setting NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK to false
 const float NPC_PILOT_CLOAK_GRACE_PERIOD = 0.3 // pilot firing weapon within this frac of cloak duration won't break their cloak, only flicker themselves
 
 const float NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION = 0.75 // have to hardcode for charge weapons... mostly for charge rifle. if pilot charges their weapon to this fraction, break cloak
-//const float NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE = 0.0 // pilot charge weapon within this frac of cloak duration won't break their cloak
+const float NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE = 0.0 // pilot charge weapon within this frac of cloak duration won't break their cloak
 
 void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 {
@@ -7017,7 +7027,8 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	float endTime = Time() + duration
 	// first few seconds pilot won't shoot, then they will
 	// reworking this behavior: 
-	//DisableNPCAttackCapability( pilot, true, false ) // they can still melee
+	if ( NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK )
+		DisableNPCAttackCapability( pilot, true, false ) // they can still melee
 
 	// use OnThreadEnd() to ensure things have been cleaned up
 	table<string, bool> cleanUpTable
@@ -7048,7 +7059,9 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 				{
 					// we now flicker pilot if they try to fire weapon at the beginning of cloaking
 					// no need to handle attack capability
-					//RestoreNPCAttackCapability( pilot )
+					// EDIT: flickering npc still can't be targeted. now make it a setting
+					if ( NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK )
+						RestoreNPCAttackCapability( pilot )
 				}
 				if ( !cleanUpTable["restoreEnemyMapIcon"] )
 					AddMinimapForNPC( pilot )
@@ -7067,10 +7080,15 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	// first few seconds pilot won't shoot, then they will
 	// or they will start shooting once taken damage
 	// cloak break behavior has been reworked, no need to handle capability flags
-	//float noFireDuration = duration * NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC
-	//waitthread WaitTillTimeOutOrDamaged( pilot, noFireDuration )
+	// now make it a setting
+	if ( NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK )
+	{
+		float noFireDuration = duration * NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC
+		waitthread WaitTillTimeOutOrDamaged( pilot, noFireDuration )
+	}
 
-	//RestoreNPCAttackCapability( pilot )
+	if ( NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK )
+		RestoreNPCAttackCapability( pilot )
 	cleanUpTable["restoreAttackCapability"] = true
 
 	float timeLeft = duration - ( Time() - startTime )
@@ -7131,65 +7149,73 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 		if ( IsValid( activeWeapon ) && activeWeapon.IsChargeWeapon() && !activeWeapon.IsWeaponOffhand() )
 		{
 			// reworking these checks. pilots now flicker themselves if they fire/charged weapon at the beginning of cloaking
-			/*
-			if ( Time() > chargeCheckStartTime ) // cloak break check start
+			// flickering npc still can't be targeted. make it a setting
+			if ( NPC_PILOT_DISABLE_FIRE_ON_CLOAK )
 			{
-				// debug
-				//print( "activeWeapon: " + string( activeWeapon ) )
-				//print( "chargeFrac: " + string( activeWeapon.GetWeaponChargeFraction() ) )
-
-				if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
-					shouldBreakCloak = true // break cloak
-			}
-			//else // debug
-			//	print( "cloaked firing check not started yet" )
-			*/
-
-			if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
-			{
-				if ( Time() > onlyFlickerEndTime )
-					shouldBreakCloak = true // break cloak
-				else // flicker only
-					pilot.SetCloakFlicker( 1.0, 2.0 ) // same flicker as CodeCallback_WeaponFireInCloak() does
-			}
-		}
-		else // normal weapon case
-		{
-			// reworking these checks. pilots now flicker themselves if they fire/charged weapon at the beginning of cloaking
-			/*
-			if ( Time() > checkStartTime ) // cloak break check start
-			{
-				foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
+				if ( Time() > chargeCheckStartTime ) // cloak break check start
 				{
 					// debug
-					//if ( weapon == activeWeapon )
-					//{
-					//	print( "weapon: " + string( weapon ) )
-					//	print( "pilotWeaponAmmoCount[ weapon ]: " + string( pilotWeaponAmmoCount[ weapon ] ) )
-					//	print( "GetWeaponAmmoOrClipCount( weapon ): " + string( GetWeaponAmmoOrClipCount( weapon ) ) )
-					//	print( "ammoSinceLastUpdate: " + string( ammoSinceLastUpdate ) )
-					//}
+					//print( "activeWeapon: " + string( activeWeapon ) )
+					//print( "chargeFrac: " + string( activeWeapon.GetWeaponChargeFraction() ) )
 
-					if ( GetWeaponAmmoOrClipCount( weapon ) < ammoSinceLastUpdate ) // firing weapon!
-					{
+					if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
 						shouldBreakCloak = true // break cloak
-						break
-					}
 				}
+				//else // debug
+				//	print( "cloaked firing check not started yet" )
 			}
-			//else // debug
-			//	print( "cloaked firing check not started yet" )
-			*/
-
-			foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
+			else // flicker only
 			{
-				if ( GetWeaponAmmoOrClipCount( weapon ) < ammoSinceLastUpdate ) // firing weapon!
+				if ( activeWeapon.GetWeaponChargeFraction() >= NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION ) // charge weapon about to fire!
 				{
 					if ( Time() > onlyFlickerEndTime )
 						shouldBreakCloak = true // break cloak
 					else // flicker only
 						pilot.SetCloakFlicker( 1.0, 2.0 ) // same flicker as CodeCallback_WeaponFireInCloak() does
-					break
+				}
+			}
+		}
+		else // normal weapon case
+		{
+			// reworking these checks. pilots now flicker themselves if they fire/charged weapon at the beginning of cloaking
+			// flickering npc still can't be targeted. make it a setting
+			if ( NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK )
+			{
+				if ( Time() > checkStartTime ) // cloak break check start
+				{
+					foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
+					{
+						// debug
+						//if ( weapon == activeWeapon )
+						//{
+						//	print( "weapon: " + string( weapon ) )
+						//	print( "pilotWeaponAmmoCount[ weapon ]: " + string( pilotWeaponAmmoCount[ weapon ] ) )
+						//	print( "GetWeaponAmmoOrClipCount( weapon ): " + string( GetWeaponAmmoOrClipCount( weapon ) ) )
+						//	print( "ammoSinceLastUpdate: " + string( ammoSinceLastUpdate ) )
+						//}
+
+						if ( GetWeaponAmmoOrClipCount( weapon ) < ammoSinceLastUpdate ) // firing weapon!
+						{
+							shouldBreakCloak = true // break cloak
+							break
+						}
+					}
+				}
+			//else // debug
+			//	print( "cloaked firing check not started yet" )
+			}
+			else // flicker only
+			{
+				foreach ( entity weapon, int ammoSinceLastUpdate in pilotWeaponAmmoCount )
+				{
+					if ( GetWeaponAmmoOrClipCount( weapon ) < ammoSinceLastUpdate ) // firing weapon!
+					{
+						if ( Time() > onlyFlickerEndTime )
+							shouldBreakCloak = true // break cloak
+						else // flicker only
+							pilot.SetCloakFlicker( 1.0, 2.0 ) // same flicker as CodeCallback_WeaponFireInCloak() does
+						break
+					}
 				}
 			}
 		}
