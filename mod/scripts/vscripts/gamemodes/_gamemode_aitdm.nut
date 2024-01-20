@@ -243,7 +243,47 @@ void function AddAITdmPlayerTeamScore( entity player, int score )
 	// Add score + update network int to trigger the "Score +n" popup
 	AddTeamScore( player.GetTeam(), score )
 	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, score )
-	player.SetPlayerNetInt( "AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+	AITdm_SetPlayerBonusPoints( player, player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+}
+
+// networkvar updates
+void function AITdm_AddPlayerBonusPoints( entity player, int amount )
+{
+	AITdm_SetPlayerBonusPoints( player, AITdm_GetPlayerBonusPoints( player ) + amount )
+}
+
+int function AITdm_GetPlayerBonusPoints( entity player )
+{
+	return player.GetPlayerNetInt( "AT_bonusPoints" ) + ( player.GetPlayerNetInt( "AT_bonusPoints256" ) * 256 )
+}
+
+void function AITdm_SetPlayerBonusPoints( entity player, int amount )
+{
+	// split into stacks of 256 where necessary
+	int stacks = amount / 256 // automatically rounds down because int division
+
+	player.SetPlayerNetInt( "AT_bonusPoints256", stacks )
+	player.SetPlayerNetInt( "AT_bonusPoints", amount - stacks * 256 )
+}
+
+// earn points, seems not used
+void function AITdm_AddPlayerEarnedPoints( entity player, int amount )
+{
+	AITdm_SetPlayerEarnedPoints( player, AITdm_GetPlayerEarnedPoints( player ) + amount )
+}
+
+int function AITdm_GetPlayerEarnedPoints( entity player )
+{
+	return player.GetPlayerNetInt( "AT_earnedPoints" ) + ( player.GetPlayerNetInt( "AT_earnedPoints256" ) * 256 )
+}
+
+void function AITdm_SetPlayerEarnedPoints( entity player, int amount )
+{
+	// split into stacks of 256 where necessary
+	int stacks = amount / 256 // automatically rounds down because int division
+
+	player.SetPlayerNetInt( "AT_earnedPoints256", stacks )
+	player.SetPlayerNetInt( "AT_earnedPoints", amount - stacks * 256 )
 }
 
 // modified: for handling doomed health loss titans
