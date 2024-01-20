@@ -1251,6 +1251,9 @@ function SuperSpectre_WarpFall( entity ai )
 	ai.Hide()
 	ai.SetEfficientMode( true )
 	ai.SetInvulnerable()
+	// vanilla missing: they should be set to notarget so other AIs don't target them
+	ai.SetNoTarget( true )
+	ai.SetNoTargetSmartAmmo( true )
 
 	WaitFrame() // give AI time to hide before moving
 
@@ -1304,6 +1307,10 @@ function SuperSpectre_WarpFall( entity ai )
 
 	ai.SetEfficientMode( false )
 	ai.ClearInvulnerable()
+	// vanilla missing: notarget state
+	// here's clean up
+	ai.SetNoTarget( false )
+	ai.SetNoTargetSmartAmmo( false )
 
 	e.smokeFx.Destroy()
 	// modified here: use the same FX play method as droppod's landing
