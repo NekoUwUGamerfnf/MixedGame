@@ -8896,7 +8896,10 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 
 		bool isEjecting = titanSoul.IsEjecting()
 		if( isEjecting )
+		{
 			thread NPCPilotEjectingAnimation( pilot )
+			thread DelayedFindSafeSpotForEjectingPilot( pilot )
+		}
 		
 		// setup disembarked behaviors
 		ExtraSpawner_SetUpNPCDisembarkedTitan( titan )
@@ -8947,7 +8950,7 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 
 // if pilot still not touching ground after this amount of time
 // we reset it's animation
-const float PILOT_EJECTING_ANIM_FAILSAFE = 8.0
+const float PILOT_EJECTING_ANIM_FAILSAFE = 6.0 // was 8.0, want to keep this as less as possible
 void function NPCPilotEjectingAnimation( entity pilot )
 {
 	pilot.EndSignal( "OnDestroy" )
@@ -9039,6 +9042,49 @@ bool function IsPilotNearGround( entity pilot )
 		return false
 
 	return true
+}
+
+const float NPC_PILOT_FIX_POSITION_REQUIRED_LANDING_TIME = 0.5
+void function DelayedFindSafeSpotForEjectingPilot( entity pilot )
+{
+	pilot.EndSignal( "OnDestroy" )
+	pilot.EndSignal( "OnDeath" )
+	
+	// npc being set to mid-air isn't ideal, most time it causes trouble
+	// we try to correct pilot's position after certain delay...
+	// because we can't make sure whether they're landed on ground or just hit something in mid-air
+	//wait PILOT_EJECTING_ANIM_FAILSAFE
+	// wait, maybe we can try to check landing for ~1s and fix position?
+	float touchGroundStartTime = -1
+	float failSafeTime = Time() + PILOT_EJECTING_ANIM_FAILSAFE
+	while( Time() < failSafeTime )
+	{
+		if ( pilot.IsOnGround() && touchGroundStartTime == -1 )
+			touchGroundStartTime = Time()
+		else if ( !pilot.IsOnGround() ) // not on ground...
+			touchGroundStartTime = -1
+
+		// wait for landing enough time
+		if ( touchGroundStartTime > 0 )
+		{
+			if ( Time() - touchGroundStartTime >= NPC_PILOT_FIX_POSITION_REQUIRED_LANDING_TIME )
+				break
+		}
+
+		WaitFrame()
+	}
+
+	vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), pilot )
+	if ( clampedPos != null )
+	{
+		expect vector( clampedPos )
+		// try to put to safe spot. if that failed, put pilot to clamped position -- that place they should be able to move
+		// don't know how that works, let's just put to clampedPos first then fix position once
+		vector startPos = pilot.GetOrigin()
+		//if ( !PutEntityInSafeSpot( pilot, null, null, pilot.GetOrigin(), clampedPos ) )
+			pilot.SetOrigin( clampedPos )
+		PutEntityInSafeSpot( pilot, null, null, startPos, clampedPos )
+	}
 }
 
 // modified callbacks
