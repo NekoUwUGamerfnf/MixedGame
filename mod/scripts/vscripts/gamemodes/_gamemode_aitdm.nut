@@ -402,7 +402,9 @@ void function SpawnIntroBatch_Threaded( int team )
 		}
 		
 		// Vanilla has a delay after first spawn
-		if ( first )
+		// modified here: delay is applied after half spawn
+		//if ( first )
+		if ( i == file.squadsPerTeam / 2 )
 			wait 2
 		
 		first = false
