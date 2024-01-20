@@ -271,7 +271,13 @@ void function AddAITdmPlayerTeamScore( entity player, int score )
 	// Add score + update network int to trigger the "Score +n" popup
 	AddTeamScore( player.GetTeam(), score )
 	player.AddToPlayerGameStat( PGS_ASSAULT_SCORE, score )
-	player.SetPlayerNetInt( "AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+	// welp network variables always have a limit. this one is 0~1023
+	// so we do a try-catch
+	try
+	{
+		player.SetPlayerNetInt( "AT_bonusPoints", player.GetPlayerGameStat( PGS_ASSAULT_SCORE ) )
+	}
+	catch( ex ){}
 }
 
 // modified: for handling doomed health loss titans
