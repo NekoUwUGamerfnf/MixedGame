@@ -200,6 +200,10 @@ function Grenade_Init( entity grenade, entity weapon )
 
 int function Grenade_OnWeaponToss_( entity weapon, WeaponPrimaryAttackParams attackParams, float directionScale )
 {
+	// reworked here: use return entity vairant, but keep return value unchanged
+	Grenade_OnWeaponToss_ReturnEntity( weapon, attackParams, directionScale )
+
+	/*
 	weapon.EmitWeaponSound_1p3p( GetGrenadeThrowSound_1p( weapon ), GetGrenadeThrowSound_3p( weapon ) )
 	bool projectilePredicted = PROJECTILE_PREDICTED
 	bool projectileLagCompensated = PROJECTILE_LAG_COMPENSATED
@@ -223,6 +227,7 @@ int function Grenade_OnWeaponToss_( entity weapon, WeaponPrimaryAttackParams att
 	#endif
 
 #endif
+	*/
 
 	return weapon.GetWeaponSettingInt( eWeaponVar.ammo_per_shot )
 }
@@ -718,7 +723,7 @@ string function GetGrenadeProjectileSound( weapon )
 
 
 // modified functions
-// return entity vairant: keep same as Grenade_OnWeaponToss_() does
+// this now overrides Grenade_OnWeaponToss_() behavior
 entity function Grenade_OnWeaponToss_ReturnEntity( entity weapon, WeaponPrimaryAttackParams attackParams, float directionScale = 1.0 )
 {
 	weapon.EmitWeaponSound_1p3p( GetGrenadeThrowSound_1p( weapon ), GetGrenadeThrowSound_3p( weapon ) )
