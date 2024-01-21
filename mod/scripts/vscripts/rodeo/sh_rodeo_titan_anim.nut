@@ -162,20 +162,6 @@ function RodeoSharedTitanAnim_Init()
 	AddAnimAlias( "atlas", "hatch_rodeo_down_idle", 					"hatch_rodeo_medium_down_idle" )
 	AddAnimAlias( "atlas", "hatch_rodeo_down", 							"hatch_rodeo_medium_down" )
 
-	AddAnimAlias( "buddy", "pt_rodeo_back_right_hijack_battery", 		"pt_rodeo_ride_R_hijack_battery" )
-	AddAnimAlias( "buddy", "pt_rodeo_back_right_apply_battery", 		"pt_rodeo_ride_R_return_battery" )
-	AddAnimAlias( "buddy", "pt_rodeo_back_right_idle", 					"pt_rodeo_panel_aim_idle_move" )
-	AddAnimAlias( "buddy", "pt_rodeo_grenade", 							"pt_rodeo_medium_grenade_1st" )
-	AddAnimAlias( "buddy", "ptpov_rodeo_back_right_hijack_battery", 	"ptpov_rodeo_ride_R_hijack_battery" )
-	AddAnimAlias( "buddy", "ptpov_rodeo_back_right_apply_battery", 		"ptpov_rodeo_ride_R_return_battery" )
-	AddAnimAlias( "buddy", "ptpov_rodeo_back_right_idle", 				"ptpov_rodeo_panel_aim_idle" )
-	AddAnimAlias( "buddy", "ptpov_rodeo_grenade", 						"ptpov_rodeo_medium_grenade_1st" )
-
-	AddAnimAlias( "buddy", "hatch_rodeo_up_idle", 						"hatch_rodeo_medium_up_idle" )
-	AddAnimAlias( "buddy", "hatch_rodeo_up", 							"hatch_rodeo_medium_up" )
-	AddAnimAlias( "buddy", "hatch_rodeo_down_idle", 					"hatch_rodeo_medium_down_idle" )
-	AddAnimAlias( "buddy", "hatch_rodeo_down", 							"hatch_rodeo_medium_down" )
-
 	AddAnimAlias( "ogre", "pt_rodeo_back_right_hijack_battery", 		"pt_rodeo_ogre_hijack_battery" )
 	AddAnimAlias( "ogre", "pt_rodeo_back_right_apply_battery", 			"pt_rodeo_ogre_return_battery" )
 	AddAnimAlias( "ogre", "pt_rodeo_back_right_idle", 					"pt_rodeo_ogre_panel_aim_idle_move" )
@@ -297,9 +283,24 @@ function RodeoSharedTitanAnim_Init()
 
 	// vanilla missing titan_buddy events, using the same stuffs as atlas titans
 	// they're still using ttf1 anim sequence on climbing up
-	// missing anim
-	AddAnimAlias( "atlas", "pt_nuke_rodeo_back_right_apply_battery", 		"pt_nuke_rodeo_ride_R_return_battery" )
-	AddAnimAlias( "atlas", "ptpov_nuke_rodeo_back_right_apply_battery", 		"ptpov_nuke_rodeo_ride_R_return_battery" )
+	
+	// battery style rodeo
+	AddAnimAlias( "buddy", "pt_rodeo_back_right_hijack_battery", 		"pt_rodeo_ride_R_hijack_battery" )
+	AddAnimAlias( "buddy", "pt_rodeo_back_right_apply_battery", 		"pt_rodeo_ride_R_return_battery" )
+	AddAnimAlias( "buddy", "pt_rodeo_back_right_idle", 					"pt_rodeo_panel_aim_idle_move" )
+	AddAnimAlias( "buddy", "pt_rodeo_grenade", 							"pt_rodeo_medium_grenade_1st" )
+	AddAnimAlias( "buddy", "ptpov_rodeo_back_right_hijack_battery", 	"ptpov_rodeo_ride_R_hijack_battery" )
+	AddAnimAlias( "buddy", "ptpov_rodeo_back_right_apply_battery", 		"ptpov_rodeo_ride_R_return_battery" )
+	AddAnimAlias( "buddy", "ptpov_rodeo_back_right_idle", 				"ptpov_rodeo_panel_aim_idle" )
+	AddAnimAlias( "buddy", "ptpov_rodeo_grenade", 						"ptpov_rodeo_medium_grenade_1st" )
+
+	AddAnimAlias( "buddy", "hatch_rodeo_up_idle", 						"hatch_rodeo_medium_up_idle" )
+	AddAnimAlias( "buddy", "hatch_rodeo_up", 							"hatch_rodeo_medium_up" )
+	AddAnimAlias( "buddy", "hatch_rodeo_down_idle", 					"hatch_rodeo_medium_down_idle" )
+	AddAnimAlias( "buddy", "hatch_rodeo_down", 							"hatch_rodeo_medium_down" )
+	// MP specific
+	AddAnimAlias( "buddy", "pt_nuke_rodeo_back_right_apply_battery", 		"pt_nuke_rodeo_ride_R_return_battery" )
+	AddAnimAlias( "buddy", "ptpov_nuke_rodeo_back_right_apply_battery", 		"ptpov_nuke_rodeo_ride_R_return_battery" )
 
 	// audio
 	AddAudioAlias( "buddy", "rodeo_battery_steal_3p", "rodeo_medium_battery_steal_ext" )
