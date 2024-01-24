@@ -20,12 +20,14 @@ global function KneelToShowRider
 
 // modified callbacks
 // basically for classic rodeo, I don't want to hardcode it
+global function AddCallback_NPCTitanWantsToChangeStance
 global function AddCallback_NPCTitanShouldKneel
 // titanfall2 missing function
 global function HasEnemyRodeoRiders
 
 struct
 {
+	array<void functionref( entity titan )> npcTitanWantsToChangeStanceCallbacks
 	array<bool functionref( entity titan )> npcTitanShouldKneelCallbacks
 } file
 
@@ -237,6 +239,7 @@ function TitanShouldKneel( entity titan )
 		if ( callbackFunc( titan ) )
 			return true
 	}
+	//
 
 	return false
 }
@@ -249,6 +252,11 @@ function TitanWaitsToChangeStance( titan )
 
 	titan.EndSignal( "OnAnimationInterrupted" )
 	titan.EndSignal( "OnAnimationDone" )
+
+	// run modified callbacks to allow us setup more stuffs
+	foreach ( callbackFunc in file.npcTitanWantsToChangeStanceCallbacks )
+		callbackFunc( titan )
+	//
 
 	WaitForever() // vanilla behavior
 
@@ -325,47 +333,45 @@ function TitanWaittillShouldStand( entity titan )
 // titan will blend to kneeling animation, should be fine
 void function KneelToShowRider( entity titan )
 {
-	return
-
 	entity soul = titan.GetTitanSoul()
 	entity player = soul.GetBossPlayer()
 	local animation
 	local yawDif
 
-	//if ( IsAlive( player ) )
-	//{
-	//	local table = GetFrontRightDots( titan, player )
-    //
-	//	local dotForward = Table.dotForward
-	//	local dotRight = Table.dotRight
-    //
-	////	DebugDrawLine( titanOrg, titanOrg + titan.GetForwardVector() * 200, 255, 0, 0, true, 5 )
-	////	DebugDrawLine( titanOrg, titanOrg + vecToEnt * 200, 0, 255, 0, true, 5 )
-    //
-	//	if ( dotForward > 0.88 )
-	//	{
-	//		animation = "at_MP_stand2knee_L90"
-	//		yawDif = 0
-	//	}
-	//	else
-	//	if ( dotForward < -0.88 )
-	//	{
-	//		animation = "at_MP_stand2knee_R90"
-	//		yawDif = 180
-	//	}
-	//	else
-	//	if ( dotRight > 0 )
-	//	{
-	//		animation = "at_MP_stand2knee_straight"
-	//		yawDif = 90
-	//	}
-	//	else
-	//	{
-	//		animation = "at_MP_stand2knee_180"
-	//		yawDif = -90
-	//	}
-	//}
-	//else
+	if ( IsAlive( player ) )
+	{
+		FrontRightDotProductsStruct Table = GetFrontRightDots( titan, player )
+    
+		local dotForward = Table.forwardDot
+		local dotRight = Table.rightDot
+    
+	//	DebugDrawLine( titanOrg, titanOrg + titan.GetForwardVector() * 200, 255, 0, 0, true, 5 )
+	//	DebugDrawLine( titanOrg, titanOrg + vecToEnt * 200, 0, 255, 0, true, 5 )
+    
+		if ( dotForward > 0.88 )
+		{
+			animation = "at_MP_stand2knee_L90"
+			yawDif = 0
+		}
+		else
+		if ( dotForward < -0.88 )
+		{
+			animation = "at_MP_stand2knee_R90"
+			yawDif = 180
+		}
+		else
+		if ( dotRight > 0 )
+		{
+			animation = "at_MP_stand2knee_straight"
+			yawDif = 90
+		}
+		else
+		{
+			animation = "at_MP_stand2knee_180"
+			yawDif = -90
+		}
+	}
+	else
 	{
 		animation = "at_MP_stand2knee_straight"
 		yawDif = 0
@@ -377,26 +383,29 @@ void function KneelToShowRider( entity titan )
 
 	if ( !IsAlive( player ) )
 	{
-		waitthread PlayAnimGravity( titan, animation )
+		// try to fix titan getting stuck
+		//waitthread PlayAnimGravity( titan, animation )
+		thread PlayAnimGravity( titan, animation )
+		titan.Anim_DisableUpdatePosition()
+		WaittillAnimDone( titan )
 		return
 	}
 
 	local titanOrg = titan.GetOrigin()
 	local playerOrg = player.GetOrigin()
 
-	/*
 	local vec = playerOrg - titanOrg
 	vec.z = 0
 
 	local angles = VectorToAngles( vec )
 
 	angles.y += yawDif
-	*/
 
-	local angles = titan.GetAngles()
+	//local angles = titan.GetAngles()
 
 	titan.Anim_ScriptedPlayWithRefPoint( animation, titanOrg, angles, 0.5 )
 	titan.Anim_EnablePlanting()
+	titan.Anim_DisableUpdatePosition() // try to fix titan getting stuck
 
 	WaittillAnimDone( titan )
 }
@@ -456,6 +465,12 @@ bool function ShouldBecomeAutoTitan( entity titan )
 
 // modified callbacks
 // basically for classic rodeo, I don't want to hardcode it
+void function AddCallback_NPCTitanWantsToChangeStance( entity titan )
+{
+	if ( !file.npcTitanWantsToChangeStanceCallbacks.contains( callbackFunc ) )
+		file.npcTitanWantsToChangeStanceCallbacks.append( callbackFunc )
+}
+
 void function AddCallback_NPCTitanShouldKneel( bool functionref( entity titan ) callbackFunc )
 {
 	if ( !file.npcTitanShouldKneelCallbacks.contains( callbackFunc ) )
