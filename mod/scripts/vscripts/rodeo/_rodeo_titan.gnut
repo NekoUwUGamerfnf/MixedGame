@@ -524,9 +524,15 @@ void function RodeoBatteryRemoval( entity pilot )
 		}
 
 		// checks for grenade damage
-		bool isGrenadeDamage = PlayerHasBattery( pilot )
-		if( classicRodeo && ClassicRodeo_GetSoulBatteryCount( soul ) >= 1 )
-			isGrenadeDamage = false // check for classicRodeo conditions: if victimTitan has battery left, then it must be a batteryRemoval rodeo
+		bool isGrenadeDamage = PlayerHasBattery( pilot ) // vanilla check: if pilot carrying a battery when doing rodeo sequence, it must be grenade throw
+		
+		// classic rodeo case
+		if( classicRodeo )
+		{
+			isGrenadeDamage = true // default to be grenade damage
+			if ( ClassicRodeo_GetSoulBatteryCount( soul ) >= 1 )
+				isGrenadeDamage = false // if victimTitan has battery left, then it must be a batteryRemoval rodeo
+		}
 
 		bool shouldThrowOff = true // default: always throw rider off
 		if ( classicRodeo ) // classic rodeo condition
@@ -1735,10 +1741,15 @@ void function RodeoBatteryPackRemovalDamage( entity attacker, entity victim, ent
 	
 	#if MP
 		bool isGrenadeDamage = PlayerHasBattery( attacker )
+
 		// classic rodeo case
 		bool classicRodeo = ClassicRodeo_IsEnabled()
-		if( classicRodeo && ClassicRodeo_GetSoulBatteryCount( victimTitanSoul ) >= 1 )
-			isGrenadeDamage = false // check for classicRodeo conditions: if victimTitan has battery left, then it must be a batteryRemoval rodeo
+		if( classicRodeo )
+		{
+			isGrenadeDamage = true // default to be grenade damage
+			if ( ClassicRodeo_GetSoulBatteryCount( victimTitanSoul ) >= 1 )
+				isGrenadeDamage = false // if victimTitan has battery left, then it must be a batteryRemoval rodeo
+		}
 
 		SetSoulBatteryCount( victimTitanSoul, GetSoulBatteryCount( victimTitanSoul ) - 1 )
 
@@ -3673,6 +3684,8 @@ void function ClassicRodeo_PlayerAppliesBatteryPackWhileOnBoard( entity rodeoPil
 
 	ClassicRodeo_TryMoveBatteryDown( titanSoul ) // for better visual
 	thread ClassicRodeoPlayerWeaponDeployment( rodeoPilot, titanSoul ) //Spin this off in its own thread since there are multiple ways for weapon to be deployed
+	
+	ClassicRodeoPreSequenceViewCone( rodeoPilot ) // restrict viewcone to match animation
 	waitthread PlayerAppliesBatteryPack( rodeoPilot, rodeoTitan, titanSoul, rodeoPackage )
 
 	file.playerBatteryCountAllowedToApply[rodeoPilot] -= 1
@@ -3693,7 +3706,7 @@ void function ClassicRodeo_GrabTargetTitan( entity rodeoPilot, entity titanSoul,
 	//rodeoPilot.GetFirstPersonProxy().HideFirstPersonProxy() // maybe use this instead of Anim_Stop()?
 	thread FirstPersonSequence( sequence, rodeoPilot, rodeoTitan )
 	
-	ClassicRodeoViewCone( rodeoPilot )
+	ClassicRodeoViewCone( rodeoPilot, rodeoPackage.rodeoTargetType )
 	if( isClimbing )
 		Rodeo_OnFinishClimbOnAnimation( rodeoPilot )
 	if ( deployWeapon )
@@ -3726,18 +3739,39 @@ void function ClassicRodeoPlayerWeaponDeployment( entity player, entity titanSou
 	}
 }
 
-void function ClassicRodeoViewCone( entity player )
+void function ClassicRodeoViewCone( entity player, string rodeoTargetType )
 {
-	player.PlayerCone_FromAnim()
-	// try to fake tf1 behavior here?
-	// welp this don't work well, player can't land shots on atlas chassis's hatch
-	// just limit a very little bit is enough
-	// nope. never limit player's viewcone... atlas battery hatch position is bad
-	// tf2 titans allows player to rotate with them, maybe fine without viewcone limit
-	player.GetFirstPersonProxy().HideFirstPersonProxy()
-	OpenViewCone( player )
-	//ViewConeSmall( player ) // limited view cone, allow player to shoot at hatch
-	//ViewConeWide( player )
+	// we've removed classic rodeo friendlyfire think
+	// it's now safe to add team specific rodeo viewcone
+	entity soul = player.GetTitanSoulBeingRodeoed()
+	if ( !IsValid( soul ) )
+		return
+	entity titan = soul.GetTitan()
+	if ( !IsValid( titan ) )
+		return
+	bool sameTeam = player.GetTeam() == titan.GetTeam()
+	if ( !sameTeam ) // enemy style
+	{
+		player.PlayerCone_FromAnim()
+		// try to fake tf1 behavior here? don't hide arms model and limit viewcone
+		// welp this don't work well, player can't land shots on atlas chassis's hatch
+		player.GetFirstPersonProxy().HideFirstPersonProxy()
+		//ViewConeSmall( player )
+		// just limit viewcone a very little bit is enough
+		//ViewConeWide( player )
+		// nope. never limit player's viewcone... atlas battery hatch position is bad
+		// if we don't do player.PlayerCone_Disable() and player.EnableWorldSpacePlayerEyeAngles()
+		// player will rotate alongside titan, should be good enough for their aiming
+		OpenViewCone( player )
+	}
+	else // friendly style
+		PlayerRodeoViewCone( player, rodeoTargetType )
+}
+
+void function ClassicRodeoPreSequenceViewCone( entity player )
+{
+	player.PlayerCone_FromAnim() // restrict viewcone to match animation
+	player.DisableWorldSpacePlayerEyeAngles() //Player eye angles are based off their move parent's angles
 }
 
 ///// PLAYER CONTROLS /////
@@ -3986,10 +4020,15 @@ void function UpdateBatteryContainerForEmbark( entity player, entity titan, bool
 		rodeoPanel.Anim_Play( GetAnimFromAlias( titanType, "hatch_rodeo_up" ) )
 }
 
+const float NPC_TITAN_KNEELING_DIST_2D = 800 // needs to be close to owner before kneeling
 bool function ClassicRodeo_NPCTitanShouldKneel( entity titan )
 {
 	// return default value( false ) if classic rodeo not enabled
 	if ( !ClassicRodeo_IsEnabled() )
+		return false
+
+	// no need to kneel if we have classic rodeo enabled
+	if ( !Rodeo_IsTitanRodeoSequenceEnabled( titan ) )
 		return false
 
 	entity soul = titan.GetTitanSoul()
@@ -4010,8 +4049,20 @@ bool function ClassicRodeo_NPCTitanShouldKneel( entity titan )
 
 	// for classic rodeo, if titan having a enemy pilot rodeoing, we let them kneel
 	// so their owner can shoot down pilots easier
+	// add more checks here: needs their owner can see the titan before kneeling
+	// also needs to get close enough
 	if ( HasEnemyRodeoRiders( titan ) ) // modified function in _titan_npc_behavior.gnut
-		return true
+	{
+		entity bossPlayer = titan.GetBossPlayer()
+		if ( IsValid( bossPlayer ) )
+		{
+			if ( PlayerCanSee( bossPlayer, titan, true, 135 ) )
+			{
+				if ( Distance2D( bossPlayer.GetOrigin(), titan.GetOrigin() ) < NPC_TITAN_KNEELING_DIST_2D )
+					return true
+			}
+		}
+	}
 
 	return false
 }
