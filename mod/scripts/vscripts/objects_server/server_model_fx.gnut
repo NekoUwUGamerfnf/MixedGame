@@ -48,6 +48,8 @@ struct EntOwnedHealthFX
 
     // HACK for titans
     bool checkDoomedHealth = false
+
+    int defaultVisibilityFlags
 }
 
 struct ModelFXDataStruct_Spawn
@@ -57,6 +59,13 @@ struct ModelFXDataStruct_Spawn
     int visibilityFlags
 
     int index // only exists in this file
+}
+
+struct EntOwnedModelFXData_Spawn
+{
+    entity effect
+
+    int defaultVisibilityFlags
 }
 
 struct ModelFXDataStruct_Health
@@ -87,6 +96,8 @@ struct EntOwnedModelFXData_Health
     
     // HACK for titans
     bool checkDoomedHealth = false
+
+    int defaultVisibilityFlags
 }
 
 struct ModelBodyGroupFXStruct
@@ -117,6 +128,8 @@ struct EntOwnedBodyGroupFX
     string bodyGroupName
     int stateIndex
     bool regenerateEffect = false
+
+    int defaultVisibilityFlags
 }
 
 struct
@@ -136,7 +149,7 @@ struct
     table< entity, table<int, EntOwnedHealthFX> > entOwnedModelHealthFXs
 
     table<entity, bool> entHasSetUpServerModelFXData
-    table< entity, table<int, entity> > entOwnedModelSpawnFXsFromData
+    table< entity, table<int, EntOwnedModelFXData_Spawn> > entOwnedModelSpawnFXsFromData
     table< entity, table<int, EntOwnedModelFXData_Health> > entOwnedModelHealthFXsFromData
 
     table<entity, bool> entHasSetUpServerModelBodyGroupFX
@@ -194,8 +207,9 @@ void function OnPilotBecomesTitan( entity player, entity titan )
     }
     if ( soul in file.entOwnedModelSpawnFXsFromData )
     {
-        foreach ( index, effect in file.entOwnedModelSpawnFXsFromData[ soul ] )
+        foreach ( index, ownedFXStruct in file.entOwnedModelSpawnFXsFromData[ soul ] )
         {
+            entity effect = ownedFXStruct.effect
             if ( IsValid( effect ) )
                 effect.SetOwner( player )
         }
@@ -254,8 +268,9 @@ void function OnTitanBecomesPilot( entity player, entity titan )
     }
     if ( soul in file.entOwnedModelSpawnFXsFromData )
     {
-        foreach ( index, effect in file.entOwnedModelSpawnFXsFromData[ soul ] )
+        foreach ( index, ownedFXStruct in file.entOwnedModelSpawnFXsFromData[ soul ] )
         {
+            entity effect = ownedFXStruct.effect
             if ( IsValid( effect ) )
                 effect.SetOwner( titan )
         }
@@ -436,6 +451,7 @@ void function ModelHealthFX_OwnerTracking( entity ent, bool trackHealthRestore )
     asset lastTickModelName
     int lastTickHealth
     bool lastTickAlive
+    bool lastTickPhaseShifted
     
     // HACK for titans
     entity soul = IsSoul( ent ) ? ent : null
@@ -456,6 +472,7 @@ void function ModelHealthFX_OwnerTracking( entity ent, bool trackHealthRestore )
                     lastTickHealth = lastTickTitan.GetHealth()
                 lastTickAlive = IsAlive( lastTickTitan )
                 lastTickDoomed = GetDoomedState( lastTickTitan )
+                lastTickPhaseShifted = lastTickTitan.IsPhaseShifted()
             }
         }
         else
@@ -464,6 +481,7 @@ void function ModelHealthFX_OwnerTracking( entity ent, bool trackHealthRestore )
             if ( IsAlive( ent ) )
                 lastTickHealth = ent.GetHealth()
             lastTickAlive = IsAlive( ent )
+            lastTickPhaseShifted = ent.IsPhaseShifted()
         }
         
         WaitFrame()
@@ -475,6 +493,26 @@ void function ModelHealthFX_OwnerTracking( entity ent, bool trackHealthRestore )
             if ( !IsValid( ent ) )
                 continue
         }
+
+        // phase shift check
+        if ( ent.IsPhaseShifted() != lastTickPhaseShifted )
+        {
+            // starting phase shift
+            if ( ent.IsPhaseShifted() )
+            {
+                // try to hide effect
+                ServerModelHealthFX_UpdateEntEffectVisibility( ent, ENTITY_VISIBLE_TO_NOBODY, true )
+            }
+            else // exiting phase shift
+            {
+                // try to show effects again
+                ServerModelHealthFX_UpdateEntEffectVisibility( ent, -1, false, true )
+            }
+        }
+
+        // shifted check: don't do effect updates
+        if ( ent.IsPhaseShifted() )
+            continue
 
         // model updated for some reason!
         if ( ent.GetModelName() != lastTickModelName )
@@ -615,6 +653,7 @@ void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageIn
             ownedFXStruct.effect = effect
         ownedFXStruct.healthFrac = healthFracReq
         ownedFXStruct.checkDoomedHealth = checkDoomedHealth
+        ownedFXStruct.defaultVisibilityFlags = visibilityFlags
 
         file.entOwnedModelHealthFXs[ storingEnt ][ index ] <- ownedFXStruct
     }
@@ -666,6 +705,41 @@ void function ServerModelHealthFX_RemoveEffectsOnEntity( entity ent, bool checkH
         delete file.entOwnedModelHealthFXs[ storingEnt ][ index ]
     }
 }
+
+void function ServerModelHealthFX_UpdateEntEffectVisibility( entity ent, int visibilityFlags = -1, bool scriptedHide = false, bool resetVisibility = false )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelHealthFXs ) )
+        return
+        
+    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXs[ storingEnt ] )
+    {
+        entity effect = ownedFXStruct.effect
+
+        if ( !IsValid( effect ) )
+            continue
+
+        if ( scriptedHide )
+            effect.Hide()
+        else
+            effect.Show()
+        
+        if ( resetVisibility )
+            effect.kv.VisibilityFlags = ownedFXStruct.defaultVisibilityFlags
+        else if ( visibilityFlags != -1 )
+            effect.kv.VisibilityFlags = visibilityFlags
+    }
+}
+
 
 // clean up callbacks, thinks and owned effects
 void function ServerModelHealthFX_CleanUpForEntity( entity ent )
@@ -805,6 +879,7 @@ void function ModelFXData_OwnerTracking( entity ent )
     asset lastTickModelName
     int lastTickHealth
     bool lastTickAlive
+    bool lastTickPhaseShifted
 
     // HACK for titans
     entity soul = IsSoul( ent ) ? ent : null
@@ -825,6 +900,7 @@ void function ModelFXData_OwnerTracking( entity ent )
                     lastTickHealth = lastTickTitan.GetHealth()
                 lastTickAlive = IsAlive( lastTickTitan )
                 lastTickDoomed = GetDoomedState( lastTickTitan )
+                lastTickPhaseShifted = lastTickTitan.IsPhaseShifted()
             }
         }
         else
@@ -833,6 +909,7 @@ void function ModelFXData_OwnerTracking( entity ent )
             if ( IsAlive( ent ) )
                 lastTickHealth = ent.GetHealth()
             lastTickAlive = IsAlive( ent )
+            lastTickPhaseShifted = ent.IsPhaseShifted()
         }
 
         WaitFrame()
@@ -844,6 +921,28 @@ void function ModelFXData_OwnerTracking( entity ent )
             if ( !IsValid( ent ) )
                 continue
         }
+
+        // phase shift check
+        if ( ent.IsPhaseShifted() != lastTickPhaseShifted )
+        {
+            // starting phase shift
+            if ( ent.IsPhaseShifted() )
+            {
+                // try to hide effect
+                ServerModelFXData_UpdateEntSpawnFXVisibility( ent, ENTITY_VISIBLE_TO_NOBODY, true )
+                ServerModelFXData_UpdateEntHealthFXVisibility( ent, ENTITY_VISIBLE_TO_NOBODY, true )
+            }
+            else // exiting phase shift
+            {
+                // try to show effects again
+                ServerModelFXData_UpdateEntSpawnFXVisibility( ent, -1, false, true )
+                ServerModelFXData_UpdateEntHealthFXVisibility( ent, -1, false, true )
+            }
+        }
+
+        // shifted check: don't do effect updates
+        if ( ent.IsPhaseShifted() )
+            continue
 
         // model updated for some reason!
         if ( ent.GetModelName() != lastTickModelName )
@@ -968,7 +1067,11 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
             // add effect and setup cleanup
             // spawnFX always attach to ent and loop, won't destroy immediately
             entity effect = CreateModelFXOnEnt( ent, effectName, attachment, true, true, visibilityFlags, false )
-            file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ] <- effect
+            EntOwnedModelFXData_Spawn ownedFXStruct
+            ownedFXStruct.effect = effect
+            ownedFXStruct.defaultVisibilityFlags = visibilityFlags
+            
+            file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ] <- ownedFXStruct
             #if SERVER_MODEL_FX_DEBUG
                 print( "Effect functioning on ent!" )
             #endif
@@ -994,12 +1097,48 @@ void function ServerModelFXData_RemoveSpawnFXOnEntity( entity ent )
     if ( !( storingEnt in file.entOwnedModelSpawnFXsFromData ) )
         return
     
-    foreach ( index, effect in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
+    foreach ( index, ownedFXStruct in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
     {
+        entity effect = ownedFXStruct.effect
+
         if ( IsValid( effect ) )
             EffectStop( effect )
 
         delete file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ]
+    }
+}
+
+void function ServerModelFXData_UpdateEntSpawnFXVisibility( entity ent, int visibilityFlags = -1, bool scriptedHide = false, bool resetVisibility = false )
+{
+     // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelSpawnFXsFromData ) )
+        return
+    
+    foreach ( index, ownedFXStruct in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
+    {
+        entity effect = ownedFXStruct.effect
+
+        if ( !IsValid( effect ) )
+            continue
+
+        if ( scriptedHide )
+            effect.Hide()
+        else
+            effect.Show()
+        
+        if ( resetVisibility )
+            effect.kv.VisibilityFlags = ownedFXStruct.defaultVisibilityFlags
+        else if ( visibilityFlags != -1 )
+            effect.kv.VisibilityFlags = visibilityFlags
     }
 }
 
@@ -1172,6 +1311,7 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
             ownedFXStruct.healthFrac = healthFracReq
             ownedFXStruct.attachment = attachment
             ownedFXStruct.checkDoomedHealth = checkDoomedHealth
+            ownedFXStruct.defaultVisibilityFlags = visibilityFlags
 
             file.entOwnedModelHealthFXsFromData[ storingEnt ][ index ] <- ownedFXStruct
             #if SERVER_MODEL_FX_DEBUG
@@ -1226,6 +1366,40 @@ void function ServerModelFXData_RemoveHealthFXOnEntity( entity ent, bool checkHe
             EffectStop( effect )
 
         delete file.entOwnedModelHealthFXsFromData[ storingEnt ][ index ]
+    }
+}
+
+void function ServerModelFXData_UpdateEntHealthFXVisibility( entity ent, int visibilityFlags = -1, bool scriptedHide, bool resetVisibility = false )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelHealthFXsFromData ) )
+        return
+        
+    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXsFromData[ storingEnt ] )
+    {
+        entity effect = ownedFXStruct.effect
+        
+        if ( !IsValid( effect ) )
+            continue
+
+        if ( scriptedHide )
+            effect.Hide()
+        else
+            effect.Show()
+        
+        if ( resetVisibility )
+            effect.kv.VisibilityFlags = ownedFXStruct.defaultVisibilityFlags
+        else if ( visibilityFlags != -1 )
+            effect.kv.VisibilityFlags = visibilityFlags
     }
 }
 
@@ -1314,6 +1488,7 @@ void function ModelBodyGroupFX_OwnerTracking( entity ent )
 
     int lastTickFullBodyGroup
     asset lastTickModelName
+    bool lastTickPhaseShifted
     
     // HACK for titans
     entity soul = IsSoul( ent ) ? ent : null
@@ -1330,12 +1505,14 @@ void function ModelBodyGroupFX_OwnerTracking( entity ent )
             {
                 lastTickFullBodyGroup = lastTickTitan.GetFullBodygroup()
                 lastTickModelName = lastTickTitan.GetModelName()
+                lastTickPhaseShifted = lastTickTitan.IsPhaseShifted()
             }
         }
         else
         {
             lastTickFullBodyGroup = ent.GetFullBodygroup()
             lastTickModelName = ent.GetModelName()
+            lastTickPhaseShifted.ent.IsPhaseShifted()
         }
 
         WaitFrame()
@@ -1348,10 +1525,30 @@ void function ModelBodyGroupFX_OwnerTracking( entity ent )
                 continue
         }
 
+        // phase shift check
+        if ( ent.IsPhaseShifted() != lastTickPhaseShifted )
+        {
+            // starting phase shift
+            if ( ent.IsPhaseShifted() )
+            {
+                // try to hide effect
+                ServerModelBodyGroupFX_UpdateEntEffectVisibility( ent, ENTITY_VISIBLE_TO_NOBODY, true )
+            }
+            else // exiting phase shift
+            {
+                // try to show effects again
+                ServerModelBodyGroupFX_UpdateEntEffectVisibility( ent, -1, false, true )
+            }
+        }
+
+        // shifted check: don't do effect updates
+        if ( ent.IsPhaseShifted() )
+            continue
+
         // for players, stop any effect if they're dead
         if ( ent.IsPlayer() && !IsAlive( ent ) )
         {
-            ServerModelHealthFX_RemoveEffectsOnEntity( ent )
+            ServerModelBodyGroupFX_RemoveEffectsOnEntity( ent )
             continue
         }
 
@@ -1452,6 +1649,7 @@ void function ServerModelBodyGroupFX_ApplyEffectsToEntity( entity ent )
         ownedFXStruct.bodyGroupName = bodyGroupName
         ownedFXStruct.stateIndex = currentState
         ownedFXStruct.regenerateEffect = regenerateEffect
+        ownedFXStruct.defaultVisibilityFlags = visibilityFlags
 
         file.entOwnedModelBodyGroupFXs[ storingEnt ][ index ] <- ownedFXStruct
     }
@@ -1506,6 +1704,41 @@ void function ServerModelBodyGroupFX_RemoveEffectsOnEntity( entity ent, bool des
         delete file.entOwnedModelBodyGroupFXs[ storingEnt ][ index ]
     }
 }
+
+void function ServerModelBodyGroupFX_UpdateEntEffectVisibility( entity ent, int visibilityFlags = -1, bool scriptedHide = false, bool resetVisibility = false )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelBodyGroupFXs ) )
+        return
+        
+    foreach ( index, ownedFXStruct in file.entOwnedModelBodyGroupFXs[ storingEnt ] )
+    {
+        entity effect = ownedFXStruct.effect
+        
+        if ( !IsValid( effect ) )
+            continue
+
+        if ( scriptedHide )
+            effect.Hide()
+        else
+            effect.Show()
+        
+        if ( resetVisibility )
+            effect.kv.VisibilityFlags = ownedFXStruct.defaultVisibilityFlags
+        else if ( visibilityFlags != -1 )
+            effect.kv.VisibilityFlags = visibilityFlags
+    }
+}
+
 
 // clean up callbacks, thinks and owned effects
 void function ServerModelBodyGroupFX_CleanUpForEntity( entity ent )
