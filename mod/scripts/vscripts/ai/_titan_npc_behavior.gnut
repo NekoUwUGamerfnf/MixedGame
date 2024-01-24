@@ -192,6 +192,8 @@ bool function ChangedStance( entity titan )
 	{
 		if ( TitanShouldKneel( titan ) )
 		{
+			// animation is broken in titanfall 2. it's missing bones, and the movement can make titan stuck
+			// but if we just set titan to idle, it feels not so good
 			//waitthread PlayAnimGravity( titan, "at_MP_stand2knee_straight" )
 			waitthread KneelToShowRider( titan )
 			thread PlayAnim( titan, "at_MP_embark_idle_blended" )
@@ -246,6 +248,7 @@ function TitanShouldKneel( entity titan )
 
 function TitanWaitsToChangeStance( titan )
 {
+	expect entity( titan ) // for us run callbacks
 	local soul = titan.GetTitanSoul()
 	// "RodeoRiderChanged" can't handle stealth movement
 	soul.EndSignal( "RodeoRiderChanged" )
@@ -329,10 +332,24 @@ function TitanWaittillShouldStand( entity titan )
 */
 
 // animation is broken in titanfall 2. it's missing bones, and the movement can make titan stuck
-// for temp fix, just return
-// titan will blend to kneeling animation, should be fine
+// now try to record start position so we can set titans back as a failsafe
 void function KneelToShowRider( entity titan )
 {
+	vector startPos = titan.GetOrigin()
+
+	// reworked think, still make titan unable to stand sometimes
+	/*
+	thread PlayAnim( titan, "at_mortar_stand2knee" )
+	titan.Anim_DisableUpdatePosition()
+	WaittillAnimDone( titan )
+	
+	// just set titan to start position...
+	titan.SetOrigin( startPos )
+
+	return
+	*/
+
+	// adding position fix at the end of function
 	entity soul = titan.GetTitanSoul()
 	entity player = soul.GetBossPlayer()
 	local animation
@@ -387,27 +404,43 @@ void function KneelToShowRider( entity titan )
 		//waitthread PlayAnimGravity( titan, animation )
 		thread PlayAnimGravity( titan, animation )
 		titan.Anim_DisableUpdatePosition()
+
 		WaittillAnimDone( titan )
-		return
+	}
+	else
+	{
+		local titanOrg = titan.GetOrigin()
+		local playerOrg = player.GetOrigin()
+
+		local vec = playerOrg - titanOrg
+		vec.z = 0
+
+		local angles = VectorToAngles( vec )
+
+		angles.y += yawDif
+
+		//local angles = titan.GetAngles()
+
+		titan.Anim_ScriptedPlayWithRefPoint( animation, titanOrg, angles, 0.5 )
+		titan.Anim_EnablePlanting()
+		titan.Anim_DisableUpdatePosition() // try to fix titan getting stuck
+
+		WaittillAnimDone( titan )
 	}
 
-	local titanOrg = titan.GetOrigin()
-	local playerOrg = player.GetOrigin()
+	if ( !TitanCanStand( titan ) )// sets the var
+	{
+		// try to put the titan on the navmesh
+		vector ornull clampedPos = NavMesh_ClampPointForAIWithExtents( titan.GetOrigin(), titan, < 100, 100, 100 > )
+		if ( clampedPos != null )
+		{
+			expect vector( clampedPos )
+			titan.SetOrigin( clampedPos )
+			TitanCanStand( titan )
+		}
+	}
 
-	local vec = playerOrg - titanOrg
-	vec.z = 0
-
-	local angles = VectorToAngles( vec )
-
-	angles.y += yawDif
-
-	//local angles = titan.GetAngles()
-
-	titan.Anim_ScriptedPlayWithRefPoint( animation, titanOrg, angles, 0.5 )
-	titan.Anim_EnablePlanting()
-	titan.Anim_DisableUpdatePosition() // try to fix titan getting stuck
-
-	WaittillAnimDone( titan )
+	PutEntityInSafeSpot( titan, null, null, startPos, titan.GetOrigin() )
 }
 
 // unfortunately "hide weapon" isn't featured in titanfall 2
@@ -465,7 +498,7 @@ bool function ShouldBecomeAutoTitan( entity titan )
 
 // modified callbacks
 // basically for classic rodeo, I don't want to hardcode it
-void function AddCallback_NPCTitanWantsToChangeStance( entity titan )
+void function AddCallback_NPCTitanWantsToChangeStance( void functionref( entity titan ) callbackFunc )
 {
 	if ( !file.npcTitanWantsToChangeStanceCallbacks.contains( callbackFunc ) )
 		file.npcTitanWantsToChangeStanceCallbacks.append( callbackFunc )
