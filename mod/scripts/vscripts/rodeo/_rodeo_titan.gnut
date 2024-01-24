@@ -320,6 +320,7 @@ void function RodeoTitan_Init()
 		AddCallback_NPCTitanShouldKneel( ClassicRodeo_NPCTitanShouldKneel )
 		// EDIT: we now save titan mode when we succeeded titan kneeling
 		//AddSpawnCallback( "npc_titan", ClassicRodeo_SavePlayerTitanMode )
+		AddCallback_OnPilotBecomesTitan( ClassicRodeo_OnPilotBecomesTitan )
 	#endif // MP
 }
 
@@ -4028,8 +4029,18 @@ void function ClassicRodeo_NPCTitanWantsToChangeStance( entity titan )
 	if ( !ClassicRodeo_IsEnabled() )
 		return
 
-	// setup a signal that allows player to disable/enable titan kneeling by changing titan mode 
-	titan.EndSignal( "ChangedTitanMode" )
+	entity player = GetPetTitanOwner( titan )
+	if ( IsValid( player ) )
+	{
+		int lastTitanMode = GetPlayerSavedTitanMode( player )
+		if ( lastTitanMode > -1 && lastTitanMode == player.GetPetTitanMode() )
+		{
+			// setup a signal that allows player to disable/enable titan kneeling by changing titan mode 
+			titan.EndSignal( "ChangedTitanMode" )
+			// still a little issue here: if player switch mode again when titan not fully stands up
+			// titan will still back to kneeling, but that should be fine
+		}
+	}
 }
 
 const float PLAYER_LOS_CHECK_DEGREES = 135 // needs able to see titan before kneeling
@@ -4058,7 +4069,10 @@ bool function ClassicRodeo_NPCTitanShouldKneel( entity titan )
 	int lastTitanMode = GetPlayerSavedTitanMode( player )
 	if ( lastTitanMode > -1 && lastTitanMode != player.GetPetTitanMode() )
 	{
-		print( "player has changed titan mode! not kneeling")
+		//print( "player has changed titan mode! not kneeling")
+		// EDIT: we now save titan mode when we succeeded titan kneeling
+		//SavePlayerLastTitanMode( player )
+		//ClearPlayerLastTitanMode( player ) // clear mode once titan stood up
 		return false
 	}
 
@@ -4069,8 +4083,8 @@ bool function ClassicRodeo_NPCTitanShouldKneel( entity titan )
 	{
 		if ( IsValid( player ) )
 		{
-			bool playerCanSeeTitan = PlayerCanSee( bossPlayer, titan, true, PLAYER_LOS_CHECK_DEGREES )
-			bool titanCloseToPlayer = Distance2D( bossPlayer.GetOrigin(), titan.GetOrigin() ) < NPC_TITAN_KNEELING_DIST_2D
+			bool playerCanSeeTitan = PlayerCanSee( player, titan, true, PLAYER_LOS_CHECK_DEGREES )
+			bool titanCloseToPlayer = Distance2D( player.GetOrigin(), titan.GetOrigin() ) < NPC_TITAN_KNEELING_DIST_2D
 			if ( playerCanSeeTitan || titanCloseToPlayer )
 			{
 				SavePlayerLastTitanMode( player ) // here we save player's last titan mode
@@ -4080,6 +4094,12 @@ bool function ClassicRodeo_NPCTitanShouldKneel( entity titan )
 	}
 
 	return false
+}
+
+void function ClassicRodeo_OnPilotBecomesTitan( entity player, entity titan )
+{
+	// clear saved titan mode once embark
+	ClearPlayerLastTitanMode( player )
 }
 
 // allows player change titan mode to cancel kneeling
@@ -4120,6 +4140,11 @@ void function SavePlayerLastTitanMode( entity player )
 {
 	player.s.lastTitanMode = player.GetPetTitanMode()
 	//print( "Saving player lastTitanMode: " + string( player.s.lastTitanMode ) )
+}
+
+void function ClearPlayerLastTitanMode( entity player )
+{
+	player.s.lastTitanMode = -1
 }
 
 ///// ENTITY SETTINGS /////
