@@ -296,7 +296,10 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	//EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
 	thread ReaperNukeSequenceThink( npc, nukeFXInfoTarget )
 
-	AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
+	if ( ReaperHasNukeDamageOverride( npc ) )
+		AI_CreateDangerousArea( nukeFXInfoTarget, npc, GetReaperNukeDamageOverride( npc ).outerRadius, TEAM_INVALID, true, true )
+	else
+		AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
 
 	// needs to do animations manually because nuke sequence is actually reaper's death activity
 	// this version is unstable, reaper can delay their death animation. now handled by ReaperNukeSequenceThink()
@@ -603,7 +606,11 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 
 	EmitSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
 
-	AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
+	// modified here: handle damage override radius
+	if ( ReaperHasNukeDamageOverride( npc ) )
+		AI_CreateDangerousArea( nukeFXInfoTarget, npc, GetReaperNukeDamageOverride( npc ).outerRadius, TEAM_INVALID, true, true )
+	else // vanilla beavior
+		AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
 
 	OnThreadEnd(
 	function() : ( nukeFXInfoTarget, npc, attacker, giveBattery )
