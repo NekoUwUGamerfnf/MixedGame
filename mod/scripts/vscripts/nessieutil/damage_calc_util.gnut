@@ -1,0 +1,182 @@
+global function Nessie_Damage_Calculation_Utility_Init
+
+global function CalculateDamageWithGivenValue
+global function CalculateWeaponOrProjectileDamageAgainstTarget
+// this will floor damage and run HandleLocationBasedDamage(), similar to CodeCallback_DamagePlayerOrNPC() does
+global function ModifyDamageInfoWithCalculatedDamage
+
+// was previously in _melee_synced_npc.gnut, but other files needs such think
+global function TitanCanSurviveDamage
+global function GetTitanValidHealthFromDamageInfo
+
+void function Nessie_Damage_Calculation_Utility_Init()
+{
+
+}
+
+float function CalculateDamageWithGivenValue( entity weaponOrProjectile, entity target, int damage_near_value, float damage_near_distance, int damage_far_value, float damage_far_distance, int damage_very_far_value = -1, float damage_very_far_distance = -1 )
+{
+    // GetProjectileLaunchOrigin() shared from sh_projectile_data.gnut
+    vector pos = weaponOrProjectile.IsProjectile() ? GetProjectileLaunchOrigin( weaponOrProjectile ) : weaponOrProjectile.GetOrigin()
+    float distanceToTarget = Distance( pos, target.GetOrigin() )
+
+    // manually calculate everything
+    // ignore "damage_falloff_type" modifications
+    if ( distanceToTarget <= damage_near_distance ) // near
+        return float( damage_near_value )
+    else if ( distanceToTarget > damage_near_distance && distanceToTarget <= damage_far_distance ) // near-far
+    {
+        float nearDistDiff = distanceToTarget - damage_near_distance
+        float farDistDiff = damage_far_distance - damage_near_distance
+        float distFrac = nearDistDiff / farDistDiff
+        int damageDiff = damage_near_value - damage_far_value
+        float calcDamage = float( damageDiff ) * distFrac
+
+        return float( damage_near_value ) - calcDamage
+    }
+    else // far-very far. can have ignored parameters
+    {
+        if ( damage_very_far_value == -1 || damage_very_far_distance == -1 )
+        {
+            if ( distanceToTarget > damage_far_distance )
+                return float( damage_far_value )
+        }
+        else 
+        {
+            if ( distanceToTarget > damage_far_distance && distanceToTarget <= damage_very_far_distance )
+            {
+                float farDistDiff = distanceToTarget - damage_far_distance
+                float veryFarDistDiff = damage_very_far_distance - damage_far_distance
+                float distFrac = farDistDiff / veryFarDistDiff
+                int damageDiff = damage_far_value - damage_very_far_value
+                float calcDamage = float( damageDiff ) * distFrac
+
+                return float( damage_far_value ) - calcDamage
+            }
+            else if ( distanceToTarget > damage_very_far_distance )
+                return float( damage_very_far_value )
+        }
+    }
+
+    return 0
+}
+
+float function CalculateWeaponOrProjectileDamageAgainstTarget( entity weaponOrProjectile, entity target )
+{
+    if ( !IsValid( weaponOrProjectile ) )
+        return 0
+    
+    // vortex sphere cannot can't use SetArmorType() or GetArmorType()
+	// maybe wrap both method and HACK it for vortex? their damage calculation is done in script, shouldn't have any issue
+    bool targetIsHeavyArmor = target.GetArmorType() == ARMOR_TYPE_HEAVY
+
+    int damage_near_value
+    float damage_near_distance
+    int damage_far_value
+    float damage_far_distance
+    int damage_very_far_value // default to be -1
+    float damage_very_far_distance // default to be -1
+
+    int damageNearValueVar = eWeaponVar.damage_near_value
+    int damageNearDistanceVar = eWeaponVar.damage_near_distance
+    int damageFarValueVar = eWeaponVar.damage_far_value
+    int damageFarDistanceVar = eWeaponVar.damage_far_distance
+    int damageVeryFarValueVar = eWeaponVar.damage_very_far_value
+    int damageVeryFarDistanceVar = eWeaponVar.damage_very_far_distance
+
+    if ( targetIsHeavyArmor )
+    {
+        damageNearValueVar = eWeaponVar.damage_near_value_titanarmor
+        damageFarValueVar = eWeaponVar.damage_far_value_titanarmor
+        damageVeryFarValueVar = eWeaponVar.damage_very_far_value_titanarmor
+    }
+
+    if ( weaponOrProjectile.IsProjectile() )
+    {
+        damage_near_value = weaponOrProjectile.GetProjectileWeaponSettingInt( damageNearValueVar )
+        damage_near_distance = weaponOrProjectile.GetProjectileWeaponSettingFloat( damageNearDistanceVar )
+        damage_far_value = weaponOrProjectile.GetProjectileWeaponSettingInt( damageFarValueVar )
+        damage_far_distance = weaponOrProjectile.GetProjectileWeaponSettingFloat( damageFarDistanceVar)
+        damage_very_far_value = weaponOrProjectile.GetProjectileWeaponSettingInt( damageVeryFarValueVar )
+        damage_very_far_distance = weaponOrProjectile.GetProjectileWeaponSettingFloat( damageVeryFarDistanceVar )
+    }
+    else
+    {
+        damage_near_value = weaponOrProjectile.GetWeaponSettingInt( damageNearValueVar )
+        damage_near_distance = weaponOrProjectile.GetWeaponSettingFloat( damageNearDistanceVar )
+        damage_far_value = weaponOrProjectile.GetWeaponSettingInt( damageFarValueVar )
+        damage_far_distance = weaponOrProjectile.GetWeaponSettingFloat( damageFarDistanceVar)
+        damage_very_far_value = weaponOrProjectile.GetWeaponSettingInt( damageVeryFarValueVar )
+        damage_very_far_distance = weaponOrProjectile.GetWeaponSettingFloat( damageVeryFarDistanceVar )
+    }
+
+    return CalculateDamageWithGivenValue( weaponOrProjectile, target, damage_near_value, damage_near_distance, damage_far_value, damage_far_distance, damage_very_far_value, damage_very_far_distance )
+}
+
+void function ModifyDamageInfoWithCalculatedDamage( entity weaponOrProjectile, entity ent, var damageInfo )
+{
+    float manualCalculatedDamage = CalculateWeaponOrProjectileDamageAgainstTarget( weaponOrProjectile, ent )
+        
+    //print( "manualCalculatedDamage: " + string( manualCalculatedDamage ) )
+    DamageInfo_SetDamage( damageInfo, manualCalculatedDamage )
+
+    // Round damage to nearest full value
+    DamageInfo_SetDamage( damageInfo, floor( DamageInfo_GetDamage( damageInfo ) + 0.5 ) )
+    if ( DamageInfo_GetDamage( damageInfo ) <= 0 )
+        return
+
+    HandleLocationBasedDamage( ent, damageInfo )
+    //print( "final damage value: " + string( DamageInfo_GetDamage( damageInfo ) ) )
+}
+
+bool function TitanCanSurviveDamage( entity titan, var damageInfo )
+{
+    int damage = int( DamageInfo_GetDamage( damageInfo ) )
+    int validHealth = GetTitanValidHealthFromDamageInfo( titan, damageInfo )
+    //print( "titan( " + string( titan ) + " )'s valid health: " + string( validHealth ) )
+    return damage < validHealth
+}
+
+int function GetTitanValidHealthFromDamageInfo( entity titan, var damageInfo )
+{
+    // force kill damage -- health is never valid
+    if ( DamageInfo_GetForceKill( damageInfo ) )
+        return 0
+
+    const int INFINITE_HEALTH = 999999 // over max health limit, means titan won't die from damage
+
+    entity soul = titan.GetTitanSoul()
+    int healthShield = titan.GetHealth() 
+    if ( IsValid( soul ) )
+        healthShield += GetShieldHealthWithFix( soul )
+    // undoomed titan
+    if ( !GetDoomedState( titan ) )
+    {
+        if ( IsValid( soul ) && !ShouldDoomTitan( titan, damageInfo ) ) // won't be doomed by damage
+            return healthShield // valid health is current health + shield
+        
+        // damage skips doom protection
+        if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_SKIP_DAMAGE_PROT )
+        {
+            if ( IsValid( soul ) )
+                healthShield += int( GetTitanSoulDoomedHealth( soul ) ) // valid health is current health + shield + doomedHealth
+            return healthShield
+        }
+
+        return INFINITE_HEALTH // undoomed titan, not taking special damage -- never die from current damage
+    }
+    else // doomed titan
+    {
+        // in damage protection -- never die from current damage
+        if ( IsValid( soul ) )
+        {
+            if ( Time() - soul.soul.doomedStartTime < TITAN_DOOMED_INVUL_TIME )
+                return INFINITE_HEALTH
+        }
+
+        // normal doomed titan, valid health is current health + shield
+        return healthShield
+    }
+    
+    return 0 // titan in unknown state...
+}
