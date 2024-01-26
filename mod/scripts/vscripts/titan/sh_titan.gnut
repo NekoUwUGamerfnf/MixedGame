@@ -24,6 +24,8 @@ global function TemporarilyNonSolidPlayer
 	global function TitanEject_SetSoulEjectExplosionDamageOverride
 	global function TitanEject_SetSoulNukeExplosionDamageOverride
 
+	global function TitanEject_SetSoulDisableNPCPilotCombat // disable npc pilot eject, ragdoll them immediately
+
 	// modified titan staggering utility
 	// allow modified damageSource to trigger stagger
 	global function TItan_AddStaggerTriggeringDamageSourceID
@@ -89,6 +91,8 @@ struct
 	table<entity, bool> soulStopMovingWhileNPCEject
 	table<entity, TitanEjectDamage> soulEjectDamageOverrides
 	table<entity, TitanNukeDamage> soulNukeDamageOverrides
+
+	table<entity, bool> soulDisabledNPCPilotCombat
 
 	// modified titan staggering utility
 	array<int> customStaggerDamageSource
@@ -415,6 +419,9 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 	e.ejectTitanHasNpcPilot <- false
 	if ( ejectTitan.IsPlayer() )
 		e.player = ejectTitan
+	
+	// modified: throw a ragdoll if we've disabled this titan's pilot combat
+	e.pilotModelProp <- null
 
 	#if NPC_TITAN_PILOT_PROTOTYPE
 		if ( TitanHasNpcPilot( ejectTitan ) )
@@ -472,7 +479,12 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		// modified here: adding friendlyfire support
 		//AI_CreateDangerousArea_DamageDef( damagedef_nuclear_core, e.nukeFXInfoTarget, ejectTitan.GetTeam(), true, true )
 		int dangerousTeam = FriendlyFire_IsEnabled() ? TEAM_INVALID : ejectTitan.GetTeam() // add friendlyfire support: if we enabled friendlyfire, this dangerous area will work for friendly npcs
-		AI_CreateDangerousArea_DamageDef( damagedef_nuclear_core, e.nukeFXInfoTarget, dangerousTeam, true, true )
+		// modified here: handle nuke damage override
+		// needs testing on this damagearea thing... do they really work when their parent updates position later?
+		if ( SoulHasNukeDamageOverride( soul ) )
+			AI_CreateDangerousArea( e.nukeFXInfoTarget, ejectTitan, GetSoulNukeDamageOverride( soul ).outerRadius, dangerousTeam, true, true )
+		else // vanilla behavior
+			AI_CreateDangerousArea_DamageDef( damagedef_nuclear_core, e.nukeFXInfoTarget, dangerousTeam, true, true )
 	}
 
 	entity rodeoPilot = GetRodeoPilot( ejectTitan )
@@ -743,11 +755,22 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		//if ( ejectTitanHasNpcPilot )
 		if ( expect bool( e.ejectTitanHasNpcPilot ) )
 		{
-			e.npcPilot = NpcTitanBecomesPilot( ejectTitan )
-			// vanilla missing: npc pilot ejecting protection
-			entity npcPilot = expect entity( e.npcPilot )
-			if ( IsAlive( npcPilot ) )
-				npcPilot.SetInvulnerable()
+			// modified here: allow us make pilots never eject from titan
+			if ( SoulHasDisabledNPCPilotCombat( soul ) )
+			{
+				// welp, for fun... let's throw a ragdoll outside from titan?
+				asset modelName = soul.soul.seatedNpcPilot.modelAsset
+				e.pilotModelProp = CreatePropDynamic( modelName )
+				SetTeam( e.pilotModelProp, ejectTitan.GetTeam() )
+			}
+			else // vanilla behavior
+			{
+				e.npcPilot = NpcTitanBecomesPilot( ejectTitan )
+				// vanilla missing: npc pilot ejecting protection
+				entity npcPilot = expect entity( e.npcPilot )
+				if ( IsAlive( npcPilot ) )
+					npcPilot.SetInvulnerable()
+			}
 		}
 	#endif
 
@@ -867,6 +890,12 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 				if ( file.soulUseNPCPilotAsExplosionAttacker[ soul ] )
 					e.overrideAttacker = e.npcPilot
 			}
+		}
+		else if ( IsValid( e.pilotModelProp ) ) // just for fun here: throw a ragdoll outside from titan
+		{
+			e.pilotModelProp.SetOrigin( titan.GetOrigin() + Vector(0,0,100) )
+			e.pilotModelProp.SetAngles( titan.GetAngles() )
+			e.pilotModelProp.BecomeRagdoll( velocity, false )
 		}
 	#endif
 
@@ -1183,7 +1212,7 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 	{
 		hasNukeDamageOverride = true
 
-		nukeDamageStruct = clone GetSoulNukeDamageOverride( soul )
+		nukeDamageStruct = GetSoulNukeDamageOverride( soul )
 		explosions = nukeDamageStruct.count
 		time = nukeDamageStruct.duration
 		waitPerExplosion = time / explosions
@@ -1703,6 +1732,30 @@ TitanNukeDamage function GetSoulNukeDamageOverride( entity soul )
 	if ( !SoulHasNukeDamageOverride( soul ) )
 		return defaultStruct
 	return file.soulNukeDamageOverrides[ soul ]
+}
+
+void function TitanEject_SetSoulDisableNPCPilotCombat( entity titan, bool disable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulDisabledNPCPilotCombat ) )
+		file.soulDisabledNPCPilotCombat[ soul ] <- false
+	
+	file.soulDisabledNPCPilotCombat[ soul ] = enable
+}
+
+bool function SoulHasDisabledNPCPilotCombat( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	if ( !( soul in file.soulDisabledNPCPilotCombat ) )
+		return false
+	
+	return file.soulDisabledNPCPilotCombat[ soul ]
 }
 
 // modified titan stagger utility
