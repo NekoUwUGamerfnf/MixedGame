@@ -5,6 +5,10 @@ global function CalculateWeaponOrProjectileDamageAgainstTarget
 // this will floor damage and run HandleLocationBasedDamage(), similar to CodeCallback_DamagePlayerOrNPC() does
 global function ModifyDamageInfoWithCalculatedDamage
 
+// was previously in _melee_synced_npc.gnut, but other files needs such think
+global function TitanCanSurviveDamage
+global function GetTitanValidHealthFromDamageInfo
+
 void function Nessie_Damage_Calculation_Utility_Init()
 {
 
@@ -123,4 +127,56 @@ void function ModifyDamageInfoWithCalculatedDamage( entity weaponOrProjectile, e
 
     HandleLocationBasedDamage( ent, damageInfo )
     //print( "final damage value: " + string( DamageInfo_GetDamage( damageInfo ) ) )
+}
+
+bool function TitanCanSurviveDamage( entity titan, var damageInfo )
+{
+    int damage = int( DamageInfo_GetDamage( damageInfo ) )
+    int validHealth = GetTitanValidHealthFromDamageInfo( titan, damageInfo )
+    //print( "titan( " + string( titan ) + " )'s valid health: " + string( validHealth ) )
+    return damage < validHealth
+}
+
+int function GetTitanValidHealthFromDamageInfo( entity titan, var damageInfo )
+{
+    // force kill damage -- health is never valid
+    if ( DamageInfo_GetForceKill( damageInfo ) )
+        return 0
+
+    const int INFINITE_HEALTH = 999999 // over max health limit, means titan won't die from damage
+
+    entity soul = titan.GetTitanSoul()
+    int healthShield = titan.GetHealth() 
+    if ( IsValid( soul ) )
+        healthShield += GetShieldHealthWithFix( soul )
+    // undoomed titan
+    if ( !GetDoomedState( titan ) )
+    {
+        if ( IsValid( soul ) && !ShouldDoomTitan( titan, damageInfo ) ) // won't be doomed by damage
+            return healthShield // valid health is current health + shield
+        
+        // damage skips doom protection
+        if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_SKIP_DAMAGE_PROT )
+        {
+            if ( IsValid( soul ) )
+                healthShield += int( GetTitanSoulDoomedHealth( soul ) ) // valid health is current health + shield + doomedHealth
+            return healthShield
+        }
+
+        return INFINITE_HEALTH // undoomed titan, not taking special damage -- never die from current damage
+    }
+    else // doomed titan
+    {
+        // in damage protection -- never die from current damage
+        if ( IsValid( soul ) )
+        {
+            if ( Time() - soul.soul.doomedStartTime < TITAN_DOOMED_INVUL_TIME )
+                return INFINITE_HEALTH
+        }
+
+        // normal doomed titan, valid health is current health + shield
+        return healthShield
+    }
+    
+    return 0 // titan in unknown state...
 }
