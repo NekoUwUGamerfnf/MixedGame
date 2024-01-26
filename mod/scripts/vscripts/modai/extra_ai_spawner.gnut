@@ -44,6 +44,7 @@ global function ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier
 global function ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee // this is disabled by default
 global function ExtraSpawner_DisableEmbarkedNPCTitanEjectExplosionAttackerOverride
 global function ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath
+global function ExtraSpawner_SetEmbarkedNPCTitanDeathEjectDamageThreshold
 
 // scripted spawn
 global function ExtraSpawner_SpawnGunShip
@@ -167,6 +168,7 @@ const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may nee
 // modifiable consts
 
 // npc damage
+const int NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD = 2500 // default value. if titan take damage more than this, they won't trigger death eject
 
 // npc pilot health
 const int NPC_PILOT_MAX_HEALTH = 750
@@ -385,6 +387,7 @@ struct
 	// titan death eject
 	table<entity, bool> soulDisableEmbarkedTitanEjectExplosionAttackerOverride
 	table<entity, bool> soulEnabledEjectOnDeath
+	table<entity, int> soulDeathEjectDamageThreshold
 
 	// in-file only variables
 	// care package, for limiting player care package usages
@@ -558,8 +561,8 @@ void function ExtraAISpawner_Init()
 	foreach ( string className in Levels_GetAllVulnerableEntityClasses() )
 		AddDamageCallback( className, ShiftedNPCDamageHandle )
 
-	// for us handling embarked npc titan's death nuke
-	AddPostDamageCallback( "npc_titan", NPCTitanDeathNukeEjectHandle )
+	// for us handling embarked npc titan's death eject
+	AddPostDamageCallback( "npc_titan", NPCTitanDeathEjectHandle )
 
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
@@ -1177,10 +1180,21 @@ void function ShiftedNPCDamageHandle( entity victim, var damageInfo )
 
 void function NPCTitanDeathEjectHandle( entity titan, var damageInfo )
 {
+	//print( "RUNNING NPCTitanDeathEjectHandle()" )
+
+	// force kill cannot be avoided
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) )	
+		return
+
+	// over damage threshold
+	if ( DamageInfo_GetDamage( damageInfo ) > GetEmbarkedNPCTitanDeathEjectDamageThreshold( titan ) )
+		return
+
 	if ( TitanHasNpcPilot( titan ) && EmbarkedNPCTitanHasEnabledEjectOnDeath( titan ) )
 	{
 		// if titan can't survive this damage, we detonate them
 		// shared utility function from damage_calc_util.gnut
+		//print( "TitanCanSurviveDamage: " + string( TitanCanSurviveDamage( titan, damageInfo ) ) )
 		if ( !TitanCanSurviveDamage( titan, damageInfo ) )
 		{
 			DamageInfo_SetDamage( damageInfo, titan.GetHealth() - 1 )
@@ -2253,6 +2267,8 @@ void function BossLoadout_Generic( entity titan )
 // this is eject on death: less damage and no longer use their pilot as explosion attacker
 void function BossLoadout_NukeEject( entity titan )
 {
+	NPC_SetNuclearPayload( titan )
+
 	entity soul = titan.GetTitanSoul()
 	if ( IsValid( soul ) )
 	{
@@ -2260,13 +2276,16 @@ void function BossLoadout_NukeEject( entity titan )
 		ExtraSpawner_DisableEmbarkedNPCTitanEjectExplosionAttackerOverride( titan, true )
 		TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, false )
 
+		// don't get destroyed before nuke actually ends, so we can better handle damage
+		TitanEject_SetSoulTitanFreezeDuringNukeChainReaction( soul, true )
+
 		// less damage nuke
 		TitanEject_SetSoulNukeExplosionDamageOverride(
 			soul, 			// current soul
-			8, 				// explosion count
-			0.8, 			// explosion duration. never set too long or titan will be destroyed before explosion ends
-			60, 			// damage
-			1000, 			// damage heavy armor
+			10, 			// explosion count
+			1.0, 			// explosion duration
+			35, 			// damage
+			800, 			// damage heavy armor
 			330, 			// inner radius
 			550, 			// outer radius
 			SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
@@ -2277,6 +2296,7 @@ void function BossLoadout_NukeEject( entity titan )
 
 		// make them eject when receiving killshot
 		ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath( titan, true )
+		ExtraSpawner_SetEmbarkedNPCTitanDeathEjectDamageThreshold( titan, 8000 ) // don't nuke if taking damage more than this value( only titanfall crash can do )
 		// don't allow pilot to be in field, ragdoll them immediately
 		TitanEject_SetSoulDisableNPCPilotCombat( soul, true )
 	}
@@ -2872,7 +2892,9 @@ void function VanguardGenericLoadout( entity titan )
 
 	// nuke. boss titans do nuke
 	// they never ejects, just save here for fun
-	ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+	// now reworked with auto eject
+	//ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+	BossLoadout_NukeEject( titan )
 
 	// add an arm badge, use random model
 	const array<asset> titanArmBadgeValidModels = [
@@ -2900,6 +2922,7 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 	// welp, seems they already got this due to setups in CommonNPCTitanOnSpawned()
 	// don't know why it don't work
 	titan.kv.alwaysalert = 1
+	titan.DisableNPCMoveFlag( NPCMF_WALK_NONCOMBAT )
 
 	// pick a random pilot setting!
 	NPCVanguardPilot pickedPilot = file.npcVanguardPilots[ RandomInt( file.npcVanguardPilots.len() ) ]
@@ -9004,6 +9027,30 @@ bool function EmbarkedNPCTitanHasEnabledEjectOnDeath( entity titan )
 	return file.soulEnabledEjectOnDeath[ soul ]
 }
 
+void function ExtraSpawner_SetEmbarkedNPCTitanDeathEjectDamageThreshold( entity titan, int damage )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulDeathEjectDamageThreshold ) )
+		file.soulDeathEjectDamageThreshold[ soul ] <- NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD
+	
+	file.soulDeathEjectDamageThreshold[ soul ] = damage
+}
+
+int function GetEmbarkedNPCTitanDeathEjectDamageThreshold( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return 0
+	
+	if ( !( soul in file.soulDeathEjectDamageThreshold ) )
+		return NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD
+	
+	return file.soulDeathEjectDamageThreshold[ soul ]
+}
+
 function OnNpcTitanBecomesPilot( pilot, titan )
 {
 	expect entity( pilot )
@@ -9074,7 +9121,8 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	// stop scripted behavior
 	ExtraSpawner_StopNPCTitanRodeoCounter( titan )
 	ExtraSpawner_StopNPCTitanCoreAbility( titan )
-	ExtraSpawner_RemoveNPCTitanNoPain( titan )
+	// this function has been removed
+	//ExtraSpawner_RemoveNPCTitanNoPain( titan )
 }
 
 // if pilot still not touching ground after this amount of time
@@ -9966,10 +10014,15 @@ void function ExtraSpawner_SetUpNukeDeathReaper( entity reaper )
 	SuperSpectre_SetForcedKilledByTitans( reaper, false ) // they won't be disarmed by titans, always try to nuke
 	SuperSpectre_SetSelfAsNukeAttacker( reaper, true ) // the nuke's attacker will always be the reaper
 	
+	SuperSpectre_SetFreezeDuringNukeSequence( reaper, true ) // don't get destroyed before nuke sequence ends, so we can better handle their explosion duration
+	
 	SuperSpectre_SetNukeExplosionDamageEffect( 
 		reaper, 		// current reaper
 		5, 				// explosion count
-		0.8, 			// explosion duration, end the nuke before reaper gets destroyed, so it won't deal friendly fire
+		// due we've added SuperSpectre_SetDiesAfterNukeSequence(), it's safe to set explosion duration to any value
+		// match explosion FX is enough
+		//0.8, 			// explosion duration, end the nuke before reaper gets destroyed, so it won't deal friendly fire
+		1.0,
 		85, 			// damage
 		700, 			// damage heavy armor
 		330, 			// inner radius

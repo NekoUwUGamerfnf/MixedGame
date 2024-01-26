@@ -26,6 +26,7 @@ global function SuperSpectre_SetSpawnerTickExplodeOnOwnerDeath // ticks will go 
 global function SuperSpectre_SetSpawnerTickMaxCount // decides how many ticks this reaper can own
 global function SuperSpectre_SetDoNukeBeforeDeath // reapers will do nuke before their actual death, similar to stalker overload. this makes score reward goes later, but their highlight and title stuffs won't be removed until nuke sequence ends
 global function SuperSpectre_SetDoBodyGroupUpdateOnDamage // adding back this vanilla removed feature and make it a setting
+global function SuperSpectre_SetFreezeDuringNukeSequence // freeze the reaper during nuke sequence, so they won't be destroyed too early
 //
 
 // shared utility
@@ -96,6 +97,7 @@ struct
 	table<entity, int> reaperMinionMaxCount
 	table<entity, bool> reaperDoNukeBeforeDeath // new nuke think to make it more like stalkers: do nuke before actual death
 	table<entity, bool> reaperDoBodyGroupUpdateOnDamage // adding back this vanilla removed feature and make it a setting
+	table<entity, bool> reaperFreezeDuringNukeSequence
 	//
 } file
 
@@ -297,7 +299,7 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	thread ReaperNukeSequenceThink( npc, nukeFXInfoTarget )
 
 	if ( ReaperHasNukeDamageOverride( npc ) )
-		AI_CreateDangerousArea( nukeFXInfoTarget, npc, GetReaperNukeDamageOverride( npc ).outerRadius, TEAM_INVALID, true, true )
+		AI_CreateDangerousArea( nukeFXInfoTarget, npc, float( GetReaperNukeDamageOverride( npc ).outerRadius ), TEAM_INVALID, true, true )
 	else
 		AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
 
@@ -327,14 +329,27 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	// start nuke
 	// wait for gib is bad!!! a gibbed npc getting killed will instantly destroy them
 	//waitthread SuperSpectreNukes( npc, attacker ) // wait for reaper being gib, so we don't overlap death animation
-	SuperSpectreNukes( npc, attacker, false ) // modified to add parameter that allows us to not gib the reaper
+	thread SuperSpectreNukes( npc, attacker, false ) // modified to add parameter that allows us to not gib the reaper
 
 	// wait for effect grow
 	WaitFrame()
-
 	// kill the reaper
+	// now reworked with SuperSpectre_SetFreezeDuringNukeSequence(): create a temp reaper and gib it
+	// don't gib real reaper, left for SuperSpectreNukes() to destroy them
 	npc.Die( attacker, npc, { damageSourceId = damagedef_reaper_nuke } )
-	npc.Gib( <0,0,100> ) // manually gib reaper because SuperSpectreNukes() is not doing that
+	if ( ShouldFreezeReaperDuringNuke( npc ) )
+	{
+		// setup fake-death entity
+		HideReaper( npc )
+		SpawnReaperGibs( npc.GetOrigin(), npc.GetAngles() ) // fake gibs!
+	}
+	else
+		npc.Gib( <0,0,100> ) // manually gib reaper because SuperSpectreNukes() is not doing that
+
+	// wait for next frame before freezing, so they can be set to death state
+	WaitFrame()
+	if ( !npc.IsFrozen() )
+		npc.Freeze() // HOLD reaper so they're not destroyed
 }
 
 // failsafe handler: the reaper didn't make it to explode
@@ -440,7 +455,7 @@ void function PlayDeathAnimByActivity( entity npc )
 	npc.Anim_Stop()
 	npc.Anim_ScriptedPlayActivityByName( "ACT_DIESIMPLE", true, 0.1 )
 	//npc.UseSequenceBounds( true )
-	npc.Anim_DisableSequenceTransition() // ignore blending, stops current attack anim stuffs immediately
+	//npc.Anim_DisableSequenceTransition() // ignore blending, stops current attack anim stuffs immediately
 }
 
 // hardcoded anims version
@@ -455,7 +470,7 @@ void function PlayRandomReaperDeathAnim( entity npc )
 {
 	npc.Anim_Stop()
 	thread PlayAnim( npc, REAPER_NUKE_ANIMS[ RandomInt( REAPER_NUKE_ANIMS.len() ) ] )
-	npc.Anim_DisableSequenceTransition() // ignore blending, stops current attack anim stuffs immediately
+	//npc.Anim_DisableSequenceTransition() // ignore blending, stops current attack anim stuffs immediately
 }
 // modified stuffs ends
 
@@ -508,7 +523,6 @@ void function SuperSpectreDeath( entity npc, var damageInfo )
 	thread DoSuperSpectreDeath( npc, damageInfo )
 }
 
-// modified to add gibReaper parameter
 void function SuperSpectreNukes( entity npc, entity attacker, bool gibReaper = true )
 {
 	// modified here: we at least need a attacker, because it's MP
@@ -519,8 +533,7 @@ void function SuperSpectreNukes( entity npc, entity attacker, bool gibReaper = t
 	#endif
 
 	// modified to make gib can be toggle
-	if ( gibReaper )
-		npc.EndSignal( "OnDestroy" )
+	npc.EndSignal( "OnDestroy" )
 	vector origin = npc.GetWorldSpaceCenter()
 	EmitSoundAtPosition( npc.GetTeam(), origin, "ai_reaper_nukedestruct_explo_3p" )
 	// modified here: all these fx should never hibernate on client-side...
@@ -533,12 +546,45 @@ void function SuperSpectreNukes( entity npc, entity attacker, bool gibReaper = t
 	// modified: can get more infomation from reaper itself, pass it to SuperSpectreNukeDamage()
 	//thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker )
 	thread SuperSpectreNukeDamage( npc.GetTeam(), origin, attacker, npc )
+
+	// modified here: to handle nuke damage properly, HOLD them for nuke
+	bool freezeDuringNuke = ShouldFreezeReaperDuringNuke( npc )
 	// modified to make gib can be toggle
 	if ( gibReaper )
 	{
 		WaitFrame() // so effect has time to grow and cover the swap to gibs
-		npc.Gib( <0,0,100> )
+		if ( freezeDuringNuke )
+		{
+			// setup fake-death entity
+			SpawnReaperGibs( npc.GetOrigin(), npc.GetAngles() ) // fake gibs!
+			HideReaper( npc )
+			if ( !npc.IsFrozen() )
+				npc.Freeze() // HOLD reaper so they're not destroyed
+		}
+		else // vanilla behavior
+			npc.Gib( <0,0,100> )
 	}
+}
+
+// for us handling fake reaper 
+void function SpawnReaperGibs( vector origin, vector angles )
+{
+	entity tempReaper = CreateSuperSpectre( TEAM_UNASSIGNED, origin, angles )
+	DispatchSpawn( tempReaper )
+	tempReaper.Die( tempReaper, null, { forceKill = true } )
+	tempReaper.Gib( <0,0,100> )
+}
+
+void function HideReaper( entity npc )
+{
+	npc.SetNoTarget( true )
+	npc.SetEfficientMode( true )
+	npc.SetTouchTriggers( false )
+	npc.SetAimAssistAllowed( false )
+	npc.SetInvulnerable()
+	npc.NotSolid()
+	npc.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // this one hides model lights and stuffs, bit nicer
+	HideName( npc )
 }
 
 // to prevent it play again after watching replay
@@ -608,7 +654,7 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 
 	// modified here: handle damage override radius
 	if ( ReaperHasNukeDamageOverride( npc ) )
-		AI_CreateDangerousArea( nukeFXInfoTarget, npc, GetReaperNukeDamageOverride( npc ).outerRadius, TEAM_INVALID, true, true )
+		AI_CreateDangerousArea( nukeFXInfoTarget, npc, float( GetReaperNukeDamageOverride( npc ).outerRadius ), TEAM_INVALID, true, true )
 	else // vanilla beavior
 		AI_CreateDangerousArea_DamageDef( damagedef_reaper_nuke, nukeFXInfoTarget, TEAM_INVALID, true, true )
 
@@ -627,9 +673,9 @@ void function DoSuperSpectreDeath( entity npc, var damageInfo )
 				// modified over here...
 				//thread SuperSpectreNukes( npc, attacker )
 				if ( ShouldUseSelfAsNukeAttacker( npc ) ) // force use reaper itself as attacker
-					thread SuperSpectreNukes( npc, npc )
+					thread SuperSpectreNukes( npc, npc, true )
 				else // default
-					thread SuperSpectreNukes( npc, attacker )
+					thread SuperSpectreNukes( npc, attacker, true )
 
 				if ( giveBattery )
 				{
@@ -693,6 +739,13 @@ void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, 
 {
 	// all damage must have an inflictor currently
 	entity inflictor = CreateExplosionInflictor( origin )
+
+	bool freezeDuringNuke = false
+	if ( IsValid( reaper ) )
+		freezeDuringNuke = ShouldFreezeReaperDuringNuke( reaper )
+	// if we kill the reaper after nuke, should set up endsignal so we don't damage entity unexpectly
+	if ( freezeDuringNuke )
+		reaper.EndSignal( "OnDestroy" )
 
 	OnThreadEnd(
 		function() : ( inflictor )
@@ -762,6 +815,15 @@ void function SuperSpectreNukeDamage( int team, vector origin, entity attacker, 
 			wait duration / explosions
 		else
 			wait RandomFloatRange( 0.01, 0.21 )
+	}
+
+	// modified here: destroy reaper AFTER full nuke sequence is done
+	WaitFrame() // wait for last damage to go through
+	if ( freezeDuringNuke && IsValid( reaper ) )
+	{
+		if ( reaper.IsFrozen() )
+			reaper.Unfreeze()
+		reaper.Destroy()
 	}
 }
 
@@ -1428,6 +1490,13 @@ void function SuperSpectre_SetDoBodyGroupUpdateOnDamage( entity ent, bool update
 	file.reaperDoBodyGroupUpdateOnDamage[ ent ] = updateBodyGroupOnDamage
 }
 
+void function SuperSpectre_SetFreezeDuringNukeSequence( entity ent, bool freezeDuringNuke )
+{
+	if ( !( ent in file.reaperFreezeDuringNukeSequence ) )
+		file.reaperFreezeDuringNukeSequence[ ent ] <- false // default value
+	file.reaperFreezeDuringNukeSequence[ ent ] = freezeDuringNuke
+}
+
 // get modified settings
 int function GetNukeDeathThreshold( entity ent )
 {
@@ -1477,6 +1546,13 @@ bool function ShouldDetonateMinionsOnDeath( entity ent )
 	if ( !( ent in file.reaperMinionExplodeOwnerDeath ) ) // not modified
 		return false // default is don't detonate tick on owner death
 	return file.reaperMinionExplodeOwnerDeath[ ent ]
+}
+
+bool function ShouldFreezeReaperDuringNuke( entity ent )
+{
+	if ( !( ent in file.reaperFreezeDuringNukeSequence ) ) // not modified
+		return false
+	return file.reaperFreezeDuringNukeSequence[ ent ]
 }
 
 void function SuperSpectre_DetonateAllOwnedTicks( entity npc )

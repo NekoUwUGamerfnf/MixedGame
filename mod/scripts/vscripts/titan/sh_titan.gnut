@@ -25,6 +25,7 @@ global function TemporarilyNonSolidPlayer
 	global function TitanEject_SetSoulNukeExplosionDamageOverride
 
 	global function TitanEject_SetSoulDisableNPCPilotCombat // disable npc pilot eject, ragdoll them immediately
+	global function TitanEject_SetSoulTitanFreezeDuringNukeChainReaction // titan gets freezed to HOLD until nuke sequence ends
 
 	// modified titan staggering utility
 	// allow modified damageSource to trigger stagger
@@ -89,10 +90,12 @@ struct
 	// modified settings override!!!!
 	table<entity, bool> soulUseNPCPilotAsExplosionAttacker
 	table<entity, bool> soulStopMovingWhileNPCEject
+
 	table<entity, TitanEjectDamage> soulEjectDamageOverrides
 	table<entity, TitanNukeDamage> soulNukeDamageOverrides
 
 	table<entity, bool> soulDisabledNPCPilotCombat
+	table<entity, bool> soulTitanFreezeDuringNukeExplosions
 
 	// modified titan staggering utility
 	array<int> customStaggerDamageSource
@@ -421,7 +424,7 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		e.player = ejectTitan
 	
 	// modified: throw a ragdoll if we've disabled this titan's pilot combat
-	e.pilotModelProp <- null
+	e.pilotModel <- null
 
 	#if NPC_TITAN_PILOT_PROTOTYPE
 		if ( TitanHasNpcPilot( ejectTitan ) )
@@ -482,7 +485,7 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		// modified here: handle nuke damage override
 		// needs testing on this damagearea thing... do they really work when their parent updates position later?
 		if ( SoulHasNukeDamageOverride( soul ) )
-			AI_CreateDangerousArea( e.nukeFXInfoTarget, ejectTitan, GetSoulNukeDamageOverride( soul ).outerRadius, dangerousTeam, true, true )
+			AI_CreateDangerousArea( e.nukeFXInfoTarget, ejectTitan, float( GetSoulNukeDamageOverride( soul ).outerRadius ), dangerousTeam, true, true )
 		else // vanilla behavior
 			AI_CreateDangerousArea_DamageDef( damagedef_nuclear_core, e.nukeFXInfoTarget, dangerousTeam, true, true )
 	}
@@ -760,8 +763,11 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 			{
 				// welp, for fun... let's throw a ragdoll outside from titan?
 				asset modelName = soul.soul.seatedNpcPilot.modelAsset
-				e.pilotModelProp = CreatePropDynamic( modelName )
-				SetTeam( e.pilotModelProp, ejectTitan.GetTeam() )
+				entity fakePilot = CreateSoldier( ejectTitan.GetTeam(), ejectTitan.GetOrigin(), ejectTitan.GetAngles() )
+				DispatchSpawn( fakePilot )
+				TakeAllWeapons( fakePilot )
+				fakePilot.SetModel( modelName )
+				e.pilotModel = fakePilot
 			}
 			else // vanilla behavior
 			{
@@ -891,11 +897,12 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 					e.overrideAttacker = e.npcPilot
 			}
 		}
-		else if ( IsValid( e.pilotModelProp ) ) // just for fun here: throw a ragdoll outside from titan
+		else if ( IsValid( e.pilotModel ) ) // just for fun here: throw a ragdoll outside from titan
 		{
-			e.pilotModelProp.SetOrigin( titan.GetOrigin() + Vector(0,0,100) )
-			e.pilotModelProp.SetAngles( titan.GetAngles() )
-			e.pilotModelProp.BecomeRagdoll( velocity, false )
+			vector velocity = < 0, 0, speed * 100 > //straight up
+			e.pilotModel.SetOrigin( titan.GetOrigin() + Vector(0,0,100) )
+			e.pilotModel.SetAngles( titan.GetAngles() )
+			e.pilotModel.BecomeRagdoll( velocity, false )
 		}
 	#endif
 
@@ -1093,8 +1100,20 @@ function NuclearCoreExplosion( vector origin, e )
 
 	thread NuclearCoreExplosionChainReaction( origin, e )
 
+	// modified here: this type of kill will make titan invalid immediately
+	// to handle nuke damage properly, kill them after nuke
+	bool freezeDuringNuke = false
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+		freezeDuringNuke = SoulShouldFreezeTitanDuringNukeChainReaction( soul )
 	if ( IsAlive( titan ) )
-		titan.Die( e.attacker, e.inflictor, { scriptType = DF_EXPLOSION, damageType = DMG_REMOVENORAGDOLL, damageSourceId = e.damageSourceId } )
+	{
+		// if we want to freeze titan during nuke explosions, don't do DMG_REMOVENORAGDOLL
+		if ( freezeDuringNuke )
+			titan.Die( e.attacker, e.inflictor, { scriptType = DF_EXPLOSION, damageSourceId = e.damageSourceId } )
+		else // vanilla behavior
+			titan.Die( e.attacker, e.inflictor, { scriptType = DF_EXPLOSION, damageType = DMG_REMOVENORAGDOLL, damageSourceId = e.damageSourceId } )
+	}
 }
 
 
@@ -1219,6 +1238,30 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 	}
 	//
 
+	// modified here: allow us delay titan's destroy
+	bool freezeDuringNuke = false
+	if ( IsValid( soul ) )
+		freezeDuringNuke = SoulShouldFreezeTitanDuringNukeChainReaction( soul )
+
+	// if we kill the titan after nuke, should set up endsignal so we don't damage entity unexpectly
+	if ( freezeDuringNuke )
+	{
+		titan.EndSignal( "OnDestroy" )
+
+		// setup fake-death entity
+		titan.SetNoTarget( true )
+		titan.SetEfficientMode( true )
+		titan.SetTouchTriggers( false )
+		titan.SetAimAssistAllowed( false )
+		titan.SetInvulnerable()
+		titan.NotSolid()
+		titan.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // this one hides model lights and stuffs, bit nicer
+		HideName( titan )
+
+		// wait for next frame before freezing, so titan can actually be dead
+		thread DelayedFreezeTitan( titan )
+	}
+
 	// debug
 	//print( "explosions: " + string( explosions ) )
 	//print( "time: " + string( time ) )
@@ -1337,6 +1380,15 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 
 		wait waitPerExplosion
 	}
+
+	// modified here: destroy titan AFTER full nuke is done
+	WaitFrame() // wait for last damage to go through
+	if ( freezeDuringNuke && IsValid( titan ) )
+	{
+		if ( titan.IsFrozen() )
+			titan.Unfreeze()
+		titan.Destroy()
+	}
 }
 
 // to prevent it play again after watching replay
@@ -1348,6 +1400,15 @@ void function DelayedCleanUpNukeFX( entity titan, array<entity> nukeFXToCleanUp 
 		if ( IsValid( nukeFX ) )
 			EffectStop( nukeFX )
 	}
+}
+
+// wait for next frame before freezing, so titan can actually be dead
+void function DelayedFreezeTitan( entity titan )
+{
+	titan.EndSignal( "OnDestroy" )
+	WaitFrame()
+	if ( !titan.IsFrozen() )
+		titan.Freeze() // HOLD titan so they're not destroyed
 }
 
 entity function GetExplosionOwner( e )
@@ -1734,28 +1795,36 @@ TitanNukeDamage function GetSoulNukeDamageOverride( entity soul )
 	return file.soulNukeDamageOverrides[ soul ]
 }
 
-void function TitanEject_SetSoulDisableNPCPilotCombat( entity titan, bool disable )
+void function TitanEject_SetSoulDisableNPCPilotCombat( entity soul, bool disable )
 {
-	entity soul = titan.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return
-	
 	if ( !( soul in file.soulDisabledNPCPilotCombat ) )
 		file.soulDisabledNPCPilotCombat[ soul ] <- false
 	
-	file.soulDisabledNPCPilotCombat[ soul ] = enable
+	file.soulDisabledNPCPilotCombat[ soul ] = disable
 }
 
-bool function SoulHasDisabledNPCPilotCombat( entity titan )
+bool function SoulHasDisabledNPCPilotCombat( entity soul )
 {
-	entity soul = titan.GetTitanSoul()
-	if ( !IsValid( soul ) )
-		return false
-	
 	if ( !( soul in file.soulDisabledNPCPilotCombat ) )
 		return false
 	
 	return file.soulDisabledNPCPilotCombat[ soul ]
+}
+
+void function TitanEject_SetSoulTitanFreezeDuringNukeChainReaction( entity soul, bool enable )
+{
+	if ( !( soul in file.soulTitanFreezeDuringNukeExplosions ) )
+		file.soulTitanFreezeDuringNukeExplosions[ soul ] <- false
+	
+	file.soulTitanFreezeDuringNukeExplosions[ soul ] = enable
+}
+
+bool function SoulShouldFreezeTitanDuringNukeChainReaction( entity soul )
+{
+	if ( !( soul in file.soulTitanFreezeDuringNukeExplosions ) )
+		return false
+	
+	return file.soulTitanFreezeDuringNukeExplosions[ soul ]
 }
 
 // modified titan stagger utility
