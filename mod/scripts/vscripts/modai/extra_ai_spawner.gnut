@@ -42,6 +42,8 @@ global function ExtraSpawner_AddScriptedNPCTitanCoreThink
 global function ExtraSpawner_EnableEmbarkedNPCTitanNoPain // this is enabled by default for each titan!
 global function ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier
 global function ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee // this is disabled by default
+global function ExtraSpawner_DisableEmbarkedNPCTitanEjectExplosionAttackerOverride
+global function ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath
 
 // scripted spawn
 global function ExtraSpawner_SpawnGunShip
@@ -380,6 +382,9 @@ struct
 	table<entity, bool> npcEnabledNoPainOnDamage
 	// npc specialist grunts
 	array<entity> specialistGruntOwnedTurrets
+	// titan death eject
+	table<entity, bool> soulDisableEmbarkedTitanEjectExplosionAttackerOverride
+	table<entity, bool> soulEnabledEjectOnDeath
 
 	// in-file only variables
 	// care package, for limiting player care package usages
@@ -552,6 +557,9 @@ void function ExtraAISpawner_Init()
 	// function Levels_GetAllVulnerableEntityClasses() shared from levels_util.gnut
 	foreach ( string className in Levels_GetAllVulnerableEntityClasses() )
 		AddDamageCallback( className, ShiftedNPCDamageHandle )
+
+	// for us handling embarked npc titan's death nuke
+	AddPostDamageCallback( "npc_titan", NPCTitanDeathNukeEjectHandle )
 
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
@@ -1164,6 +1172,41 @@ void function ShiftedNPCDamageHandle( entity victim, var damageInfo )
 			if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
 				DamageInfo_SetDamage( damageInfo, 0 )
 		}
+	}
+}
+
+void function NPCTitanDeathEjectHandle( entity titan, var damageInfo )
+{
+	if ( TitanHasNpcPilot( titan ) && EmbarkedNPCTitanHasEnabledEjectOnDeath( titan ) )
+	{
+		// if titan can't survive this damage, we detonate them
+		// shared utility function from damage_calc_util.gnut
+		if ( !TitanCanSurviveDamage( titan, damageInfo ) )
+		{
+			DamageInfo_SetDamage( damageInfo, titan.GetHealth() - 1 )
+			if ( titan.ContextAction_IsBusy() )
+				titan.ContextAction_ClearBusy()
+
+			// TitanEjectPlayer() sets the titan invulnerable
+			// at this point titan meter and stuffs has already been updated, safe to remove damage
+			thread TitanEjectPlayer( titan )
+			
+			// due damage isn't passed through anymore, update visual stuffs manually
+			thread DeathEjectTitanHealthThink( titan ) // empty health bar
+			DoomTitan( titan, true ) // instantly blow up every bodygroup to make things funnier
+		}
+	}
+}
+
+void function DeathEjectTitanHealthThink( entity titan )
+{
+	titan.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+
+	while ( true )
+	{
+		titan.SetHealth( 1 )
+		WaitFrame()
 	}
 }
 
@@ -2199,10 +2242,44 @@ void function BossLoadout_Generic( entity titan )
 
 	// nuke. boss titans do nuke
 	// they never ejects, just save here for fun
-	ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+	// now reworked with death eject
+	//ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+	BossLoadout_NukeEject( titan )
 
 	// add an arm badge
 	BossLoadout_ArmBadge( titan )
+}
+
+// this is eject on death: less damage and no longer use their pilot as explosion attacker
+void function BossLoadout_NukeEject( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		// disable eject damage attacker override
+		ExtraSpawner_DisableEmbarkedNPCTitanEjectExplosionAttackerOverride( titan, true )
+		TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, false )
+
+		// less damage nuke
+		TitanEject_SetSoulNukeExplosionDamageOverride(
+			soul, 			// current soul
+			8, 				// explosion count
+			0.8, 			// explosion duration. never set too long or titan will be destroyed before explosion ends
+			60, 			// damage
+			1000, 			// damage heavy armor
+			330, 			// inner radius
+			550, 			// outer radius
+			SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
+			0,				// explosion force
+			DF_RAGDOLL | DF_EXPLOSION | DF_SKIP_DAMAGE_PROT,			// script damage flags
+			damagedef_nuclear_core				// damage source
+		)
+
+		// make them eject when receiving killshot
+		ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath( titan, true )
+		// don't allow pilot to be in field, ragdoll them immediately
+		TitanEject_SetSoulDisableNPCPilotCombat( soul, true )
+	}
 }
 
 // give themselves a battery on performing execution and faster core regen
@@ -3538,7 +3615,7 @@ void function ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( entity titan )
 			600, 			// outer radius
 			SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
 			0,				// explosion force
-			DF_RAGDOLL | DF_EXPLOSION,			// script damage flags
+			DF_RAGDOLL | DF_EXPLOSION | DF_SKIP_DAMAGE_PROT,			// script damage flags
 			damagedef_nuclear_core				// damage source
 		)
 	}
@@ -8267,7 +8344,8 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 		// use npc pilot as it's eject explosion and nuke attacker
 		// prevent titan get destroyed before nuke ends and dealing damage to friendly players
 		// can't assign to soul.soul.nukeAttacker because it's not gonna be updated when npc pilot ejects...
-		TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, true )
+		if ( !EmbarkedNPCTitanHasDisabledEjectExplosionAttackerOverride( titan ) )
+			TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, true )
 		// make npc titan stop moving while ejecting, much like player ejecting
 		// make this a setting is to prevent impacting vanilla nuke titan behavior
 		TitanEject_SetSoulStopMovingWhileNPCEject( soul, true )
@@ -8726,6 +8804,7 @@ float function GetWeaponNPCRestTime( entity weapon )
 }
 
 // welp this thing just don't work, titan always try to clear their NPC_NO_PAIN upon taking massive damage
+/*
 void function ExtraSpawner_EmbarkedNPCTitanNoPain( entity titan )
 {
 	thread EmbarkedNPCTitanNoPain_Threaded( titan )
@@ -8746,16 +8825,15 @@ void function EmbarkedNPCTitanNoPain_Threaded( entity titan )
 
 	// seems npc titan will be cleared NPC_NO_PAIN flag once stood up
 	// maybe do some loop to handle it?
-	/*
 	// wait for standup
-	WaitFrame() // wait for titan starts drop sequence before we get it's stance
-	while ( soul.GetStance() < STANCE_STAND )
-		WaitFrame()
+	// WaitFrame() // wait for titan starts drop sequence before we get it's stance
+	// while ( soul.GetStance() < STANCE_STAND )
+	// 	WaitFrame()
 	
-	print( "applying no-pain state after npc standing up..." )
-	titan.EnableNPCFlag( NPC_NO_PAIN ) // no pain like player embarked titans
-	thread TrackNPCTitanNoPainDuration( titan )
-	*/
+	// print( "applying no-pain state after npc standing up..." )
+	// titan.EnableNPCFlag( NPC_NO_PAIN ) // no pain like player embarked titans
+	// thread TrackNPCTitanNoPainDuration( titan )
+
 	while ( true )
 	{
 		if ( !titan.GetNPCFlag( NPC_NO_PAIN ) )
@@ -8790,6 +8868,7 @@ void function ExtraSpawner_RemoveNPCTitanNoPain( entity titan )
 {
 	titan.Signal( "EmbarkedNPCTitanNoPain" )
 }
+*/
 
 void function ExtraSpawner_EnableEmbarkedNPCTitanNoPain( entity titan, bool enable )
 {
@@ -8875,6 +8954,54 @@ bool function EmbarkedNPCTitanHasDisabledSyncedMelee( entity titan )
 		return true
 	
 	return file.soulDisableEmbarkedTitanSyncedMelee[ soul ]
+}
+
+void function ExtraSpawner_DisableEmbarkedNPCTitanEjectExplosionAttackerOverride( entity titan, bool disable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulDisableEmbarkedTitanEjectExplosionAttackerOverride ) )
+		file.soulDisableEmbarkedTitanEjectExplosionAttackerOverride[ soul ] <- false
+	
+	file.soulDisableEmbarkedTitanEjectExplosionAttackerOverride[ soul ] = disable
+}
+
+bool function EmbarkedNPCTitanHasDisabledEjectExplosionAttackerOverride( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+
+	if ( !( soul in file.soulDisableEmbarkedTitanEjectExplosionAttackerOverride ) )
+		return true
+	
+	return file.soulDisableEmbarkedTitanEjectExplosionAttackerOverride[ soul ]
+}
+
+void function ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath( entity titan, bool enable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulEnabledEjectOnDeath ) )
+		file.soulEnabledEjectOnDeath[ soul ] <- false
+	
+	file.soulEnabledEjectOnDeath[ soul ] = enable
+}
+
+bool function EmbarkedNPCTitanHasEnabledEjectOnDeath( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	if ( !( soul in file.soulEnabledEjectOnDeath ) )
+		return false
+	
+	return file.soulEnabledEjectOnDeath[ soul ]
 }
 
 function OnNpcTitanBecomesPilot( pilot, titan )
