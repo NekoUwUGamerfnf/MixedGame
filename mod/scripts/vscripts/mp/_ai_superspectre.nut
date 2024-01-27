@@ -571,6 +571,7 @@ void function SpawnReaperGibs( vector origin, vector angles )
 {
 	entity tempReaper = CreateSuperSpectre( TEAM_UNASSIGNED, origin, angles )
 	DispatchSpawn( tempReaper )
+	HideReaperMinimapIcon( tempReaper )
 	tempReaper.Die( tempReaper, null, { forceKill = true } )
 	tempReaper.Gib( <0,0,100> )
 }
@@ -585,6 +586,15 @@ void function HideReaper( entity npc )
 	npc.NotSolid()
 	npc.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY // this one hides model lights and stuffs, bit nicer
 	HideName( npc )
+}
+
+void function HideReaperMinimapIcon( entity npc )
+{
+	npc.Minimap_Hide( TEAM_IMC, null )
+	npc.Minimap_Hide( TEAM_MILITIA, null )
+	foreach ( entity player in GetPlayerArray() )
+		npc.Minimap_Hide( 0, player )
+	npc.Minimap_SetHeightTracking( false )
 }
 
 // to prevent it play again after watching replay

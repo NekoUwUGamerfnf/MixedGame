@@ -118,8 +118,8 @@ struct ModelBodyGroupFXStruct
     // regenerating effect: never loops, but regenerate after delay
     bool regenerateEffect
     float firstGenerateDelay
-    float regenerateRandomWait1
-    float regenerateRandomWait2
+    float regenerateRandomWaitMin
+    float regenerateRandomWaitMax
 
     int index // only exists in this file
 }
@@ -262,6 +262,7 @@ void function OnTitanBecomesPilot( entity player, entity titan )
     // player still can't see effects on their titan after disembarking once, but others could
     // guess it's alright? at least player won't be blinded by too many effects
     // the best method is we re-create effects like client-side does, but whatever
+    /*
     if ( soul in file.entOwnedModelHealthFXs )
     {
         foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXs[ soul ] )
@@ -298,27 +299,22 @@ void function OnTitanBecomesPilot( entity player, entity titan )
                 effect.SetOwner( titan )
         }
     }
+    */
+
     // now try to re-create effects... hopefully it won't cause server performance issue( creating too many entities sometimes freeze server )
-    // nope. re-created effects are not stable, just hide them until I figure out and try to rework rest of these things
-    /*
     if ( soul in file.entHasSetUpServerModelHealthFX )
     {
-        ServerModelHealthFX_RemoveEffectsOnEntity( soul )
-        ServerModelHealthFX_ApplyEffectsToEntity( soul )
+        ServerModelHealthFX_ReCreateActiveEffectsOnEntity( titan )
     }
     if ( soul in file.entHasSetUpServerModelFXData )
     {
-        ServerModelFXData_RemoveSpawnFXOnEntity( soul )
-        ServerModelFXData_RemoveHealthFXOnEntity( soul )
-        ServerModelFXData_ApplySpawnFXToEntity( soul )
-        ServerModelFXData_ApplyHealthFXToEntity( soul )
+        ServerModelFXData_ReCreateActiveSpawnFXOnEntity( titan )
+        ServerModelFXData_ReCreateActiveHealthFXOnEntity( titan )
     }
     if ( soul in file.entHasSetUpServerModelBodyGroupFX )
     {
-        ServerModelBodyGroupFX_RemoveEffectsOnEntity( soul, true )
-        ServerModelBodyGroupFX_ApplyEffectsToEntity( soul )
+        ServerModelBodyGroupFX_ReCreateActiveEffectsOnEntity( titan )
     }
-    */
 }
 //
 
@@ -355,18 +351,18 @@ entity function CreateModelFXOnEnt( entity ent, asset effectName, string attachm
     return effect
 }
 
-entity function CreateRegeneratingModelFXOnEnt_ReturnPlaceHelper( entity ent, asset effectName, string attachment, bool attachToEnt, int visibilityFlags, string sound, float firstDelay, float randomWait1, float randomWait2 )
+entity function CreateRegeneratingModelFXOnEnt_ReturnPlaceHelper( entity ent, asset effectName, string attachment, bool attachToEnt, int visibilityFlags, string sound, float firstDelay, float randomWaitMin, float randomWaitMax )
 {
     entity placeHelper = CreateEntity( "info_placement_helper" )
     file.entIsRegeneratingEffectHelper[ placeHelper ] <- true
     file.regeneratingEffectHelperIsHidden[ placeHelper ] <- false
     // track placement helper destroy to stop think
-    thread RegeneratingModelFXThink( ent, placeHelper, effectName, attachment, attachToEnt, visibilityFlags, sound, firstDelay, randomWait1, randomWait2 )
+    thread RegeneratingModelFXThink( ent, placeHelper, effectName, attachment, attachToEnt, visibilityFlags, sound, firstDelay, randomWaitMin, randomWaitMax )
 
     return placeHelper
 }
 
-void function RegeneratingModelFXThink( entity ent, entity placeHelper, asset effectName, string attachment, bool attachToEnt, int visibilityFlags, string sound, float firstDelay, float randomWait1, float randomWait2 )
+void function RegeneratingModelFXThink( entity ent, entity placeHelper, asset effectName, string attachment, bool attachToEnt, int visibilityFlags, string sound, float firstDelay, float randomWaitMin, float randomWaitMax )
 {
     ent.EndSignal( "OnDestroy" )
     placeHelper.EndSignal( "OnDestroy" )
@@ -402,7 +398,7 @@ void function RegeneratingModelFXThink( entity ent, entity placeHelper, asset ef
         // we may want to hide the effect
         if ( file.regeneratingEffectHelperIsHidden[ placeHelper ] )
         {
-            wait RandomFloatRange( randomWait1, randomWait2 )
+            wait RandomFloatRange( randomWaitMin, randomWaitMax )
             continue
         }
 
@@ -420,7 +416,7 @@ void function RegeneratingModelFXThink( entity ent, entity placeHelper, asset ef
         if ( sound != "" )
             EmitSoundOnEntity( ent, sound )
 
-        wait RandomFloatRange( randomWait1, randomWait2 )
+        wait RandomFloatRange( randomWaitMin, randomWaitMax )
     }
 }
 
@@ -637,19 +633,9 @@ void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageIn
     asset modelName = ent.GetModelName()
     if ( !( modelName in file.registeredModelHealthFXTable ) )
         return
-    
-    // HACK for titans: use soul entity for storing everything
-    entity storingEnt = IsValid( soul ) ? soul : ent
-    if ( !( storingEnt in file.entOwnedModelHealthFXs ) )
-        file.entOwnedModelHealthFXs[ storingEnt ] <- {}
 
     foreach ( effectStruct in file.registeredModelHealthFXTable[ modelName ] )
     {
-        // don't play effect again if we already had one
-        int index = effectStruct.index
-        if ( index in file.entOwnedModelHealthFXs[ storingEnt ] )
-            continue
-
         float healthFracReq = effectStruct.healthFrac
         // HACK for titans
         bool checkDoomedHealth = ent.IsTitan() && GetDoomedState( ent )
@@ -670,12 +656,6 @@ void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageIn
                 continue
         }
 
-        string attachment = effectStruct.attachment
-        int attachID = ent.LookupAttachment( attachment )
-        // anti-crash
-        if ( attachID <= 0 )
-            continue
-
         bool attachToEnt = effectStruct.attachToEnt
         bool loopEffect = effectStruct.loopEffect
         // if effect don't require attach to entity
@@ -690,9 +670,73 @@ void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageIn
                 continue
         }
 
+        int index = effectStruct.index
+        // add effect here. general checks handled inside this function
+        ServerModelHealthFX_CreateEffect( ent, index )
+    }
+}
+
+// create effect with given index, no validation checks
+entity function ServerModelHealthFX_CreateEffect( entity ent, int specifiedIndex )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+
+    if ( !IsValid( ent ) )
+        return
+    
+    asset modelName = ent.GetModelName()
+    if ( !( modelName in file.registeredModelHealthFXTable ) )
+        return
+
+    // HACK for titans: use soul entity for storing everything
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !( storingEnt in file.entOwnedModelHealthFXs ) )
+        file.entOwnedModelHealthFXs[ storingEnt ] <- {}
+    
+    foreach ( effectStruct in file.registeredModelHealthFXTable[ modelName ] )
+    {
+        int index = effectStruct.index
+        // only use the one we specified
+        if ( index != specifiedIndex )
+            continue
+
+        // from here we start using "return" if check failed, because we've find our effectStruct
+        // don't play effect again if we already had one
+        if ( index in file.entOwnedModelHealthFXs[ storingEnt ] )
+            return
+
+        // set up variables
+        float healthFracReq = effectStruct.healthFrac
+        // HACK for titans
+        bool checkDoomedHealth = ent.IsTitan() && GetDoomedState( ent )
+        if ( checkDoomedHealth )
+            healthFracReq = effectStruct.doomedHealthFrac
+
+        string attachment = effectStruct.attachment
+        int attachID = ent.LookupAttachment( attachment )
+        // anti-crash
+        if ( attachID <= 0 )
+            return
+
+        bool attachToEnt = effectStruct.attachToEnt
+        bool loopEffect = effectStruct.loopEffect
+        // if effect don't require attach to entity
+        // shouldn't play unless we're taking damage
+        // only apply when health go down certain percentage
+        if ( !attachToEnt && !loopEffect )
+            return
+
         asset effectName = effectStruct.effectName
         int visibilityFlags = effectStruct.visibilityFlags
-
+        
         // add effect and setup cleanup
         entity effect = CreateModelFXOnEnt( ent, effectName, attachment, attachToEnt, loopEffect, visibilityFlags )
         EntOwnedHealthFX ownedFXStruct
@@ -703,6 +747,43 @@ void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageIn
         ownedFXStruct.defaultVisibilityFlags = visibilityFlags
 
         file.entOwnedModelHealthFXs[ storingEnt ][ index ] <- ownedFXStruct
+
+        // succeeded generating effect!
+        return effect
+    }
+}
+
+// re-create any active effect on current entity!
+void function ServerModelHealthFX_ReCreateActiveEffectsOnEntity( entity ent )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelHealthFXs ) )
+        return
+    
+    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXs[ storingEnt ] )
+    {
+        entity effect = ownedFXStruct.effect
+        if ( IsValid( effect ) ) // only try to re-create if last effect is active
+        {
+            // clean up last effect
+            EffectStop( effect )
+            delete file.entOwnedModelHealthFXs[ storingEnt ][ index ]
+
+            // create a new effect
+            ServerModelHealthFX_CreateEffect( ent, index )
+        }
     }
 }
 
@@ -1068,11 +1149,6 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
         print( "modelName: " + string( modelName ) )
     #endif
 
-    // HACK for titans: use soul entity for storing everything
-    entity storingEnt = IsValid( soul ) ? soul : ent
-    if ( !( storingEnt in file.entOwnedModelSpawnFXsFromData ) )
-        file.entOwnedModelSpawnFXsFromData[ storingEnt ] <- {}
-
     foreach ( dataName, effectStructs in file.registeredModelFXData_Spawn[ modelName ] )
     {
         #if SERVER_MODEL_FX_DEBUG
@@ -1085,9 +1161,49 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
                 print( "attachment: " + effectStruct.attachment )
                 print( "index: " + string( effectStruct.index ) )
             #endif
-            
-            // don't play effect again if we already had one
+
             int index = effectStruct.index
+            // add effect here. general checks handled inside this function
+            ServerModelFXData_CreateSpawnFX( ent, index )
+        }
+    }
+}
+
+entity function ServerModelFXData_CreateSpawnFX( entity ent, int specifiedIndex )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+
+    if ( !IsValid( ent ) )
+        return
+    
+    asset modelName = ent.GetModelName()
+    if ( !( modelName in file.registeredModelFXData_Spawn ) )
+        return
+
+    // HACK for titans: use soul entity for storing everything
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !( storingEnt in file.entOwnedModelSpawnFXsFromData ) )
+        file.entOwnedModelSpawnFXsFromData[ storingEnt ] <- {}
+
+    foreach ( dataName, effectStructs in file.registeredModelFXData_Spawn[ modelName ] )
+    {
+        foreach ( effectStruct in effectStructs )
+        {
+            int index = effectStruct.index
+            // only use the one we specified
+            if ( index != specifiedIndex )
+                continue
+
+            // from here we start using "return" if check failed, because we've find our effectStruct
+            // don't play effect again if we already had one
             if ( index in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
             {
                 #if SERVER_MODEL_FX_DEBUG
@@ -1095,7 +1211,7 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
                 #endif
                 continue
             }
-            
+
             string attachment = effectStruct.attachment
             int attachID = ent.LookupAttachment( attachment )
             // anti-crash
@@ -1104,7 +1220,7 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
                 #if SERVER_MODEL_FX_DEBUG
                     print( "ent don't have attachment for this effect!" )
                 #endif
-                continue
+                return
             }
 
             asset effectName = effectStruct.effectName
@@ -1121,6 +1237,42 @@ void function ServerModelFXData_ApplySpawnFXToEntity( entity ent )
             #if SERVER_MODEL_FX_DEBUG
                 print( "Effect functioning on ent!" )
             #endif
+
+            // succeeded generating effect!
+            return effect
+        }
+    }
+}
+
+void function ServerModelFXData_ReCreateActiveSpawnFXOnEntity( entity ent )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelSpawnFXsFromData ) )
+        return
+    
+    foreach ( index, ownedFXStruct in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
+    {
+        entity effect = ownedFXStruct.effect
+        if ( IsValid( effect ) ) // only try to re-create if last effect is active
+        {
+            // clean up last effect
+            EffectStop( effect )
+            delete file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ]
+
+            // create a new effect
+            ServerModelFXData_CreateSpawnFX( ent, index )
         }
     }
 }
@@ -1205,11 +1357,6 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
     if ( !( modelName in file.registeredModelFXData_Health ) )
         return
 
-    // HACK for titans: use soul entity for storing everything
-    entity storingEnt = IsValid( soul ) ? soul : ent
-    if ( !( storingEnt in file.entOwnedModelHealthFXsFromData ) )
-        file.entOwnedModelHealthFXsFromData[ storingEnt ] <- {}
-
     #if SERVER_MODEL_FX_DEBUG
         //print( "Applying health FX for entity: " + string( ent ) )
         //print( "modelName: " + string( modelName ) )
@@ -1227,16 +1374,6 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
                 //print( "effectName: " + effectStruct.effectName )
                 //print( "index: " + string( effectStruct.index ) )
             #endif
-
-            // don't play effect again if we already had one
-            int index = effectStruct.index
-            if ( index in file.entOwnedModelHealthFXsFromData[ storingEnt ] )
-            {
-                #if SERVER_MODEL_FX_DEBUG
-                    //print( "ent already got this effect!" )
-                #endif
-                continue
-            }
 
             float healthFracReq = effectStruct.healthFrac
             // HACK for titans
@@ -1275,17 +1412,6 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
                 }
             }
 
-            string attachment = effectStruct.attachment
-            int attachID = ent.LookupAttachment( attachment )
-            // anti-crash
-            if ( attachID <= 0 )
-            {
-                #if SERVER_MODEL_FX_DEBUG
-                    //print( "ent don't have attachment for this effect!" )
-                #endif
-                continue
-            }
-
             bool attachToEnt = effectStruct.attachToEnt
             bool loopEffect = effectStruct.loopEffect
             // if effect don't require attach to entity
@@ -1299,6 +1425,81 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
                 if ( !entTakeDamageDownToFrac )
                     continue
             }
+
+            int index = effectStruct.index
+            // add effect here. general checks handled inside this function
+            ServerModelFXData_CreateHealthFX( ent, index )
+        }
+    }
+}
+
+entity function ServerModelFXData_CreateHealthFX( entity ent, int specifiedIndex )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+
+    if ( !IsValid( ent ) )
+        return
+    
+    asset modelName = ent.GetModelName()
+    if ( !( modelName in file.registeredModelFXData_Health ) )
+        return
+
+     // HACK for titans: use soul entity for storing everything
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !( storingEnt in file.entOwnedModelHealthFXsFromData ) )
+        file.entOwnedModelHealthFXsFromData[ storingEnt ] <- {}
+
+    foreach ( dataName, effectStructs in file.registeredModelFXData_Health[ modelName ] )
+    {
+        foreach ( effectStruct in effectStructs )
+        {
+            int index = effectStruct.index
+            // only use the one we specified
+            if ( index != specifiedIndex )
+                continue
+
+            // from here we start using "return" if check failed, because we've find our effectStruct
+            // don't play effect again if we already had one
+            if ( index in file.entOwnedModelHealthFXsFromData[ storingEnt ] )
+            {
+                #if SERVER_MODEL_FX_DEBUG
+                    //print( "ent already got this effect!" )
+                #endif
+                return
+            }
+
+            float healthFracReq = effectStruct.healthFrac
+            // HACK for titans
+            bool checkDoomedHealth = ent.IsTitan() && GetDoomedState( ent )
+            if ( checkDoomedHealth )
+                healthFracReq = effectStruct.doomedHealthFrac
+
+            string attachment = effectStruct.attachment
+            int attachID = ent.LookupAttachment( attachment )
+            // anti-crash
+            if ( attachID <= 0 )
+            {
+                #if SERVER_MODEL_FX_DEBUG
+                    //print( "ent don't have attachment for this effect!" )
+                #endif
+                return
+            }
+
+            bool attachToEnt = effectStruct.attachToEnt
+            bool loopEffect = effectStruct.loopEffect
+            // if effect don't require attach to entity
+            // shouldn't play unless we're taking damage
+            // only apply when health go down certain percentage
+            if ( !attachToEnt && !loopEffect )
+                return
 
             // effect override
             bool overrideEffects = effectStruct.overrideEffectsWithSameAttachment
@@ -1366,6 +1567,42 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
                 print( "attachment: " + ownedFXStruct.attachment )
                 print( "checkDoomedHealth: " + string( ownedFXStruct.checkDoomedHealth ) )
             #endif
+
+            // succeeded generating effect!
+            return effect
+        }
+    }
+}
+
+void function ServerModelFXData_ReCreateActiveHealthFXOnEntity( entity ent )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelHealthFXsFromData ) )
+        return
+    
+    foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXsFromData[ storingEnt ] )
+    {
+        entity effect = ownedFXStruct.effect
+        if ( IsValid( effect ) ) // only try to re-create if last effect is active
+        {
+            // clean up last effect
+            EffectStop( effect )
+            delete file.entOwnedModelHealthFXsFromData[ storingEnt ][ index ]
+
+            // create a new effect
+            ServerModelFXData_CreateHealthFX( ent, index )
         }
     }
 }
@@ -1505,7 +1742,7 @@ void function ServerModelFXData_CleanUpForEntity( entity ent )
 }
 
 
-void function ServerModelBodyGroupFX_Register( asset modelName, string bodyGroupName, int stateIndex, string attachment, asset effectName, bool attachToEnt = false, bool loopEffect = false, int visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE, string sound = "", bool regenerateEffect = false, float firstGenerateDelay = -1, float regenerateRandomWait1 = -1, float regenerateRandomWait2 = -1 )
+void function ServerModelBodyGroupFX_Register( asset modelName, string bodyGroupName, int stateIndex, string attachment, asset effectName, bool attachToEnt = false, bool loopEffect = false, int visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE, string sound = "", bool regenerateEffect = false, float firstGenerateDelay = -1, float regenerateRandomWaitMin = -1, float regenerateRandomWaitMax = -1 )
 {
     if ( !( modelName in file.registeredModelBodyGroupFXTable ) )
         file.registeredModelBodyGroupFXTable[ modelName ] <- []
@@ -1520,8 +1757,8 @@ void function ServerModelBodyGroupFX_Register( asset modelName, string bodyGroup
     newEffect.visibilityFlags = visibilityFlags
     newEffect.sound = sound
     newEffect.regenerateEffect = regenerateEffect
-    newEffect.regenerateRandomWait1 = regenerateRandomWait1
-    newEffect.regenerateRandomWait2 = regenerateRandomWait2
+    newEffect.regenerateRandomWaitMin = regenerateRandomWaitMin
+    newEffect.regenerateRandomWaitMax = regenerateRandomWaitMax
     file.registeredModelBodyGroupFXTable[ modelName ].append( newEffect )
 
     // setup unique index
@@ -1656,6 +1893,33 @@ void function ServerModelBodyGroupFX_ApplyEffectsToEntity( entity ent )
     asset modelName = ent.GetModelName()
     if ( !( modelName in file.registeredModelBodyGroupFXTable ) )
         return
+
+    foreach ( effectStruct in file.registeredModelBodyGroupFXTable[ modelName ] )
+    {
+        int index = effectStruct.index
+        // add effect here. general checks handled inside this function
+        ServerModelBodyGroupFX_CreateEffect( ent, index )
+    }
+}
+
+entity function ServerModelBodyGroupFX_CreateEffect( entity ent, int specifiedIndex, bool regenerateEffectRandomDelay = false )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+
+    if ( !IsValid( ent ) )
+        return
+    
+    asset modelName = ent.GetModelName()
+    if ( !( modelName in file.registeredModelBodyGroupFXTable ) )
+        return
     
     // HACK for titans: use soul entity for storing everything
     entity storingEnt = IsValid( soul ) ? soul : ent
@@ -1664,26 +1928,31 @@ void function ServerModelBodyGroupFX_ApplyEffectsToEntity( entity ent )
 
     foreach ( effectStruct in file.registeredModelBodyGroupFXTable[ modelName ] )
     {
-        // don't play effect again if we already had one
         int index = effectStruct.index
-        if ( index in file.entOwnedModelBodyGroupFXs[ storingEnt ] )
+        // only use the one we specified
+        if ( index != specifiedIndex )
             continue
+
+        // from here we start using "return" if check failed, because we've find our effectStruct
+        // don't play effect again if we already had one
+        if ( index in file.entOwnedModelBodyGroupFXs[ storingEnt ] )
+            return
 
         string bodyGroupName = effectStruct.bodyGroupName
         int bodyGroupIndex = ent.FindBodyGroup( bodyGroupName )
         // anti-crash
         if ( bodyGroupIndex == -1 )
-            continue
+            return
         int stateIndexReq = effectStruct.stateIndex
         int currentState = ent.GetBodyGroupState( bodyGroupIndex )
         if ( currentState != stateIndexReq ) // bodygroup not updated yet!
-            continue
+            return
 
         string attachment = effectStruct.attachment
         int attachID = ent.LookupAttachment( attachment )
         // anti-crash
         if ( attachID <= 0 )
-            continue
+            return
 
         asset effectName = effectStruct.effectName
         bool attachToEnt = effectStruct.attachToEnt
@@ -1698,10 +1967,14 @@ void function ServerModelBodyGroupFX_ApplyEffectsToEntity( entity ent )
         if ( regenerateEffect )
         {
             float firstDelay = effectStruct.firstGenerateDelay
-            float randomWait1 = effectStruct.regenerateRandomWait1
-            float randomWait2 = effectStruct.regenerateRandomWait2
+            float randomWaitMin = effectStruct.regenerateRandomWaitMin
+            float randomWaitMax = effectStruct.regenerateRandomWaitMax
+            // allow us use random delay before first generating
+            // mostly for re-creating effects and we don't want all effects gets activated together
+            if ( regenerateEffectRandomDelay )
+                firstDelay = RandomFloatRange( randomWaitMin, randomWaitMax )
             // this actually returns a info_placement_helper to help us manage it
-            effect = CreateRegeneratingModelFXOnEnt_ReturnPlaceHelper( ent, effectName, attachment, attachToEnt, visibilityFlags, sound, firstDelay, randomWait1, randomWait2 )
+            effect = CreateRegeneratingModelFXOnEnt_ReturnPlaceHelper( ent, effectName, attachment, attachToEnt, visibilityFlags, sound, firstDelay, randomWaitMin, randomWaitMax )
         }
         else
         {
@@ -1739,6 +2012,46 @@ void function ServerModelBodyGroupFX_ApplyEffectsToEntity( entity ent )
                 print( "stateIndex: " + string( ownedFXStruct.stateIndex ) )
             }
         #endif
+
+        // succeeded generating effect!
+        return effect
+    }
+}
+
+void function ServerModelBodyGroupFX_ReCreateActiveEffectsOnEntity( entity ent )
+{
+    // HACK for titans: use soul entity for storing everything
+    entity soul
+    if ( ent.IsTitan() )
+        soul = ent.GetTitanSoul()
+    if ( IsSoul( ent ) )
+        soul = ent
+    // model effects still apply to titan
+    if ( IsValid( soul ) )
+        ent = soul.GetTitan()
+    
+    entity storingEnt = IsValid( soul ) ? soul : ent
+    if ( !IsValid( ent ) || !IsValid( storingEnt ) )
+        return
+    if ( !( storingEnt in file.entOwnedModelBodyGroupFXs ) )
+        return
+    
+    foreach ( index, ownedFXStruct in file.entOwnedModelBodyGroupFXs[ storingEnt ] )
+    {
+        entity effect = ownedFXStruct.effect
+        if ( IsValid( effect ) ) // only try to re-create if last effect is active
+        {
+            // clean up last effect
+            bool regenerateEffect = ownedFXStruct.regenerateEffect
+            if ( regenerateEffect ) // regenerating effect uses info_placement_helper to help management
+                effect.Destroy()
+            else
+                EffectStop( effect )
+            delete file.entOwnedModelBodyGroupFXs[ storingEnt ][ index ]
+
+            // create a new effect, add random wait on next regenerating effect
+            ServerModelBodyGroupFX_CreateEffect( ent, index, true )
+        }
     }
 }
 
