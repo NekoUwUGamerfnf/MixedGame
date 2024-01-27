@@ -4,17 +4,20 @@ global function MeleeThread_PilotVsEnemy
 global function MeleeSyncedServer_Init
 
 // modified to have more execution options
-global function Melee_SetHumanSizedDoClassicExecution // set certain humanSized to use classic execution
+global function MeleeSyncedHuman_SetHumanSizedDoClassicExecution // set certain humanSized to use classic execution
 
-global function Melee_SetPlayerClassicExecutionsEnabled // player necksnapping
-global function Melee_ShouldPlayerClassicExecution
-global function Melee_SetNPCClassicExecutionsEnabled // npc necksnapping
-global function Melee_ShouldNPCClassicExecution
-global function Melee_SetUseRandomClassicExecutions
-global function Melee_IsClassicExecutionRandom
+global function MeleeSyncedHuman_SetPlayerClassicExecutionsEnabled // player necksnapping
+global function MeleeSyncedHuman_ShouldPlayerClassicExecution
+global function MeleeSyncedHuman_SetNPCClassicExecutionsEnabled // npc necksnapping
+global function MeleeSyncedHuman_ShouldNPCClassicExecution
+global function MeleeSyncedHuman_SetUseRandomClassicExecutions
+global function MeleeSyncedHuman_IsClassicExecutionRandom
 
-global function Melee_SetSyncedMeleeAlwaysKill
-global function Melee_IsSyncedMeleeAlwaysKill
+// fix execution timer when executing a npc target
+global function MeleeSyncedHuman_EnableExecutionTimerFix // this is enbaled by default
+
+global function MeleeSyncedHuman_SetSyncedMeleeAlwaysKill
+global function MeleeSyncedHuman_IsSyncedMeleeAlwaysKill
 
 struct
 {
@@ -22,6 +25,9 @@ struct
 	bool npcDoClassicExecutions = false
 
 	bool randomClassicExecutions = false
+
+	bool enableExecutionTimerFix = true
+
 	bool alwaysKillTarget = false
 
 	table<entity, bool> humanSizedDoClassicExecution
@@ -31,6 +37,9 @@ struct
 void function MeleeSyncedServer_Init()
 {
 	RegisterSignal( "NpcDealsExecutionDamage" )
+
+	// modified signal for us handle execution after target getting destroyed
+	RegisterSignal( "ForceEndHumanExecution" )
 }
 
 bool function MeleeThread_PilotVsEnemy( SyncedMelee action, entity attacker, entity target )
@@ -151,7 +160,18 @@ bool function MeleeThread_PilotVsEnemyInternal( SyncedMelee action, entity attac
 	vector targetOrigin = target.GetOrigin()
 
 	attacker.EndSignal( "OnDestroy" )
-	target.EndSignal( "OnDestroy" )
+	// modified stuffs here: npc victim being ragdoll will be destroyed on next frame
+	// to avoid that interrupts attacker animation, don't end think on npc target destroy could be better
+	//target.EndSignal( "OnDestroy" )
+	// add another signal on attacker for us tracking
+	// this breaks vanilla behavior, so make it a setting
+	if ( file.enableExecutionTimerFix )
+	{
+		attacker.EndSignal( "ForceEndHumanExecution" )
+		thread TrackHumanExecutionValidTime( attacker, target )
+	}
+	else // vanilla behavior
+		target.EndSignal( "OnDestroy" )
 
 	if ( IsSingleplayer() )
 	{
@@ -237,6 +257,19 @@ void function EndThreadOnPlayerRespawn( entity player )
 	player.EndSignal( "RespawnMe" )
 	player.EndSignal( "OnRespawned" )
 	player.EndSignal( "PlayerRespawnStarted" )
+}
+//
+
+// modified function: signal "ForceEndHumanExecution" to end exection if target getting destroyed without dying
+void function TrackHumanExecutionValidTime( entity attacker, entity target )
+{
+	attacker.EndSignal( "OnDeath" )
+	attacker.EndSignal( "OnDestroy" )
+	attacker.EndSignal( "SyncedMeleeComplete" )
+
+	table signalData = WaitSignal( target, "OnDeath", "OnDestroy" )
+	if ( signalData.signal == "OnDestroy" ) // target destroyed without dying!
+		attacker.Signal( "ForceEndHumanExecution" ) // for that case, we end execution
 }
 //
 
@@ -957,47 +990,53 @@ void function ApplyGruntExecutionDamage( entity ref, entity attacker, entity tar
 }
 
 // modified to add more exection options
-void function Melee_SetPlayerClassicExecutionsEnabled( bool should )
+void function MeleeSyncedHuman_SetPlayerClassicExecutionsEnabled( bool should )
 {
 	file.playerDoClassicExecutions = should
 }
 
-bool function Melee_ShouldPlayerClassicExecution()
+bool function MeleeSyncedHuman_ShouldPlayerClassicExecution()
 {
 	return file.playerDoClassicExecutions
 }
 
-void function Melee_SetNPCClassicExecutionsEnabled( bool should )
+void function MeleeSyncedHuman_SetNPCClassicExecutionsEnabled( bool should )
 {
 	file.npcDoClassicExecutions = should
 }
 
-bool function Melee_ShouldNPCClassicExecution()
+bool function MeleeSyncedHuman_ShouldNPCClassicExecution()
 {
 	return file.npcDoClassicExecutions
 }
 
-void function Melee_SetUseRandomClassicExecutions( bool use )
+void function MeleeSyncedHuman_SetUseRandomClassicExecutions( bool use )
 {
 	file.randomClassicExecutions = use
 }
 
-bool function Melee_IsClassicExecutionRandom()
+bool function MeleeSyncedHuman_IsClassicExecutionRandom()
 {
 	return file.randomClassicExecutions
 }
 
-void function Melee_SetSyncedMeleeAlwaysKill( bool always )
+// this is enabled by default
+void function MeleeSyncedHuman_EnableExecutionTimerFix( bool enable )
+{
+	file.enableExecutionTimerFix = enable
+}
+
+void function MeleeSyncedHuman_SetSyncedMeleeAlwaysKill( bool always )
 {
 	file.alwaysKillTarget = always
 }
 
-bool function Melee_IsSyncedMeleeAlwaysKill()
+bool function MeleeSyncedHuman_IsSyncedMeleeAlwaysKill()
 {
 	return file.alwaysKillTarget
 }
 
-void function Melee_SetHumanSizedDoClassicExecution( entity ent, bool doClassic )
+void function MeleeSyncedHuman_SetHumanSizedDoClassicExecution( entity ent, bool doClassic )
 {
 	if ( !( ent in file.humanSizedDoClassicExecution ) )
 		file.humanSizedDoClassicExecution[ ent ] <- false // default value
