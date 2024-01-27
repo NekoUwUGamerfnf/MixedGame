@@ -670,6 +670,7 @@ void function ServerModelHealthFX_ApplyEffectsToEntity( entity ent, var damageIn
                 continue
         }
 
+        int index = effectStruct.index
         // add effect here. general checks handled inside this function
         ServerModelHealthFX_CreateEffect( ent, index )
     }
@@ -1194,49 +1195,52 @@ entity function ServerModelFXData_CreateSpawnFX( entity ent, int specifiedIndex 
 
     foreach ( dataName, effectStructs in file.registeredModelFXData_Spawn[ modelName ] )
     {
-        int index = effectStruct.index
-        // only use the one we specified
-        if ( index != specifiedIndex )
-            continue
-
-        // from here we start using "return" if check failed, because we've find our effectStruct
-        // don't play effect again if we already had one
-        if ( index in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
+        foreach ( effectStruct in effectStructs )
         {
+            int index = effectStruct.index
+            // only use the one we specified
+            if ( index != specifiedIndex )
+                continue
+
+            // from here we start using "return" if check failed, because we've find our effectStruct
+            // don't play effect again if we already had one
+            if ( index in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
+            {
+                #if SERVER_MODEL_FX_DEBUG
+                    print( "ent already got this effect!" )
+                #endif
+                continue
+            }
+
+            string attachment = effectStruct.attachment
+            int attachID = ent.LookupAttachment( attachment )
+            // anti-crash
+            if ( attachID <= 0 )
+            {
+                #if SERVER_MODEL_FX_DEBUG
+                    print( "ent don't have attachment for this effect!" )
+                #endif
+                return
+            }
+
+            asset effectName = effectStruct.effectName
+            int visibilityFlags = effectStruct.visibilityFlags
+
+            // add effect and setup cleanup
+            // spawnFX always attach to ent and loop, won't destroy immediately
+            entity effect = CreateModelFXOnEnt( ent, effectName, attachment, true, true, visibilityFlags, false )
+            EntOwnedModelFXData_Spawn ownedFXStruct
+            ownedFXStruct.effect = effect
+            ownedFXStruct.defaultVisibilityFlags = visibilityFlags
+            
+            file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ] <- ownedFXStruct
             #if SERVER_MODEL_FX_DEBUG
-                print( "ent already got this effect!" )
+                print( "Effect functioning on ent!" )
             #endif
-            continue
+
+            // succeeded generating effect!
+            return effect
         }
-
-        string attachment = effectStruct.attachment
-        int attachID = ent.LookupAttachment( attachment )
-        // anti-crash
-        if ( attachID <= 0 )
-        {
-            #if SERVER_MODEL_FX_DEBUG
-                print( "ent don't have attachment for this effect!" )
-            #endif
-            return
-        }
-
-        asset effectName = effectStruct.effectName
-        int visibilityFlags = effectStruct.visibilityFlags
-
-        // add effect and setup cleanup
-        // spawnFX always attach to ent and loop, won't destroy immediately
-        entity effect = CreateModelFXOnEnt( ent, effectName, attachment, true, true, visibilityFlags, false )
-        EntOwnedModelFXData_Spawn ownedFXStruct
-        ownedFXStruct.effect = effect
-        ownedFXStruct.defaultVisibilityFlags = visibilityFlags
-        
-        file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ] <- ownedFXStruct
-        #if SERVER_MODEL_FX_DEBUG
-            print( "Effect functioning on ent!" )
-        #endif
-
-        // succeeded generating effect!
-        return effect
     }
 }
 
@@ -1260,6 +1264,7 @@ void function ServerModelFXData_ReCreateActiveSpawnFXOnEntity( entity ent )
     
     foreach ( index, ownedFXStruct in file.entOwnedModelSpawnFXsFromData[ storingEnt ] )
     {
+        entity effect = ownedFXStruct.effect
         if ( IsValid( effect ) ) // only try to re-create if last effect is active
         {
             // clean up last effect
@@ -1421,6 +1426,7 @@ void function ServerModelFXData_ApplyHealthFXToEntity( entity ent, var damageInf
                     continue
             }
 
+            int index = effectStruct.index
             // add effect here. general checks handled inside this function
             ServerModelFXData_CreateHealthFX( ent, index )
         }
@@ -1588,6 +1594,7 @@ void function ServerModelFXData_ReCreateActiveHealthFXOnEntity( entity ent )
     
     foreach ( index, ownedFXStruct in file.entOwnedModelHealthFXsFromData[ storingEnt ] )
     {
+        entity effect = ownedFXStruct.effect
         if ( IsValid( effect ) ) // only try to re-create if last effect is active
         {
             // clean up last effect
@@ -1928,7 +1935,6 @@ entity function ServerModelBodyGroupFX_CreateEffect( entity ent, int specifiedIn
 
         // from here we start using "return" if check failed, because we've find our effectStruct
         // don't play effect again if we already had one
-        int index = effectStruct.index
         if ( index in file.entOwnedModelBodyGroupFXs[ storingEnt ] )
             return
 
@@ -2032,6 +2038,7 @@ void function ServerModelBodyGroupFX_ReCreateActiveEffectsOnEntity( entity ent )
     
     foreach ( index, ownedFXStruct in file.entOwnedModelBodyGroupFXs[ storingEnt ] )
     {
+        entity effect = ownedFXStruct.effect
         if ( IsValid( effect ) ) // only try to re-create if last effect is active
         {
             // clean up last effect
