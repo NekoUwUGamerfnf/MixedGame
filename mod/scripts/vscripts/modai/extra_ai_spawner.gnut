@@ -172,11 +172,7 @@ const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may nee
 // modifiable consts
 
 // npc damage
-const int NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD = 3000 // default value. if titan take damage more than this, they won't trigger death eject
-const float NPC_TITAN_EJECT_DELAY = 4.0 // default value. if titan's health below setting value for this amount of time, they do eject
-const float NPC_TITAN_EJECT_REQUIRED_DOOMED_HEALTH_FRAC = 0.5 // default value. eject when doomed health below this frac
-
-const float NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS_FRAC = 0.5 // constant value. pilots do fast eject if they have health loss
+const int NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD = 3250 // default value. if titan take damage more than this, they won't trigger death eject( this value is higher than any weapon damage other than flame core )
 
 // npc pilot health
 const int NPC_PILOT_MAX_HEALTH = 750
@@ -368,6 +364,8 @@ struct
 	table<string, TitanSpawnStruct> titanSpawnList
 	// for ExtraSpawner_SpawnBossTitan() picking random titans
 	table<string, BossTitanSpawnStruct> bossTitanSpawnList
+	// for us get a boss titan's name
+	table<entity, string> bossTitanSpawnName
 	// for BossLoadout_Vanguard() picking random loadouts
 	array<NPCVanguardLoadout> npcVanguardLoadouts
 	array<NPCVanguardPilot> npcVanguardPilots
@@ -397,8 +395,8 @@ struct
 	table<entity, bool> soulEnabledEjectOnDeath
 	table<entity, int> soulDeathEjectDamageThreshold
 	// fixed titan eject
-	table<entity, bool> soulEjectDelay
-	table<entity, bool> soulEjectRequiredDoomedHealthFrac
+	table<entity, float> soulEjectDelay
+	table<entity, float> soulEjectRequiredDoomedHealthFrac
 
 	// in-file only variables
 	// care package, for limiting player care package usages
@@ -574,7 +572,11 @@ void function ExtraAISpawner_Init()
 		AddDamageCallback( className, ShiftedNPCDamageHandle )
 
 	// for us handling embarked npc titan's death eject
-	AddPostDamageCallback( "npc_titan", NPCTitanDeathEjectHandle )
+	AddDamageFinalCallback( "npc_titan", NPCTitanDeathEjectHandle_FinalDamage )
+	AddPostDamageCallback( "npc_titan", NPCTitanDeathEjectHandle_PostDamage )
+
+	// for us changing boss titan's viewbody model
+	Wallrun_AddCallback_OnCreatingPilotModel( SetUpBossTitanPilotModel )
 
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
@@ -1190,9 +1192,11 @@ void function ShiftedNPCDamageHandle( entity victim, var damageInfo )
 	}
 }
 
-void function NPCTitanDeathEjectHandle( entity titan, var damageInfo )
+void function NPCTitanDeathEjectHandle_FinalDamage( entity titan, var damageInfo )
 {
-	//print( "RUNNING NPCTitanDeathEjectHandle()" )
+	// same checks as NPCTitanDeathEjectHandle_PostDamage() does
+	// this one is to remove DF_KILLSHOT from damageInfo( by disabling .ai.killshotSound )
+	// so our shot won't make client play screen shake
 
 	// force kill cannot be avoided
 	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) )	
@@ -1201,6 +1205,34 @@ void function NPCTitanDeathEjectHandle( entity titan, var damageInfo )
 	// over damage threshold
 	if ( DamageInfo_GetDamage( damageInfo ) > GetEmbarkedNPCTitanDeathEjectDamageThreshold( titan ) )
 		return
+
+	// fail eject checks
+	if ( titan.ContextAction_IsBusy() )
+		return
+
+	if ( TitanHasNpcPilot( titan ) && EmbarkedNPCTitanHasEnabledEjectOnDeath( titan ) )
+	{
+		// shared utility function from damage_calc_util.gnut
+		if ( !TitanCanSurviveDamage( titan, damageInfo ) )
+			titan.ai.killShotSound = false // disable DF_KILLSHOT added to client, so they don't play a screen shake
+	}
+}
+
+void function NPCTitanDeathEjectHandle_PostDamage( entity titan, var damageInfo )
+{
+	//print( "RUNNING NPCTitanDeathEjectHandle()" )
+
+	// force kill cannot be avoided
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) )	
+		return
+
+	// over damage threshold
+	//print( "DamageInfo_GetDamage( damageInfo ): " + string( DamageInfo_GetDamage( damageInfo ) ) )
+	if ( DamageInfo_GetDamage( damageInfo ) > GetEmbarkedNPCTitanDeathEjectDamageThreshold( titan ) )
+	{
+		//print( "damage over protection threshold!" )
+		return
+	}
 
 	// fail eject checks
 	if ( titan.ContextAction_IsBusy() )
@@ -2234,7 +2266,8 @@ void function InitDefaultBossTitanList()
 		"execution_bt",									// executionRef
 		"#TRAINING_ANDERSON_NAME",						// boss title
 		"安德森",										// pilot title. can't use localized string
-		$"models/humans/pilots/pilot_medium_geist_m.mdl",		// character model. // just use a random picking model. no model is similar to aderson's in MP
+		//$"models/humans/pilots/pilot_medium_geist_m.mdl",		// character model. just use a random picking model. no model is similar to aderson's in MP
+		$"models/humans/pilots/sp_medium_reaper_m.mdl",
 		BossLoadout_Anderson, 							// loadout function
 		1,												// skin index
 		0												// decal index
@@ -5382,6 +5415,8 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiSet )
+	// setup name for us recognizing
+	file.bossTitanSpawnName[ titan ] <- spawnName
 
 	// setup boss
 	titan.ai.bossCharacterName = bossName
@@ -5447,7 +5482,11 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	// also prevents scripted abilities cause them to play intro animation
 	// EDIT: now reworked every titan eject case, to make them handled by this file but not _titan_health.gnut
 	//TitanHealth_SetSoulNPCPilotEjectDelay( titanSoul, -1 ) // -1 means never eject
-	ExtraSpawner_SetEmbarkedNPCTitanEjectDelay( titan, -1 )
+	
+	// reworked think
+	// this means never eject based on health, only when combating an enemy at close range
+	//ExtraSpawner_SetEmbarkedNPCTitanEjectDelay( titan, -1 )
+	ExtraSpawner_SetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac( titan, 0.0 )
 
 	// loadout function should run after all setup done, so we can modify them
 	if ( loadoutFunction != null ) // modded titan!!
@@ -5466,6 +5505,27 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 		thread ExtraSpawner_NPCTitanDrops( titan )
 
 	return titan
+}
+
+void function SetUpBossTitanPilotModel( entity model, entity titan )
+{
+	if ( !( titan in file.bossTitanSpawnName ) )
+		return
+
+	string spawnName = file.bossTitanSpawnName[ titan ]
+	// start hardcode everything here:
+	// for bosses those don't have model in MP, remove helmet
+	array<string> removeHelmetBoss =
+	[
+		"richter",
+		"slone",
+		"viper",
+		"kane",
+		"anderson",
+		"jack", // jack is special here: remove his helmet but leave lastimosa's, so they're not indentical anymore
+	]
+	if ( removeHelmetBoss.contains( spawnName ) )
+		model.SetBodygroup( model.FindBodyGroup( "head" ), 1 )
 }
 
 const float TITANFALL_WARNING_DURATION = 5.0
@@ -8917,7 +8977,20 @@ void function ExtraSpawner_RemoveNPCTitanNoPain( entity titan )
 */
 
 // fixed version of NpcPilotEjectingThink() in _titan_health.gnut
+const float NPC_TITAN_EJECT_DELAY = 4.0 // default value. if titan's health below setting value for this amount of time, they do eject
+const float NPC_TITAN_EJECT_REQUIRED_DOOMED_HEALTH_FRAC = 0.5 // default value. eject when doomed health below this frac
+
+const float NPC_PILOT_FORCE_EJECT_ENEMY_DIST_2D = 800 // if we combating an enemy titan at this range, just eject without thinking
+const float NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS_FRAC = 0.5 // constant value. pilots do fast eject if they have health loss
+
+const float NPC_PILOT_EJECT_THINK_TICKRATE = 0.2 // don't want npcs to be way too sensitive?
+
 void function ExtraSpawner_EmbarkedNPCTitanEjectThink( entity titan )
+{
+	thread EmbarkedNPCTitanEjectThink_Threaded( titan )
+}
+
+void function EmbarkedNPCTitanEjectThink_Threaded( entity titan )
 {
 	entity soul = titan.GetTitanSoul()
 	if ( !IsValid( soul ) )
@@ -8929,7 +9002,7 @@ void function ExtraSpawner_EmbarkedNPCTitanEjectThink( entity titan )
 
 	// pre-setup
 	// set titan to never eject so we don't conflict with default script think
-	TitanHealth_SetSoulNPCPilotEjectDelay( titanSoul, -1 ) // -1 means never eject
+	TitanHealth_SetSoulNPCPilotEjectDelay( soul, -1 ) // -1 means never eject
 
 	soul.EndSignal( "OnDestroy" )
 	titan.EndSignal( "OnDeath" )
@@ -8938,10 +9011,15 @@ void function ExtraSpawner_EmbarkedNPCTitanEjectThink( entity titan )
 	titan.EndSignal( "EmbarkedNPCTitanEjectThink" )
 
 	float doomedStartTime = -1
-	bool hasSetUpDeathEject
+	bool hasSetUpDeathEject = false
+	bool shouldEjectTitan = false
 	while ( true )
 	{
-		WaitFrame()
+		wait NPC_PILOT_EJECT_THINK_TICKRATE
+
+		// don't do think if we have some context action...
+		if ( titan.ContextAction_IsBusy() )
+			continue
 
 		if ( GetDoomedState( titan ) )
 		{
@@ -8969,8 +9047,19 @@ void function ExtraSpawner_EmbarkedNPCTitanEjectThink( entity titan )
 				float ejectRequiredDoomedHealth = GetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac( titan )
 				// health frac low enough!
 				if ( GetHealthFrac( titan ) <= ejectRequiredDoomedHealth )
+					shouldEjectTitan = true
+				// combating a enemy titan at close range!
+				entity enemy = titan.GetEnemy()
+				if ( IsAlive( enemy ) && enemy.IsTitan() )
 				{
-					// do ejecting and stop think
+					bool verticallyClose = CheckVerticallyCloseEnough( enemy, titan )
+					bool horizontallyClose = Distance2D( titan.GetOrigin(), enemy.GetOrigin() ) < NPC_PILOT_FORCE_EJECT_ENEMY_DIST_2D
+					if ( verticallyClose && horizontallyClose )
+						shouldEjectTitan = true
+				}
+
+				if ( shouldEjectTitan )
+				{
 					thread TitanEjectPlayer( titan )
 					return
 				}
@@ -8984,6 +9073,26 @@ void function ExtraSpawner_EmbarkedNPCTitanEjectThink( entity titan )
 			}
 		}
 	}
+}
+
+// same as sh_melee.gnut does!
+bool function CheckVerticallyCloseEnough( entity attacker, entity target )
+{
+	vector attackerOrigin = attacker.GetOrigin()
+	vector targetOrigin = target.GetOrigin()
+
+	float verticalDistance = fabs( attackerOrigin.z - targetOrigin.z )
+	float halfHeight = 0
+
+	if ( attacker.IsTitan() )
+		halfHeight = 92.5
+	else if ( attacker.IsHuman() )
+		halfHeight = 30
+
+	Assert( halfHeight, "Attacker is neither Titan nor Human" )
+
+	//printt( "vertical distance: " + verticalDistance )
+	return verticalDistance < halfHeight
 }
 
 void function ExtraSpawner_StopNPCTitanEjectThink( entity titan )
@@ -9213,6 +9322,9 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 	// if titan is spawned by extraSpawner, pilot should also be marked
 	ExtraSpawner_SetUpSpawnedNPC( pilot ) // generic setup for any npc in this file
 	ExtraSpawner_SetUpNPCPilot( pilot ) // also included handler call
+
+	// setup specific model
+	SetUpBossTitanPilotModel( pilot, titan )
 
 	if ( IsValid( titan ) )
 	{
