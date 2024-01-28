@@ -12,6 +12,10 @@ global function MeleeSyncedTitan_GetLinkedExecutionsFromRef
 
 const TITANARMMODEL = $"models/weapons/arms/atlaspov.mdl"
 const TEAM_JUMPJET_DBL = $"P_team_jump_jet_DBL"
+// modified fix for team/passive related jump jets...
+const PENEMY_JUMPJET_DBL = $"P_enemy_jump_jet_DBL"
+const STEALTH_TEAM_JUMPJET_DBL = $"P_jump_jet_stealth_DBL"
+const STEALTH_PENEMY_JUMPJET_DBL = $"P_jump_jet_stealth_DBL"
 
 // modified shared utility
 global function MeleeSyncedTitan_GetDefaultExecutionRefForTitanVsTitan3p // wrapped monarch and fake-bt stuffs inside
@@ -141,6 +145,10 @@ function MeleeSyncedTitan_Init()
 
 	PrecacheWeapon( "mp_titanweapon_salvo_rockets" )
 	PrecacheParticleSystem( TEAM_JUMPJET_DBL )
+	// modified fix for team/passive related jump jets...
+	PrecacheParticleSystem( PENEMY_JUMPJET_DBL )
+	PrecacheParticleSystem( STEALTH_PENEMY_JUMPJET_DBL )
+	PrecacheParticleSystem( STEALTH_PENEMY_JUMPJET_DBL )
 
 	Init3pExecutions()
 
@@ -1484,15 +1492,9 @@ function MeleeThread_TitanRipsPilot( table e, SyncedMelee action, entity attacke
 	// modified here: only create atackerViewBody for player attackers
 	if ( attacker.IsPlayer() )
 	{
-		if ( targetIsPlayer )
-		{
-			attackerViewBody = Wallrun_CreateCopyOfPilotModel( target ) //attackerViewBody is the model of the pilot getting ripped out of the cockpit
-		}
-		else
-		{
-			attackerViewBody = CreateNpcTitanPilotModel( target )
-		}
-
+		// MODIFIED here: wrap everything into function
+		entity attackerViewBody = CreateTitanExecutionViewBody( attacker )
+		
 		attackerViewBody.SetOrigin( ref.GetOrigin() )
 		e.attackerViewBody = attackerViewBody
 		attackerViewBody.SetOwner( attacker )
@@ -1819,12 +1821,35 @@ void function CleanUpSyncedMeleeOnThrownTargetDeathOrAnimDone( entity target, en
 	target.e.syncedMeleeAttacker = null
 }
 
+// new utility function: handle both npc and player model creation
+entity function CreateTitanExecutionViewBody( entity titan )
+{
+	entity pilotModel
+	if ( titan.IsPlayer() )
+		pilotModel = Wallrun_CreateCopyOfPilotModel( titan )
+	else
+		pilotModel = CreateNpcTitanPilotModel( titan )
+	// vanilla missing: enemy highlights
+	SetDefaultMPEnemyHighlight( pilotModel )
+	
+	return pilotModel
+}
+
 entity function CreateNpcTitanPilotModel( entity titan )
 {
+	// reworked to have more setup on model
 	asset modelName = GetNpcTitanPilotModel( titan )
-	entity pilotModel = CreatePropDynamic( modelName, titan.GetAttachmentAngles( titan.LookupAttachment( "hijack" ) ) ) // spawn right under titan, won't have the model "flash" into titans.
+	//return CreatePropDynamic( modelName )
+	
+	entity pilotModel = CreatePropDynamic( modelName )
+	//entity pilotModel = CreatePropDynamic( modelName, titan.GetAttachmentAngles( titan.LookupAttachment( "hijack" ) ) ) // spawn right under titan, won't have the model "flash" into titans.
+	// vanilla missing
 	SetTeam( pilotModel, titan.GetTeam() ) // so prop will have team lights
-	//SetDefaultMPEnemyHighlight( pilotModel ) // don't know should use
+
+	// modified here: run callbacks for every pilot model creation
+	// Added via Wallrun_AddCallback_OnCreatingPilotModel
+	Wallrun_RunCallbacks_OnCreatingPilotModel( pilotModel, titan )
+
 	return pilotModel
 }
 
@@ -2698,10 +2723,8 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	//if ( data.targetAnimation3pPilot[ victimType ] != "" && titanHasPilot )
 	if ( data.targetAnimation3pPilot[ victimType ] != "" && targetTitanHasPilot )
 	{
-		if ( target.IsNPC() )
-			targetViewBody = CreateNpcTitanPilotModel( target )
-		else
-			targetViewBody = Wallrun_CreateCopyOfPilotModel( target )
+		// MODIFIED here: wrap everything into function
+		entity targetViewBody = CreateTitanExecutionViewBody( target )
 
 		targetViewBody.SetOrigin( target.GetOrigin() )
 		targetViewBody.SetRagdollImpactFX( RAGDOLL_IMPACT_TABLE_IDX )
@@ -2719,10 +2742,8 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 	//if ( data.attackerAnimation3pPilot[ victimType ] != "" && attacker.IsPlayer() )
 	if ( data.attackerAnimation3pPilot[ victimType ] != "" && attackerTitanHasPilot )
 	{
-		if ( attacker.IsNPC() ) // saved for npc executions
-			attackerViewBody = CreateNpcTitanPilotModel( attacker )
-		else
-			attackerViewBody = Wallrun_CreateCopyOfPilotModel( attacker )
+		// MODIFIED here: wrap everything into function
+		entity attackerViewBody = CreateTitanExecutionViewBody( attacker )
 
 		attackerViewBody.SetOrigin( attacker.GetOrigin() )
 		attackerViewBody.SetRagdollImpactFX( RAGDOLL_IMPACT_TABLE_IDX )
@@ -2991,7 +3012,7 @@ void function TitanVsTitan_3p( SyncedMelee action, entity attacker, entity targe
 		AddAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets", Execution_BatteryStealJumpJets )
 		*/
 		// modified behavior start
-		SetUpAttackerViewBodyAnimEvents( attackerViewBody )
+		SetUpAttackerViewBodyAnimEvents( attackerViewBody, attacker )
 	}
 
 
@@ -3257,13 +3278,17 @@ void function SetUpAttackerAnimEvents( entity attacker, entity target )
 		AddAnimEvent( attacker, "rocket_pod_fire_right", Northstar_Rocket_Pod_Right, target )
 }
 
-void function SetUpAttackerViewBodyAnimEvents( entity attackerViewBody )
+void function SetUpAttackerViewBodyAnimEvents( entity attackerViewBody, entity attacker )
 {
 	// DLC
 	if( !HasAnimEvent( attackerViewBody, "execution_battery_pilot" ) )
 		AddAnimEvent( attackerViewBody, "execution_battery_pilot", Execution_GivePilotBattery )
 	if( !HasAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets" ) )
-		AddAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets", Execution_BatteryStealJumpJets )
+	{
+		// try to pass titan entity inside, so we can handle low profile jump jets
+		//AddAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets", Execution_BatteryStealJumpJets )
+		AddAnimEvent( attackerViewBody, "execution_battery_pilot_jump_jets", Execution_BatteryStealJumpJets, attacker )
+	}
 }
 
 void function CleanUpTargetAnimEvents( entity target )
@@ -3357,10 +3382,27 @@ void function Execution_BatteryStealJumpJets( entity fakePilotModel )
 {
 	int attachmentIndex = fakePilotModel.LookupAttachment( "vent_left" )
 	int fxIndex = GetParticleSystemIndex( TEAM_JUMPJET_DBL )
+	// now try to add team-based jump jets
+	/*
 	StartParticleEffectOnEntity( fakePilotModel, fxIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
 
 	attachmentIndex = fakePilotModel.LookupAttachment( "vent_right" )
 	StartParticleEffectOnEntity( fakePilotModel, fxIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+	*/
+
+	entity titan = expect entity( GetOptionalAnimEventVar( fakePilotModel, "execution_battery_pilot_jump_jets" ) )
+	bool pilotHasStealthMovement = titan.IsPlayer() && PlayerHasPassive( titan, ePassives.PAS_STEALTH_MOVEMENT )
+	if ( pilotHasStealthMovement )
+		fxIndex = GetParticleSystemIndex( STEALTH_TEAM_JUMPJET_DBL )
+	entity effect = StartParticleEffectOnEntity_ReturnEntity( fakePilotModel, fxIndex, FX_PATTACH_POINT_FOLLOW, attachmentIndex )
+	SetTeam( effect, titan.GetTeam() )
+	effect.kv.VisibilityFlag = ENTITY_VISIBLE_TO_FRIENDLY
+
+	int fxIndex = GetParticleSystemIndex( PENEMY_JUMPJET_DBL )
+	if ( pilotHasStealthMovement )
+		fxIndex = GetParticleSystemIndex( STEALTH_PENEMY_JUMPJET_DBL )
+	SetTeam( effect, titan.GetTeam() )
+	effect.kv.VisibilityFlag = ENTITY_VISIBLE_TO_ENEMY
 }
 
 /*
