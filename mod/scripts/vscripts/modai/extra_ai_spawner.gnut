@@ -34,6 +34,8 @@ global function ExtraSpawner_StopNPCTitanCoreAbility
 // no-pain now handled by ExtraSpawner_EnableEmbarkedNPCTitanNoPain()
 //global function ExtraSpawner_EmbarkedNPCTitanNoPain
 //global function ExtraSpawner_RemoveNPCTitanNoPain
+global function ExtraSpawner_EmbarkedNPCTitanEjectThink
+global function ExtraSpawner_StopNPCTitanEjectThink
 // modded titan registering func
 global function ExtraSpawner_RegisterToTitanSpawnList
 global function ExtraSpawner_RegisterToBossTitanSpawnList
@@ -45,6 +47,8 @@ global function ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee // this is disab
 global function ExtraSpawner_DisableEmbarkedNPCTitanEjectExplosionAttackerOverride
 global function ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath
 global function ExtraSpawner_SetEmbarkedNPCTitanDeathEjectDamageThreshold
+global function ExtraSpawner_SetEmbarkedNPCTitanEjectDelay
+global function ExtraSpawner_SetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac
 
 // scripted spawn
 global function ExtraSpawner_SpawnGunShip
@@ -168,7 +172,11 @@ const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may nee
 // modifiable consts
 
 // npc damage
-const int NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD = 2500 // default value. if titan take damage more than this, they won't trigger death eject
+const int NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD = 3000 // default value. if titan take damage more than this, they won't trigger death eject
+const float NPC_TITAN_EJECT_DELAY = 4.0 // default value. if titan's health below setting value for this amount of time, they do eject
+const float NPC_TITAN_EJECT_REQUIRED_DOOMED_HEALTH_FRAC = 0.5 // default value. eject when doomed health below this frac
+
+const float NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS_FRAC = 0.5 // constant value. pilots do fast eject if they have health loss
 
 // npc pilot health
 const int NPC_PILOT_MAX_HEALTH = 750
@@ -388,6 +396,9 @@ struct
 	table<entity, bool> soulDisableEmbarkedTitanEjectExplosionAttackerOverride
 	table<entity, bool> soulEnabledEjectOnDeath
 	table<entity, int> soulDeathEjectDamageThreshold
+	// fixed titan eject
+	table<entity, bool> soulEjectDelay
+	table<entity, bool> soulEjectRequiredDoomedHealthFrac
 
 	// in-file only variables
 	// care package, for limiting player care package usages
@@ -471,7 +482,8 @@ void function ExtraAISpawner_Init()
 	// npc titan think
 	RegisterSignal( "EmbarkedNPCTitanRodeoCounter" )
 	RegisterSignal( "ScriptedNPCTitanCoreAbility" )
-	RegisterSignal( "EmbarkedNPCTitanNoPain" )
+	//RegisterSignal( "EmbarkedNPCTitanNoPain" )
+	RegisterSignal( "EmbarkedNPCTitanEjectThink" )
 	// npc pilot think
 	RegisterSignal( "ScriptedNPCPilotTacticalAbility" )
 	// gunship 
@@ -1190,6 +1202,10 @@ void function NPCTitanDeathEjectHandle( entity titan, var damageInfo )
 	if ( DamageInfo_GetDamage( damageInfo ) > GetEmbarkedNPCTitanDeathEjectDamageThreshold( titan ) )
 		return
 
+	// fail eject checks
+	if ( titan.ContextAction_IsBusy() )
+		return
+
 	if ( TitanHasNpcPilot( titan ) && EmbarkedNPCTitanHasEnabledEjectOnDeath( titan ) )
 	{
 		// if titan can't survive this damage, we detonate them
@@ -1198,15 +1214,27 @@ void function NPCTitanDeathEjectHandle( entity titan, var damageInfo )
 		if ( !TitanCanSurviveDamage( titan, damageInfo ) )
 		{
 			DamageInfo_SetDamage( damageInfo, titan.GetHealth() - 1 )
-			if ( titan.ContextAction_IsBusy() )
-				titan.ContextAction_ClearBusy()
+
+			// needs setup attack info or it will be doomed attacker who receives kill credit, not killshot attacker
+			entity attacker = DamageInfo_GetAttacker( damageInfo )
+			if ( IsValid( attacker ) )
+			{
+				entity soul = titan.GetTitanSoul()
+				Soul_SetLastAttackInfo( soul, damageInfo )
+			}
+
+			// needs clear any context action or titan won't make it to eject
+			// or maybe we just, don't do ejecting if they're in some scripted animation??
+			//if ( titan.ContextAction_IsBusy() )
+			//	titan.ContextAction_ClearBusy()
 
 			// TitanEjectPlayer() sets the titan invulnerable
 			// at this point titan meter and stuffs has already been updated, safe to remove damage
 			thread TitanEjectPlayer( titan )
 			
 			// due damage isn't passed through anymore, update visual stuffs manually
-			thread DeathEjectTitanHealthThink( titan ) // empty health bar
+			//thread DeathEjectTitanHealthThink( titan ) // empty health bar
+			titan.SetHealth( 1 )
 			DoomTitan( titan, true ) // instantly blow up every bodygroup to make things funnier
 		}
 	}
@@ -5417,7 +5445,9 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 
 	// disable boss tiatn ejecting, so players won't easily notice that they have no proper model
 	// also prevents scripted abilities cause them to play intro animation
-	TitanHealth_SetSoulNPCPilotEjectDelay( titanSoul, -1 ) // -1 means never eject
+	// EDIT: now reworked every titan eject case, to make them handled by this file but not _titan_health.gnut
+	//TitanHealth_SetSoulNPCPilotEjectDelay( titanSoul, -1 ) // -1 means never eject
+	ExtraSpawner_SetEmbarkedNPCTitanEjectDelay( titan, -1 )
 
 	// loadout function should run after all setup done, so we can modify them
 	if ( loadoutFunction != null ) // modded titan!!
@@ -8373,6 +8403,7 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	// welp this thing just don't work, titan always try to clear their NPC_NO_PAIN upon taking massive damage
 	//ExtraSpawner_EmbarkedNPCTitanNoPain( titan )
 	// add better think on npc pilot ejecting
+	ExtraSpawner_EmbarkedNPCTitanEjectThink( titan )
 }
 
 // Rodeo counter: force inventory smoke to fire when getting rodeo hit recently
@@ -8885,6 +8916,81 @@ void function ExtraSpawner_RemoveNPCTitanNoPain( entity titan )
 }
 */
 
+// fixed version of NpcPilotEjectingThink() in _titan_health.gnut
+void function ExtraSpawner_EmbarkedNPCTitanEjectThink( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+
+	// not setting up?
+	if ( GetEmbarkedNPCTitanEjectDelay( titan ) < 0 )
+		return
+
+	// pre-setup
+	// set titan to never eject so we don't conflict with default script think
+	TitanHealth_SetSoulNPCPilotEjectDelay( titanSoul, -1 ) // -1 means never eject
+
+	soul.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	titan.Signal( "EmbarkedNPCTitanEjectThink" )
+	titan.EndSignal( "EmbarkedNPCTitanEjectThink" )
+
+	float doomedStartTime = -1
+	bool hasSetUpDeathEject
+	while ( true )
+	{
+		WaitFrame()
+
+		if ( GetDoomedState( titan ) )
+		{
+			if ( doomedStartTime == -1 )
+				doomedStartTime = Time()
+		}
+		else
+		{
+			doomedStartTime = -1
+			// not doomed anymore... remove death eject
+			if ( hasSetUpDeathEject )
+			{
+				ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath( titan, false )
+				hasSetUpDeathEject = false
+			}
+		}
+
+		if ( doomedStartTime != -1 )
+		{
+			float doomedDuration = Time() - doomedStartTime
+			float ejectDelay = GetEmbarkedNPCTitanEjectDelay( titan )
+			// doom started for enough time!
+			if ( doomedDuration >= ejectDelay )
+			{
+				float ejectRequiredDoomedHealth = GetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac( titan )
+				// health frac low enough!
+				if ( GetHealthFrac( titan ) <= ejectRequiredDoomedHealth )
+				{
+					// do ejecting and stop think
+					thread TitanEjectPlayer( titan )
+					return
+				}
+
+				// allow ejecting if taking rapid damage
+				if ( !EmbarkedNPCTitanHasEnabledEjectOnDeath( titan ) )
+				{
+					ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath( titan, true )
+					hasSetUpDeathEject = true
+				}
+			}
+		}
+	}
+}
+
+void function ExtraSpawner_StopNPCTitanEjectThink( entity titan )
+{
+	titan.Signal( "EmbarkedNPCTitanEjectThink" )
+}
+
 void function ExtraSpawner_EnableEmbarkedNPCTitanNoPain( entity titan, bool enable )
 {
 	entity soul = titan.GetTitanSoul()
@@ -9043,6 +9149,58 @@ int function GetEmbarkedNPCTitanDeathEjectDamageThreshold( entity titan )
 	return file.soulDeathEjectDamageThreshold[ soul ]
 }
 
+void function ExtraSpawner_SetEmbarkedNPCTitanEjectDelay( entity titan, float delay )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulEjectDelay ) )
+		file.soulEjectDelay[ soul ] <- NPC_TITAN_EJECT_DELAY
+	
+	file.soulEjectDelay[ soul ] = delay
+}
+
+float function GetEmbarkedNPCTitanEjectDelay( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return 0
+
+	float ejectDelay = NPC_TITAN_EJECT_DELAY
+	if ( soul in file.soulEjectDelay )
+		ejectDelay = file.soulEjectDelay[ soul ]
+	// if titan can't infinite doom, should scale down eject delay
+	if ( !TitanHealth_GetSoulInfiniteDoomedState( soul ) )
+		ejectDelay *= NPC_PILOT_EJECTING_DELAY_HEALTH_LOSS_FRAC
+
+	return ejectDelay
+}
+
+void function ExtraSpawner_SetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac( entity titan, float doomedHealthFrac )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulEjectRequiredDoomedHealthFrac ) )
+		file.soulEjectRequiredDoomedHealthFrac[ soul ] <- NPC_TITAN_EJECT_REQUIRED_DOOMED_HEALTH_FRAC
+	
+	file.soulEjectRequiredDoomedHealthFrac[ soul ] = doomedHealthFrac
+}
+
+float function GetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return 0
+	
+	if ( !( soul in file.soulEjectRequiredDoomedHealthFrac ) )
+		return NPC_TITAN_EJECT_REQUIRED_DOOMED_HEALTH_FRAC
+	
+	return file.soulEjectRequiredDoomedHealthFrac[ soul ]
+}
+
 function OnNpcTitanBecomesPilot( pilot, titan )
 {
 	expect entity( pilot )
@@ -9115,6 +9273,7 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	ExtraSpawner_StopNPCTitanCoreAbility( titan )
 	// this function has been removed
 	//ExtraSpawner_RemoveNPCTitanNoPain( titan )
+	ExtraSpawner_StopNPCTitanEjectThink( titan )
 }
 
 // if pilot still not touching ground after this amount of time
