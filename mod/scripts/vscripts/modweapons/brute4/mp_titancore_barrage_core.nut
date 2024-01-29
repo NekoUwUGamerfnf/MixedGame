@@ -89,8 +89,16 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 	if ( titan.IsPlayer() )
 		titan.ForceStand()
 
+	int slowID = -1
+	int speedID = -1
+	if ( !mods.contains( "agile_frame" ) )
+	{
+		slowID = StatusEffect_AddTimed( titan, eStatusEffect.move_slow, 0.5, flightTime, 0 )
+		speedID = StatusEffect_AddTimed( titan, eStatusEffect.speed_boost, 0.5, flightTime, 0 )
+	}
+
 	OnThreadEnd(
-		function() : ( titan, e, weaponArray, storedWeapon, storedMods ) // weaponToRestore )
+		function() : ( titan, e, weaponArray, slowID, speedID, storedWeapon, storedMods ) // weaponToRestore )
 		{
 			//print( weaponToRestore )
 			bool willRestoreWeapon = expect bool( storedWeapon.shouldRestore ) // IsValid( weaponToRestore ) 
@@ -111,6 +119,10 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 
 				titan.ClearParent()
 				titan.UnforceStand()
+				titan.Server_TurnDodgeDisabledOff()
+				StatusEffect_Stop( titan, slowID )
+				StatusEffect_Stop( titan, speedID )
+
 				if ( e.shouldDeployWeapon && !titan.ContextAction_IsActive() )
 					DeployAndEnableWeapons( titan )
 
@@ -176,10 +188,20 @@ void function PROTO_BarrageCore( entity titan, float flightTime, array<string> m
 		thread HACK_BarrageCorePlayerAnimation( titan )
 		*/
 
-		wait startupTime
+		wait startupTime - 0.1
 
+		// HACK: for some reason, weapons deploy instantly if you're sprinting. 
+		// Fix by slowing the player off a sprint just before and removing when the weapon starts deploying.
+		int tempSlow = StatusEffect_AddTimed( titan, eStatusEffect.move_slow, 0.5, 0.5, 0 )
+		int tempSpeed = StatusEffect_AddTimed( titan, eStatusEffect.speed_boost, 0.5, 0.5, 0 )
+
+		wait 0.1
+
+		titan.Server_TurnDodgeDisabledOn()
 		e.shouldDeployWeapon = false
 		DeployAndEnableWeapons( titan )
+		StatusEffect_Stop( titan, tempSlow )
+		StatusEffect_Stop( titan, tempSpeed )
 
 		titan.WaitSignal( "CoreEnd" )
 
