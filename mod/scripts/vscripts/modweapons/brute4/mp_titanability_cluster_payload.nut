@@ -8,6 +8,9 @@ global function OnWeaponNpcPrimaryAttack_cluster_payload
 
 void function MpTitanAbilityClusterPayload_Init()
 {
+	#if SERVER
+		RegisterWeaponDamageSource( "mp_titanability_cluster_payload", "Cluster Payload" )
+	#endif
 }
 
 var function OnWeaponPrimaryAttack_cluster_payload( entity weapon, WeaponPrimaryAttackParams attackParams )

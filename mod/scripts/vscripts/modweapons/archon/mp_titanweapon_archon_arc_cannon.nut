@@ -94,6 +94,9 @@ void function MpTitanWeaponArchonArcCannon_Init()
 		// adding a new damageSourceId. it's gonna transfer to client automatically
 	    RegisterWeaponDamageSource( "mp_titanweapon_archon_arc_cannon", "#WPN_TITAN_ARC_CANNON" )
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_archon_arc_cannon, ArchonCannonOnDamage )
+	
+		// modified function in sh_titan.gnut, for us add stagger model animation to titan
+		Titan_AddStaggerTriggeringDamageSourceID( eDamageSourceId.mp_titanweapon_archon_arc_cannon )
 	#endif
 }
 

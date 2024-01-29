@@ -51,6 +51,9 @@ void function MpTitanWeaponBrute4QuadRocket_Init()
 	// seems not very necessary to handle single shot
 	// we should keep as less as we can for missile mods -- they can sometimes block fire
 	Vortex_AddWeaponModRetainedOnRefire( "mp_titanweapon_rocketeer_rocketstream", "brute4_single_shot" )
+
+	// modified function in sh_titan.gnut, for us add stagger model animation to titan
+	Titan_AddStaggerTriggeringDamageSourceID( eDamageSourceId.mp_titanweapon_brute4_quad_rocket )
 #endif // #if SERVER
 }
 

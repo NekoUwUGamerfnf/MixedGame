@@ -26,6 +26,9 @@ void function MpTitanWeaponChargeBall_Init()
 
 		AddDamageCallbackSourceID( eDamageSourceId.mp_titanweapon_charge_ball, ChargeBallOnDamage )
 		RegisterBallLightningDamage( eDamageSourceId.mp_titanweapon_charge_ball )
+
+		// modified function in sh_titan.gnut, for us add stagger model animation to titan
+		Titan_AddStaggerTriggeringDamageSourceID( eDamageSourceId.mp_titanweapon_charge_ball )
 	#endif
 }
 

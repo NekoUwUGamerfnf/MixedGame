@@ -36,7 +36,7 @@ void function OnProjectileCollision_Brute4_QuadRocket( entity projectile, vector
 				popcornInfo.weaponName = "mp_titanweapon_rocketeer_rocketstream"
 				//popcornInfo.weaponMods = projectile.ProjectileGetMods() // vanilla behavior, not changing to Vortex_GetRefiredProjectileMods()
 				popcornInfo.weaponMods = untypedMods // I don't care, let's break vanilla behavior
-				popcornInfo.damageSourceId = eDamageSourceId.mp_titanweapon_brute4_quad_rocket
+				popcornInfo.damageSourceId = eDamageSourceId.mp_titanability_cluster_payload // registered in mp_titanability_cluster_payload.nut
 				popcornInfo.count = 9
 				popcornInfo.delay = mods.contains( "rapid_detonator" ) ? 0.4 : 0.3 // Avg delay and duration -20%
 				popcornInfo.offset = 0.15

@@ -37,6 +37,9 @@ void function MpTitanWeaponStormCore_Init()
 
 		// modified utility in _vortex.nut
 		RegisterNewVortexIgnoreWeaponMod( "archon_storm_core", true )
+
+		// modified function in sh_titan.gnut, for us add stagger model animation to titan
+		Titan_AddStaggerTriggeringDamageSourceID( eDamageSourceId.mp_titancore_storm_core )
 	#endif
 }
 

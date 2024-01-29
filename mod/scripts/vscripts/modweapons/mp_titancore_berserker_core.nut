@@ -35,7 +35,10 @@ void function Berserker_Core_Init()
 		// modified function in sh_melee_titan, other players can't counter berserker core's melee
 		TitanMelee_AddCounterImmuneMod( BERSERKER_CORE_MELEE_MOD_NAME )
 		TitanMelee_AddDamageSourceIdMod( BERSERKER_CORE_MELEE_MOD_NAME, eDamageSourceId.mp_titancore_berserker_core )
-	
+
+		// modified function in sh_titan.gnut, for us add stagger model animation to titan
+		Titan_AddStaggerTriggeringDamageSourceID( eDamageSourceId.mp_titancore_berserker_core )
+
 		RegisterSignal( "BerserkerCore_FistDeactivated" )
 	#endif
 }
