@@ -95,14 +95,20 @@ bool function OnAbilityCharge_StormCore( entity weapon )
 			// that case will make titan have bad moving animation
 			// pretty weird... unlike moblin's archon, this version of storm core will be deactivated immediately after firing...
 			// thus anim issue never happens, will that cause it to be way too powerful?
-			StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime, 0 )
+			// EDIT: fixed by lowering "fire_rate" to 1.0, still use slow duration fix!
+			//StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime, 0 )
 			//StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.6, chargeTime * 1.5, 0.35 )
+
+			float fireDuration = 1.0 / weapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
+			// slow just needs to cancel player's sprinting
+			StatusEffect_AddTimed( owner, eStatusEffect.move_slow, 0.3, fireDuration * 1.5, 0.35 )
 			StatusEffect_AddTimed( owner, eStatusEffect.dodge_speed_slow, 0.6, chargeTime, 0 )
 		}
 
 		// use eStatusEffect.emp as damage amp effect
-		StatusEffect_AddTimed( owner, eStatusEffect.emp, 0.05, chargeTime*1.5, 0.35 )
+		//StatusEffect_AddTimed( owner, eStatusEffect.emp, 0.05, chargeTime*1.5, 0.35 )
 		//StatusEffect_AddTimed( soul, eStatusEffect.damageAmpFXOnly, 1.0, chargeTime, 0 )
+		StatusEffect_AddTimed( owner, eStatusEffect.emp, 0.15, chargeTime*1.5, 0.35 )
 
 		if ( owner.IsPlayer() )
 			owner.SetTitanDisembarkEnabled( false )
