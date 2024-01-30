@@ -393,11 +393,14 @@ void function PlayDamageSounds( entity ent, entity attacker, string titan1P_SFX,
 {
 	// vanilla missing: sound shouldn't play on projectile...
 	// grenades are projectiles that can take damage( that's why electric smoke grenade is so loud, it's emitting damaged sound )
+	// EDIT: seems no need to fix this
+	/*
 	if ( ent.IsProjectile() )
 	{
 		if ( ent.proj.onlyAllowSmartPistolDamage )
 			return
 	}
+	*/
 	//
 
 	float currentTime = Time()
