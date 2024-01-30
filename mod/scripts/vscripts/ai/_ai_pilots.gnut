@@ -16,6 +16,8 @@ global function NpcPilotBecomesTitan
 
 global function NpcTitanBecomesPilot
 global function TitanHasNpcPilot
+// new function after adding full-compat npc embarking
+global function GetTitanEmbarkedNpcClassName
 global function NpcPilotGetPetTitan
 global function NpcPilotSetPetTitan
 
@@ -513,9 +515,14 @@ function __NpcPilotDisembarksTitan( pilot, titan )
 		{
 			if ( !result.disembarkSucceeded ) // function didn't reach last line
 			{
+				// like playes... there's no need we kill pilot if disembarking failed
+				/*
 				if ( !IsAlive( titan ) && IsAlive( pilot ) ) // titan killed but pilot still alive
 					pilot.Die( null, null, { damageSourceId = damagedef_suicide, scriptType = DF_RAGDOLL } ) // kill the pilot!
+				*/
 			}
+
+			NPCEndsDisembark( pilot, titan )
 		}
 	)
 	//
@@ -538,35 +545,53 @@ function __NpcPilotDisembarksTitan( pilot, titan )
 	}
 
 	// invulnerable done here, titan never get invulnerable.
-	local isInvulnerable = pilot.IsInvulnerable()
+	//local isInvulnerable = pilot.IsInvulnerable()
 	pilot.SetInvulnerable()
 
 	// build firstPersonSequence struct
 	// taken from sh_titan_embark.gnut
-	FirstPersonSequenceStruct sequence
-	sequence.blendTime = 0
-	sequence.teleport = true
-	sequence.attachment = "hijack"
-	sequence.thirdPersonAnim = expect string( pilot3pAnim )
+	FirstPersonSequenceStruct pilotSequence
+	pilotSequence.blendTime = 0
+	pilotSequence.teleport = true
+	pilotSequence.attachment = "hijack"
+	pilotSequence.thirdPersonAnim = expect string( pilot3pAnim )
+	pilotSequence.useAnimatedRefAttachment = true
 	// no fp anim for npc pilots
-	local titanAnim = titanDisembarkAnim
+
+	//local titanAnim = titanDisembarkAnim
+	vector origin = titan.GetOrigin()
+	vector angles = titan.EyeAngles()
+	angles.z = 0
+	angles.x = 0
+	FirstPersonSequenceStruct titanSequence
+	titanSequence.blendTime = 0.3
+	titanSequence.thirdPersonAnim = expect string( titanDisembarkAnim )
+	if ( !standing )
+		titanSequence.thirdPersonAnimIdle = "at_MP_embark_idle_blended"
+	titanSequence.gravity = true
+	titanSequence.origin = origin
+	titanSequence.angles = angles
 
 //	pilot.SetParent( titan, "hijack" )
 	//EmitSoundOnEntity( titan, pilot3pAudio )
 	// should use firstPersonSequence instead of PlayAnim
 	//thread PlayAnim( titan, titanDisembarkAnim )
 	//waitthread PlayAnim( pilot, pilot3pAnim, titan, "hijack" )
-	thread PlayAnimGravity( titan, titanAnim )
-	waitthread FirstPersonSequence( sequence, pilot, titan ) // pilot anim is shorter, wait for it
+	
+	thread FirstPersonSequence( titanSequence, titan )
+	waitthread FirstPersonSequence( pilotSequence, pilot, titan ) // pilot anim is shorter, wait for it
 
-	pilot.ClearParent() // clear parent from titan
+	//pilot.ClearParent() // clear parent from titan
 
 	if ( titan.ContextAction_IsBusy() )
 		titan.ContextAction_ClearBusy()
+	// pilot cleanup handled by NPCEndsDisembark()
+	/*
 	if ( pilot.ContextAction_IsBusy() )
 		pilot.ContextAction_ClearBusy()
-	if ( !isInvulnerable )
+	//if ( !isInvulnerable )
 		pilot.ClearInvulnerable()
+	*/
 	//titan.ClearInvulnerable()
 
 	if ( !standing )
@@ -574,6 +599,51 @@ function __NpcPilotDisembarksTitan( pilot, titan )
 
 	// for handling titan killed condition
 	result.disembarkSucceeded = true // mark as embark succeeded
+}
+
+// taken from sh_titan_embark.gnut, with some modifications to fit npc usage
+function NPCEndsDisembark( pilot, titan )
+{
+	thread NPCEndsDisembarkThread( pilot, titan )
+}
+
+function NPCEndsDisembarkThread( pilot, titan )
+{
+	expect entity( pilot )
+	expect entity( titan )
+
+	if ( !IsValid( pilot ) )
+		return
+	pilot.EndSignal( "OnDestroy" )
+
+	wait 0.1
+	if ( pilot.ContextAction_IsBusy() )
+		pilot.ContextAction_ClearBusy()
+
+	pilot.ClearInvulnerable()
+	pilot.ClearParent()
+	pilot.Anim_Stop()
+
+	//// give a player a boost out the door
+    //
+    //
+	if ( IsAlive( pilot ) )
+	{
+		local angles = pilot.GetAngles()
+		if ( IsValid( titan ) )
+			angles = titan.GetAngles()
+
+		angles.x = 0
+		angles.z = 0
+		// handle angles here: npc never rotates
+		pilot.SetAngles( angles )
+
+		local forward = AnglesToForward( angles )
+		local up = AnglesToUp( angles )
+		local vel = forward * 250 + up * 200
+		pilot.SetVelocity( vel )
+		//DebugDrawLine( player.GetOrigin(), player.GetOrigin() + forward * 500, 255, 0, 0, true, 5.0 )
+	}
 }
 
 void function NpcPilotBecomesTitan( entity pilot, entity titan )
@@ -751,6 +821,15 @@ bool function TitanHasNpcPilot( entity titan )
 		return false
 
 	return true
+}
+
+// new utility function
+string function GetTitanEmbarkedNpcClassName( entity titan )
+{
+	if ( !TitanHasNpcPilot( titan ) )
+		return ""
+	entity titanSoul = titan.GetTitanSoul()
+	return titanSoul.soul.seatedNpcPilot.npcClass
 }
 
 entity function NpcPilotGetPetTitan( entity pilot )
