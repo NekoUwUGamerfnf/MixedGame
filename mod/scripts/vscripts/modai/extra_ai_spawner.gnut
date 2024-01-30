@@ -1905,7 +1905,7 @@ void function FakePlayerScoreEventForNPCKilled( entity victim, entity attacker, 
 		// npc pilot killed battle chatter
 		// also killstreak count
 		if ( victim.GetClassName() == "npc_pilot_elite"
-			|| ( victim.IsTitan() && TitanHasNpcPilot( victim ) ) )
+			|| ( victim.IsTitan() && TitanIsEmbarkedByNPCPilot( titan ) ) )
 		{
 			if ( !attacker.IsTitan() )
 				TryPilotKillChatter( attacker ) // shared from _battle_chatter.gnut
@@ -1949,7 +1949,18 @@ string function ExtraSpawner_GetNPCScoreEvent( entity ent )
 	if ( ent.IsTitan() )
 	{
 		if ( TitanHasNpcPilot( ent ) ) // pilot was killed without ejecting
-			scoreEvent = "EliminatePilot"
+		{
+			// due we added other npc's capability of embarking
+			// should also handle their score
+			if ( TitanIsEmbarkedByNPCPilot( ent ) )
+				scoreEvent = "EliminatePilot"
+			else
+			{
+				// shared utility function from levels_util.gnut
+				string embarkedNPCClass = GetTitanEmbarkedNpcClassName( ent )
+				scoreEvent = Levels_GetNPCScoreEventNameFromClassName( embarkedNPCClass )
+			}
+		}
 	}
 
 	return scoreEvent
@@ -4460,6 +4471,11 @@ void function ExtraSpawner_ApplyNPCWeapons( entity npc, bool replaceAllWeapons =
 		ExtraSpawner_ApplyNPCExtraWeaponMods( npc ) // add extra weapon mods
 
 	// also make them use heavy armor weapon
+	ExtraSpawner_NPCWeaponUsageInit( npc )
+}
+
+void function ExtraSpawner_NPCWeaponUsageInit( entity npc )
+{
 	npc.SetEnemyChangeCallback( ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon )
 	// start updating weapon bodygroup
 	ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( npc )
@@ -5187,9 +5203,15 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 }
 
 // default handler!
+// similar to normal squad handler, but it handles only 1 soldier
 void function ExtraSpawner_SoldierHandler( entity guy )
 {
-	// similar to normal squad handler, but it handles only 1 soldier
+	guy.EndSignal( "OnDestroy" )
+	guy.EndSignal( "OnDeath" )
+	// Signals for controlling
+	guy.Signal( "StopDefaultHandler" )
+	guy.EndSignal( "StopDefaultHandler" )
+
 	int team = guy.GetTeam()
 	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
 	foreach ( entity weapon in guy.GetMainWeapons() )
@@ -5502,8 +5524,6 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 	mltSkinIndex 		= currentTitan.mltSkinIndex
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
-	// setup name for us recognizing
-	SetTitanSpawnName( titan, spawnName )
 
 	SetSpawnOption_AISettings( titan, aiSet )
     titan.ai.titanSpawnLoadout.setFile = setFile
@@ -5522,6 +5542,8 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 		titan.SetSkin( mltSkinIndex )
 
 	// titan won't have a soul until they DispatchSpawn()
+	// setup name for us recognizing
+	SetTitanSpawnName( titan, spawnName )
 	if ( executionRef != "" )
 		titan.GetTitanSoul().soul.titanLoadout.titanExecution = executionRef
 	if ( loadoutFunction != null ) // modded titan!!
@@ -5602,8 +5624,6 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiSet )
-	// setup name for us recognizing
-	SetBossTitanSpawnName( titan, spawnName )
 
 	// setup boss
 	titan.ai.bossCharacterName = bossName
@@ -5627,6 +5647,8 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	if ( decalIndex > -1 )
 		titan.SetDecal( decalIndex ) // nose art
 	// titan won't have a soul until they DispatchSpawn()
+	// setup name for us recognizing
+	SetBossTitanSpawnName( titan, spawnName )
 	entity titanSoul = titan.GetTitanSoul()
 	if ( executionRef != "" )
 		titanSoul.soul.titanLoadout.titanExecution = executionRef
@@ -5712,6 +5734,12 @@ string function ExtraSpawner_GetBossTitanSpawnName( entity titan )
 	return file.soulBossTitanSpawnName[ soul ]
 }
 
+// due we've add other npc's capability of embarking, should make this function for identifying
+bool function TitanIsEmbarkedByNPCPilot( entity titan )
+{
+	return GetTitanEmbarkedNpcClassName( titan ) == "npc_pilot_elite"
+}
+
 void function SetUpBossTitanPilotModel( entity model, entity titan )
 {
 	// if this is a prop, and titan's pilot spawned by this file...
@@ -5723,7 +5751,7 @@ void function SetUpBossTitanPilotModel( entity model, entity titan )
 		{
 			if ( soul in file.soulEmbarkedNPCSpawnFromExtraSpawner )
 			{
-				if ( soul.soul.seatedNpcPilot.npcClass == "npc_pilot_elite" )
+				if ( TitanIsEmbarkedByNPCPilot( titan ) )
 					SetDefaultMPEnemyHighlight( model )
 			}
 		}
@@ -6167,6 +6195,11 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 void function ExtraSpawner_SpawnSpecialistGruntCanEmbark( vector pos, vector rot, int team, string aiSet = "npc_soldier_drone_summoner", int maxHealth = 350, string spawnName = "" )
 {
 	entity grunt = ExtraSpawner_SpawnSpecialistGrunt( pos, rot, team, aiSet, maxHealth )
+	// hardcoded here, setup grunt weapon specific
+	bool sniperGrunt = aiSet == "npc_soldier_sidearm"
+	bool guardGrunt = aiSet == "npc_soldier_pve_eliteguard"
+	bool replaceAllWeapons = !sniperGrunt && !guardGrunt
+	ExtraSpawner_ApplyNPCWeapons( grunt, replaceAllWeapons )
 	// setup grunt specific titan spawn function
 	ExtraSpawner_PilotRunsToEmbarkFallingTitan( grunt, pos, rot, team, spawnName, ExtraSpawner_SpawnTitanForGrunt )
 }
@@ -6241,6 +6274,11 @@ const int NPC_PLACED_TURRET_PROFICIENCY = eWeaponProficiency.VERYGOOD
 
 void function SetUpSpecialistGrunt( entity npc, string aiSet )
 {
+	//print( "Running SetUpSpecialistGrunt()" )
+
+	// stop any existing think
+	StopSpecialistGruntThink( npc, aiSet )
+
 	// hardcoded here..
 	int team = npc.GetTeam()
 	switch( aiSet )
@@ -6261,8 +6299,6 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			//npc.SetTitle( "#NPC_SPECIALIST" )
 			npc.SetTitle( "特種步兵" )
 			npc.SetBehaviorSelector( "behavior_sp_soldier" ) // they'll throw grenade more often
-			// modified signal in _ai_drone.gnut, vanilla won't register it
-			npc.Signal( "ForceStopDroneSpawn" ) // stop it's drone spawn think
 
 			string droneType = SPECIALIST_VALID_DRONETYPES[ RandomInt( SPECIALIST_VALID_DRONETYPES.len() ) ]
 			thread DroneGruntThink( npc, droneType ) // force set it again
@@ -6274,7 +6310,6 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 			npc.SetModel( $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
 
 			npc.SetTitle( "#NPC_SOLDIER_SHIELD_CAPTAIN" )
-			npc.Signal( "ForceStopShield" ) // stop it's shield
 			// force set them again here
 			npc.DisableNPCFlag( NPC_ALLOW_FLEE | NPC_ALLOW_HAND_SIGNALS | NPC_USE_SHOOTING_COVER | NPC_CROUCH_COMBAT )
 			thread WaitForShieldCaptainDrop( npc ) // start shield after being clear parented
@@ -6394,6 +6429,35 @@ void function SetUpSpecialistGrunt( entity npc, string aiSet )
 
 			thread TurretGruntThink( npc ) // start turret placement think
 
+			break
+	}
+}
+
+void function StopSpecialistGruntThink( entity npc, string aiSet )
+{
+	// hardcoded here..
+	int team = npc.GetTeam()
+	switch( aiSet )
+	{
+		case "npc_soldier_drone_summoner": // drone summoner grunt
+			// modified signal in _ai_drone.gnut, vanilla won't register it
+			npc.Signal( "ForceStopDroneSpawn" ) // stop it's drone spawn think
+			break
+
+		case "npc_soldier_shield_captain": // shield captain
+			npc.Signal( "ForceStopShield" ) // stop it's shield
+			break
+
+		case "npc_soldier_sidearm": // sniper grunt
+			// no special behavior
+			break
+
+		case "npc_soldier_pve_eliteguard": // elite guard grunt
+			// no special behavior
+			break
+
+		case "npc_soldier_training_sentry": // turret grunt
+			npc.Signal( "ForceStopTurretPlacement" ) // stop it's turret placement think
 			break
 	}
 }
@@ -7240,15 +7304,9 @@ void function ExtraSpawner_SetUpNPCPilot( entity pilot, void functionref( entity
 		//pilot.SetBehaviorSelector( "behavior_pilot_elite_assassin" )
 	}
 
-	// disabled SelectSchedule_SwitchWeapon in their behavior, since pilot model not included "pete_agent.mdl", no animations for switching to pistols
-	pilot.SetEnemyChangeCallback( ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon )
 	// start tactical ability think
 	AssignTacticalAbilityForNPCPilot( pilot )
 	ExtraSpawner_ScriptedNPCPilotTacticalAbility( pilot )
-
-	// start updating bodygroup
-	// this will handle npc pilot disembarking/ejecting case
-	ExtraSpawner_StartUpdatingNPCWeaponBodyGroup( pilot )
 
 	// pilots are bit special, start handler in setup func
 	if ( pilotHandler != null )
@@ -8606,15 +8664,13 @@ void function GruntTitanLoadout( entity titan )
 	titan.SetCamo( 0 )
 
 	string spawnName = ExtraSpawner_GetTitanSpawnName( titan )
-	print( "spawnName: " + spawnName )
-	/*
+	//print( "spawnName: " + spawnName )
 	// don't use any special behavior
 	TitanSpawnStruct currentTitan = file.titanSpawnList[ spawnName ]
 	string embarkedAiSet 		= currentTitan.aiSet // use auto-titan aiSettings
 	string embarkedBehavior 	= "behavior_titan_buddy" // non-special titan behavior, won't use core ability
 	string embarkedTitle 		= currentTitan.embarkedTitle
 	SetTitanSoulEmbarkedSettings( titan, embarkedAiSet, embarkedBehavior, embarkedTitle )
-	*/
 
 	// behavior settings
 	entity soul = titan.GetTitanSoul()
@@ -8635,6 +8691,7 @@ void function GruntTitanLoadout( entity titan )
 		// disallow script synced melee in _melee_synced_npc.gnut
 		NPCSyncedMelee_Disable( titan )
 	}
+	//print( "Done GruntTitanLoadout()" )
 }
 
 void function ExtraSpawner_SetUpPilotOwnedAutoTitan( entity titan )
@@ -8643,8 +8700,10 @@ void function ExtraSpawner_SetUpPilotOwnedAutoTitan( entity titan )
 	if ( IsValid( soul ) )
 	{
 		// same behavior as _titan_npc_behavior.gnut, OnClassChangeBecomePilot() does
+		// can't really handle stuffs... not sure why
 		if ( !SoulHasPassive( soul, ePassives.PAS_ENHANCED_TITAN_AI ) )
 		{
+			//print( "Disabling auto-titan ability" )
 			entity ordnanceWeapon = titan.GetOffhandWeapon( OFFHAND_ORDNANCE )
 			if ( IsValid( ordnanceWeapon ) )
 				ordnanceWeapon.AllowUse( false )
@@ -8666,7 +8725,10 @@ void function ExtraSpawner_SetUpPilotOwnedAutoTitan( entity titan )
 		}
 	}
 
-	titan.SetBehaviorSelector( "behavior_mp_auto_titan" )
+	if ( IsValid( soul ) && SoulHasPassive( soul, ePassives.PAS_ENHANCED_TITAN_AI ) )
+		titan.SetBehaviorSelector( "behavior_mp_auto_titan_enhanced" )
+	else
+		titan.SetBehaviorSelector( "behavior_mp_auto_titan" )
 }
 
 void function PetTitanOwnerLifeTimeCheck( entity titan, entity owner )
@@ -9335,6 +9397,8 @@ void function EmbarkedNPCTitanEjectThink_Threaded( entity titan )
 	titan.EndSignal( "OnDestroy" )
 	titan.Signal( "EmbarkedNPCTitanEjectThink" )
 	titan.EndSignal( "EmbarkedNPCTitanEjectThink" )
+	// HACK to stop thread when getting executed
+	titan.EndSignal( "OnSyncedMeleeVictim" )
 
 	float doomedStartTime = -1
 	bool hasSetUpDeathEject = false
@@ -9460,6 +9524,18 @@ void function EmbarkedNPCTitanDisembarkThink_Threaded( entity titan )
 	titan.EndSignal( "OnDestroy" )
 	titan.Signal( "EmbarkedNPCTitanDisembarkThink" )
 	titan.EndSignal( "EmbarkedNPCTitanDisembarkThink" )
+	// HACK to stop thread when getting executed
+	titan.EndSignal( "OnSyncedMeleeVictim" )
+
+	/*
+	OnThreadEnd
+	(
+		function(): ()
+		{
+			print( "EmbarkedNPCTitanDisembarkThink_Threaded() ended" )
+		}
+	)
+	*/
 
 	while ( true )
 	{
@@ -9478,9 +9554,12 @@ void function EmbarkedNPCTitanDisembarkThink_Threaded( entity titan )
 	}
 }
 
+// why is this causing everything to stuck???
 void function ExtraSpawner_StopNPCTitanDisembarkThink( entity titan )
 {
+	//print( "ExtraSpawner_StopNPCTitanDisembarkThink() started" )
 	titan.Signal( "EmbarkedNPCTitanDisembarkThink" )
+	//print( "ExtraSpawner_StopNPCTitanDisembarkThink() ended" )
 }
 
 // settings func
@@ -9804,16 +9883,10 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		entity titanSoul = titan.GetTitanSoul()
 		if( !IsValid( titanSoul ) ) // defensive fix for titan.Destroy() situations
 			return
-
-		bool isEjecting = titanSoul.IsEjecting()
-		if( isEjecting )
-		{
-			thread NPCPilotEjectingAnimation( pilot )
-			thread DelayedFindSafeSpotForEjectingPilot( pilot )
-		}
 		
 		// setup disembarked behaviors
 		ExtraSpawner_SetUpNPCDisembarkedTitan( titan )
+		//print( "Done ExtraSpawner_SetUpNPCDisembarkedTitan()" )
 
 		// kinda annoying to have a info target all around them.
 		//string aiSetFile = titan.GetAISettingsName()
@@ -9821,35 +9894,48 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		//Highlight_ClearEnemyHighlight( titan ) // this resets highlights in modified sh_highlights
 	
 		// restore mark for pilot
-		entity soul = titan.GetTitanSoul()
-		if ( IsValid( soul ) )
+		if ( titanSoul in file.soulEmbarkedNPCSpawnFromExtraSpawner )
 		{
-			if ( soul in file.soulEmbarkedNPCSpawnFromExtraSpawner )
+			ExtraSpawner_SetUpSpawnedNPC( pilot ) // generic setup for any npc in this file
+			ExtraSpawner_NPCWeaponUsageInit( pilot ) // init weapon usage
+
+			// we now allow different npcs to embark the titan
+			// needs to hardcode every setup
+			if ( IsPilotElite( pilot ) )
 			{
-				ExtraSpawner_SetUpSpawnedNPC( pilot ) // generic setup for any npc in this file
-
-				// we now allow different npcs to embark the titan
-				// needs to hardcode every setup
-				if ( IsPilotElite( pilot ) )
-				{
-					// setup pilot and their handler call
-					ExtraSpawner_SetUpNPCPilot( pilot )
-					// setup specific model
-					SetUpBossTitanPilotModel( pilot, titan )
-				}
-				else if ( IsGrunt( pilot ) )
-				{
-					// setup specialist grunt
-					SetUpSpecialistGrunt( pilot, pilot.GetAISettingsName() )
-					// start grunt handler
-					if ( GetNPCHandlerForClass( pilot.GetClassName() ) != null )
-						thread GetNPCHandlerForClass( pilot.GetClassName() )( pilot )
-				}
-
-				delete file.soulEmbarkedNPCSpawnFromExtraSpawner[ soul ]
+				// setup pilot behavior
+				ExtraSpawner_SetUpNPCPilot( pilot )
+				// setup specific model
+				SetUpBossTitanPilotModel( pilot, titan )
 			}
+			else if ( IsGrunt( pilot ) )
+			{
+				//print( "Grunt Disembarking!" )
+				// setup specialist grunt
+				thread SetUpSpecialistGruntAfterLanding( pilot )
+			}
+
+			// start npc handler
+			if ( GetNPCHandlerForClass( pilot.GetClassName() ) != null )
+				thread GetNPCHandlerForClass( pilot.GetClassName() )( pilot )
+
+			delete file.soulEmbarkedNPCSpawnFromExtraSpawner[ titanSoul ]
+		}
+
+		// ejecting behavior
+		bool isEjecting = titanSoul.IsEjecting()
+		if( isEjecting )
+		{
+			thread NPCPilotEjectingAnimation( pilot )
+			thread DelayedFindSafeSpotForEjectingPilot( pilot )
+		}
+		else // disembarking behavior
+		{
+			thread DelayedFindSafeSpotForDisembarkingPilot( pilot )
 		}
 	}
+
+	//print( "Done OnNpcTitanBecomesPilot()" )
 }
 
 void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
@@ -9889,7 +9975,8 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	// this function has been removed
 	//ExtraSpawner_RemoveNPCTitanNoPain( titan )
 	ExtraSpawner_StopNPCTitanEjectThink( titan )
-	ExtraSpawner_StopNPCTitanDisembarkThink( titan )
+	// I don't know why this cause everything to stuck...
+	//ExtraSpawner_StopNPCTitanDisembarkThink( titan )
 }
 
 // if pilot still not touching ground after this amount of time
@@ -9988,24 +10075,46 @@ bool function IsPilotNearGround( entity pilot )
 	return true
 }
 
-const float NPC_PILOT_FIX_POSITION_REQUIRED_LANDING_TIME = 0.5
+const float NPC_PILOT_EJECTING_FIX_POSITION_FAILSAFE = 6.0
 void function DelayedFindSafeSpotForEjectingPilot( entity pilot )
+{
+	thread FixPositionAfterDelayOrWhenLanding( pilot, NPC_PILOT_EJECTING_FIX_POSITION_FAILSAFE )
+}
+
+const float NPC_PILOT_DISEMBARKING_FIX_POSITION_FAILSAFE = 1.5
+void function DelayedFindSafeSpotForDisembarkingPilot( entity pilot )
 {
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
+
+	// wait for disembarking sequence to start
+	WaitFrame()
+	
+	// wait for disembarking sequence to end
+	while( pilot.Anim_IsActive() )
+		WaitFrame()
+
+	thread FixPositionAfterDelayOrWhenLanding( pilot, NPC_PILOT_DISEMBARKING_FIX_POSITION_FAILSAFE )
+}
+
+const float NPC_PILOT_FIX_POSITION_REQUIRED_LANDING_TIME = 0.5
+void function FixPositionAfterDelayOrWhenLanding( entity npc, float maxDelay )
+{
+	npc.EndSignal( "OnDestroy" )
+	npc.EndSignal( "OnDeath" )
 	
 	// npc being set to mid-air isn't ideal, most time it causes trouble
 	// we try to correct pilot's position after certain delay...
 	// because we can't make sure whether they're landed on ground or just hit something in mid-air
-	//wait PILOT_EJECTING_ANIM_FAILSAFE
+	//wait maxDelay
 	// wait, maybe we can try to check landing for ~1s and fix position?
 	float touchGroundStartTime = -1
-	float failSafeTime = Time() + PILOT_EJECTING_ANIM_FAILSAFE
+	float failSafeTime = Time() + maxDelay
 	while( Time() < failSafeTime )
 	{
-		if ( pilot.IsOnGround() && touchGroundStartTime == -1 )
+		if ( npc.IsOnGround() && touchGroundStartTime == -1 )
 			touchGroundStartTime = Time()
-		else if ( !pilot.IsOnGround() ) // not on ground...
+		else if ( !npc.IsOnGround() ) // not on ground...
 			touchGroundStartTime = -1
 
 		// wait for landing enough time
@@ -10018,17 +10127,44 @@ void function DelayedFindSafeSpotForEjectingPilot( entity pilot )
 		WaitFrame()
 	}
 
-	vector startPos = pilot.GetOrigin()
-	vector ornull clampedPos = NavMesh_ClampPointForAI( startPos, pilot )
+	FindSafeSpotForNPC_FallbackToClampPos( npc )
+}
+
+void function FindSafeSpotForNPC_FallbackToClampPos( entity npc )
+{
+	vector startPos = npc.GetOrigin()
+	vector ornull clampedPos = NavMesh_ClampPointForAI( startPos, npc )
 	if ( clampedPos != null )
 	{
 		expect vector( clampedPos )
 		// try to put to safe spot. if that failed, put pilot to clamped position -- that place they should be able to move
 		// don't know how that works, let's just put to clampedPos first then fix position once
-		//if ( !PutEntityInSafeSpot( pilot, null, null, pilot.GetOrigin(), clampedPos ) )
-			pilot.SetOrigin( clampedPos )
-		PutEntityInSafeSpot( pilot, null, null, startPos, clampedPos )
+		//if ( !PutEntityInSafeSpot( npc, null, null, npc.GetOrigin(), clampedPos ) )
+			npc.SetOrigin( clampedPos )
+		PutEntityInSafeSpot( npc, null, null, startPos, clampedPos )
 	}
+}
+
+void function SetUpSpecialistGruntAfterLanding( entity grunt )
+{
+	grunt.EndSignal( "OnDestroy" )
+	grunt.EndSignal( "OnDeath" )
+
+	// stop any existing think called by _ai_spawn_content.gnut
+	StopSpecialistGruntThink( grunt, grunt.GetAISettingsName() )
+
+	// wait for disembarking sequence to start
+	WaitFrame()
+
+	// wait for disembarking or ejecting sequence to end
+	while( grunt.Anim_IsActive() )
+		WaitFrame()
+
+	while ( !grunt.IsOnGround() )
+		WaitFrame()
+
+	//print( "setting up specialist grunt after they landing!" )
+	SetUpSpecialistGrunt( grunt, grunt.GetAISettingsName() )
 }
 
 // modified callbacks
