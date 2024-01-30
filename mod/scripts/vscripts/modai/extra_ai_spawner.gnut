@@ -11,8 +11,12 @@ global function ExtraSpawner_OnEnemyChanged_SwitchToHeavyArmorWeapon
 // non-infantry npc spawn
 global function ExtraSpawner_SpawnNPCInDropPod
 // specialist squads
+global function ExtraSpawner_SpawnSpecialistGrunt
 global function ExtraSpawner_SpawnSpecialistGruntDropShip
 global function ExtraSpawner_SpawnSpecialistGruntDropPod
+// for fun: spawn a specialist grunt who pilots a titan
+global function ExtraSpawner_SpawnSpecialistGruntCanEmbark
+global function ExtraSpawner_SpawnTitanWithSpecialistGrunt
 // prowler squad: 2 cqb prowler with 3 small prowlers
 global function ExtraSpawner_SpawnProwlerSquadDropPod
 // stronger stalker: harder to be dismembered, no faster headshot kills, no more one-critical-hit overload, always overload on death if not getting headshot
@@ -22,8 +26,10 @@ global function ExtraSpawner_SetUpOverloadedStalker
 
 // titan spawn
 global function ExtraSpawner_SpawnTitan
+global function ExtraSpawner_GetTitanSpawnName
 global function ExtraSpawner_SpawnTitanBT
 global function ExtraSpawner_SpawnBossTitan
+global function ExtraSpawner_GetBossTitanSpawnName
 // utility
 global function ExtraSpawner_NPCTitanDrops
 global function ExtraSpawner_SetNPCPilotEmbarkedTitanNuke
@@ -36,11 +42,19 @@ global function ExtraSpawner_StopNPCTitanCoreAbility
 //global function ExtraSpawner_RemoveNPCTitanNoPain
 global function ExtraSpawner_EmbarkedNPCTitanEjectThink
 global function ExtraSpawner_StopNPCTitanEjectThink
+global function ExtraSpawner_EmbarkedNPCTitanDisembarkThink
+global function ExtraSpawner_StopNPCTitanDisembarkThink
+
 // modded titan registering func
 global function ExtraSpawner_RegisterToTitanSpawnList
 global function ExtraSpawner_RegisterToBossTitanSpawnList
 global function ExtraSpawner_AddScriptedNPCTitanCoreThink
-// settings
+// scripted behavior settings
+global function ExtraSpawner_DisableNPCTitanRodeoCounterOnEmbark // don't run rodeo counter automatically on npc embark
+global function ExtraSpawner_DisableNPCTitanScriptedCoreAbilityOnEmbark // don't run scripted core ability automatically on npc embark
+global function ExtraSpawner_DisableNPCTitanEjectThinkOnEmbark // don't run ejecting think automatically on npc embark
+global function ExtraSpawner_EnableNPCTitanDisembarkThinkOnEmbark // run disembarking think on npc embark
+// extra think settings
 global function ExtraSpawner_EnableEmbarkedNPCTitanNoPain // this is enabled by default for each titan!
 global function ExtraSpawner_SetEmbarkedNPCTitanCoreMultiplier
 global function ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee // this is disabled by default
@@ -364,12 +378,19 @@ struct
 	table<string, TitanSpawnStruct> titanSpawnList
 	// for ExtraSpawner_SpawnBossTitan() picking random titans
 	table<string, BossTitanSpawnStruct> bossTitanSpawnList
-	// for us get a boss titan's name
-	table<entity, string> bossTitanSpawnName
+	// for us get a titan's spawn name
+	table<entity, string> soulTitanSpawnName
+	table<entity, string> soulBossTitanSpawnName
 	// for BossLoadout_Vanguard() picking random loadouts
 	array<NPCVanguardLoadout> npcVanguardLoadouts
 	array<NPCVanguardPilot> npcVanguardPilots
+	// for grunt piloted titan handle special settings
+	array<GruntTitanLoadoutOverride>
 	// npc titan settings
+	table<entity, bool> soulDisableRodeoCounterOnEmbark
+	table<entity, bool> soulDisableScriptedCoreAbilityOnEmbark
+	table<entity, bool> soulDisableEjectThinkOnEmbark
+	table<entity, bool> soulEnableDisembarkThinkOnEmbark
 	table<entity, bool> soulEnableEmbarkedTitanNoPain
 	table<entity, float> soulEmbarkedTitanCoreMultiplier
 	table<entity, float> soulSavedTitanCoreMultiplier // restore core multiplier on disembark
@@ -444,6 +465,8 @@ struct
 	array<entity> npcVanguardChassisTitan
 	// for sending signals to squad
 	table<string, table> squadSignalDummyTable
+	// for handling embarked npc
+	table<entity, bool> soulEmbarkedNPCSpawnFromExtraSpawner
 } file
 
 void function ExtraAISpawner_Init()
@@ -482,6 +505,7 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "ScriptedNPCTitanCoreAbility" )
 	//RegisterSignal( "EmbarkedNPCTitanNoPain" )
 	RegisterSignal( "EmbarkedNPCTitanEjectThink" )
+	RegisterSignal( "EmbarkedNPCTitanDisembarkThink" )
 	// npc pilot think
 	RegisterSignal( "ScriptedNPCPilotTacticalAbility" )
 	// gunship 
@@ -587,6 +611,8 @@ void function ExtraAISpawner_Init()
 		AddClientCommandCallback( "killallspawnernpc", CC_KillAllNPCsFromExtraSpawner )
 		AddClientCommandCallback( "pilotandtitan", CC_SpawnPilotAndTitan )
 		AddClientCommandCallback( "titanwithpilot", CC_SpawnTitanWithPilot )
+		AddClientCommandCallback( "gruntandtitan", CC_SpawnGruntAndTitan )
+		AddClientCommandCallback( "titanwithgrunt", CC_SpawnTitanWithGrunt )
 		AddClientCommandCallback( "tickreaper", CC_SpawnReaperCanLaunchTicks )
 		AddClientCommandCallback( "gunship", CC_SpawnGunShip )
 		//AddClientCommandCallback( "assassinpilot", CC_SpawnAssassinPilot ) // shouldn't be used because we've removed npc_pilot_elite_assassin stuffs
@@ -3489,6 +3515,10 @@ void function BossLoadout_Anderson( entity titan )
 
 void function InitDefaultNPCHandlerFunctions()
 {
+	file.npcHandlerFuncs[ "npc_soldier" ] = ExtraSpawner_SoldierHandler
+	file.npcHandlerFuncs[ "npc_spectre" ] = ExtraSpawner_SoldierHandler
+	file.npcHandlerFuncs[ "npc_stalker" ] = ExtraSpawner_SoldierHandler
+
 	RegisterSignal( "SquadGuyAssaultThink" )
 	file.squadHandlerFunc = ExtraSpawner_SquadHandler
 
@@ -3967,6 +3997,40 @@ bool function CC_SpawnTitanWithPilot( entity player, array<string> args )
 
     Point dropPoint = GetTitanReplacementPoint( player )
 	thread ExtraSpawner_SpawnTitanWithPilot( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args, 1 ), spawnName )
+	return true
+}
+
+bool function CC_SpawnGruntAndTitan( entity player, array<string> args )
+{   
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	string aiSet = "npc_soldier_drone_summoner"
+	string spawnName = ""
+	if ( args.len() > 0 )
+		aiSet = args[0]
+	if ( args.len() > 1 )
+		spawnName = args[1]
+
+    Point dropPoint = GetTitanReplacementPoint( player )
+	thread ExtraSpawner_SpawnSpecialistGruntCanEmbark( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args, 1 ), aiSet, 350, spawnName )
+	return true
+}
+
+bool function CC_SpawnTitanWithGrunt( entity player, array<string> args )
+{
+	if( !BATTERY_SPAWNERS.contains( player.GetUID() ) )
+		return false
+
+	string aiSet = "npc_soldier_drone_summoner"
+	string spawnName = ""
+	if ( args.len() > 0 )
+		aiSet = args[0]
+	if ( args.len() > 1 )
+		spawnName = args[1]
+
+    Point dropPoint = GetTitanReplacementPoint( player )
+	thread ExtraSpawner_SpawnTitanWithSpecialistGrunt( dropPoint.origin, dropPoint.angles, GetPlayerAISpawnTeam( player, args, 1 ), aiSet, 350, spawnName )
 	return true
 }
 
@@ -4918,6 +4982,18 @@ void function ExtraSpawner_SetUpTitanSeatedPilot( entity titan, int pilotHealth 
 	titanSoul.soul.seatedNpcPilot.health				= pilotHealth
 }
 
+// grunt variant of embarked titan
+void function ExtraSpawner_SetUpTitanSeatedSpecialistGrunt( entity titan, string aiSet = "npc_soldier_drone_summoner", int maxHealth = 350 )
+{
+	entity titanSoul = titan.GetTitanSoul()
+	if ( !IsValid( titanSoul ) )
+		return
+
+	entity grunt = ExtraSpawner_SpawnSpecialistGrunt( titan.GetOrigin(), < 0, 0, 0 >, titan.GetTeam(), aiSet, maxHealth )
+	// this destroys pilot and runs OnNpcPilotBecomesTitan() callback in this file
+	NpcPilotBecomesTitan( grunt, titan )
+}
+
 // npc pilot embarking npc titans
 void function SetTitanSoulEmbarkedSettings( entity titan, string aiSet, string behavior, string title )
 {
@@ -5113,6 +5189,95 @@ void function ExtraSpawner_SpawnDropPod( vector pos, vector rot, int team, strin
 }
 
 // default handler!
+void function ExtraSpawner_SoldierHandler( entity guy )
+{
+	// similar to normal squad handler, but it handles only 1 soldier
+	int team = guy.GetTeam()
+	bool hasHeavyArmorWeapon = false // let's check if guys has heavy armor weapons
+	foreach ( entity weapon in guy.GetMainWeapons() )
+	{
+		if ( !weapon.GetWeaponSettingBool( eWeaponVar.titanarmor_critical_hit_required ) )
+		{
+			hasHeavyArmorWeapon = true
+			break
+		}
+	}
+
+	array<entity> points
+	vector point
+
+	// add map
+	// if we can't handle this npc's map, generate fake map icon ent for them
+	AddMinimapForNPC_FailsafeToCreateFakeMapIcon( guy )
+
+	// Setup AI
+	guy.EnableNPCFlag( NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_ALLOW_HAND_SIGNALS | NPC_ALLOW_FLEE )
+	if ( hasHeavyArmorWeapon ) // won't flee if they got heavy armor weapon
+		guy.DisableNPCFlag( NPC_ALLOW_FLEE )
+
+	wait 3 // initial wait before soldier disembark from droppod or titan
+
+	// Keep search & combat target
+	while ( true )
+	{
+		wait 0.2
+
+		// check leechable
+		if ( pilot.GetTeam() != team )
+			return
+		
+		// Get point and send guy to it
+		points = [] // clean up last point
+		array<entity> pointsToSearch = []
+		// try to find from npc targets
+		pointsToSearch.extend( GetNPCArrayOfEnemies( team ) )
+		// try to find from alive player targets
+		pointsToSearch.extend( GetPlayerArrayOfEnemies_Alive( team ) )
+
+		// start searching
+		foreach ( entity ent in pointsToSearch )
+		{
+			// general check
+			if ( !IsValidNPCAssaultTarget( ent ) )
+				continue
+
+			// infantry specific
+			// only search for targets with light armor if we don't have proper weapon
+			if ( !hasHeavyArmorWeapon && ent.GetArmorType() == ARMOR_TYPE_HEAVY )
+				continue
+
+			points.append( ent )
+		}
+
+		ArrayRemoveDead( points ) // remove dead entities
+		if ( points.len() == 0 )
+			continue
+
+		entity enemy = GetClosest2D( points, pilot.GetOrigin() )
+		if ( !IsValid( enemy ) )
+			continue
+		vector ornull clampedPos = NavMesh_ClampPointForAI( enemy.GetOrigin(), pilot )
+		if ( clampedPos == null )
+			continue
+		expect vector( clampedPos )
+
+		pilot.AssaultPoint( clampedPos )
+		table signalData = WaitSignal( 
+							   pilot, 
+							   "OnFinishedAssault", 
+							   "OnEnterGoalRadius", 
+							   "OnFailedToPath"
+						   )
+		
+		string receivedSignal = expect string( signalData.signal )
+		// main logic: re-run think if we failed to path; hold point for some time if we finished assault
+		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+			wait RandomFloatRange( 3.0, 5.0 ) // hold point shorter because we only have 1 people
+		else if ( receivedSignal == "OnFailedToPath" )
+			continue
+	}
+}
+
 // tells infantry where to go
 // In vanilla there seem to be preset paths ai follow to get to the other teams vone and capture it
 // AI can also flee deeper into their zone suggesting someone spent way too much time on this
@@ -5170,7 +5335,7 @@ void function ExtraSpawner_SquadHandler( array<entity> guys )
 
 	wait 3 // initial wait before guys disembark from droppod
 
-	// Every 5 - 15 secs get a closest target and go to them
+	// Squad keep combating target and change hold position every 5~10s
 	while ( true )
 	{
 		// no need to update very accurate for a full squad, I guess?
@@ -5339,6 +5504,9 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 	mltSkinIndex 		= currentTitan.mltSkinIndex
 
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
+	// setup name for us recognizing
+	SetTitanSpawnName( titan, spawnName )
+
 	SetSpawnOption_AISettings( titan, aiSet )
     titan.ai.titanSpawnLoadout.setFile = setFile
     OverwriteLoadoutWithDefaultsForSetFile( titan.ai.titanSpawnLoadout )
@@ -5370,6 +5538,24 @@ entity function ExtraSpawner_SpawnTitan( vector pos, vector rot, int team, bool 
 		thread ExtraSpawner_NPCTitanDrops( titan )
 
 	return titan
+}
+
+void function SetTitanSpawnName( entity titan, string spawnName )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) && !( soul in file.soulTitanSpawnName ) )
+		file.soulTitanSpawnName[ soul ] <- spawnName
+}
+
+string function ExtraSpawner_GetTitanSpawnName( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return ""
+	if ( !( soul in file.soulTitanSpawnName ) )
+		return ""
+
+	return file.soulTitanSpawnName[ soul ]
 }
 
 entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, string spawnName = "", int titanType = TITAN_AUTO )
@@ -5419,7 +5605,7 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	entity titan = CreateNPC( "npc_titan", team, pos, rot )
 	SetSpawnOption_AISettings( titan, aiSet )
 	// setup name for us recognizing
-	file.bossTitanSpawnName[ titan ] <- spawnName
+	SetBossTitanSpawnName( titan, spawnName )
 
 	// setup boss
 	titan.ai.bossCharacterName = bossName
@@ -5510,25 +5696,58 @@ entity function ExtraSpawner_SpawnBossTitan( vector pos, vector rot, int team, s
 	return titan
 }
 
+void function SetBossTitanSpawnName( entity titan, string spawnName )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) && !( soul in file.soulBossTitanSpawnName ) )
+		file.soulBossTitanSpawnName[ soul ] <- spawnName
+}
+
+string function ExtraSpawner_GetBossTitanSpawnName( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return ""
+	if ( !( soul in file.soulBossTitanSpawnName ) )
+		return ""
+
+	return file.soulBossTitanSpawnName[ soul ]
+}
+
 void function SetUpBossTitanPilotModel( entity model, entity titan )
 {
-	if ( !( titan in file.bossTitanSpawnName ) )
-		return
+	// if this is a prop, and titan's pilot spawned by this file...
+	// consider it's execution viewbody, add highlight for them
+	if ( !model.IsNPC() && !model.IsPlayer() )
+	{
+		entity soul = titan.GetTitanSoul()
+		if ( IsValid( soul ) )
+		{
+			if ( soul in file.soulEmbarkedNPCSpawnFromExtraSpawner )
+			{
+				if ( soul.soul.seatedNpcPilot.npcClass == "npc_pilot_elite" )
+					SetDefaultMPEnemyHighlight( model )
+			}
+		}
+	}
 
-	string spawnName = file.bossTitanSpawnName[ titan ]
-	// start hardcode everything here:
-	// for bosses those don't have model in MP, remove helmet
-	array<string> removeHelmetBoss =
-	[
-		"richter",
-		"slone",
-		"viper",
-		"kane",
-		"anderson",
-		"jack", // jack is special here: remove his helmet but leave lastimosa's, so they're not indentical anymore
-	]
-	if ( removeHelmetBoss.contains( spawnName ) )
-		model.SetBodygroup( model.FindBodyGroup( "head" ), 1 )
+	string spawnName = ExtraSpawner_GetBossTitanSpawnName( titan )
+	if ( spawnName != "" )
+	{
+		// start hardcode everything here:
+		// for bosses those don't have model in MP, remove helmet
+		array<string> removeHelmetBoss =
+		[
+			"richter",
+			"slone",
+			"viper",
+			"kane",
+			"anderson",
+			"jack", // jack is special here: remove his helmet but leave lastimosa's, so they're not indentical anymore
+		]
+		if ( removeHelmetBoss.contains( spawnName ) )
+			model.SetBodygroup( model.FindBodyGroup( "head" ), 1 )
+	}
 }
 
 const float TITANFALL_WARNING_DURATION = 5.0
@@ -5947,6 +6166,28 @@ void function ExtraSpawner_SpawnSpecialistGruntDropPod( vector pos, vector rot, 
 		thread GetSquadHandlerForClass( content )( guys )
 }
 
+void function ExtraSpawner_SpawnSpecialistGruntCanEmbark( vector pos, vector rot, int team, string aiSet = "npc_soldier_drone_summoner", int maxHealth = 350, string spawnName = "" )
+{
+	entity grunt = ExtraSpawner_SpawnSpecialistGrunt( pos, rot, team, aiSet, maxHealth )
+	// setup grunt specific titan spawn function
+	ExtraSpawner_PilotRunsToEmbarkFallingTitan( grunt, pos, rot, team, spawnName, ExtraSpawner_SpawnTitanForGrunt )
+}
+
+entity function ExtraSpawner_SpawnTitanWithSpecialistGrunt( vector pos, vector rot, int team, string aiSet = "npc_soldier_drone_summoner", int maxHealth = 350, string spawnName = "" )
+{
+	entity titan = ExtraSpawner_SpawnTitan( pos, rot, team, spawnName )
+
+	// setup grunt titan loadout, including behavior changes
+	GruntTitanLoadout( titan )
+	// this enables every behavior a grunt embarked titan can have
+	ExtraSpawner_SetUpTitanSeatedSpecialistGrunt( titan, aiSet, maxHealth )
+
+	// manually do hotdrop after setup done
+	thread ExtraSpawner_NPCTitanDrops( titan )
+
+	return titan
+}
+
 entity function ExtraSpawner_SpawnSpecialistGrunt( vector pos, vector rot, int team, string aiSet = "npc_soldier_drone_summoner", int maxHealth = 350 )
 {
 	entity npc = CreateSpecialistGrunt_NonSetup( team, pos, rot, aiSet )
@@ -6297,7 +6538,7 @@ void function ExtraSpawner_ProwlerSquadHandler( array<entity> guys )
 
 	wait 3 // initial wait before guys disembark from droppod
 
-	// Every 5 - 15 secs get a closest target and go to them
+	// Squad keep search & combat target
 	while ( true )
 	{
 		// no need to update very accurate for a full squad, I guess?
@@ -6850,6 +7091,20 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	// failsafe case: pilot's model is not good for MP usage, we'll spawn a titan directly
 	if ( SpawnPilotCanEmbark_FailSafeToSpawnTitan( pilot, pos, rot, team, spawnName ) )
 		return
+	// start embarking think
+	ExtraSpawner_PilotRunsToEmbarkFallingTitan( pilot, pos, rot, team, spawnName )
+}
+
+// if pilot don't have valid model for npc usage, we need to spawn a titan without embarking think
+bool function SpawnPilotCanEmbark_FailSafeToSpawnTitan( entity spawnedPilot, vector pos, vector rot, int team, string spawnName )
+{
+	// stub
+	return false
+}
+
+// unhandled function to allow us use any npc to control the titan
+void function ExtraSpawner_PilotRunsToEmbarkFallingTitan( entity pilot, vector pos, vector rot, int team, string spawnName = "", entity functionref( entity pilot, vector pos, vector rot, string spawnName = "" ) titanSpawnFunc )
+{
 	pilot.EndSignal( "OnDeath" )
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EnableNPCFlag( NPC_IGNORE_ALL ) // so they will mostly try to embark, clean it up later
@@ -6864,7 +7119,9 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	thread LaunchAnimDropPod( pod, "pod_testpath", pos, rot )
 
 	wait 3 // send titan a little bit later
-	entity titan = ExtraSpawner_SpawnTitanForPilot( pilot, pos, rot, spawnName )
+	if ( titanSpawnFunc == null )
+		titanSpawnFunc = ExtraSpawner_SpawnTitanForPilot // default spawn function
+	entity titan = titanSpawnFunc( pilot, pos, rot, spawnName )
 	// now using my own embarking function
 	local embarkSet = FindBestEmbarkForNpcAnim( pilot, titan ) // passing a same embark set
 	pilot.SetNPCMoveSpeedScale( 1.8 ) // want this pilot run to titan's start point faster
@@ -6907,13 +7164,6 @@ void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team
 	//waitthread NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet ) // passing the same embark set
 	NpcPilotRunsToEmbarkTitan( pilot, titan, embarkSet, false ) // passing the same embark set, don't waitthread
 	thread NpcPilotEmbarksTitan( pilot, titan )
-}
-
-// if pilot don't have valid model for npc usage, we need to spawn a titan without embarking think
-bool function SpawnPilotCanEmbark_FailSafeToSpawnTitan( entity spawnedPilot, vector pos, vector rot, int team, string spawnName )
-{
-	// stub
-	return false
 }
 
 void function StandUnboardedTitan( entity titan )
@@ -8328,6 +8578,62 @@ entity function ExtraSpawner_SpawnTitanForPilot( entity pilot, vector pos, vecto
 	return titan
 }
 
+// grunt variant of titan spawn
+entity function ExtraSpawner_SpawnTitanForGrunt( entity grunt, vector pos, vector rot, string spawnName = "" )
+{
+	// basic setup is same as ExtraSpawner_SpawnTitanForPilot()
+	entity titan = ExtraSpawner_SpawnTitan( pos, rot, grunt.GetTeam(), false, null, spawnName ) // the titan will wait before standing up, and it will use default titan handler
+	NpcPilotSetPetTitan( grunt, titan ) // shared function from _ai_pilots.gnut
+	thread PetTitanOwnerLifeTimeCheck( titan, grunt ) // avoid titan being stuck in the sky! this happens if pilot died while titan dropping
+
+	// make them be like auto titans
+	ExtraSpawner_SetUpPilotOwnedAutoTitan( titan )
+
+	// do grunt titan specific loadout!
+	GruntTitanLoadout( titan )
+
+	// manually do hotdrop after settings done
+	// don't stand up, wait for pilot embark it
+	thread ExtraSpawner_NPCTitanDrops( titan, false )
+
+	return titan
+}
+
+void function GruntTitanLoadout( entity titan )
+{
+	// no skin or camo
+	titan.SetSkin( 0 )
+	titan.SetCamo( 0 )
+
+	string spawnName = ExtraSpawner_GetTitanSpawnName( titan )
+	// don't use any special behavior
+	TitanSpawnStruct currentTitan = file.titanSpawnList[ spawnName ]
+	string embarkedAiSet 		= currentTitan.aiSet // use auto-titan aiSettings
+	string embarkedBehavior 	= "behavior_titan_buddy" // non-special titan behavior, won't use core ability
+	string embarkedTitle 		= currentTitan.embarkedTitle
+	SetTitanSoulEmbarkedSettings( titan, embarkedAiSet, embarkedBehavior, embarkedTitle )
+
+	// behavior settings
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		// pain on damage
+		ExtraSpawner_EnableEmbarkedNPCTitanNoPain( titan, false )
+		// never ejects( grunt will take fall damage ), but do disembark
+		ExtraSpawner_DisableNPCTitanEjectThinkOnEmbark( titan, true )
+		ExtraSpawner_EnableNPCTitanDisembarkThinkOnEmbark( titan, true )
+		// no rodeo counter
+		PlayerEarnMeter_EnableSoulNPCTitanEarnMeterSmokeUsage( soul, false )
+		PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( soul, false )
+		ExtraSpawner_DisableNPCTitanRodeoCounterOnEmbark( titan, true )
+		// disable scripted core ability. native core ability disabled with behavior
+		ExtraSpawner_DisableNPCTitanScriptedCoreAbilityOnEmbark( titan, true )
+		
+		// disallow script synced melee in _melee_synced_npc.gnut
+		NPCSyncedMelee_Disable( titan )
+	}
+}
+
 void function ExtraSpawner_SetUpPilotOwnedAutoTitan( entity titan )
 {
 	entity soul = titan.GetTitanSoul()
@@ -8401,6 +8707,15 @@ function OnNpcPilotBecomesTitan( pilot, titan )
 	// kinda annoying to have a info target all around them.
 	//titan.SetAISettings( titan.GetAISettingsName() + "_bounty" ) // so they will show up a health bar, letting players know they're npc pilot controled
 	//Highlight_ClearEnemyHighlight( titan ) // this resets highlights in modified sh_highlights
+	
+	// adding a mark for titan
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( pilot ) )
+			file.soulEmbarkedNPCSpawnFromExtraSpawner[ soul ] <- true
+	}
+
 	// titan handler
 	// already handled by ExtraSpawner_SpawnTitan()
 	//if ( GetNPCHandlerForClass( "npc_titan" ) != null )
@@ -8459,14 +8774,19 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	}
 
 	// start specific think, for anti-rodeo countermeasure
-	ExtraSpawner_EmbarkedNPCTitanRodeoCounter( titan )
+	if ( !NPCTitanHasDisabledRodeoCounterOnEmbark( titan ) )
+		ExtraSpawner_EmbarkedNPCTitanRodeoCounter( titan )
 	// start specific think, for handling core abilities that won't be used by npcs in vanilla
-	ExtraSpawner_ScriptedNPCTitanCoreAbility( titan )
+	if ( !NPCTitanHasDisabledScriptedCoreAbilityOnEmbark( titan ) )
+		ExtraSpawner_ScriptedNPCTitanCoreAbility( titan )
 	// keep applying NPC_NO_PAIN for this titan, to fake a player embarked titan behavior
 	// welp this thing just don't work, titan always try to clear their NPC_NO_PAIN upon taking massive damage
 	//ExtraSpawner_EmbarkedNPCTitanNoPain( titan )
 	// add better think on npc pilot ejecting
-	ExtraSpawner_EmbarkedNPCTitanEjectThink( titan )
+	if ( !NPCTitanHasDisabledEjectThinkOnEmbark( titan ) )
+		ExtraSpawner_EmbarkedNPCTitanEjectThink( titan )
+	else if ( NPCTitanHasEnabledDisembarkThinkOnEmbark( titan ) ) // or we allow npcs to disembark
+		ExtraSpawner_EmbarkedNPCTitanDisembarkThink( titan )
 }
 
 // Rodeo counter: force inventory smoke to fire when getting rodeo hit recently
@@ -9116,6 +9436,169 @@ void function ExtraSpawner_StopNPCTitanEjectThink( entity titan )
 	titan.Signal( "EmbarkedNPCTitanEjectThink" )
 }
 
+const float NPC_PILOT_DISEMBARK_THINK_TICKRATE = 2.0 // less tick adds some randomness
+
+void function ExtraSpawner_EmbarkedNPCTitanDisembarkThink( entity titan )
+{
+	thread EmbarkedNPCTitanDisembarkThink_Threaded( titan )
+}
+
+void function EmbarkedNPCTitanDisembarkThink_Threaded( entity titan )
+{
+	// pre-setup
+	// set titan to never eject so we don't conflict with default script think
+	TitanHealth_SetSoulNPCPilotEjectDelay( soul, -1 ) // -1 means never eject
+
+	soul.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+	titan.Signal( "EmbarkedNPCTitanDisembarkThink" )
+	titan.EndSignal( "EmbarkedNPCTitanDisembarkThink" )
+
+	while ( true )
+	{
+		wait NPC_TITAN_DISEMBARK_THINK_TICKRATE
+
+		// don't do think if we have some context action...
+		if ( titan.ContextAction_IsBusy() )
+			continue
+
+		// disembark if we're doomed
+		if ( TitanHasNpcPilot( titan ) && GetDoomedState( titan ) )
+		{
+			NpcTitanBecomesPilot( titan )
+			return
+		}
+	}
+}
+
+void function ExtraSpawner_StopNPCTitanDisembarkThink( entity titan )
+{
+	titan.Signal( "EmbarkedNPCTitanDisembarkThink" )
+}
+
+// settings func
+void function ExtraSpawner_DisableNPCTitanRodeoCounterOnEmbark( entity titan, bool disable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulDisableRodeoCounterOnEmbark ) )
+		file.soulDisableRodeoCounterOnEmbark[ soul ] <- false
+	
+	file.soulDisableRodeoCounterOnEmbark[ soul ] = disable
+}
+
+bool function NPCTitanHasDisabledRodeoCounterOnEmbark( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	if ( !( soul in file.soulDisableRodeoCounterOnEmbark ) )
+		return false
+	
+	return file.soulDisableRodeoCounterOnEmbark[ soul ]
+}
+
+void function ExtraSpawner_DisableNPCTitanScriptedCoreAbilityOnEmbark( entity titan, bool disable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulDisableScriptedCoreAbilityOnEmbark ) )
+		file.soulDisableScriptedCoreAbilityOnEmbark[ soul ] <- false
+	
+	file.soulDisableScriptedCoreAbilityOnEmbark[ soul ] = disable
+}
+
+bool function NPCTitanHasDisabledScriptedCoreAbilityOnEmbark( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	if ( !( soul in file.soulDisableScriptedCoreAbilityOnEmbark ) )
+		return false
+	
+	return file.soulDisableScriptedCoreAbilityOnEmbark[ soul ]
+}
+
+void function ExtraSpawner_DisableNPCTitanEjectThinkOnEmbark( entity titan, bool disable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulDisableEjectThinkOnEmbark ) )
+		file.soulDisableEjectThinkOnEmbark[ soul ] <- false
+	
+	file.soulDisableEjectThinkOnEmbark[ soul ] = disable
+}
+
+bool function NPCTitanHasDisabledEjectThinkOnEmbark( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	if ( !( soul in file.soulDisableEjectThinkOnEmbark ) )
+		return false
+	
+	return file.soulDisableEjectThinkOnEmbark[ soul ]
+}
+
+void function ExtraSpawner_EnableNPCTitanDisembarkThinkOnEmbark( entity titan, bool enable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulEnableDisembarkThinkOnEmbark ) )
+		file.soulEnableDisembarkThinkOnEmbark[ soul ] <- false
+	
+	file.soulEnableDisembarkThinkOnEmbark[ soul ] = enable
+}
+
+bool function NPCTitanHasEnabledDisembarkThinkOnEmbark( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	if ( !( soul in file.soulEnableDisembarkThinkOnEmbark ) )
+		return false
+	
+	return file.soulEnableDisembarkThinkOnEmbark[ soul ]
+}
+
+void function ExtraSpawner_DisableNPCTitanRodeoCounterOnEmbark( entity titan, bool disable )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulDisableRodeoCounterOnEmbark ) )
+		file.soulDisableRodeoCounterOnEmbark[ soul ] <- false
+	
+	file.soulDisableRodeoCounterOnEmbark[ soul ] = disable
+}
+
+bool function NPCTitanHasDisabledRodeoCounterOnEmbark( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	// this is enabled by default
+	if ( !( soul in file.soulDisableRodeoCounterOnEmbark ) )
+		return true
+	
+	return file.soulDisableRodeoCounterOnEmbark[ soul ]
+}
+
 void function ExtraSpawner_EnableEmbarkedNPCTitanNoPain( entity titan, bool enable )
 {
 	entity soul = titan.GetTitanSoul()
@@ -9335,13 +9818,6 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( titan ) )
 		return
 
-	// if titan is spawned by extraSpawner, pilot should also be marked
-	ExtraSpawner_SetUpSpawnedNPC( pilot ) // generic setup for any npc in this file
-	ExtraSpawner_SetUpNPCPilot( pilot ) // also included handler call
-
-	// setup specific model
-	SetUpBossTitanPilotModel( pilot, titan )
-
 	if ( IsValid( titan ) )
 	{
 		entity titanSoul = titan.GetTitanSoul()
@@ -9362,6 +9838,36 @@ function OnNpcTitanBecomesPilot( pilot, titan )
 		//string aiSetFile = titan.GetAISettingsName()
 		//titan.SetAISettings( aiSetFile.slice( 0, aiSetFile.len() - 7 ) ) // not ejecting, back to normal health bar
 		//Highlight_ClearEnemyHighlight( titan ) // this resets highlights in modified sh_highlights
+	
+		// restore mark for pilot
+		entity soul = titan.GetTitanSoul()
+		if ( IsValid( soul ) )
+		{
+			if ( soul in file.soulEmbarkedNPCSpawnFromExtraSpawner )
+			{
+				ExtraSpawner_SetUpSpawnedNPC( pilot ) // generic setup for any npc in this file
+
+				// we now allow different npcs to embark the titan
+				// needs to hardcode every setup
+				if ( IsPilotElite( pilot ) )
+				{
+					// setup pilot and their handler call
+					ExtraSpawner_SetUpNPCPilot( pilot )
+					// setup specific model
+					SetUpBossTitanPilotModel( pilot, titan )
+				}
+				else if ( IsGrunt( pilot ) )
+				{
+					// setup specialist grunt
+					SetUpSpecialistGrunt( pilot, pilot.GetAISettingsName() )
+					// start grunt handler
+					if ( GetNPCHandlerForClass( pilot.GetClassName() ) != null )
+						thread GetNPCHandlerForClass( pilot.GetClassName() )( pilot )
+				}
+
+				delete file.soulEmbarkedNPCSpawnFromExtraSpawner[ soul ]
+			}
+		}
 	}
 }
 
@@ -9402,6 +9908,7 @@ void function ExtraSpawner_SetUpNPCDisembarkedTitan( entity titan )
 	// this function has been removed
 	//ExtraSpawner_RemoveNPCTitanNoPain( titan )
 	ExtraSpawner_StopNPCTitanEjectThink( titan )
+	ExtraSpawner_StopNPCTitanDisembarkThink( titan )
 }
 
 // if pilot still not touching ground after this amount of time
@@ -9789,7 +10296,7 @@ void function ExtraSpawner_PilotHandler( entity pilot )
 
 	wait 3 // initial wait before pilots disembark from droppod or drop from ejecting
 	
-	// Every 5 - 15 secs get a closest target and go to them
+	// Pilot keep search & combat target, hold position for 3~5s after combating
 	while ( true )
 	{
 		// no need to be very accruate for humansized npcs, I guess?
@@ -9881,7 +10388,7 @@ void function ExtraSpawner_TitanHandler( entity titan )
 
 	wait 3 // initial wait before titans can move
 
-	// Every 10 - 20 secs get a closest target and go to them
+	// Titan keep search & combat target
 	while ( true )
 	{	
 		WaitFrame() // always wait a frame before each loop
@@ -10375,7 +10882,7 @@ void function ExtraSpawner_ReaperHandler( entity reaper )
 
 	wait 3 // initial wait before reapers do startup animation
 	
-	// Every 10 - 20 secs get a closest target and go to them
+	// Reaper keep search & combat target
 	while( true )
 	{
 		WaitFrame() // always wait before each loop!
