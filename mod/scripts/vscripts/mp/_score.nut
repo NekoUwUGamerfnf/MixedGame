@@ -447,9 +447,13 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 #if NPC_TITAN_PILOT_PROTOTYPE
 	entity owner = victim.GetOwner()
 	bool hasNPCPilot = TitanHasNpcPilot( victim )
+	// EDIT here: no need to handle ejecting case!
+	// npc can always eject even with pilots still inside
+	/*
 	bool isEjecting = true // npc pilot ejecting meaning their titan already died. default to be true
 	if ( IsValid( victim.GetTitanSoul() ) )
 		isEjecting = victim.GetTitanSoul().IsEjecting()
+	*/
 	// debug
 	//print( "hasNPCPilot: " + string( hasNPCPilot ) )
 	//print( "isEjecting: " + string( isEjecting ) )
@@ -464,7 +468,9 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 
 		// modified for npc pilot embarked titan
 #if NPC_TITAN_PILOT_PROTOTYPE
-		if ( hasNPCPilot && !isEjecting )
+		// EDIT here: no need to handle ejecting case!
+		//if ( hasNPCPilot && !isEjecting )
+		if ( hasNPCPilot )
 		{
 			scoreEvent = "KillTitan"
 			if ( attacker.IsTitan() )
