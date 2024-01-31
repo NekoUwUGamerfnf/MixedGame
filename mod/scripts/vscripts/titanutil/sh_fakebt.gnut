@@ -17,6 +17,7 @@ struct
 
 	table<entity, bool> soulIsFakeBT
 	table<entity, float> btLastPrimaryAmmo
+	table<entity, string> btActiveMainWeapon
 } file
 #endif // SERVER
 
@@ -32,12 +33,22 @@ void function BTReplace_Init()
 
 	#if SERVER
 		RegisterSignal( "PendingEjectingVoiceline" )
+		RegisterSignal( "FakeBTDoomedStateChanged" )
 		AddSpawnCallback( "npc_titan", OnTitanSpawned )
 		AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
 		AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
 		AddSyncedMeleeServerCallback( GetSyncedMeleeChooser( "titan", "titan" ), OnFakeBTExecuted )
+		// HACKY hack fix for client-side effects: change model back to monarch on doom
+		// so ClientCodeCallback_DoomedStateChanged() can run properly
+		// I gave up. this is way to messed up, let's just left the fix for client-side-install branch to do
+		//AddCallback_OnTitanDoomed( OnTitanDoomed )
+		//AddCallback_OnTitanUndoomed( OnTitanUndoomed ) // callback in modified titan_health.gnut
 	#else // CLIENT
 		AddCreateCallback( "npc_titan", FakeBTClientSideSetup )
+		// client-side is missing this init... which causing function ClientCodeCallback_DoomedStateChanged() to never run
+		// can't just do this!!! MP don't have cl_titan_buddy.nut on client-side
+		// if we init modelFX, will result a crash
+		//InitModelFXGroup( $"models/titans/buddy/titan_buddy.mdl" )
 	#endif // SERVER
 }
 
@@ -166,10 +177,8 @@ void function OnFakeBTExecuted( SyncedMeleeChooser actions, SyncedMelee action, 
 			TitanSoul_ClearSoulTitanSubClassOverride( victimSoul )
 			TitanSoul_ClearSoulPlayerSettingsOverride( victimSoul ) // this also influences subclass, needs clean up
 			
-			victim.SetModel( $"models/titans/medium/titan_medium_vanguard.mdl" )
-			victim.SetSkin( TITAN_SKIN_INDEX_CAMO )
-			victim.SetCamo( 15 ) // stoic fern. not very accurate but titan should be doomed at this point, this is alright
-			
+			// update skin and model to monarch. not very accurate but titan will be fully doomed soon, this is alright
+			FaktBTModelUpdate( victim )
 			// function in sh_death_package.gnut has been modified, set secondary parameter to "true" instantly doom titan bodygroups
 			DoomTitan( victim, true )
 			// hide titan battery on back
@@ -186,6 +195,125 @@ void function OnFakeBTExecuted( SyncedMeleeChooser actions, SyncedMelee action, 
 				// it won't crash, but we'd better remove execution DOF for that case...
 				RemoveCinematicFlag( victim, CE_FLAG_EXECUTION )
 			}
+		}
+	}
+}
+
+void function FaktBTModelUpdate( entity titan )
+{
+	if ( titan.GetModelName() == $"models/titans/buddy/titan_buddy.mdl" )
+	{
+		int skinIndex = titan.GetSkin()
+		titan.SetModel( $"models/titans/medium/titan_medium_vanguard.mdl" )
+		// hardcoded skin think for us handling all of bt's 3 skins
+		switch ( skinIndex )
+		{
+			case 1: // npc vanguard skin
+				titan.SetSkin( 3 ) // frontier monarch
+				titan.SetCamo( 0 )
+				break
+
+			case 2: // sarah skin
+				// change to default red
+				titan.SetSkin( 0 )
+				titan.SetCamo( 0 )
+				break
+
+			default:
+				titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+				titan.SetCamo( 15 ) // stoic fern
+				break
+		}
+	}
+}
+
+void function OnTitanDoomed( entity titan, var damageInfo )
+{
+	thread FakeBTDoomedStateChanged( titan, true )
+}
+
+void function OnTitanUndoomed( entity titan, int numSegments )
+{
+	thread FakeBTDoomedStateChanged( titan, false )
+}
+
+void function FakeBTDoomedStateChanged( entity titan, bool isDoomed )
+{
+	if ( !BTReplace_TitanIsFakeBT( titan ) )
+		return
+	if ( titan.IsNPC() )
+		return
+	
+	entity soul = titan.GetTitanSoul()
+	soul.EndSignal( "OnDestroy" )
+	titan = soul.GetTitan()
+	titan.EndSignal( "OnDeath" )
+	
+	titan.Signal( "FakeBTDoomedStateChanged" )
+	titan.EndSignal( "FakeBTDoomedStateChanged" )
+
+	table<string, int> savedStuffs
+	savedStuffs[ "skinIndex" ] <- titan.GetSkin()
+	savedStuffs[ "camoIndex" ] <- titan.GetCamo()
+
+	// update model back to monarch for 1 frame
+	// so client can know that we have a model that allow us run ClientCodeCallback_DoomedStateChanged()
+	// this still have 1 issue... their holstered weapon will appear after model change
+	FaktBTModelUpdate( titan )
+	// doom titan instantly, to cancel out DelayedBodyGroupBreak()
+	// also hides the fact that we've updated model for titan
+	if ( isDoomed )
+		DoomTitan( titan, true ) // function in sh_death_package.gnut has been modified, set secondary parameter to "true" instantly doom titan bodygroups
+
+	OnThreadEnd
+	(
+		function(): ( soul, savedStuffs, isDoomed )
+		{
+			entity titan = soul.GetTitan()
+			if ( IsAlive( titan ) && !titan.Anim_IsActive() )
+			{
+				titan.SetModel( $"models/titans/buddy/titan_buddy.mdl" )
+				titan.SetSkin( savedStuffs[ "skinIndex" ] )
+				titan.SetCamo( savedStuffs[ "camoIndex" ] )
+				// this still have 1 issue... their holstered weapon will appear after model change
+				// guess we update weapon for handling that case...
+				FakeBTMainWeaponUpdate( titan )
+
+				if ( isDoomed ) // start bodygroup doom think
+				{
+					UndoomTitan_Body( titan ) // recover bodygroup goes first
+					DoomTitan( titan ) // non-instant doom
+				}
+			}
+		}
+	)
+
+	//WaitEndFrame()
+	WaitFrame()
+}
+
+void function FakeBTMainWeaponUpdate( entity titan )
+{
+	string activeWeaponName = ""
+
+	entity soul = titan.GetTitanSoul()
+	entity activeWeapon = titan.GetActiveWeapon()
+	if ( IsValid( activeWeapon ) && !activeWeapon.IsWeaponOffhand() )
+		activeWeaponName = titan.GetActiveWeapon().GetWeaponClassName()
+	else if ( IsValid( soul ) && ( soul in file.btActiveMainWeapon ) )
+		activeWeaponName = file.btActiveMainWeapon[ soul ]
+	
+	if ( activeWeaponName == "" )
+		return
+
+	foreach ( entity weapon in titan.GetMainWeapons() )
+	{
+		if ( weapon.GetWeaponClassName() != activeWeaponName )
+		{
+			string name = weapon.GetWeaponClassName()
+			array<string> mods = weapon.GetMods()
+			titan.TakeWeaponNow( name )
+			titan.GiveWeapon( name, mods )
 		}
 	}
 }
@@ -270,6 +398,7 @@ void function SetBTLoadout( entity titan )
 
 	// default skin
 	titan.SetSkin( 3 )
+	titan.SetCamo( 0 )
 
 	// clean up basic weapons
 	foreach ( entity weapon in titan.GetMainWeapons() )
@@ -401,6 +530,8 @@ void function SetBTOffhands( entity player )
 	// hardcoded loadouts
 	if( IsValid( mainweapon ) )
 	{
+		if ( !( soul in file.btActiveMainWeapon ) )
+			file.btActiveMainWeapon[ soul ] <- "mp_titanweapon_xo16_shorty"
 		//Offhands
 		//if( mainweapon.GetWeaponClassName() == "mp_titanweapon_xo16_vanguard" )
 		if( mainweapon.GetWeaponClassName() == "mp_titanweapon_xo16_shorty" )
@@ -429,6 +560,9 @@ void function SetBTOffhands( entity player )
 				//Ammo
 				ReplaceWeaponAmmo( player, soul )
 				TitanLoadoutSwitch_SetWeaponCooldownsFromTable( player, cooldowns )
+
+				// update active weapon
+				file.btActiveMainWeapon[ soul ] = "mp_titanweapon_xo16_shorty"
 			}
 		}
 		if( mainweapon.GetWeaponClassName() == "mp_titanweapon_triplethreat" )
@@ -456,6 +590,9 @@ void function SetBTOffhands( entity player )
 				//Ammo
 				ReplaceWeaponAmmo( player, soul )
 				TitanLoadoutSwitch_SetWeaponCooldownsFromTable( player, cooldowns )
+
+				// update active weapon
+				file.btActiveMainWeapon[ soul ] = "mp_titanweapon_triplethreat"
 			}
 		}
 		if( mainweapon.GetWeaponClassName() == "mp_titanweapon_rocketeer_rocketstream" )
@@ -482,6 +619,9 @@ void function SetBTOffhands( entity player )
 				//Ammo
 				ReplaceWeaponAmmo( player, soul )
 				TitanLoadoutSwitch_SetWeaponCooldownsFromTable( player, cooldowns )
+
+				// update active weapon
+				file.btActiveMainWeapon[ soul ] = "mp_titanweapon_rocketeer_rocketstream"
 			}
 		}
 
