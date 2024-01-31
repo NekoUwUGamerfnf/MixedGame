@@ -63,6 +63,7 @@ global function ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath
 global function ExtraSpawner_SetEmbarkedNPCTitanDeathEjectDamageThreshold
 global function ExtraSpawner_SetEmbarkedNPCTitanEjectDelay
 global function ExtraSpawner_SetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac
+global function ExtraSpawner_SetEmbarkedNPCTitanWeaponProficiency
 
 // scripted spawn
 global function ExtraSpawner_SpawnGunShip
@@ -187,6 +188,7 @@ const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may nee
 
 // npc damage
 const int NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD = 3250 // default value. if titan take damage more than this, they won't trigger death eject( this value is higher than any weapon damage other than flame core )
+const int EMBARKED_NPC_TITAN_WEAPON_PROFICIENCY = eWeaponProficiency.VERYGOOD // default weapon proficiency for embarked npc titan
 
 // npc pilot health
 const int NPC_PILOT_MAX_HEALTH = 750
@@ -365,6 +367,19 @@ struct NPCVanguardPilot
 	asset pilotModel
 }
 
+// for GruntEmbarkedTitanLoadout() overwrite settings
+// grunt titan loadout needs to base on an existing spawn name
+struct GruntTitanLoadout
+{
+	string embarkedAiSet = ""
+	string embarkedBehavior = ""
+	string embarkedTitle = ""
+
+	void functionref( entity ) loadoutFunction
+
+	int camoIndex = -1
+}
+
 struct
 {
 	// modifiable variables( through functions )
@@ -387,6 +402,9 @@ struct
 	array<NPCVanguardLoadout> npcVanguardLoadouts
 	array<NPCVanguardPilot> npcVanguardPilots
 	table<entity, string> soulVanguardPilotName
+	// for GruntEmbarkedTitanLoadout() overwrite settings
+	// grunt titan loadout needs to base on an existing spawn name
+	table<string, GruntTitanLoadout> gruntTitanLoadoutOverrides
 	// npc titan settings
 	table<entity, bool> soulDisableRodeoCounterOnEmbark
 	table<entity, bool> soulDisableScriptedCoreAbilityOnEmbark
@@ -419,6 +437,8 @@ struct
 	// fixed titan eject
 	table<entity, float> soulEjectDelay
 	table<entity, float> soulEjectRequiredDoomedHealthFrac
+	// titan weapon usage
+	table<entity, bool> soulEmbarkedTitanWeaponProficiency
 
 	// in-file only variables
 	// care package, for limiting player care package usages
@@ -483,6 +503,8 @@ void function ExtraAISpawner_Init()
 	InitDefaultNPCHandlerFunctions()
 	InitDefaultScriptedNPCTitanCore()
 	InitDefaultScriptedNPCPilotTactical()
+	// grunt embarked titan variants
+	InitGruntEmbarkedTitanLoadout()
 	
 	// prowler
 	ProwlerPrecache()
@@ -1620,6 +1642,8 @@ void function InitDefaultTitanList()
 
 	// modded weapon titans
 	// brute4
+	// due it don't have native capability of using utility ability...
+	// temp removed, and add it's weapon for normal brute
 	/*
 	ExtraSpawner_RegisterToTitanSpawnList
 	(
@@ -1728,6 +1752,14 @@ void function NPCMonarchLoadout( entity titan )
 	//NPCAtlasTitanCoreReplace( titan )
 	// upgrade core has been scripted, we needs to setup
 	NPCUpgradeCoreSetUp( titan )
+
+	// imc team camo
+	int team = titan.GetTeam()
+	if ( team == TEAM_IMC )
+	{
+		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+		titan.SetCamo( 19 ) // overcast
+	}
 }
 
 // modded titan loadout functions
@@ -1765,12 +1797,12 @@ void function NPCBruteLoadout( entity titan )
 	if ( team == TEAM_IMC )
 	{
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
-		titan.SetCamo( 19 ) // shadow
+		titan.SetCamo( 19 ) // overcast
 	}
 	if ( team == TEAM_MILITIA )
 	{
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
-		titan.SetCamo( 1 ) // forest
+		titan.SetCamo( 1 ) // woodland
 	}
 }
 
@@ -1811,9 +1843,9 @@ void function NPCBisonLoadout( entity titan )
 
 	int team = titan.GetTeam()
 	if ( team == TEAM_IMC )
-		titan.SetCamo( 19 ) // shadow
+		titan.SetCamo( 19 ) // overcast
 	if ( team == TEAM_MILITIA )
-		titan.SetCamo( 1 ) // forest
+		titan.SetCamo( 1 ) // woodland
 }
 
 void function NPCBrute4Loadout( entity titan )
@@ -1842,12 +1874,12 @@ void function NPCBrute4Loadout( entity titan )
 	if ( team == TEAM_IMC )
 	{
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
-		titan.SetCamo( 19 ) // shadow
+		titan.SetCamo( 19 ) // overcast
 	}
 	if ( team == TEAM_MILITIA )
 	{
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
-		titan.SetCamo( 1 ) // forest
+		titan.SetCamo( 1 ) // woodland
 	}
 }
 
@@ -1885,12 +1917,12 @@ void function NPCArchonLoadout( entity titan )
 	if ( team == TEAM_IMC )
 	{
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
-		titan.SetCamo( 19 ) // shadow
+		titan.SetCamo( 19 ) // overcast
 	}
 	if ( team == TEAM_MILITIA )
 	{
 		titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
-		titan.SetCamo( 1 ) // forest
+		titan.SetCamo( 1 ) // woodland
 	}
 }
 
@@ -6231,7 +6263,7 @@ entity function ExtraSpawner_SpawnTitanWithSpecialistGrunt( vector pos, vector r
 	entity titan = ExtraSpawner_SpawnTitan( pos, rot, team, false, null, spawnName )
 
 	// setup grunt titan loadout, including behavior changes
-	GruntTitanLoadout( titan )
+	GruntEmbarkedTitanLoadout( titan )
 	// this enables every behavior a grunt embarked titan can have
 	ExtraSpawner_SetUpTitanSeatedSpecialistGrunt( titan, aiSet, maxHealth )
 
@@ -7268,6 +7300,90 @@ void function StandUnboardedTitan( entity titan )
 	SetStanceStand( titan.GetTitanSoul() )
 
 	titan.ClearInvulnerable()
+}
+
+void function PilotSpawnProtection( entity pilot, entity titan, float duration )
+{
+	pilot.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" ) // pilot's titan has been robbed?
+
+	// invulnerability handled by ExtraSpawner_DisableSensingForNPC()
+	// don't set again. SetInvulnerable() can stack up, we'll have to clear it twice
+	//pilot.SetInvulnerable()
+	//pilot.SetNoTarget( true )
+	OnThreadEnd(
+		function(): ( pilot )
+		{
+			if( IsAlive( pilot ) )
+			{
+				//print( "Clearing out pilot spawn protection!" )
+				pilot.ClearInvulnerable()
+				pilot.SetNoTarget( false )
+			}
+		}
+	)
+
+	// debugging version
+	// guess I'll keep it in any case we need it
+	float endTime = Time() + duration
+	while ( Time() < endTime )
+	{
+		//print( "pilot notarget state while spawn protection: " + string( pilot.GetNoTarget() ) )
+		//print( "pilot disabled dangrous area displacement: " + string( pilot.GetNPCMoveFlag( NPCMF_DISABLE_DANGEROUS_AREA_DISPLACEMENT ) ) )
+		WaitFrame()
+	}
+
+	//wait duration
+	//pilot.ClearInvulnerable() // fixed by reworked ForceStartTitan(): if pilots're killed before titan lands their titan will stuck in the sky!
+}
+
+void function ForceStartTitan( entity titan, entity pilot, float delay )
+{
+	pilot.EndSignal( "OnDeath" )
+	pilot.EndSignal( "OnDestroy" )
+	titan.EndSignal( "OnDeath" )
+	titan.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function(): ( titan, pilot )
+		{
+			if ( IsAlive( pilot ) ) // pilot didn't made it to embark. start combating
+			{
+				if( IsAlive( titan ) )
+				{
+					titan.SetOwner( pilot )
+					NPCFollowsNPC( titan, pilot )
+					// shared function from _ai_pilots.gnut
+					// pilot will still embark if they reached titan because we're not calling NpcPilotStopEmbarkAttempts()
+					NpcPilotStopRunsToEmbark( pilot )
+					if( titan.ContextAction_IsBusy() ) // embarking?
+						return
+
+					thread StandUnboardedTitan( titan )
+				}
+
+				// don't start titan handler. titan will follow the pilot
+				ExtraSpawner_StopDefaultHandler( titan )
+				if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
+					thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
+				pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE ) // reset move speed
+				pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
+			}
+			else
+			{
+				if( IsAlive( titan ) ) // this titan have no owner alive!!
+				{
+					if( titan.GetTitanSoul().soul.seatedNpcPilot.isValid ) // check embark
+						return
+					thread StandUnboardedTitan( titan )
+				}
+			}
+		}
+	)
+
+	titan.WaitSignal( "TitanHotDropComplete" )
+	wait delay
 }
 
 entity function ExtraSpawner_SpawnPilotElite( vector pos, vector rot, int team, void functionref( entity pilot ) pilotHandler = null, bool mpValidModelOnly = true )
@@ -8559,88 +8675,12 @@ void function PilotWantsToPhaseShift( entity pilot, var damageInfo )
 	Signal( pilot, "PilotWantsToPhase", signalTable )
 }
 
-void function PilotSpawnProtection( entity pilot, entity titan, float duration )
+void function InitGruntEmbarkedTitanLoadout()
 {
-	pilot.EndSignal( "OnDestroy" )
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" ) // pilot's titan has been robbed?
-
-	// invulnerability handled by ExtraSpawner_DisableSensingForNPC()
-	// don't set again. SetInvulnerable() can stack up, we'll have to clear it twice
-	//pilot.SetInvulnerable()
-	//pilot.SetNoTarget( true )
-	OnThreadEnd(
-		function(): ( pilot )
-		{
-			if( IsAlive( pilot ) )
-			{
-				//print( "Clearing out pilot spawn protection!" )
-				pilot.ClearInvulnerable()
-				pilot.SetNoTarget( false )
-			}
-		}
-	)
-
-	// debugging version
-	// guess I'll keep it in any case we need it
-	float endTime = Time() + duration
-	while ( Time() < endTime )
-	{
-		//print( "pilot notarget state while spawn protection: " + string( pilot.GetNoTarget() ) )
-		//print( "pilot disabled dangrous area displacement: " + string( pilot.GetNPCMoveFlag( NPCMF_DISABLE_DANGEROUS_AREA_DISPLACEMENT ) ) )
-		WaitFrame()
-	}
-
-	//wait duration
-	//pilot.ClearInvulnerable() // fixed by reworked ForceStartTitan(): if pilots're killed before titan lands their titan will stuck in the sky!
-}
-
-void function ForceStartTitan( entity titan, entity pilot, float delay )
-{
-	pilot.EndSignal( "OnDeath" )
-	pilot.EndSignal( "OnDestroy" )
-	titan.EndSignal( "OnDeath" )
-	titan.EndSignal( "OnDestroy" )
-
-	OnThreadEnd(
-		function(): ( titan, pilot )
-		{
-			if ( IsAlive( pilot ) ) // pilot didn't made it to embark. start combating
-			{
-				if( IsAlive( titan ) )
-				{
-					titan.SetOwner( pilot )
-					NPCFollowsNPC( titan, pilot )
-					// shared function from _ai_pilots.gnut
-					// pilot will still embark if they reached titan because we're not calling NpcPilotStopEmbarkAttempts()
-					NpcPilotStopRunsToEmbark( pilot )
-					if( titan.ContextAction_IsBusy() ) // embarking?
-						return
-
-					thread StandUnboardedTitan( titan )
-				}
-
-				// don't start titan handler. titan will follow the pilot
-				ExtraSpawner_StopDefaultHandler( titan )
-				if ( GetNPCHandlerForClass( "npc_pilot_elite" ) != null )
-					thread GetNPCHandlerForClass( "npc_pilot_elite" )( pilot )
-				pilot.SetNPCMoveSpeedScale( NPC_PILOT_MOVE_SPEED_SCALE ) // reset move speed
-				pilot.DisableNPCFlag( NPC_IGNORE_ALL ) // pilot also start scan around
-			}
-			else
-			{
-				if( IsAlive( titan ) ) // this titan have no owner alive!!
-				{
-					if( titan.GetTitanSoul().soul.seatedNpcPilot.isValid ) // check embark
-						return
-					thread StandUnboardedTitan( titan )
-				}
-			}
-		}
-	)
-
-	titan.WaitSignal( "TitanHotDropComplete" )
-	wait delay
+	// bison loadout override
+	GruntTitanLoadout bisonLoadout
+	bisonLoadout.camoIndex = 31
+	file.gruntTitanLoadoutOverrides[ "bison" ] <- bisonLoadout
 }
 
 entity function ExtraSpawner_SpawnTitanForPilot( entity pilot, vector pos, vector rot, string spawnName = "" )
@@ -8672,7 +8712,7 @@ entity function ExtraSpawner_SpawnTitanForGrunt( entity grunt, vector pos, vecto
 	ExtraSpawner_SetUpPilotOwnedAutoTitan( titan )
 
 	// do grunt titan specific loadout!
-	GruntTitanLoadout( titan )
+	GruntEmbarkedTitanLoadout( titan )
 
 	// manually do hotdrop after settings done
 	// don't stand up, wait for pilot embark it
@@ -8681,20 +8721,11 @@ entity function ExtraSpawner_SpawnTitanForGrunt( entity grunt, vector pos, vecto
 	return titan
 }
 
-void function GruntTitanLoadout( entity titan )
+void function GruntEmbarkedTitanLoadout( entity titan )
 {
 	// no skin or camo
 	titan.SetSkin( 0 )
 	titan.SetCamo( 0 )
-
-	string spawnName = ExtraSpawner_GetTitanSpawnName( titan )
-	//print( "spawnName: " + spawnName )
-	// don't use any special behavior
-	TitanSpawnStruct currentTitan = file.titanSpawnList[ spawnName ]
-	string embarkedAiSet 		= currentTitan.aiSet // use auto-titan aiSettings
-	string embarkedBehavior 	= "behavior_titan_buddy" // non-special titan behavior, won't use core ability
-	string embarkedTitle 		= currentTitan.embarkedTitle
-	SetTitanSoulEmbarkedSettings( titan, embarkedAiSet, embarkedBehavior, embarkedTitle )
 
 	// behavior settings
 	entity soul = titan.GetTitanSoul()
@@ -8711,11 +8742,44 @@ void function GruntTitanLoadout( entity titan )
 		ExtraSpawner_DisableNPCTitanRodeoCounterOnEmbark( titan, true )
 		// disable scripted core ability. native core ability disabled with behavior
 		ExtraSpawner_DisableNPCTitanScriptedCoreAbilityOnEmbark( titan, true )
-		
 		// disallow script synced melee in _melee_synced_npc.gnut
 		NPCSyncedMelee_Disable( titan )
+		// lower weapon proficiency
+		ExtraSpawner_SetEmbarkedNPCTitanWeaponProficiency( titan, eWeaponProficiency.GOOD )
 	}
-	//print( "Done GruntTitanLoadout()" )
+	
+	// override settings
+	string spawnName = ExtraSpawner_GetTitanSpawnName( titan )
+	//print( "spawnName: " + spawnName )
+	// don't use any special behavior
+	TitanSpawnStruct currentTitan = file.titanSpawnList[ spawnName ]
+	string embarkedAiSet 		= currentTitan.aiSet // use auto-titan aiSettings
+	string embarkedBehavior 	= "behavior_titan_buddy" // non-special titan behavior, won't use core ability
+	string embarkedTitle 		= currentTitan.embarkedTitle
+
+	// find specified settings
+	if ( spawnName in file.gruntTitanLoadoutOverrides )
+	{
+		GruntTitanLoadout gruntLoadout = file.gruntTitanLoadoutOverrides[ spawnName ]
+		if ( gruntLoadout.embarkedAiSet != "" )
+			embarkedAiSet = gruntLoadout.embarkedAiSet
+		if ( gruntLoadout.embarkedBehavior != "" )
+			embarkedBehavior = gruntLoadout.embarkedBehavior
+		if ( gruntLoadout.embarkedTitle != "" )
+			embarkedBehavior = gruntLoadout.embarkedTitle
+		
+		if ( gruntLoadout.loadoutFunction != "" )
+			gruntLoadout.loadoutFunction( titan )
+		
+		if ( gruntLoadout.camoIndex != -1 )
+		{
+			titan.SetSkin( TITAN_SKIN_INDEX_CAMO )
+			titan.SetCamo( gruntLoadout.camoIndex )
+		}
+	}
+
+	SetTitanSoulEmbarkedSettings( titan, embarkedAiSet, embarkedBehavior, embarkedTitle )
+	//print( "Done GruntEmbarkedTitanLoadout()" )
 }
 
 void function ExtraSpawner_SetUpPilotOwnedAutoTitan( entity titan )
@@ -8822,7 +8886,7 @@ void function ExtraSpawner_SetUpNPCEmbarkedTitan( entity titan )
 	if ( IsValid( centerWeapon ) )
 		centerWeapon.AllowUse( true )
 
-	titan.kv.WeaponProficiency = eWeaponProficiency.VERYGOOD // they can shoot very nice
+	titan.kv.WeaponProficiency = GetEmbarkedNPCTitanWeaponProficiency( titan )
 	//titan.SetCanBeMeleeExecuted( false ) // code synced melee ignores this
 	if ( EmbarkedNPCTitanHasDisabledSyncedMelee( titan ) )
 		titan.SetCapabilityFlag( bits_CAP_SYNCED_MELEE_ATTACK, false ) // disable synced melee behavior, we use melee_synced_npc
@@ -9891,6 +9955,30 @@ float function GetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac( entity titan )
 		return NPC_TITAN_EJECT_REQUIRED_DOOMED_HEALTH_FRAC
 	
 	return file.soulEjectRequiredDoomedHealthFrac[ soul ]
+}
+
+void function ExtraSpawner_SetEmbarkedNPCTitanWeaponProficiency( entity titan, int weaponProficiency )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulEmbarkedTitanWeaponProficiency ) )
+		file.soulEmbarkedTitanWeaponProficiency[ soul ] <- EMBARKED_NPC_TITAN_WEAPON_PROFICIENCY
+	
+	file.soulEmbarkedTitanWeaponProficiency[ soul ] = doomedHealthFrac
+}
+
+int function GetEmbarkedNPCTitanWeaponProficiency( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return 0
+	
+	if ( !( soul in file.soulEmbarkedTitanWeaponProficiency ) )
+		return EMBARKED_NPC_TITAN_WEAPON_PROFICIENCY
+	
+	return file.soulEmbarkedTitanWeaponProficiency[ soul ]
 }
 
 function OnNpcTitanBecomesPilot( pilot, titan )
