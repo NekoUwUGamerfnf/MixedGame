@@ -248,6 +248,7 @@ void function MeleeSyncedTitan_InitDefaultRefCallbacks()
 
 	MeleeSyncedTitan_AddExecutionRefLoadoutReplaceCallback( "execution_tone_prime", Execution_Tone_Prime )
 	MeleeSyncedTitan_SetExecutionRefShouldDoLoadoutReplaceCallback( "execution_tone_prime", ExecutionTonePrime_ShouldReplaceLoadout )
+	MeleeSyncedTitan_AddExecutionRefCallback( "execution_tone_prime", Execution_TonePrime_Fix )
 
 	// weapons that requires hud visibility to be updated after getting replaced
 	MeleeSyncedTitan_AddWeaponRequiresHudVisibilityUpdate( "mp_titanweapon_tracker_rockets" )
@@ -281,7 +282,7 @@ void function MeleeSyncedTitan_InitDefaultRefCallbacks()
 
 	// SCORCH
 	// don't have any execution that requires weapon
-	MeleeSyncedTitan_AddExecutionRefCallback( "execution_scorch_prime", Execution_Scorch_Prime_Fix )
+	MeleeSyncedTitan_AddExecutionRefCallback( "execution_scorch_prime", Execution_ScorchPrime_Fix )
 	
 	// BT
 	MeleeSyncedTitan_AddExecutionRefLoadoutReplaceCallback( "execution_bt_kickshoot", Execution_BT_KickShoot )
@@ -424,6 +425,26 @@ bool function ExecutionTonePrime_ShouldReplaceLoadout( entity titan )
 	return Generic_TitanExecutionShouldReplaceLoadout( titan, EXECUTION_TONE_PRIME_REQUIRED_WEAPONS )
 }
 
+void function Execution_TonePrime_Fix( entity attacker, entity target )
+{
+	// we've removed global anim event handle "give_ammo"
+	// all the fixes handled with this function!
+
+	// if we're holding 40mm and we don't have enough ammo for performing execution( 3 rounds required )
+	// set clip to 3 so we don't receive reloading during animation
+	// note: this breaks vanilla behavior, which sets weapon ammo to FULL and fire 3 shots, resulting 9 rounds in clip after execution
+	entity mainWeapon = attacker.GetMainWeapons()[0]
+	//print( "mainWeapon: " + string( mainWeapon ) )
+	if ( IsValid( mainWeapon ) )
+	{
+		if ( mainWeapon.GetWeaponClassName() == "mp_titanweapon_sticky_40mm" )
+		{
+			if ( mainWeapon.GetWeaponPrimaryClipCount() < 3 )
+				mainWeapon.SetWeaponPrimaryClipCount( 3 )
+		}
+	}
+}
+
 void function Execution_Ronin( entity attacker )
 {
 	// prime sword check
@@ -562,11 +583,33 @@ bool function ExecutionLegionPrime_ShouldReplaceLoadout( entity titan )
 	return Generic_TitanExecutionShouldReplaceLoadout( titan, EXECUTION_LEGION_PRIME_REQUIRED_WEAPONS )
 }
 
-void function Execution_Scorch_Prime_Fix( entity attacker, entity target )
+void function Execution_ScorchPrime_Fix( entity attacker, entity target )
 {
 	// HACK fix for scorch: their flame core already emitting very large sound
 	// try to hide target's death sound
 	//target.s.silentDeath <- true
+
+	// now we hide death sound after they getting gibbed
+	// because we don't want them play a death sound after titan already gibbed...
+	thread Execution_ScorchPrime_Fix_Threaded( attacker, target )
+}
+
+void function Execution_ScorchPrime_Fix_Threaded( entity attacker, entity target )
+{
+	target.EndSignal( "OnDeath" )
+	target.EndSignal( "OnDestroy" )
+
+	WaitFrame() // wait for target sequence to start
+	while ( target.Anim_IsActive() )
+	{
+		// shared from modified sh_death_package.gnut
+		if ( TitanHasBeenGibbed( target ) )
+		{
+			target.s.silentDeath <- true
+			return
+		}
+		WaitFrame()
+	}
 }
 
 void function Execution_BT_KickShoot( entity attacker )
