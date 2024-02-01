@@ -286,6 +286,10 @@ entity function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake =
 
 void function SetupDecoy_Common( entity player, entity decoy ) //functioned out mainly so holopilot execution can call this as well
 {
+	// modified: enable damage callbacks for decoy
+	// this might break vanilla behavior at some case( scorch thermite damage stuffs? ), but whatever
+	decoy.SetDamageNotifications( true )
+
 	decoy.SetDeathNotifications( true )
 	decoy.SetPassThroughThickness( 0 )
 	decoy.SetNameVisibleToOwner( true )
