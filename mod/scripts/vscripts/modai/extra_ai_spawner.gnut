@@ -7423,6 +7423,7 @@ void function InitDefaultScriptedNPCPilotTactical()
 	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_heal", NPCPilotStimThink )
 
 	// holopilot
+	AddCallback_OnDecoyCreated( OnPlayerDecoyCreated ) // shared from modified mp_ability_holopilot.gnut!!!
 	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_holopilot", NPCPilotHoloPilotThink )
 
 	// phase shift
@@ -8113,11 +8114,35 @@ void function NPCPilotActivatesStim( entity pilot, entity weapon )
 	}
 }
 
+void function OnPlayerDecoyCreated( entity player, entity decoy )
+{
+	// enable damage callbacks for decoy
+	decoy.SetDamageNotifications( true )
+	// setup damage callbacks
+	AddEntityCallback_OnDamaged( decoy, OnPlayerDecoyDamaged )
+}
+
+void function OnPlayerDecoyDamaged( entity decoy, var damageInfo )
+{
+	// HACK behavior for npc pilots: one shot player decoy entity!
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	bool attackerIsNPCPilot
+	if ( IsValid( attacker ) )
+	{
+		// fake playerOneShot behavior when getting shot by a npc pilot
+		attackerIsNPCPilot = ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) // only handle npcs spawned by this file!!
+							 && ( attacker.GetClassName() == "npc_pilot_elite" || ( attacker.IsTitan() && TitanIsEmbarkedByNPCPilot( attacker ) ) )
+	}
+
+	if ( attackerIsNPCPilot )
+		DamageInfo_SetDamage( damageInfo, decoy.GetMaxHealth() )
+}
+
 const float NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE = 3.5 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_HOLOPILOT_COMBAT_DIST_2D = 1500 // if pilot can see an enemy within this range, let them project hologram
 const float NPC_PILOT_HOLOPILOT_MAX_WAIT = 6.5 // if pilot has finished cooldown but no valid enemy within this time, always project hologram
 
-const int NPC_PILOT_DECOY_HEALTH = 30 // was 50, but we've add forced aggro for them
+const int NPC_PILOT_DECOY_HEALTH = 50 // EDIT: was nerfed to 30, but we've made pilot and their embarked titan has capability of oneshot a decoy( similar to players ) // was 50, but we've add forced aggro for them
 const float NPC_PILOT_DECOY_TIMEOUT = DECOY_DURATION
 
 void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
@@ -8337,6 +8362,10 @@ bool function EntIsNPCFakeDecoy( entity ent )
 
 void function OnNPCDecoyDamaged( entity decoy, var damageInfo )
 {
+	// don't handle if we're doing damage force
+	if ( "manualDamageForce" in decoy.s )
+		return
+	
 	// don't show indicator on damaging decoy
 	DamageInfo_AddCustomDamageType( damageInfo, DF_NO_INDICATOR )
 	// flicker like player decoy
@@ -8354,20 +8383,46 @@ void function NPCDecoyFlicker( entity decoy, float duration = 0.5 )
 
 void function OnNPCDecoyPostDamaged( entity decoy, var damageInfo )
 {
+	// don't handle if we're doing damage force
+	if ( "manualDamageForce" in decoy.s )
+	{
+		//print( "decoy is doing damage force!!!" )
+		return
+	}
+
 	// never dies. if gonna die, clear any damage history so nobody will get score
-	// add playerOneShot effect to be more like normal decoy
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	bool attackerIsPlayer = IsValid( attacker ) && attacker.IsPlayer()
-	if ( attackerIsPlayer || ( DamageInfo_GetDamage( damageInfo ) >= decoy.GetHealth() ) )
+	bool attackerIsPlayer
+	bool attackerIsNPCPilot
+	if ( IsValid( attacker ) )
+	{
+		// add playerOneShot effect to be more like normal decoy
+		attackerIsPlayer = attacker.IsPlayer()
+		// fake playerOneShot behavior when getting shot by a npc pilot
+		attackerIsNPCPilot = ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) // only handle npcs spawned by this file!!
+							 && ( attacker.GetClassName() == "npc_pilot_elite" || ( attacker.IsTitan() && TitanIsEmbarkedByNPCPilot( attacker ) ) )
+	}
+
+	if ( ( attackerIsPlayer || attackerIsNPCPilot ) || ( DamageInfo_GetDamage( damageInfo ) >= decoy.GetHealth() ) )
 	{
 		ClearRecentDamageHistory( decoy )
 		ClearLastAttacker( decoy )
-		DamageInfo_SetDamage( damageInfo, decoy.GetHealth() - 1 )
+		//DamageInfo_SetDamage( damageInfo, decoy.GetHealth() - 1 )
+		// set damage to -2 so we can do a damage force
+		DamageInfo_SetDamage( damageInfo, decoy.GetHealth() - 2 )
 		// die to self damage, skip death callbacks, maintain force(don't really work though)
 		if ( IsAlive( decoy ) )
 		{
 			//DisableCloak( player, 0 ) // manually disable any flicker because we won't call AbilityCloak_OnDeath() in player_cloak.nut
-			decoy.Die( decoy, decoy, { damageSourceId = eDamageSourceId.round_end, force = DamageInfo_GetDamageForce( damageInfo ) } )
+			//decoy.Die( decoy, decoy, { damageSourceId = eDamageSourceId.round_end, force = DamageInfo_GetDamageForce( damageInfo ) } )
+		
+			// do a damage force manually
+			// seems still not work, whatever...
+			decoy.s.manualDamageForce <- true
+			decoy.TakeDamage( 1, decoy, decoy, { damageSourceId = damagedef_suicide, origin = DamageInfo_GetDamagePosition( damageInfo ), force = DamageInfo_GetDamageForce( damageInfo ) } )
+			delete decoy.s.manualDamageForce
+
+			decoy.Die( decoy, decoy, { damageSourceId = eDamageSourceId.round_end } )
 		}
 	}
 }
