@@ -37,6 +37,15 @@ struct
 file
 
 
+// Compatibility with Legonzaur.HoloShift!!!!
+// code from https://northstar.thunderstore.io/package/Legonzaur/HoloShift/
+#if EXTRA_SPAWNER_HAS_HOLOSHIFT
+
+const float PHASE_REWIND_PATH_SNAPSHOT_INTERVAL = 0.1
+
+global table< entity > playerDecoyList //CUSTOM used to track the decoy the user will be teleported to
+global table< entity, float > playerDecoyActiveFrom //CUSTOM used to set decoy ability discharge
+
 #if SERVER
 
 void function Decoy_Init()
@@ -45,10 +54,6 @@ void function Decoy_Init()
 		RegisterSignal( "CleanupFXAndSoundsForDecoy" )
 	#endif
 }
-
-// Compatibility with Legonzaur.HoloShift!!!!
-// code from https://northstar.thunderstore.io/package/Legonzaur/HoloShift/
-#if EXTRA_SPAWNER_HAS_HOLOSHIFT
 
 void function CleanupExistingDecoy( entity decoy )
 {
@@ -519,6 +524,15 @@ void function HoloRewindForceCrouch( entity player )
 
 // vanilla behavior starts here!!
 #else
+
+#if SERVER
+
+void function Decoy_Init()
+{
+	#if MP
+		RegisterSignal( "CleanupFXAndSoundsForDecoy" )
+	#endif
+}
 
 void function CleanupExistingDecoy( entity decoy )
 {
