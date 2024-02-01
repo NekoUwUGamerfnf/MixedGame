@@ -505,6 +505,7 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	// modified for npc pilot embarked titan
 #if NPC_TITAN_PILOT_PROTOTYPE
 	bool isNPCPilotPet = TitanIsNpcPilotPetTitan( victim )
+	//print( "isNPCPilotPet: " + string( isNPCPilotPet ) )
 	playTitanKilledDiag = isPlayerTitan || hasNPCPilot || isNPCPilotPet
 #endif
 
