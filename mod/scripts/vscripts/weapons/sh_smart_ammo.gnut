@@ -60,6 +60,11 @@ global function SmartAmmo_GetWeaponTargets
 //	global function ClientCodeCallback_OnPredictedEntityRemove
 #endif
 
+// modified settings!!!
+global function SmartPistol_DisableOneShotInfantry // sets to not always one-shot infantries( grunts and spectres )
+global function SmartPistol_SetInfantryDamageScale // sets the damage scale smart pistol dealt to infantry classes
+//
+
 global const SMART_AMMO_DEFAULT_AIM_ATTACHMENT = "CHESTFOCUS"
 global const SMART_AMMO_AI_AIM_ATTACHMENT = "HEADSHOT"
 global const SMART_AMMO_GRENADE_AIM_ATTACHMENT = "LIGHT" //Satchels have LIGHT others grenades default to worldspace.
@@ -73,6 +78,15 @@ table< string, FireWeaponCallback > VALID_WEAPON_TYPES = {
 	homing_missile 			= null,
 	sniper					= null,
 }
+
+// modified settings!!
+struct
+{
+	bool disableSmartPistolOneShotInfantry = false
+	float smartPistolInfantryDamageScale_Player = 1.5
+	float smartPistolInfantryDamageScale_NPC = 1.0
+} file
+//
 
 function SmartAmmo_Init()
 {
@@ -637,25 +651,49 @@ void function SmartPistol_DamagedPlayerOrNPC( entity ent, var damageInfo )
 	if ( !IsValid( attacker ) ) // breaks vanilla behavior, but smart pistol is hitscan, should be good
 		return
 
-	if ( attacker.IsNPC() ) // npc smart pistol variant
+	// modified content
+	if ( attacker.IsNPC() ) // npc smart pistol usage
 	{
-		DamageInfo_AddCustomDamageType( damageInfo, DF_HEADSHOT ) // always do headshot effect like player using it
-		if ( IsSpectre( ent ) || IsGrunt( ent ) )
-			DamageInfo_ScaleDamage( damageInfo, 2.0 ) // for npc damaging infantry with smart pistol, we scale damage to 2.0x
-		return
+		if ( DamageUtility_IsNPCLocationBasedDamageEnabled() ) // shared function from modified sh_damage_utility.gnut
+			DamageInfo_AddCustomDamageType( damageInfo, DF_HEADSHOT ) // always do headshot effect like player using it
 	}
 
 	// vanilla behavior
-	if ( IsSpectre( ent ) )
+	// add new settings: we may want smart pistol to damage target with certain damage multiplier, but not always kill them
+	if ( !file.disableSmartPistolOneShotInfantry )
 	{
-		DamageInfo_SetDamage( damageInfo, (maxHealth / 2) + 1 )
+		if ( IsSpectre( ent ) )
+		{
+			DamageInfo_SetDamage( damageInfo, (maxHealth / 2) + 1 )
+		}
+		else if ( IsGrunt( ent ) )
+		{
+			if ( damage < maxHealth )
+				DamageInfo_SetDamage( damageInfo, maxHealth )
+		}
 	}
-	else if ( IsGrunt( ent ) )
+	else // modified behavior: scale up infantry damage instead of having a constant damage value
 	{
-		if ( damage < maxHealth )
-			DamageInfo_SetDamage( damageInfo, maxHealth )
+		if ( IsGrunt( ent ) || IsSpectre( ent ) )
+		{
+			float damageScale = file.smartPistolInfantryDamageScale_Player
+			if ( attacker.IsNPC() )
+				damageScale = file.smartPistolInfantryDamageScale_NPC
+			DamageInfo_ScaleDamage( damageInfo, damageScale )
+		}
 	}
+}
 
+// modified settings!
+void function SmartPistol_DisableOneShotInfantry( bool disable )
+{
+	file.disableSmartPistolOneShotInfantry = disable
+}
+
+void function SmartPistol_SetInfantryDamageScale( float playerDamageScale, float npcDamageScale )
+{
+	file.smartPistolInfantryDamageScale_Player = playerDamageScale
+	file.smartPistolInfantryDamageScale_NPC = npcDamageScale
 }
 #endif // SERVER
 
