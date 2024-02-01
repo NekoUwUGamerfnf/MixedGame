@@ -22,10 +22,17 @@ global function GetDecoyActiveCountForPlayer
 
 #endif //if server
 
+// modified callbacks
+#if SERVER
+global function AddCallback_OnDecoyCreated // since decoys won't DispatchSpawn(), server can't use AddSpawnCallback()
+#endif
+
 struct
 {
 	table< entity, int > playerToDecoysActiveTable //Mainly used to track stat for holopilot unlock
 
+	// modified callbacks
+	array< void functionref( entity, entity ) > decoyCreatedCallbacks
 }
 file
 
@@ -173,6 +180,11 @@ void function CreateHoloPilotDecoys( entity player, int numberOfDecoysToMake = 1
 		#if MP
 					thread MonitorDecoyActiveForPlayer( decoy, player )
 			#endif
+
+		// modified callbacks
+		foreach ( callbackFunc in file.decoyCreatedCallbacks )
+			callbackFunc( player, decoy )
+		//
 	}
 
 	#if BATTLECHATTER_ENABLED
@@ -358,3 +370,11 @@ bool function PlayerCanUseDecoy( entity ownerPlayer ) //For holopilot and HoloPi
 
 	return true
 }
+
+// modified callbacks
+#if SERVER
+void function AddCallback_OnDecoyCreated( void functionref( entity, entity ) callbackFunc )
+{
+	file.decoyCreatedCallbacks.append( callbackFunc )
+}
+#endif
