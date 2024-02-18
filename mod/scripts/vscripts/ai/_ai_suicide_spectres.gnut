@@ -5,9 +5,14 @@ global function MakeSuicideSpectre
 global function SpectreSuicideOnDamaged
 global function GetNPCAttackerEnt
 
+// modified settings
+// settings per entity
 global function SuicideSpectre_SetJumpAtTitans // script settings for "JumpAtTitans" ai settings
 global function SuicideSpectre_SetCreateHeavyArmorDangerousArea // make titans try to dodge when a tick is about to explode
 global function SuicideSpectre_SetCanExplodeInMidAir // make SP specific behavior a setting!
+
+// game settings
+global function SuicideSpectre_SetUseGlobalChainExplosionTimer // sets whether ticks should use a global timer for their detonation. enabled by default as vanilla behavior
 
 const FX_SPECTRE_EXPLOSION				= $"P_drone_frag_exp"
 
@@ -33,6 +38,11 @@ struct
 	table<entity, bool> spectreShouldJumpAtTitans
 	table<entity, bool> spectreShouldCreateHeavyArmorDangerousArea
 	table<entity, bool> spectreCanExplodeInMidAir
+
+	// vanilla behavior turns to settings: npc/npc owned ticks never follow chain explosion time
+	bool spectreUseGlobalChainExplosionTime = true
+	table<entity, int> playerSpectreChainExplosionIndex
+	table<entity, float> playerSpectreLastChainExplosionTime
 } file
 
 const SFX_TICK_OVERLOAD 				= "corporate_spectre_overload_beep"
@@ -273,13 +283,41 @@ void function SetSuicideSpectreExploding( entity spectre, entity attacker, float
 
 float function GetSpectreExplosionTime( entity spectre )
 {
-	if ( Time() - file.lastChainExplosionTime > 1.0 )
-		file.chainExplosionIndex = 0
+	// guess following behavior only exists in SP... because MP ticks won't damage each other
+	// now make it a setting
+	if ( file.spectreUseGlobalChainExplosionTime )
+	{
+		if ( Time() - file.lastChainExplosionTime > 1.0 )
+			file.chainExplosionIndex = 0
 
-	float waitTime = file.chainExplosionIndex * 0.14 // RandomFloatRange( CHAIN_EXPLOSION_INTERVALMIN, CHAIN_EXPLOSION_INTERVALMAX )
-	file.lastChainExplosionTime = Time()
-	file.chainExplosionIndex++
-	return waitTime
+		float waitTime = file.chainExplosionIndex * 0.14 // RandomFloatRange( CHAIN_EXPLOSION_INTERVALMIN, CHAIN_EXPLOSION_INTERVALMAX )
+		file.lastChainExplosionTime = Time()
+		file.chainExplosionIndex++
+		return waitTime
+	}
+	else
+	{
+		// MP behavior should be players specific? only affects player's tick chain reaction. that's the only case ticks can damage each other
+		float waitTime = 0 // explode instantly after animation done
+		entity player = spectre.GetBossPlayer()
+		if ( IsValid( player ) )
+		{
+			if ( !( player in file.playerSpectreChainExplosionIndex ) )
+				file.playerSpectreChainExplosionIndex[ player ] <- -1
+			if ( !( player in file.playerSpectreLastChainExplosionTime ) )
+				file.playerSpectreLastChainExplosionTime[ player ] <- -1
+
+			if ( Time() - file.playerSpectreLastChainExplosionTime[ player ] > 1.0 )
+				file.playerSpectreChainExplosionIndex[ player ] = 0
+			
+			waitTime = file.playerSpectreChainExplosionIndex[ player ] * 0.14
+			file.playerSpectreLastChainExplosionTime[ player ] = Time()
+			file.playerSpectreChainExplosionIndex[ player ]++
+		}
+		return waitTime
+	}
+
+	unreachable
 }
 
 void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
@@ -657,4 +695,9 @@ void function SuicideSpectre_SetCanExplodeInMidAir( entity spectre, bool explode
 		file.spectreCanExplodeInMidAir[ spectre ] <- false // init
 
 	file.spectreCanExplodeInMidAir[ spectre ] = explodeMidAir
+}
+
+void function SuicideSpectre_SetUseGlobalChainExplosionTimer( bool useGlobalTimer )
+{
+	file.spectreUseGlobalChainExplosionTime = useGlobalTimer
 }
