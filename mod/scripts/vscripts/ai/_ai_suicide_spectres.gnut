@@ -3,9 +3,14 @@ global function MakeSuicideSpectre
 global function SpectreSuicideOnDamaged
 global function GetNPCAttackerEnt
 
-global function SetSuicideSpectreNotExploding // for making pet ticks
+// modified settings
+global function SuicideSpectre_SetNotExploding // for making pet ticks
 
 global const string FAKE_SPECTRE_SCRIPTNAME 	= "fakeSuicideSpectre" // for confirming it's a faken suicide spectre( not tick )
+
+global function SuicideSpectre_SetJumpAtTitans // script settings for "JumpAtTitans" ai settings
+global function SuicideSpectre_SetCreateHeavyArmorDangerousArea // make titans try to dodge when a tick is about to explode
+global function SuicideSpectre_SetCanExplodeInMidAir // make SP specific behavior a setting!
 
 const FX_SPECTRE_EXPLOSION				= $"P_drone_frag_exp"
 
@@ -27,8 +32,11 @@ struct
 	table< string, array<string> > spectreAnims
 	float nextOverloadTime
 	
+	// modified settings
 	array<entity> noExplosionSpectres // for making pet ticks
-
+	table<entity, bool> spectreShouldJumpAtTitans
+	table<entity, bool> spectreShouldCreateHeavyArmorDangerousArea
+	table<entity, bool> spectreCanExplodeInMidAir
 } file
 
 const SFX_TICK_OVERLOAD 				= "corporate_spectre_overload_beep"
@@ -95,6 +103,11 @@ void function MakeSuicideSpectre( entity spectre )
 
 	thread SpectreWaitToExplode( spectre )
 	AddAnimEvent( spectre, "frag_drone_armed", FragDroneArmed )
+
+	// modified settings INIT
+	file.spectreShouldJumpAtTitans[ spectre ] <- false
+	file.spectreShouldCreateHeavyArmorDangerousArea[ spectre ] <- false
+	file.spectreCanExplodeInMidAir[ spectre ] <- IsSinglePlayer() // default is we enable this behavior in SP
 }
 
 void function FragDroneArmed( entity npc )
@@ -453,6 +466,8 @@ void function SpectreOverloads( entity spectre )
 
 	for ( ;; )
 	{
+		// make this SP specific behavior a setting!
+		/*
 		#if SP
 		if ( spectre.IsInterruptable() && !spectre.Anim_IsActive() )
 			break
@@ -460,6 +475,12 @@ void function SpectreOverloads( entity spectre )
 		if ( spectre.IsInterruptable() && !spectre.Anim_IsActive() && spectre.IsOnGround() )
 			break
 		#endif
+		*/
+		bool passOnGroundCheck = spectre.IsOnGround()
+		if ( file.spectreCanExplodeInMidAir[ spectre ] )
+			passOnGroundCheck = true // if we allow this spectre to explode in mid-air, always pass ground check
+		if ( spectre.IsInterruptable() && !spectre.Anim_IsActive() && passOnGroundCheck )
+			break
 
 		WaitFrame()
 	}
@@ -473,7 +494,9 @@ void function SpectreOverloads( entity spectre )
 	// Overload Sound
 	EmitSoundOnEntity( spectre, overloadSF )
 
-	AI_CreateDangerousArea_DamageDef( damagedef_frag_drone_explode, spectre, TEAM_INVALID, true, false )
+	// modified to add settings, allow npc titans aware their explosions
+	//AI_CreateDangerousArea_DamageDef( damagedef_frag_drone_explode, spectre, TEAM_INVALID, true, false )
+	AI_CreateDangerousArea_DamageDef( damagedef_frag_drone_explode, spectre, TEAM_INVALID, true, file.spectreShouldCreateHeavyArmorDangerousArea[ spectre ] )
 
 	// Cleanup on thread end
 	OnThreadEnd(
@@ -487,6 +510,9 @@ void function SpectreOverloads( entity spectre )
 	)
 
 	bool jumpAtTitans = spectre.Dev_GetAISettingByKeyField( "JumpAtTitans" ) == null || spectre.Dev_GetAISettingByKeyField( "JumpAtTitans" ) == 1
+	// modified script settings handle. does not overwrite ai settings file!
+	if ( file.spectreShouldJumpAtTitans[ spectre ] )
+		jumpAtTitans = true
 
 	entity enemy = spectre.GetEnemy()
 	if ( enemy && enemy.IsTitan() && jumpAtTitans && !spectre.IsInterruptable() )
@@ -616,7 +642,7 @@ void function SpectreSuicideOnDamaged( entity spectre, var damageInfo )
 
 ///// Modified Functions /////
 
-void function SetSuicideSpectreNotExploding( entity spectre )
+void function SuicideSpectre_SetNotExploding( entity spectre )
 {
 	if( !( file.noExplosionSpectres.contains( spectre ) ) )
 		file.noExplosionSpectres.append( spectre )
@@ -631,4 +657,28 @@ bool function IsFakeSuicideSpectre_ByScriptName( entity spectre )
 		return true
 
 	return false
+}
+
+void function SuicideSpectre_SetJumpAtTitans( entity spectre, bool jumpAtTitans )
+{
+	if ( !( spectre in file.spectreShouldJumpAtTitans ) )
+		file.spectreShouldJumpAtTitans[ spectre ] <- false // init
+
+	file.spectreShouldJumpAtTitans[ spectre ] = jumpAtTitans
+}
+
+void function SuicideSpectre_SetCreateHeavyArmorDangerousArea( entity spectre, bool createDangerousArea )
+{
+	if ( !( spectre in file.spectreShouldCreateHeavyArmorDangerousArea ) )
+		file.spectreShouldCreateHeavyArmorDangerousArea[ spectre ] <- false // init
+
+	file.spectreShouldJumpAtTitans[ spectre ] = createDangerousArea
+}
+
+void function SuicideSpectre_SetCanExplodeInMidAir( entity spectre, bool explodeMidAir )
+{
+	if ( !( spectre in file.spectreCanExplodeInMidAir ) )
+		file.spectreCanExplodeInMidAir[ spectre ] <- false // init
+
+	file.spectreCanExplodeInMidAir[ spectre ] = explodeMidAir
 }
