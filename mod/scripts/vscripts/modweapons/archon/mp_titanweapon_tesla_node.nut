@@ -160,8 +160,11 @@ function DeployArcPylon( entity projectile )
 	entity tower = CreatePropScript( LASER_TRIP_MODEL, origin, angles, SOLID_VPHYSICS )
 	// TRACE_COLLISION_GROUP_BLOCK_WEAPONS makes scorch thermite pass through entity
 	// Super.Mixed.Game has changed basic laser tripwire, guess I'll change this too
-	//tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
-	tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS_AND_PHYSICS
+	// now use playlistvar for toggling
+	if ( GetCurrentPlaylistVarInt( "titan_collision_fix", 1 ) == 1 ) // fixed version
+		tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS_AND_PHYSICS
+	else
+		tower.kv.collisionGroup = TRACE_COLLISION_GROUP_BLOCK_WEAPONS
 	//tower.EnableAttackableByAI( 20, 0, AI_AP_FLAG_NONE )
 	SetTargetName( tower, "Laser Tripwire Base" )
 	//tower.SetMaxHealth( 500000 )
