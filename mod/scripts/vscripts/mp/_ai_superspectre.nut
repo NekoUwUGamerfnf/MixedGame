@@ -1575,8 +1575,8 @@ void function SuperSpectre_DetonateAllOwnedTicks( entity npc )
 			{
 				if ( ent.ai.fragDroneArmed )
 				{
-					//print( "Signaling SuicideSpectreExploding on " + string( minion ) )
-					ent.Signal( "SuicideSpectreExploding" )
+					//print( "Signaling SuicideSpectreForceExplode on " + string( minion ) )
+					ent.Signal( "SuicideSpectreForceExplode" ) // signal "SuicideSpectreExploding" will cause ticks already ignited to explode instantly, which makes player unable to react...
 				}
 				else
 					thread WaitForFragDroneArmThenDetonate( ent )
@@ -1589,7 +1589,7 @@ void function WaitForFragDroneDeployThenDetonate( entity drone )
 {
 	drone.EndSignal( "OnDestroy" )
 	waitthread FragDroneDeplyAnimation( drone )
-	drone.Signal( "SuicideSpectreExploding" )
+	drone.Signal( "SuicideSpectreForceExplode" ) // signal "SuicideSpectreExploding" will cause ticks already ignited to explode instantly, which makes player unable to react...
 }
 
 void function WaitForFragDroneArmThenDetonate( entity drone )
@@ -1597,7 +1597,7 @@ void function WaitForFragDroneArmThenDetonate( entity drone )
 	drone.EndSignal( "OnDestroy" )
 	while ( !drone.ai.fragDroneArmed )
 		WaitFrame()
-	drone.Signal( "SuicideSpectreExploding" )
+	drone.Signal( "SuicideSpectreForceExplode" ) // signal "SuicideSpectreExploding" will cause ticks already ignited to explode instantly, which makes player unable to react...
 }
 
 int function GetReaperMaxMinionSpawn( entity ent )
