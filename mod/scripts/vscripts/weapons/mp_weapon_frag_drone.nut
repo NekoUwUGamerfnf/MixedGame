@@ -185,7 +185,8 @@ void function DroneDeployFailedExplode( entity drone, entity owner )
 		drone.SetBossPlayer( owner )
 	}
 	thread FragDroneDeplyAnimation( drone, 0.0, 0.1 )
-	drone.Signal( "SuicideSpectreExploding" )
+	//drone.Signal( "SuicideSpectreExploding" )
+	drone.Signal( "SuicideSpectreForceExplode" ) // signal "SuicideSpectreExploding" will cause ticks already ignited to explode instantly, which makes player unable to react...
 }
 
 void function WaitForEnemyNotification( entity drone )
