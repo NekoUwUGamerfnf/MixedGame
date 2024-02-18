@@ -1,3 +1,5 @@
+untyped // for us using signal's table
+
 global function SuicideSpectres_Init
 global function MakeSuicideSpectre
 global function SpectreSuicideOnDamaged
@@ -49,6 +51,9 @@ void function SuicideSpectres_Init()
 	RegisterSignal( "SuicideSpectreExploding" )
 	RegisterSignal( "SuicideGotEnemy" )
 	RegisterSignal( "SuicideLostEnemy" )
+	// modified signals for handling jumpAtTitan case
+	RegisterSignal( "SuicideSpectreExploded" ) // this means tick is detonated by damage
+	RegisterSignal( "SuicideSpectreNearEnemy" ) // this means tick is detonated by other script's signal
 
 	PrecacheParticleSystem( FX_SPECTRE_EXPLOSION )
 
@@ -202,14 +207,26 @@ void function SpectreWaitToExplode( entity spectre )
 {
 	Assert( spectre.IsNPC() )
 	spectre.EndSignal( "OnDeath" )
+	spectre.EndSignal( "OnDestroy" ) // should be vanilla missing!
 
-	waitthread SuicideSpectre_WaittillNearEnemyOrExploding( spectre )
-	
+	// now we change to handle like this: use WaitSignal() so we can get what makes tick explode
+	//waitthread SuicideSpectre_WaittillNearEnemyOrExploding( spectre )
+	thread SuicideSpectre_WaittillNearEnemyOrExploding( spectre )
+	table signalTable = WaitSignal( spectre, "SuicideSpectreForceExplode", "SuicideSpectreExploding", "SuicideSpectreExploded", "SuicideSpectreNearEnemy" )
+	string receivedSignal = expect string( signalTable.signal )
+
 	if ( spectre.ai.suicideSpectreExplodingAttacker == null )
 	{
 		// not exploding, so overload
 		spectre.ai.suicideSpectreExplosionDelay = GetSpectreExplosionTime( spectre )
-		waitthread SpectreOverloads( spectre )
+		// adding new parameter: skipJumpAtTitans for us handling forceExploding cases
+		//waitthread SpectreOverloads( spectre )
+		
+		// modified case starts here
+		// if this spectre is overloading by damage or scripted signal
+		// we never do jump animation
+		bool skipJumpAtTitans = receivedSignal == "SuicideSpectreForceExplode" || receivedSignal == "SuicideSpectreExploding" 
+		waitthread SpectreOverloads( spectre, skipJumpAtTitans )
 	}
 
 	if ( spectre.ai.suicideSpectreExplosionDelay > 0 )
@@ -284,7 +301,11 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 			continue
 
 		if ( spectre.ai.suicideSpectreExplodingAttacker != null )
+		{
+			// modified here: we put signals for us better handle overload animation
+			spectre.Signal( "SuicideSpectreExploded" )
 			return
+		}
 
 		//If spectre is not interrruptable, don't bother
 		if ( !spectre.IsInterruptable() )
@@ -332,6 +353,9 @@ void function SuicideSpectre_WaittillNearEnemyOrExploding( entity spectre )
 		{
 			//SetSuicideSpectreOverloading( spectre, attacker )
 			//Assert( 0 ) // never reached
+
+			// modified here: we put signals for us better handle overload animation
+			spectre.Signal( "SuicideSpectreNearEnemy" )
 			return
 		}
 	}
@@ -393,7 +417,9 @@ entity function SuicideSpectre_NearEnemy( entity spectre )
 	return null
 }
 
-void function SpectreOverloads( entity spectre )
+// adding new parameter: skipJumpAtTitans for us handling forceExploding cases
+//void function SpectreOverloads( entity spectre )
+void function SpectreOverloads( entity spectre, bool skipJumpAtTitans = false )
 {
 	spectre.EndSignal( "SuicideSpectreExploding" )
 	file.nextOverloadTime = Time() + 0.05
@@ -486,7 +512,7 @@ void function SpectreOverloads( entity spectre )
 	entity enemy = spectre.GetEnemy()
 	// wait, why is there a "!" for spectre.IsInterruptable() check???
 	//if ( enemy && enemy.IsTitan() && jumpAtTitans && !spectre.IsInterruptable() )
-	if ( enemy && enemy.IsTitan() && jumpAtTitans && spectre.IsInterruptable() )
+	if ( enemy && enemy.IsTitan() && jumpAtTitans && !skipJumpAtTitans && spectre.IsInterruptable() )
 	{
 		//print( "we're jumping at titans!" )
 		JumpAtTitan( spectre, enemy )
