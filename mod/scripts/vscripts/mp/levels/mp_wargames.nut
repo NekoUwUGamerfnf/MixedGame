@@ -417,7 +417,6 @@ void function PlayerWatchesWargamesIntro( entity player )
 	
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
-	TrainingPod_ViewConeLock_PodClosed( player )
 	player.DisableWeaponViewModel()
 	HolsterAndDisableWeapons(player)
 	player.MovementDisable()
@@ -436,6 +435,8 @@ void function PlayerWatchesWargamesIntro( entity player )
 	podIdleSequence.renderWithViewModels = true
 	podIdleSequence.attachment = "REF"
 	thread FirstPersonSequence( podIdleSequence, player, playerPod )
+	// manually call viewcone function
+	TrainingPod_ViewConeLock_PodIdle( player )
 	
 	// reworked here: for matching other intro spawn, always do same screen fade
 	//ScreenFadeFromBlack( player, max( 0.0, ( file.introStartTime + 0.5 ) - Time() ), max( 0.0, ( file.introStartTime + 0.5 ) - Time() ) )
@@ -455,13 +456,16 @@ void function PlayerWatchesWargamesIntro( entity player )
 	podCloseSequence.firstPersonAnim = "ptpov_trainingpod_doors_close"
 	podCloseSequence.renderWithViewModels = true
 	podCloseSequence.attachment = "REF"
-	podCloseSequence.viewConeFunction = TrainingPod_ViewConeLock_SemiStrict
+	//podCloseSequence.viewConeFunction = TrainingPod_ViewConeLock_PodClosed
 	podCloseSequence.setInitialTime = Time() - ( file.introStartTime + 7.0 )
-	waitthread FirstPersonSequence( podCloseSequence, player, playerPod )
-				
+	//waitthread FirstPersonSequence( podCloseSequence, player, playerPod )
+	thread FirstPersonSequence( podCloseSequence, player, playerPod )
+	// manually call viewcone function
+	TrainingPod_ViewConeLock_PodClosed( player )
+	WaittillAnimDone( player.GetFirstPersonProxy() ) // somehow this is better than just waiting for the blocking FirstPersonSequence call?
+	
 	// boot sequence
 	EmitSoundOnEntityOnlyToPlayer( player, player, "NPE_Scr_SimPod_PowerUp" )
-	TrainingPod_ViewConeLock_PodClosed( player )
 	
 	// 10 seconds of starting pod before we run effects and spawn players
 	// note, this is cool because it waits for a specific time, so we can have a blocking call directly before it just fine
@@ -498,40 +502,29 @@ void function PlaySound_SimPod_DoorShut( entity playerFirstPersonProxy  ) // sto
 }
 
 // intro viewcones
-void function TrainingPod_ViewConeLock_PodOpen( entity player )
+void function TrainingPod_ViewConeLock_PodIdle( entity player )
 {
+	// northstar missing: view lerp
+	player.PlayerCone_SetLerpTime( 0.5 )
+
 	player.PlayerCone_FromAnim()
 	player.PlayerCone_SetMinYaw( -25 )
 	player.PlayerCone_SetMaxYaw( 25 )
 	player.PlayerCone_SetMinPitch( -30 )
-	// bit fix here: use ViewConeSmall value
-	//player.PlayerCone_SetMinPitch( -30 )
-	player.PlayerCone_SetMinPitch( -25 )
-	// bit fix here: use ViewConeTight value
-	//player.PlayerCone_SetMaxPitch( 35 )
+	player.PlayerCone_SetMinPitch( -15 )
 	player.PlayerCone_SetMaxPitch( 15 )
 }
 
 void function TrainingPod_ViewConeLock_PodClosed( entity player )
 {
-	player.PlayerCone_FromAnim()
-	player.PlayerCone_SetMinYaw( -25 )
-	player.PlayerCone_SetMaxYaw( 25 )
-	// bit fix here: use ViewConeSmall value
-	//player.PlayerCone_SetMinPitch( -30 )
-	player.PlayerCone_SetMinPitch( -25 )
-	// bit fix here: use ViewConeTight value
-	//player.PlayerCone_SetMaxPitch( 30 )
-	player.PlayerCone_SetMaxPitch( 15 )
-}
+	// northstar missing: view lerp
+	player.PlayerCone_SetLerpTime( 0.5 )
 
-void function TrainingPod_ViewConeLock_SemiStrict( entity player )
-{
 	player.PlayerCone_FromAnim()
 	player.PlayerCone_SetMinYaw( -10 )
 	player.PlayerCone_SetMaxYaw( 10 )
-	player.PlayerCone_SetMinPitch( -10 )
-	player.PlayerCone_SetMaxPitch( 10 )
+	player.PlayerCone_SetMinPitch( 0 )
+	player.PlayerCone_SetMaxPitch( 5 )
 }
 
 // intro pod fx
