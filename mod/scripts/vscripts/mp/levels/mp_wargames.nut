@@ -504,7 +504,12 @@ void function TrainingPod_ViewConeLock_PodOpen( entity player )
 	player.PlayerCone_SetMinYaw( -25 )
 	player.PlayerCone_SetMaxYaw( 25 )
 	player.PlayerCone_SetMinPitch( -30 )
-	player.PlayerCone_SetMaxPitch( 35 )
+	// bit fix here: use ViewConeSmall value
+	//player.PlayerCone_SetMinPitch( -30 )
+	player.PlayerCone_SetMinPitch( -25 )
+	// bit fix here: use ViewConeTight value
+	//player.PlayerCone_SetMaxPitch( 35 )
+	player.PlayerCone_SetMaxPitch( 15 )
 }
 
 void function TrainingPod_ViewConeLock_PodClosed( entity player )
@@ -512,8 +517,12 @@ void function TrainingPod_ViewConeLock_PodClosed( entity player )
 	player.PlayerCone_FromAnim()
 	player.PlayerCone_SetMinYaw( -25 )
 	player.PlayerCone_SetMaxYaw( 25 )
-	player.PlayerCone_SetMinPitch( -30 )
-	player.PlayerCone_SetMaxPitch( 30 )
+	// bit fix here: use ViewConeSmall value
+	//player.PlayerCone_SetMinPitch( -30 )
+	player.PlayerCone_SetMinPitch( -25 )
+	// bit fix here: use ViewConeTight value
+	//player.PlayerCone_SetMaxPitch( 30 )
+	player.PlayerCone_SetMaxPitch( 15 )
 }
 
 void function TrainingPod_ViewConeLock_SemiStrict( entity player )
