@@ -7,6 +7,7 @@ global function GetNPCAttackerEnt
 
 // modified settings
 // settings per entity
+global function SuicideSpectre_SetSuicideChaseBehavior // script settings for "SuicideChaseTime" ai settings, also allows change movement speed when overload chasing
 global function SuicideSpectre_SetJumpAtTitans // script settings for "JumpAtTitans" ai settings
 global function SuicideSpectre_SetCreateHeavyArmorDangerousArea // make titans try to dodge when a tick is about to explode
 global function SuicideSpectre_SetCanExplodeInMidAir // make SP specific behavior a setting!
@@ -35,6 +36,8 @@ struct
 	float nextOverloadTime
 	
 	// modified settings
+	table<entity, float> spectreSuicideChaseTime
+	table<entity, float> spectreSuicideChaseSpeedScale
 	table<entity, bool> spectreShouldJumpAtTitans
 	table<entity, bool> spectreShouldCreateHeavyArmorDangerousArea
 	table<entity, bool> spectreCanExplodeInMidAir
@@ -114,9 +117,12 @@ void function MakeSuicideSpectre( entity spectre )
 	AddAnimEvent( spectre, "frag_drone_armed", FragDroneArmed )
 
 	// modified settings INIT
+	// never INIT now, we'd better only do setups
+	/*
 	file.spectreShouldJumpAtTitans[ spectre ] <- false
 	file.spectreShouldCreateHeavyArmorDangerousArea[ spectre ] <- false
 	file.spectreCanExplodeInMidAir[ spectre ] <- IsSingleplayer() // default is we enable this behavior in SP
+	*/
 }
 
 void function FragDroneArmed( entity npc )
@@ -229,14 +235,15 @@ void function SpectreWaitToExplode( entity spectre )
 	{
 		// not exploding, so overload
 		spectre.ai.suicideSpectreExplosionDelay = GetSpectreExplosionTime( spectre )
-		// adding new parameter: skipJumpAtTitans for us handling forceExploding cases
+		// adding new parameter: skipSuicideChase and skipJumpAtTitans for us handling damage ignition/scripted force explode cases
 		//waitthread SpectreOverloads( spectre )
 		
 		// modified case starts here
-		// if this spectre is overloading by damage or scripted signal
-		// we never do jump animation
+		// if this spectre is overloaded by scripted signal, we never do their suicide chase
+		// if this spectre is overloaded by damage or scripted signal, we never do jump animation
+		bool skipSuicideChase = receivedSignal == "SuicideSpectreForceExplode"
 		bool skipJumpAtTitans = receivedSignal == "SuicideSpectreForceExplode" || receivedSignal == "SuicideSpectreExploding" 
-		waitthread SpectreOverloads( spectre, skipJumpAtTitans )
+		waitthread SpectreOverloads( spectre, skipSuicideChase, skipJumpAtTitans )
 	}
 
 	if ( spectre.ai.suicideSpectreExplosionDelay > 0 )
@@ -303,9 +310,9 @@ float function GetSpectreExplosionTime( entity spectre )
 		if ( IsValid( player ) )
 		{
 			if ( !( player in file.playerSpectreChainExplosionIndex ) )
-				file.playerSpectreChainExplosionIndex[ player ] <- -1
+				file.playerSpectreChainExplosionIndex[ player ] <- 0
 			if ( !( player in file.playerSpectreLastChainExplosionTime ) )
-				file.playerSpectreLastChainExplosionTime[ player ] <- -1
+				file.playerSpectreLastChainExplosionTime[ player ] <- 0
 
 			if ( Time() - file.playerSpectreLastChainExplosionTime[ player ] > 1.0 )
 				file.playerSpectreChainExplosionIndex[ player ] = 0
@@ -455,18 +462,27 @@ entity function SuicideSpectre_NearEnemy( entity spectre )
 	return null
 }
 
-// adding new parameter: skipJumpAtTitans for us handling forceExploding cases
+// adding new parameter: skipSuicideChase and skipJumpAtTitans for us handling damage ignition/scripted force explode cases
 //void function SpectreOverloads( entity spectre )
-void function SpectreOverloads( entity spectre, bool skipJumpAtTitans = false )
+void function SpectreOverloads( entity spectre, bool skipSuicideChase = false, bool skipJumpAtTitans = false )
 {
 	spectre.EndSignal( "SuicideSpectreExploding" )
 	file.nextOverloadTime = Time() + 0.05
 
 	#if MP
 	var chaseTime = spectre.Dev_GetAISettingByKeyField( "SuicideChaseTime" )
-	if ( chaseTime != null )
+	// here's modified script settings handle!
+	if ( SuicideSpectre_GetSuicideChaseTime( spectre ) != null )
+		chaseTime = SuicideSpectre_GetSuicideChaseTime( spectre )
+	// modified here: we allow script to skip suicide chase think
+	//if ( chaseTime != null )
+	if ( chaseTime != null && !skipSuicideChase )
 	{
 		float maxScale = expect float( spectre.Dev_GetAISettingByKeyField( "maxSpeedScale" ) )
+		// here's modified script settings handle!
+		if ( SuicideSpectre_GetSuicideChaseSpeedScale( spectre ) != null )
+			maxScale = expect float( SuicideSpectre_GetSuicideChaseSpeedScale( spectre ) )
+		
 		spectre.SetNPCMoveSpeedScale( maxScale )
 
 		expect float( chaseTime )
@@ -510,7 +526,7 @@ void function SpectreOverloads( entity spectre, bool skipJumpAtTitans = false )
 		#endif
 		*/
 		bool passOnGroundCheck = spectre.IsOnGround()
-		if ( file.spectreCanExplodeInMidAir[ spectre ] )
+		if ( SuicideSpectre_CanExplodeInMidAir( spectre ) )
 			passOnGroundCheck = true // if we allow this spectre to explode in mid-air, always pass ground check
 		if ( spectre.IsInterruptable() && !spectre.Anim_IsActive() && passOnGroundCheck )
 			break
@@ -529,7 +545,7 @@ void function SpectreOverloads( entity spectre, bool skipJumpAtTitans = false )
 
 	// modified to add settings, allow npc titans aware their explosions
 	//AI_CreateDangerousArea_DamageDef( damagedef_frag_drone_explode, spectre, TEAM_INVALID, true, false )
-	AI_CreateDangerousArea_DamageDef( damagedef_frag_drone_explode, spectre, TEAM_INVALID, true, file.spectreShouldCreateHeavyArmorDangerousArea[ spectre ] )
+	AI_CreateDangerousArea_DamageDef( damagedef_frag_drone_explode, spectre, TEAM_INVALID, true, SuicideSpectre_ShouldCreateHeavyArmorDangerousArea( spectre ) )
 
 	// Cleanup on thread end
 	OnThreadEnd(
@@ -544,13 +560,21 @@ void function SpectreOverloads( entity spectre, bool skipJumpAtTitans = false )
 
 	bool jumpAtTitans = spectre.Dev_GetAISettingByKeyField( "JumpAtTitans" ) == null || spectre.Dev_GetAISettingByKeyField( "JumpAtTitans" ) == 1
 	// modified script settings handle. does not overwrite ai settings file!
-	if ( file.spectreShouldJumpAtTitans[ spectre ] )
-		jumpAtTitans = true
+	// guess I messed up this thing here... this kind of "JumpAtTitans" only works when a tick is traversing
+	// we need script settings able to overwrite AISettings
+	//if ( file.spectreShouldJumpAtTitans[ spectre ] )
+	//	jumpAtTitans = true
+	if ( SuicideSpectre_ShouldJumpAtTitans( spectre ) != null )
+		jumpAtTitans = expect bool( SuicideSpectre_ShouldJumpAtTitans( spectre ) )
 
 	entity enemy = spectre.GetEnemy()
 	// wait, why is there a "!" for spectre.IsInterruptable() check???
+	// guess I messed up this thing here... this kind of "JumpAtTitans" only works when a tick is traversing
+	// FD tick's behavior is done using SuicideChaseTime settings
+	// it's still good to leave skipJumpAtTitans checks here
 	//if ( enemy && enemy.IsTitan() && jumpAtTitans && !spectre.IsInterruptable() )
-	if ( enemy && enemy.IsTitan() && jumpAtTitans && !skipJumpAtTitans && spectre.IsInterruptable() )
+	//if ( enemy && enemy.IsTitan() && jumpAtTitans && !skipJumpAtTitans && spectre.IsInterruptable() )
+	if ( enemy && enemy.IsTitan() && jumpAtTitans && !skipJumpAtTitans && !spectre.IsInterruptable() )
 	{
 		//print( "we're jumping at titans!" )
 		JumpAtTitan( spectre, enemy )
@@ -673,12 +697,50 @@ void function SpectreSuicideOnDamaged( entity spectre, var damageInfo )
 
 
 ///// Modified Functions /////
+void function SuicideSpectre_SetSuicideChaseBehavior( entity spectre, float suicideChaseTime, float suicideChaseSpeedScale = -1 )
+{
+	if ( !( spectre in file.spectreSuicideChaseTime ) )
+		file.spectreSuicideChaseTime[ spectre ] <- 0
+	file.spectreSuicideChaseTime[ spectre ] = suicideChaseTime
+	
+	if ( suicideChaseSpeedScale > 0 )
+	{
+		if ( !( spectre in file.spectreSuicideChaseSpeedScale ) )
+			file.spectreSuicideChaseSpeedScale[ spectre ] <- 0
+		file.spectreSuicideChaseSpeedScale[ spectre ] = suicideChaseSpeedScale
+	}
+}
+
+float ornull function SuicideSpectre_GetSuicideChaseTime( entity spectre )
+{
+	if ( !( spectre in file.spectreSuicideChaseTime ) )
+		return null // default return value
+	
+	return file.spectreSuicideChaseTime[ spectre ]
+}
+
+float ornull function SuicideSpectre_GetSuicideChaseSpeedScale( entity spectre )
+{
+	if ( !( spectre in file.spectreSuicideChaseSpeedScale ) )
+		return null // default return value
+	
+	return file.spectreSuicideChaseSpeedScale[ spectre ]
+}
+
 void function SuicideSpectre_SetJumpAtTitans( entity spectre, bool jumpAtTitans )
 {
 	if ( !( spectre in file.spectreShouldJumpAtTitans ) )
 		file.spectreShouldJumpAtTitans[ spectre ] <- false // init
 
 	file.spectreShouldJumpAtTitans[ spectre ] = jumpAtTitans
+}
+
+bool ornull function SuicideSpectre_ShouldJumpAtTitans( entity spectre )
+{
+	if ( !( spectre in file.spectreShouldJumpAtTitans ) )
+		return null // default return value
+
+	return file.spectreShouldJumpAtTitans[ spectre ]
 }
 
 void function SuicideSpectre_SetCreateHeavyArmorDangerousArea( entity spectre, bool createDangerousArea )
@@ -689,12 +751,28 @@ void function SuicideSpectre_SetCreateHeavyArmorDangerousArea( entity spectre, b
 	file.spectreShouldCreateHeavyArmorDangerousArea[ spectre ] = createDangerousArea
 }
 
+bool function SuicideSpectre_ShouldCreateHeavyArmorDangerousArea( entity spectre )
+{
+	if ( !( spectre in file.spectreShouldCreateHeavyArmorDangerousArea ) )
+		return false // default return value
+
+	return file.spectreShouldCreateHeavyArmorDangerousArea[ spectre ]
+}
+
 void function SuicideSpectre_SetCanExplodeInMidAir( entity spectre, bool explodeMidAir )
 {
 	if ( !( spectre in file.spectreCanExplodeInMidAir ) )
 		file.spectreCanExplodeInMidAir[ spectre ] <- false // init
 
 	file.spectreCanExplodeInMidAir[ spectre ] = explodeMidAir
+}
+
+bool function SuicideSpectre_CanExplodeInMidAir( entity spectre )
+{
+	if ( !( spectre in file.spectreCanExplodeInMidAir ) )
+		return IsSingleplayer() // default return value
+
+	return file.spectreCanExplodeInMidAir[ spectre ]
 }
 
 void function SuicideSpectre_SetUseGlobalChainExplosionTimer( bool useGlobalTimer )
