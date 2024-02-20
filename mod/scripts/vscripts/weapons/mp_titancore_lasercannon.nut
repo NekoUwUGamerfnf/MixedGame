@@ -742,6 +742,15 @@ void function Laser_DamagedTargetInternal( entity target, var damageInfo )
 		return
 	}
 
+	// HACK fix here: if our npc is using fake laser core
+	// they still fire from their back for about 1 tick, which shouldn't deal any damage
+	if ( IsValid( attacker ) && attacker.IsNPC() && ( attacker in file.entUsingFakeLaserCore ) )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 )
+		return
+	}
+	//
+
 	if ( IsValid( weapon ) )
 	{
 		float damage = min( DamageInfo_GetDamage( damageInfo ), weapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor ) )
