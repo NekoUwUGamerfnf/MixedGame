@@ -93,6 +93,7 @@ struct
     // in-file table
     table<entity, bool> npcDoingSyncedMelee // npc melee attack has extramely large radius, have to manually handle their states or they'll be able to execute multiple targets together
     table<entity, float> npcLastTrySyncedMeleeTime
+    table<entity, bool> npcDealingDamageBeforeExecution // for fake titan's health change before actually starts termination
 } file
 
 void function MeleeSyncedNPC_Init()
@@ -141,6 +142,11 @@ bool function NPCTriesSyncedMelee( entity victim, var damageInfo )
     // debug
     //print( "RUNNING NPCTriesSyncedMelee()" )
 
+    // general checks
+    // force kill cannot be avoided
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) )	
+		return
+
     if( !IsValid( victim ) )
         return false
     if( !victim.IsPlayer() && !victim.IsNPC() ) // not a valid type to be executed
@@ -151,6 +157,9 @@ bool function NPCTriesSyncedMelee( entity victim, var damageInfo )
 
     entity attacker = DamageInfo_GetAttacker( damageInfo )
     if( !IsValid( attacker ) )
+        return false
+    // validation check: we may allow npc to damage their target before execution actually starts
+    if ( attacker in file.npcDealingDamageBeforeExecution )
         return false
     if( !attacker.IsNPC() )
         return false
@@ -252,13 +261,38 @@ bool function NPCTriesSyncedMelee( entity victim, var damageInfo )
     // npc melee attack has extramely large radius
     // have to manually handle something, or they can execute multiple targets together
     //thread PlayerTriesSyncedMelee( attacker, victim )
-    thread NPCSyncedMeleeThink( attacker, victim )
+    thread NPCSyncedMeleeThink( attacker, victim, damageInfo )
     return true
 }
 
-void function NPCSyncedMeleeThink( entity attacker, entity victim )
+void function NPCSyncedMeleeThink( entity attacker, entity victim, var damageInfo = null )
 {
     file.npcDoingSyncedMelee[ attacker ] <- true
+
+    // for titans, we fake the damage victim takes from melee
+    if ( damageInfo != null )
+    {
+        if ( attacker.IsTitan() )
+        {
+            // adding a mark so we won't run this function with incoming damage
+            file.npcDealingDamageBeforeExecution[ attacker ] <- true
+            victim.TakeDamage( 
+                DamageInfo_GetDamage( damageInfo ), // damage value has been updated by NPCTriesSyncedMelee and it's safe to deal with
+                attacker, 
+                attacker,
+                // damage table
+                {
+                    origin = DamageInfo_GetDamagePosition( damageInfo ), 
+                    //force = DamageInfo_GetDamageForce( damageInfo ), // no damage force
+                    damageType = DamageInfo_GetDamageType( damageInfo ),
+                    scriptType = DamageInfo_GetCustomDamageType( damageInfo ), 
+                    damageSourceId = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+                }
+            )
+            // remove mark
+            delete file.npcDealingDamageBeforeExecution[ attacker ]
+        }
+    }
 
     OnThreadEnd
     (
