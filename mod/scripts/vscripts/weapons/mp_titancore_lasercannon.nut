@@ -589,10 +589,13 @@ void function FakeExecutionLaserCannonThink( entity owner, entity weapon )
 	}
 }
 
-bool function NPCInValidFakeLaserCoreState( entity npc )
+bool function NPCInValidFakeLaserCoreState( entity npc, bool skipUsageCheck = false )
 {
-	if ( npc in file.entUsingFakeLaserCore ) // don't run this instance multiple times
-		return false
+	if ( !skipUsageCheck )
+	{
+		if ( npc in file.entUsingFakeLaserCore ) // don't run this instance multiple times
+			return false
+	}
 	
 	// HACK: npc sometimes call OnAbilityStart_LaserCannon() right after animation starts
 	// don't want that weird behavior to happen, use timer for handling
@@ -744,7 +747,7 @@ void function Laser_DamagedTargetInternal( entity target, var damageInfo )
 
 	// HACK fix here: if our npc is using fake laser core
 	// they still fire from their back for about 1 tick, which shouldn't deal any damage
-	if ( IsValid( attacker ) && attacker.IsNPC() && ( attacker in file.entUsingFakeLaserCore ) )
+	if ( IsValid( attacker ) && attacker.IsNPC() && NPCInValidFakeLaserCoreState( attacker, true ) )
 	{
 		DamageInfo_SetDamage( damageInfo, 0 )
 		return
