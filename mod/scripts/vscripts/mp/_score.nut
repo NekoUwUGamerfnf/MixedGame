@@ -68,7 +68,7 @@ struct
 	// new settings override func
 	table<string, string> scoreEventNameOverride
 	table<entity, bool> entScoreEventDisabled
-	table< entity, table<sring, EarnValueOverride> > entScoreEventValueOverride
+	table< entity, table<string, EarnValueOverride> > entScoreEventValueOverride
 
 	// nessie fix
 	table<string, string> killedTitanDialogues
@@ -169,22 +169,26 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 		event.pointValue = pointValueOverride
 	
 	// settings override
-	EarnValueOverride ornull overrideStruct
+	bool hasEarnValueOverride = false
+	EarnValueOverride overrideStruct
 	if ( IsValid( earnValueOverrideEnt ) && ( earnValueOverrideEnt in file.entScoreEventValueOverride ) && ( scoreEventName in file.entScoreEventValueOverride[ earnValueOverrideEnt ] ) )
+	{
 		overrideStruct = file.entScoreEventValueOverride[ earnValueOverrideEnt ][ scoreEventName ]
+		hasEarnValueOverride = true
+	}
 
 	float coreMeterScalar = event.coreMeterScalar
 	// settings override
-	if ( overrideStruct != null )
+	if ( hasEarnValueOverride )
 		coreMeterScalar = overrideStruct.coreMeterScalar
 
 	float earnScale = targetPlayer.IsTitan() ? 0.0 : 1.0 // titan shouldn't get any earn value
-	float ownScale = targetPlayer.IsTitan() ?  : 1.0
+	float ownScale = targetPlayer.IsTitan() ? event.coreMeterScalar : 1.0
 	
 	float earnValue = event.earnMeterEarnValue 
 	float ownValue = event.earnMeterOwnValue 
 	// settings override
-	if ( overrideStruct != null )
+	if ( hasEarnValueOverride )
 	{
 		earnValue = overrideStruct.earnMeterEarnValue
 		ownValue = overrideStruct.earnMeterOwnValue 
@@ -193,7 +197,7 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	ownValue *= ownScale
 
 	// score event value override
-	if ( overrideStruct != null )
+	if ( hasEarnValueOverride )
 		earnMeterScalar = overrideStruct.earnMeterScalar
 	earnValue *= earnMeterScalar
 	ownValue *= earnMeterScalar
@@ -759,7 +763,7 @@ void function ScoreEvent_SetDisabledForEntity( entity ent, bool disable )
 {
 	if ( !( ent in file.entScoreEventDisabled ) )
 		file.entScoreEventDisabled[ ent ] <- false
-	file.entScoreEventDisabled[ ent ] = overrideName
+	file.entScoreEventDisabled[ ent ] = disable
 }
 
 bool function ScoreEvent_IsDisabledForEntity( entity ent )
