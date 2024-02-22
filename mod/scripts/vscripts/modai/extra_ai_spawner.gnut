@@ -624,6 +624,9 @@ void function ExtraAISpawner_Init()
 	// we fix titans spawned by this file firing sustained laser during death animation
 	AddDeathCallback( "npc_titan", OnTitanDeath_StopSustainedLaser )
 
+	// fix gunship taking stepped on damage
+	AddDamageCallbackSourceID( damagedef_titan_step, RemoveGunshipTitanStepDamage )
+
 	// for debugging
 	#if EXTRA_SPAWNER_DEBUG
 		MeleeSyncedNPC_AllowNPCTitanExecutions( true )
@@ -1854,29 +1857,61 @@ void function NPCArchonLoadout( entity titan )
 
 void function FakePlayerScoreEventForNPCKilled( entity victim, entity attacker, var damageInfo )
 {
+	// shared check from modified _score.nut, allow us turn off score event from killing certain entity
+	if ( ScoreEvent_IsDisabledForEntity( victim ) )
+		return
+
+	// fake assist score here so players don't complain
+	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) )
+	{
+		if ( victim.IsTitan() )
+		{
+			// titan damage history stores in titanSoul, but if they killed by termination it's gonna transfer to victim themselves
+			bool killedByTermination = DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.titan_execution
+			entity damageHistorySaver = killedByTermination ? victim : victim.GetTitanSoul()
+			if ( IsValid( damageHistorySaver ) )
+			{
+				// shared from _score.nut
+				ScoreEvent_PlayerAssist( damageHistorySaver, attacker, "TitanAssist" )
+			}
+		}
+	}
+
 	// debug
 	//if ( victim.GetClassName() == "npc_pilot_elite" )
 	//	print( "NPC PILOT KILLED! by: " + string( attacker ) )
 
 	// we only handle npcs spawn from this file!
 	if ( !ExtraSpawner_IsNPCSpawnedFromExtraSpawner( victim ) )
-		return
-
-	// manually do some score event
-	if ( ShouldCreateScoreEventForNPCKilled( victim, attacker ) )
 	{
-		string scoreEvent = ExtraSpawner_GetNPCScoreEvent( victim )
-		if ( scoreEvent != "" )
-			AddPlayerScore( attacker, scoreEvent, victim )
-
-		// npc pilot killed battle chatter
-		// also killstreak count
-		if ( victim.GetClassName() == "npc_pilot_elite"
-			|| ( victim.IsTitan() && TitanIsEmbarkedByNPCPilot( victim ) ) )
+		bool killedNPCPilot = victim.GetClassName() == "npc_pilot_elite" || ( victim.IsTitan() && TitanIsEmbarkedByNPCPilot( victim ) )
+		// manually do some score event
+		if ( ShouldCreateScoreEventForNPCKilled( victim, attacker ) )
 		{
-			if ( !attacker.IsTitan() )
-				TryPilotKillChatter( attacker ) // shared from _battle_chatter.gnut
-			UpdateUntimedKillStreaks( attacker ) // shared from _score.nut
+			string scoreEvent = ExtraSpawner_GetNPCScoreEvent( victim )
+			if ( scoreEvent != "" )
+				AddPlayerScore( attacker, scoreEvent, victim )
+
+			// npc pilot killed battle chatter
+			// also killstreak count
+			if ( killedNPCPilot )
+			{
+				if ( !attacker.IsTitan() )
+					TryPilotKillChatter( attacker ) // shared from _battle_chatter.gnut
+				// shared from _score.nut. update we funny stuffs
+				UpdateUntimedKillStreaks( attacker )
+
+				// special method of killing dialogues	
+				//if( methodOfDeath == damagedef_titan_step )
+				//	PlayFactionDialogueToPlayer( "kc_hitandrun", attacker )
+			}
+		}
+
+		// do assist score so players don't complain
+		if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) || attacker.IsPlayer() )
+		{
+			if ( killedNPCPilot )
+				ScoreEvent_PlayerAssist( victim, attacker, "PilotAssist" ) // do assist score to other players
 		}
 	}
 }
@@ -5648,6 +5683,12 @@ void function OnTitanDeath_StopSustainedLaser( entity titan, var damageInfo )
 {
 	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( titan ) )
 		ForceTitanSustainedDischargeEnd( titan )
+}
+
+void function RemoveGunshipTitanStepDamage( entity victim, var damageInfo )
+{
+	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( victim ) && IsGunship( victim ) )
+		DamageInfo_SetDamage( damageInfo, 0 )
 }
 
 const float TITANFALL_WARNING_DURATION = 5.0
