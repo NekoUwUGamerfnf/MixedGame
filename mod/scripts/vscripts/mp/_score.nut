@@ -26,6 +26,11 @@ global function AddCallback_TitanDoomedScoreEvent
 // new settings override func
 global function ScoreEvent_SetScoreEventNameOverride
 
+global function ScoreEvent_SetDisabledForEntity // allow us disable certain entity's score event
+global function ScoreEvent_IsDisabledForEntity // to be shared with _base_gametype.gnut
+
+global function ScoreEvent_SetEntityEarnValueOverride // for us set specific earnmeter value scale for an entity. note that this only works for player and npc kills / assists
+
 // nessie fix
 global function ScoreEvent_GetPlayerMVP
 global function ScoreEvent_SetMVPCompareFunc
@@ -38,6 +43,14 @@ global function ScoreEvent_EnableComebackEvent // doesn't exsit in vanilla, make
 // funny things to be shared with other files, add more kill streak stuffs
 global function UpdateUntimedKillStreaks
 global function UpdateMixedTimedKillStreaks
+
+struct EarnValueOverride
+{
+	float earnMeterEarnValue
+	float earnMeterOwnValue
+	float coreMeterScalar
+	float earnMeterScalar
+}
 
 struct 
 {
@@ -54,6 +67,8 @@ struct
 
 	// new settings override func
 	table<string, string> scoreEventNameOverride
+	table<entity, bool> entScoreEventDisabled
+	table< entity, table<sring, EarnValueOverride> > entScoreEventValueOverride
 
 	// nessie fix
 	table<string, string> killedTitanDialogues
@@ -128,7 +143,7 @@ void function InitPlayerForScoreEvents( entity player )
 // idk why forth arg is a string, maybe it should be a var type?
 // pointValueOverride takes no effect in tf2, but _codecallbacks.gnut uses it... sucks
 //void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, string noideawhatthisis = "", int pointValueOverride = -1 )
-void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1, float earnmeterScale = 1.0 )
+void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity associatedEnt = null, var displayTypeOverride = null, int pointValueOverride = -1, float earnMeterScalar = 1.0, entity earnValueOverrideEnt = null )
 {
 	// modified: adding score event override
 	if ( scoreEventName in file.scoreEventNameOverride )
@@ -138,7 +153,7 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 		return
 	//
 
-	// never directly modify a struct...
+	// never directly modify a struct... use a clone!
 	//ScoreEvent event = GetScoreEvent( scoreEventName )
 	ScoreEvent event = clone GetScoreEvent( scoreEventName )
 	
@@ -146,22 +161,42 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 		return
 
 	var associatedHandle = 0
-	if ( associatedEnt != null )
+	if ( IsValid( associatedEnt ) )
 		associatedHandle = associatedEnt.GetEncodedEHandle()
 	
 	// pointValueOverride takes no effect in tf2, but _codecallbacks.gnut uses it... sucks
 	if ( pointValueOverride != -1 )
 		event.pointValue = pointValueOverride
 	
-	float earnScale = targetPlayer.IsTitan() ? 0.0 : 1.0 // titan shouldn't get any earn value
-	float ownScale = targetPlayer.IsTitan() ? event.coreMeterScalar : 1.0
-	
-	float earnValue = event.earnMeterEarnValue * earnScale
-	float ownValue = event.earnMeterOwnValue * ownScale
+	// settings override
+	EarnValueOverride ornull overrideStruct
+	if ( IsValid( earnValueOverrideEnt ) && ( earnValueOverrideEnt in file.entScoreEventValueOverride ) && ( scoreEventName in file.entScoreEventValueOverride[ earnValueOverrideEnt ] ) )
+		overrideStruct = file.entScoreEventValueOverride[ earnValueOverrideEnt ][ scoreEventName ]
 
-	// fix score event value override
-	earnValue *= earnmeterScale
-	ownValue *= earnmeterScale
+	float coreMeterScalar = event.coreMeterScalar
+	// settings override
+	if ( overrideStruct != null )
+		coreMeterScalar = overrideStruct.coreMeterScalar
+
+	float earnScale = targetPlayer.IsTitan() ? 0.0 : 1.0 // titan shouldn't get any earn value
+	float ownScale = targetPlayer.IsTitan() ?  : 1.0
+	
+	float earnValue = event.earnMeterEarnValue 
+	float ownValue = event.earnMeterOwnValue 
+	// settings override
+	if ( overrideStruct != null )
+	{
+		earnValue = overrideStruct.earnMeterEarnValue
+		ownValue = overrideStruct.earnMeterOwnValue 
+	}
+	earnValue *= earnScale
+	ownValue *= ownScale
+
+	// score event value override
+	if ( overrideStruct != null )
+		earnMeterScalar = overrideStruct.earnMeterScalar
+	earnValue *= earnMeterScalar
+	ownValue *= earnMeterScalar
 
 	// debug
 	//print( "not calculated earnValue: " + string( earnValue ) )
@@ -288,7 +323,7 @@ void function ScoreEvent_PlayerKilled( entity victim, entity attacker, var damag
 	if( IsPilotEliminationBased() )
 		pilotKillEvent = "EliminatePilot" // elimination gamemodes have a special medal
 
-	AddPlayerScore( attacker, pilotKillEvent, victim )
+	AddPlayerScore( attacker, pilotKillEvent, victim, null, -1, 1.0, victim )
 
 	// mvp kill, triggers when there're more than one player in a team
 	bool enoughPlayerForMVP = GetPlayerArrayOfTeam( victim.GetTeam() ).len() > 1
@@ -496,10 +531,11 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	}
 
 	bool isPlayerTitan = IsValid( victim.GetBossPlayer() ) || victim.IsPlayer()
-	if( isPlayerTitan ) // to confirm this is a pet titan or player titan
-		AddPlayerScore( attacker, scoreEvent, attacker ) // this will show the "Titan Kill" callsign event
-	else
-		AddPlayerScore( attacker, scoreEvent ) // no callsign event
+	// modified here: we now always do callsign event on titan kill
+	//if( isPlayerTitan ) // to confirm this is a pet titan or player titan
+		AddPlayerScore( attacker, scoreEvent, attacker, null, -1, 1.0, victim ) // this will show the "Titan Kill" callsign event
+	//else
+	//	AddPlayerScore( attacker, scoreEvent ) // no callsign event
 
 	bool playTitanKilledDiag = isPlayerTitan
 	// modified for npc pilot embarked titan
@@ -549,13 +585,13 @@ void function ScoreEvent_NPCKilled( entity victim, entity attacker, var damageIn
 	try
 	{
 		// to prevent crash happen when killing a modified npc target
-		AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), victim )
+		AddPlayerScore( attacker, ScoreEventForNPCKilled( victim, damageInfo ), victim, null, -1, 1.0, victim )
 	}
 	catch(ex) {}
 
 	// headshot
 	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_HEADSHOT )
-		AddPlayerScore( attacker, "Headshot", victim, null, -1, 0.0 ) // no extra value earn from npc headshots
+		AddPlayerScore( attacker, "Headshot", victim, null, -1, 0.0, victim ) // no extra value earn from npc headshots
 
 	// npc&player mixed killsteaks
 	UpdateMixedTimedKillStreaks( attacker )
@@ -649,7 +685,7 @@ void function ScoreEvent_SetupEarnMeterValuesForMixedModes() // mixed modes in t
 	ScoreEvent_SetEarnMeterValues( "KillHackedSpectre", 0.03, 0.020001, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillStalker", 0.03, 0.020001, 0.5 )
 	ScoreEvent_SetEarnMeterValues( "KillSuperSpectre", 0.10, 0.10, 0.5 )
-	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.05 )
+	ScoreEvent_SetEarnMeterValues( "KillLightTurret", 0.05, 0.050001 )
 
 
 	// display type
@@ -717,6 +753,37 @@ void function ScoreEvent_SetScoreEventNameOverride( string eventName, string ove
 	if ( !( eventName in file.scoreEventNameOverride ) )
 		file.scoreEventNameOverride[ eventName ] <- ""
 	file.scoreEventNameOverride[ eventName ] = overrideName
+}
+
+void function ScoreEvent_SetDisabledForEntity( entity ent, bool disable )
+{
+	if ( !( ent in file.entScoreEventDisabled ) )
+		file.entScoreEventDisabled[ ent ] <- false
+	file.entScoreEventDisabled[ ent ] = overrideName
+}
+
+bool function ScoreEvent_IsDisabledForEntity( entity ent )
+{
+	if ( !( ent in file.entScoreEventDisabled ) )
+		return false // default is we never disable entity's score event
+	return file.entScoreEventDisabled[ ent ]
+}
+
+void function ScoreEvent_SetEntityEarnValueOverride( entity ent, string scoreEventName, float earnValue, float ownValue, float coreScalar = 1.0, float earnMeterScalar = 1.0 )
+{
+	EarnValueOverride newOverride
+	newOverride.earnMeterEarnValue = earnValue
+	newOverride.earnMeterOwnValue = ownValue
+	newOverride.coreMeterScalar = coreScalar
+	newOverride.earnMeterScalar = earnMeterScalar
+
+	if ( !( ent in file.entScoreEventValueOverride ) )
+		file.entScoreEventValueOverride[ ent ] <- {}
+	
+	if ( !( scoreEventName in file.entScoreEventValueOverride[ ent ] ) )
+		file.entScoreEventValueOverride[ ent ][ scoreEventName ] <- newOverride
+	else
+		file.entScoreEventValueOverride[ ent ][ scoreEventName ] = newOverride
 }
 
 // nessie fix
@@ -793,7 +860,7 @@ void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string ev
 		{
 			alreadyAssisted[attackerInfo.attacker.GetEncodedEHandle()] <- true
 			Remote_CallFunction_NonReplay( attackerInfo.attacker, "ServerCallback_SetAssistInformation", attackerInfo.damageSourceId, attacker.GetEncodedEHandle(), victim.GetEncodedEHandle(), attackerInfo.time )
-			AddPlayerScore( attackerInfo.attacker, eventName, victim, displayTypeOverride )
+			AddPlayerScore( attackerInfo.attacker, eventName, victim, displayTypeOverride, -1, 1.0, victim )
 			attackerInfo.attacker.AddToPlayerGameStat( PGS_ASSISTS, 1 )
 		}
 	}
