@@ -564,6 +564,8 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 	//}
 
 	// titan damage history stores in titanSoul, but if they killed by termination it's gonna transfer to victim themselves
+	// seems no need to specify such a check... souls will still retain their damage history
+	/*
 	bool killedByTermination = DamageInfo_GetDamageSourceIdentifier( damageInfo ) == eDamageSourceId.titan_execution
 	entity damageHistorySaver = killedByTermination ? victim : victim.GetTitanSoul()
 	if ( IsValid( damageHistorySaver ) )
@@ -572,6 +574,13 @@ void function ScoreEvent_TitanKilled( entity victim, entity attacker, var damage
 		//print( "damageHistorySaver valid! " + string( damageHistorySaver ) )
 		// wrap into this function
 		ScoreEvent_PlayerAssist( damageHistorySaver, attacker, "TitanAssist" )
+	}
+	*/
+	entity titanSoul = victim.GetTitanSoul()
+	if ( IsValid( titanSoul ) )
+	{
+		// wrap into this function
+		ScoreEvent_PlayerAssist( titanSoul, attacker, "TitanAssist" )
 	}
 }
 
