@@ -834,7 +834,10 @@ void function ScoreEvent_PlayerAssist( entity victim, entity attacker, string ev
 			continue
 		// checks for self damage
 		if ( attackerInfo.attacker == victim )
-			return
+			continue
+		// checks for blank damage( scorch thermite, pilot non-critical-hit titan or smoke healing stuffs )
+		if ( attackerInfo.damage <= 0 )
+			continue
 		// checks for player owned entities( such as titan, spectre or soul )
 		// owner checks has been removed because it only handles visibility stuffs, not related with ownership
 		//if ( attackerInfo.attacker == victim.GetOwner() || attackerInfo.attacker == victim.GetBossPlayer() )
