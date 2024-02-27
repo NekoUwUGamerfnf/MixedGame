@@ -183,7 +183,7 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 		coreMeterScalar = overrideStruct.coreMeterScalar
 
 	float earnScale = targetPlayer.IsTitan() ? 0.0 : 1.0 // titan shouldn't get any earn value
-	float ownScale = targetPlayer.IsTitan() ? event.coreMeterScalar : 1.0
+	float ownScale = targetPlayer.IsTitan() ? coreMeterScalar : 1.0
 	
 	float earnValue = event.earnMeterEarnValue 
 	float ownValue = event.earnMeterOwnValue 
