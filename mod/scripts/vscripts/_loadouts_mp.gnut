@@ -44,9 +44,11 @@ void function SvLoadoutsMP_Init()
 	RegisterSignal( "GracePeriodDone" ) // temp to get weapons\_weapon_utility.nut:2271 to behave
 	
 	// modified
-	RegisterSignal( "WaitingForIntroOver" )
+	//RegisterSignal( "WaitingForIntroOver" )
+	RegisterSignal( "WaitingForParentClear" )
 	RegisterSignal( "WaitForPlayerCloseMenu" )
-	RegisterSignal( "LoadoutMenuClosed" )
+	//RegisterSignal( "LoadoutMenuClosed" )
+	RegisterSignal( "PlayerMPMenuClosed" )
 
 	AddCallback_OnClientConnected( LoadoutsMPInitPlayer )
 	
@@ -379,7 +381,8 @@ bool function ClientCommandCallback_SetFactionChoicePersistenceSlot( entity play
 
 bool function ClientCommandCallback_LoadoutMenuClosed( entity player, array<string> args )
 {
-	TryGivePilotLoadoutForGracePeriod( player )
+	if ( player.s.loadoutDirty && !TryGivePilotLoadoutForGracePeriod( player ) )
+		TryNotifyPlayerOfLoadoutChangeFailed( player, "#LOADOUT_CHANGE_NEXT_PILOT" )
 	return true
 }
 
@@ -387,8 +390,8 @@ bool function ClientCommandCallback_InGameMPMenuClosed( entity player, array<str
 {
 	if ( player.s.loadoutDirty && !TryGivePilotLoadoutForGracePeriod( player ) )
 		TryNotifyPlayerOfLoadoutChangeFailed( player, "#LOADOUT_CHANGE_NEXT_PILOT" )
-	//print( "LoadoutMenuClosed" )
-	player.Signal( "LoadoutMenuClosed" )
+	//player.Signal( "LoadoutMenuClosed" )
+	player.Signal( "PlayerMPMenuClosed" )
 	return true
 }
 
@@ -412,6 +415,8 @@ bool function TryGivePilotLoadoutForGracePeriod( entity player )
 		return false
 
 	// generic checks
+	bool loadoutUpdated = false
+
 	if ( !IsLobby() 
 		 && IsAlive( player ) 
 		 && player.s.loadoutDirty 
@@ -422,37 +427,70 @@ bool function TryGivePilotLoadoutForGracePeriod( entity player )
 		player.s.loadoutDirty = false
 
 		// intro loadout giving
-		if ( !Loadouts_CanGivePilotLoadout( player ) && player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
+		if ( player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
 		{
 			//print( "Player in dropship Intro, waiting" )
 			thread GiveLoadoutWhenIntroOver( player )
-			player.p.usingLoadoutCrate = false
-			return true
+			// this one shouldn't consider as loadout giving succeeded
+			//return true
+		}
+		// loadout giving while parented
+		else if ( player.GetParent() != null )
+		{
+			thread GiveLoadoutWhenParentClear( player )
+			// this one shouldn't consider as loadout giving succeeded
+			//return true
 		}
 		// generic loadout giving
 		else if( Loadouts_CanGivePilotLoadout( player ) )
 		{
 			//print( "Can give loadout" )
 			Loadouts_TryGivePilotLoadout( player )
-			player.p.usingLoadoutCrate = false
-			return true
+			loadoutUpdated = true
+			//return true
+
+			player.Signal( "WaitingForIntroOver" ) // to end GiveLoadoutWhenIntroOver()
+			player.Signal( "WaitingForParentClear" ) // to end GiveLoadoutWhenParentClear()
 		}
+
+		player.p.usingLoadoutCrate = false
 	}
 
-	return false
+	return loadoutUpdated
 }
 
 void function GiveLoadoutWhenIntroOver( entity player )
 {
 	player.EndSignal( "OnDestroy" )
 	player.EndSignal( "OnDeath" )
-	player.Signal( "WaitingForIntroOver" ) // don't let it loop many times!
+	player.Signal( "WaitingForParentClear" ) // to end GiveLoadoutWhenParentClear()
+	player.Signal( "WaitingForIntroOver" ) // don't let this instance run multiple time!
 	player.EndSignal( "WaitingForIntroOver" )
 	
 	while ( player.GetParent() != null && ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) ) )
 		WaitFrame()
 	
-	Loadouts_TryGivePilotLoadout( player )
+	if ( Loadouts_CanGivePilotLoadout( player ) )
+		Loadouts_TryGivePilotLoadout( player )
+	else
+		TryNotifyPlayerOfLoadoutChangeFailed( player, "#LOADOUT_CHANGE_NEXT_PILOT" )
+}
+
+void function GiveLoadoutWhenParentClear( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+	player.EndSignal( "OnDeath" )
+	player.Signal( "WaitingForIntroOver" ) // to end GiveLoadoutWhenIntroOver()
+	player.Signal( "WaitingForParentClear" ) // don't let this instance run multiple time!
+	player.EndSignal( "WaitingForParentClear" )
+	
+	while ( player.GetParent() != null )
+		WaitFrame()
+	
+	if ( Loadouts_CanGivePilotLoadout( player ) )
+		Loadouts_TryGivePilotLoadout( player )
+	else
+		TryNotifyPlayerOfLoadoutChangeFailed( player, "#LOADOUT_CHANGE_NEXT_PILOT" )
 }
 
 // modified, less annoying notifications
@@ -462,7 +500,7 @@ void function WaitForPlayerCloseMenuThenNotifyTitanLoadout( entity player )
 	player.Signal( "WaitForPlayerCloseMenu" )
 	player.EndSignal( "WaitForPlayerCloseMenu" )
 
-	player.WaitSignal( "LoadoutMenuClosed" )
+	player.WaitSignal( "PlayerMPMenuClosed" )
 	//print( "LoadoutMenuClosed" )
 	if( player.IsTitan() || IsValid( player.GetPetTitan() ) ) // player is a titan or their pet titan is in field
 		TryNotifyPlayerOfLoadoutChangeFailed( player, "#LOADOUT_CHANGE_NEXT_TITAN" )
@@ -470,8 +508,20 @@ void function WaitForPlayerCloseMenuThenNotifyTitanLoadout( entity player )
 
 const float REFUSE_NOTIFICATION_DURATION = 5.0
 
+// will return true if succeeded sending message to player
 bool function TryNotifyPlayerOfLoadoutChangeFailed( entity player, string message )
 {
+	// pilot player specific checks
+	if ( !player.IsTitan() && !IsValid( player.GetPetTitan() ) )
+	{
+		// player loadout should be locked if parented
+		if ( IsValid( player.GetParent() ) )
+			return false
+		// if player hud has been hidden during intro/respawning, don't do anything
+		if ( HasCinematicFlag( player, CE_FLAG_INTRO ) || HasCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING ) || HasCinematicFlag( player, CE_FLAG_WAVE_SPAWNING ) )
+			return false
+	}
+
 	if( Time() > file.playerNotifyAllowedTime[ player ] && IsAlive( player ) ) // only announce if player alive
 	{
 		if( GetGameState() >= eGameState.Playing ) // only announce after game starts
