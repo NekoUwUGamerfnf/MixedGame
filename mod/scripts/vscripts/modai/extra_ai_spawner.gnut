@@ -174,7 +174,7 @@ const table<string, asset> GUNSHIP_JET_BURST_EFFECTS =
 }
 // gunship sound
 const string GUNSHIP_JET_BURST_SOUND = "coop_scr_militiaintro_dropshipflyin_jetwash"
-const float GUNSHIP_JET_BURST_SOUND_COOLDOWN = 3.5 // don't want sound to be played very often
+const float GUNSHIP_JET_BURST_SOUND_COOLDOWN = 1.85 // don't want sound to be played very often
 
 // vanilla never store any damage histroy for npcs, here I do it for fun
 // note that this is used as default value, actual value can be modified through ExtraSpawner_SetNPCDamageHistoryLifeTime()
@@ -7100,6 +7100,10 @@ void function GunshipFlightTrailEffect( entity gunship )
 
 void function OnEnemyChanged_Gunship( entity gunship )
 {
+	// gunships can be invalid when try to change enemy, pretty weird
+	if ( !IsAlive( gunship ) )
+		return
+
 	GunshipJetBurstEffect( gunship )
 }
 
@@ -7118,7 +7122,23 @@ void function GunshipJetBurstEffect_Threaded( entity gunship )
 
 	array<entity> fxs
 	foreach ( attachment, effect in GUNSHIP_JET_BURST_EFFECTS )
-		fxs.append( PlayFXOnEntity( effect, gunship, attachment ) )
+	{
+		// needs to try-catch because gunships sometimes go outside of map... which will cause an error
+		try
+		{
+			fxs.append( PlayFXOnEntity( effect, gunship, attachment ) )
+		}
+		catch( ex )
+		{
+			// try to clear out existing fx to fix cpu load
+			foreach ( fx in fxs )
+			{
+				if ( IsValid( fx ) )
+					EffectStop( fx )
+			}
+			return // just return if gunship is outside of map
+		}
+	}
 	// make them have infinite fadedist like dogfighter trails( the diffence is those trails are played by client-side )
 	foreach ( fx in fxs )
 		fx.DisableHibernation()
@@ -7144,7 +7164,7 @@ void function GunshipJetBurstEffect_Threaded( entity gunship )
 		}
 	)
 
-	WaitSignal( gunship, "OnDestroy" ) // gunship gets destroyed once they died
+	WaitSignal( gunship, "OnDestroy", "OnDeath" ) // gunship gets destroyed once they died
 }
 
 void function ExtraSpawner_SpawnPilotCanEmbark( vector pos, vector rot, int team, string spawnName = "" )
