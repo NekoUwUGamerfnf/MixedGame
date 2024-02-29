@@ -1,6 +1,6 @@
 **Archive Note**
 
-Archive is only for myself, feel free to fork/use this repo. Hope it could help you in any means
+Archive is only for myself, feel free to fork/use this repo. Hope it could help you in any means( or maybe not, this repo is lack of commentaries and code style isn't formatted at all... )
 
 For those scripts from other repo/mods, please ask for permission from their original owner before re-releasing
 
