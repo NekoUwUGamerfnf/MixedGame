@@ -44,7 +44,7 @@ var function OnWeaponPrimaryAttack_cluster_payload( entity weapon, WeaponPrimary
 	#if SERVER
 		thread SwapRocketAmmo( weaponOwner, weapon, primaryWeapon )
 	#else
-		//primaryWeapon.SetWeaponPrimaryClipCount( 0 ) // force client to start reload. unstable, fixed by re-deploy weapon
+		primaryWeapon.SetWeaponPrimaryClipCount( 0 ) // try to tell client we're out-of-ammo
 	#endif
 
 	if ( weaponOwner.IsPlayer() )
@@ -67,9 +67,7 @@ void function SwapRocketAmmo( entity weaponOwner, entity offhand, entity weapon 
 	weaponOwner.EndSignal( "DisembarkingTitan" )
 
 	EmitSoundOnEntity( weaponOwner, "Coop_AmmoBox_AmmoRefill" )
-	#if SERVER
-		//SendHudMessage(weaponOwner, "将弹药切换为小型集束炸弹", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
-	#endif
+	//SendHudMessage(weaponOwner, "将弹药切换为小型集束炸弹", -1, -0.35, 255, 255, 100, 255, 0, 3, 0)
 
 	if ( weaponOwner.IsNPC() && HasAnim( weaponOwner, "at_reload_quick" ) )
 	{
@@ -88,7 +86,7 @@ void function SwapRocketAmmo( entity weaponOwner, entity offhand, entity weapon 
 	weapon.SetMods( mods )
 
 	offhand.AddMod( "no_regen" )
-	weapon.SetWeaponPrimaryClipCount( 0 ) // try to tell client we're out-of-ammo
+	weapon.SetWeaponPrimaryClipCount( 0 )
 	// no matter weapon reloading or not, we always re-deploy current weapon to make player reload
 	// EDIT here: we do re-deploy if weapon is reloading or when we're sprinting
 	// that should only happen on player, npcs don't have such method...( though they seems not able to use this ability )

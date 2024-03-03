@@ -58,6 +58,8 @@ var function OnWeaponPrimaryAttack_rocketeer_ammo_swap( entity weapon, WeaponPri
 
 	#if SERVER
 		thread SwapRocketAmmo( weaponOwner, weapon, primaryWeapon )
+	#elseif CLIENT
+		primaryWeapon.SetWeaponPrimaryClipCount( 0 ) // try to tell client we're out-of-ammo
 	#endif
 
 	if ( weaponOwner.IsPlayer() )
@@ -103,7 +105,7 @@ void function SwapRocketAmmo( entity weaponOwner, entity offhand, entity weapon 
 
 	offhand.AddMod( "no_regen" )
 
-	weapon.SetWeaponPrimaryClipCount( 0 ) // try to tell client we're out-of-ammo
+	weapon.SetWeaponPrimaryClipCount( 0 )
 	// no matter weapon reloading or not, we always re-deploy current weapon to make player reload
 	// EDIT here: we do re-deploy if weapon is reloading or when we're sprinting
 	// that should only happen on player, npcs don't have such method...( though they seems not able to use this ability )
