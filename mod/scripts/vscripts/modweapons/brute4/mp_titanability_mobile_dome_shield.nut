@@ -35,8 +35,8 @@ var function OnWeaponPrimaryAttack_mobile_dome_shield( entity weapon, WeaponPrim
 		// some validation checks:
 		// we shouldn't let player use dome shield during a weapon burst -- that'll make themselves break dome shield instantly
 		array<entity> weapons
-		weapons.append( weaponOwner.GetMainWeapons() )
-		weapons.append( weaponOwner.GetOffhandWeapons() )
+		weapons.extend( weaponOwner.GetMainWeapons() )
+		weapons.extend( weaponOwner.GetOffhandWeapons() )
 		foreach ( weapon in weapons )
 		{
 			if ( weapon.IsBurstFireInProgress() )
