@@ -31,7 +31,20 @@ var function OnWeaponPrimaryAttack_mobile_dome_shield( entity weapon, WeaponPrim
 	#endif //SERVER
 
 	if ( weaponOwner.IsPlayer() )
+	{
+		// some validation checks:
+		// we shouldn't let player use dome shield during a weapon burst -- that'll make themselves break dome shield instantly
+		array<entity> weapons
+		weapons.append( weaponOwner.GetMainWeapons() )
+		weapons.append( weaponOwner.GetOffhandWeapons() )
+		foreach ( weapon in weapons )
+		{
+			if ( weapon.IsBurstFireInProgress() )
+				return 0
+		}
+
 		PlayerUsedOffhand( weaponOwner, weapon )
+	}
 
 	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration )
 	thread GiveMobileDomeShield( weapon, weaponOwner, duration )
