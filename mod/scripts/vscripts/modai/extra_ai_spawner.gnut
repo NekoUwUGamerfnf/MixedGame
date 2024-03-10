@@ -8420,7 +8420,8 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	decoy.SetModel( npc.GetModelName() )
 	//decoy.SetVelocity( npc.GetVelocity() ) // velocity update now handled by DelayedShowNPCDecoy()
 	// taken from mp_ability_holopilot
-	PutEntityInSafeSpot( decoy, npc, null, npc.GetOrigin(), decoy.GetOrigin() )
+	// now handled by DecoyedShowNPCDecoy()
+	//PutEntityInSafeSpot( decoy, npc, null, npc.GetOrigin(), decoy.GetOrigin() )
 
 	// setup
 	decoy.SetOwner( npc ) // try to avoid collision?
@@ -8472,8 +8473,19 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	Highlight_SetFriendlyHighlight( decoy, "friendly_player_decoy" )
 	//print( "GetEnemyHighlightAssetNameFromEnt( npc ): " + GetEnemyHighlightAssetNameFromEnt( npc ) )
 
+	// we now adding this after decoy actually shows up, handled by DelayedShowNPCDecoy()
+	/*
 	EmitSoundOnEntityToTeam( decoy, "holopilot_loop", friendlyTeam ) //loopingSound
 	EmitSoundOnEntityToEnemies( decoy, "holopilot_loop_enemy", friendlyTeam ) ///loopingSound
+
+	// trail
+	int attachID = decoy.LookupAttachment( "CHESTFOCUS" )
+	entity holoPilotTrailFX = StartParticleEffectOnEntity_ReturnEntity( decoy, HOLO_PILOT_TRAIL_FX, FX_PATTACH_POINT_FOLLOW, attachID )
+	SetTeam( holoPilotTrailFX, friendlyTeam )
+	holoPilotTrailFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+
+	decoy.s.holoPilotTrailFX <- holoPilotTrailFX
+	*/
 	
 	// behavior
 	RemoveMinimapForNPC( decoy ) // don't show on minimap for any team, that's the way to identify them
@@ -8556,23 +8568,36 @@ void function DelayedShowNPCDecoy( entity npc, entity decoy, vector ornull veloc
 	// flicker like player decoy
 	NPCDecoyFlicker( decoy )
 
-	// trail
+	int friendlyTeam = decoy.GetTeam()
+	if ( IsValid( npc ) )
+		friendlyTeam = npc.GetTeam()
+
+	// trail and sound
+	EmitSoundOnEntityToTeam( decoy, "holopilot_loop", friendlyTeam ) //loopingSound
+	EmitSoundOnEntityToEnemies( decoy, "holopilot_loop_enemy", friendlyTeam ) ///loopingSound
+
 	int attachID = decoy.LookupAttachment( "CHESTFOCUS" )
 	entity holoPilotTrailFX = StartParticleEffectOnEntity_ReturnEntity( decoy, HOLO_PILOT_TRAIL_FX, FX_PATTACH_POINT_FOLLOW, attachID )
-	SetTeam( holoPilotTrailFX, decoy.GetTeam() )
+	SetTeam( holoPilotTrailFX, friendlyTeam )
 	holoPilotTrailFX.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
 
 	decoy.s.holoPilotTrailFX <- holoPilotTrailFX
 
 	// update position and velocity
-	if ( IsValid( npc ) )
+	vector spawnAngle = < 0, decoy.GetAngles().y, 0 > // no rotation
+	float displacementDistance = 30.0
+	vector forwardVector = AnglesToForward( spawnAngle ) * displacementDistance
+	vector startPos = decoy.GetOrigin()
+	vector spawnPos = startPos + forwardVector
+	if ( IsValid( npc ) ) // if owner still valid, use their angles and position
 	{
-		vector spawnAngle = < 0, npc.GetAngles().y, 0 > // no rotation
-		float displacementDistance = 30.0
-		vector forwardVector = AnglesToForward( spawnAngle ) * displacementDistance
-		vector spawnPos = npc.GetOrigin() + forwardVector
-		decoy.SetOrigin( spawnPos )
+		spawnAngle = < 0, npc.GetAngles().y, 0 > // no rotation
+		startPos = npc.GetOrigin()
+		forwardVector = AnglesToForward( spawnAngle ) * displacementDistance
+		spawnPos = npc.GetOrigin() + forwardVector
 	}
+	decoy.SetOrigin( spawnPos )
+
 	if ( velocity != null )
 	{
 		expect vector( velocity )
@@ -8585,6 +8610,12 @@ void function DelayedShowNPCDecoy( entity npc, entity decoy, vector ornull veloc
 		else
 			decoy.SetVelocity( npc.GetVelocity() )
 	}
+
+	// fix position
+	if ( IsValid( npc ) )
+		PutEntityInSafeSpot( decoy, npc, null, startPos, decoy.GetOrigin() )
+	else
+		PutEntityInSafeSpot( decoy, decoy, null, startPos, decoy.GetOrigin() )
 }
 
 bool function EntIsNPCFakeDecoy( entity ent )
