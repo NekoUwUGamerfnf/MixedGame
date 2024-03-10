@@ -8172,7 +8172,10 @@ void function StartTrackingNPCVelocity_Threaded( entity guy )
 		float timeElapsed = Time() - lastTime
 		vector velocity = ( guy.GetOrigin() - lastTickPos ) / timeElapsed
 
-		file.npcVelocity[ guy ] = velocity
+		if ( !( guy in file.npcVelocity ) )
+			file.npcVelocity[ guy ] <- velocity
+		else
+			file.npcVelocity[ guy ] = velocity
 	}
 }
 
@@ -8376,6 +8379,7 @@ const float NPC_PILOT_HOLOPILOT_MAX_WAIT = 6.5 // if pilot has finished cooldown
 
 const int NPC_PILOT_DECOY_HEALTH = 50 // EDIT: was nerfed to 30, but we've made pilot and their embarked titan has capability of oneshot a decoy( similar to players ) // was 50, but we've add forced aggro for them
 const float NPC_PILOT_DECOY_TIMEOUT = DECOY_DURATION
+const float NPC_PILOT_DECOY_DESTINATION_HOLD_TIME = 8 // how long our decoy will hold their desired position before start following owner
 
 void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 {
@@ -8438,7 +8442,7 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 			if ( IsAlive( enemy ) )
 				destOrigin = enemy.GetOrigin()
 			//print( "npc speed: " + string( Length( velocity ) ) )
-			CreateNPCDecoyEnt( pilot, NPC_PILOT_DECOY_HEALTH, NPC_PILOT_DECOY_TIMEOUT, velocity, destOrigin, true )
+			CreateNPCDecoyEnt( pilot, NPC_PILOT_DECOY_HEALTH, NPC_PILOT_DECOY_TIMEOUT, velocity, destOrigin, NPC_PILOT_DECOY_DESTINATION_HOLD_TIME, true )
 		}
 
 		// cooldown between next use
@@ -8448,7 +8452,7 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 
 // create a npc entity as fake decoy
 // actually can be used for players
-entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 30, vector ornull velocity = null, vector ornull destOrigin = null, bool followOwner = false )
+entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 30, vector ornull velocity = null, vector ornull destOrigin = null, float destHoldTime = 5, bool followOwner = false )
 {
 	string decoyClass = "npc_pilot_elite" // was using npc_soldier, but pilots don't have dialogue, which is better
 	string decoyAISet = "npc_pilot_elite" // was using npc_soldier
@@ -8579,7 +8583,7 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	file.npcFakeDecoyEntArray.append( decoy )
 
 	// go to desired position
-	thread NPCDecoyAssaultThink( decoy, npc, destOrigin, followOwner )
+	thread NPCDecoyAssaultThink( decoy, npc, destOrigin, destHoldTime, followOwner )
 
 	return decoy
 }
@@ -8784,7 +8788,7 @@ void function NPCDecoyDistractNPC( entity decoy )
 	}
 }
 
-void function NPCDecoyAssaultThink( entity decoy, entity npc, vector ornull destOrigin = null, bool followOwner = false )
+void function NPCDecoyAssaultThink( entity decoy, entity npc, vector ornull destOrigin = null, float destHoldTime = 5, bool followOwner = false )
 {
 	decoy.EndSignal( "OnDestroy" )
 	decoy.EndSignal( "OnDeath" )
@@ -8795,7 +8799,17 @@ void function NPCDecoyAssaultThink( entity decoy, entity npc, vector ornull dest
 	{
 		expect vector( destOrigin )
 		decoy.AssaultPoint( destOrigin )
-		WaitSignal( decoy, "OnFinishedAssault", "OnEnterGoalRadius", "OnFailedToPath" )
+		table signalData = WaitSignal( 
+							   decoy, 
+							   "OnFinishedAssault", 
+							   "OnEnterGoalRadius", 
+							   "OnFailedToPath"
+						   )
+		
+		string receivedSignal = expect string( signalData.signal )
+		// hold point for some time if we finished assault
+		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+			wait destHoldTime
 	}
 
 	// try to follow their owner afterwards
