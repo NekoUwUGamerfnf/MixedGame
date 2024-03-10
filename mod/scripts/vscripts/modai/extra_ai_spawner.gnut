@@ -476,6 +476,7 @@ struct
 	table<entity, float> npcPilotMeleeBreakCloakTime
 	array<entity> npcFakeDecoyEntArray
 	table<entity, float> npcPilotPhaseHealthThreshold
+	table<entity, bool> npcPilotPendingPhaseShift
 	// npc attacking management
 	table< entity, array<int> > npcDisabledAttackCapabilityFlags
 	// npc execution management
@@ -484,6 +485,8 @@ struct
 	table<string, table> squadSignalDummyTable
 	// for handling embarked npc
 	table<entity, bool> soulEmbarkedNPCSpawnFromExtraSpawner
+	// npc velocity caculating
+	table<entity, vector> npcVelocity
 } file
 
 void function ExtraAISpawner_Init()
@@ -536,6 +539,8 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "StandUnboardedTitan" )
 	// npc weapon switch
 	RegisterSignal( "ScriptedWeaponSwitch" )
+	// npc velocity caculating
+	RegisterSignal( "NPCVelocityTracking" )
 	// specialist grunts
 	AddCallback_OnNPCPlaceTurret( OnNPCPlaceTurret )
 	AddDamageByCallback( "npc_turret_sentry", OnSentryTurretDamageTarget )
@@ -1245,8 +1250,21 @@ void function ShiftedNPCDamageHandle( entity victim, var damageInfo )
 	{
 		if ( attacker.IsPhaseShifted() )
 		{
-			// npc melee damage isn't intented to fire during phase shift
+			// npc melee damage isn't intented to deal damage during phase shift
 			if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
+				DamageInfo_SetDamage( damageInfo, 0 )
+
+			// projectile/hitscan damage checks
+			// GetEntPhaseShiftStartTime() is a modified function in sh_phase_shift.gnut
+			// not really stable though, needs testing... should work fine on ronin titans?
+			entity inflictor = DamageInfo_GetInflictor( damageInfo )
+			if ( inflictor.IsProjectile() )
+			{
+				// if projectile is created AFTER attacker starts phase shift, we blank out the damage
+				if ( GetEntPhaseShiftStartTime( attacker ) < inflictor.GetProjectileCreationTime() )
+					DamageInfo_SetDamage( damageInfo, 0 )
+			}
+			else // should be hitscan damage, just remove
 				DamageInfo_SetDamage( damageInfo, 0 )
 		}
 	}
@@ -8028,6 +8046,66 @@ void function RestoreNPCAttackCapability( entity guy )
 	delete file.npcDisabledAttackCapabilityFlags[ guy ] // clean up
 }
 
+// npc's walking animations only update their position and does nothing to update their velocity...
+// guess we try to calculate velocity manually
+void function StartTrackingNPCVelocity( entity guy )
+{
+	thread StartTrackingNPCVelocity_Threaded( guy )
+}
+
+void function StartTrackingNPCVelocity_Threaded( entity guy )
+{
+	if ( guy in file.npcVelocity )
+		return
+
+	guy.EndSignal( "OnDestroy" )
+	guy.Signal( "NPCVelocityTracking" )
+	guy.EndSignal( "NPCVelocityTracking" )
+
+	OnThreadEnd
+	(
+		function(): ( guy )
+		{
+			if ( IsValid( guy ) )
+			{
+				if ( guy in file.npcVelocity )
+					delete file.npcVelocity[ guy ]
+			}
+		}
+	)
+
+	float lastTime
+	vector lastTickPos
+	while ( true )
+	{
+		lastTime = Time()
+		lastTickPos = guy.GetOrigin()
+
+		WaitFrame()
+
+		float timeElapsed = Time() - lastTime
+		vector velocity = ( guy.GetOrigin() - lastTickPos ) / timeElapsed
+
+		if ( !( guy in file.npcVelocity ) )
+			file.npcVelocity[ guy ] <- velocity
+		else
+			file.npcVelocity[ guy ] = velocity
+	}
+}
+
+void function EndTrackingNPCVelocity( entity guy )
+{
+	guy.Signal( "NPCVelocityTracking" )
+}
+
+vector function GetNPCVelocity( entity guy )
+{
+	if ( !( guy in file.npcVelocity ) )
+		return guy.GetVelocity()
+	
+	return file.npcVelocity[ guy ]
+}
+
 const float NPC_PILOT_STIM_REST_TIME_BETWEEN_USE = 1.0 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2100 // if pilot has enemy within this range, do stim to approach them( tried 2650 but seems not good )
 // removing these checks. we added health regen so activate stim without thinking isn't very bad
@@ -8042,6 +8120,18 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
 
 	abilityWeapon.EndSignal( "OnDestroy" )
+
+	// we start npc velocity tracking, which calculates our velocity manually
+	StartTrackingNPCVelocity( pilot )
+	OnThreadEnd
+	(
+		function(): ( pilot )
+		{
+			if ( IsValid( pilot ) )
+				EndTrackingNPCVelocity( pilot )
+		}
+	)
+
 	while ( true )
 	{
 		// get uses before we set to cooldown
@@ -8077,10 +8167,11 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 				if ( GetHealthFrac( pilot ) > NPC_PILOT_STIM_ADVANCED_CHECK_HEALTH_FRAC )
 				{
 					bool onGround = lastTickOnGround && pilot.IsOnGround()
-					float vel = Length( pilot.GetOrigin() - lastTickPos ) / 0.1
-					//print( "vel: " + string( vel ) )
+					//float speed = Length( pilot.GetOrigin() - lastTickPos ) / 0.1
+					float speed = Length( GetNPCVelocity( pilot ) )
+					//print( "speed: " + string( speed ) )
 					//if ( !pilot.IsOnGround() || Length( pilot.GetVelocity() ) < NPC_PILOT_STIM_REQUIRED_VELOCITY )
-					if ( !onGround || vel < NPC_PILOT_STIM_REQUIRED_VELOCITY )
+					if ( !onGround || speed < NPC_PILOT_STIM_REQUIRED_VELOCITY )
 						continue
 
 					entity enemy = pilot.GetEnemy()
@@ -8203,12 +8294,25 @@ const float NPC_PILOT_HOLOPILOT_MAX_WAIT = 6.5 // if pilot has finished cooldown
 
 const int NPC_PILOT_DECOY_HEALTH = 50 // EDIT: was nerfed to 30, but we've made pilot and their embarked titan has capability of oneshot a decoy( similar to players ) // was 50, but we've add forced aggro for them
 const float NPC_PILOT_DECOY_TIMEOUT = DECOY_DURATION
+const float NPC_PILOT_DECOY_DESTINATION_HOLD_TIME = 8 // how long our decoy will hold their desired position before start following owner
 
 void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 {
 	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
 
 	abilityWeapon.EndSignal( "OnDestroy" )
+
+	// we start npc velocity tracking, which calculates our velocity manually
+	StartTrackingNPCVelocity( pilot )
+	OnThreadEnd
+	(
+		function(): ( pilot )
+		{
+			if ( IsValid( pilot ) )
+				EndTrackingNPCVelocity( pilot )
+		}
+	)
+
 	while ( true )
 	{
 		// get uses before we set to cooldown
@@ -8234,6 +8338,10 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 				entity enemy = pilot.GetEnemy()
 				if ( IsAlive( enemy ) )
 				{
+					// enemy needs to be a valid assault target!
+					if ( !IsValidNPCAssaultTarget( enemy ) )
+						continue
+					
 					// wait till enemy is in range or pilot sees an enemy
 					float dist2D = Distance2D( pilot.GetOrigin(), enemy.GetOrigin() )
 					if ( pilot.CanSee( enemy ) || dist2D < NPC_PILOT_HOLOPILOT_COMBAT_DIST_2D )
@@ -8242,7 +8350,14 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 			}
 
 			// project hologram
-			CreateNPCDecoyEnt( pilot, NPC_PILOT_DECOY_HEALTH, NPC_PILOT_DECOY_TIMEOUT )
+			//vector velocity = GetNPCVelocity( pilot )
+			vector ornull velocity = null // guess we'd better use default velocity...
+			vector ornull destOrigin = null
+			entity enemy = pilot.GetEnemy()
+			if ( IsAlive( enemy ) )
+				destOrigin = enemy.GetOrigin()
+			//print( "npc speed: " + string( Length( velocity ) ) )
+			CreateNPCDecoyEnt( pilot, NPC_PILOT_DECOY_HEALTH, NPC_PILOT_DECOY_TIMEOUT, velocity, destOrigin, NPC_PILOT_DECOY_DESTINATION_HOLD_TIME, true )
 		}
 
 		// cooldown between next use
@@ -8252,7 +8367,7 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 
 // create a npc entity as fake decoy
 // actually can be used for players
-entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = -1 )
+entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 30, vector ornull velocity = null, vector ornull destOrigin = null, float destHoldTime = 5, bool followOwner = false )
 {
 	string decoyClass = "npc_pilot_elite" // was using npc_soldier, but pilots don't have dialogue, which is better
 	string decoyAISet = "npc_pilot_elite" // was using npc_soldier
@@ -8265,10 +8380,13 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 
 	vector spawnAngle = < 0, npc.GetAngles().y, 0 > // no rotation
 	// taken from mp_ability_holopilot
+	// we now update position after decoy actually shows up
+	/*
 	float displacementDistance = 30.0
 	vector forwardVector = AnglesToForward( spawnAngle ) * displacementDistance
 	vector spawnPos = npc.GetOrigin() + forwardVector
-
+	*/
+	vector spawnPos = npc.GetOrigin()
 	entity decoy = CreateNPC( decoyClass, friendlyTeam, spawnPos, spawnAngle )
 	SetSpawnOption_AISettings( decoy, decoyAISet )
 	SetSpawnOption_SquadName( decoy, npc.kv.squadname )
@@ -8276,13 +8394,13 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 		ExtraSpawner_SetUpSpawnedNPC( decoy )
 	
 	// npc model take hold from T-pose and non-alert state
-	thread DelayedShowNPCDecoy( decoy )
+	thread DelayedShowNPCDecoy( npc, decoy, velocity )
 	
 	DispatchSpawn( decoy )
 
 	// update model
 	decoy.SetModel( npc.GetModelName() )
-	decoy.SetVelocity( npc.GetVelocity() )
+	//decoy.SetVelocity( npc.GetVelocity() ) // velocity update now handled by DelayedShowNPCDecoy()
 	// taken from mp_ability_holopilot
 	PutEntityInSafeSpot( decoy, npc, null, npc.GetOrigin(), decoy.GetOrigin() )
 
@@ -8351,8 +8469,9 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	RemoveMinimapForNPC( decoy ) // don't show on minimap for any team, that's the way to identify them
 	// now we try not to disable ranged attack capability, because we've removed their main weapons
 	// disabling gun fire may make them suffer weird animations
-	//DisableNPCAttackCapability( decoy, true, true, true ) // disable attacking and traverse
-	DisableNPCAttackCapability( decoy, false, true, true ) // disable melee and traverse
+	// EDIT: weird animations is caused by NPCMF_PREFER_SPRINT, not related with attacking stuffs
+	DisableNPCAttackCapability( decoy, true, true, true ) // disable attacking and traverse
+	//DisableNPCAttackCapability( decoy, false, true, true ) // disable melee and traverse
 	// don't drop any weapon, no pain
 	// NPC_NO_PAIN isn't really a valid flag, use new functions instead
 	//decoy.EnableNPCFlag( NPC_NO_WEAPON_DROP | NPC_NO_PAIN | NPC_NO_GESTURE_PAIN )
@@ -8377,6 +8496,9 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	thread NPCDecoyLifeTime( decoy, weaponProp, timeOut )
 	thread NPCDecoyDistractNPC( decoy ) // fake player decoy's extremely high npc attack priority
 	file.npcFakeDecoyEntArray.append( decoy )
+
+	// go to desired position
+	thread NPCDecoyAssaultThink( decoy, npc, destOrigin, destHoldTime, followOwner )
 
 	return decoy
 }
@@ -8405,21 +8527,41 @@ entity function CreatemWeaponPropForDecoy( entity weapon )
 	return prop
 }
 
-void function DelayedShowNPCDecoy( entity decoy )
+void function DelayedShowNPCDecoy( entity npc, entity decoy, vector ornull velocity = null )
 {
 	decoy.EndSignal( "OnDestroy" )
 
 	decoy.kv.VisibilityFlags = 0 // disable any model light stuffs
 	HideName( decoy )
+	decoy.SetInvulnerable()
 	WaitFrame() // take hold from T-posing
 
 	ShowName( decoy )
 	//decoy.SetNameVisibleToFriendly( false ) // try to avoid friendly player targeting them. EDIT: we've added trails and highlights, this should be fine
 	WaitFrame() // take hold from casual state
 
+	// actually deployed!
 	decoy.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
+	decoy.ClearInvulnerable()
 	// flicker like player decoy
 	NPCDecoyFlicker( decoy )
+
+	// update position and velocity
+	if ( IsValid( npc ) )
+	{
+		vector spawnAngle = < 0, npc.GetAngles().y, 0 > // no rotation
+		float displacementDistance = 30.0
+		vector forwardVector = AnglesToForward( spawnAngle ) * displacementDistance
+		vector spawnPos = npc.GetOrigin() + forwardVector
+		decoy.SetOrigin( spawnPos )
+	}
+	if ( velocity != null )
+	{
+		expect vector( velocity )
+		decoy.SetVelocity( velocity )
+	}
+	else if ( IsValid( npc ) )
+		decoy.SetVelocity( GetNPCVelocity( npc ) )
 }
 
 bool function EntIsNPCFakeDecoy( entity ent )
@@ -8561,6 +8703,44 @@ void function NPCDecoyDistractNPC( entity decoy )
 	}
 }
 
+void function NPCDecoyAssaultThink( entity decoy, entity npc, vector ornull destOrigin = null, float destHoldTime = 5, bool followOwner = false )
+{
+	decoy.EndSignal( "OnDestroy" )
+	decoy.EndSignal( "OnDeath" )
+	npc.EndSignal( "OnDeath" )
+
+	// wait for going to desired position first
+	if ( destOrigin != null )
+	{
+		expect vector( destOrigin )
+		decoy.AssaultPoint( destOrigin )
+		table signalData = WaitSignal( 
+							   decoy, 
+							   "OnFinishedAssault", 
+							   "OnEnterGoalRadius", 
+							   "OnFailedToPath"
+						   )
+		
+		string receivedSignal = expect string( signalData.signal )
+		// hold point for some time if we finished assault
+		if ( receivedSignal == "OnFinishedAssault" || receivedSignal == "OnEnterGoalRadius" )
+			wait destHoldTime
+	}
+
+	// try to follow their owner afterwards
+	if ( followOwner )
+	{
+		while ( true )
+		{
+			vector origin = npc.GetOrigin()
+			decoy.AssaultPoint( origin )
+			WaitSignal( decoy, "OnFinishedAssault", "OnEnterGoalRadius", "OnFailedToPath" )
+
+			WaitFrame() // always wait for next frame before doing anything
+		}
+	}
+}
+
 void function NPCPilotPhaseShiftThink( entity pilot, entity abilityWeapon )
 {
 	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
@@ -8587,6 +8767,8 @@ const float NPC_PILOT_PHASE_MASSIVE_DAMAGE_FRAC = 0.4 // if health about to take
 const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN = 0.3 // first version uses 0.65, no-time-extention version uses 0.35
 const float NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX = 0.7 // first version uses 1.35, no-time-extention version uses 0.8
 const float NPC_PILOT_PHASE_USE_TIME_EXTENTION = 1.25 // pilots can't use phase shift well... extend their use time for some bit( was using 1.5 which might be annoying? )
+// make phase shift pilots take more damage, add a setting
+const bool NPC_PILOT_PHASE_BLOCKS_LAST_DAMAGE = false // if set to true, npc pilot's phase shift will happen before taking damage, which means they will blank last hit's damage no matter how much that is
 
 void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 {
@@ -8607,8 +8789,7 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	AddEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
 	table<string, bool> cleanUpTable
 	cleanUpTable["removeFinalDamageCallback"] <- false
-	cleanUpTable["restoreAttackCapability"] <- false
-	//cleanUpTable["restoreAttackCapability"] <- true // default is we're not disabling attack capability, no need to restore in OnThreadEnd()
+	cleanUpTable["restoreAttackCapability"] <- true // default is we're not disabling attack capability, that happens after signal is sent
 
 	OnThreadEnd
 	(
@@ -8632,11 +8813,7 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	)
 
 	var results = pilot.WaitSignal( "PilotWantsToPhase" ) // wait for damage callback to signal stuff
-	float healthFracLeft = expect float( results.healthFracLeft )
-	if ( healthFracLeft <= 0 )
-		healthFracLeft = 0
-	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration ) * NPC_PILOT_PHASE_USE_TIME_EXTENTION
-	PhaseShift( pilot, 0.0, duration )
+	
 	// vanilla missing npc behavior: needs to clear humansized npc enemy on phase
 	// and they're still able to attack, needs to clear their attack capability
 	if ( IsValid( pilot.GetEnemy() ) )
@@ -8648,6 +8825,20 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	DisableNPCAttackCapability( pilot, true, true ) // disable both melee and ranged attack
 	cleanUpTable["restoreAttackCapability"] = false // mark as we need to clean up stuffs
 
+	if ( !NPC_PILOT_PHASE_BLOCKS_LAST_DAMAGE )
+		WaitEndFrame() // wait for current damage to go through!
+
+	float healthFracLeft
+	if ( NPC_PILOT_PHASE_BLOCKS_LAST_DAMAGE )
+		healthFracLeft = expect float( results.healthFracLeft ) // if we're calculating health from last hit, should get our health after being damaged
+	else
+		healthFracLeft = GetHealthFrac( pilot )
+	if ( healthFracLeft <= 0 )
+		healthFracLeft = 0
+	
+	float duration = weapon.GetWeaponSettingFloat( eWeaponVar.fire_duration ) * NPC_PILOT_PHASE_USE_TIME_EXTENTION
+	PhaseShift( pilot, 0.0, duration )
+
 	// npc pilots can't use shift well, give them some speed boost to get out of danger
 	float effectSeverity = NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN + ( ( 1.0 - healthFracLeft ) * ( NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MAX - NPC_PILOT_PHASE_SPEED_BOOST_SEVERITY_MIN ) )
 	//print( "effectSeverity: " + string( effectSeverity ) )
@@ -8658,7 +8849,7 @@ void function NPCPilotActivatesPhaseShift( entity pilot, entity weapon )
 	RemoveEntityCallback_OnFinalDamaged( pilot, OnPhaseShiftNPCPilotDamaged )
 	cleanUpTable["removeFinalDamageCallback"] = true
 	RestoreNPCAttackCapability( pilot )
-	cleanUpTable["restoreAttackCapability"] = true
+	cleanUpTable["restoreAttackCapability"] = true // mark as we already cleaned up everything, no need to do again in OnThreadEnd
 }
 
 // phase out of danger when:
@@ -8679,11 +8870,20 @@ void function OnPhaseShiftNPCPilotDamaged( entity pilot, var damageInfo )
 	if ( !( pilot in file.npcPilotPhaseHealthThreshold ) )
 		return
 
+	// we want the hit that makes them went in phase shift to go through, and blank damages coming in the same frame
+	if ( pilot in file.npcPilotPendingPhaseShift )
+	{
+		DamageInfo_SetDamage( damageInfo, 0 )
+		return
+	}
+
 	int damage = int( DamageInfo_GetDamage( damageInfo ) )
 	int healthLeft = pilot.GetHealth() - damage
 	if ( healthLeft <= 0 ) // this is killshot!
 	{
-		PilotWantsToPhaseShift( pilot, damageInfo )
+		// if we don't want to block last damage, just let them die
+		if ( NPC_PILOT_PHASE_BLOCKS_LAST_DAMAGE )
+			PilotWantsToPhaseShift( pilot, damageInfo )
 		return
 	}
 
@@ -8704,12 +8904,33 @@ void function PilotWantsToPhaseShift( entity pilot, var damageInfo )
 {
 	int damage = int( DamageInfo_GetDamage( damageInfo ) )
 	float healthFracLeft = float( pilot.GetHealth() - damage ) / float( pilot.GetMaxHealth() )
-	DamageInfo_SetDamage( damageInfo, 0 )
-
 	var signalTable = {
 		healthFracLeft = healthFracLeft
 	}
+
+	if ( NPC_PILOT_PHASE_BLOCKS_LAST_DAMAGE )
+		DamageInfo_SetDamage( damageInfo, 0 ) // remove damage if we want to block last damage and instantly go into shifting
+
+	file.npcPilotPendingPhaseShift[ pilot ] <- true // adding this mark so we start blanking following damages, but not current one
 	Signal( pilot, "PilotWantsToPhase", signalTable )
+	thread DelayedCleanUpPendingShiftState( pilot )
+}
+
+void function DelayedCleanUpPendingShiftState( entity pilot )
+{
+	pilot.EndSignal( "OnDestroy" )
+
+	// wait till pilot starts phase shift then we clean up state
+	/*
+	while ( true )
+	{
+		if ( !pilot.IsPhaseShifted() )
+			WaitFrame()
+	}
+	*/
+	pilot.WaitSignal( "StartPhaseShift" )
+	if ( pilot in file.npcPilotPendingPhaseShift )
+		delete file.npcPilotPendingPhaseShift[ pilot ]
 }
 
 void function InitGruntEmbarkedTitanLoadout()

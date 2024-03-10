@@ -25,11 +25,10 @@ global function ScoreEvent_SetupEarnMeterValuesForTitanModes
 global function AddCallback_TitanDoomedScoreEvent
 // new settings override func
 global function ScoreEvent_SetScoreEventNameOverride
-
 global function ScoreEvent_SetDisabledForEntity // allow us disable certain entity's score event
 global function ScoreEvent_IsDisabledForEntity // to be shared with _base_gametype.gnut
-
 global function ScoreEvent_SetEntityEarnValueOverride // for us set specific earnmeter value scale for an entity. note that this only works for player and npc kills / assists
+global function ScoreEvent_DisableEntityFactionDialogueEvent // for us disable certain entity's faction dialogue event, so we can handle them manually in other files...
 
 // nessie fix
 global function ScoreEvent_GetPlayerMVP
@@ -69,6 +68,7 @@ struct
 	table<string, string> scoreEventNameOverride
 	table<entity, bool> entScoreEventDisabled
 	table< entity, table<string, EarnValueOverride> > entScoreEventValueOverride
+	table<entity, bool> entScoreEventDialogueDisabled
 
 	// nessie fix
 	table<string, string> killedTitanDialogues
@@ -279,7 +279,17 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 	}
 	
 	if ( ScoreEvent_HasConversation( event ) )
-		PlayFactionDialogueToPlayer( event.conversation, targetPlayer )
+	{
+		// change to use wrapped function for get settings
+		//PlayFactionDialogueToPlayer( event.conversation, targetPlayer )
+		// by default, earnValueOverrideEnt will be our victim. but if that isn't valid, try using associatedEnt if it's not player themselves
+		entity victimEnt
+		if ( IsValid( earnValueOverrideEnt ) )
+			victimEnt = earnValueOverrideEnt
+		else if ( associatedEnt != targetPlayer )
+			victimEnt = associatedEnt
+		ScoreEvent_PlayFactionDialogueToPlayer( event.conversation, targetPlayer, victimEnt )
+	}
 		
 	HandleXPGainForScoreEvent( targetPlayer, event )
 }
@@ -750,7 +760,9 @@ void function KilledPlayerTitanDialogue( entity attacker, entity victim )
 	if ( CoinFlip() && titanCharacterName in file.killedTitanDialogues ) // 50% chance to play titan specific dialogue
 		dialogue = file.killedTitanDialogues[ titanCharacterName ]
 
-	PlayFactionDialogueToPlayer( dialogue, attacker )
+	// we allow disable dialogue when killing certain entity, use wrapped function
+	//PlayFactionDialogueToPlayer( dialogue, attacker )
+	ScoreEvent_PlayFactionDialogueToPlayer( dialogue, attacker, titan )
 }
 
 // callback for doomed health loss titans
@@ -797,6 +809,23 @@ void function ScoreEvent_SetEntityEarnValueOverride( entity ent, string scoreEve
 		file.entScoreEventValueOverride[ ent ][ scoreEventName ] <- newOverride
 	else
 		file.entScoreEventValueOverride[ ent ][ scoreEventName ] = newOverride
+}
+
+void function ScoreEvent_DisableEntityFactionDialogueEvent( entity ent, bool disable )
+{
+	if ( !( ent in file.entScoreEventDialogueDisabled ) )
+		file.entScoreEventDialogueDisabled[ ent ] <- false
+	file.entScoreEventDialogueDisabled[ ent ] = disable
+}
+
+// wrapped function, only do score event if entity's event isn't disabled
+bool function ScoreEvent_PlayFactionDialogueToPlayer( string dialogueName, entity player, entity victimEnt = null )
+{
+	if ( ( victimEnt in file.entScoreEventDialogueDisabled ) && file.entScoreEventDialogueDisabled[ victimEnt ] )
+		return false
+
+	PlayFactionDialogueToPlayer( dialogueName, player )
+	return true
 }
 
 // nessie fix
