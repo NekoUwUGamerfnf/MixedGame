@@ -283,7 +283,7 @@ void function AddPlayerScore( entity targetPlayer, string scoreEventName, entity
 		// change to use wrapped function for get settings
 		//PlayFactionDialogueToPlayer( event.conversation, targetPlayer )
 		// by default, earnValueOverrideEnt will be our victim. but if that isn't valid, try using associatedEnt if it's not player themselves
-		entity victimEnt = 
+		entity victimEnt
 		if ( IsValid( earnValueOverrideEnt ) )
 			victimEnt = earnValueOverrideEnt
 		else if ( associatedEnt != targetPlayer )
