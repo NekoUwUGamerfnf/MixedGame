@@ -544,7 +544,7 @@ void function ExtraAISpawner_Init()
 	// npc weapon switch
 	RegisterSignal( "ScriptedWeaponSwitch" )
 	// npc velocity caculating
-	RegisterSignal( "NPCVelocityCalculate" )
+	RegisterSignal( "NPCVelocityTracking" )
 	// specialist grunts
 	AddCallback_OnNPCPlaceTurret( OnNPCPlaceTurret )
 	AddDamageByCallback( "npc_turret_sentry", OnSentryTurretDamageTarget )
@@ -8134,14 +8134,19 @@ void function RestoreNPCAttackCapability( entity guy )
 
 // npc's walking animations only update their position and does nothing to update their velocity...
 // guess we try to calculate velocity manually
-void function StartCalculatingNPCVelocity( entity guy )
+void function StartTrackingNPCVelocity( entity guy )
+{
+	thread StartTrackingNPCVelocity_Threaded( guy )
+}
+
+void function StartTrackingNPCVelocity_Threaded( entity guy )
 {
 	if ( guy in file.npcVelocity )
 		return
 
 	guy.EndSignal( "OnDestroy" )
-	guy.Signal( "NPCVelocityCalculate" )
-	guy.EndSignal( "NPCVelocityCalculate" )
+	guy.Signal( "NPCVelocityTracking" )
+	guy.EndSignal( "NPCVelocityTracking" )
 
 	OnThreadEnd
 	(
@@ -8171,9 +8176,9 @@ void function StartCalculatingNPCVelocity( entity guy )
 	}
 }
 
-void function EndCalculatingNPCVelocity( entity guy )
+void function EndTrackingNPCVelocity( entity guy )
 {
-	guy.Signal( "NPCVelocityCalculate" )
+	guy.Signal( "NPCVelocityTracking" )
 }
 
 vector function GetNPCVelocity( entity guy )
@@ -8198,6 +8203,18 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
 
 	abilityWeapon.EndSignal( "OnDestroy" )
+
+	// we start npc velocity tracking, which calculates our velocity manually
+	StartTrackingNPCVelocity( pilot )
+	OnThreadEnd
+	(
+		function(): ( pilot )
+		{
+			if ( IsValid( pilot ) )
+				EndTrackingNPCVelocity( pilot )
+		}
+	)
+
 	while ( true )
 	{
 		// get uses before we set to cooldown
@@ -8365,6 +8382,18 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 	// EndSignals() should been set by ScriptedNPCPilotTacticalAbility_Threaded()
 
 	abilityWeapon.EndSignal( "OnDestroy" )
+
+	// we start npc velocity tracking, which calculates our velocity manually
+	StartTrackingNPCVelocity( pilot )
+	OnThreadEnd
+	(
+		function(): ( pilot )
+		{
+			if ( IsValid( pilot ) )
+				EndTrackingNPCVelocity( pilot )
+		}
+	)
+
 	while ( true )
 	{
 		// get uses before we set to cooldown
@@ -8404,9 +8433,11 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 			// project hologram
 			vector velocity = GetNPCVelocity( pilot )
 			vector ornull destOrigin = null
-			if ( IsAlive( pilot.GetEnemy() ) )
-				destOrigin = pilot.GetEnemy().GetOrigin()
-			CreateNPCDecoyEnt( pilot, NPC_PILOT_DECOY_HEALTH, NPC_PILOT_DECOY_TIMEOUT, velocity, destOrigin )
+			entity enemy = pilot.GetEnemy()
+			if ( IsAlive( enemy ) )
+				destOrigin = enemy.GetOrigin()
+			//print( "npc speed: " + string( Length( velocity ) ) )
+			CreateNPCDecoyEnt( pilot, NPC_PILOT_DECOY_HEALTH, NPC_PILOT_DECOY_TIMEOUT, velocity, destOrigin, true )
 		}
 
 		// cooldown between next use
@@ -8416,7 +8447,7 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 
 // create a npc entity as fake decoy
 // actually can be used for players
-entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 30, vector ornull velocity = null, vector ornull destOrigin = null )
+entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 30, vector ornull velocity = null, vector ornull destOrigin = null, bool followOwner = false )
 {
 	string decoyClass = "npc_pilot_elite" // was using npc_soldier, but pilots don't have dialogue, which is better
 	string decoyAISet = "npc_pilot_elite" // was using npc_soldier
@@ -8547,11 +8578,7 @@ entity function CreateNPCDecoyEnt( entity npc, int health = 50, float timeOut = 
 	file.npcFakeDecoyEntArray.append( decoy )
 
 	// go to desired position
-	if ( destOrigin != null )
-	{
-		expect vector( destOrigin )
-		decoy.AssaultPoint( destOrigin )
-	}
+	thread NPCDecoyAssaultThink( decoy, npc, destOrigin, followOwner )
 
 	return decoy
 }
@@ -8750,6 +8777,34 @@ void function NPCDecoyDistractNPC( entity decoy )
 				npc.ClearAllEnemyMemory()
 				npc.SetEnemy( decoy )
 			}
+		}
+	}
+}
+
+void function NPCDecoyAssaultThink( entity decoy, entity npc, vector ornull destOrigin = null, bool followOwner = false )
+{
+	decoy.EndSignal( "OnDestroy" )
+	decoy.EndSignal( "OnDeath" )
+	npc.EndSignal( "OnDeath" )
+
+	// wait for going to desired position first
+	if ( destOrigin != null )
+	{
+		expect vector( destOrigin )
+		decoy.AssaultPoint( destOrigin )
+		WaitSignal( decoy, "OnFinishedAssault", "OnEnterGoalRadius", "OnFailedToPath" )
+	}
+
+	// try to follow their owner afterwards
+	if ( followOwner )
+	{
+		while ( true )
+		{
+			vector origin = npc.GetOrigin()
+			decoy.AssaultPoint( origin )
+			WaitSignal( decoy, "OnFinishedAssault", "OnEnterGoalRadius", "OnFailedToPath" )
+
+			WaitFrame() // always wait for next frame before doing anything
 		}
 	}
 }
