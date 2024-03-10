@@ -473,6 +473,7 @@ struct
 	table<string, void functionref( entity pilot, entity abilityWeapon )> scriptedNPCPilotAbilityThink
 	table<entity, bool> npcPilotInScriptedAnim
 	table<entity, bool> npcPilotActivatedCloak
+	table<entity, float> npcPilotRangedAttackBreakCloakTime
 	table<entity, float> npcPilotMeleeBreakCloakTime
 	array<entity> npcFakeDecoyEntArray
 	table<entity, float> npcPilotPhaseHealthThreshold
@@ -7537,13 +7538,21 @@ void function OnCloakedPilotDamageTarget( entity ent, var damageInfo )
 		{
 			// EDIT here: flickering npc still can't be targeted... other npcs only looks at them but never shoot
 			// better break their cloak afte certain delay
-			if ( Time() > file.npcPilotMeleeBreakCloakTime[ attacker ] )
+			if ( attacker in file.npcPilotMeleeBreakCloakTime && Time() > file.npcPilotMeleeBreakCloakTime[ attacker ] )
 			{
 				DisableCloak( attacker, 0.5 )
 				attacker.Signal( "CloakTimeOut" ) // end NPCPilotActivatesCloak() thread
 			}
 			else if ( svGlobal.cloakBreaksOnMelee ) // same think as CodeCallback_OnMeleePressed() does
 				attacker.SetCloakFlicker( 1.0, 2.0 )
+		}
+	}
+	else // projectile/hitscan checks
+	{
+		if ( attacker in file.npcPilotRangedAttackBreakCloakTime && Time() > file.npcPilotRangedAttackBreakCloakTime[ attacker ] )
+		{
+			DisableCloak( attacker, 0.5 )
+			attacker.Signal( "CloakTimeOut" ) // end NPCPilotActivatesCloak() thread
 		}
 	}
 }
@@ -7642,6 +7651,7 @@ const float NPC_PILOT_CLOAK_GRACE_PERIOD = 0.3 // pilot firing weapon within thi
 const float NPC_PILOT_DECLOAK_REQUIRED_CHARGE_FRACTION = 0.75 // have to hardcode for charge weapons... mostly for charge rifle. if pilot charges their weapon to this fraction, break cloak
 const float NPC_PILOT_CLOAK_BROKE_INTERNAL_CHARGE = 0.0 // pilot charge weapon within this frac of cloak duration won't break their cloak
 
+const float NPC_PILOT_DECLOAK_INTERVAL_WEAPONS = 0.35 // if pilot's ranged attacks hit an target after this fraction of cloak duration, we break cloak. the timer updates itself after pilot is able to fire weapon
 const float NPC_PILOT_DECLOAK_INTERVAL_MELEE = 0.25 // if pilot's melee hit an target after this fraction of cloak duration, they'll break cloak
 
 void function NPCPilotActivatesCloak( entity pilot, entity weapon )
@@ -7661,7 +7671,11 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	// vanilla won't flicker npc on taking damage, do it manually
 	file.npcPilotActivatedCloak[ pilot ] <- true
 	AddEntityCallback_OnFinalDamaged( pilot, OnCloakNPCPilotDamaged )
-	// breaks melee when activated cloak for certain duration
+	// projectile/hitscan damage always breaks cloak
+	if ( !( pilot in file.npcPilotRangedAttackBreakCloakTime ) )
+		file.npcPilotRangedAttackBreakCloakTime[ pilot ] <- 0.0
+	file.npcPilotRangedAttackBreakCloakTime[ pilot ] <- Time() + duration * NPC_PILOT_DECLOAK_INTERVAL_WEAPONS
+	// melee breaks cloak when activated for certain duration
 	if ( !( pilot in file.npcPilotMeleeBreakCloakTime ) )
 		file.npcPilotMeleeBreakCloakTime[ pilot ] <- 0.0
 	file.npcPilotMeleeBreakCloakTime[ pilot ] = Time() + duration * NPC_PILOT_DECLOAK_INTERVAL_MELEE
@@ -7733,6 +7747,10 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 		float noFireDuration = duration * NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC
 		waitthread WaitTillTimeOutOrDamaged( pilot, noFireDuration )
 	}
+
+	// from here on, any valid damage should break their cloak
+	if ( pilot in file.npcPilotRangedAttackBreakCloakTime )
+		file.npcPilotRangedAttackBreakCloakTime[ pilot ] = Time()
 
 	if ( NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK )
 		RestoreNPCAttackCapability( pilot )
@@ -8561,7 +8579,12 @@ void function DelayedShowNPCDecoy( entity npc, entity decoy, vector ornull veloc
 		decoy.SetVelocity( velocity )
 	}
 	else if ( IsValid( npc ) )
-		decoy.SetVelocity( GetNPCVelocity( npc ) )
+	{
+		if ( npc.IsNPC() )
+			decoy.SetVelocity( GetNPCVelocity( npc ) )
+		else
+			decoy.SetVelocity( npc.GetVelocity() )
+	}
 }
 
 bool function EntIsNPCFakeDecoy( entity ent )
