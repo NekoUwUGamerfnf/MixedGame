@@ -279,11 +279,16 @@ void function SmokeMineThink( entity projectile )
 	projectile.EndSignal( "OnDestroy" )
 	entity owner = projectile.GetOwner()
 	owner.EndSignal( "OnDestroy" )
+
 	OnThreadEnd(
 		function() : ( projectile )
 		{
 			if ( IsValid( projectile ) )
-				projectile.Destroy()
+			{
+				// don't destroy projectile if we've ignited it, use it as inflictor
+				if ( !projectile.GrenadeHasIgnited() )
+					projectile.Destroy()
+			}
 		}
 	)
 
@@ -320,7 +325,10 @@ void function SmokeMineIgnite( entity projectile )
 	if( IsValid( projectile ) )
 	{
 		ElectricGrenadeSmokescreen( projectile, FX_ELECTRIC_SMOKESCREEN_PILOT, 0.5 )
-		projectile.Destroy()
+		// no need to destroy projectile, we want to use it as inflictor
+		//projectile.Destroy()
+		projectile.GrenadeIgnite()
+		projectile.SetDoesExplode( false )
 	}
 }
 #endif
