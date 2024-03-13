@@ -7690,10 +7690,12 @@ void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
 	{
 		// get uses before we set to cooldown
 		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
+		float cooldownTimerReduction // if we waiting for activation while another charge is already used, reduce rest time
 		for ( int i = 0; i < useTimes; i++ )
 		{
 			if ( i > 0 ) // not first use?
 				wait NPC_PILOT_CLOAK_REST_TIME_BETWEEN_USE // add bit rest
+			float startTime = Time()
 
 			// wait until pilot approaching enemy( with enemy in their weapon range and no damage taken recently )
 			bool firstLoop = true
@@ -7741,11 +7743,19 @@ void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
 				}
 			}
 
+			// add bit cooldown reduction if we're activating the ability through multiple wait
+			if ( i > 0 )
+			{
+				float maxTimerReduction = GetWeaponNPCRestTime( abilityWeapon ) / useTimes
+				float curTimerReduction = min( maxTimerReduction, Time() - startTime )
+				cooldownTimerReduction += curTimerReduction
+			}
+
 			waitthread NPCPilotActivatesCloak( pilot, abilityWeapon )
 		}
 
 		// cooldown between next use
-		WeaponWaitForRandomNPCRest( abilityWeapon )
+		WeaponWaitForRandomNPCRest( abilityWeapon, cooldownTimerReduction )
 	}
 }
 
@@ -8341,12 +8351,14 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 		// get uses before we set to cooldown
 		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
 		//print( "useTimes: " + string( useTimes ) )
+		float cooldownTimerReduction // if we waiting for activation while another charge is already used, reduce rest time
 		vector lastTickPos
 		bool lastTickOnGround
 		for ( int i = 0; i < useTimes; i++ )
 		{
 			if ( i > 0 ) // not first use?
 				wait NPC_PILOT_STIM_REST_TIME_BETWEEN_USE // add bit rest
+			float startTime = Time()
 
 			bool firstLoop = true
 			while ( true )
@@ -8404,6 +8416,14 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 							break
 					}
 				}
+			}
+
+			// add bit cooldown reduction if we're activating the ability through multiple wait
+			if ( i > 0 )
+			{
+				float maxTimerReduction = GetWeaponNPCRestTime( abilityWeapon ) / useTimes
+				float curTimerReduction = min( maxTimerReduction, Time() - startTime )
+				cooldownTimerReduction += curTimerReduction
 			}
 
 			// start stim think
@@ -8491,9 +8511,9 @@ void function OnPlayerDecoyDamaged( entity decoy, var damageInfo )
 		DamageInfo_SetDamage( damageInfo, decoy.GetMaxHealth() )
 }
 
-//const float NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE = 3.5 // if pilot has more than one charge for ability, do some rest
+const float NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE = 3.5 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_HOLOPILOT_COMBAT_DIST_2D = 1500 // if pilot has an enemy within this range, let them project hologram
-const float NPC_PILOT_HOLOPILOT_MAX_WAIT = 99999 // was 6.5. if pilot has finished cooldown but no valid enemy within this time, always project hologram
+const float NPC_PILOT_HOLOPILOT_MAX_WAIT = 6.5 // if pilot has finished cooldown but no valid enemy within this time, always project hologram
 
 const int NPC_PILOT_DECOY_HEALTH = 50 // EDIT: was nerfed to 30, but we've made pilot and their embarked titan has capability of oneshot a decoy( similar to players ) // was 50, but we've add forced aggro for them
 const float NPC_PILOT_DECOY_TIMEOUT = DECOY_DURATION
@@ -8521,15 +8541,18 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 		// get uses before we set to cooldown
 		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
 		//print( "useTimes: " + string( useTimes ) )
+		float cooldownTimerReduction // if we waiting for activation while another charge is already used, reduce rest time
 		for ( int i = 0; i < useTimes; i++ )
 		{
 			if ( i > 0 ) // not first use?
 			{
 				// add bit rest
-				//wait NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE
-				float fireInterval = 1.0 / abilityWeapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
-				wait fireInterval
+				wait NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE
+				// better not use 
+				//float fireInterval = 1.0 / abilityWeapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
+				//wait fireInterval
 			}
+			float startTime = Time()
 
 			// with a bit timeout
 			float maxWait = Time() + NPC_PILOT_HOLOPILOT_MAX_WAIT
@@ -8557,6 +8580,14 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 				}
 			}
 
+			// add bit cooldown reduction if we're activating the ability through multiple wait
+			if ( i > 0 )
+			{
+				float maxTimerReduction = GetWeaponNPCRestTime( abilityWeapon ) / useTimes
+				float curTimerReduction = min( maxTimerReduction, Time() - startTime )
+				cooldownTimerReduction += curTimerReduction
+			}
+
 			// project hologram
 			//vector velocity = GetNPCVelocity( pilot )
 			vector ornull velocity = null // guess we'd better use default velocity...
@@ -8569,7 +8600,7 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 		}
 
 		// cooldown between next use
-		WeaponWaitForRandomNPCRest( abilityWeapon )
+		WeaponWaitForRandomNPCRest( abilityWeapon, cooldownTimerReduction )
 	}
 }
 
@@ -8999,10 +9030,21 @@ void function NPCPilotPhaseShiftThink( entity pilot, entity abilityWeapon )
 		// get uses before we set to cooldown
 		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
 		//print( "useTimes: " + string( useTimes ) )
+		float cooldownTimerReduction // if we waiting for activation while another charge is already used, reduce rest time
 		for ( int i = 0; i < useTimes; i++ )
 		{
+			float startTime = Time()
+
 			// start phase shift think: phase out of danger when taking massive damage
 			waitthread NPCPilotActivatesPhaseShift( pilot, abilityWeapon )
+
+			// add bit cooldown reduction if we're activating the ability through multiple wait
+			if ( i > 0 )
+			{
+				float maxTimerReduction = GetWeaponNPCRestTime( abilityWeapon ) / useTimes
+				float curTimerReduction = min( maxTimerReduction, Time() - startTime )
+				cooldownTimerReduction += curTimerReduction
+			}
 		}
 
 		// cooldown between next use
@@ -9868,9 +9910,9 @@ void function DrainNPCTitanCoreMeter( entity titan )
 	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
 }
 
-void function WeaponWaitForRandomNPCRest( entity weapon )
+void function WeaponWaitForRandomNPCRest( entity weapon, float timerReduction = 0 )
 {
-	wait GetWeaponNPCRestTime( weapon )
+	wait max( 0, GetWeaponNPCRestTime( weapon ) - timerReduction )
 }
 
 int function GetWeaponNPCBurstCount( entity weapon )
