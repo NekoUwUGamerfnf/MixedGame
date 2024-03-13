@@ -8324,9 +8324,10 @@ const float NPC_PILOT_STIM_REST_TIME_BETWEEN_USE = 1.0 // if pilot has more than
 const float NPC_PILOT_STIM_COMBAT_DIST_2D = 2100 // if pilot has enemy within this range, do stim to approach them( tried 2650 but seems not good )
 // removing these checks. we added health regen so activate stim without thinking isn't very bad
 // adding back these again, if pilot already have max health these checks should still apply
-const float NPC_PILOT_STIM_REQUIRED_VELOCITY = 100 * NPC_PILOT_MOVE_SPEED_SCALE // have to be running before activating stim( base value was 130, which is kinda difficult to reach )
-const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D = 400 + NPC_PILOT_STIM_REQUIRED_VELOCITY // if pilot too close to their enemy, there's no need to use stim for approaching. they'll stop chasing once reached chaseStopDist
-const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR = 800 + NPC_PILOT_STIM_REQUIRED_VELOCITY * 1.5
+const float NPC_PILOT_STIM_REQUIRED_SPEED = 100 * NPC_PILOT_MOVE_SPEED_SCALE // have to be running before activating stim( base value was 130, which is kinda difficult to reach )
+const float NPC_PILOT_STIM_SPEED_HOLD_TIME = 0.3 // pilot have to be running for this period of time before activating stim. to prevent they activate stim while dodging
+const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D = 400 + NPC_PILOT_STIM_REQUIRED_SPEED // if pilot too close to their enemy, there's no need to use stim for approaching. they'll stop chasing once reached chaseStopDist
+const float NPC_PILOT_STIM_CHASE_STOP_DIST_2D_HEAVYARMOR = 800 + NPC_PILOT_STIM_REQUIRED_SPEED * 1.5
 const float NPC_PILOT_STIM_ADVANCED_CHECK_HEALTH_FRAC = 0.75 // if pilot's health reaching this frac, skip velocity and minium dist checks
 
 void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
@@ -8352,8 +8353,9 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 		int useTimes = GetWeaponNPCBurstCount( abilityWeapon )
 		//print( "useTimes: " + string( useTimes ) )
 		float cooldownTimerReduction // if we waiting for activation while another charge is already used, reduce rest time
-		vector lastTickPos
+		//vector lastTickPos
 		bool lastTickOnGround
+		float passSpeedCheckStartTime = -1
 		for ( int i = 0; i < useTimes; i++ )
 		{
 			if ( i > 0 ) // not first use?
@@ -8363,7 +8365,7 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 			bool firstLoop = true
 			while ( true )
 			{
-				lastTickPos = pilot.GetOrigin()
+				//lastTickPos = pilot.GetOrigin()
 				lastTickOnGround = pilot.IsOnGround()
 				if ( !firstLoop )
 					WaitFrame()
@@ -8384,10 +8386,21 @@ void function NPCPilotStimThink( entity pilot, entity abilityWeapon )
 				{
 					bool onGround = lastTickOnGround && pilot.IsOnGround()
 					//float speed = Length( pilot.GetOrigin() - lastTickPos ) / 0.1
-					float speed = Length( GetNPCVelocity( pilot ) )
+					float speed = Length( GetNPCVelocity( pilot ) ) // this wrapped function helps us get npc's ground move velocity
 					//print( "speed: " + string( speed ) )
-					//if ( !pilot.IsOnGround() || Length( pilot.GetVelocity() ) < NPC_PILOT_STIM_REQUIRED_VELOCITY )
-					if ( !onGround || speed < NPC_PILOT_STIM_REQUIRED_VELOCITY )
+					//if ( !pilot.IsOnGround() || Length( pilot.GetVelocity() ) < NPC_PILOT_STIM_REQUIRED_SPEED )
+					
+					if ( !onGround || speed < speedCheckPassStartTime )
+					{
+						passSpeedCheckStartTime = -1 // reset timer
+						continue
+					}
+
+					// we want pilot to hold speed for some time before starting stim
+					if ( passSpeedCheckStartTime == -1 )
+						passSpeedCheckStartTime = Time()
+					
+					if ( Time() - passSpeedCheckStartTime < NPC_PILOT_STIM_SPEED_HOLD_TIME )
 						continue
 
 					entity enemy = pilot.GetEnemy()
