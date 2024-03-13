@@ -7512,6 +7512,7 @@ void function InitDefaultScriptedNPCPilotTactical()
 	// cloak
 	RegisterSignal( "NPCPilotActivatesCloak" )
 	RegisterSignal( "CloakTimeOut" )
+	RegisterSignal( "CloakRevealedBySonar" )
 	AddDamageByCallback( "npc_pilot_elite", OnCloakedPilotDamageTarget )
 	ExtraSpawner_AddScriptedNPCPilotAbilityThink( "mp_ability_cloak", NPCPilotCloakThink )
 
@@ -7577,6 +7578,7 @@ void function OnCloakedPilotDamageTarget( entity ent, var damageInfo )
 	}
 }
 
+
 const float NPC_PILOT_CLOAK_REST_TIME_BETWEEN_USE = 1.5 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_CLOAK_RECENT_DAMAGE_TIME = 1.5 // if pilot taken damage within this time, they won't do cloak
 const float NPC_PILOT_CLOAK_COMBAT_DIST_2D = 1000 // if pilot has a pilot enemy within this range they can see, consider them already combating... don't cloak
@@ -7609,6 +7611,9 @@ void function NPCPilotCloakThink( entity pilot, entity abilityWeapon )
 					continue
 
 				if ( Time() - GetNPCLastDamageTime( pilot ) < NPC_PILOT_CLOAK_RECENT_DAMAGE_TIME ) // recent taking damage!
+					continue
+
+				if ( "inSonarTriggerCount" in pilot.s && pilot.s.inSonarTriggerCount > 0 ) // being revealed by sonar?
 					continue
 
 				entity enemy = pilot.GetEnemy()
@@ -7720,7 +7725,6 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	else
 		cleanUpTable["restoreEnemyMapIcon"] = true // mark as no need to restore map icon
 	*/
-	cleanUpTable["restoreEnemyMapIcon"] <- true // mark as no need to restore map icon
 
 	// EDIT: "decloakOnShoot" won't work at all!
 	//table<string, bool> results
@@ -7744,8 +7748,11 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 					if ( NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK )
 						RestoreNPCAttackCapability( pilot )
 				}
+				// map icon always visible for them
+				/*
 				if ( !cleanUpTable["restoreEnemyMapIcon"] )
 					AddMinimapForNPC( pilot )
+				*/
 
 				// EDIT: "decloakOnShoot" won't work at all!
 				/*
@@ -7758,9 +7765,13 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 		}
 	)
 
-	// put here so we can manually cancel think when melee
+	// put here so we can manually cancel think when they melee
 	pilot.EndSignal( "CloakTimeOut" )
 	thread NPCPilotCloakTimer( pilot, duration )
+
+	// have to HACK for sonar: npc being reveal by sonar will not flicker
+	// we want to handle it manually
+	thread CloakedPilotSonarThink( pilot )
 
 	// first few seconds pilot won't shoot, then they will
 	// or they will start shooting once taken damage
@@ -7769,7 +7780,7 @@ void function NPCPilotActivatesCloak( entity pilot, entity weapon )
 	if ( NPC_PILOT_DISABLE_ATTACKING_ON_CLOAK )
 	{
 		float noFireDuration = duration * NPC_PILOT_CLOAK_STOP_ATTACK_TIME_FRAC
-		waitthread WaitTillTimeOutOrDamaged( pilot, noFireDuration )
+		waitthread WaitTillPilotCloakFlickerOrTimeOut( pilot, noFireDuration ) // we immediately starts attacking if our cloak flickers due to taking damage or being sonar spotted
 	}
 
 	// from here on, any valid damage should break their cloak
@@ -7977,11 +7988,66 @@ void function OnCloakNPCPilotDamaged( entity pilot, var damageInfo )
 		pilot.SetCloakFlicker( 0.5, 0.65 )
 }
 
-void function WaitTillTimeOutOrDamaged( entity ent, float timeOut )
+void function CloakedPilotSonarThink( entity pilot )
 {
-	ent.EndSignal( "OnDestroy" )
-	ent.EndSignal( "OnDeath" )
-	ent.EndSignal( "OnDamaged" )
+	pilot.EndSignal( "OnDestroy" )
+	pilot.EndSignal( "OnDeath" )
+
+	table<string, bool> cleanUpTable
+	cleanUpTable["needsCleanUpCloakFlicker"] <- false
+
+	OnThreadEnd
+	(
+		function() : ( pilot, cleanUpTable )
+		{
+			if ( IsValid( pilot ) )
+			{
+				if ( cleanUpTable["needsCleanUpCloakFlicker"] )
+					pilot.SetCloakFlicker( 0, 0 )
+			}
+		}
+	)
+
+	int lastTickSonarTiggerCount
+	while ( pilot in file.npcPilotActivatedCloak )
+	{
+		if ( !( "inSonarTriggerCount" in pilot.s ) )
+		{
+			WaitFrame()
+			continue
+		}
+
+		lastTickSonarTiggerCount = expect int( pilot.s.inSonarTriggerCount )
+		WaitFrame()
+
+		int currentSonarTiggerCount = expect int( pilot.s.inSonarTriggerCount )
+		// sonar stats updated!
+		if ( lastTickSonarTiggerCount != currentSonarTiggerCount )
+		{
+			// starts flicker
+			if ( lastTickSonarTiggerCount == 0 && currentSonarTiggerCount > 0 )
+			{
+				pilot.SetCloakFlicker( 0.5, -1 )
+				cleanUpTable["needsCleanUpCloakFlicker"] = true
+				pilot.Signal( "CloakRevealedBySonar" ) // make npc pilot starts attacking because they've been spotted
+			}
+
+			// ends flicker
+			if ( lastTickSonarTiggerCount > 0 && currentSonarTiggerCount == 0 )
+			{
+				pilot.SetCloakFlicker( 0, 0 )
+				cleanUpTable["needsCleanUpCloakFlicker"] = false
+			}
+		}
+	}
+}
+
+void function WaitTillPilotCloakFlickerOrTimeOut( entity pilot, float timeOut )
+{
+	pilot.EndSignal( "OnDestroy" )
+	pilot.EndSignal( "OnDeath" )
+	pilot.EndSignal( "OnDamaged" )
+	pilot.EndSignal( "CloakRevealedBySonar" ) // signaled when cloak flickers
 
 	wait timeOut
 }
@@ -8330,9 +8396,9 @@ void function OnPlayerDecoyDamaged( entity decoy, var damageInfo )
 		DamageInfo_SetDamage( damageInfo, decoy.GetMaxHealth() )
 }
 
-const float NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE = 3.5 // if pilot has more than one charge for ability, do some rest
+//const float NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE = 3.5 // if pilot has more than one charge for ability, do some rest
 const float NPC_PILOT_HOLOPILOT_COMBAT_DIST_2D = 1500 // if pilot can see an enemy within this range, let them project hologram
-const float NPC_PILOT_HOLOPILOT_MAX_WAIT = 6.5 // if pilot has finished cooldown but no valid enemy within this time, always project hologram
+const float NPC_PILOT_HOLOPILOT_MAX_WAIT = 99999 // was 6.5. if pilot has finished cooldown but no valid enemy within this time, always project hologram
 
 const int NPC_PILOT_DECOY_HEALTH = 50 // EDIT: was nerfed to 30, but we've made pilot and their embarked titan has capability of oneshot a decoy( similar to players ) // was 50, but we've add forced aggro for them
 const float NPC_PILOT_DECOY_TIMEOUT = DECOY_DURATION
@@ -8363,7 +8429,12 @@ void function NPCPilotHoloPilotThink( entity pilot, entity abilityWeapon )
 		for ( int i = 0; i < useTimes; i++ )
 		{
 			if ( i > 0 ) // not first use?
-				wait NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE // add bit rest
+			{
+				// add bit rest
+				//wait NPC_PILOT_HOLOPILOT_REST_TIME_BETWEEN_USE
+				float fireInterval = 1.0 / abilityWeapon.GetWeaponSettingFloat( eWeaponVar.fire_rate )
+				wait fireInterval
+			}
 
 			// with a bit timeout
 			float maxWait = Time() + NPC_PILOT_HOLOPILOT_MAX_WAIT
@@ -8752,7 +8823,7 @@ void function NPCDecoyLifeTime( entity decoy, entity weaponProp, float timeOut =
 		WaitForever()
 }
 
-const float NPC_PILOT_DECOY_FORCE_DISTRACT_DIST = 950 // if decoy is within this radius of pilot, force distracting ignoring LOS checks
+const float NPC_DECOY_FORCE_DISTRACT_DIST = 950 // if decoy is within this radius of pilot, force distracting ignoring LOS checks
 void function NPCDecoyDistractNPC( entity decoy )
 {
 	decoy.EndSignal( "OnDestroy" )
@@ -8768,7 +8839,7 @@ void function NPCDecoyDistractNPC( entity decoy )
 			continue
 
 		// if any of npc is targeting their owner but not them, reset enemy
-		bool decoyCloseToOwner = Distance( owner.GetOrigin(), decoy.GetOrigin() ) <= NPC_PILOT_DECOY_FORCE_DISTRACT_DIST
+		bool decoyCloseToOwner = Distance( owner.GetOrigin(), decoy.GetOrigin() ) <= NPC_DECOY_FORCE_DISTRACT_DIST
 		foreach ( entity npc in GetNPCArray() )
 		{
 			if ( npc.GetEnemy() == owner && ( decoyCloseToOwner || npc.CanSee( decoy ) ) )
@@ -8781,6 +8852,7 @@ void function NPCDecoyDistractNPC( entity decoy )
 	}
 }
 
+const float NPC_DECOY_FAR_FROM_OWNER_DIST = 500 // if decoy is away from owner, try move to owner's position
 void function NPCDecoyAssaultThink( entity decoy, entity npc, vector ornull destOrigin = null, float destHoldTime = 5, bool followOwner = false )
 {
 	decoy.EndSignal( "OnDestroy" )
@@ -8811,8 +8883,11 @@ void function NPCDecoyAssaultThink( entity decoy, entity npc, vector ornull dest
 		while ( true )
 		{
 			vector origin = npc.GetOrigin()
-			decoy.AssaultPoint( origin )
-			WaitSignal( decoy, "OnFinishedAssault", "OnEnterGoalRadius", "OnFailedToPath" )
+			if ( Distance( decoy.GetOrigin(), origin ) > NPC_DECOY_FAR_FROM_OWNER_DIST )
+			{
+				decoy.AssaultPoint( origin )
+				WaitSignal( decoy, "OnFinishedAssault", "OnEnterGoalRadius", "OnFailedToPath" )
+			}
 
 			WaitFrame() // always wait for next frame before doing anything
 		}
