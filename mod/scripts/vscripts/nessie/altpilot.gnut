@@ -277,6 +277,8 @@ void function CleanUpModelChance( entity victim, var damageInfo )
 // maybe reset it could be funnier, but always trigger ghost skin
 void function ChangeloadoutModelSet( entity player , PilotLoadoutDef p )
 {
+	player.Signal( "AltPilotModelReplace" ) // marking that we're attempting model replace
+
 	// pick modelchange chance. this is called earlier than "OnPlayerRespawned()", we cannot get from it
 	//print( "file.playerPickedModelChangeChance[ player ]: " + string( file.playerPickedModelChangeChance[ player ] ) )
 	if ( !file.playerPickedModelChangeChance[ player ] )
@@ -308,10 +310,15 @@ void function ChangeloadoutModelSet( entity player , PilotLoadoutDef p )
 		if ( file.playerThisLifeChangeModel[ player ] )
 			AltPilot_ReplacePilotModel( player )
 	}
+
+	thread BadSkinPrevention( player ) // always loop this
 }
 
 void function AltPilot_ApplyOverridesToPlayer( entity player )
 {
+	int skin = player.GetSkin()
+	int camo = player.GetCamo()
+
 	string playerSettings = player.GetPlayerSettings()
 	asset playerModel = player.GetModelName()
 	if ( playerSettings in file.playerSettingsOverrides ) // player settings override priors
@@ -326,10 +333,14 @@ void function AltPilot_ApplyOverridesToPlayer( entity player )
 		player.SetValueForModelKey( replacementModel )
 		player.SetModel( replacementModel )
 	}
+
+	player.SetSkin( skin )
+	player.SetCamo( camo )
 }
 
 void function DisembarkingModelSet( entity player, entity titan )
 {
+	player.Signal( "AltPilotModelReplace" ) // marking that we're attempting model replace
 	thread DisembarkingModelSet_Threaded( player, titan )
 }
 
@@ -353,6 +364,8 @@ void function DisembarkingModelSet_Threaded( entity player, entity titan )
 		if ( file.playerThisLifeChangeModel[ player ] )
 			AltPilot_ReplacePilotModel( player )
 	}
+
+	thread BadSkinPrevention( player ) // always loop this
 }
 
 //Apply Model
@@ -360,8 +373,6 @@ void function AltPilot_ReplacePilotModel( entity player )
 {
 	if ( !IsValid( player ) ) //Anti Crash
 		return
-
-	player.Signal( "AltPilotModelReplace" )
 
 	string playerSettings = player.GetPlayerSettings()
 	array<asset> replacementModels
@@ -423,6 +434,9 @@ void function AltPilot_ReplacePilotModel( entity player )
 
 void function AltPilot_ChangePlayerModel( entity player, asset replacementModel )
 {
+	int skin = player.GetSkin()
+	int camo = player.GetCamo()
+
 	// update player settings
 	if ( file.replacePlayerSettings )
 	{
@@ -436,17 +450,21 @@ void function AltPilot_ChangePlayerModel( entity player, asset replacementModel 
 	// update model
 	player.SetValueForModelKey( replacementModel )
 	player.SetModel( replacementModel )
-	thread BadSkinPrevention( player ) // always loop this
+
+	player.SetSkin( skin )
+	player.SetCamo( camo )
 }
 
 // HACK for sometimes going from spectre will hide model
 void function RecoverFromModelChange( entity player )
 {
+	int skin = player.GetSkin()
+	int camo = player.GetCamo()
+
+	// fix visibility
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE 
 	player.Show()
 
-	int skin = player.GetSkin()
-	int camo = player.GetCamo()
 	// reset model
 	player.SetValueForModelKey( $"models/humans/pilots/pilot_medium_reaper_f.mdl" )
 	player.SetModel( $"models/humans/pilots/pilot_medium_reaper_f.mdl" )
@@ -455,6 +473,7 @@ void function RecoverFromModelChange( entity player )
 	asset model = GetPlayerSettingsAssetForClassName( player.GetPlayerSettings(), "bodymodel" )
 	player.SetValueForModelKey( model )
 	player.SetModel( model )
+
 	player.SetSkin( skin )
 	player.SetCamo( camo )
 }
@@ -463,6 +482,8 @@ void function BadSkinPrevention( entity player )
 {
 	player.EndSignal( "OnDeath" )
 	player.EndSignal( "OnDestroy" )
+	player.Signal( "BadSkinPrevention" )
+	player.EndSignal( "BadSkinPrevention" )
 	player.EndSignal( "AltPilotModelReplace" )
 	
 	while( true )
