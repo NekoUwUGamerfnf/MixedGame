@@ -59,13 +59,16 @@ void function DelayedFakeRearmPlayer( entity player, entity rearmWeapon )
 		{
 			if ( IsValid( player ) )
 			{
-				player.EnableWeaponViewModel()
-				player.Server_TurnOffhandWeaponsDisabledOff()
+				//player.EnableWeaponViewModel()
+				//player.Server_TurnOffhandWeaponsDisabledOff()
+				DeployViewModelAndEnableWeapons( player ) 
 			}
 		}
 	)
 
 	float rearmDuration = rearmWeapon.GetWeaponSettingFloat( eWeaponVar.charge_time )
+	// function HolsterAndDisableWeapons() now has stack system for HolsterWeapon() method... no need to loop anymore I think
+	/*
 	float endTime = Time() + rearmDuration
 	// holster weapon until we can do rearm
 	while ( Time() < endTime )
@@ -74,6 +77,9 @@ void function DelayedFakeRearmPlayer( entity player, entity rearmWeapon )
 		player.Server_TurnOffhandWeaponsDisabledOn()
 		WaitFrame() // may get a bit longer rearm since script is 10fps
 	}
+	*/
+	HolsterViewModelAndDisableWeapons( player )
+	wait rearmDuration
 
 	PlayerUsedOffhand( player, rearmWeapon )
 	RearmOwner( player )

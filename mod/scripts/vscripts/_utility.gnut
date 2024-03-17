@@ -49,6 +49,10 @@ struct
 {
 	bool isSkyboxView = false
 
+	// for us having a better holsterWeapons system
+	table<entity, int> playerHolsterWeaponsStackCount
+	table<entity, int> playerHolsterViewModelStackCount
+
 	// modified to make shield damage less hardcoded
 	array< void functionref( entity, var, ShieldDamageModifier, OnShieldDamageStruct ) > onShieldDamageCallbacks
 	array< void functionref( entity, var, ShieldDamageModifier ) > shieldDamageModifierCallbacks
@@ -3586,29 +3590,95 @@ int function SortBySpawnTime( entity ent1, entity ent2 )
 	return 0
 }
 
-void function HolsterAndDisableWeapons( entity player )
+
+// I know... it might not be necessary, but we really needs a stack for all holster weapon calls
+void function InitScriptWeaponHolsterSystem( entity player )
+{
+	if ( !( player in file.playerHolsterWeaponsStackCount ) )
+		file.playerHolsterWeaponsStackCount[ player ] <- 0
+	if ( !( player in file.playerHolsterViewModelStackCount ) )
+		file.playerHolsterViewModelStackCount[ player ] <- 0
+}
+
+void function HolsterWeapons( entity player )
 {
 	player.HolsterWeapon()
+	
+	InitScriptWeaponHolsterSystem( player )
+	file.playerHolsterWeaponsStackCount[ player ]++
+}
+
+void function HolsterViewModel( entity player )
+{
+	player.DisableWeaponViewModel()
+
+	InitScriptWeaponHolsterSystem( player )
+	file.playerHolsterViewModelStackCount[ player ]++
+}
+
+void function DeployWeapons( entity player )
+{
+	InitScriptWeaponHolsterSystem( player )
+	if ( file.playerHolsterWeaponsStackCount[ player ] > 0 )
+		file.playerHolsterWeaponsStackCount[ player ]--
+
+	// debug
+	print( "player has holster weapon stacks: " + string( file.playerHolsterWeaponsStackCount[ player ] ) )
+	if ( file.playerHolsterWeaponsStackCount[ player ] <= 0 )
+	{
+		player.DeployWeapon()
+		print( "weapon deployment succeeded!" ) // debug
+	}
+	else // debug
+		print( "failed to deploy weapon!" )
+}
+
+void function DeployViewModel( entity player )
+{
+	InitScriptWeaponHolsterSystem( player )
+	if ( file.playerHolsterWeaponsStackCount[ player ] > 0 )
+		file.playerHolsterViewModelStackCount[ player ]--
+
+	// debug
+	print( "player has holster viewmodel stacks: " + string( file.playerHolsterViewModelStackCount[ player ] ) )
+	if ( file.playerHolsterWeaponsStackCount[ player ] <= 0 )
+	{
+		if ( IsAlive( player ) )
+			player.EnableWeaponViewModel()
+		print( "viewmodel deployment succeeded!" ) // debug
+	}
+	else // debug
+		print( "failed to deploy viewmodel!" )
+}
+//
+
+void function HolsterAndDisableWeapons( entity player )
+{
+	//player.HolsterWeapon()
+	HolsterWeapons( player )
 	DisableOffhandWeapons( player )
 }
 
 void function HolsterViewModelAndDisableWeapons( entity player ) //Note that this skips the first person holster animation, and it appears to 3p observers you still have a gun out
 {
-	player.DisableWeaponViewModel()
+	//player.DisableWeaponViewModel()
+	HolsterViewModel( player )
 	DisableOffhandWeapons( player )
 }
 
 
 void function DeployAndEnableWeapons( entity player )
 {
-	player.DeployWeapon()
+	//player.DeployWeapon()
+	DeployWeapons( player )
 	EnableOffhandWeapons( player )
 }
 
 void function DeployViewModelAndEnableWeapons( entity player )
 {
-	if ( IsAlive( player ) )
-		player.EnableWeaponViewModel()
+	//if ( IsAlive( player ) )
+	//	player.EnableWeaponViewModel()
+	DeployViewModel( player )
 	EnableOffhandWeapons( player )
 }
 
@@ -3621,10 +3691,21 @@ void function DisableOffhandWeapons( entity player )
 
 void function EnableOffhandWeapons( entity player )
 {
-	player.p.disableOffhandWeaponsStackCount--
-	if ( player.p.disableOffhandWeaponsStackCount <= 0 )
-		player.Server_TurnOffhandWeaponsDisabledOff()
+	// fix here: don't let stack go down 0
+	if ( player.p.disableOffhandWeaponsStackCount > 0 )
+		player.p.disableOffhandWeaponsStackCount--
 
+	// debug
+	print( "player has disable offhand weapon stacks: " + string( player.p.disableOffhandWeaponsStackCount ) )
+	if ( player.p.disableOffhandWeaponsStackCount <= 0 )
+	{
+		player.Server_TurnOffhandWeaponsDisabledOff()
+		print( "offhand weapons enabling succeeded!" ) // debug
+	}
+	else // debug
+		print( "failed to enable offhand weapons!" )
+
+	// really, I mean really... we don't have to punish function calls that causes stack to go down 0
 	Assert( player.p.disableOffhandWeaponsStackCount >= 0, "Warning! Called EnableOffhandWeapons() but the weapons aren't disabled!" )
 }
 
