@@ -8,19 +8,27 @@ global const array<string> BATTERY_SPAWNERS =
 global function EverythingNessy_Init
 global function Nessy_EnableAllFunny_Init
 
-global function SpawnNessyOutfit
+global function Nessie_ShouldDropPropOnClear // we allow drop props to ground on clearing. they may block bullets but whatever
+
+global function SpawnNessyCostume
+global function ClearNessyCostume
+
+global function CreateNessyCostumeForType
+
 //global function Nessie_DecoyOutfitInit // this won't work since decoys don't spawn with DispatchSpawn()
+/*
 global function AllFunctionsTogether
 global function CreateNessyHat
 global function CreateNessyBackpack
 global function CreateNessyPistol
-global function CreateNessyWeapon
+global function CreateNessyPrimary
 global function CreateNessyFX
-global function ClearNessy
+*/
 
 global function Nessie_AlwaysSpawnRGBStuff
 // nessie
 global function Nessie_SetNessieSpawnEnabled
+global function Nessie_SetAlwaysSpawnNessyDoll
 global function Nessie_SetWorldMaxNessieCount
 // battery, not enabled by default
 global function Nessie_SetBatterySpawnEnabled
@@ -72,13 +80,48 @@ struct NessyMix
 const int MAX_NESSIE_COUNT = 64
 const int MAX_FUNNY_FLAGS = 32
 
+const float NESSIE_PROP_FADEOUT_DELAY = 5
+
+enum eNessieType
+{
+	NESSIE_HAT,
+	NESSIE_BACKPACK,
+	NESSIE_PISTOL,
+	NESSIE_PRIMARY,
+
+	NESSIE_ALL_TYPES,
+}
+
+// WIP: rework nessie effects
+enum eEffectType
+{
+	EFFECT_SINGLE,
+	EFFECT_MIXED,
+
+	EFFECT_ALL_TYPES,
+}
+
+struct NessieCostume
+{
+	entity prop
+}
+
+struct NessieEffect
+{
+	array<asset> mixassets
+	array<entity> fxhandles
+	entity owner
+}
+
 struct
 {
 	bool allSettingsEnabled = false
+	bool shouldDropPropOnClearNessy = true
 	bool alwaysRGBSpawn = false // funny
 
 	// nessy
 	bool nessieSpawnEnabled = false
+	bool alwaysSpawnNessyDoll = true
 	int worldMaxNessieCount = MAX_NESSIE_COUNT // default value
 	// battery
 	bool batterySpawnEnabled = false
@@ -95,10 +138,11 @@ struct
 	array<entity> nessieDolls
 	array<entity> funnyFlags
 
-	array<NessyHat> nessyhats
-	array<NessyPack> nessybackpacks
-	array<NessyPistol> nessypistols
-	array<NessyWeapon> nessyweapons
+	table< entity, table<int, entity> > entOwnedNessieCostumes
+
+	// WIP: rework nessie effects
+	table< entity, table< int, array<entity> > > entOwnedNessieEffects
+
 	array<NessyFX> nessyfxs
 	array<NessyMix> nessymixs
 
@@ -106,16 +150,16 @@ struct
 	array<entity> holoSprayedPlayer
 } file
 
-// now only enabled nessies
-const array<asset> placements = 
+// valid models array
+const array<asset> NESSIE_PLACEMENTS = 
 [
 	$"models/domestic/nessy_doll.mdl", 
 	$"models/robots/drone_frag/drone_frag.mdl",
 	$"models/creatures/prowler/r2_prowler.mdl"
 	$"models/robots/marvin/marvin.mdl", 
-	$"models/weapons/sentry_frag/sentry_frag.mdl"
+	$"models/weapons/sentry_frag/sentry_frag.mdl",
 ]
-const array<asset> hatassets = 
+const array<asset> NESSIE_HAT_ASSETS = 
 [
 	$"models/domestic/nessy_doll.mdl", 
 	$"models/robots/drone_frag/drone_frag.mdl", 
@@ -124,7 +168,7 @@ const array<asset> hatassets =
 	$"models/creatures/prowler/r2_prowler.mdl", 
 	$"models/weapons/data_knife/v_data_knife.mdl",
 ]
-const array<asset> backpackassets = 
+const array<asset> NESSIE_BACKPACK_ASSETS = 
 [
 	$"models/weapons/titan_sword/w_titan_sword_prime.mdl", 
 	$"models/weapons/titan_sword/w_titan_sword.mdl", 
@@ -135,9 +179,12 @@ const array<asset> backpackassets =
 	$"models/weapons/titan_rocket_launcher/titan_rocket_launcher.mdl", 
 	$"models/weapons/titan_sniper_rifle/w_titan_sniper_rifle.mdl", 
 	$"models/weapons/thr_40mm/w_thr_40mm.mdl", 
-	$"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl"
+	$"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl",
+	// added by northstar
+	$"models/weapons/titan_arc_rifle/w_titan_arc_rifle.mdl",
+	$"models/weapons/titan_triple_threat_og/w_titan_triple_threat_og.mdl",
 ]
-const array<asset> pistolassets = 
+const array<asset> NESSIE_WEAPON_ASSETS = 
 [
 	$"models/weapons/alternator_smg/w_alternator_smg.mdl", 
 	$"models/weapons/p2011_auto/w_p2011_auto.mdl", 
@@ -154,7 +201,8 @@ const array<asset> pistolassets =
 	$"models/weapons/mastiff_stgn/w_mastiff.mdl", 
 	$"models/weapons/pulse_lmg/w_pulse_lmg.mdl", 
 	$"models/weapons/rspn101/w_rspn101.mdl", 
-	$"models/weapons/r101_sfp/w_r101_sfp.mdl", $"models/weapons/p2011/w_p2011.mdl", 
+	$"models/weapons/r101_sfp/w_r101_sfp.mdl", 
+	$"models/weapons/p2011/w_p2011.mdl", 
 	$"models/weapons/w1128/w_w1128.mdl", 
 	$"models/weapons/pstl_sa3/w_pstl_sa3.mdl", 
 	$"models/weapons/p2011sp/w_p2011sp.mdl", 
@@ -163,32 +211,152 @@ const array<asset> pistolassets =
 	$"models/weapons/softball_at/w_softball_at.mdl", 
 	$"models/weapons/vinson/w_vinson.mdl", 
 	$"models/weapons/b3wing/w_b3wing.mdl", 
-	$"models/weapons/wingman_elite/w_wingman_elite.mdl"
+	$"models/weapons/wingman_elite/w_wingman_elite.mdl",
+	// added by northstar
+	$"models/weapons/shotgun_doublebarrel/w_shotgun_doublebarrel.mdl",
 ]
 
-const array<asset> fxassets = 
+// effects array
+const array<asset> NESSIE_EFFECT_ASSETS = 
 [
 	$"P_wpn_arcball_trail", 
 	$"P_wpn_meteor_trail", 
-	$"P_titan_sniper1"
+	$"P_titan_sniper1",
 ]
-const array<asset> fxmixbase = 
+const array<asset> NESSIE_EFFECT_MIX_BASE = // when mixing effects, these will be basic effect
 [
 	$"titan_sniper_CH_refract", 
 	$"titan_sniper_CH_refract", 
-	$"titan_sniper_CH_rope_smoke"
+	$"titan_sniper_CH_rope_smoke",
 ]
-const array<asset> fxmixMLT = 
+const array<asset> NESSIE_EFFECT_MIX_MLT = 
 [
 	$"P_proj_predator_alt_pwr", 
-	$"P_projectile_lstar"
+	$"P_projectile_lstar",
 ]
-const array<asset> fxmixIMC = 
+const array<asset> NESSIE_EFFECT_MIX_IMC = 
 [
 	$"titan_sniper_CH_trail_arc", 
 	$"wpn_grenade_frag_blue", 
 	$"P_doubletake_proj", 
-	$"P_wpn_mflash_dbltake_FP_burn"
+	$"P_wpn_mflash_dbltake_FP_burn",
+]
+
+// settings array
+const array<asset> HEAVY_PILOT_MODELS =
+[
+	$"models/humans/pilots/pilot_heavy_drex_m.mdl",
+	$"models/humans/pilots/pilot_heavy_drex_f.mdl",
+	$"models/humans/pilots/pilot_heavy_roog_f.mdl",
+	$"models/humans/pilots/pilot_heavy_roog_m.mdl",
+	$"models/humans/grunts/imc_grunt_shield_captain.mdl",
+]
+const array<asset> LIGHT_PILOT_MODELS =
+[
+	$"models/Humans/heroes/imc_hero_blisk.mdl",
+	$"models/Humans/heroes/imc_hero_ash.mdl",
+	$"models/humans/pilots/pilot_light_ged_f.mdl",
+	$"models/humans/pilots/pilot_light_ged_m.mdl",
+	$"models/humans/pilots/pilot_medium_reaper_f.mdl",
+	$"models/humans/pilots/sp_medium_geist_f.mdl",
+	$"models/humans/heroes/mlt_hero_sarah.mdl",
+	$"models/humans/pilots/pilot_light_jester_f.mdl",
+]
+const array<asset> MEDIUM_PILOT_MODELS = // mostly unused because after we filtering heavy&light model, the rest are mediums...
+[
+
+]
+const array<asset> MODELS_HAVE_BIG_BACKPACK =
+[
+	$"models/humans/pilots/pilot_light_jester_m.mdl",
+	$"models/humans/grunts/mlt_grunt_lmg.mdl",
+	$"models/robots/spectre/imc_spectre.mdl",
+]
+const array<asset> MODELS_HAVE_SMALL_BACKPACK =
+[
+	$"models/humans/heroes/mlt_hero_jack.mdl",
+	$"models/humans/pilots/pilot_light_ged_m.mdl",
+	$"models/humans/pilots/pilot_light_jester_f.mdl",
+]
+const array<asset> MODELS_CAN_REMOVE_HEAD =
+[
+	$"models/humans/pilots/pilot_light_ged_m.mdl",
+	$"models/humans/pilots/pilot_light_ged_f.mdl",
+	$"models/humans/pilots/pilot_light_jester_m.mdl",
+	$"models/humans/pilots/pilot_light_jester_f.mdl",
+	$"models/robots/spectre/imc_spectre.mdl",
+]
+const array<asset> MODELS_CANNOT_REMOVE_HELMET =
+[
+	$"models/humans/heroes/mlt_hero_sarah.mdl",
+	$"models/Humans/heroes/imc_hero_blisk.mdl",
+	$"models/Humans/heroes/imc_hero_ash.mdl",
+]
+const array<asset> MODELS_HAVE_EXTERNAL_HELMET =
+[
+	$"models/Humans/heroes/imc_hero_blisk.mdl",
+]
+const array<asset> MODELS_HAVE_FLAT_HEAD =
+[
+	$"models/robots/spectre/imc_spectre.mdl",
+]
+
+const array<asset> PILOT_WEAPON_MODELS =
+[
+	$"models/weapons/alternator_smg/w_alternator_smg.mdl", 
+	$"models/weapons/p2011_auto/w_p2011_auto.mdl", 
+	$"models/weapons/car101/w_car101.mdl", 
+	$"models/weapons/rspn101_dmr/w_rspn101_dmr.mdl", 
+	$"models/weapons/doubletake/w_doubletake.mdl", 
+	$"models/weapons/epg/w_epg.mdl", 
+	$"models/weapons/hemlock_br/w_hemlock_br.mdl", 
+	$"models/weapons/g2/w_g2a4.mdl", 
+	$"models/weapons/m1a1_hemlok/w_hemlok.mdl", 
+	$"models/weapons/hemlok_smg/w_hemlok_smg.mdl", 
+	$"models/weapons/lmg_hemlok/w_lmg_hemlok.mdl", 
+	$"models/weapons/lstar/w_lstar.mdl", 
+	$"models/weapons/mastiff_stgn/w_mastiff.mdl", 
+	$"models/weapons/pulse_lmg/w_pulse_lmg.mdl", 
+	$"models/weapons/rspn101/w_rspn101.mdl", 
+	$"models/weapons/r101_sfp/w_r101_sfp.mdl", 
+	$"models/weapons/p2011/w_p2011.mdl", 
+	$"models/weapons/w1128/w_w1128.mdl", 
+	$"models/weapons/pstl_sa3/w_pstl_sa3.mdl", 
+	$"models/weapons/p2011sp/w_p2011sp.mdl", 
+	$"models/weapons/auto_rocket_launcher_ARL/w_ARL.mdl", 
+	$"models/weapons/at_rifle/w_at_rifle.mdl", 
+	$"models/weapons/softball_at/w_softball_at.mdl", 
+	$"models/weapons/vinson/w_vinson.mdl", 
+	$"models/weapons/b3wing/w_b3wing.mdl", 
+	$"models/weapons/wingman_elite/w_wingman_elite.mdl",
+	// added by northstar
+	$"models/weapons/shotgun_doublebarrel/w_shotgun_doublebarrel.mdl",
+]
+const array<asset> PILOT_PISTOL_MODELS =
+[
+	$"models/weapons/b3wing/w_b3wing.mdl", 
+	$"models/weapons/wingman_elite/w_wingman_elite.mdl", 
+	$"models/weapons/p2011/w_p2011.mdl", 
+	$"models/weapons/p2011_auto/w_p2011_auto.mdl", 
+	$"models/weapons/pstl_sa3/w_pstl_sa3.mdl",
+	// added by northstar
+	$"models/weapons/shotgun_doublebarrel/w_shotgun_doublebarrel.mdl",
+]
+const array<asset> TITAN_WEAPON_MODELS
+[
+	$"models/weapons/titan_sword/w_titan_sword_prime.mdl", 
+	$"models/weapons/titan_sword/w_titan_sword.mdl", 
+	$"models/weapons/titan_triple_threat/w_titan_triple_threat.mdl", 
+	$"models/weapons/titan_thermite_launcher/w_titan_thermite_launcher.mdl",
+	$"models/weapons/titan_particle_accelerator/w_titan_particle_accelerator.mdl", 
+	$"models/weapons/titan_predator/w_titan_predator.mdl", 
+	$"models/weapons/titan_rocket_launcher/titan_rocket_launcher.mdl", 
+	$"models/weapons/titan_sniper_rifle/w_titan_sniper_rifle.mdl", 
+	$"models/weapons/thr_40mm/w_thr_40mm.mdl", 
+	$"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl",
+	// added by northstar
+	$"models/weapons/titan_arc_rifle/w_titan_arc_rifle.mdl",
+	$"models/weapons/titan_triple_threat_og/w_titan_triple_threat_og.mdl",
 ]
 
 // we could've use SetHumanRagdollImpactTable() instead of handling this everywhere...
@@ -246,6 +414,11 @@ void function EverythingNessy_Init()
 void function Nessy_EnableAllFunny_Init()
 {
 	file.allSettingsEnabled = true
+}
+
+void function Nessie_ShouldDropPropOnClear( bool should )
+{
+	file.shouldDropPropOnClearNessy = should
 }
 
 void function Nessie_AlwaysSpawnRGBStuff( bool always )
@@ -489,7 +662,7 @@ void function OnPlayerRespawned( entity player )
 
 void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
 {
-	SpawnNessyOutfit( player )
+	SpawnNessyCostume( player )
 }
 
 void function Nessie_DecoyOutfitInit()
@@ -506,13 +679,13 @@ void function Nessie_DecoyOutfitInit()
 void function SpawnDecoyOutfit( entity player, entity decoy )
 {
 	if ( file.decoyNessieOutfit || file.allSettingsEnabled )
-		SpawnNessyOutfit( decoy )
+		SpawnNessyCostume( decoy )
 }
 
 void function DecoyOutfitCleanUp( entity decoy, int currentState )
 {
 	// decoy won't call "OnDeath", have to manually destroy outfit
-	ClearNessy( decoy )
+	ClearNessyCostume( decoy )
 }
 
 void function Nessie_SetDecoyOutfit( bool set )
@@ -527,25 +700,31 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 
 void function OnPilotBecomesTitan( entity player, entity titan )
 {
-
+	// this clean up has been handled by TrackNessyCostumeOwner()
+	//ClearNessyCostume( player )
 }
 
 void function OnTitanBecomesPilot( entity titan, entity player )
 {
-	SpawnNessyOutfit( player )
+	//AllFunctionsTogether( player )
+	SpawnNessyCostume( player )
 }
 
 void function PrecacheSelectedModels()
 {
-	foreach( asset model in placements )
+	foreach( asset model in NESSIE_PLACEMENTS )
 	{
 		PrecacheModel( model )
 	}
-	foreach( asset model in hatassets )
+	foreach( asset model in NESSIE_HAT_ASSETS )
 	{
 		PrecacheModel( model )
 	}
-	foreach( asset model in backpackassets )
+	foreach( asset model in NESSIE_BACKPACK_ASSETS )
+	{
+		PrecacheModel( model )
+	}
+	foreach( asset model in NESSIE_WEAPON_ASSETS )
 	{
 		PrecacheModel( model )
 	}
@@ -553,52 +732,73 @@ void function PrecacheSelectedModels()
 
 void function PrecacheSelectedParticles()
 {
-	foreach( asset particle in fxassets )
+	foreach( asset particle in NESSIE_EFFECT_ASSETS )
 	{
 		PrecacheParticleSystem( particle )
 	}
-	foreach( asset particle in fxmixbase )
+	foreach( asset particle in NESSIE_EFFECT_MIX_BASE )
 	{
 		PrecacheParticleSystem( particle )
 	}
-	foreach( asset particle in fxmixMLT )
+	foreach( asset particle in NESSIE_EFFECT_MIX_MLT )
 	{
 		PrecacheParticleSystem( particle )
 	}
-	foreach( asset particle in fxmixIMC )
+	foreach( asset particle in NESSIE_EFFECT_MIX_IMC )
 	{
 		PrecacheParticleSystem( particle )
 	}
 }
 
-void function SpawnNessyOutfit( entity ent )
+void function SpawnNessyCostume( entity ent )
 {
-	thread SpawnNessyOutfit_Threaded( ent )
+	thread SpawnNessyCostume_Threaded( ent )
 }
 
-void function SpawnNessyOutfit_Threaded( entity ent )
+void function SpawnNessyCostume_Threaded( entity ent )
 {
-	ClearNessy( ent ) // defensive clear!
+	ClearNessyCostume( ent ) // defensive clear!
 	WaitFrame() // better wait for model stuffs set up, we have "altpilot"
 	if( !IsAlive( ent ) )
 		return
 	if( ent.IsTitan() )
 		return
 
-	//AllFunctionsTogether( player )
-	CreateNessyHat( hatassets, ent )
-	CreateNessyBackpack( backpackassets, ent )
-	//CreateNessyFX( fxassets, player )
-	//CreateNessyPistol( pistolassets, player )
-	thread TrackNessyOutfitOwnerDeath( ent )
+	CreateNessyHat( ent )
+	CreateNessyBackpack( ent )
+	thread TrackNessyCostumeOwner( ent )
 }
 
-void function TrackNessyOutfitOwnerDeath( entity ent )
+void function TrackNessyCostumeOwner( entity ent )
 {
-	ent.EndSignal( "OnDestroy" ) // destroyed ent gets their parent destroyed, no worries
+	ent.EndSignal( "OnDestroy" ) // destroyed ent gets their children destroyed, no worries
 
-	ent.WaitSignal( "OnDeath" )
-	ClearNessy( ent )
+	OnThreadEnd
+	(
+		function(): ( ent )
+		{
+			if ( IsValid( ent ) )
+				ClearNessyCostume( ent )
+		}
+	)
+
+	while ( true )
+	{
+		// when owner entity dies, should clear
+		// use looping case is to make death callbacks able to go through
+		if ( !IsAlive( ent ) )
+			return
+
+		// when a player starts embarking, needs to clear their nessy costume
+		if( ent.IsPlayer() && ent.p.isEmbarking )
+			return
+	}
+}
+
+void function CreateNessyEffects( entity player )
+{
+	CreateNessyFX( NESSIE_EFFECT_ASSETS, player )
+	CreateNessyPistol( NESSIE_WEAPON_ASSETS, player )
 }
 
 bool function SpawnBattery( entity player, array<string> args )
@@ -733,8 +933,9 @@ void function CallbackFuncSpawnNessy( entity player )
 	//print( badCombo )
 	//print( goodCombo )
 
-	// nessie spawning has no limit, and nessie only!
-	asset spawnAsset = placements[ RandomInt(placements.len()) ]
+	asset spawnAsset = NESSIE_PLACEMENTS[ RandomInt( NESSIE_PLACEMENTS.len() ) ]
+	if ( file.alwaysSpawnNessyDoll ) // nessie only!
+		spawnAsset = $"models/domestic/nessy_doll.mdl"
 
 	entity nessie = CreateEntity( "prop_dynamic" )
 	nessie.SetValueForModelKey( spawnAsset )
@@ -788,23 +989,17 @@ void function CallbackFuncSpawnNessy( entity player )
 	SetTeam( nessie, player.GetTeam() )
 	if( isMoving )
 	{
-		// spawn a physics
-		entity physics = CreateEntity( "prop_physics" )
-		physics.SetValueForModelKey( $"models/dev/empty_physics.mdl" )
-        physics.SetOrigin( player.EyePosition() + player.GetViewVector() * 100 + < 0,0,40 > ) // don't spawn so close, or it will interrupt zipline
-		physics.SetAngles( < 0, player.EyeAngles().y, 0 > )
-		physics.kv.spawnflags = 4 // 4 = SF_PHYSPROP_DEBRIS
-		physics.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS // cannot block weapons, not work why?
-		//physics.NotSolid() // so they won't block bullets
-		DispatchSpawn( physics )
-		physics.SetModel( $"models/dev/empty_physics.mdl" )
-		physics.SetVelocity( player.GetViewVector() * 1000 )
+		// attach nessie to physics
+		entity physics = AttachPhysicsToNessieProp( nessie )
 
-		// attach nessie
-		nessie.SetParent( physics, "origin" )
+		// update pos
 		nessie.SetAngles( < 0, physicsYawOffset, 0 > ) // rotate
 		nessie.SetOrigin( parentedOffset ) // offset
-		thread NessiePhysicsLifeTimeCheck( physics, nessie )
+
+		// throw forward
+		physics.SetOrigin( player.EyePosition() + player.GetViewVector() * 100 + < 0,0,40 > ) // don't spawn so close, or it will interrupt zipline
+		physics.SetAngles( < 0, player.EyeAngles().y, 0 > )
+		physics.SetVelocity( player.GetViewVector() * 1000 )
 
 		// test
 		//entity test = CreateEntity( "prop_dynamic" )
@@ -850,9 +1045,49 @@ void function CallbackFuncSpawnNessy( entity player )
 	NessieLimitThink()
 }
 
+entity function AttachPhysicsToNessieProp( entity nessie )
+{
+	entity physics = CreateEntity( "prop_physics" )
+	physics.SetValueForModelKey( $"models/dev/empty_physics.mdl" )
+	physics.kv.spawnflags = 4 // 4 = SF_PHYSPROP_DEBRIS
+	physics.kv.CollisionGroup = TRACE_COLLISION_GROUP_DEBRIS // cannot block weapons, not work why?
+	//physics.NotSolid() // so they won't block bullets, but also make them can't be pushed
+	DispatchSpawn( physics )
+	physics.SetModel( $"models/dev/empty_physics.mdl" )
+
+	// attach nessie
+	nessie.SetParent( physics, "origin" )
+	thread NessiePhysicsLifeTimeCheck( physics, nessie )
+
+	return physics
+}
+
+void function NessiePhysicsLifeTimeCheck( entity physics, entity nessie )
+{
+	nessie.EndSignal( "OnDestroy" )
+	physics.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function(): ( nessie, physics )
+		{
+			if( IsValid( nessie ) )
+				nessie.Destroy()
+			if( IsValid( physics ) )
+				physics.Destroy()
+		}
+	)
+
+	WaitForever()
+}
+
 void function Nessie_SetNessieSpawnEnabled( bool enabled )
 {
 	file.nessieSpawnEnabled = enabled
+}
+
+void function Nessie_SetAlwaysSpawnNessyDoll( bool spawnNessyDoll )
+{
+	file.alwaysSpawnNessyDoll = spawnNessyDoll
 }
 
 void function Nessie_SetWorldMaxNessieCount( int count )
@@ -869,7 +1104,7 @@ void function CallbackFuncSpawnBattery( entity player )
 
 	entity battery = Rodeo_CreateBatteryPack( player, false, true )
 	bool badCombo = ((player.IsInputCommandHeld( IN_DUCKTOGGLE ) || player.IsInputCommandHeld( IN_DUCK )) && player.IsInputCommandHeld( IN_SPEED ) && ( player.IsInputCommandHeld( IN_ZOOM ) || player.IsInputCommandHeld( IN_ZOOM_TOGGLE ) ) && player.IsInputCommandHeld( IN_ATTACK ))
-	if ( !IsValid( battery ) ) // battery won't be returned it's picked up by player immediately
+	if ( !IsValid( battery ) ) // battery won't be returned if it's picked up by player immediately
 		battery = GetBatteryOnBack( player )
 	if( IsValid( battery ) )
 	{
@@ -883,10 +1118,24 @@ void function CallbackFuncSpawnBattery( entity player )
 		}
 		battery.SetBossPlayer( player ) // add a boss player for this battery! we can track satchel planting later
 		if( badCombo || file.alwaysRGBSpawn ) // rgb combo!
+		{
 			thread RGY_BatterySkin( battery )
+			thread TrackRGYBatteryOwnerAttach( battery )
+		}
 		else // random skin!
 			battery.SetSkin( RandomInt(3) )
 		HoldingProp_SetEntityCanBePickedUpForced( battery, true ) // make battery pickupable
+	}
+}
+
+void function TrackRGYBatteryOwnerAttach( entity battery )
+{
+	battery.EndSignal( "OnDestroy" )
+
+	entity lastTickParent
+	while ( true )
+	{
+
 	}
 }
 
@@ -1025,233 +1274,243 @@ void function NessieLimitThink()
 	}
 }
 
-void function NessiePhysicsLifeTimeCheck( entity physics, entity nessie )
-{
-	nessie.EndSignal( "OnDestroy" )
-	physics.EndSignal( "OnDestroy" )
-
-	OnThreadEnd(
-		function(): ( nessie, physics )
-		{
-			if( IsValid( nessie ) )
-				nessie.Destroy()
-			if( IsValid( physics ) )
-				physics.Destroy()
-		}
-	)
-
-	WaitForever()
-}
-
 void function AllFunctionsTogether( entity player )
 {
-	CreateNessyHat( hatassets, player )
-	CreateNessyBackpack( backpackassets, player )
-	CreateNessyPistol( pistolassets, player )
-	CreateNessyWeapon( pistolassets, player )
+	CreateNessyHat( player )
+	CreateNessyBackpack( player )
+	CreateNessyPistol( NESSIE_WEAPON_ASSETS, player )
+	CreateNessyPrimary( NESSIE_WEAPON_ASSETS, player )
+
+	// WIP rework
 	if( IsFFAGame() )
-		CreateNessyFX( fxassets, player )
+		CreateNessyFX( NESSIE_EFFECT_ASSETS, player )
 	else
-		CreateMixedNessyFX( fxmixbase, fxmixMLT, fxmixIMC, player )
+		CreateMixedNessyFX( NESSIE_EFFECT_MIX_BASE, NESSIE_EFFECT_MIX_MLT, NESSIE_EFFECT_MIX_IMC, player )
 }
 
-void function CreateNessyHat( array<asset> modelassets, entity player )
+void function CreateNessyCostumeForType( entity player, array<asset> randomModels, int specifiedType )
 {
-	NessyHat nessy
-	nessy.modelasset = modelassets[ RandomInt(modelassets.len()) ]
-	nessy.hat = CreateEntity( "prop_dynamic" )
-	nessy.hat.SetModel( nessy.modelasset )
-	nessy.owner = player
-	nessy.hat.SetParent( nessy.owner, "HEADSHOT" )
-	nessy.hat.Highlight_SetInheritHighlight( true )
-	SetNessyHatStats( nessy )
-	file.nessyhats.append(nessy)
+	InitNessyCostumeForEnt( player, specifiedType )
+
+	// if player already have a costume at that slot, clear them
+	ClearNessyCostume( player, specifiedType )
+
+	entity modelName = NESSIE_HAT_ASSETS[ RandomInt( NESSIE_HAT_ASSETS.len() ) ]
+	entity prop = CreatePropDynamic( modelName )
+
+	// currently hardcoded for each type
+	switch ( specifiedType )
+	{
+		case eNessieType.NESSIE_HAT:
+			SetNessyHatStats( prop, player )
+			break
+
+		//case 
+	}
+	prop.Highlight_SetInheritHighlight( true )
+
+	file.entOwnedNessieCostumes[ player ][ specifiedType ].append( prop )
 }
 
-void function SetNessyHatStats( NessyHat nessy )
+void function InitNessyCostumeForEnt( entity ent, int cosType = -1 )
 {
-	if ( CanRemoveHead( nessy.owner ) )
+	if ( !( ent in file.entOwnedNessieCostumes ) )
+		file.entOwnedNessieCostumes[ ent ] <- {}
+
+	if ( cosType != -1 )
 	{
-		if( nessy.modelasset == $"models/domestic/nessy_doll.mdl" )
+		if ( !( cosType in file.entOwnedNessieCostumes[ ent ] ) )
+			file.entOwnedNessieCostumes[ cosType ]
+	}
+}
+
+// WIP rework
+void function InitNessyEffectForEnt( entity ent )
+{
+	//if ( !( ent in file.entOwnedNessieCostumes ) )
+
+}
+
+void function CreateNessyHat( entity player )
+{
+	CreateNessyCostumeForType( player, NESSIE_HAT_ASSETS, eNessieType.NESSIE_HAT )
+}
+
+void function SetNessyHatStats( entity prop, entity owner )
+{
+	prop.SetParent( owner, "HEADSHOT" )
+
+	asset modelName = prop.GetModelName()
+	// if we have a external helmet... try to enable it if our given model is empty
+	/*
+	if ( nessy.modelasset == $"" && HasExternalHelmet( owner ) )
+	{
+		owner.SetBodygroup( owner.FindBodyGroup( "helmet" ), 1 )
+		return
+	}
+	*/
+	// if we have a external helmet... try to enable it 
+	if ( HasExternalHelmet( owner ) && CoinFlip() )
+		owner.SetBodygroup( owner.FindBodyGroup( "helmet" ), 1 )
+
+	if ( CanRemoveHead( owner ) )
+	{
+		switch( modelName )
 		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 ) // remove head
-			nessy.hat.SetOrigin( < 0, 0, -10 > )
-			nessy.hat.SetAngles( < 0, -90, 0 > )
-			return
-		}
-		if( nessy.modelasset == $"models/robots/drone_frag/drone_frag.mdl" )
-		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 ) // remove head
-			nessy.hat.SetOrigin( < 0, 0, -15 > )
-			nessy.hat.kv.modelscale = 0.3
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/sentry_frag/sentry_frag.mdl" )
-		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 ) // remove head
-			nessy.hat.SetOrigin( < 0, 0, -12 > )
-			nessy.hat.kv.modelscale = 0.35
-			return
-		}
-		if( nessy.modelasset == $"models/robots/marvin/marvin.mdl" )
-		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 1 ) // remove head
-			nessy.hat.SetOrigin( < -5, 0, -25 > )
-			nessy.hat.kv.modelscale = 0.4
-			thread TrackMarvinOwnerDamaged( nessy.owner, nessy.hat )
-			return
-		}
-		if( nessy.modelasset == $"models/creatures/prowler/r2_prowler.mdl" )
-		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 0 ) // give head back
-			if ( HasFlatHead( nessy.owner ) ) // spectre
-				nessy.hat.SetOrigin( < 0, 0, 1 > )
-			else
-				nessy.hat.SetOrigin( < 0, 0, 3 > )
-			nessy.hat.kv.modelscale = 0.15
-			return
-		}
-		/*
-		if( nessy.modelasset == $"models/creatures/prowler/r2_prowler.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, -25 > )
-			nessy.hat.SetAngles( < -90, 0, 0 > )
-			nessy.hat.kv.modelscale = 0.3
-			return
-		}
-		*/
-		if( nessy.modelasset == $"models/weapons/data_knife/v_data_knife.mdl" )
-		{
-			nessy.owner.SetBodygroup( GetRemovableHeadBodyGroupId( nessy.owner ), 0 ) // give head back
-			if ( HasFlatHead( nessy.owner ) ) // spectre
-				nessy.hat.SetOrigin( < 2, 0, 5 > )
-			else
-				nessy.hat.SetOrigin( < 2, 0, 7 > )
-			nessy.hat.SetAngles( < 0, 0, 0 > )
-			return
+			case $"models/domestic/nessy_doll.mdl":
+				owner.SetBodygroup( GetRemovableHeadBodyGroupId( owner ), 1 ) // remove head
+				prop.SetOrigin( < 0, 0, -10 > )
+				prop.SetAngles( < 0, -90, 0 > )
+				break
+			
+			case $"models/robots/drone_frag/drone_frag.mdl":
+				owner.SetBodygroup( GetRemovableHeadBodyGroupId( owner ), 1 ) // remove head
+				prop.SetOrigin( < 0, 0, -15 > )
+				prop.kv.modelscale = 0.3
+				break
+
+			case $"models/weapons/sentry_frag/sentry_frag.mdl":
+				owner.SetBodygroup( GetRemovableHeadBodyGroupId( owner ), 1 ) // remove head
+				prop.SetOrigin( < 0, 0, -12 > )
+				prop.kv.modelscale = 0.35
+				break
+
+			case $"models/robots/marvin/marvin.mdl":
+				owner.SetBodygroup( GetRemovableHeadBodyGroupId( owner ), 1 ) // remove head
+				prop.SetOrigin( < -5, 0, -25 > )
+				prop.kv.modelscale = 0.4
+				thread TrackMarvinOwnerDamaged( owner, prop )
+				break
+
+			case $"models/creatures/prowler/r2_prowler.mdl":
+				owner.SetBodygroup( GetRemovableHeadBodyGroupId( owner ), 0 ) // give head back
+				if ( HasFlatHead( owner ) ) // spectre
+					prop.SetOrigin( < 0, 0, 1 > )
+				else
+					prop.SetOrigin( < 0, 0, 3 > )
+				prop.kv.modelscale = 0.15
+				break
+
+			case $"models/weapons/data_knife/v_data_knife.mdl":
+				owner.SetBodygroup( GetRemovableHeadBodyGroupId( owner ), 0 ) // give head back
+				if ( HasFlatHead( owner ) ) // spectre
+					prop.SetOrigin( < 2, 0, 5 > )
+				else
+					prop.SetOrigin( < 2, 0, 7 > )
+				prop.SetAngles( < 0, 0, 0 > )
+				return
 		}
 	}
-	else if( CannotRemoveHelmet( nessy.owner ) )
+	else if( CannotRemoveHelmet( owner ) )
 	{
-		if( nessy.modelasset == $"models/domestic/nessy_doll.mdl" )
+		switch( modelName )
 		{
-			nessy.hat.SetOrigin( < 0, 0, 0 > )
-			return
-		}
-		if( nessy.modelasset == $"models/robots/drone_frag/drone_frag.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, -3 > )
-			nessy.hat.kv.modelscale = 0.3
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/sentry_frag/sentry_frag.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, -1 > )
-			nessy.hat.kv.modelscale = 0.35
-			return
-		}
-		if( nessy.modelasset == $"models/robots/marvin/marvin.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, -10 > )
-			nessy.hat.kv.modelscale = 0.3
-			thread TrackMarvinOwnerDamaged( nessy.owner, nessy.hat )
-			return
-		}
-		if( nessy.modelasset == $"models/creatures/prowler/r2_prowler.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, 3 > )
-			nessy.hat.kv.modelscale = 0.15
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/data_knife/v_data_knife.mdl" )
-		{
-			nessy.hat.SetOrigin( < 2, 0, 7 > )
-			nessy.hat.SetAngles( < 0, 0, 0 > )
-			return
+			case $"models/domestic/nessy_doll.mdl":
+				prop.SetOrigin( < 0, 0, 0 > )
+				break
+
+			case $"models/robots/drone_frag/drone_frag.mdl":
+				prop.SetOrigin( < 0, 0, -3 > )
+				prop.kv.modelscale = 0.3
+				break
+
+			case $"models/weapons/sentry_frag/sentry_frag.mdl":
+				prop.SetOrigin( < 0, 0, -1 > )
+				prop.kv.modelscale = 0.35
+				break
+
+			case $"models/robots/marvin/marvin.mdl":
+				prop.SetOrigin( < 0, 0, -10 > )
+				prop.kv.modelscale = 0.3
+				thread TrackMarvinOwnerDamaged( owner, prop )
+				break
+
+			case $"models/creatures/prowler/r2_prowler.mdl"
+				prop.SetOrigin( < 0, 0, 3 > )
+				prop.kv.modelscale = 0.15
+				break
+
+			case $"models/weapons/data_knife/v_data_knife.mdl"
+				prop.SetOrigin( < 2, 0, 7 > )
+				prop.SetAngles( < 0, 0, 0 > )
+				break
 		}
 	}
-	else if( HasFlatHead( nessy.owner ) )
+	else if( HasFlatHead( owner ) )
 	{
-		if( nessy.modelasset == $"models/domestic/nessy_doll.mdl" )
+		switch( modelName )
 		{
-			nessy.hat.SetOrigin( < 0, 0, 0 > )
-			return
-		}
-		if( nessy.modelasset == $"models/robots/drone_frag/drone_frag.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, -5 > )
-			nessy.hat.kv.modelscale = 0.3
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/sentry_frag/sentry_frag.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, -3 > )
-			nessy.hat.kv.modelscale = 0.35
-			return
-		}
-		if( nessy.modelasset == $"models/robots/marvin/marvin.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, -12 > )
-			nessy.hat.kv.modelscale = 0.3
-			thread TrackMarvinOwnerDamaged( nessy.owner, nessy.hat )
-			return
-		}
-		if( nessy.modelasset == $"models/creatures/prowler/r2_prowler.mdl" )
-		{
-			nessy.hat.SetOrigin( < 0, 0, 1 > )
-			nessy.hat.kv.modelscale = 0.15
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/data_knife/v_data_knife.mdl" )
-		{
-			nessy.hat.SetOrigin( < 2, 0, 5 > )
-			nessy.hat.SetAngles( < 0, 0, 0 > )
-			return
+			case $"models/domestic/nessy_doll.mdl":
+				prop.SetOrigin( < 0, 0, 0 > )
+				break
+
+			case $"models/robots/drone_frag/drone_frag.mdl":
+				prop.SetOrigin( < 0, 0, -5 > )
+				prop.kv.modelscale = 0.3
+				break
+
+			case $"models/weapons/sentry_frag/sentry_frag.mdl":
+				prop.SetOrigin( < 0, 0, -3 > )
+				prop.kv.modelscale = 0.35
+				break
+
+			case $"models/robots/marvin/marvin.mdl":
+				prop.SetOrigin( < 0, 0, -12 > )
+				prop.kv.modelscale = 0.3
+				thread TrackMarvinOwnerDamaged( owner, prop )
+				break
+
+			case $"models/creatures/prowler/r2_prowler.mdl":
+				prop.SetOrigin( < 0, 0, 1 > )
+				prop.kv.modelscale = 0.15
+				break
+
+			case $"models/weapons/data_knife/v_data_knife.mdl":
+				prop.SetOrigin( < 2, 0, 5 > )
+				prop.SetAngles( < 0, 0, 0 > )
+				break
 		}
 	}
 	else
 	{
-		if( nessy.modelasset == $"models/domestic/nessy_doll.mdl" )
+		switch( modelName )
 		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 0 ) // give helmet back
-			nessy.hat.SetOrigin( < 0, 0, 0 > )
-			return
-		}
-		if( nessy.modelasset == $"models/robots/drone_frag/drone_frag.mdl" )
-		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 ) // remove helmet
-			nessy.hat.SetOrigin( < 0, 0, -3 > )
-			nessy.hat.kv.modelscale = 0.3
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/sentry_frag/sentry_frag.mdl" )
-		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 ) // remove helmet
-			nessy.hat.SetOrigin( < 0, 0, -1 > )
-			nessy.hat.kv.modelscale = 0.35
-			return
-		}
-		if( nessy.modelasset == $"models/robots/marvin/marvin.mdl" )
-		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 0 ) // give helmet back
-			nessy.hat.SetOrigin( < 0, 0, -10 > )
-			nessy.hat.kv.modelscale = 0.3
-			thread TrackMarvinOwnerDamaged( nessy.owner, nessy.hat )
-			return
-		}
-		if( nessy.modelasset == $"models/creatures/prowler/r2_prowler.mdl" )
-		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 0 ) // give helmet back
-			nessy.hat.SetOrigin( < 0, 0, 3 > )
-			nessy.hat.kv.modelscale = 0.15
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/data_knife/v_data_knife.mdl" )
-		{
-			nessy.owner.SetBodygroup( nessy.owner.FindBodyGroup( "head" ), 1 ) // remove helmet
-			nessy.hat.SetOrigin( < 2, 0, 7 > )
-			nessy.hat.SetAngles( < 0, 0, 0 > )
-			return
+			case $"models/domestic/nessy_doll.mdl":
+				owner.SetBodygroup( owner.FindBodyGroup( "head" ), 0 ) // give helmet back
+				prop.SetOrigin( < 0, 0, 0 > )
+				break
+			
+			case $"models/robots/drone_frag/drone_frag.mdl":
+				owner.SetBodygroup( owner.FindBodyGroup( "head" ), 1 ) // remove helmet
+				prop.SetOrigin( < 0, 0, -3 > )
+				prop.kv.modelscale = 0.3
+				break
+			
+			case $"models/weapons/sentry_frag/sentry_frag.mdl":
+				owner.SetBodygroup( owner.FindBodyGroup( "head" ), 1 ) // remove helmet
+				prop.SetOrigin( < 0, 0, -1 > )
+				prop.kv.modelscale = 0.35
+				break
+			
+			case $"models/robots/marvin/marvin.mdl":
+				owner.SetBodygroup( owner.FindBodyGroup( "head" ), 0 ) // give helmet back
+				prop.SetOrigin( < 0, 0, -10 > )
+				prop.kv.modelscale = 0.3
+				thread TrackMarvinOwnerDamaged( owner, prop )
+				break
+			
+			case $"models/creatures/prowler/r2_prowler.mdl":
+				owner.SetBodygroup( owner.FindBodyGroup( "head" ), 0 ) // give helmet back
+				prop.SetOrigin( < 0, 0, 3 > )
+				prop.kv.modelscale = 0.15
+				break
+			
+			case $"models/weapons/data_knife/v_data_knife.mdl":
+				owner.SetBodygroup( owner.FindBodyGroup( "head" ), 1 ) // remove helmet
+				prop.SetOrigin( < 2, 0, 7 > )
+				prop.SetAngles( < 0, 0, 0 > )
+				break
+			
 		}
 	}
 }
@@ -1285,150 +1544,146 @@ void function MarvinWounded( entity owner, entity marvin )
 	wait 2.3 // max duration
 }
 
-void function CreateNessyBackpack( array<asset> modelassets, entity player )
+void function CreateNessyBackpack( entity player )
 {
-	NessyPack nessy
-	nessy.owner = player
-	nessy.modelasset = modelassets[ RandomInt(modelassets.len()) ]
-	nessy.pack = CreateEntity( "prop_dynamic" )
-	nessy.pack.SetModel( nessy.modelasset )
-	nessy.pack.SetParent( nessy.owner, "CHESTFOCUS" )
-	nessy.pack.Highlight_SetInheritHighlight( true )
-	SetNessyBackpackStats( nessy )
-	file.nessybackpacks.append(nessy)
+	CreateNessyCostumeForType( player, NESSIE_BACKPACK_ASSETS, eNessieType.NESSIE_BACKPACK )
 }
 
-void function SetNessyBackpackStats( NessyPack nessy )
+void function SetNessyBackpackStats( entity prop, entity owner )
 {
-	if( HasBigBackpack( nessy.owner ) )
+	prop.SetParent( owner, "CHESTFOCUS" )
+	asset modelName = prop.GetModelName()
+
+	if( HasBigBackpack( owner ) )
 	{
-		if( nessy.modelasset == $"models/weapons/titan_sword/w_titan_sword_prime.mdl" || nessy.modelasset == $"models/weapons/titan_sword/w_titan_sword.mdl" )
+		switch( modelName )
 		{
-			switch( RandomInt(2) )
-			{
-				case 0:
-					nessy.pack.SetOrigin( < -14, 10, 10 > )
-					nessy.pack.SetAngles( < -135, 90, 0 > )
-					break
-				case 1:
-					nessy.pack.SetOrigin( < -7, 8, 3 > )
-					nessy.pack.SetAngles( < 180, 0, 0 > )
-					break
-			}
-			nessy.pack.kv.modelscale = 0.3
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl" )
-		{
-			switch( RandomInt(2) )
-			{
-				case 0:
-					nessy.pack.SetOrigin( < -13, 8, 8 > )
-					nessy.pack.SetAngles( < 135, 90, 0 > )
-					break
-				case 1:
-					nessy.pack.SetOrigin( < -8, 8, 6 > )
-					nessy.pack.SetAngles( < 90, 0, 180 > )
-					break
-			}
-			nessy.pack.kv.modelscale = 0.3
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/titan_triple_threat/w_titan_triple_threat.mdl" )
-		{
-			nessy.pack.SetOrigin( < -13, 8, 8 > )
-			nessy.pack.SetAngles( < 135, 90, 0 > )
-			nessy.pack.kv.modelscale = 0.3
-			return
-		}
-		else
-		{
-			nessy.pack.SetOrigin( < -15, 10, 10 > )
-			nessy.pack.SetAngles( < 135, 90, 0 > )
-			nessy.pack.kv.modelscale = 0.3
-			return
+			case $"models/weapons/titan_sword/w_titan_sword_prime.mdl":
+			case $"models/weapons/titan_sword/w_titan_sword.mdl":
+				const styleCount = 2
+				switch( RandomInt( styleCount ) )
+				{
+					case 0:
+						prop.SetOrigin( < -14, 10, 10 > )
+						prop.SetAngles( < -135, 90, 0 > )
+						break
+					case 1:
+						prop.SetOrigin( < -7, 8, 3 > )
+						prop.SetAngles( < 180, 0, 0 > )
+						break
+				}
+				prop.kv.modelscale = 0.3
+				break
+			
+			case $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl":
+				const styleCount = 2
+				switch( RandomInt( styleCount ) )
+				{
+					case 0:
+						prop.SetOrigin( < -13, 8, 8 > )
+						prop.SetAngles( < 135, 90, 0 > )
+						break
+					case 1:
+						prop.SetOrigin( < -8, 8, 6 > )
+						prop.SetAngles( < 90, 0, 180 > )
+						break
+				}
+				prop.kv.modelscale = 0.3
+				break
+
+			case $"models/weapons/titan_triple_threat/w_titan_triple_threat.mdl":
+			case $"models/weapons/titan_triple_threat_og/w_titan_triple_threat_og.mdl"
+				prop.SetOrigin( < -13, 8, 8 > )
+				prop.SetAngles( < 135, 90, 0 > )
+				prop.kv.modelscale = 0.3
+				break
+			
+			default
+				prop.SetOrigin( < -15, 10, 10 > )
+				prop.SetAngles( < 135, 90, 0 > )
+				prop.kv.modelscale = 0.3
+				break
 		}
 	}
 	else
 	{
-		if( nessy.modelasset == $"models/weapons/titan_sword/w_titan_sword_prime.mdl" || nessy.modelasset == $"models/weapons/titan_sword/w_titan_sword.mdl" )
+		switch( modelName )
 		{
-			switch( RandomInt(2) )
-			{
-				case 0:
-					if( IsHeavyPilot( nessy.owner ) || HasSmallBackpack( nessy.owner ) )
-					{
-						nessy.pack.SetOrigin( < -10, 10, 10 > )
-						nessy.pack.SetAngles( < -135, 90, 0 > )
+			case $"models/weapons/titan_sword/w_titan_sword_prime.mdl":
+			case $"models/weapons/titan_sword/w_titan_sword.mdl":
+				const styleCount = 2
+				switch( RandomInt( styleCount ) )
+				{
+					case 0:
+						if( IsHeavyPilot( owner ) || HasSmallBackpack( owner ) )
+						{
+							prop.SetOrigin( < -10, 10, 10 > )
+							prop.SetAngles( < -135, 90, 0 > )
+						}
+						else
+						{
+							prop.SetOrigin( < -8, 10, 10 > )
+							prop.SetAngles( < -135, 90, 0 > )
+						}
 						break
-					}
-					else
-					{
-						nessy.pack.SetOrigin( < -8, 10, 10 > )
-						nessy.pack.SetAngles( < -135, 90, 0 > )
+
+					case 1:
+						if( IsHeavyPilot( owner ) )
+						{
+							prop.SetOrigin( < -5, 10, 3 > )
+							prop.SetAngles( < 180, 0, 0 > )
+						}
+						if( IsLightPilot( owner ) )
+						{
+							prop.SetOrigin( < -4, 8, 3 > )
+							prop.SetAngles( < 180, 0, 0 > )
+						}
+						else
+						{
+							prop.SetOrigin( < -7, 8, 3 > )
+							prop.SetAngles( < 180, 0, 0 > )
+						}
 						break
-					}
-				case 1:
-					if( IsHeavyPilot( nessy.owner ) )
-					{
-						nessy.pack.SetOrigin( < -5, 10, 3 > )
-						nessy.pack.SetAngles( < 180, 0, 0 > )
+				}
+				prop.kv.modelscale = 0.3
+				break
+
+			case  $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl"
+				const styleCount = 2
+				switch( RandomInt( styleCount ) )
+				{
+					case 0:
+						prop.SetOrigin( < -8, 8, 8 > )
+						prop.SetAngles( < 135, 90, 0 > )
 						break
-					}
-					if( IsLightPilot( nessy.owner ) )
-					{
-						nessy.pack.SetOrigin( < -4, 8, 3 > )
-						nessy.pack.SetAngles( < 180, 0, 0 > )
+					
+					case 1:
+						if( IsHeavyPilot( owner ) )
+						{
+							prop.SetOrigin( < -8, 10, 6 > )
+							prop.SetAngles( < 90, 0, 180 > )
+						}
+						else
+						{
+							prop.SetOrigin( < -8, 7, 6 > )
+							prop.SetAngles( < 90, 0, 180 > )
+						}
 						break
-					}
-					else
-					{
-						nessy.pack.SetOrigin( < -7, 8, 3 > )
-						nessy.pack.SetAngles( < 180, 0, 0 > )
-						break
-					}
-			}
-			nessy.pack.kv.modelscale = 0.3
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl" )
-		{
-			switch( RandomInt(2) )
-			{
-				case 0:
-					nessy.pack.SetOrigin( < -8, 8, 8 > )
-					nessy.pack.SetAngles( < 135, 90, 0 > )
-					break
-				case 1:
-					if( IsHeavyPilot( nessy.owner ) )
-					{
-						nessy.pack.SetOrigin( < -8, 10, 6 > )
-						nessy.pack.SetAngles( < 90, 0, 180 > )
-						break
-					}
-					else
-					{
-						nessy.pack.SetOrigin( < -8, 7, 6 > )
-						nessy.pack.SetAngles( < 90, 0, 180 > )
-						break
-					}
-			}
-			nessy.pack.kv.modelscale = 0.3
-			return
-		}
-		if( nessy.modelasset == $"models/weapons/titan_triple_threat/w_titan_triple_threat.mdl" )
-		{
-			nessy.pack.SetOrigin( < -8, 8, 8 > )
-			nessy.pack.SetAngles( < 135, 90, 0 > )
-			nessy.pack.kv.modelscale = 0.3
-			return
-		}
-		else
-		{
-			nessy.pack.SetOrigin( < -10, 10, 10 > )
-			nessy.pack.SetAngles( < 135, 90, 0 > )
-			nessy.pack.kv.modelscale = 0.3
-			return
+				}
+				prop.kv.modelscale = 0.3
+				break
+
+			case $"models/weapons/titan_triple_threat/w_titan_triple_threat.mdl":
+				prop.SetOrigin( < -8, 8, 8 > )
+				prop.SetAngles( < 135, 90, 0 > )
+				prop.kv.modelscale = 0.3
+				break
+
+			default:
+				prop.SetOrigin( < -10, 10, 10 > )
+				prop.SetAngles( < 135, 90, 0 > )
+				prop.kv.modelscale = 0.3
+				break
 		}
 	}
 }
@@ -1462,7 +1717,7 @@ void function SetNessyPistolStats( NessyPistol nessy )
 	}
 }
 
-void function CreateNessyWeapon( array<asset> modelassets, entity player )
+void function CreateNessyPrimary( array<asset> modelassets, entity player )
 {
 	NessyWeapon nessy
 	nessy.modelasset = modelassets[ RandomInt(modelassets.len()) ]
@@ -1490,10 +1745,10 @@ void function SetNessyWeaponStats( NessyWeapon nessy )
 	}
 }
 
-void function CreateNessyFX( array<asset> fxassets, entity player )
+void function CreateNessyFX( array<asset> NESSIE_EFFECT_ASSETS, entity player )
 {
 	NessyFX nessy
-	asset fxasset = fxassets[ RandomInt(fxassets.len()) ]
+	asset fxasset = NESSIE_EFFECT_ASSETS[ RandomInt(NESSIE_EFFECT_ASSETS.len()) ]
 	nessy.owner = player
 	int attachmentIndex = player.LookupAttachment( "CHESTFOCUS" )
 
@@ -1540,56 +1795,107 @@ void function CreateMixedNessyFX( array<asset> mixbase, array<asset> mixmlt, arr
 	file.nessymixs.append(nessy)
 }
 
-void function ClearNessy( entity player )
+void function ClearNessyCostume( entity ent, int specifiedType = -1 )
 {
-	foreach( NessyHat nessy in file.nessyhats )
+	if ( !( ent in file.entOwnedNessieCostumes ) )
+		return
+
+	bool isDissolving = ent.IsDissolving() || IsPlayerDecoy( ent )
+	
+	array<entity> allCostumesForType
+	// no type specified means we clear all costume
+	if ( specifiedType = -1 )
 	{
-		if(nessy.owner == player)
+		for ( int i = 0; i < eNessieType.NESSIE_ALL_TYPES; i++ )
 		{
-			if( IsValid( nessy.hat ) )
+			if ( i in file.entOwnedNessieCostumes[ ent ] )
+				allCostumesForType = file.entOwnedNessieCostumes[ ent ][ i ]
+		}
+	}
+	else
+	{
+		if ( specifiedType in file.entOwnedNessieCostumes[ ent ] )
+			array<entity> allCostumesForType = file.entOwnedNessieCostumes[ ent ][ specifiedType ]
+	}
+
+	ArrayRemoveInvalid( allCostumesForType )
+	foreach( prop in allCostumesForType )
+	{
+		if ( IsValid( prop ) )
+			ClearNessyProp( prop, ent, isDissolving )
+	}
+}
+
+void function ClearNessyProp( entity prop, entity owner = null, bool isDissolving = false )
+{
+	// drop prop version
+	if ( file.shouldDropPropOnClearNessy )
+	{
+		vector dropDir = prop.GetUpVector()
+		float dropSpeed = RandomFloatRange( 50, 100 )
+		prop.ClearParent()
+
+		// attach to a physics
+		entity physics = AttachPhysicsToNessieProp( nessie )
+		physics.NotSolid() // disable collision because they're gonna fadeout soon
+		physics.SetVelocity( dropDir * dropSpeed )
+
+		if ( isDissolving )
+			thread DissolveNessieProp( prop ) // always dissolve immediately
+		else
+			thread FadeOutNessieProp( prop, NESSIE_PROP_FADEOUT_DELAY )
+	}
+	else // normal remove
+	{
+		if ( isDissolving )
+			thread DissolveNessieProp( prop )
+		else
+			thread FadeOutNessieProp( prop )
+	}
+
+	// try to clear from owner owned array
+	if ( IsValid( owner ) )
+	{
+		if ( owner in file.entOwnedNessieCostumes )
+		{
+			for ( int i = 0; i < eNessieType.NESSIE_ALL_TYPES; i++ )
 			{
-				nessy.hat.Destroy()
-				//nessy.hat.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 100 )
-				file.nessyhats.removebyvalue( nessy )
+				if ( i in file.entOwnedNessieCostumes[ owner ] )
+				{
+					foreach ( int j, prop in file.entOwnedNessieCostumes[ owner ][ i ] )
+						file.entOwnedNessieCostumes[ owner ][ i ].remove( j )
+				}
 			}
 		}
 	}
-	foreach( NessyPack nessy in file.nessybackpacks )
-	{
-		if(nessy.owner == player)
-		{
-			if( IsValid( nessy.pack ) )
-			{
-				nessy.pack.Destroy()
-				//nessy.pack.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 100 )
-				file.nessybackpacks.removebyvalue( nessy )
-			}
-		}
-	}
-	foreach( NessyPistol nessy in file.nessypistols )
-	{
-		if(nessy.owner == player)
-		{
-			if( IsValid( nessy.pistol ) )
-			{
-				nessy.pistol.Destroy()
-				//nessy.pistol.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 100 )
-				file.nessypistols.removebyvalue( nessy )
-			}
-		}
-	}
-	foreach( NessyWeapon nessy in file.nessyweapons )
-	{
-		if(nessy.owner == player)
-		{
-			if( IsValid( nessy.weapon ) )
-			{
-				nessy.weapon.Destroy()
-				//nessy.weapon.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 100 )
-				file.nessyweapons.removebyvalue( nessy )
-			}
-		}
-	}
+}
+
+void function FadeOutNessieProp( entity prop, float delay = 0 )
+{
+	prop.EndSignal( "OnDestroy" )
+	if ( delay > 0 )
+		wait delay
+
+	// function defined in prop_utility.gnut, taken from r5s3
+	float currentAlpha = int( prop.kv.renderamt )
+	waitthread PROTO_FadeModelAlphaOverTime( ent, 1.5, currentAlpha, 0 )
+	// consider we've completely hide the prop, destroy it now
+	prop.Destroy()
+}
+
+void function DissolveNessieProp( entity prop, float delay = 0 )
+{
+	prop.EndSignal( "OnDestroy" )
+	if ( delay > 0 )
+		wait delay
+
+	prop.Dissolve( ENTITY_DISSOLVE_CORE, Vector( 0, 0, 0 ), 500 )
+	prop.WaitSignal( "OnDestroy" ) // wait for destroy
+}
+
+// needs rework
+void function ClearNessyEffect( entity ent )
+{
 	foreach( NessyFX nessy in file.nessyfxs )
 	{
 		if(nessy.owner == player)
@@ -1620,11 +1926,8 @@ void function ClearNessy( entity player )
 
 bool function IsHeavyPilot( entity player )
 {
-	if( player.GetModelName() == $"models/humans/pilots/pilot_heavy_drex_m.mdl" ||
-		player.GetModelName() == $"models/humans/pilots/pilot_heavy_drex_f.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_heavy_roog_f.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_heavy_roog_m.mdl" || 
-		player.GetModelName() == $"models/humans/grunts/imc_grunt_shield_captain.mdl" )
+	asset playerModel = player.GetModelName()
+	if( HEAVY_PILOT_MODELS.contains( playerModel ) )
 		return true
 
 	return false
@@ -1632,14 +1935,8 @@ bool function IsHeavyPilot( entity player )
 
 bool function IsLightPilot( entity player )
 {
-	if( player.GetModelName() == $"models/Humans/heroes/imc_hero_blisk.mdl" || 
-		player.GetModelName() == $"models/Humans/heroes/imc_hero_ash.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_light_ged_f.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_light_ged_m.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_medium_reaper_f.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/sp_medium_geist_f.mdl" || 
-		player.GetModelName() == $"models/humans/heroes/mlt_hero_sarah.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_light_jester_f.mdl" )
+	asset playerModel = player.GetModelName()
+	if( LIGHT_PILOT_MODELS.contains( playerModel ) )
 		return true
 
 	return false
@@ -1647,9 +1944,8 @@ bool function IsLightPilot( entity player )
 
 bool function HasBigBackpack( entity player )
 {
-	if( player.GetModelName() == $"models/humans/pilots/pilot_light_jester_m.mdl" || 
-		player.GetModelName() == $"models/humans/grunts/mlt_grunt_lmg.mdl" ||
-		player.GetModelName() == $"models/robots/spectre/imc_spectre.mdl" )
+	asset playerModel = player.GetModelName()
+	if( MODELS_HAVE_BIG_BACKPACK.contains( playerModel ) )
 		return true
 
 	return false
@@ -1657,9 +1953,8 @@ bool function HasBigBackpack( entity player )
 
 bool function HasSmallBackpack( entity player )
 {
-	if( player.GetModelName() == $"models/humans/heroes/mlt_hero_jack.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_light_ged_m.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_light_jester_f.mdl" )
+	asset playerModel = player.GetModelName()
+	if( MODELS_HAVE_SMALL_BACKPACK.contains( playerModel ) )
 		return true
 
 	return false
@@ -1667,15 +1962,8 @@ bool function HasSmallBackpack( entity player )
 
 bool function CanRemoveHead( entity player )
 {
-	if( player.GetModelName() == $"models/humans/pilots/pilot_light_ged_m.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_light_ged_f.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_light_jester_m.mdl" || 
-		player.GetModelName() == $"models/humans/pilots/pilot_light_jester_f.mdl" )
-		return true
-	
-	// spectre uses this...
-	int bodyGroupId = player.FindBodyGroup( "removableHead" )
-	if ( bodyGroupId > -1 )
+	asset playerModel = player.GetModelName()
+	if( MODELS_CAN_REMOVE_HEAD.contains( playerModel ) )
 		return true
 
 	return false
@@ -1695,9 +1983,17 @@ int function GetRemovableHeadBodyGroupId( entity player )
 
 bool function CannotRemoveHelmet( entity player )
 {
-	if( player.GetModelName() == $"models/humans/heroes/mlt_hero_sarah.mdl" || 
-		player.GetModelName() == $"models/Humans/heroes/imc_hero_blisk.mdl" || 
-		player.GetModelName() == $"models/Humans/heroes/imc_hero_ash.mdl" )
+	asset playerModel = player.GetModelName()
+	if( MODELS_CANNOT_REMOVE_HELMET.contains( playerModel ) )
+		return true
+
+	return false
+}
+
+bool function HasExternalHelmet( entity player )
+{
+	asset playerModel = player.GetModelName()
+	if( MODELS_HAVE_EXTERNAL_HELMET.contains( playerModel ) )
 		return true
 
 	return false
@@ -1705,8 +2001,8 @@ bool function CannotRemoveHelmet( entity player )
 
 bool function HasFlatHead( entity player )
 {
-	// spectre mostly handling in canRemoveHead
-	if( player.GetModelName() == $"models/robots/spectre/imc_spectre.mdl" )
+	asset playerModel = player.GetModelName()
+	if( MODELS_HAVE_FLAT_HEAD.contains( playerModel ) )
 		return true
 
 	return false
@@ -1714,7 +2010,7 @@ bool function HasFlatHead( entity player )
 
 bool function IsPilotWeapon( asset model )
 {
-	if( [$"models/weapons/alternator_smg/w_alternator_smg.mdl", $"models/weapons/p2011_auto/w_p2011_auto.mdl", $"models/weapons/car101/w_car101.mdl", $"models/weapons/rspn101_dmr/w_rspn101_dmr.mdl", $"models/weapons/doubletake/w_doubletake.mdl", $"models/weapons/epg/w_epg.mdl", $"models/weapons/hemlock_br/w_hemlock_br.mdl", $"models/weapons/g2/w_g2a4.mdl", $"models/weapons/m1a1_hemlok/w_hemlok.mdl", $"models/weapons/hemlok_smg/w_hemlok_smg.mdl", $"models/weapons/lmg_hemlok/w_lmg_hemlok.mdl", $"models/weapons/lstar/w_lstar.mdl", $"models/weapons/mastiff_stgn/w_mastiff.mdl", $"models/weapons/pulse_lmg/w_pulse_lmg.mdl", $"models/weapons/rspn101/w_rspn101.mdl", $"models/weapons/r101_sfp/w_r101_sfp.mdl", $"models/weapons/p2011/w_p2011.mdl", $"models/weapons/w1128/w_w1128.mdl", $"models/weapons/pstl_sa3/w_pstl_sa3.mdl", $"models/weapons/p2011sp/w_p2011sp.mdl", $"models/weapons/auto_rocket_launcher_ARL/w_ARL.mdl", $"models/weapons/at_rifle/w_at_rifle.mdl", $"models/weapons/softball_at/w_softball_at.mdl", $"models/weapons/vinson/w_vinson.mdl", $"models/weapons/b3wing/w_b3wing.mdl", $"models/weapons/wingman_elite/w_wingman_elite.mdl"].contains( model ) )
+	if( PILOT_WEAPON_MODELS.contains( model ) )
 		return true
 
 	return false
@@ -1722,7 +2018,7 @@ bool function IsPilotWeapon( asset model )
 
 bool function IsPilotPistol( asset model )
 {
-	if( [$"models/weapons/b3wing/w_b3wing.mdl", $"models/weapons/wingman_elite/w_wingman_elite.mdl", $"models/weapons/p2011/w_p2011.mdl", $"models/weapons/p2011_auto/w_p2011_auto.mdl", $"models/weapons/pstl_sa3/w_pstl_sa3.mdl"].contains( model ) )
+	if( PILOT_PISTOL_MODELS.contains( model ) )
 		return true
 
 	return false
@@ -1730,7 +2026,7 @@ bool function IsPilotPistol( asset model )
 
 bool function IsTitanWeapon( asset model )
 {
-	if( [$"models/weapons/titan_sword/w_titan_sword_prime.mdl", $"models/weapons/titan_sword/w_titan_sword.mdl", $"models/weapons/titan_triple_threat/w_titan_triple_threat.mdl", $"models/weapons/titan_thermite_launcher/w_titan_thermite_launcher.mdl", $"models/weapons/titan_particle_accelerator/w_titan_particle_accelerator.mdl", $"models/weapons/titan_predator/w_titan_predator.mdl", $"models/weapons/titan_rocket_launcher/titan_rocket_launcher.mdl", $"models/weapons/titan_sniper_rifle/w_titan_sniper_rifle.mdl", $"models/weapons/thr_40mm/w_thr_40mm.mdl", $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl"].contains( model ) )
+	if( TITAN_WEAPON_MODELS.contains( model ) )
 		return true
 
 	return false

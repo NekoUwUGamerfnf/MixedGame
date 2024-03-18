@@ -74,6 +74,8 @@ struct
 
 	table<entity, bool> playerHasRGBHighlight
 	table<entity, bool> playerHasRainbowSkin
+	table<entity, bool> playerHasRGYBattery
+
 	table<entity, entity> playerFlipperMover
 	table<entity, entity> playerFakeMarvin
 
@@ -122,7 +124,7 @@ void function Nessie_Funny_Functions_Init()
 
 	// others
 	//AddClientCommandCallback( "rainbowdome", CC_SpawnRainbowDome )
-	AddClientCommandCallback( "nessyoutfit", CC_SpawnNessyOutfit )
+	AddClientCommandCallback( "nessycostume", CC_SpawnNessyCostume )
 
 	// marvin
 	InitMarvinIntroAnim()
@@ -142,6 +144,7 @@ void function OnClientConnected( entity player )
 {
 	file.playerHasRGBHighlight[ player ] <- false
 	file.playerHasRainbowSkin[ player ] <- false
+	file.playerHasRGYBattery[ player ] <- false
 	file.playerFlipperMover[ player ] <- null
 	file.playerFakeMarvin[ player ] <- null
 	file.playerNextFakeMarvinScriptedAnimAllowedTime[ player ] <- 0.0
@@ -157,6 +160,19 @@ void function OnDecoyCreated( entity player, entity decoy )
 		// inherit rainbow skin to decoy
 		if ( file.playerHasRainbowSkin[ player ] )
 			thread RainbowPlayerSkin( decoy )
+		// inherit rgy battery to decoy
+		if ( file.playerHasRGYBattery[ player ] )
+		{
+			var childEnt = decoy.FirstMoveChild()
+			while ( childEnt != null )
+			{
+				expect entity( childEnt )
+
+				bool isBattery = childEnt.GetModelName() == $"models/props/titan_battery_static/titan_battery_static.mdl"
+				if ( isBattery )
+					thread RGY_BatterySkin( childEnt )
+			}
+		}
 	}
 }
 
@@ -200,12 +216,12 @@ void function DelayedDestroyRainbowDome( entity domeShield, float delay )
 	domeShield.Destroy()
 }
 
-bool function CC_SpawnNessyOutfit( entity player, array<string> args )
+bool function CC_SpawnNessyCostume( entity player, array<string> args )
 {
 	if ( !GetConVarBool( "sv_cheats" ) && !file.clientCommandsEnabled )
 		return false
 
-	SpawnNessyOutfit( player )
+	SpawnNessyCostume( player )
 	return true
 }
 
@@ -448,7 +464,9 @@ void function RainbowWeaponSkin( entity weaponOwner )
 
 void function RGY_BatterySkin( entity battery )
 {
-	if( battery.GetClassName() != "item_titan_battery" )
+	bool isRealBattery = battery.GetClassName() == "item_titan_battery"
+	bool isPropBattery = !isRealBattery && battery.GetModelName() != $"models/props/titan_battery_static/titan_battery_static.mdl"
+	if( !isRealBattery && !isPropBattery )
 		return
 
 	battery.Signal( "StartRGYBattery" )
@@ -456,17 +474,44 @@ void function RGY_BatterySkin( entity battery )
 	battery.EndSignal( "StartRGYBattery" )
 	battery.EndSignal( "EndRGYBattery" )
 
+	entity lastTickParent
+	OnThreadEnd(
+		function(): ( battery, lastTickParent )
+		{
+			if ( IsValid( lastTickParent ) && lastTickParent.IsPlayer() )
+				file.playerHasRGYBattery[ lastTickParent ] = false
+		}
+	)
+
 	int index = 0
 	while( true )
 	{
+		// for real batteries, we check their parent
+		if ( isRealBattery )
+			lastTickParent = battery.GetParent()
+
 		//print( "setting battery skin: " + string( index ) )
 		WaitFrame()
+
 		battery.SetSkin( index )
 		Battery_StopFX( battery )
 		if( index == 2 )
 			index = 0
 		else
 			index++
+
+		// for real batteries, we check their current parent
+		// and if player changed parented battery or something, we update playerHasRGYBattery
+		entity currentParent = battery.GetParent()
+		// parent updated!
+		if ( lastTickParent != currentParent )
+		{
+			if ( IsValid( lastTickParent ) && lastTickParent.IsPlayer() )
+				file.playerHasRGYBattery[ lastTickParent ] = false
+		}
+		// a player currently holding the RGY battery
+		if ( IsValid( currentParent ) && currentParent.IsPlayer() )
+			file.playerHasRGYBattery[ lastTickParent ] = true
 	}
 }
 
