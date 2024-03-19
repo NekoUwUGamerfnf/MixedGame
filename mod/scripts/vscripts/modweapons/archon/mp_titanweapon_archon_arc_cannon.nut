@@ -208,9 +208,11 @@ void function ArchonCannonOnDamage( entity ent, var damageInfo )
 {
 	vector pos = DamageInfo_GetDamagePosition( damageInfo )
 	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	entity mainWeapon = attacker.GetActiveWeapon()
+	if ( !IsValid( attacker ) || ( attacker.GetTeam() == ent.GetTeam() && !FriendlyFire_IsEnabled() ) )
+		return
 
-	if ( !IsValid( attacker ) || attacker.GetTeam() == ent.GetTeam() )
+	entity mainWeapon = attacker.GetMainWeapons()[0]
+	if ( !IsValid( mainWeapon ) )
 		return
 
 	float damageMultiplier = DamageInfo_GetDamage( damageInfo ) / mainWeapon.GetWeaponSettingInt( eWeaponVar.damage_near_value_titanarmor )
