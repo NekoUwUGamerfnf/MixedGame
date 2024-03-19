@@ -8,13 +8,11 @@ global const array<string> BATTERY_SPAWNERS =
 global function EverythingNessy_Init
 global function Nessy_EnableAllFunny_Init
 
-// WIP: needs offset for all valid prop models
-global function Nessie_ShouldDropPropOnClear // we allow drop props to ground on clearing. they may block bullets but whatever
-
 global function SpawnNessyCostume
 global function ClearNessyCostume
 
-global function CreateNessyCostumeForType
+// enum isn't globalized, don't share this function
+//global function CreateNessyCostumeForType
 
 //global function Nessie_DecoyOutfitInit // this won't work since decoys don't spawn with DispatchSpawn()
 /*
@@ -26,8 +24,12 @@ global function CreateNessyPrimary
 global function CreateNessyFX
 */
 
-global function Nessie_AlwaysSpawnRGBStuff
+// costume
+global function Nessie_AutoSpawnCostumeForPlayers
+// WIP: needs offset for all valid prop models
+global function Nessie_ShouldDropPropOnClear // we allow drop props to ground on clearing. they may block bullets but whatever
 // nessie
+global function Nessie_AlwaysSpawnRGBStuff
 global function Nessie_SetNessieSpawnEnabled
 global function Nessie_SetAlwaysSpawnNessyDoll
 global function Nessie_SetWorldMaxNessieCount
@@ -35,25 +37,14 @@ global function Nessie_SetWorldMaxNessieCount
 global function Nessie_SetBatterySpawnEnabled
 // flag
 global function Nessie_SetFunnyFlagEnabled
-// decoy
-global function Nessie_SetDecoyOutfit
 // holospray, not enabled by default
 global function Nessie_SetHoloSprayEnabled
 // holding prop, not enabled by default
 global function Nessie_SetHoldingPropsEnabled
+// satchel planting
+global function Nessie_AllowSatchelBackpack
 
-struct NessyPistol
-{
-	asset modelasset
-	entity pistol
-	entity owner
-}
-struct NessyWeapon
-{
-	asset modelasset
-	entity weapon
-	entity owner
-}
+
 // needs rework. WIP
 struct NessyFX
 {
@@ -106,9 +97,11 @@ struct NessieEffect
 struct
 {
 	bool allSettingsEnabled = false
-	bool shouldDropPropOnClearNessy = false // needs more tweak before actually paid to work
 	bool alwaysRGBSpawn = false // funny
 
+	// costume
+	bool autoSpawnCostumes = false
+	bool shouldDropPropOnClearNessy = false // needs more tweak before actually paid to work
 	// nessy
 	bool nessieSpawnEnabled = false
 	bool alwaysSpawnNessyDoll = true
@@ -117,12 +110,12 @@ struct
 	bool batterySpawnEnabled = false
 	// flag
 	bool flagSpawnEnabled = false
-	// decoy
-	bool decoyNessieOutfit = false
 	// holospray
 	bool holoSprayEnabled = false
 	// holding prop
 	bool holdingPropsEnabled = false
+	// satchel planting
+	bool allowSatchelBackpack = false
 
 	// entities, no need to change default value
 	array<entity> nessieDolls
@@ -367,11 +360,11 @@ void function EverythingNessy_Init()
 	Nessie_DecoyOutfitInit()
 
 	AddCallback_OnClientConnected( OnClientConnected )
+	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
+	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
+	AddCallback_OnPlayerKilled( OnPlayerKilled )
 	AddCallback_OnPilotBecomesTitan( OnPilotBecomesTitan )
-
-	// following things needs a setting to enable
-	if ( !file.allSettingsEnabled )
-		return
+	AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
 
 	if ( Riff_TitanAvailability() == eTitanAvailability.Never )
 	{
@@ -379,11 +372,6 @@ void function EverythingNessy_Init()
 		//SetPilotBatteryUsageAllowed( true ) // from pilot_shield_battery.gnut
 		//SetShieldBatteryNoLimit( true ) // from pilot_shield_battery.gnut
 	}
-
-	AddCallback_OnPlayerRespawned( OnPlayerRespawned )
-	AddCallback_OnPlayerGetsNewPilotLoadout( OnPlayerChangeLoadout )
-	AddCallback_OnPlayerKilled( OnPlayerKilled )
-	AddCallback_OnTitanBecomesPilot( OnTitanBecomesPilot )
 
 	if( IsNonFlagGamemode() )
 		AddCallback_OnTouchHealthKit( "item_flag", OnFlagCollected )
@@ -399,21 +387,18 @@ void function EverythingNessy_Init()
 
 	// satchel funny, related with batteries
 	AddCallback_OnSatchelPlanted( OnSatchelPlanted )
-	// custom suicide commands
-	NessieCommands_EnableKillCommands( true )
-	// funny commands
-	NessieCommands_EnableUtilCommands( true )
-	NessieFunny_EnableClientCommands( true )
 }
 
 void function Nessy_EnableAllFunny_Init()
 {
 	file.allSettingsEnabled = true
-}
 
-void function Nessie_ShouldDropPropOnClear( bool should )
-{
-	file.shouldDropPropOnClearNessy = should
+	// enable all modified settings
+	// custom suicide commands
+	NessieCommands_EnableKillCommands( true )
+	// funny commands
+	NessieCommands_EnableUtilCommands( true )
+	NessieFunny_EnableClientCommands( true )
 }
 
 void function Nessie_AlwaysSpawnRGBStuff( bool always )
@@ -650,12 +635,6 @@ void function OnClientConnected( entity player )
 	AddButtonPressedPlayerInputCallback( player, IN_OFFHAND2, CallbackFuncThrowHoloSpray )
 }
 
-void function OnPilotBecomesTitan( entity player, entity titan )
-{
-	//ClearNessyCostume( player, eNessieType.NESSIE_ALL_TYPES, false, true )
-	ClearNessyCostume( player, eNessieType.NESSIE_ALL_TYPES, 0, true )
-}
-
 void function OnPlayerRespawned( entity player )
 {
 
@@ -663,7 +642,8 @@ void function OnPlayerRespawned( entity player )
 
 void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
 {
-	SpawnNessyCostume( player )
+	if ( file.allSettingsEnabled || file.autoSpawnCostumes )
+		SpawnNessyCostume( player )
 }
 
 void function Nessie_DecoyOutfitInit()
@@ -679,7 +659,7 @@ void function Nessie_DecoyOutfitInit()
 
 void function SpawnDecoyOutfit( entity player, entity decoy )
 {
-	if ( file.decoyNessieOutfit || file.allSettingsEnabled )
+	if ( file.allSettingsEnabled || file.autoSpawnCostumes )
 		SpawnNessyCostume( decoy )
 }
 
@@ -698,20 +678,24 @@ void function DecoyOutfitCleanUp( entity decoy, int currentState )
 	ClearNessyCostume( decoy, eNessieType.NESSIE_ALL_TYPES, 0, true )
 }
 
-void function Nessie_SetDecoyOutfit( bool set )
-{
-	file.decoyNessieOutfit = set
-}
-
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 {
 
 }
 
+void function OnPilotBecomesTitan( entity player, entity titan )
+{
+	//ClearNessyCostume( player, eNessieType.NESSIE_ALL_TYPES, false, true )
+	ClearNessyCostume( player, eNessieType.NESSIE_ALL_TYPES, 0, true )
+}
+
 void function OnTitanBecomesPilot( entity titan, entity player )
 {
-	//AllFunctionsTogether( player )
-	SpawnNessyCostume( player )
+	if ( file.allSettingsEnabled || file.autoSpawnCostumes )
+	{
+		//AllFunctionsTogether( player )
+		SpawnNessyCostume( player )
+	}
 }
 
 void function PrecacheSelectedModels()
@@ -752,6 +736,16 @@ void function PrecacheSelectedParticles()
 	{
 		PrecacheParticleSystem( particle )
 	}
+}
+
+void function Nessie_AutoSpawnCostumeForPlayers( bool set )
+{
+	file.autoSpawnCostumes = set
+}
+
+void function Nessie_ShouldDropPropOnClear( bool should )
+{
+	file.shouldDropPropOnClearNessy = should
 }
 
 void function SpawnNessyCostume( entity ent )
@@ -1181,13 +1175,18 @@ void function Nessie_SetBatterySpawnEnabled( bool enabled )
 	file.batterySpawnEnabled = enabled
 }
 
+void function Nessie_AllowSatchelBackpack( bool allow )
+{
+	file.allowSatchelBackpack = allow
+}
+
 // satchel funny related with batteries
 // function has been modified in mp_weapon_satchel.nut
 void function OnSatchelPlanted( entity owner, entity satchel, table collisionParams )
 {
 	//print( "RUNNING OnSatchelPlanted()" )
 	// satchel planted on battery!
-	if ( file.batterySpawnEnabled )
+	if ( file.allSettingsEnabled || file.allowSatchelBackpack )
 	{
 		entity hitEnt = expect entity( collisionParams.hitEnt )
 		//print( "hitEnt: " + string( hitEnt ) )
