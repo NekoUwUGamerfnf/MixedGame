@@ -9,10 +9,11 @@ global function EverythingNessy_Init
 global function Nessy_EnableAllFunny_Init
 
 global function SpawnNessyCostume
-global function ClearNessyCostume
+global function ClearAllNessyCostume
 
-// enum isn't globalized, don't share this function
+// enum isn't globalized, don't share these functions
 //global function CreateNessyCostumeForType
+//global function ClearNessyCostume
 
 //global function Nessie_DecoyOutfitInit // this won't work since decoys don't spawn with DispatchSpawn()
 /*
@@ -26,6 +27,7 @@ global function CreateNessyFX
 
 // costume
 global function Nessie_AutoSpawnCostumeForPlayers
+global function Nessie_ShouldSpawnCostumeForPlayers // to be shared with altpilot.gnut
 // WIP: needs offset for all valid prop models
 global function Nessie_ShouldDropPropOnClear // we allow drop props to ground on clearing. they may block bullets but whatever
 // nessie
@@ -357,6 +359,9 @@ void function EverythingNessy_Init()
 	PrecacheParticleSystem( FLAG_FX_FRIENDLY )
 	PrecacheParticleSystem( FLAG_FX_ENEMY )
 
+	RegisterSignal( "SpawnNessyCostume" )
+	RegisterSignal( "ClearAllNessyCostume" )
+
 	Nessie_DecoyOutfitInit()
 
 	AddCallback_OnClientConnected( OnClientConnected )
@@ -642,7 +647,7 @@ void function OnPlayerRespawned( entity player )
 
 void function OnPlayerChangeLoadout( entity player, PilotLoadoutDef p )
 {
-	if ( file.allSettingsEnabled || file.autoSpawnCostumes )
+	if ( Nessie_ShouldSpawnCostumeForPlayers() )
 		SpawnNessyCostume( player )
 }
 
@@ -659,7 +664,7 @@ void function Nessie_DecoyOutfitInit()
 
 void function SpawnDecoyOutfit( entity player, entity decoy )
 {
-	if ( file.allSettingsEnabled || file.autoSpawnCostumes )
+	if ( Nessie_ShouldSpawnCostumeForPlayers() )
 		SpawnNessyCostume( decoy )
 }
 
@@ -675,7 +680,7 @@ void function DecoyOutfitCleanUp( entity decoy, int currentState )
 	//bool instant = !file.shouldDropPropOnClearNessy
 	//ClearNessyCostume( decoy, eNessieType.NESSIE_ALL_TYPES, 0, instant )
 
-	ClearNessyCostume( decoy, eNessieType.NESSIE_ALL_TYPES, 0, true )
+	ClearAllNessyCostume( decoy, 0, true )
 }
 
 void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
@@ -686,12 +691,12 @@ void function OnPlayerKilled( entity victim, entity attacker, var damageInfo )
 void function OnPilotBecomesTitan( entity player, entity titan )
 {
 	//ClearNessyCostume( player, eNessieType.NESSIE_ALL_TYPES, false, true )
-	ClearNessyCostume( player, eNessieType.NESSIE_ALL_TYPES, 0, true )
+	ClearAllNessyCostume( player, 0, true )
 }
 
 void function OnTitanBecomesPilot( entity titan, entity player )
 {
-	if ( file.allSettingsEnabled || file.autoSpawnCostumes )
+	if ( Nessie_ShouldSpawnCostumeForPlayers() )
 	{
 		//AllFunctionsTogether( player )
 		SpawnNessyCostume( player )
@@ -743,6 +748,11 @@ void function Nessie_AutoSpawnCostumeForPlayers( bool set )
 	file.autoSpawnCostumes = set
 }
 
+bool function Nessie_ShouldSpawnCostumeForPlayers()
+{
+	return file.allSettingsEnabled || file.autoSpawnCostumes
+}
+
 void function Nessie_ShouldDropPropOnClear( bool should )
 {
 	file.shouldDropPropOnClearNessy = should
@@ -763,6 +773,7 @@ void function SpawnNessyCostume_Threaded( entity ent )
 	if( ent.IsTitan() )
 		return
 
+	ent.Signal( "SpawnNessyCostume" )
 	CreateNessyHat( ent )
 	CreateNessyBackpack( ent )
 	thread TrackNessyCostumeOwner( ent )
@@ -771,6 +782,8 @@ void function SpawnNessyCostume_Threaded( entity ent )
 void function TrackNessyCostumeOwner( entity ent )
 {
 	ent.EndSignal( "OnDestroy" ) // destroyed ent gets their children destroyed, no worries
+	ent.EndSignal( "SpawnNessyCostume" )
+	ent.EndSignal( "ClearAllNessyCostume" )
 
 	AddEntityCallback_OnKilled( ent, OnNessyCostumeOwnerKilled )
 	OnThreadEnd
@@ -779,7 +792,7 @@ void function TrackNessyCostumeOwner( entity ent )
 		{
 			if ( IsValid( ent ) )
 			{
-				ClearNessyCostume( ent )
+				ClearAllNessyCostume( ent )
 				RemoveEntityCallback_OnKilled( ent, OnNessyCostumeOwnerKilled )
 			}
 		}
@@ -810,7 +823,7 @@ void function OnNessyCostumeOwnerKilled( entity ent, var damageInfo )
 
 	// seems no need to use dissolve while clearing, which adds too many particle on them
 	//ClearNessyCostume( ent, eNessieType.NESSIE_ALL_TYPES, isDissolving, instant )
-	ClearNessyCostume( ent, eNessieType.NESSIE_ALL_TYPES, propFadeOutDelay, instant )
+	ClearAllNessyCostume( ent, propFadeOutDelay, instant )
 }
 
 void function CreateNessyEffects( entity player )
@@ -1839,6 +1852,13 @@ void function CreateMixedNessyFX( array<asset> mixbase, array<asset> mixmlt, arr
 		}
 	}
 	file.nessymixs.append(nessy)
+}
+
+void function ClearAllNessyCostume( entity ent, float propFadeOutDelay = NESSIE_PROP_FADEOUT_DELAY, bool instant = false )
+{
+	// if we're clearing all costume, signal it out
+	ent.Signal( "ClearAllNessyCostume" )
+	ClearNessyCostume( ent, eNessieType.NESSIE_ALL_TYPES, propFadeOutDelay, instant )
 }
 
 // seems no need to use dissolve while clearing, which adds too many particle on them
