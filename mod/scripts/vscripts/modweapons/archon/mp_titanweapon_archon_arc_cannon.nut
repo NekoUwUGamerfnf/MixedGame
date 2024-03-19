@@ -211,7 +211,10 @@ void function ArchonCannonOnDamage( entity ent, var damageInfo )
 	if ( !IsValid( attacker ) || ( attacker.GetTeam() == ent.GetTeam() && !FriendlyFire_IsEnabled() ) )
 		return
 
-	entity mainWeapon = attacker.GetMainWeapons()[0]
+	array<entity> weapons = attacker.GetMainWeapons()
+	if ( weapons.len() <= 0 )
+		return
+	entity mainWeapon = weapons[0]
 	if ( !IsValid( mainWeapon ) )
 		return
 
