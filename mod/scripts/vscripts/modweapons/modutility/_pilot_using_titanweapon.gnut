@@ -1,14 +1,133 @@
 untyped
 global function Pilot_Using_TitanWeapons_Init
 
-global function OnWeaponOwnerChanged_PilotTitanWeapons
-global function OnWeaponPrimaryAttack_PilotTitanWeapons
-
-void function Pilot_Using_TitanWeapons_Init()
+// we coult use this table for handling each model's scale
+// but for now I'd prefer having a constant scale value
+const table<asset, float> TITAN_WEAPON_MODEL_SCALE_TABLE =
 {
 
 }
 
+const float PILOT_TITAN_WEAPON_MODEL_SCALE = 0.4
+
+// have to hardcode each weapon's FP to world model because we can only get FP model name if we use GetModelName() on player's weapon
+const table<asset, asset> TITAN_WEAPON_FP_MODEL_TO_WORLD =
+{
+    [$"models/weapons/titan_triple_threat/atpov_titan_triple_threat.mdl"] = $"models/weapons/titan_triple_threat/w_titan_triple_threat.mdl",
+    [$"models/weapons/titan_thermite_launcher/atpov_titan_thermite_launcher.mdl"] = $"models/weapons/titan_thermite_launcher/w_titan_thermite_launcher.mdl",
+    [$"models/weapons/titan_particle_accelerator/atpov_titan_particle_accelerator.mdl"] = $"models/weapons/titan_particle_accelerator/w_titan_particle_accelerator.mdl",
+    [$"models/weapons/titan_predator/atpov_titan_predator.mdl"] = $"models/weapons/titan_predator/w_titan_predator.mdl",
+    [$"models/weapons/titan_rocket_launcher/atpov_titan_rocket_launcher.mdl"] = $"models/weapons/titan_rocket_launcher/titan_rocket_launcher.mdl",
+    [$"models/weapons/atpov_titan_sniper_rifle/atpov_titan_sniper_rifle.mdl"] = $"models/weapons/titan_sniper_rifle/w_titan_sniper_rifle.mdl",
+    [$"models/weapons/thr_40mm/atpov_thr_40mm.mdl"] = $"models/weapons/thr_40mm/w_thr_40mm.mdl",
+    [$"models/weapons/titan_xo16_shorty/atpov_xo16shorty.mdl"] = $"models/weapons/titan_xo16_shorty/w_xo16shorty.mdl",
+    [$"models/weapons/titan_sword/atpov_titan_sword.mdl"] = $"models/weapons/titan_sword/w_titan_sword.mdl",
+    [$"models/weapons/titan_sword/atpov_titan_sword_prime.mdl"] = $"models/weapons/titan_sword/w_titan_sword_prime.mdl",
+
+    // northstar weapon model
+    [$"models/weapons/titan_triple_threat_og/atpov_titan_triple_threat_og.mdl"] = $"models/weapons/titan_triple_threat_og/w_titan_triple_threat_og.mdl",
+    [$"models/weapons/titan_arc_rifle/atpov_titan_arc_rifle.mdl"] = $"models/weapons/titan_arc_rifle/w_titan_arc_rifle.mdl",
+}
+
+// these are no longer needed, we could change weapon.kv.renderamt for that
+/*
+global function OnWeaponOwnerChanged_PilotTitanWeapons
+global function OnWeaponPrimaryAttack_PilotTitanWeapons
+*/
+
+struct
+{
+    table<entity, bool> weaponsHiddenByThisScript
+    table<entity, entity> weaponFakeProp
+} file
+
+void function Pilot_Using_TitanWeapons_Init()
+{
+    AddCallback_OnClientConnected( OnClientConnected )
+}
+
+void function OnClientConnected( entity player )
+{
+    thread PilotTitanWeaponThink( player )
+}
+
+void function PilotTitanWeaponThink( entity player )
+{
+    player.EndSignal( "OnDestroy" )
+
+    while ( true )
+    {
+        // try to create ourselves a fake weapon model if we have titan weapon active
+        // also hide that weapon
+        WaitFrame( true ) // bypass script fps limit for better visual
+
+        if ( !IsAlive( player ) )
+            continue
+
+        array<entity> weapons
+        weapons.extend( player.GetMainWeapons() )
+        weapons.extend( player.GetOffhandWeapons() )
+        if ( IsPilot( player ) )
+        {
+            foreach ( entity weapon in weapons )
+            {
+                if ( weapon.GetWeaponInfoFileKeyField( "weaponClass" ) == "titan" )
+                {
+                    //print( "we got pilot's titan weapon: " + string( weapon ) )
+                    if ( !( weapon in file.weaponsHiddenByThisScript ) )
+                    {
+                        //print( "trying to hide it!" )
+                        weapon.kv.rendermode = 4
+                        weapon.kv.renderamt = 0
+                        file.weaponsHiddenByThisScript[ weapon ] <- true
+                    }
+                }
+            }
+
+            entity activeWeapon = player.GetActiveWeapon()
+            if ( IsValid( activeWeapon ) )
+            {
+                if ( activeWeapon.GetWeaponInfoFileKeyField( "weaponClass" ) == "titan" )
+                {
+                    //print( "we got pilot's active titan weapon: " + string( activeWeapon ) )
+                    if ( !( activeWeapon in file.weaponFakeProp ) )
+                        file.weaponFakeProp[ activeWeapon ] <- null
+
+                    if ( !IsValid( file.weaponFakeProp[ activeWeapon ] ) )
+                    {
+                        asset fpModelName = activeWeapon.GetModelName()
+                        //print( "modelname: " + string( fpModelName ) )
+                        if ( fpModelName in TITAN_WEAPON_FP_MODEL_TO_WORLD )
+                        {
+                            //print( "trying to create fake model for it" )
+                            asset worldModelName = TITAN_WEAPON_FP_MODEL_TO_WORLD[ fpModelName ]
+                            entity fakeWeapon = FakeWorldModel_CreateForWeapon( activeWeapon, worldModelName )
+                            fakeWeapon.kv.modelscale = PILOT_TITAN_WEAPON_MODEL_SCALE
+                            file.weaponFakeProp[ activeWeapon ] = fakeWeapon
+                        }
+                    }
+                }
+            }
+        }
+        else
+        {
+            foreach ( entity weapon in weapons )
+            {
+                if ( weapon.GetWeaponInfoFileKeyField( "weaponClass" ) == "titan" )
+                {
+                    if ( weapon in file.weaponsHiddenByThisScript )
+                    {
+                        weapon.kv.rendermode = 0
+                        weapon.kv.renderamt = 255
+                        delete file.weaponsHiddenByThisScript[ weapon ]
+                    }
+                }
+            }
+        }
+    }
+}
+
+/*
 void function OnWeaponOwnerChanged_PilotTitanWeapons( entity weapon, WeaponChan )
 {
     thread DelayedHideModelForPilots( weapon )
@@ -98,3 +217,4 @@ void function FakeLoopingSound( entity weapon, bool isLoopStart )
     EmitSoundOnEntityExceptToPlayer( player, player, loopingSoundEnd )
     weapon.s.loopingSound = false
 }
+*/
