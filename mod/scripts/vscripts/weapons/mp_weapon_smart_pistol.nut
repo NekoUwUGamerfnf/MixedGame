@@ -171,7 +171,11 @@ void function CreateFakeModelForSmartPistol( entity weapon )
 	// can't get eWeaponVar.playermodel... currently hardcode
 	asset model = FAKE_MODEL_MODS[ fakeModelMod ]
 	// shared utility from _fake_world_weapon_model.gnut
-	FakeWorldModel_CreateForWeapon( weapon, model )
+	entity fakeModel = FakeWorldModel_CreateForWeapon( weapon, model )
+	// HACK for pilot usage: scale down fake model size
+	entity owner = weapon.GetWeaponOwner()
+	if ( IsValid( owner ) && IsPilot( owner ) )
+		fakeModel.kv.modelscale = PILOT_TITAN_WEAPON_MODEL_SCALE // shared const from _pilot_using_titanweapon.gnut
 }
 #endif
 
