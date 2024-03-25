@@ -7667,27 +7667,33 @@ void function OnCloakedPilotDamageTarget( entity ent, var damageInfo )
 	if ( !( attacker in file.npcPilotActivatedCloak ) )
 		return
 
-	if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
+	if ( IsCloaked( attacker ) )
 	{
-		if ( IsCloaked( attacker ) )
+		if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
 		{
 			// EDIT here: flickering npc still can't be targeted... other npcs only looks at them but never shoot
 			// better break their cloak afte certain delay
 			if ( attacker in file.npcPilotMeleeBreakCloakTime && Time() > file.npcPilotMeleeBreakCloakTime[ attacker ] )
 			{
 				DisableCloak( attacker, 0.5 )
-				attacker.Signal( "CloakTimeOut" ) // end NPCPilotActivatesCloak() thread
+				// here goes some hack: we don't end NPCPilotActivatesCloak() thread
+				// because this callback is called earlier than _melee_synced_npc.gnut's execution think
+				// and if we disable thread here, after npc being cloaked again by RestoreCloakAfterMelee()
+				// it will be the case we can't handle anymore... don't want that to happen
+				// function NPCPilotCloakTimer() has been updated, should be able to handle animation case
+				//attacker.Signal( "CloakTimeOut" ) // end NPCPilotActivatesCloak() thread
 			}
 			else if ( svGlobal.cloakBreaksOnMelee ) // same think as CodeCallback_OnMeleePressed() does
 				attacker.SetCloakFlicker( 1.0, 2.0 )
 		}
-	}
-	else // projectile/hitscan checks
-	{
-		if ( attacker in file.npcPilotRangedAttackBreakCloakTime && Time() > file.npcPilotRangedAttackBreakCloakTime[ attacker ] )
+		else // projectile/hitscan checks
 		{
-			DisableCloak( attacker, 0.5 )
-			attacker.Signal( "CloakTimeOut" ) // end NPCPilotActivatesCloak() thread
+			if ( attacker in file.npcPilotRangedAttackBreakCloakTime && Time() > file.npcPilotRangedAttackBreakCloakTime[ attacker ] )
+			{
+				DisableCloak( attacker, 0.5 )
+				// function NPCPilotCloakTimer() has been updated, there should be no need we manually signal things out
+				//attacker.Signal( "CloakTimeOut" ) // end NPCPilotActivatesCloak() thread
+			}
 		}
 	}
 }
@@ -8179,21 +8185,30 @@ void function NPCPilotCloakTimer( entity pilot, float duration )
 	pilot.EndSignal( "OnDestroy" )
 	pilot.EndSignal( "OnDeath" )
 
+	// so here is some tweak: due we can do execution which will temporarily disable our cloak
+	// change back to use looping checks
+	/*
 	wait duration
 	pilot.Signal( "CloakTimeOut" )
+	*/
 
 	// EDIT: "decloakOnShoot" won't work at all!
-	/*
+	// EDIT2: this now handles animating case
 	float endTime = Time() + duration
+	bool firstLoop = true
 	while ( Time() < endTime ) // max timer think
 	{
-		if ( !IsCloaked( pilot ) ) // decloak due to "decloakOnShoot" in aiSetFile
+		if ( !firstLoop )
+			WaitFrame()
+		firstLoop = false
+
+		if ( pilot.Anim_IsActive() || IsValid( pilot.GetParent() ) ) // pilot performing execution will temporarily disable their cloak, and then restore later
+			continue
+		if ( !IsCloaked( pilot ) ) // EDIT: decloak due to DisableCloak() by other function calls. decloak due to "decloakOnShoot" in aiSetFile
 			break
-		WaitFrame()
 	}
 
 	pilot.Signal( "CloakTimeOut" )
-	*/
 }
 
 void function DisableNPCAttackCapability( entity guy, bool disableRangedAttack = true, bool disableMelee = true, bool disableMovement = false )
