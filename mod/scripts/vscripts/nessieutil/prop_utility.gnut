@@ -1,0 +1,120 @@
+global function Nessie_Prop_Utility_Init
+
+// taken from r5s3
+global function PROTO_FadeModelAlphaOverTime
+global function PROTO_FadeAlphaOverTimeOnEntityAndChildren
+
+void function Nessie_Prop_Utility_Init()
+{
+    RegisterSignal( "FadeModelAlphaOverTime" )
+}
+
+void function PROTO_FadeModelAlphaOverTime( entity ent, float duration, int startAlpha = 255, int endAlpha = 0 )
+{
+	EndSignal( ent, "OnDestroy" )
+
+	Signal( ent, "FadeModelAlphaOverTime" )
+	EndSignal( ent, "FadeModelAlphaOverTime" )
+
+	OnThreadEnd( void function() : ( ent, endAlpha ) {
+		if ( !IsValid( ent ) )
+			return
+
+		ent.kv.renderamt = endAlpha
+		if ( endAlpha >= 255 )
+			ent.kv.rendermode = 0
+	} )
+
+	ent.kv.rendermode = 4
+
+	float startTime = Time()
+	float endTime   = startTime + duration
+	while ( Time() <= endTime )
+	{
+		ent.kv.renderamt = GraphCapped( Time(), startTime, endTime, startAlpha, endAlpha )
+		WaitFrame( true ) // needs to bypass script frame limit for better visual
+	}
+}
+
+void function PROTO_FadeAlphaOverTimeOnEntityAndChildren( entity parentEnt, float duration, int startAlpha, int endAlpha, float delay )
+{
+	EndSignal( parentEnt, "OnDestroy" )
+
+	Signal( parentEnt, "FadeModelAlphaOverTime" )
+	EndSignal( parentEnt, "FadeModelAlphaOverTime" )
+
+	//parentEnt.Hide()
+	parentEnt.kv.rendermode = 4
+	parentEnt.kv.renderamt = startAlpha
+
+	WaitFrame() // todo(dw): aaaaahhh
+
+	array<entity> hierachy = GetEntityAndImmediateChildren( parentEnt )
+	foreach ( entity hierachyEnt in hierachy )
+	{
+		hierachyEnt.kv.rendermode = 4
+		hierachyEnt.kv.renderamt = startAlpha
+		//hierachyEnt.Hide()
+	}
+
+	wait delay
+
+	OnThreadEnd( void function() : ( endAlpha, hierachy ) {
+		foreach ( entity hierachyEnt in hierachy )
+		{
+			if ( !IsValid( hierachyEnt ) )
+				continue
+
+			hierachyEnt.kv.renderamt = endAlpha
+			if ( endAlpha >= 255 )
+				hierachyEnt.kv.rendermode = 0
+		}
+	} )
+
+	WaitFrame()
+	//foreach ( entity hierachyEnt in hierachy )
+	//{
+	//	if ( !IsValid( hierachyEnt ) )
+	//		continue
+	//
+	//	hierachyEnt.Show()
+	//}
+
+	foreach ( entity hierachyEnt in hierachy )
+	{
+		if ( !IsValid( hierachyEnt ) )
+			continue
+
+		hierachyEnt.kv.rendermode = 4
+		hierachyEnt.kv.renderamt = startAlpha
+	}
+
+	float startTime = Time()
+	float endTime   = startTime + duration
+	while ( Time() <= endTime )
+	{
+		foreach ( entity hierachyEnt in hierachy )
+		{
+			if ( !IsValid( hierachyEnt ) )
+				continue
+
+			hierachyEnt.kv.renderamt = GraphCapped( Time(), startTime, endTime, startAlpha, endAlpha )
+		}
+		WaitFrame( true ) // needs to bypass script frame limit for better visual
+	}
+}
+
+array<entity> function GetEntityAndImmediateChildren( entity parentEnt )
+{
+	array<entity> out = [parentEnt]
+
+    var childEnt = parentEnt.FirstMoveChild()
+	while ( childEnt != null )
+	{
+		expect entity( childEnt )
+	    out.append( childEnt )
+
+        childEnt = childEnt.NextMovePeer()
+    }
+	return out
+}

@@ -318,7 +318,7 @@ void function OnTitanBecomesPilot( entity player, entity titan )
 }
 //
 
-entity function CreateModelFXOnEnt( entity ent, asset effectName, string attachment, bool attachToEnt = false, bool loopEffect = false, int visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE, bool immediateDestroy = true )
+entity function CreateModelFXOnEnt( entity ent, asset effectName, string attachment, bool attachToEnt = false, bool loopEffect = false, int visibilityFlags = ENTITY_VISIBLE_TO_EVERYONE )
 {
     int attachID = ent.LookupAttachment( attachment )
     // anti-crash
@@ -344,11 +344,26 @@ entity function CreateModelFXOnEnt( entity ent, asset effectName, string attachm
     }
     effect.SetOwner( ent )
     effect.kv.VisibilityFlags = visibilityFlags
+    // nah, should only stop EndCap when we try to re-create effects
+    // normal effects gets removed will still play their EndCap
+    /*
     if ( immediateDestroy ) // seems client-side effects always do so, though not looking well
         effect.SetStopType( "DestroyImmediately" )
+    */
     effect.DisableHibernation()
 
     return effect
+}
+
+void function RemoveModelFXImmediately( entity effect )
+{
+    // according to PodFXCleanup(), this method gets effects destroyed immediately
+    if ( IsValid_ThisFrame( effect ) )
+    {
+        effect.SetStopType( "DestroyImmediately" )
+        effect.ClearParent()
+        effect.Destroy()
+    }
 }
 
 entity function CreateRegeneratingModelFXOnEnt_ReturnPlaceHelper( entity ent, asset effectName, string attachment, bool attachToEnt, int visibilityFlags, string sound, float firstDelay, float randomWaitMin, float randomWaitMax )
@@ -801,7 +816,8 @@ void function ServerModelHealthFX_ReCreateActiveEffectsOnEntity( entity ent )
         if ( IsValid( effect ) ) // only try to re-create if last effect is active
         {
             // clean up last effect
-            EffectStop( effect )
+            //EffectStop( effect )
+            RemoveModelFXImmediately( effect ) // clean up effect without EndCap
             delete file.entOwnedModelHealthFXs[ storingEnt ][ index ]
 
             // create a new effect
@@ -1281,7 +1297,7 @@ entity function ServerModelFXData_CreateSpawnFX( entity ent, int specifiedIndex 
 
             // add effect and setup cleanup
             // spawnFX always attach to ent and loop, won't destroy immediately
-            entity effect = CreateModelFXOnEnt( ent, effectName, attachment, true, true, visibilityFlags, false )
+            entity effect = CreateModelFXOnEnt( ent, effectName, attachment, true, true, visibilityFlags )
             EntOwnedModelFXData_Spawn ownedFXStruct
             ownedFXStruct.effect = effect
             ownedFXStruct.defaultVisibilityFlags = visibilityFlags
@@ -1321,7 +1337,8 @@ void function ServerModelFXData_ReCreateActiveSpawnFXOnEntity( entity ent )
         if ( IsValid( effect ) ) // only try to re-create if last effect is active
         {
             // clean up last effect
-            EffectStop( effect )
+            //EffectStop( effect )
+            RemoveModelFXImmediately( effect ) // clean up effect without EndCap
             delete file.entOwnedModelSpawnFXsFromData[ storingEnt ][ index ]
 
             // create a new effect
@@ -1584,7 +1601,10 @@ entity function ServerModelFXData_CreateHealthFX( entity ent, int specifiedIndex
                         
                         entity effect = fxStruct.effect
                         if ( IsValid( effect ) )
-                            EffectStop( effect )
+                        {
+                            //EffectStop( effect )
+                            RemoveModelFXImmediately( effect ) // clean up effect without EndCap
+                        }
 
                         // don't delete data here, effect should still be considered as "applied to entity"
                         // so we don't overlap effects on every update
@@ -1651,7 +1671,8 @@ void function ServerModelFXData_ReCreateActiveHealthFXOnEntity( entity ent )
         if ( IsValid( effect ) ) // only try to re-create if last effect is active
         {
             // clean up last effect
-            EffectStop( effect )
+            //EffectStop( effect )
+            RemoveModelFXImmediately( effect ) // clean up effect without EndCap
             delete file.entOwnedModelHealthFXsFromData[ storingEnt ][ index ]
 
             // create a new effect
@@ -2054,7 +2075,7 @@ entity function ServerModelBodyGroupFX_CreateEffect( entity ent, int specifiedIn
         }
         else
         {
-            effect = CreateModelFXOnEnt( ent, effectName, attachment, attachToEnt, loopEffect, visibilityFlags, false )
+            effect = CreateModelFXOnEnt( ent, effectName, attachment, attachToEnt, loopEffect, visibilityFlags )
             // sound event
             if ( sound != "" )
                 EmitSoundOnEntity( ent, sound )
@@ -2122,7 +2143,10 @@ void function ServerModelBodyGroupFX_ReCreateActiveEffectsOnEntity( entity ent )
             if ( regenerateEffect ) // regenerating effect uses info_placement_helper to help management
                 effect.Destroy()
             else
-                EffectStop( effect )
+            {
+                //EffectStop( effect )
+                RemoveModelFXImmediately( effect ) // clean up effect without EndCap
+            }
             delete file.entOwnedModelBodyGroupFXs[ storingEnt ][ index ]
 
             // create a new effect, add random wait on next regenerating effect

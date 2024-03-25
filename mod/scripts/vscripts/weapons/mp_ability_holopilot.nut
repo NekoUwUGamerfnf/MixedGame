@@ -730,6 +730,7 @@ void function SetupDecoy_Common( entity player, entity decoy ) //functioned out 
 		if ( createHologram && modelName != $"" && childEnt.GetParentAttachment() != "" )
 		{
 			entity decoyChildEnt = CreatePropDynamic( modelName, <0, 0, 0>, <0, 0, 0>, 0 )
+			decoyChildEnt.SetSkin( childEnt.GetSkin() ) // this is just a meaningless misc fix: add skin for decoy's child
 			decoyChildEnt.Highlight_SetInheritHighlight( true )
 			decoyChildEnt.SetParent( decoy, childEnt.GetParentAttachment() )
 
