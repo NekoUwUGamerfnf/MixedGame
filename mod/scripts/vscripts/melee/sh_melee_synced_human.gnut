@@ -951,7 +951,8 @@ void function AnimEvent_spawn_decoy1( entity ent )
 	}
 	else
 	{
-		entity decoy = CreatePropAsDecoyForEnt( ent )
+		//entity decoy = CreatePropAsDecoyForEnt( ent ) // props don't have special dissolve effect
+		entity decoy = CreateFakeDecoyForNPC( ent )
 		decoy.Anim_Play( "pt_mp_execution_attacker_hologram_01" )
 	}
 }
@@ -968,7 +969,8 @@ void function AnimEvent_spawn_decoy2( entity ent )
 	}
 	else
 	{
-		entity decoy = CreatePropAsDecoyForEnt( ent )
+		//entity decoy = CreatePropAsDecoyForEnt( ent ) // props don't have special dissolve effect
+		entity decoy = CreateFakeDecoyForNPC( ent )
 		decoy.Anim_Play( "pt_mp_execution_attacker_hologram_02" )
 	}
 }
@@ -985,7 +987,8 @@ void function AnimEvent_spawn_decoy3( entity ent )
 	}
 	else
 	{
-		entity decoy = CreatePropAsDecoyForEnt( ent )
+		//entity decoy = CreatePropAsDecoyForEnt( ent ) // props don't have special dissolve effect
+		entity decoy = CreateFakeDecoyForNPC( ent )
 		decoy.Anim_Play( "pt_mp_execution_attacker_hologram_03" )
 	}
 }
@@ -1008,13 +1011,41 @@ void function HoloPilot_Execution_DecoySetup( entity decoy )
 }
 
 // save for npc executions!
+// welp, props not really working well... they don't have special dissolve effect
+// maybe we just create a copy of their npc class?
 entity function CreatePropAsDecoyForEnt( entity ent )
 {
 	entity decoy = CreatePropDynamic( ent.GetModelName() )
 	decoy.SetOrigin( ent.GetOrigin() )
-	decoy.SetAngles( < 0, ent.GetAngles().y, 0 > )
+	decoy.SetAngles( < 0, ent.EyeAngles().y, 0 > )
 	SetTeam( decoy, ent.GetTeam() )
 	decoy.SetOwner( ent ) // can't use setBossPlayer() cuz owner is a npc or something
+
+	SetupPropDecoy( ent, decoy )
+	HoloPilot_Execution_DecoySetup( decoy )
+	thread HoloPilot_Execution_MonitorLifeTime( ent, decoy )
+
+	return decoy
+}
+
+entity function CreateFakeDecoyForNPC( entity ent )
+{
+	string className = ent.GetClassName()
+	int team = ent.GetTeam()
+	vector origin = ent.GetOrigin()
+	vector angles = < 0, ent.EyeAngles().y, 0 >
+	string aiSettings = ent.GetAISettingsName()
+	asset modelName = ent.GetModelName()
+
+	entity decoy = CreateNPC( className, team, origin, angles )
+	SetSpawnOption_AISettings( decoy, aiSettings )
+
+	decoy.SetValueForModelKey( modelName )
+	DispatchSpawn( decoy )
+	decoy.SetModel( modelName )
+
+	decoy.SetOwner( ent )
+	decoy.SetInvulnerable()
 
 	SetupPropDecoy( ent, decoy )
 	HoloPilot_Execution_DecoySetup( decoy )
@@ -1064,9 +1095,9 @@ void function SetupPropDecoy( entity owner, entity prop )
 	//SetDefaultMPEnemyHighlight( prop )
 }
 
-void function DissolvePropDecoy( entity prop )
+void function DissolveFakeDecoy( entity prop )
 {
-	prop.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 0 ) // can't get Decoy_Dissolve() particle effects
+	prop.Dissolve( ENTITY_DISSOLVE_CHAR, < 0, 0, 0 >, 0 ) // props can't get Decoy_Dissolve() particle effects
 	// take things from fakestruct, for cleaning up
 	if ( prop in propDecoy.propDecoyFakeStruct )
 	{
@@ -1104,7 +1135,7 @@ void function HoloPilot_Execution_MonitorLifeTime( entity attacker, entity decoy
 				if ( decoy.IsPlayerDecoy() )
 					decoy.Decoy_Dissolve()
 				else // we may use prop for playing animations
-					DissolvePropDecoy( decoy )
+					DissolveFakeDecoy( decoy )
 			}
 		}
 	)
@@ -1122,7 +1153,7 @@ void function HoloPilot_Execution_DissolveDecoy( entity decoy )
 		if ( decoy.IsPlayerDecoy() )
 			decoy.Decoy_Dissolve()
 		else // we may use prop for playing animations
-			DissolvePropDecoy( decoy )
+			DissolveFakeDecoy( decoy )
 	}
 }
 
