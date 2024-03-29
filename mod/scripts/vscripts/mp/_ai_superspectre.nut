@@ -720,7 +720,6 @@ entity function CreateExplosionInflictor( vector origin )
 // modified nuke threshold and force kill think, wrapped into function
 bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = null, bool ignoreInterruptableCheck = false )
 {
-	bool ignoreInterruptableCheck = 
 	// these are checks that only valid when passing a damageInfo inside
 	bool damageThresholdChecksFailed = false
 	bool forceKilledByTitanChecksFailed = false
