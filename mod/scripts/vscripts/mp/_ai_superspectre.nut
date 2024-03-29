@@ -316,11 +316,17 @@ void function SuperSpectre_StartNukeSequence( entity npc, entity attacker = null
 	// wait for nuke anim to signal
 	WaitSignal( npc, "OnDeath", "death_explosion", "NukeSequenceFailSafe" )
 
+	// comment out this to keep notifying nearby npcs of dangerous area
+	// because no matter we remove it or not, npc gets destroyed will also destroy their parented entities
+	// but if we don't remove them manually, freezeDuringNukeSequence can keep reaper entity valid and make other npcs stay away from explosion center
+	// similar to sh_titan.gnut does
+	/*
 	if ( IsValid( nukeFXInfoTarget ) )
 	{
 		StopSoundOnEntity( nukeFXInfoTarget, "ai_reaper_nukedestruct_warmup_3p" )
 		nukeFXInfoTarget.Destroy()
 	}
+	*/
 
 	// attacker checks
 	// if attacker has been destroyed, or we force uses reaper itself as attacker
