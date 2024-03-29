@@ -446,6 +446,8 @@ struct
 	// for marking the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
 	// scripted npc dialogue
+	// removing "dialogueType"
+	//table< entity, table<string, float> > npcDialogueNextAllowedTimeOnPlayer
 	table<entity, float> npcDialogueNextAllowedTimeOnPlayer
 	// gunship forced model for replacement ship spawn
 	// this is kinda weird logic... could've reset models in ExtraSpawner_SpawnGunShip()
@@ -531,6 +533,8 @@ void function ExtraAISpawner_Init()
 	RegisterSignal( "EmbarkedNPCTitanDisembarkThink" )
 	// npc pilot think
 	RegisterSignal( "ScriptedNPCPilotTacticalAbility" )
+	// npc scripted dialogue
+	RegisterSignal( "NPCNextScriptDialogue" )
 	// gunship 
 	RegisterSignal( "GunshipJetBurstEffect" )
 	GunshipPrecache()
@@ -735,6 +739,8 @@ void function ExtraSpawner_SetNPCDamageHistoryLifeTime( float lifeTime )
 void function OnClientConnected( entity player )
 {
 	// scripted npc dialogue
+	// removing "dialogueType"
+	//file.npcDialogueNextAllowedTimeOnPlayer[ player ] <- {}
 	file.npcDialogueNextAllowedTimeOnPlayer[ player ] <- 0.0
 	// care package
 	file.playerLastCarePackageNotifiedTime[ player ] <- 0.0
@@ -4647,14 +4653,15 @@ void function ScriptedNPCWeaponSwitch( entity guy, string weaponToChange, bool i
 	// grunt specific: do dialogue(vanilla missing this in grunt_chatter_mp.rpak)
 	if ( IsGrunt( guy ) && isHeavyArmorTarget )
 	{
-		string dialogueType = "bc_switchingToAT"
+		// EDIT here: dialogueType's debounce now sharing with each other. check comments in function TryScriptedNPCDialogueOnPlayer() for more information
+		string dialogueType = "bc_switchingToAT" // this is a mark for us adding cooldown for specific types of dialogue
 		string dialoguePrefix = "diag_imc_grunt"
 		int gruntVariants = 6 // 1~6
 		int dialogueVariants = 2 // 1~2
 		float debounce = 20.0 // same as most grunt engage chatter does
 		// charge rifle specific
 		if ( weaponToChange == "mp_weapon_defender" )
-			dialogueType = "bc_usingChargeRifle"
+			dialogueType = "bc_usingChargeRifle" // changing type meaning this dialogue won't share debounce with "bc_switchingToAT"
 		TryGruntDialogue( guy, dialogueType, dialoguePrefix, gruntVariants, dialogueVariants, debounce )
 	}
 }
@@ -4696,11 +4703,15 @@ void function TryGruntDialogue( entity guy, string dialogueType, string dialogue
 	{
 		// ShouldPlayGruntChatterMPLine()'s first parameter only used in client-side checks, here we just leave it empty
 		if ( ShouldPlayGruntChatterMPLine( "", player, guy ) )
+		{
+			// removing "dialogueType"
+			//TryScriptedNPCDialogueOnPlayer( player, guy, builtDialogue, dialogueType, debounce )
 			TryScriptedNPCDialogueOnPlayer( player, guy, builtDialogue, debounce )
+		}
 	}
 }
 
-void function TryScriptedNPCDialogue( entity guy, string dialogue, float dialogueRange, float debounce )
+void function TryScriptedNPCDialogue( entity guy, string dialogue, float dialogueRange, string dialogueType, float debounce )
 {
 	array<entity> playersInRange
 	foreach ( entity player in GetPlayerArray_Alive() )
@@ -4710,30 +4721,52 @@ void function TryScriptedNPCDialogue( entity guy, string dialogue, float dialogu
 	}
 
 	foreach ( entity player in playersInRange )
+	{
+		// removing "dialogueType"
+		//TryScriptedNPCDialogueOnPlayer( player, guy, dialogue, dialogueType, debounce )
 		TryScriptedNPCDialogueOnPlayer( player, guy, dialogue, debounce )
+	}
 }
 
 // scripted npc dialogue, simply just emit a sound for npc
+// removing "dialogueType"
+//bool function TryScriptedNPCDialogueOnPlayer( entity player, entity guy, string dialogue, string dialogueType, float debounce )
 bool function TryScriptedNPCDialogueOnPlayer( entity player, entity guy, string dialogue, float debounce )
 {
-	// limit checks
+	// removing "dialogueType"
+	/*
+	if ( !( dialogueType in file.npcDialogueNextAllowedTimeOnPlayer[ player ] ) )
+		file.npcDialogueNextAllowedTimeOnPlayer[ player ][ dialogueType ] <- 0.0 // first type of dialogue
+	else if ( Time() < file.npcDialogueNextAllowedTimeOnPlayer[ player ][ dialogueType ] )
+		return false
+	*/
 	if ( Time() < file.npcDialogueNextAllowedTimeOnPlayer[ player ] )
 		return false
 
-	//print( "NPC " + string( guy ) + " is playing scripted dialogue: " + dialogue + " to player: " + string( player ) )
+	//print( "NPC " + string( guy ) + " is playing scripted dialogue: " + dialogue + " to player: " + string( player ) + " , this dialogue's type is: " + dialogueType )
+
+	// end last dialogue
+	// welp we can't do this... sound on server-side might be shared with others, meaning we can't just stop a existing sound
+	// we should have shared dialogue debounce for each npc so they won't overlap
+	// and that's why I didn't add "dialogueType" in my first implementation... I'm dumb and can't understand my coding
+	//guy.Signal( "NPCNextScriptDialogue" )
 
 	// only needs to play dialogue to specific player
 	EmitSoundOnEntityOnlyToPlayer( guy, player, dialogue )
 
+	// removing "dialogueType"
+	//file.npcDialogueNextAllowedTimeOnPlayer[ player ][ dialogueType ] = Time() + debounce
 	file.npcDialogueNextAllowedTimeOnPlayer[ player ] = Time() + debounce
-	thread TrackDialogueSpeakerDeath( guy, dialogue, debounce )
+	thread TrackDialogueSpeakerDeathOrNextDialogue( guy, dialogue, debounce )
 	return true
 }
 
-void function TrackDialogueSpeakerDeath( entity guy, string dialogue, float debounce )
+void function TrackDialogueSpeakerDeathOrNextDialogue( entity guy, string dialogue, float debounce )
 {
 	guy.EndSignal( "OnDestroy" )
 	guy.EndSignal( "OnDeath" )
+	guy.EndSignal( "NPCNextScriptDialogue" )
+
 	table results = {
 		waitTilDialogueEnd = false
 	}
