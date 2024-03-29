@@ -450,7 +450,7 @@ struct
 	// for marking the npc as one of prowler squad
 	table<entity, bool> isProwlerSquadmate
 	// scripted npc dialogue
-	table<entity, float> npcDialogueNextAllowedTimeOnPlayer
+	table< entity, table<string, float> > npcDialogueNextAllowedTimeOnPlayer
 	// gunship forced model for replacement ship spawn
 	// this is kinda weird logic... could've reset models in ExtraSpawner_SpawnGunShip()
 	//table<entity, asset> gunshipForcedSpawnModel
@@ -736,7 +736,7 @@ void function ExtraSpawner_SetNPCDamageHistoryLifeTime( float lifeTime )
 void function OnClientConnected( entity player )
 {
 	// scripted npc dialogue
-	file.npcDialogueNextAllowedTimeOnPlayer[ player ] <- 0.0
+	file.npcDialogueNextAllowedTimeOnPlayer[ player ] <- {}
 	// care package
 	file.playerLastCarePackageNotifiedTime[ player ] <- 0.0
 }
@@ -4837,14 +4837,14 @@ void function ScriptedNPCWeaponSwitch( entity guy, string weaponToChange, bool i
 	// grunt specific: do dialogue(vanilla missing this in grunt_chatter_mp.rpak)
 	if ( IsGrunt( guy ) && isHeavyArmorTarget )
 	{
-		string dialogueType = "bc_switchingToAT"
+		string dialogueType = "bc_switchingToAT" // this is a mark for us adding cooldown for specific types of dialogue
 		string dialoguePrefix = "diag_imc_grunt"
 		int gruntVariants = 6 // 1~6
 		int dialogueVariants = 2 // 1~2
 		float debounce = 20.0 // same as most grunt engage chatter does
 		// charge rifle specific
 		if ( weaponToChange == "mp_weapon_defender" )
-			dialogueType = "bc_usingChargeRifle"
+			dialogueType = "bc_usingChargeRifle" // changing type meaning this dialogue won't share debounce with "bc_switchingToAT"
 		TryGruntDialogue( guy, dialogueType, dialoguePrefix, gruntVariants, dialogueVariants, debounce )
 	}
 }
@@ -4886,11 +4886,11 @@ void function TryGruntDialogue( entity guy, string dialogueType, string dialogue
 	{
 		// ShouldPlayGruntChatterMPLine()'s first parameter only used in client-side checks, here we just leave it empty
 		if ( ShouldPlayGruntChatterMPLine( "", player, guy ) )
-			TryScriptedNPCDialogueOnPlayer( player, guy, builtDialogue, debounce )
+			TryScriptedNPCDialogueOnPlayer( player, guy, builtDialogue, dialogueType, debounce )
 	}
 }
 
-void function TryScriptedNPCDialogue( entity guy, string dialogue, float dialogueRange, float debounce )
+void function TryScriptedNPCDialogue( entity guy, string dialogue, float dialogueRange, string dialogueType, float debounce )
 {
 	array<entity> playersInRange
 	foreach ( entity player in GetPlayerArray_Alive() )
@@ -4900,22 +4900,23 @@ void function TryScriptedNPCDialogue( entity guy, string dialogue, float dialogu
 	}
 
 	foreach ( entity player in playersInRange )
-		TryScriptedNPCDialogueOnPlayer( player, guy, dialogue, debounce )
+		TryScriptedNPCDialogueOnPlayer( player, guy, dialogue, dialogueType, debounce )
 }
 
 // scripted npc dialogue, simply just emit a sound for npc
-bool function TryScriptedNPCDialogueOnPlayer( entity player, entity guy, string dialogue, float debounce )
+bool function TryScriptedNPCDialogueOnPlayer( entity player, entity guy, string dialogue, string dialogueType, float debounce )
 {
-	// limit checks
-	if ( Time() < file.npcDialogueNextAllowedTimeOnPlayer[ player ] )
+	if ( !( dialogueType in file.npcDialogueNextAllowedTimeOnPlayer[ player ] ) )
+		file.npcDialogueNextAllowedTimeOnPlayer[ player ][ dialogueType ] <- 0.0 // first type of dialogue
+	else if ( Time() < file.npcDialogueNextAllowedTimeOnPlayer[ player ] )
 		return false
 
-	//print( "NPC " + string( guy ) + " is playing scripted dialogue: " + dialogue + " to player: " + string( player ) )
+	//print( "NPC " + string( guy ) + " is playing scripted dialogue: " + dialogue + " to player: " + string( player ) + " , this dialogue's type is: " + dialogueType )
 
 	// only needs to play dialogue to specific player
 	EmitSoundOnEntityOnlyToPlayer( guy, player, dialogue )
 
-	file.npcDialogueNextAllowedTimeOnPlayer[ player ] = Time() + debounce
+	file.npcDialogueNextAllowedTimeOnPlayer[ player ][ dialogueType ] = Time() + debounce
 	thread TrackDialogueSpeakerDeath( guy, dialogue, debounce )
 	return true
 }
