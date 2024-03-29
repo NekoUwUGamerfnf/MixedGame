@@ -27,6 +27,7 @@ global function SuperSpectre_SetSpawnerTickMaxCount // decides how many ticks th
 global function SuperSpectre_SetDoNukeBeforeDeath // reapers will do nuke before their actual death, similar to stalker overload. this makes score reward goes later, but their highlight and title stuffs won't be removed until nuke sequence ends
 global function SuperSpectre_SetDoBodyGroupUpdateOnDamage // adding back this vanilla removed feature and make it a setting
 global function SuperSpectre_SetFreezeDuringNukeSequence // freeze the reaper during nuke sequence, so they won't be destroyed too early
+global function SuperSpectre_SetNukeWhenNotInterruptable // if enabled, reaper will try to detonate themselves no matter they're intteruptable or not. this requires "nukeBeforeDeath" to be enabled!!!
 //
 
 // shared utility
@@ -98,6 +99,7 @@ struct
 	table<entity, bool> reaperDoNukeBeforeDeath // new nuke think to make it more like stalkers: do nuke before actual death
 	table<entity, bool> reaperDoBodyGroupUpdateOnDamage // adding back this vanilla removed feature and make it a setting
 	table<entity, bool> reaperFreezeDuringNukeSequence
+	table<entity, bool> reaperStillDoNukeIfNotInterrupable
 	//
 } file
 
@@ -192,8 +194,11 @@ bool function DamageShouldStartReaperNuke( entity npc, var damageInfo )
 	// general check
 	// this ignores interruptable state check because we will handle animations manually
 	// seems no need to ignore interruptable for reapers? that only happens when they're preparing an mega jump
+	// now making it a setting! only happens in this case, normal death nuke shouldn't do that
+	bool ignoreInterruptableCheck = ShouldNukeWhenNotInterruptable( npc )
 	//if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo, true ) )
-	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo ) )
+	//if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo ) )
+	if ( !SuperSpectreCanStartNukeSequence( npc, damageInfo, ignoreInterruptableCheck ) )
 		return false
 
 	// nuke before death check
@@ -397,9 +402,9 @@ void function ReaperNukeSequenceThink( entity npc, entity nukeFXInfoTarget )
 	// removed because we're adding initial time for nuke anim
 	//float failsafeTime = 5.0 // bit longer failsafe timer to make it more like death animations
 	// recalculated failsafe timer: reaper's death anim running at 30fps, the 89th frame signals "death_explosion"
-	// 89/30 ≈ 2.96666, we wait 3.1s as failsafe
+	// 89/30 ≈ 2.96666, we wait 3s as failsafe
 	//float failsafeTime = 3.3
-	float failsafeTime = 3.1
+	float failsafeTime = 3.0
 	float startTime = Time()
 	float endTime = Time() + failsafeTime
 
@@ -715,6 +720,7 @@ entity function CreateExplosionInflictor( vector origin )
 // modified nuke threshold and force kill think, wrapped into function
 bool function SuperSpectreCanStartNukeSequence( entity npc, var damageInfo = null, bool ignoreInterruptableCheck = false )
 {
+	bool ignoreInterruptableCheck = 
 	// these are checks that only valid when passing a damageInfo inside
 	bool damageThresholdChecksFailed = false
 	bool forceKilledByTitanChecksFailed = false
@@ -1507,6 +1513,13 @@ void function SuperSpectre_SetFreezeDuringNukeSequence( entity ent, bool freezeD
 	file.reaperFreezeDuringNukeSequence[ ent ] = freezeDuringNuke
 }
 
+void function SuperSpectre_SetNukeWhenNotInterruptable( entity ent, bool ignoreInterruptableCheck )
+{
+	if ( !( ent in file.reaperStillDoNukeIfNotInterrupable ) )
+		file.reaperStillDoNukeIfNotInterrupable[ ent ] <- false // default value
+	file.reaperStillDoNukeIfNotInterrupable[ ent ] = ignoreInterruptableCheck
+}
+
 // get modified settings
 int function GetNukeDeathThreshold( entity ent )
 {
@@ -1563,6 +1576,13 @@ bool function ShouldFreezeReaperDuringNuke( entity ent )
 	if ( !( ent in file.reaperFreezeDuringNukeSequence ) ) // not modified
 		return false
 	return file.reaperFreezeDuringNukeSequence[ ent ]
+}
+
+bool function ShouldNukeWhenNotInterruptable( entity ent )
+{
+	if ( !( ent in file.reaperStillDoNukeIfNotInterrupable ) ) // not modified
+		return false
+	return file.reaperStillDoNukeIfNotInterrupable[ ent ]
 }
 
 void function SuperSpectre_DetonateAllOwnedTicks( entity npc )
