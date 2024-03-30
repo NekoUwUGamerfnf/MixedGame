@@ -61,6 +61,7 @@ global function ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee // this is disab
 global function ExtraSpawner_DisableEmbarkedNPCTitanEjectExplosionAttackerOverride
 global function ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath
 global function ExtraSpawner_SetEmbarkedNPCTitanDeathEjectDamageThreshold
+global function ExtraSpawner_AllowTitanDeathEjectRedirectKillCredit
 global function ExtraSpawner_SetEmbarkedNPCTitanEjectDelay
 global function ExtraSpawner_SetEmbarkedNPCTitanEjectRequiredDoomedHealthFrac
 global function ExtraSpawner_SetEmbarkedNPCTitanWeaponProficiency
@@ -183,7 +184,7 @@ const float NPC_HEALTH_HISTORY_FALLOFF_END = 3.0 // like npcs titans, we may nee
 // modifiable consts
 
 // npc damage
-const int NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD = 3250 // default value. if titan take damage more than this, they won't trigger death eject( this value is higher than any weapon damage other than flame core )
+const int NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD = 3251 // default value. if titan take damage more than this, they won't trigger death eject( this value is higher than any weapon damage other than flame core )
 const int EMBARKED_NPC_TITAN_WEAPON_PROFICIENCY = eWeaponProficiency.VERYGOOD // default weapon proficiency for embarked npc titan
 
 // npc pilot health
@@ -430,6 +431,7 @@ struct
 	table<entity, bool> soulDisableEmbarkedTitanEjectExplosionAttackerOverride
 	table<entity, bool> soulEnabledEjectOnDeath
 	table<entity, int> soulDeathEjectDamageThreshold
+	table<entity, bool> soulDeathEjectRedirectKillCredit
 	// fixed titan eject
 	table<entity, float> soulEjectDelay
 	table<entity, float> soulEjectRequiredDoomedHealthFrac
@@ -1353,11 +1355,14 @@ void function NPCTitanDeathEjectHandle_PostDamage( entity titan, var damageInfo 
 			DamageInfo_SetDamage( damageInfo, titan.GetHealth() - 1 )
 
 			// needs setup attack info or it will be doomed attacker who receives kill credit, not killshot attacker
-			entity attacker = DamageInfo_GetAttacker( damageInfo )
-			if ( IsValid( attacker ) )
+			if ( TitanDeathEjectShouldRedirectKillCredit( titan ) )
 			{
-				entity soul = titan.GetTitanSoul()
-				Soul_SetLastAttackInfo( soul, damageInfo )
+				entity attacker = DamageInfo_GetAttacker( damageInfo )
+				if ( IsValid( attacker ) )
+				{
+					entity soul = titan.GetTitanSoul()
+					Soul_SetLastAttackInfo( soul, damageInfo )
+				}
 			}
 
 			// needs clear any context action or titan won't make it to eject
@@ -1373,7 +1378,11 @@ void function NPCTitanDeathEjectHandle_PostDamage( entity titan, var damageInfo 
 			//thread DeathEjectTitanHealthThink( titan ) // empty health bar
 			if ( IsAlive( titan ) ) // needs alive state check! laser core sometimes kills the titan idk why
 				titan.SetHealth( 1 )
-			DoomTitan( titan, true ) // instantly blow up every bodygroup to make things funnier
+
+			// if we want to redirect kill credit, it means our death eject is considered as a titan kill
+			// instantly blow up every bodygroup to make things funnier
+			if ( TitanDeathEjectShouldRedirectKillCredit( titan ) )
+				DoomTitan( titan, true )
 		}
 	}
 }
@@ -2444,6 +2453,7 @@ void function BossLoadout_NukeEject( entity titan )
 		// make them eject when receiving killshot
 		ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath( titan, true )
 		ExtraSpawner_SetEmbarkedNPCTitanDeathEjectDamageThreshold( titan, 8000 ) // don't nuke if taking damage more than this value( only titanfall crash can do )
+		ExtraSpawner_AllowTitanDeathEjectRedirectKillCredit( titan, true ) // reward kill credit to death eject triggering attacker, not doomed attacker
 		// don't allow pilot to be in field, ragdoll them immediately
 		TitanEject_SetSoulDisableNPCPilotCombat( soul, true )
 	}
@@ -10443,6 +10453,30 @@ int function GetEmbarkedNPCTitanDeathEjectDamageThreshold( entity titan )
 		return NPC_TITAN_DEATH_EJECT_DAMAGE_THRESHOLD
 	
 	return file.soulDeathEjectDamageThreshold[ soul ]
+}
+
+void function ExtraSpawner_AllowTitanDeathEjectRedirectKillCredit( entity titan, bool redirectCredit )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return
+	
+	if ( !( soul in file.soulDeathEjectRedirectKillCredit ) )
+		file.soulDeathEjectRedirectKillCredit[ soul ] <- false
+	
+	file.soulDeathEjectRedirectKillCredit[ soul ] = redirectCredit
+}
+
+bool function TitanDeathEjectShouldRedirectKillCredit( entity titan )
+{
+	entity soul = titan.GetTitanSoul()
+	if ( !IsValid( soul ) )
+		return false
+	
+	if ( !( soul in file.soulDeathEjectRedirectKillCredit ) )
+		return false
+	
+	return file.soulDeathEjectRedirectKillCredit[ soul ]
 }
 
 void function ExtraSpawner_SetEmbarkedNPCTitanEjectDelay( entity titan, float delay )
