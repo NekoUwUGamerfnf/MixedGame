@@ -3838,6 +3838,9 @@ array<string> function GetWeaponModsFromDamageInfo( var damageInfo )
 
 void function OnPlayerGetsNewPilotLoadout( entity player, PilotLoadoutDef loadout )
 {
+	// alright I'm gonna remove these playlistvar settings, they will mess up _playlist.gnut
+	// does it means northstar didn't check this file at all before implementing _playlist.gnut?
+	/*
 	if ( GetCurrentPlaylistVarInt( "featured_mode_amped_tacticals", 0 ) >= 1 )
 	{
 		player.GiveExtraWeaponMod( "amped_tacticals" )
@@ -3852,6 +3855,7 @@ void function OnPlayerGetsNewPilotLoadout( entity player, PilotLoadoutDef loadou
 	{
 		player.GiveExtraWeaponMod( "all_phase" )
 	}
+	*/
 
 	SetPlayerCooldowns( player )
 }
