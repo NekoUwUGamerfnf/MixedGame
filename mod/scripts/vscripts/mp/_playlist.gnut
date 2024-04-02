@@ -1,33 +1,18 @@
-untyped
-global function Playlist_Init
+// this file has been reworked and no longer uses GivePilotLoadout() / GiveTitanLoadout()
+// works more like _passives.gnut now, mostly direct weapon/mod changes
 
-struct
-{
-	table<entity, bool> entGotLoadoutFromFeaturedMode
-} file
+untyped // for using SetPlayerSettingsWithMods()
+global function Playlist_Init
 
 void function Playlist_Init()
 {
 	// featured mode settings
-	// ... reworked
+	AddCallback_OnPlayerGetsNewPilotLoadout( FeaturedModeSettingsSetupPilotLoadouts )
+	AddCallback_OnTitanGetsNewTitanLoadout( FeaturedModeSettingsSetupTitanLoadouts )
 
-	/*
-	AddCallback_OnPlayerRespawned( FeaturedModeSettingsSetupPilotLoadouts )
-	AddCallback_OnPilotBecomesTitan( FeaturedModeSettingsSetupTitanLoadouts )
-	
-	if ( IsFeaturedMode( "all_holopilot" ) || IsFeaturedMode( "all_grapple" ) || 
-		 IsFeaturedMode( "all_phase" ) || IsFeaturedMode( "all_ticks" ) || 
-		 IsFeaturedMode( "rocket_arena" ) || IsFeaturedMode( "shotguns_snipers" ) || 
-		 IsFeaturedMode( "tactikill" ) || IsFeaturedMode( "amped_tacticals" ) )
-		 SetLoadoutGracePeriodEnabled( false )
-	
 	// iron lts rules
 	if ( HasIronRules() ) 
 		Riff_ForceTitanExitEnabled( eTitanExitEnabled.Never )
-	*/
-
-	AddCallback_OnPlayerGetsNewPilotLoadout( FeaturedModeSettingsSetupPilotLoadouts )
-	AddCallback_OnTitanGetsNewTitanLoadout( FeaturedModeSettingsSetupTitanLoadouts )
 }
 
 bool function IsFeaturedMode( string modeName )
@@ -35,304 +20,184 @@ bool function IsFeaturedMode( string modeName )
 	return GetCurrentPlaylistVar( "featured_mode_" + modeName ) == "1"
 }
 
-// ... reworked
-/*
-void function FeaturedModeSettingsSetupPilotLoadouts( entity player )
+bool function IsATWeapon( entity weapon )
 {
-	bool shouldChangeLoadout = false
-
-	// create loadout struct
-	PilotLoadoutDef modifiedLoadout = clone GetActivePilotLoadout( player )
-
-	if ( IsFeaturedMode( "all_holopilot" ) )
-	{
-		shouldChangeLoadout = true 
-		
-		modifiedLoadout.special = "mp_ability_holopilot"
-	}
-		
-	if ( IsFeaturedMode( "all_grapple" ) ) 
-	{
-		shouldChangeLoadout = true 
-		
-		modifiedLoadout.special = "mp_ability_grapple"
-		modifiedLoadout.specialMods = [ "all_grapple" ]
-	}
-		
-	if ( IsFeaturedMode( "all_phase" ) ) 
-	{
-		shouldChangeLoadout = true 
-		
-		modifiedLoadout.special = "mp_ability_shifter"
-		modifiedLoadout.specialMods = [ "all_phase" ]
-	}
-		
-	if ( IsFeaturedMode( "all_ticks" ) ) 
-	{
-		shouldChangeLoadout = true 
-		
-		modifiedLoadout.ordnance = "mp_weapon_frag_drone"
-		modifiedLoadout.ordnanceMods = [ "all_ticks" ]
-	}
-	
-	if ( IsFeaturedMode( "rocket_arena" ) )
-	{	
-		// this crashes sometimes for some reason
-	
-		shouldChangeLoadout = true
-	
-		// have to set attachments too, otherwise we could give invalid mods for this weapon
-		modifiedLoadout.primary = "mp_weapon_epg"
-		modifiedLoadout.primaryMods = [ "rocket_arena" ]
-		modifiedLoadout.primaryAttachments = [ "" ]
-		
-		// set secondary to whatever one is pistol
-		if ( GetWeaponInfoFileKeyField_Global( player.GetMainWeapons()[ 1 ].GetWeaponClassName(), "menu_category" ) == "at" )
-		{
-			modifiedLoadout.weapon3 = "mp_weapon_autopistol"
-			modifiedLoadout.weapon3Mods = [ "rocket_arena" ]
-		}
-		else
-		{
-			modifiedLoadout.secondary = "mp_weapon_autopistol"
-			modifiedLoadout.secondaryMods = [ "rocket_arena" ]
-		}
-		
-		modifiedLoadout.meleeMods = [ "rocket_arena" ]
-		
-		player.GiveExtraWeaponMod( "rocket_arena" )
-	}
-	
-	if ( IsFeaturedMode( "shotguns_snipers" ) )
-	{
-	
-		shouldChangeLoadout = true 
-		
-		// this one was never released, assuming it just gives you a mastiff and a kraber with quick swap
-		modifiedLoadout.primary = "mp_weapon_sniper"
-		modifiedLoadout.primaryMods = [ "pas_fast_swap", "pas_fast_ads" ]
-		modifiedLoadout.primaryAttachments = [ "" ]
-		
-		// set secondary to whatever one is pistol
-		if ( GetWeaponInfoFileKeyField_Global( player.GetMainWeapons()[ 1 ].GetWeaponClassName(), "menu_category" ) == "at" )
-		{
-			modifiedLoadout.weapon3 = "mp_weapon_mastiff"
-			modifiedLoadout.weapon3Mods = [ "pas_fast_swap", "pas_run_and_gun" ]
-		}
-		else
-		{
-			modifiedLoadout.secondary = "mp_weapon_mastiff"
-			modifiedLoadout.secondaryMods = [ "pas_fast_swap", "pas_run_and_gun" ]
-		}
-	}
-	
-	// dont wanna give a new loadout if it's not necessary, could break other callbacks
-	if ( shouldChangeLoadout )
-		GivePilotLoadout( player, modifiedLoadout )
-	
-	if ( IsFeaturedMode( "tactikill" ) )
-		player.GiveExtraWeaponMod( "tactical_cdr_on_kill" )
-	
-	if ( IsFeaturedMode( "amped_tacticals" ) )
-		player.GiveExtraWeaponMod( "amped_tacticals" )
+	return GetWeaponInfoFileKeyField_Global( weapon.GetWeaponClassName(), "menu_category" ) == "at"
 }
 
-void function FeaturedModeSettingsSetupTitanLoadouts( entity player, entity titan )
+void function ReplaceMainWeapon( entity player, entity orgWeapon, string newWeaponClassName, array<string> newWeaponMods = [] )
 {
-	if ( IsFeaturedMode( "turbo_titans" ) )
-	{
-		array<string> settingsMods = player.GetPlayerSettingsMods()
-		
-		// seems to crash if we set both of these at once? idk odd game
-		if ( !settingsMods.contains( "pas_mobility_dash_capacity" ) )
-		{
-			settingsMods.append( "turbo_titan" )
-			player.SetPlayerSettingsWithMods( player.GetPlayerSettings(), settingsMods )
-		}
-	}
-}
-*/
+	// maintain skin. only happens when weapon name is the same, otherwise we'll use default skin index
+	int skinIndex = orgWeapon.GetWeaponClassName() == newWeaponClassName ? orgWeapon.GetSkin() : WEAPON_SKIN_INDEX_CAMO
+	// maintain camo
+	int camoIndex = orgWeapon.GetCamo()
+	// maintain pro screen
+	if ( orgWeapon.HasMod( "pro_screen" ) && !newWeaponMods.contains( "pro_screen" ) )
+		newWeaponMods.append( "pro_screen" )
 
+	player.TakeWeaponNow( orgWeapon.GetWeaponClassName() )
+
+	entity newWeapon = player.GiveWeapon( newWeaponClassName, newWeaponMods )
+	newWeapon.SetProScreenOwner( player )
+	if ( newWeapon.HasMod( "pro_screen" ) )
+		UpdateProScreen( player, newWeapon )
+	newWeapon.SetSkin( skinIndex )
+	newWeapon.SetCamo( camoIndex )
+}
+
+// every settings needs to be in a certain order
+// e.g.: "amped_tacticals" uses AddMod(), so it goes earlier than modes that replaces offhand weapon
+// "tactikill" uses AddMod(), so it goes earlier than modes that replaces main weapons
 void function FeaturedModeSettingsSetupPilotLoadouts( entity player, PilotLoadoutDef loadout )
 {
-	if ( !( player in file.entGotLoadoutFromFeaturedMode ) )
-		file.entGotLoadoutFromFeaturedMode[ player ] <- false
+	// tactical ability playlist
+	int tacticalUpdateTime
 
-	// we don't update loadout if we have pending changes
-	if ( file.entGotLoadoutFromFeaturedMode[ player ] )
-		return
-
-	bool shouldChangeLoadout = false
-
-	// create loadout struct
-	PilotLoadoutDef modifiedLoadout = clone loadout
-
-	if ( IsFeaturedMode( "all_holopilot" ) )
+	// amped_tacticals isn't catch up to date
+	// grapple weapon will have to use all_grapple for 3 charges
+	if ( IsFeaturedMode( "amped_tacticals" ) )
 	{
-		shouldChangeLoadout = true 
-		
-		modifiedLoadout.special = "mp_ability_holopilot"
+		entity tacticalWeapon = player.GetOffhandWeapon( OFFHAND_SPECIAL )
+		if ( IsValid( tacticalWeapon ) && tacticalWeapon.GetWeaponClassName() == "mp_ability_grapple" )
+			tacticalWeapon.AddMod( "all_grapple" )
+		else
+			tacticalWeapon.AddMod( "amped_tacticals" )
+		tacticalUpdateTime++
 	}
 		
 	if ( IsFeaturedMode( "all_grapple" ) ) 
 	{
-		shouldChangeLoadout = true 
-		
-		modifiedLoadout.special = "mp_ability_grapple"
-		modifiedLoadout.specialMods = [ "all_grapple" ]
-	}
-		
-	if ( IsFeaturedMode( "all_phase" ) ) 
-	{
-		shouldChangeLoadout = true 
-		
-		modifiedLoadout.special = "mp_ability_shifter"
-		modifiedLoadout.specialMods = [ "all_phase" ]
-	}
-		
-	if ( IsFeaturedMode( "all_ticks" ) ) 
-	{
-		shouldChangeLoadout = true 
-		
-		modifiedLoadout.ordnance = "mp_weapon_frag_drone"
-		modifiedLoadout.ordnanceMods = [ "all_ticks" ]
+		player.TakeOffhandWeapon( OFFHAND_SPECIAL )
+		player.GiveOffhandWeapon( "mp_ability_grapple", OFFHAND_SPECIAL, ["all_grapple"] )
+		tacticalUpdateTime++
 	}
 	
+	if ( IsFeaturedMode( "all_phase" ) ) 
+	{
+		player.TakeOffhandWeapon( OFFHAND_SPECIAL )
+		player.GiveOffhandWeapon( "mp_ability_shifter", OFFHAND_SPECIAL, ["all_phase"] )
+		tacticalUpdateTime++
+	}
+
+	if ( IsFeaturedMode( "all_holopilot" ) )
+	{
+		player.TakeOffhandWeapon( OFFHAND_SPECIAL )
+		player.GiveOffhandWeapon( "mp_ability_holopilot", OFFHAND_SPECIAL )
+		tacticalUpdateTime++
+	}
+
+	// if we have enabled too many tactical ability modifier, try to warn server hoster!
+	if ( tacticalUpdateTime > 1 )
+	{
+		CodeWarning( "[PLAYLIST] Do not enable multiple tactical ability modifiers together!" )
+	}
+	
+	// ordnance playlist
+	if ( IsFeaturedMode( "all_ticks" ) ) 
+	{
+		player.TakeOffhandWeapon( OFFHAND_ORDNANCE )
+		player.GiveOffhandWeapon( "mp_weapon_frag_drone", OFFHAND_SPECIAL, ["all_ticks"] )
+	}
+
+	// update tactical/ordnance cooldown
+	SetPlayerCooldowns( player )
+	
+	// special weapons playlist
+	if ( IsFeaturedMode( "tactikill" ) )
+	{
+		foreach ( entity weapon in player.GetMainWeapons() )
+			weapon.AddMod( "tactical_cdr_on_kill" )
+	}
+
 	if ( IsFeaturedMode( "rocket_arena" ) )
 	{	
 		// this crashes sometimes for some reason
 		// what reason?
-	
-		shouldChangeLoadout = true
-	
-		// have to set attachments too, otherwise we could give invalid mods for this weapon
-		modifiedLoadout.primary = "mp_weapon_epg"
-		modifiedLoadout.primaryMods = [ "rocket_arena" ]
-		modifiedLoadout.primaryAttachments = [ "" ]
-		
-		// set secondary to whatever one is pistol
-		if ( GetWeaponInfoFileKeyField_Global( player.GetMainWeapons()[ 1 ].GetWeaponClassName(), "menu_category" ) == "at" )
-		{
-			modifiedLoadout.weapon3 = "mp_weapon_autopistol"
-			modifiedLoadout.weapon3Mods = [ "rocket_arena" ]
 
-			// set AT to useless archer
-			modifiedLoadout.secondary = "mp_weapon_rocket_launcher"
-			modifiedLoadout.secondaryMods = [ "" ]
-		}
-		else
+		array<entity> mainWeapons = player.GetMainWeapons() // store main weapons here so we can get everything before updating
+		foreach ( int slot, entity weapon in mainWeapons )
 		{
-			modifiedLoadout.secondary = "mp_weapon_autopistol"
-			modifiedLoadout.secondaryMods = [ "rocket_arena" ]
-		
-			// set AT to useless archer
-			modifiedLoadout.weapon3 = "mp_weapon_rocket_launcher"
-			modifiedLoadout.weapon3Mods = [ "" ]
+			switch ( slot )
+			{
+				case 0: // primary weapon
+					ReplaceMainWeapon( player, weapon, "mp_weapon_epg", ["rocket_arena"] )
+					break
+
+				// secondary/backup weapon
+				case 1: 
+				case 2:
+					// this means our current slot is AT
+					if ( IsATWeapon( weapon ) )
+					{
+						// set AT to useless archer
+						ReplaceMainWeapon( player, weapon, "mp_weapon_rocket_launcher" )
+					}
+					else // current slot is pistol
+					{
+						ReplaceMainWeapon( player, weapon, "mp_weapon_autopistol", ["rocket_arena"] )
+					}
+					break
+			}
 		}
-		
-		modifiedLoadout.meleeMods = [ "rocket_arena" ]
-		
-		player.GiveExtraWeaponMod( "rocket_arena" )
+
+		entity meleeWeapon = player.GetOffhandWeapon( OFFHAND_MELEE )
+		if ( IsValid( meleeWeapon ) )
+			meleeWeapon.AddMod( "rocket_arena" )
 	}
 	
+	// this one was never released, assuming it just gives you a mastiff and a kraber with quick swap
 	if ( IsFeaturedMode( "shotguns_snipers" ) )
 	{
-		shouldChangeLoadout = true 
-		
-		// this one was never released, assuming it just gives you a mastiff and a kraber with quick swap
-		modifiedLoadout.primary = "mp_weapon_sniper"
-		modifiedLoadout.primaryMods = [ "pas_fast_swap", "pas_fast_ads" ]
-		modifiedLoadout.primaryAttachments = [ "" ]
-		
-		// set secondary to whatever one is pistol
-		if ( GetWeaponInfoFileKeyField_Global( player.GetMainWeapons()[ 1 ].GetWeaponClassName(), "menu_category" ) == "at" )
+		array<entity> mainWeapons = player.GetMainWeapons() // store main weapons here so we can get everything before updating
+		foreach ( int slot, entity weapon in mainWeapons )
 		{
-			modifiedLoadout.weapon3 = "mp_weapon_mastiff"
-			modifiedLoadout.weapon3Mods = [ "pas_fast_swap", "pas_run_and_gun" ]
-		}
-		else
-		{
-			modifiedLoadout.secondary = "mp_weapon_mastiff"
-			modifiedLoadout.secondaryMods = [ "pas_fast_swap", "pas_run_and_gun" ]
-		}
-	}
-	
-	// dont wanna give a new loadout if it's not necessary, could break other callbacks
-	if ( shouldChangeLoadout )
-	{
-		// mark as we're changing loadout from this file, so current function won't get called over and over
-		file.entGotLoadoutFromFeaturedMode[ player ] = true
+			switch ( slot )
+			{
+				case 0: // primary weapon
+					ReplaceMainWeapon( player, weapon, "mp_weapon_sniper", ["pas_fast_swap", "pas_fast_ads"] )
+					break
 
-		GivePilotLoadout( player, modifiedLoadout )
-		file.entGotLoadoutFromFeaturedMode[ player ] = false // clear
+				// secondary/backup weapon
+				case 1: 
+				case 2:
+					// replace AT with mastiff
+					if ( IsATWeapon( weapon ) )
+					{
+						ReplaceMainWeapon( player, weapon, "mp_weapon_mastiff", ["pas_fast_swap", "pas_fast_ads"] )
+					}
+					break
+			}
+		}
 	}
-	
-	if ( IsFeaturedMode( "tactikill" ) )
-		player.GiveExtraWeaponMod( "tactical_cdr_on_kill" )
-	
-	if ( IsFeaturedMode( "amped_tacticals" ) )
-		player.GiveExtraWeaponMod( "amped_tacticals" )
 }
 
 void function FeaturedModeSettingsSetupTitanLoadouts( entity titan, TitanLoadoutDef loadout )
 {
-	if ( !( titan in file.entGotLoadoutFromFeaturedMode ) )
-		file.entGotLoadoutFromFeaturedMode[ titan ] <- false
-
-	// we don't update loadout if we have pending changes
-	if ( file.entGotLoadoutFromFeaturedMode[ titan ] )
-		return
-	
-	bool shouldChangeLoadout = false
-
-	// create loadout struct
-	TitanLoadoutDef modifiedLoadout = clone loadout
-
-	if ( IsFeaturedMode( "turbo_titans" ) )
-	{
-		shouldChangeLoadout = true
-
-		// will crash if we have both mods
-		/*
-		if ( modifiedLoadout.setFileMods.contains( "pas_mobility_dash_capacity" ) )
-			modifiedLoadout.setFileMods.removebyvalue( "pas_mobility_dash_capacity" )
-
-		modifiedLoadout.setFileMods.append( "turbo_titan" ) // this gets applied on player embark
-		*/
-		// I think vanilla is just replace all passive1 with "turbo_titan"
-		// so that pas_mobility_dash_capacity won't be the only passive that will be overwriten
-		// wait... OverCore with GiveTitanLoadout() twice can cause player to have 2 electric smoke together...
-		// what could I say about it?
-		string currentPassive = modifiedLoadout.passive1
-		modifiedLoadout.passive1 = "" // remove current passive
-		modifiedLoadout.setFileMods.removebyvalue( currentPassive ) // pas_mobility_dash_capacity also gets append into setfile
-		modifiedLoadout.setFileMods.append( "turbo_titan" ) // this gets applied on player embark
-		// remove overcore effect
-		thread RecoverOverCoreEffect( titan )
-	}
-	
-	// dont wanna give a new loadout if it's not necessary, could break other callbacks
-	if ( shouldChangeLoadout )
-	{
-		// mark as we're changing loadout from this file, so current function won't get called over and over
-		file.entGotLoadoutFromFeaturedMode[ titan ] = true
-
-		GiveTitanLoadout( titan, modifiedLoadout )
-		file.entGotLoadoutFromFeaturedMode[ titan ] = false // clear
-	}
-}
-
-///// utilities
-void function RecoverOverCoreEffect( entity titan )
-{
-	titan.EndSignal( "OnDestroy" )
-
 	entity soul = titan.GetTitanSoul()
-	if ( !IsValid( soul ) )
+	if ( !IsValid( soul ) ) //Ejecting
 		return
-	soul.EndSignal( "OnDestroy" )
-
-	WaitEndFrame() // wait for titan get smoke weapon
-	SoulTitanCore_SetNextAvailableTime( soul, 0.0 )
-	titan.TakeOffhandWeapon( OFFHAND_INVENTORY )
+	
+	// npc case
+	if ( titan.IsNPC() )
+	{
+		if ( IsFeaturedMode( "turbo_titans" ) )
+		{
+			// get titan's settings struct, which they maybe transferred to player
+			TitanSettings titanSettings = titan.ai.titanSettings
+			titanSettings.titanSetFileMods.removebyvalue( "pas_mobility_dash_capacity" ) // will crash if we have both mods
+			titanSettings.titanSetFileMods.append( "turbo_titan" ) // this gets applied on player embark
+		}
+	}
+	else if ( titan.IsPlayer() ) // player case
+	{
+		if ( IsFeaturedMode( "turbo_titans" ) )
+		{
+			int health = titan.GetHealth()
+			array<string> settingMods = titan.GetPlayerSettingsMods()
+			settingMods.removebyvalue( "pas_mobility_dash_capacity" ) // will crash if we have both mods
+			settingMods.append( "turbo_titan" )
+			titan.SetPlayerSettingsWithMods( titan.GetPlayerSettings(), settingMods )
+			titan.SetHealth( health ) // update health back to normal
+		}
+	}
 }
