@@ -28,5 +28,9 @@ void function MpWeaponGibberPistol_Init()
 	// retain damage mod on refired by vortex
 	Vortex_AddWeaponModRetainedOnRefire( "mp_weapon_semipistol", "gibber_pistol" )
 	Vortex_AddWeaponModRetainedOnRefire( "mp_weapon_semipistol", "grenade_pistol" )
+
+	// keep mod data on refired by vortex
+	Vortex_AddProjectileModToKeepOnRefire( "gibber_pistol" )
+	Vortex_AddProjectileModToKeepOnRefire( "grenade_pistol" )
 #endif
 }

@@ -106,6 +106,7 @@ table<string, bool> VortexIgnoreWeaponMods
 
 // nessie modified utility
 global function Vortex_GetRefiredProjectileMods
+global function Vortex_AddProjectileModToKeepDataOnRefire
 
 // basic behavior override
 global function Vortex_AddBehaviorOverride_WeaponName
@@ -237,6 +238,7 @@ struct
 {
 	// utility
 	table< entity, array<string> > vortexRefiredProjectileMods
+	array<string> projectileModsToKeepDataOnRefire
 	// basic behavior override
 	table< string, VortexBehaviorOverride > vortexBehaviorOverride_WeaponName
 	table< string, table< string, VortexBehaviorOverride > > vortexBehaviorOverride_WeaponMod
@@ -332,7 +334,27 @@ array<string> function Vortex_GetRefiredProjectileMods( entity projectile )
 	if ( !( projectile in file.vortexRefiredProjectileMods ) )
 		return projectile.ProjectileGetMods()
 
-	return file.vortexRefiredProjectileMods[ projectile ]
+	array<string> refiredMods = file.vortexRefiredProjectileMods[ projectile ]
+	if ( !ShouldKeepModsDataOnRefire( refiredMods ) )
+		return projectile.ProjectileGetMods()
+	
+	return clone refiredMods // never return our array directly!
+}
+
+bool function ShouldKeepModsDataOnRefire( array<string> mods )
+{
+	foreach ( mod in mods )
+	{
+		if ( file.projectileModsToKeepDataOnRefire.contains( mod ) )
+			return true
+	}
+	return false
+}
+
+void function Vortex_AddProjectileModToKeepDataOnRefire( string mod )
+{
+	if ( !file.projectileModsToKeepDataOnRefire.contains( mod ) )
+		file.projectileModsToKeepDataOnRefire.append( mod )
 }
 
 // BASIC BEHAVIOR OVERRIDE
@@ -2300,17 +2322,10 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData, entity vor
 	string weaponName = expect string( impactData.weaponName )
 	projectile.SetWeaponClassName( weaponName )
 
-	// modified: fix for trails
-	if ( "projectileTrail" in impactData )
-	{
-		asset trailEffect = expect asset( impactData.projectileTrail )
-		if ( trailEffect != $"" )
-			thread DelayedStartParticleEffectOnProjectile( projectile, trailEffect ) // delay one frame, so client can predict it
-	}
-
 	projectile.ProjectileSetDamageSourceID( impactData.damageSourceID ) // obit will show the owner weapon
 
 	// modified: get refired mods from here
+	bool haveModsToKeep = false
 	if ( "refiredProjectileMods" in impactData )
 	{
 		array<string> typedArray
@@ -2329,6 +2344,20 @@ function Vortex_ProjectileCommonSetup( entity projectile, impactData, entity vor
 				HACK_ProjectileAddMod( projectile, mod )
 		}
 		*/
+
+		haveModsToKeep = ShouldKeepModsDataOnRefire( typedArray )
+	}
+
+	// modified: fix for trails
+	// if there ain't any mod needed to be saved, we won't have to do this
+	if ( haveModsToKeep )
+	{
+		if ( "projectileTrail" in impactData )
+		{
+			asset trailEffect = expect asset( impactData.projectileTrail )
+			if ( trailEffect != $"" )
+				thread DelayedStartParticleEffectOnProjectile( projectile, trailEffect ) // delay one frame, so client can predict it
+		}
 	}
 
 	// modified: run callbacks

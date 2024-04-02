@@ -44,6 +44,9 @@ void function MpTitanweaponGrenadeVolley_Init()
 	// retain damage mod on refired by vortex
 	Vortex_AddWeaponModRetainedOnRefire( "mp_titanweapon_salvo_rockets", "brute4_grenade_volley" )
 
+	// keep mod data on refired by vortex
+	Vortex_AddProjectileModToKeepOnRefire( "brute4_grenade_volley" )
+
 	// modified function in sh_titan.gnut, for us add stagger model animation to titan
 	Titan_AddStaggerTriggeringDamageSourceID( eDamageSourceId.mp_titanweapon_grenade_volley )
 #endif
