@@ -26,6 +26,11 @@ const float SMOKE_LAUNCHER_ELECTRIC_SMOKE_RADIUS = 210
 const int SMOKE_LAUNCHER_ELECTRIC_SMOKE_DAMAGE = 150
 const int SMOKE_LAUNCHER_ELECTRIC_SMOKE_DAMAGE_HEAVYARMOR = 800
 const float ELECTRIC_SMOKE_DURATION = 6 // shorter lifetime to match electric smoke fx's duration
+#endif
+
+const asset SMOKE_SCREEN_EFFECT = $"P_smokescreen_FD"
+const asset SMOKE_TRAIL_EFFECT =  $"P_SmokeScreen_FD_trail" // has a missile model attached to it... but works fine. was using $"P_wpn_grenade_smoke_trail"
+const asset SMOKE_TRAIL_EFFECT_ELECTRIC = $"P_wpn_grenade_smoke_trail"
 
 struct SmokePropStruct
 {
@@ -42,10 +47,10 @@ struct
 	table<entity, entity> smokeLauncherClusterWeapon
 	table<entity, SmokePropStruct> smokePropTable // for dealing damages
 } file
-#endif
 
 void function MpWeaponSmokeLauncher_Init()
 {
+	RegisterSignal( "SmokeBodyImpact" )
 #if SERVER
 	SmokePrecache()
 
@@ -69,9 +74,9 @@ void function MpWeaponSmokeLauncher_Init()
 void function SmokePrecache()
 {
 	PrecacheModel( $"models/weapons/grenades/smoke_grenade_projectile.mdl" )
-	PrecacheParticleSystem( $"P_smokescreen_FD" )
-	PrecacheParticleSystem( $"P_wpn_grenade_smoke_trail" )
-	PrecacheParticleSystem( $"P_SmokeScreen_FD_trail" )
+	PrecacheParticleSystem( SMOKE_SCREEN_EFFECT )
+	PrecacheParticleSystem( SMOKE_TRAIL_EFFECT )
+	PrecacheParticleSystem( SMOKE_TRAIL_EFFECT_ELECTRIC )
 }
 #endif
 
@@ -113,25 +118,32 @@ var function FireSmokeGrenade( entity weapon, WeaponPrimaryAttackParams attackPa
 
 	int damageType = DF_RAGDOLL | DF_EXPLOSION
 
-	entity nade = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
+	// change to use bolt for handling
+	//entity nade = FireWeaponGrenade_RecordData( weapon, attackParams.pos, attackParams.dir, angularVelocity, 0.0 , damageType, damageType, !isNPCFiring, true, false )
+	entity nade = FireWeaponBolt_RecordData( weapon, attackParams.pos, attackParams.dir, 1.0, damageType, damageType, !isNPCFiring, 0 )
 
 	if ( nade )
 	{
+		/*
 		#if SERVER
 			Grenade_Init( nade, weapon )
 		#else
 			entity weaponOwner = weapon.GetWeaponOwner()
 			SetTeam( nade, weaponOwner.GetTeam() )
 		#endif
+		*/
 
 		nade.SetModel( $"models/weapons/bullets/triple_threat_projectile.mdl" )
+
+		asset smokeTrail = weapon.HasMod( "electric_smoke_launcher" ) ? SMOKE_TRAIL_EFFECT_ELECTRIC : SMOKE_TRAIL_EFFECT
+		//StartSmokeTrailEffectOnEnt( nade, smokeTrail )
 
 		#if SERVER
 			nade.proj.savedAngles = VectorToAngles( attackParams.dir )
 			file.smokeLauncherGrenadeCount[ nade ] <- weapon.GetProjectilesPerShot()
 			file.smokeLauncherClusterWeapon[ nade ] <- weapon
 
-			thread DelayedStartSmokeParticle( nade ) // visual fix
+			thread DelayedStartSmokeParticle( nade, smokeTrail ) // visual fix
 		#endif
 	}
 
@@ -152,92 +164,82 @@ void function OnProjectileCollision_weapon_smoke_launcher( entity projectile, ve
 	if ( hitEnt == player )
 		return
 
-	if ( projectile.GrenadeHasIgnited() )
-		return
+	projectile.Signal( "SmokeBodyImpact" )
 	
 	#if SERVER
 		// visual fix for client hitting near target
 		FixImpactEffectForProjectileAtPosition( projectile, pos ) // shared from _unpredicted_impact_fix.gnut
-	#endif
 
-	projectile.GrenadeIgnite()
-	projectile.SetDoesExplode( true )
-}
+		// smoke modifiers
+		array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
+		// balanced smoke
+		float smokeDuration = SMOKE_DURATION
+		if ( mods.contains( "unlimited_balance" ) )
+			smokeDuration = SMOKE_DURATION_UNLIMITED_AMMO // limited smoke will last shorter
+		// lined up smoke
+		bool isLinedUpSmoke = mods.contains( "lined_up_spread" ) // lined up spread
+		// electric smoke
+		bool isElectricSmoke = mods.contains( "electric_smoke_launcher" )
+		if ( isElectricSmoke )
+			smokeDuration = ELECTRIC_SMOKE_DURATION
+		//
 
-void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
-{
-#if SERVER
-	// smoke modifiers
-	array<string> mods = Vortex_GetRefiredProjectileMods( projectile ) // modded weapon refire behavior
-	// balanced smoke
-	float smokeDuration = SMOKE_DURATION
-	if ( mods.contains( "unlimited_balance" ) )
-		smokeDuration = SMOKE_DURATION_UNLIMITED_AMMO // limited smoke will last shorter
-	// lined up smoke
-	bool isLinedUpSmoke = mods.contains( "lined_up_spread" ) // lined up spread
-	// electric smoke
-	bool isElectricSmoke = mods.contains( "electric_smoke_launcher" )
-	if ( isElectricSmoke )
-		smokeDuration = ELECTRIC_SMOKE_DURATION
-	//
+		int grenadeCount = SMOKE_GRENADE_COUNT_DEFAULT
+		if ( projectile in file.smokeLauncherGrenadeCount ) // this smoke launcher has saved grenade count
+			grenadeCount = file.smokeLauncherGrenadeCount[ projectile ]
 
-	int grenadeCount = SMOKE_GRENADE_COUNT_DEFAULT
-	if ( projectile in file.smokeLauncherGrenadeCount ) // this smoke launcher has saved grenade count
-		grenadeCount = file.smokeLauncherGrenadeCount[ projectile ]
-
-	vector origin = projectile.GetOrigin()
-	array<vector> velocitygroup
-	bool isOddNumber = grenadeCount % 2 != 0
-	if( isOddNumber ) // spawn a center smoke if odd
-	{
-		vector upVector = AnglesToUp( projectile.proj.savedAngles )
-		upVector.z = SMOKE_GRENADE_VERTICAL_SPEED
-		velocitygroup.append( upVector )
-	}
-	vector baseVector = AnglesToRight( projectile.proj.savedAngles )
-	vector baseAngles = < 0, VectorToAngles( baseVector ).y, 0 >
-	int smokeCount = isOddNumber ? grenadeCount - 1 : grenadeCount
-	if ( isLinedUpSmoke ) // lined up spead
-	{
-		int grenadeGroup = 1
-		for( int i = 0; i < smokeCount; i += 2 )
+		vector origin = projectile.GetOrigin() + normal
+		array<vector> velocitygroup
+		bool isOddNumber = grenadeCount % 2 != 0
+		if( isOddNumber ) // spawn a center smoke if odd
 		{
-			// right grenade
-			vector rightAngles = baseAngles // base angles faces right
-			vector rightVel = AnglesToForward( rightAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED * grenadeGroup
-			rightVel.z = SMOKE_GRENADE_VERTICAL_SPEED
-			velocitygroup.append( rightVel )
-			// left grenade
-			vector leftAngles = < 0, baseAngles.y - 180, 0 > // flip
-			vector leftVel = AnglesToForward( leftAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED * grenadeGroup
-			leftVel.z = SMOKE_GRENADE_VERTICAL_SPEED
-			velocitygroup.append( leftVel )
-
-			grenadeGroup += 1
+			vector upVector = AnglesToUp( projectile.proj.savedAngles )
+			upVector.z = SMOKE_GRENADE_VERTICAL_SPEED
+			velocitygroup.append( upVector )
 		}
-	}
-	else // rotated spead
-	{
-		float rotPerGrenade = 360 / float( smokeCount )
-		for( int i = 0; i < smokeCount; i ++ )
+		vector baseVector = AnglesToRight( projectile.proj.savedAngles )
+		vector baseAngles = < 0, VectorToAngles( baseVector ).y, 0 >
+		int smokeCount = isOddNumber ? grenadeCount - 1 : grenadeCount
+		if ( isLinedUpSmoke ) // lined up spead
 		{
-			vector newAngles = < 0, baseAngles.y + i * rotPerGrenade, 0 >
-			vector newVector = AnglesToForward( newAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED
-			newVector.z = SMOKE_GRENADE_VERTICAL_SPEED
-			velocitygroup.append( newVector )
-		}
-	}
+			int grenadeGroup = 1
+			for( int i = 0; i < smokeCount; i += 2 )
+			{
+				// right grenade
+				vector rightAngles = baseAngles // base angles faces right
+				vector rightVel = AnglesToForward( rightAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED * grenadeGroup
+				rightVel.z = SMOKE_GRENADE_VERTICAL_SPEED
+				velocitygroup.append( rightVel )
+				// left grenade
+				vector leftAngles = < 0, baseAngles.y - 180, 0 > // flip
+				vector leftVel = AnglesToForward( leftAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED * grenadeGroup
+				leftVel.z = SMOKE_GRENADE_VERTICAL_SPEED
+				velocitygroup.append( leftVel )
 
-	for( int i = 0; i < velocitygroup.len(); i++ )
-	{
-		vector velocity = velocitygroup[i]
-		//print( "current velocity: " + string( velocity ) )
-		entity prop = CreatePropPhysicsAsGrenade( velocity, origin )
-		if ( isElectricSmoke ) // electric smoke settings
+				grenadeGroup += 1
+			}
+		}
+		else // rotated spead
 		{
-			if ( !( projectile in file.smokeLauncherClusterWeapon ) )
+			float rotPerGrenade = 360 / float( smokeCount )
+			for( int i = 0; i < smokeCount; i ++ )
+			{
+				vector newAngles = < 0, baseAngles.y + i * rotPerGrenade, 0 >
+				vector newVector = AnglesToForward( newAngles ) * SMOKE_GRENADE_HORIZONAL_SPEED
+				newVector.z = SMOKE_GRENADE_VERTICAL_SPEED
+				velocitygroup.append( newVector )
+			}
+		}
+
+		for( int i = 0; i < velocitygroup.len(); i++ )
+		{
+			vector velocity = velocitygroup[i]
+			//print( "current velocity: " + string( velocity ) )
+			if ( !( projectile in file.smokeLauncherClusterWeapon ) ) // weapon getting destroyed?
 				isElectricSmoke = false // mark as they don't have a electric smoke
-			else
+				
+			entity prop = CreatePropPhysicsAsGrenade( velocity, origin, isElectricSmoke )
+			if ( isElectricSmoke ) // electric smoke settings
 			{
 				entity weapon = file.smokeLauncherClusterWeapon[ projectile ]
 				entity owner = projectile.GetOwner()
@@ -247,15 +249,25 @@ void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
 				newStruct.weapon = weapon
 				file.smokePropTable[ prop ] <- newStruct
 			}
+			thread DelayedSmokeGrenadeIgnite( prop, isElectricSmoke, SMOKE_DEPLOY_DELAY, smokeDuration )
 		}
-		thread DelayedSmokeGrenadeIgnite( prop, isElectricSmoke, SMOKE_DEPLOY_DELAY, smokeDuration )
-	}
 
-#endif
+	#endif
+
+	//if ( !projectile.GrenadeHasIgnited() )
+	//	projectile.GrenadeIgnite()
+
+	//projectile.SetReducedEffects()
+	//projectile.GrenadeExplode( <0, 0, 0> )
+}
+
+void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
+{
+
 }
 
 #if SERVER
-entity function CreatePropPhysicsAsGrenade( vector velocity, vector origin )
+entity function CreatePropPhysicsAsGrenade( vector velocity, vector origin, bool isElectricSmoke = false )
 {
 	entity physics = CreateEntity( "prop_physics" )
 	//prop_physics does not compatible with most other models
@@ -267,13 +279,18 @@ entity function CreatePropPhysicsAsGrenade( vector velocity, vector origin )
   	physics.SetVelocity( velocity )
 
 	// bind a fake grenade model to it
+	// no need to do this, as $"P_SmokeScreen_FD_trail" have a missile model attached
+	/*
 	entity grenade = CreateEntity( "prop_dynamic" )
 	grenade.SetValueForModelKey( $"models/weapons/grenades/smoke_grenade_projectile.mdl" )
 	grenade.SetParent( physics, "origin" )
 	thread FakePropGrenadeLifeTimeThink( physics, grenade )
-
-  	StartParticleEffectOnEntity( physics, GetParticleSystemIndex( $"P_SmokeScreen_FD_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-	//thread DelayedStartSmokeParticle( prop ) // for better client visual
+	*/
+  	
+	asset effectName = isElectricSmoke ? SMOKE_TRAIL_EFFECT_ELECTRIC : SMOKE_TRAIL_EFFECT
+	bool destroyImmediately = isElectricSmoke ? false : true
+	StartSmokeTrailEffectOnEnt( physics, effectName, destroyImmediately )
+	thread DelayedStartSmokeParticle( physics, effectName, destroyImmediately ) // for better client visual
 
   	return physics
 }
@@ -285,12 +302,40 @@ void function FakePropGrenadeLifeTimeThink( entity physics, entity grenade )
 	physics.WaitSignal( "OnDestroy" )
 	grenade.Destroy()
 }
+#endif // SERVER
 
-void function DelayedStartSmokeParticle( entity prop )
+#if CLIENT
+void function StartSmokeTrailEffectOnEnt( entity targetEnt, asset effectName = SMOKE_TRAIL_EFFECT )
+{
+	int effectHandle = StartParticleEffectOnEntity( targetEnt, GetParticleSystemIndex( effectName ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+}
+#elseif SERVER
+entity function StartSmokeTrailEffectOnEnt( entity targetEnt, asset effectName = SMOKE_TRAIL_EFFECT, bool destroyImmediately = false )
+{
+	entity effect = StartParticleEffectOnEntity_ReturnEntity( targetEnt, GetParticleSystemIndex( effectName ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	// have to use this otherwise $"P_SmokeScreen_FD_trail" will leave a missile model
+	if ( destroyImmediately )
+		effect.SetStopType( "DestroyImmediately" )
+
+	// we'll have to track main projectile
+	thread TrackProjectileCollision( targetEnt, effect )
+}
+#endif
+
+#if SERVER
+void function TrackProjectileCollision( entity projectile, entity effect )
+{
+	effect.EndSignal( "OnDestroy" )
+
+	WaitSignal( projectile, "OnDestroy", "SmokeBodyImpact" )
+	EffectStop( effect )
+}
+
+void function DelayedStartSmokeParticle( entity prop, asset effectName = SMOKE_TRAIL_EFFECT, bool destroyImmediately = false )
 {
 	WaitFrame()
 	if( IsValid( prop ) )
-		StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_SmokeScreen_FD_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+		StartSmokeTrailEffectOnEnt( prop, effectName, destroyImmediately )
 }
 
 void function DelayedSmokeGrenadeIgnite( entity prop, bool electricSmoke, float delay, float smokeDuration )
@@ -300,7 +345,7 @@ void function DelayedSmokeGrenadeIgnite( entity prop, bool electricSmoke, float 
 	wait delay
 	
 	SmokescreenStruct smokescreen
-	smokescreen.smokescreenFX = $"P_smokescreen_FD"
+	smokescreen.smokescreenFX = SMOKE_SCREEN_EFFECT
 	smokescreen.deploySound1p = SFX_SMOKE_GRENADE_DEPLOY
 	smokescreen.deploySound3p = SFX_SMOKE_GRENADE_DEPLOY
 	smokescreen.isElectric = false
