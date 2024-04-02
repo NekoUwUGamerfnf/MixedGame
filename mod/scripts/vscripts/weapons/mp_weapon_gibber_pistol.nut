@@ -61,10 +61,9 @@ function FireGrenade( entity weapon, WeaponPrimaryAttackParams attackParams, isN
 	{
 		#if SERVER
 			// forced sound fix!!!
-			if( weapon.HasMod( "silencer" ) )
-				EmitSoundOnEntityExceptToPlayer( owner, owner, "Weapon_p2011_FireSuppressed_3P" )
-			else
-				EmitSoundOnEntityExceptToPlayer( owner, owner, "Weapon_P2011_Fire_3P" )
+			string tpFiringSound = weapon.GetWeaponSettingString( eWeaponVar.fire_sound_2_player_3p )
+			EmitSoundOnEntityExceptToPlayer( owner, owner, tpFiringSound )
+
 			thread DelayedStartParticleSystem( nade )
 			EmitSoundOnEntity( nade, "Weapon_GibberPistol_Grenade_Emitter" )
 			nade.ProjectileSetDamageSourceID( eDamageSourceId.mp_weapon_gibber_pistol )

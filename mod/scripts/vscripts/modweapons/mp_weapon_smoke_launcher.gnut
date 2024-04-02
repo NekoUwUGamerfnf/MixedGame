@@ -70,6 +70,8 @@ void function SmokePrecache()
 {
 	PrecacheModel( $"models/weapons/grenades/smoke_grenade_projectile.mdl" )
 	PrecacheParticleSystem( $"P_smokescreen_FD" )
+	PrecacheParticleSystem( $"P_wpn_grenade_smoke_trail" )
+	PrecacheParticleSystem( $"P_SmokeScreen_FD_trail" )
 }
 #endif
 
@@ -228,9 +230,9 @@ void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
 
 	for( int i = 0; i < velocitygroup.len(); i++ )
 	{
-		vector velocety = velocitygroup[i]
-		//print( "current velocity: " + string( velocety ) )
-		entity prop = CreatePropAsGrenade( velocety, origin )
+		vector velocity = velocitygroup[i]
+		//print( "current velocity: " + string( velocity ) )
+		entity prop = CreatePropPhysicsAsGrenade( velocity, origin )
 		if ( isElectricSmoke ) // electric smoke settings
 		{
 			if ( !( projectile in file.smokeLauncherClusterWeapon ) )
@@ -253,26 +255,42 @@ void function OnProjectileIgnite_weapon_smoke_launcher( entity projectile )
 }
 
 #if SERVER
-entity function CreatePropAsGrenade( vector velocety, vector origin )
+entity function CreatePropPhysicsAsGrenade( vector velocity, vector origin )
 {
-	entity prop = CreateEntity( "prop_physics" )
-	//prop_physics does not compilable with most other models
-  	prop.SetModel( $"models/dev/empty_physics.mdl" )
- 	prop.SetOrigin( origin )
+	entity physics = CreateEntity( "prop_physics" )
+	//prop_physics does not compatible with most other models
+  	physics.SetModel( $"models/dev/empty_physics.mdl" )
+ 	physics.SetOrigin( origin )
+	physics.SetAngles( VectorToAngles( Normalize( velocity ) ) )
   	
-  	DispatchSpawn( prop )
-  	prop.SetVelocity( velocety )
-  	StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_wpn_grenade_smoke_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
-	thread DelayedStartSmokeParticle( prop ) // for better client visual
+  	DispatchSpawn( physics )
+  	physics.SetVelocity( velocity )
+
+	// bind a fake grenade model to it
+	entity grenade = CreateEntity( "prop_dynamic" )
+	grenade.SetValueForModelKey( $"models/weapons/grenades/smoke_grenade_projectile.mdl" )
+	grenade.SetParent( physics, "origin" )
+	thread FakePropGrenadeLifeTimeThink( physics, grenade )
+
+  	StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_SmokeScreen_FD_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+	//thread DelayedStartSmokeParticle( prop ) // for better client visual
 
   	return prop
+}
+
+void function FakePropGrenadeLifeTimeThink( entity physics, entity grenade )
+{
+	grenade.EndSignal( "OnDestroy" )
+
+	physics.WaitSignal( "OnDestroy" )
+	grenade.Destroy()
 }
 
 void function DelayedStartSmokeParticle( entity prop )
 {
 	WaitFrame()
 	if( IsValid( prop ) )
-		StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_wpn_grenade_smoke_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
+		StartParticleEffectOnEntity( prop, GetParticleSystemIndex( $"P_SmokeScreen_FD_trail" ), FX_PATTACH_ABSORIGIN_FOLLOW, -1 )
 }
 
 void function DelayedSmokeGrenadeIgnite( entity prop, bool electricSmoke, float delay, float smokeDuration )
