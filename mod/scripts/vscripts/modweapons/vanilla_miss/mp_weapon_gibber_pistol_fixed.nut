@@ -30,7 +30,7 @@ void function MpWeaponGibberPistol_Init()
 	Vortex_AddWeaponModRetainedOnRefire( "mp_weapon_semipistol", "grenade_pistol" )
 
 	// keep mod data on refired by vortex
-	Vortex_AddProjectileModToKeepOnRefire( "gibber_pistol" )
-	Vortex_AddProjectileModToKeepOnRefire( "grenade_pistol" )
+	Vortex_AddProjectileModToKeepDataOnRefire( "gibber_pistol" )
+	Vortex_AddProjectileModToKeepDataOnRefire( "grenade_pistol" )
 #endif
 }

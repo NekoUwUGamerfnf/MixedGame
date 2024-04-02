@@ -46,7 +46,7 @@ void function MpTitanWeaponBarrageCoreLauncher_Init()
 	Vortex_AddWeaponModRetainedOnRefire( "mp_titanweapon_flightcore_rockets", "brute4_barrage_core_launcher" )
 
 	// keep mod data on refired by vortex
-	Vortex_AddProjectileModToKeepOnRefire( "brute4_barrage_core_launcher" )
+	Vortex_AddProjectileModToKeepDataOnRefire( "brute4_barrage_core_launcher" )
 
 	// modified function in sh_titan.gnut, for us add stagger model animation to titan
 	Titan_AddStaggerTriggeringDamageSourceID( eDamageSourceId.mp_titanweapon_barrage_core_launcher )
