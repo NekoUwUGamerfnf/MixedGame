@@ -373,9 +373,13 @@ void function PlayerWatchesWargamesIntro( entity player )
 			RemoveCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
 			player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_EVERYONE
 			ClearPlayerAnimViewEntity( player )
-			//player.EnableWeaponViewModel()
-			DeployViewModel( player )
-			DeployAndEnableWeapons(player)
+			player.EnableWeaponViewModel()
+			// stack function sometimes make player disable offhand weapon forever idk why
+			// temp stopped using them
+			//DeployAndEnableWeapons(player)
+			player.DeployWeapon()
+			player.Server_TurnOffhandWeaponsDisabledOff()
+
 			player.ClearParent()
 			player.UnforceStand()
 			player.MovementEnable()
@@ -418,9 +422,13 @@ void function PlayerWatchesWargamesIntro( entity player )
 	
 	AddCinematicFlag( player, CE_FLAG_CLASSIC_MP_SPAWNING )
 	player.kv.VisibilityFlags = ENTITY_VISIBLE_TO_OWNER
-	//player.DisableWeaponViewModel()
-	HolsterViewModel( player )
-	HolsterAndDisableWeapons(player)
+	player.DisableWeaponViewModel()
+	// stack function sometimes make player disable offhand weapon forever idk why
+	// temp stopped using them
+	//HolsterAndDisableWeapons(player)
+	player.HolsterWeapon()
+	player.Server_TurnOffhandWeaponsDisabledOn()
+
 	player.MovementDisable()
 	player.SetInvulnerable()
 	
