@@ -384,6 +384,9 @@ void function PlayerWatchesWargamesIntro( entity player )
 			player.UnforceStand()
 			player.MovementEnable()
 			player.ClearInvulnerable()
+			if ( !IsAlive( player ) )
+				player.Anim_Stop()
+			
 			Remote_CallFunction_NonReplay( player, "ServerCallback_ClearFactionLeaderIntro" )
 		}
 	})
