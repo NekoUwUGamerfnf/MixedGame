@@ -31,6 +31,10 @@ global function Burnmeter_GetDefaultReplaceReward // shared with sh_burnmeter.gn
 
 global function Burnmeter_SetRewardDisableNotification // for modded_burnmeter_items.gnut
 
+// reward notification
+const float BURNMETER_REWARD_READY_MESSAGE_INTERVAL = 8.0 // shortest wait time in client-side ServerCallback_RewardReadyMessage()
+const float BURNMETER_REWARD_NOTIFICATION_INTERVAL = 30.0 // same as Cl_EarnMeter_ShowRewardHint() does
+
 // phase rewind
 // taken from r5-s3 sh_phase_shift.gnut
 const float RECONSTRUCT_REWIND_TICK = 0.1
@@ -106,6 +110,7 @@ void function BurnMeter_Init()
 
 	// modified
 	RegisterSignal( "PlayerAmpedWeaponsThink" )
+	RegisterSignal( "SentRewardReadyMessage" )
 
 	// phase rewind
 	// taken from r5-s3 sh_phase_shift.gnut
@@ -244,6 +249,7 @@ void function OnClientConnected( entity player )
 {
 	InitBurncardsForLateJoiner( player )
 	file.playerRewardReadyMessageTime[ player ] <- Time() + 10.0 // add bit delay before showing first message after connection
+	thread PlayerRewardReadyMessageLifeLong( player ) // this is vanilla behavior, where server will try to notify player of reward ready message
 }
 
 void function InitBurncardsForLateJoiner( entity player )
@@ -265,11 +271,63 @@ bool function BurnMeter_TryRewardReadyMessage( entity player )
 		return false
 	if ( Time() >= file.playerRewardReadyMessageTime[ player ] )
 	{
+		player.Signal( "SentRewardReadyMessage" )
+		// this uses "timeSinceLastRespawn" as param!!!
+		//Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", player.s.respawnTime )
 		Remote_CallFunction_NonReplay( player, "ServerCallback_RewardReadyMessage", Time() - GetPlayerLastRespawnTime( player ) )
-		file.playerRewardReadyMessageTime[ player ] = Time() + 8.0 // shortest wait time in ServerCallback_RewardReadyMessage()
+		file.playerRewardReadyMessageTime[ player ] = Time() + BURNMETER_REWARD_READY_MESSAGE_INTERVAL
 		return true
 	}
 	return false
+}
+
+void function PlayerRewardReadyMessageLifeLong( entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	while ( true )
+	{
+		while ( !PlayerCanReceiveRewardNotification( player ) )
+			WaitFrame()
+
+		table<string, bool> e
+		e[ "waitTillTimeout" ] <- false // if we succeeded a whole timeout, this value will be true
+		waitthread WaitTillTimeout_InterruptedByInvalidState( player, e )
+
+		if ( e[ "waitTillTimeout" ] && PlayerCanReceiveRewardNotification( player ) )
+			BurnMeter_TryRewardReadyMessage( player )
+	}
+}
+
+bool function PlayerCanReceiveRewardNotification( entity player )
+{
+	if ( !IsAlive( player ) )
+		return false
+	if ( player.IsTitan() )
+		return false
+	if ( IsTitanAvailable( player ) ) // client-side will have titan ready message, which is the case we shouldn't do burn card message
+		return false
+	if ( Time() < file.playerRewardReadyMessageTime[ player ] )
+		return false
+	
+	return true
+}
+
+void function WaitTillTimeout_InterruptedByInvalidState( entity player, table<string, bool> e )
+{
+	// basic signals set by PlayerRewardReadyMessageLifeLong()
+	player.EndSignal( "OnDeath" )
+	player.EndSignal( "SentRewardReadyMessage" )
+
+	float endTime = Time() + BURNMETER_REWARD_NOTIFICATION_INTERVAL
+	while ( Time() < endTime() )
+	{
+		if ( !PlayerCanReceiveRewardNotification( player ) )
+			return
+	}
+
+	// code hits here, it must means we've waited a whole timeout
+	e[ "waitTillTimeout" ] = true
 }
 
 void function RunBurnCardUseFunc( entity player, string itemRef )
@@ -325,9 +383,8 @@ void function BurnMeter_GiveRewardDirect( entity player, string itemRef )
 	//
 
 	PlayerInventory_PushInventoryItemByBurnRef( player, itemRef )
-	// this uses "timeSinceLastRespawn" as param!!!
-	//Remote_CallFunction_Replay( player, "ServerCallback_RewardReadyMessage", player.s.respawnTime )
-	BurnMeter_TryRewardReadyMessage( player )
+	// maybe better to be handled by PlayerInventory_GiveInventoryItem() ?
+	//BurnMeter_TryRewardReadyMessage( player )
 }
 
 int function GetBurnCardWeaponSkin( entity weapon )
