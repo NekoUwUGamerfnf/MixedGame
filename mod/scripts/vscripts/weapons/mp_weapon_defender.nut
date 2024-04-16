@@ -10,22 +10,40 @@ global function OnWeaponSustainedDischargeEnd_Defender
 
 #if SERVER
 global function OnWeaponNpcPrimaryAttack_weapon_defender
-const array<string> chargeRifleSafePlayers = ["1007270968017"] // temp
 #endif // #if SERVER
 
 const float CHARGE_RIFLE_DAMAGE_COUNT = 10
+
+// temp for us store client-side that have charge rifle mod installed
+struct
+{
+	array<entity> chargeRifleSafePlayers
+} file
+//
 
 void function MpWeaponDefender_Init()
 {
 	DefenderPrecache()
 
 #if SERVER
+	// temp for us get client-side that have charge rifle mod installed
+	AddCallback_OnClientSideWithMixedGameInstalledConnected( OnModdedPlayerConnected )
+
 	//AddDamageCallbackSourceID( eDamageSourceId.mp_weapon_defender, OnApexChargeRifleDamagedTarget )
 	// burnmod blacklist
 	ModdedBurnMods_AddDisabledMod( "apex_charge_rifle" )
 	ModdedBurnMods_AddDisabledMod( "apex_charge_rifle_burst" )
 #endif
 }
+
+// temp for us get client-side that have charge rifle mod installed
+#if SERVER
+void function OnModdedPlayerConnected( entity player )
+{
+	if ( !file.chargeRifleSafePlayers.contains( player ) )
+		file.chargeRifleSafePlayers.append( player )
+}
+#endif
 
 void function DefenderPrecache()
 {
@@ -239,7 +257,7 @@ void function ChargeRifleBeam_ServerSide( entity weapon, float duration )
 		TraceResults result = TraceLine( weaponOwner.EyePosition(), weaponOwner.EyePosition() + weaponOwner.GetViewVector() * 3000, [weaponOwner], TRACE_MASK_SHOT, TRACE_COLLISION_GROUP_NONE )
 		vector destPos = result.endPos
 		destEntMover.SetOrigin( destPos )
-		WaitFrame()
+		WaitFrame( true ) // bypass server framerate limit to make things more accurate
 	}
 }
 
@@ -253,7 +271,7 @@ void function CreateServerSideWeaponTracer( entity player, entity weapon, entity
 	entity tracer = CreateEntity( "info_particle_system" )
 	tracer.SetOwner( player )
 	tracer.kv.cpoint1 = cpEnd.GetTargetName()
-	if( chargeRifleSafePlayers.contains( player.GetUID() ) ) // temp
+	if( file.chargeRifleSafePlayers.contains( player ) ) // temp
 		tracer.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY | ENTITY_VISIBLE_TO_ENEMY // not owner only
 
 	tracer.SetValueForEffectNameKey( beamEffectName )
