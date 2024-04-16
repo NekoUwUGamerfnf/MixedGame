@@ -1250,52 +1250,65 @@ string function GetScoreEventForNPCTitanKillTarget( entity victim, entity attack
 // if attacker is npc spawned by this file and they've shifted, remove melee damage
 void function ShiftedNPCDamageHandle( entity victim, var damageInfo )
 {
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	if ( !IsValid( attacker ) )
+	// force kill cannot be avoided
+	if ( IsInstantDeath( damageInfo ) || DamageInfo_GetForceKill( damageInfo ) )	
 		return
 
-	// handle npc shifted damage
-	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) )
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+	if ( IsValid( attacker ) )
 	{
-		if ( attacker.IsPhaseShifted() )
+		// handle npc shifted damage
+		if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( attacker ) )
 		{
-			// npc melee damage isn't intented to deal damage during phase shift
-			if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
-				DamageInfo_SetDamage( damageInfo, 0 )
-
-			// projectile/hitscan damage checks
-			// GetEntPhaseShiftStartTime() is a modified function in sh_phase_shift.gnut
-			// not really stable though, needs testing... should work fine on ronin titans?
-			entity inflictor = DamageInfo_GetInflictor( damageInfo )
-			// we have a inflictor alive!
-			if ( IsValid( inflictor ) )
+			if ( attacker.IsPhaseShifted() )
 			{
-				if ( inflictor.IsProjectile() ) // projectile condition
-				{
-					// if projectile is created AFTER attacker starts phase shift, we blank out the damage
-					if ( GetEntPhaseShiftStartTime( attacker ) < inflictor.GetProjectileCreationTime() )
-						DamageInfo_SetDamage( damageInfo, 0 )
-				}
-				// for extra-ai-spawner branch, electric smoke grenade isn't fixed... guess we don't need to check all these things
-				/*
-				else if ( (inflictor instanceof CWeaponX) || (inflictor instanceof CBaseCombatCharacter) ) // shotgun blast and hitscan weapon condition
-				{
-					// always remove damage
-					// note that electric smoke grenade in vanilla also uses their owner as inflictor...
-					// I've made it use projectile itself in my modified script
+				// npc melee damage isn't intented to deal damage during phase shift
+				if ( DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
 					DamageInfo_SetDamage( damageInfo, 0 )
-				}
-				else // using a script ref or mover
+				
+				// projectile/hitscan damage checks
+				// GetEntPhaseShiftStartTime() is a modified function in sh_phase_shift.gnut
+				// not really stable though, needs testing... should work fine on ronin titans?
+				entity inflictor = DamageInfo_GetInflictor( damageInfo )
+				// we have a inflictor alive!
+				if ( IsValid( inflictor ) )
 				{
-					// this should be titan electric smoke, scorch thermite, npc nuke and cluster missile stuffs
-					// vanilla arc ball weapons also do so
-					// maybe no need to remove damage for them?
+					if ( inflictor.IsProjectile() ) // projectile condition
+					{
+						// if projectile is created AFTER attacker starts phase shift, we blank out the damage
+						if ( GetEntPhaseShiftStartTime( attacker ) < inflictor.GetProjectileCreationTime() )
+							DamageInfo_SetDamage( damageInfo, 0 )
+					}
+					else if ( (inflictor instanceof CWeaponX) || (inflictor instanceof CBaseCombatCharacter) ) // shotgun blast and hitscan weapon condition
+					{
+						// always remove damage
+						// note that electric smoke grenade in vanilla also uses their owner as inflictor...
+						// I've made it use projectile itself in my modified script
+						DamageInfo_SetDamage( damageInfo, 0 )
+					}
+					else // using a script ref or mover
+					{
+						// this should be titan electric smoke, scorch thermite, npc nuke and cluster missile stuffs
+						// vanilla arc ball weapons also do so
+						// maybe no need to remove damage for them?
+					}
 				}
-				*/
+				else // should be hitscan blast damage, just remove
+					DamageInfo_SetDamage( damageInfo, 0 )
 			}
-			else // should be hitscan blast damage, just remove
-				DamageInfo_SetDamage( damageInfo, 0 )
 		}
+	}
+
+	// protect npc from being damaged while phase shifting
+	// cuz humansized npcs can take damage from titan step while shifting...
+	if ( ExtraSpawner_IsNPCSpawnedFromExtraSpawner( victim ) )
+	{
+		// checks taken from ShouldPlayerTakeDamage()
+		// idk why npcs isn't handled in many ways
+		if ( victim.IsPhaseShifted()
+			&& !(DamageInfo_GetCustomDamageType( damageInfo ) & DF_DOOMED_HEALTH_LOSS)
+			&& !IsDamageFromDamageTrigger( damageInfo ) )
+			DamageInfo_SetDamage( damageInfo, 0 )
 	}
 }
 
