@@ -1,6 +1,4 @@
-**Standalone branch that contains only aitdm_extended**
-
-Added Compatibility with 
+a better version of aitdm_extended_overhaul
 
 [TitanFrameWork](https://northstar.thunderstore.io/package/The_Peepeepoopoo_man/Titanframework/)
 
