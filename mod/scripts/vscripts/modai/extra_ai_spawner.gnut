@@ -1738,7 +1738,6 @@ const array<string> NPC_ATLAS_TITAN_VALID_CORE =
 
 void function NPCAtlasTitanCoreReplace( entity titan )
 {
-	string newCoreWeapon = NPC_ATLAS_TITAN_VALID_CORE[ RandomInt( NPC_ATLAS_TITAN_VALID_CORE.len() ) ]
 }
 
 // generic core replace for npc ogre titans: they cannot use smart core
@@ -1863,6 +1862,8 @@ void function NPCBruteLoadout( entity titan )
 // adding archon support
 void function NPCArcLoadout( entity titan )
 {
+
+        withpilotBossLoadout_NukeEject( titan )
 	TakeAllWeapons( titan )
 	//Weapon
 	titan.GiveWeapon( "mp_titanweapon_arc_cannon" )
@@ -2326,7 +2327,7 @@ void function InitDefaultBossTitanList()
 		"execution_bt",									// executionRef
 		"NekoUwUGamerfnf",						// boss title
 		"NekoUwUGamerfnf",										// pilot title. can't use localized string
-		$"models/humans/pilots/pilot_light_jester_f.mdl",
+		$"models/humans/pilots/pilot_light_jester_m.mdl",
 		BossLoadout_Neko, 							// loadout function
 		-1,												// skin index
 		-1												// decal index
@@ -2342,7 +2343,7 @@ void function InitDefaultBossTitanList()
 		"execution_tone_prime",									// executionRef
 		"NekoUwUGamerfnf",						// boss title
 		"NekoUwUGamerfnf",										// pilot title. can't use localized string
-		$"models/humans/pilots/pilot_light_jester_f.mdl",
+		$"models/humans/pilots/pilot_light_jester_m.mdl",
 		BossLoadout_NekoTone, 							// loadout function
                 2,
                 0
@@ -2359,7 +2360,7 @@ void function InitDefaultBossTitanList()
 		"execution_vanguard_kit",									// executionRef
 		"NekoUwUGamerfnf",						// boss title
 		"NekoUwUGamerfnf",										// pilot title. can't use localized string
-		$"models/humans/pilots/pilot_light_jester_f.mdl",
+		$"models/humans/pilots/pilot_light_jester_m.mdl",
 		BossLoadout_NekoMonarch, 							// loadout function
 		2,												// skin index
 		0												// decal index
@@ -2375,8 +2376,8 @@ void function InitDefaultBossTitanList()
 		"behavior_titan_long_range",					// titan behavior
 		"execution_bt",									// executionRef
 		"BT-7274",						// boss title
-		"NekoUwUGamerfnf",										// pilot title. can't use localized string
-		$"models/humans/pilots/pilot_light_jester_f.mdl",
+		"",										// pilot title. can't use localized string
+		$"",
 		BossLoadout_BT7274, 							// loadout function
 		-1,												// skin index
 		-1												// decal index
@@ -2392,8 +2393,8 @@ void function InitDefaultBossTitanList()
 		"behavior_titan_long_range",					// titan behavior
 		"execution_bt",									// executionRef
 		"FS-1041",						// boss title
-		"NekoUwUGamerfnf",										// pilot title. can't use localized string
-		$"models/humans/pilots/pilot_light_jester_f.mdl",
+		"",										// pilot title. can't use localized string
+		$"",
 		BossLoadout_FS1041, 							// loadout function
 		-1											// skin index
 		-1												// decal index
@@ -2467,6 +2468,21 @@ void function BossLoadout_Generic( entity titan )
 	BossLoadout_ArmBadge( titan )
 }
 
+void function altBossLoadout_Generic( entity titan )
+{
+	// boss titan rewards themselves a battery on performing execution
+	BossLoadout_ExecutionGivesBattery( titan )
+
+	// nuke. boss titans do nuke
+	// they never ejects, just save here for fun
+	// now reworked with death eject
+	//ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+	withpilotBossLoadout_NukeEject( titan )
+
+	// add an arm badge
+	BossLoadout_ArmBadge( titan )
+}
+
 // this is eject on death: less damage and no longer use their pilot as explosion attacker
 void function BossLoadout_NukeEject( entity titan )
 {
@@ -2507,6 +2523,48 @@ void function BossLoadout_NukeEject( entity titan )
 		ExtraSpawner_AllowTitanDeathEjectRedirectKillCredit( titan, true ) // reward kill credit to death eject triggering attacker, not doomed attacker
 		// don't allow pilot to be in field, ragdoll them immediately
 		TitanEject_SetSoulDisableNPCPilotCombat( soul, true )
+	}
+}
+
+void function withpilotBossLoadout_NukeEject( entity titan )
+{
+	NPC_SetNuclearPayload( titan )
+
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		// disable eject damage attacker override
+		ExtraSpawner_DisableEmbarkedNPCTitanEjectExplosionAttackerOverride( titan, true )
+		TitanEject_SetSoulUseNPCPilotAsExplosionAttacker( soul, false )
+
+		// don't get destroyed before nuke actually ends, so we can better handle damage
+		TitanEject_SetSoulTitanFreezeDuringNukeChainReaction( soul, true )
+
+		// less damage nuke
+		// buff a little bit because we've made normal titan's ejection stronger
+		TitanEject_SetSoulNukeExplosionDamageOverride(
+			soul, 			// current soul
+			10, 			// explosion count
+			1.0, 			// explosion duration
+			35, 			// damage. bit lower because titan nuke won't knockback human
+			//800, 			// damage heavy armor
+			1340,
+			//350, 			// inner radius
+			330,
+			600, 			// outer radius
+			SF_ENVEXPLOSION_MASK_BRUSHONLY,		// explosion flags
+			0,				// explosion force
+			//DF_RAGDOLL | DF_EXPLOSION | DF_SKIP_DAMAGE_PROT,			// script damage flags
+			DF_RAGDOLL | DF_EXPLOSION,
+			damagedef_nuclear_core				// damage source
+		)
+
+		// make them eject when receiving killshot
+		ExtraSpawner_EnableEmbarkedNPCTitanEjectOnDeath( titan, true )
+		ExtraSpawner_SetEmbarkedNPCTitanDeathEjectDamageThreshold( titan, 8000 ) // don't nuke if taking damage more than this value( only titanfall crash can do )
+		ExtraSpawner_AllowTitanDeathEjectRedirectKillCredit( titan, true ) // reward kill credit to death eject triggering attacker, not doomed attacker
+		// don't allow pilot to be in field, ragdoll them immediately
+		TitanEject_SetSoulDisableNPCPilotCombat( soul, false )
 	}
 }
 
@@ -2587,7 +2645,7 @@ void function BossLoadout_Blisk( entity titan )
 void function BossLoadout_Ion( entity titan )
 {
 	// generic loadout function for boss titan
-	BossLoadout_Generic( titan )
+	altBossLoadout_Generic( titan )
 
 	// add kits those are useful for a npc
 	FullNPCKitsIonLoadout( titan )
@@ -2636,7 +2694,7 @@ void function FullNPCKitsToneLoadout( entity titan )
 void function BossLoadout_Legion( entity titan )
 {
 	// generic loadout function for boss titan
-	BossLoadout_Generic( titan )
+	altBossLoadout_Generic( titan )
 
 	// add kits those are useful for a npc
 	FullNPCKitsLegionLoadout( titan )
@@ -2660,7 +2718,7 @@ void function FullNPCKitsLegionLoadout( entity titan )
 void function BossLoadout_Scorch( entity titan )
 {
 	// generic loadout function for boss titan
-	BossLoadout_Generic( titan )
+	altBossLoadout_Generic( titan )
 
 	// add kits those are useful for a npc
 	FullNPCKitsScorchLoadout( titan )
@@ -2687,7 +2745,7 @@ void function FullNPCKitsScorchLoadout( entity titan )
 void function BossLoadout_Ronin( entity titan )
 {
 	// generic loadout function for boss titan
-	BossLoadout_Generic( titan )
+	altBossLoadout_Generic( titan )
 
 	// add kits those are useful for a npc
 	FullNPCKitsRoninLoadout( titan )
@@ -2713,7 +2771,7 @@ void function FullNPCKitsRoninLoadout( entity titan )
 void function BossLoadout_Northstar( entity titan )
 {
 	// generic loadout function for boss titan
-	BossLoadout_Generic( titan )
+	altBossLoadout_Generic( titan )
 
 	// add kits those are useful for a npc
 	FullNPCKitsNorthstarLoadout( titan )
@@ -2785,7 +2843,7 @@ void function FullNPCKitsBrute4Loadout( entity titan )
 void function BossLoadout_Jack( entity titan )
 {
 	// game behavior settings
-	NPCVanguard_SetUpTitan( titan )
+	altNPCVanguard_SetUpTitan( titan )
 
 	// welp, there's something way too weird: pilots can sometimes play their intro animation???? emitting to the dropship sound that everyone could hear
 	// happens after I adding holopilot and cloak ability for them. after disabling capability to attack, their animation went weird
@@ -2861,7 +2919,7 @@ void function BossLoadout_Neko( entity titan )
 	{
 	}
 }
-
+/*
 void function BossLoadout_NekoVanguard( entity titan )
 {
 	// game behavior settings
@@ -2903,7 +2961,7 @@ void function BossLoadout_NekoVanguard( entity titan )
 	{
 	}
 }
-
+*/
 void function BossLoadout_NekoTone( entity titan )
 {
 	//BossLoadout_ExecutionGivesBattery( titan )
@@ -2942,7 +3000,7 @@ void function BossLoadout_Nekoatlas( entity titan )
 {
 	BossLoadout_ExecutionGivesBattery( titan )
 	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
-        BossLoadout_NukeEject( titan )
+        withpilotBossLoadout_NukeEject( titan )
 
 	// re-assign weapons
 	titan.TakeWeaponNow( "mp_titanweapon_xo16_shorty" ) // don't use a one-shot killing xo16!
@@ -2995,7 +3053,7 @@ void function BossLoadout_Nekomonarch( entity titan )
 {
 	BossLoadout_ExecutionGivesBattery( titan )
 	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
-        BossLoadout_NukeEject( titan )
+        withpilotBossLoadout_NukeEject( titan )
 
 	// re-assign weapons
 	TakeAllWeapons( titan )
@@ -3222,7 +3280,7 @@ void function BossLoadout_BT7274( entity titan )
 void function BossLoadout_Sarah( entity titan )
 {
 	// game behavior settings
-	NPCVanguard_SetUpTitan( titan )
+	altNPCVanguard_SetUpTitan( titan )
 
 	// welp, there's something way too weird: pilots can sometimes play their intro animation???? emitting to the dropship sound that everyone could hear
 	// happens after I adding holopilot and cloak ability for them. after disabling capability to attack, their animation went weird
@@ -3280,7 +3338,7 @@ void function BossLoadout_SarahMonarch( entity titan )
 	// boss titan rewards themselves a battery on performing execution
 	//BossLoadout_ExecutionGivesBattery( titan )
 	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
-	BossLoadout_Generic( titan )
+	altBossLoadout_Generic( titan )
 
 	// re-assign weapons
 	//titan.GetMainWeapons()[0].SetMods( ["battle_rifle", "battle_rifle_icon", "fd_vanguard_utility_2", "arc_rounds"] )
@@ -3323,7 +3381,7 @@ void function Initnekopilot()
         NekoPilot.pilotName = "Neko"
 	NekoPilot.titanTitle = "NekoUwUGamerfnf"
 	NekoPilot.pilotTitle = "NekoUwUGamerfnf"
-	NekoPilot.pilotModel = $"models/humans/pilots/pilot_light_jester_f.mdl"
+	NekoPilot.pilotModel = $"models/humans/pilots/pilot_light_jester_m.mdl"
         file.tonepilots.append( NekoPilot )
 
 	TonePilot gatesPilot = clone emptyPilot
@@ -3492,7 +3550,7 @@ void function InitNPCVanguardLoadouts()
         NekoPilot.pilotName = "Neko"
 	NekoPilot.titanTitle = "NekoUwUGamerfnf"
 	NekoPilot.pilotTitle = "NekoUwUGamerfnf"
-	NekoPilot.pilotModel = $"models/humans/pilots/pilot_light_jester_f.mdl"
+	NekoPilot.pilotModel = $"models/humans/pilots/pilot_light_jester_m.mdl"
 	file.npcVanguardPilots.append( NekoPilot )
 
 	NPCVanguardPilot sarahPilot = clone emptyPilot
@@ -3544,6 +3602,30 @@ void function VanguardGenericLoadout( entity titan )
 	// now reworked with auto eject
 	//ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
 	BossLoadout_NukeEject( titan )
+
+	// add an arm badge, use random model
+	const array<asset> titanArmBadgeValidModels = [
+		$"models/titans_r2/titan_insignia/ion_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/tone_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/scorch_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/legion_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/ronin_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/northstar_shoulder_pad.mdl",
+		$"models/titans_r2/titan_insignia/vanguard_shoulder_pad.mdl",
+	]
+	BossLoadout_ArmBadge( titan, titanArmBadgeValidModels[ RandomInt( titanArmBadgeValidModels.len() ) ] )
+}
+
+void function altVanguardGenericLoadout( entity titan )
+{
+	// boss titan rewards themselves a battery on performing execution
+	BossLoadout_ExecutionGivesBattery( titan )
+
+	// nuke. boss titans do nuke
+	// they never ejects, just save here for fun
+	// now reworked with auto eject
+	//ExtraSpawner_SetNPCPilotEmbarkedTitanNuke( titan )
+	withpilotBossLoadout_NukeEject( titan )
 
 	// add an arm badge, use random model
 	const array<asset> titanArmBadgeValidModels = [
@@ -3618,6 +3700,67 @@ void function NPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
 
 	// vanguard specific passive and arm badge setup
 	VanguardGenericLoadout( titan )
+}
+
+void function altNPCVanguard_SetUpTitan( entity titan, bool replacePilot = false )
+{
+	// require a unique squad to spawn AIClass titan_buddy
+	// because all titan_buddy will be assigned to the same "bt" squad
+	// if we spawn an enemy buddy titan we'll crash
+	string squad = ExtraSpawner_MakeMarkedSquadName( titan.GetTeam(), UniqueString( "_buddy" ) )
+	SetSquad( titan, squad )
+
+	// make them always alert so they don't holster weapon after warpfall
+	// welp, seems they already got this due to setups in CommonNPCTitanOnSpawned()
+	// don't know why it don't work
+	titan.kv.alwaysalert = 1
+	titan.DisableNPCMoveFlag( NPCMF_WALK_NONCOMBAT )
+
+	// pick a random pilot setting!
+	NPCVanguardPilot pickedPilot = file.npcVanguardPilots[ RandomInt( file.npcVanguardPilots.len() ) ]
+	if ( replacePilot )
+		titan.SetTitle( pickedPilot.titanTitle ) // update titan title
+
+	entity soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) )
+	{
+		// setup shield. they don't have weak points so no need to increase health
+		soul.SetShieldHealth( 0 )
+		soul.SetShieldHealthMax( 2500 )
+
+		// update seated pilot settings
+		if ( replacePilot )
+		{
+			soul.soul.seatedNpcPilot.title = pickedPilot.pilotTitle
+			soul.soul.seatedNpcPilot.modelAsset = pickedPilot.pilotModel
+			// add mark to let us know what kind of pilot we have
+			file.soulVanguardPilotName[ soul ] <- pickedPilot.pilotName
+		}
+
+		PlayerEarnMeter_SetSoulEarnMeterSmokeEnabled( soul, false )	// disable earnmeter smoke availability, they already have electric smoke
+		// here has been reworked: we mark file.npcVanguardChassisTitan for them
+		// in that case, they can't execute player titan and players can't execute them
+		// npc executing each other is possible
+		// reason why they can't execute player: their execution victim animation don't have camera attachment, which is pretty bad for players
+		// reason why player can't execute them: for balancing they can't execute player
+		// formerly nobody can execute them is because their victim animation don't have AE_MELEE_KILLED or other things a MP titan animation should have
+		// it's now worked around with more modifications in _melee_synced_titan.gnut
+		MeleeSyncedTitan_SetSoulCanBeExecuted( soul, true ) // cannot execute BT, they don't have enough animations
+		Rodeo_SetTitanRodeoSequenceEnabled( titan, false ) // bt don't have battery on hatch, don't allow removing
+		Rodeo_SetTitanRodeoViewConeFunction( titan, PlayerRodeoViewCone_Classic ) // shared from modified _rodeo_titan.gnut, make player able to see their arm model while attached
+		MeleeSyncedTitan_SetSoulDoRandomExecution( soul, true ) // execution_bt is already random with bt, this is for random classic execution
+	
+		// we've modified synced_melee_data.rson, which removed all of bt's "executions", leaving only damaging synced melee
+		// so now we don't disable their capability of synced melee after embark by npc
+		// reverted. their synced melee makes target vulnerable for very long period of time
+		//ExtraSpawner_DisableEmbarkedNPCTitanSyncedMelee( titan, false )
+	}
+
+	// mark as vanguard chassis titan
+	file.npcVanguardChassisTitan.append( titan )
+
+	// vanguard specific passive and arm badge setup
+	altVanguardGenericLoadout( titan )
 }
 
 const float NPC_VANGUARD_SHIELD_REGEN_DELAY = 6.0 // taken from titan_buddy.set( sp uses 3.0 )
@@ -3912,7 +4055,7 @@ void function BossLoadout_Gates( entity titan )
 	// boss titan rewards themselves a battery on performing execution
 	//BossLoadout_ExecutionGivesBattery( titan )
 	//BossLoadout_Generic_NoModelForMP( titan ) // make them never eject, with basic setups for a boss titan
-	BossLoadout_Generic( titan )
+	altBossLoadout_Generic( titan )
 
 	// re-assign weapons
 	TakeAllWeapons( titan )
@@ -4015,7 +4158,7 @@ void function BossLoadout_Bear( entity titan )
 void function BossLoadout_Lastimosa( entity titan )
 {
 	// game behavior settings
-	NPCVanguard_SetUpTitan( titan )
+	altNPCVanguard_SetUpTitan( titan )
 
 	// below was previosly anderson's loadout
 	TakeAllWeapons( titan )
@@ -4056,7 +4199,7 @@ void function BossLoadout_Lastimosa( entity titan )
 void function BossLoadout_Anderson( entity titan )
 {
 	// game behavior settings
-	NPCVanguard_SetUpTitan( titan )
+	altNPCVanguard_SetUpTitan( titan )
 
 	// below was previosly lastimosa's loadout
 	TakeAllWeapons( titan )
