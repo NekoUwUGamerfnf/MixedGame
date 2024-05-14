@@ -8,4 +8,4 @@ titanframework is not used don't enable titanframework
 Included code from these mods!
 
 
-titan create discord.com/eV54E7Wy4j
+titan create [discord server](https://discord.com/eV54E7Wy4j)
