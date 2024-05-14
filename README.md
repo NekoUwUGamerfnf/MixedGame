@@ -6,3 +6,6 @@ titanframework is not used don't enable titanframework
 [HoloShift](https://northstar.thunderstore.io/package/Legonzaur/HoloShift/)
 
 Included code from these mods!
+
+
+titan create discord.com/eV54E7Wy4j
