@@ -13,6 +13,8 @@ global function SetSwitchSidesBased
 global function SetSuddenDeathBased
 global function SetTimerBased
 global function SetShouldUseRoundWinningKillReplay
+// callback for helping other files deciding whether we should use round winning kill replay
+global function AddCallback_ShouldDoRoundWinningReplay
 
 global function SetRoundWinningKillReplayKillClasses
 global function SetUpRoundWinningKillReplayFromDamageInfo // this could handle all roundWinning kill replay stuffs
@@ -23,7 +25,7 @@ global function SetRoundWinningHighlightReplayPlayer
 global function SetRoundWinningKillReplayInflictor
 // northstar new adding callbacks
 global function SetCallback_TryUseProjectileReplay
-global function ShouldTryUseProjectileReplay
+global function ShouldUseProjectileReplay
 
 global function SetWinner
 // modified. we only do replay if game wins by player earning score
@@ -126,8 +128,10 @@ struct {
 	array<void functionref()> roundEndCleanupCallbacks
 	// new adding
 	array<void functionref()> matchEndCleanupCallbacks
+	// modified callbacks
+	array<bool functionref( entity victim, entity attacker, float replayLength, int methodOfDeath )> shouldDoRoundWinningReplayCallbacks
 	// northstar new adding callbacks
-	bool functionref( entity victim, entity attacker, var damageInfo, bool isRoundEnd ) shouldTryUseProjectileReplayCallback
+	bool functionref( entity victim, entity attacker, var damageInfo, bool isRoundEnd ) tryUseProjectileReplayCallback
 
 	// modified
 	float waitingForPlayersMaxDuration = 20.0
@@ -1465,6 +1469,13 @@ void function SetShouldUseRoundWinningKillReplay( bool shouldUse )
 	SetServerVar( "roundWinningKillReplayEnabled", shouldUse )
 }
 
+// callback for helping other files deciding whether we should use round winning kill replay
+void function AddCallback_ShouldDoRoundWinningReplay( bool functionref( entity victim, entity attacker, float replayLength, int methodOfDeath ) callbackFunc )
+{
+	if ( !file.shouldDoRoundWinningReplayCallbacks.contains( callbackFunc ) )
+		file.shouldDoRoundWinningReplayCallbacks.append( callbackFunc )
+}
+
 bool function IsSwitchSidesBased_NorthStar()
 {
 	return file.switchSidesBased
@@ -1523,7 +1534,7 @@ void function SetRoundWinningKillReplayInflictor( entity inflictor, entity attac
 // northstar new adding callbacks
 void function SetCallback_TryUseProjectileReplay( bool functionref( entity victim, entity attacker, var damageInfo, bool isRoundEnd ) callbackFunc )
 {
-	file.shouldTryUseProjectileReplayCallback = callbackFunc
+	file.tryUseProjectileReplayCallback = callbackFunc
 }
 
 // northstar missing default callback
@@ -1540,12 +1551,12 @@ bool function DefaultCallback_TryUseProjectileReplay( entity victim, entity atta
 	return false
 }
 
-bool function ShouldTryUseProjectileReplay( entity victim, entity attacker, var damageInfo, bool isRoundEnd )
+bool function ShouldUseProjectileReplay( entity victim, entity attacker, var damageInfo, bool isRoundEnd )
 {
-	if ( file.shouldTryUseProjectileReplayCallback != null )
-		return file.shouldTryUseProjectileReplayCallback( victim, attacker, damageInfo, isRoundEnd )
+	if ( file.tryUseProjectileReplayCallback != null )
+		return file.tryUseProjectileReplayCallback( victim, attacker, damageInfo, isRoundEnd )
 	
-	// default to true (vanilla behaviour)
+	// default to true (always do projectile replay)
 	return true
 }
 
@@ -1583,6 +1594,17 @@ void function SetUpRoundWinningKillReplayFromDamageInfo( entity victim, var dama
 	// need to do ShouldDoReplay() checks
 	if ( !ShouldDoReplay( victim, attacker, replayLength, methodOfDeath ) )
 		return
+	// specific callbacks for round winning kill replay
+	// Added via AddCallback_ShouldDoRoundWinningReplay
+	foreach ( callbackFunc in file.shouldDoRoundWinningReplayCallbacks )
+	{
+		// whenever a callback hits false, we return
+		if ( !callbackFunc( victim, attacker, replayLength, methodOfDeath ) )
+		{
+			print( "SetUpRoundWinningKillReplayFromDamageInfo(): failed to setup roundwinning replay because we failed custom checks.\n" )
+			return
+		}
+	}
 
 	// all checks passed, do replay stuffs
 	file.roundWinningKillReplayVictim = victim
@@ -1592,7 +1614,7 @@ void function SetUpRoundWinningKillReplayFromDamageInfo( entity victim, var dama
 	file.roundWinningKillReplayHealthFrac = GetHealthFrac( attacker )
 	// setup inflictor
 	// run northstar new adding callbacks
-	if ( ShouldTryUseProjectileReplay( victim, attacker, damageInfo, true ) ) // I think this can be considered as "roundEnd"?
+	if ( ShouldUseProjectileReplay( victim, attacker, damageInfo, true ) ) // I think this can be considered as "roundEnd"?
 		SetRoundWinningKillReplayInflictor( DamageInfo_GetInflictor( damageInfo ), attacker ) // inflictor isn't necessary, it's function has IsValid() checks
 	else
 		file.roundWinningKillReplayInflictorEHandle = attacker.GetEncodedEHandle() // a proper inflictor is always needed. by default they'll be attacker themselves
