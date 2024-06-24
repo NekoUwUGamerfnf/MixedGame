@@ -72,6 +72,10 @@ void function WargamesOnNPCKilled( entity deadEnt, entity attacker, var damageIn
 
 bool function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
 {
+	// modified settings: if entity disabled death package, we skip dissolve effect
+	if ( DeathPackage_IsDisabledForEntity( deadEnt ) )
+		return false
+
 	// we don't dissolve heavy armor units
 	if ( deadEnt.GetArmorType() == ARMOR_TYPE_HEAVY )
 		return false
@@ -82,6 +86,7 @@ bool function WargamesDissolveDeadEntity( entity deadEnt, var damageInfo )
 
 	// removed delayed dissolve here
 	// add it back for players. client-side prediction needs hold like ragdolls
+	// doesn't seem to work fine though
 	if ( deadEnt.IsPlayer() )
 		thread DelayedDissolveDeadEntity( deadEnt )
 	else
