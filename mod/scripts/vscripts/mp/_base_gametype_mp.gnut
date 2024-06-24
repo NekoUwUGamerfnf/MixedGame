@@ -35,11 +35,11 @@ global function StopKillReplayForPlayer // shared with _gamestate_mp.nut
 
 global function IsPlayerDeathsHidden // new added
 
-global function SetPlayerRespawnForced
+global function EnablePlayerForcedRespawn
 global function AddCallback_ShouldPlayerDoForcedRespawn // add a callback func to check whether we trigger forced respawn
 global function ForcedRespawn_SetDisabledForPlayer // disable forced respawn for certain player
-global function SetPlayerRespawnDelayForced // force a player to follow certain respawn delay. can be used for spawnwaves
-global function ResetPlayerRespawnDelay // reset respawn delay to default value: playlistvar "respawn_delay"
+global function SetRespawnDelayForced // force a player to follow certain respawn delay. can be used for spawnwaves
+global function ResetPlayerRespawnDelay
 global function GetPlayerRespawnDelay
 
 global function SetLateJoinRespawnEnabled // respawn the player if they join mid-game in a elimination gamemode
@@ -48,7 +48,9 @@ global function SetGamemodeAnnouncementEnabled
 
 global function SetDeathCamLengthForced
 global function GetForcedDeathCamLength // shared with _utility_shared.nut
+global function ResetPlayerDeathCamLength
 global function SetReplayStartDelayOverride // only gets applied when death cam modified!
+global function ResetPlayerReplayStartDelay
 
 global function SetDeathHintsEnabled
 global function SetDeathHintsInterval
@@ -89,7 +91,8 @@ struct
 	bool forcedRespawn = true
 	array<bool functionref( entity, table )> shouldDoForcedRespawnCallbacks
 	table<entity, bool> playerDisableForcedRespawn
-	table<entity, float> playerRespawnDelay
+	float respawnDelayForced
+	table<entity, float> playerRespawnDelayForced
 
 	bool enableLateRespawn = true
 	array<string> respawnedPlayerUIDs = []
@@ -97,7 +100,9 @@ struct
 
 	// death cam modifier
 	float forcedDeathCamLength = -1
+	table<entity, float> playerForcedDeathCamLength
 	float replayStartDelayOverride = -1
+	table<entity, float> playerReplayStartDelayOverride
 	// with modified deathcam player may unable to drop weapon... we need to force them drop at least one weapon on death
 	table<entity, entity> playerActiveWeaponBeforeDeathPackage
 
@@ -201,12 +206,6 @@ void function CodeCallback_OnClientConnectionStarted( entity player )
 	
 	player.p.connectTime = Time()
 
-	// modified
-	file.playerDeathHintAllowedTime[ player ] <- 0.0
-	file.playerDisableForcedRespawn[ player ] <- false
-	file.playerRespawnDelay[ player ] <- GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 )
-	file.playerActiveWeaponBeforeDeathPackage[ player ] <- null
-
 	Assert( !player._entityVars )
 	InitEntityVars( player )
 
@@ -262,6 +261,11 @@ void function CodeCallback_OnClientConnectionCompleted( entity player )
 	// Added via AddCallback_OnClientConnected
 	foreach ( callbackFunc in svGlobal.onClientConnectedCallbacks )
 		callbackFunc( player )
+
+	// modified variables set up
+	file.playerDeathHintAllowedTime[ player ] <- 0.0
+	file.playerDisableForcedRespawn[ player ] <- false
+	file.playerActiveWeaponBeforeDeathPackage[ player ] <- null
 
 	if ( !Flag( "PlayerDidSpawn") )
 		__PlayerDidSpawn( player )
@@ -541,7 +545,8 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	// northstar missing, fix for projectile kill replay
 	entity inflictor = DamageInfo_GetInflictor( damageInfo )
 	int inflictorEHandle = -1
-	if ( IsValid( inflictor ) && ShouldTryUseProjectileReplay( player, attacker, damageInfo, false ) )
+	// ShouldUseProjectileReplay() and it's callback are setup in _gamestate_mp.nut
+	if ( IsValid( inflictor ) && ShouldUseProjectileReplay( player, attacker, damageInfo, false ) )
 	{
 		inflictorEHandle = inflictor.GetEncodedEHandle()
 	}
@@ -632,9 +637,12 @@ void function PostDeathThread_MP( entity player, var damageInfo ) // based on ga
 	// modified over here, add support for modified death cam length
 	float actualDeathCamLength = GetDeathCamLength( player, true ) // this gets the death cam length that ignores custom settings
 	bool deathCamModified = actualDeathCamLength > deathcamLength
+
 	float replayStartDelay = actualDeathCamLength - deathcamLength // in case we're not in good death cam length
-	if ( deathCamModified && file.replayStartDelayOverride != -1 ) // replay start delay modified. only apply when deathCamModified!
-		replayStartDelay = file.replayStartDelayOverride
+	float replayStartDelayOverride = GetReplayStartDelayOverride( player )
+	
+	if ( deathCamModified && replayStartDelayOverride != -1 ) // replay start delay modified. only apply when deathCamModified!
+		replayStartDelay = replayStartDelayOverride
 	if ( replayStartDelay < 0 ) // defensive fix
 		replayStartDelay = 0
 
@@ -1391,7 +1399,7 @@ bool function IsPlayerDeathsHidden() // new added
 	return file.playerDeathsHidden
 }
 
-void function SetPlayerRespawnForced( bool forced )
+void function EnablePlayerForcedRespawn( bool forced )
 {
 	file.forcedRespawn = forced
 }
@@ -1438,20 +1446,37 @@ bool function ShouldForceRespawnPlayer_FromDamageTable( entity victim, table dam
 
 
 // force a player to follow certain respawn delay. can be used for spawnwaves
-void function SetPlayerRespawnDelayForced( entity player, float respawnDelay )
+void function SetRespawnDelayForced( float respawnDelay, entity player = null )
 {
-	file.playerRespawnDelay[ player ] = respawnDelay
+	// if we passed an player entity inside, change player's value instead
+	if ( IsValid( player ) )
+	{
+		if ( !( player in file.playerRespawnDelayForced ) )
+			file.playerRespawnDelayForced[ player ] <- respawnDelay
+		else
+			file.playerRespawnDelayForced[ player ] = respawnDelay
+	}
+	else
+		file.respawnDelayForced = respawnDelay
 }
 
-// reset respawn delay to default value: playlistvar "respawn_delay"
 void function ResetPlayerRespawnDelay( entity player )
 {
-	file.playerRespawnDelay[ player ] = GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 )
+	// delete override
+	if ( player in file.playerRespawnDelayForced )
+		delete file.playerRespawnDelayForced[ player ]
 }
 
-float function GetPlayerRespawnDelay( entity player )
+float function GetPlayerRespawnDelay( entity player = null )
 {
-	return file.playerRespawnDelay[ player ]
+	if ( IsValid( player ) && player in file.playerRespawnDelayForced )
+		return file.playerRespawnDelayForced[ player ]
+
+	// respawn delay always needs a valid value... and if it doesn't work, use playlistvar's value
+	if ( file.respawnDelayForced == -1 )
+		return GetCurrentPlaylistVarFloat( "respawn_delay", 0.0 )
+	
+	return file.respawnDelayForced
 }
 
 void function SetLateJoinRespawnEnabled( bool enabled )
@@ -1475,19 +1500,62 @@ void function SetGamemodeAnnouncementEnabled( bool enabled )
 	file.enableGamemodeAnnouncement = enabled
 }
 
-void function SetDeathCamLengthForced( float camLength )
+void function SetDeathCamLengthForced( float camLength, entity player = null )
 {
-	file.forcedDeathCamLength = camLength
+	// if we passed an player entity inside, change player's value instead
+	if ( IsValid( player ) )
+	{
+		if ( !( player in file.playerForcedDeathCamLength ) )
+			file.playerForcedDeathCamLength[ player ] <- camLength
+		else
+			file.playerForcedDeathCamLength[ player ] = camLength
+	}
+	else
+		file.forcedDeathCamLength = camLength
 }
 
-float function GetForcedDeathCamLength()
+float function GetForcedDeathCamLength( entity player = null )
 {
+	// if we passed an player entity inside, get player's value instead
+	if ( IsValid( player ) && player in file.playerForcedDeathCamLength )
+		return file.playerForcedDeathCamLength[ player ]
+	
 	return file.forcedDeathCamLength
 }
 
-void function SetReplayStartDelayOverride( float delay )
+void function ResetPlayerDeathCamLength( entity player )
 {
-	file.replayStartDelayOverride = delay
+	if ( player in file.playerForcedDeathCamLength )
+		delete file.playerForcedDeathCamLength[ player ]
+}
+
+void function SetReplayStartDelayOverride( float delay, entity player = null )
+{
+	// if we passed an player entity inside, change player's value instead
+	if ( IsValid( player ) )
+	{
+		if ( !( player in file.playerReplayStartDelayOverride ) )
+			file.playerReplayStartDelayOverride[ player ] <- delay
+		else
+			file.playerReplayStartDelayOverride[ player ] = delay
+	}
+	else
+		file.replayStartDelayOverride = delay
+}
+
+void function ResetPlayerReplayStartDelay( entity player )
+{
+	if ( player in file.playerReplayStartDelayOverride )
+		delete file.playerReplayStartDelayOverride[ player ]
+}
+
+float function GetReplayStartDelayOverride( entity player = null )
+{
+	// if we passed an player entity inside, get player's value instead
+	if ( IsValid( player ) && player in file.playerReplayStartDelayOverride )
+		return file.playerReplayStartDelayOverride[ player ]
+	
+	return file.replayStartDelayOverride
 }
 
 void function SetDeathHintsEnabled( bool enabled )
